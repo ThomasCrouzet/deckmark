@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="480" viewBox="0 0 1040 480" role="img" aria-labelledby="title description">
+  <title id="title">GLib backport verification</title>
+  <desc id="description">The vendor script verifies the official crate checksum, applies the canonical patch, and compares the result with the vendored source. Linux regression tests check the compiled dependency.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#8c652d"/></marker>
+  </defs>
+  <rect width="1040" height="480" rx="24" fill="#f4f0e7"/>
+  <g font-family="system-ui, sans-serif">
+    <text x="44" y="48" fill="#785524" font-size="13" font-weight="700" letter-spacing="2">MDSH / LINUX DESKTOP</text>
+    <text x="44" y="88" fill="#27241f" font-size="30" font-weight="700">A small patch with a verifiable origin</text>
+    <text x="44" y="119" fill="#60594d" font-size="16">GLib 0.18.5 stays at its original version. The canonical patch changes two lines.</text>
+    <g fill="#fffdf8" stroke="#d3c6b1" stroke-width="1.5">
+      <rect x="44" y="160" width="282" height="126" rx="14"/>
+      <rect x="379" y="160" width="282" height="126" rx="14"/>
+      <rect x="714" y="160" width="282" height="126" rx="14"/>
+    </g>
+    <g fill="#785524" font-size="13" font-weight="700" letter-spacing="1">
+      <text x="66" y="190">01 / VERIFY</text><text x="401" y="190">02 / APPLY</text><text x="736" y="190">03 / COMPARE</text>
+    </g>
+    <g fill="#27241f" font-size="20" font-weight="650">
+      <text x="66" y="222">Official crate</text><text x="401" y="222">Canonical patch</text><text x="736" y="222">Vendor source</text>
+    </g>
+    <g fill="#60594d" font-size="15">
+      <text x="66" y="253">Verify SHA-256, then extract.</text>
+      <text x="401" y="253">Apply in a temporary directory.</text>
+      <text x="736" y="253">Compare file lists and every byte.</text>
+    </g>
+    <g fill="none" stroke="#8c652d" stroke-width="2.5" marker-end="url(#arrow)"><path d="M326 223H365"/><path d="M661 223H700"/><path d="M855 286V329"/></g>
+    <rect x="44" y="343" width="952" height="93" rx="14" fill="#e4e9dc" stroke="#bcc6ad" stroke-width="1.5"/>
+    <text x="66" y="377" fill="#34442c" font-size="20" font-weight="650">Optimized Linux regression tests</text>
+    <text x="66" y="407" fill="#46543d" font-size="16">Test borrowed strings, iteration, Unicode, and empty arrays on the compiled dependency graph.</text>
+  </g>
+</svg>

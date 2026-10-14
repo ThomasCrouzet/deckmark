@@ -1,145 +1,66 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="static/brand/logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="static/brand/logo-light.svg">
-    <img src="static/brand/logo-light.svg" alt="mdsh" width="320" height="94">
-  </picture>
-</p>
+# mdsh
 
-<h1 align="center">Markdown, without detours.</h1>
+A local Markdown workspace with visual editing, source editing, reading, and a slide editor.
+Documents stay on your device. The app needs no account, backend, or telemetry.
 
-<p align="center">
-  A local Markdown workspace. Write, connect, and export your documents.<br>
-  No account. No server. No tracking.
-</p>
+[Web app](https://thomascrouzet.github.io/mdsh/) ·
+[Releases](https://github.com/ThomasCrouzet/mdsh/releases) ·
+[User guide](docs/USER_GUIDE.md)
 
-<p align="center">
-  <a href="https://thomascrouzet.github.io/mdsh/"><strong>Open the web app</strong></a> ·
-  <a href="https://github.com/ThomasCrouzet/mdsh/releases">Download Desktop Beta</a> ·
-  <a href="docs/USER_GUIDE.md">User guide</a>
-</p>
+![The mdsh slide editor with a slide strip, shapes, connectors, and object properties](docs/screenshots/presentation-editor.png)
 
-<p align="center">
-  <a href="https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml"><img src="https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml/badge.svg" alt="Build, browser tests, and deployment"></a>
-  <a href="https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml"><img src="https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml/badge.svg" alt="Security checks"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-c79a55" alt="MIT license"></a>
-</p>
+The screenshot and features below describe this source tree. Published builds can differ.
 
-![The mdsh interface: the new logo, heading shortcuts, visual and source editing, reading, document selection, the PDF width guide, and linked notes](docs/demo.gif)
+## Write, organize, and export
 
-## One document, three views
+| Area     | Features                                                                             |
+| -------- | ------------------------------------------------------------------------------------ |
+| Editing  | Visual Markdown, CodeMirror source, rendered reading, and resizable source preview   |
+| Content  | Tables, task lists, code, KaTeX formulas, Mermaid diagrams, front matter, and images |
+| Library  | Search, tags, wiki links, backlinks, workspaces, templates, history, and trash       |
+| Projects | Folder and ZIP import, local assets, relative links, and project ZIP export          |
+| Export   | Markdown, PDF, self-contained HTML, and JSON backups with optional encryption        |
+| Slides   | Text, images, shapes, connectors, presenter notes, and Markdown-backed layouts       |
 
-**Edit** with a visual Markdown editor. Use `/h1` or `/t1` for a heading, add a
-checklist, and insert images. **Source** gives you the Markdown directly, with
-syntax highlighting, search, replacement, and per-document undo. **Read** shows
-the rendered document with an outline for navigation.
+Select **Slides** to arrange objects, reorder slides, or start a presentation.
+The [presentation guide](docs/presentation-editor.md) explains controls, exports, and the [file format](docs/presentation-format.md).
 
-In Source, select **Show preview** to edit beside the rendered document.
-Resize the divider with the pointer or arrow keys. The app remembers its position.
+![Visual Markdown editing with a document library and backlinks](docs/screenshots/mode-wysiwyg-light.webp)
 
-Switch views without leaving your document. Choose the light, dark, or system
-theme. The bracket-and-hash logo, warm text, and amber accents keep the interface
-consistent across the web app and Desktop.
+## Use the app
 
-Select **Slides** in the toolbar to create a presentation from your document.
-Move, resize, and rotate text, images, shapes, and arrows on the slide.
-Use the slide strip to add, duplicate, and reorder slides.
-The editor saves text and layout in one Markdown file.
-HTML exports work offline. PDF and print exports use one page for each slide.
-See the [presentation editor guide](docs/presentation-editor.md) and [file format](docs/presentation-format.md).
+Open the web app, then create a document, import Markdown, or open the built-in demo.
+Use **Edit**, **Source**, and **Read** to change views. Settings provides English and French interfaces and light or dark themes.
 
-## A workspace that stays local
+Install the PWA through your browser and wait for offline preparation before disconnecting.
+Remote images remain blocked until you allow them for a document. Loading them contacts their host.
 
-| Write | Organize | Take your work with you |
-| --- | --- | --- |
-| GFM tables, task lists, and code | Open and closed documents in one library | Markdown and ZIP export |
-| KaTeX formulas and Mermaid diagrams | Tags, search, and cross-file replacement | Content-only PDF export |
-| YAML front matter and embedded images | Wiki links, backlinks, and a link graph | Self-contained offline HTML |
-| Heading shortcuts and document outlines | Workspaces, templates, and version history | JSON backup, with optional encryption |
+Chromium can save back to disk through the File System Access API where available.
+Firefox and Safari use download fallbacks. Tauri Desktop uses native file access.
+See the [Desktop guide](docs/USER_GUIDE.md#desktop-beta-app) for platform requirements and unsigned installer details.
 
-- **Manage many documents:** filter the library, select several documents, or move
-  the full library to trash. Restore individual documents or empty the trash.
-- **Keep portable projects:** import a folder or ZIP with document paths and local assets.
-  Export the project as a ZIP with its resources and a link report.
-- **Review changes:** compare history versions, disk conflicts, and global replacement results before applying them.
-- **Keep disk links:** save back to an opened file in supported browsers and
-  Desktop. Revision checks detect external edits before an overwrite.
-- **Check the PDF width:** select **PDF (A4)** for a guide to the 178 mm text area.
-  The print dialog controls the final page settings.
-- **Work offline:** install the PWA and wait for offline preparation to finish.
-  Editing, rendering, search, and export then work without a connection.
-- **Use English or French:** change the interface language in Settings.
+## Data and limits
 
-<details>
-<summary><strong>See the light theme and reading view</strong></summary>
+- Drafts use IndexedDB with a 400 ms save delay. The interface reports write failures.
+- Closing a document keeps it in the library. Deleting it moves it to trash for 30 days.
+- Backups include documents, projects, assets, workspaces, and templates. They exclude trash, version history, and disk permissions.
+- Browser storage is not a backup. Export a backup before clearing site data or changing browser profiles.
+- Visual editing can normalize Markdown. Use Source when exact formatting matters.
+- Cloud synchronization, collaboration, and plugins are outside the project scope.
 
-![Visual editing in the light theme with the mdsh logo](docs/screenshots/mode-wysiwyg-light.webp)
+See [backups and storage](docs/USER_GUIDE.md#backups-and-storage-health) and [security](SECURITY.md) for details.
 
-![Reading view with rendered formulas and the document sidebar](docs/screenshots/mode-read.webp)
+## Local development
 
-</details>
-
-## Start in your browser or on Desktop
-
-The [web app](https://thomascrouzet.github.io/mdsh/) needs no installation.
-Create a file, import Markdown, or open the built-in demo. Use your browser's
-install action to add the [PWA](docs/USER_GUIDE.md#install-the-pwa).
-
-| Platform | Editing and export | Save back to a disk file |
-| --- | --- | --- |
-| Chromium | Full desktop and mobile browser tests | File System Access API where available |
-| Firefox | Core workflow tests | Download fallback |
-| Safari / WebKit | Core desktop and mobile workflow tests | Download fallback |
-| Desktop Beta | Local Tauri app, native WebView tests | Native file access on macOS, Windows, and Linux |
-
-[Desktop Beta downloads](https://github.com/ThomasCrouzet/mdsh/releases) are separate
-prereleases. Installers are unsigned and can trigger an operating-system warning.
-Each release includes checksums, dependency inventories, and build provenance.
-See the [Desktop guide](docs/USER_GUIDE.md#desktop-beta-app) for requirements.
-
-## Your data and privacy
-
-Drafts stay in IndexedDB in your browser profile. The app saves after a **400 ms**
-delay and reports write failures. Closing a tab keeps the document in the library.
-Deleting a document moves it to trash for 30 days.
-
-Browser storage is not a backup. Export backups from Settings before clearing
-browser data or changing profiles. Backups include open and closed documents,
-projects, assets, workspaces, and custom templates. They exclude trash, version history, and disk
-permissions. Optional encryption uses AES-GCM and PBKDF2 through WebCrypto.
-
-The app has no backend, account, telemetry, cloud sync, or runtime CDN. It sanitizes
-document HTML and blocks remote images until you explicitly load them for that
-document. Loading a remote image contacts its host. See [SECURITY.md](SECURITY.md)
-and the [backup guide](docs/USER_GUIDE.md#backups-and-storage-health).
-
-## Useful shortcuts
-
-Use **Control** instead of **Command** on Windows and Linux. Commands lists all
-shortcuts, and Settings lets you change them.
-
-| Shortcut | Action |
-| --- | --- |
-| `Cmd+N` / `Cmd+O` | New document / import Markdown |
-| `Cmd+E` / `Cmd+/` / `Cmd+R` | Edit / Source / Read |
-| `Cmd+Shift+P` | Command palette |
-| `Cmd+F` / `Cmd+Shift+F` | Find in document / search across documents |
-| `Cmd+S` / `Cmd+Shift+S` | Export Markdown / save to disk |
-| `Cmd+P` / `Cmd+,` | Export PDF / Settings |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous open document |
-
-The interface supports keyboard navigation and reduced motion. Browser tests
-check focus behavior and accessibility rules. These checks do not replace a human
-accessibility audit.
-
-## Build and contribute
-
-Use **Node 22 or later** and npm. The committed lockfile fixes dependency versions.
+Use Node.js 22 or later and npm. Keep the committed lockfile.
 
 ```sh
 npm ci --legacy-peer-deps
 npm run dev
 ```
+
+The stack uses Svelte, SvelteKit, TypeScript, Milkdown, CodeMirror, Dexie, and Tauri.
+[CONTRIBUTING.md](CONTRIBUTING.md) lists the Rust toolchain and native libraries for Desktop builds.
 
 Before a pull request:
 
@@ -153,25 +74,16 @@ npx playwright install --with-deps chromium firefox webkit
 npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"
 ```
 
-On Linux without a display, prefix the final command with `xvfb-run -a`.
-Browser tests produce HTML and JSON reports. E2E tests are the preferred method;
-isolated tests cover documented failure risks that browser workflows miss.
-See the [test policy and artifacts](docs/TESTING.md).
+On Linux without a display, prefix the browser command with `xvfb-run -a`.
+Browser checks retain reports and repeatable evidence. See [testing](docs/TESTING.md) for commands, artifacts, and coverage limits.
+CI publishes GitHub Pages after checks pass on a push to `main`.
 
-The stack uses **Svelte 5**, **SvelteKit**, **TypeScript**, **Milkdown**,
-**CodeMirror**, **Dexie**, and **Tauri 2**. Desktop builds also need the Rust version
-and native libraries specified in [CONTRIBUTING.md](CONTRIBUTING.md).
+## Documentation
 
-The working target is about 200 to 300 documents. Cloud services, collaboration,
-and plugins are outside the project scope. Visual editing can normalize Markdown;
-use Source when exact formatting matters.
-
-[Architecture](ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) ·
-[Documentation index](docs/README.md) ·
-[Brand assets and demo capture](docs/BRANDING.md) · [Issues](https://github.com/ThomasCrouzet/mdsh/issues) ·
-[Support](SUPPORT.md)
+[Documentation index](docs/README.md) · [Architecture](ARCHITECTURE.md) ·
+[Development](docs/DEVELOPMENT.md) · [Shortcuts](docs/USER_GUIDE.md) ·
+[Brand assets and capture](docs/BRANDING.md) · [Support](SUPPORT.md)
 
 ## License
 
-[MIT](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for redistributed
-asset notices.
+[MIT](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md) for redistributed assets.
