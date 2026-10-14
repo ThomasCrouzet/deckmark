@@ -1,12 +1,14 @@
 # Retired documents
 
-These files preserve historical material. Use [the documentation index](../docs/README.md) for current procedures.
-The original text is unchanged. Relative links inside an archive refer to its original location.
+This index identifies historical material. Use [the documentation index](../docs/README.md) for current procedures.
+Git preserves the original text. Relative links inside an original document refer to its earlier location.
+The October 14 cleanup removed the local copies after verification of an external recovery archive.
+Local recovery root: `/Volumes/backups/annex-cleanup-20261014/projects-h-o/files/Projects/markdown-tool/archive/`.
 
 | Original path | Recoverable copy | SHA-256 |
 | --- | --- | --- |
-| `docs/PRODUCT_REVIEW.md` | [Product review](2026-09-25/PRODUCT_REVIEW.md) | `836c5cf05ebdf7b8f994263af5e128c5b8b45f27e74e3c26264f8ef5b917ee44` |
-| `docs/announcement-draft.md` | [Announcement draft](2026-09-25/announcement-draft.md) | `a07cff62a2c0b436907f6347db1fb0efe8514b861e77aec93a2219e391021cbd` |
+| `docs/PRODUCT_REVIEW.md` | [Product review](https://github.com/ThomasCrouzet/mdsh/blob/372d83349886d8c58d4da2462996ca4d6ea7acbb/archive/2026-09-25/PRODUCT_REVIEW.md) | `836c5cf05ebdf7b8f994263af5e128c5b8b45f27e74e3c26264f8ef5b917ee44` |
+| `docs/announcement-draft.md` | [Announcement draft](https://github.com/ThomasCrouzet/mdsh/blob/372d83349886d8c58d4da2462996ca4d6ea7acbb/archive/2026-09-25/announcement-draft.md) | `a07cff62a2c0b436907f6347db1fb0efe8514b861e77aec93a2219e391021cbd` |
 
 The product review describes version 1.6.0. Its delivered changes are documented in the user guide, architecture, and changelog.
 Remaining proposals are in [ROADMAP.md](../ROADMAP.md).
@@ -15,7 +17,8 @@ The current announcement source is [docs/outreach/announcement.md](../docs/outre
 Verify the originals with:
 
 ```sh
-shasum -a 256 archive/2026-09-25/PRODUCT_REVIEW.md archive/2026-09-25/announcement-draft.md
+git show 372d83349886d8c58d4da2462996ca4d6ea7acbb:archive/2026-09-25/PRODUCT_REVIEW.md | shasum -a 256
+git show 372d83349886d8c58d4da2462996ca4d6ea7acbb:archive/2026-09-25/announcement-draft.md | shasum -a 256
 ```
 
 ## Documents removed on 2026-09-26
@@ -47,8 +50,8 @@ with the repository's GitHub file history.
 
 The roadmap now lists product scope and remaining proposals.
 Issue 134 and the release workflows track delivery checks.
-The original plan remains unchanged in this archive.
+Git and the external recovery archive preserve the original plan.
 
 | Original path | Recoverable copy | SHA-256 |
 | --- | --- | --- |
-| `ROADMAP.md` | [Version 2.0 plan](2026-10-10/ROADMAP.md) | `e4e05645b29ceb50cee412e98b9871b5a0c415e4c2ad8751b11fff041f42e538` |
+| `ROADMAP.md` | [Version 2.0 plan](https://github.com/ThomasCrouzet/mdsh/blob/372d83349886d8c58d4da2462996ca4d6ea7acbb/archive/2026-10-10/ROADMAP.md) | `e4e05645b29ceb50cee412e98b9871b5a0c415e4c2ad8751b11fff041f42e538` |

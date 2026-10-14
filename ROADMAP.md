@@ -7,7 +7,7 @@
 
 The implementation adds portable projects, native directory access, split editing, comparisons, and project backups.
 [Issue 134](https://github.com/ThomasCrouzet/mdsh/issues/134) tracks delivery and release validation.
-The [original implementation plan](archive/2026-10-10/ROADMAP.md) remains available with its source hash in the archive manifest.
+The [archive manifest](archive/README.md#version-20-implementation-plan) identifies the original implementation plan and its source hash.
 
 ## Pending ideas
 
@@ -33,7 +33,7 @@ procedures in the user guide and test guide, rather than separate task drafts.
 
 ## Proposals that need user validation
 
-The retired [1.6.0 product review](archive/2026-09-25/PRODUCT_REVIEW.md) contains the original evidence and estimates.
+The [archive manifest](archive/README.md) identifies the retired 1.6.0 product review, including its original evidence and estimates.
 Its library, link, navigation, template-manager, and offline-status corrections are delivered.
 These remaining proposals are not release commitments:
 
