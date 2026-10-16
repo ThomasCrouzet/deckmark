@@ -68,10 +68,14 @@ jobs:
       - name: Isolated failure tests and diagnostic coverage
         run: npm run test:coverage
 
-  e2e:
+  e2e-shard:
     needs: check
     runs-on: ubuntu-24.04
-    # The v1.9 browser matrix took 20 minutes. Version 2 adds project workflows.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    # Each shard retains one worker and the complete browser project selection.
     timeout-minutes: 35
     steps:
       - name: Checkout
@@ -122,18 +126,31 @@ jobs:
       # (see ROADMAP.md + CONTRIBUTING.md). Baselines stay versioned for local
       # comparison; do not remove --ignore-snapshots without regenerating on CI.
       - name: E2E tests (without visual snapshots)
-        run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"
+        run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/2"
+        env:
+          SHARD: ${{ matrix.shard }}
 
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: error
           retention-days: 14
+
+  e2e:
+    needs: e2e-shard
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every browser shard
+        env:
+          SHARD_RESULT: ${{ needs.e2e-shard.result }}
+        run: test "$SHARD_RESULT" = success
 
   build:
     needs: check
@@ -191,10 +208,20 @@ jobs:
         with:
           path: build/
 
+      - name: Upload root build for Lighthouse
+        if: matrix.upload == false
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: root-build-${{ github.sha }}
+          path: build/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
   lighthouse:
     # Lighthouse is a release gate on both pull requests and main.
     # The assertions and budgets are defined in the repository config files.
-    needs: check
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -203,33 +230,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      # Use the empty-base artifact from this run and source revision.
+      - name: Download root build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          node-version: 22
-          cache: npm
-
-      # §A4.1 - Cache extracted node_modules. setup-node@v5 cache: npm covers ~/.npm tarballs only.
-      # Extraction takes about 10-15 seconds per job across four jobs.
-      # A node_modules cache hit restores files in about 2 seconds.
-      - name: Cache node_modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-nm
-        with:
-          path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
-
-      - name: Install dependencies
-        if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --legacy-peer-deps
-
-      # Build with an empty BASE_PATH. staticDistDir serves ./build from the root.
-      # Absolute HTML paths must start with /, not /mdsh/.
-      # This also checks the custom domain case in §9.2.1.
-      - name: Build (empty BASE_PATH)
-        run: npm run build
-        env:
-          BASE_PATH: ''
+          name: root-build-${{ github.sha }}
+          path: build/
 
       - name: Lighthouse CI
         uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # v12

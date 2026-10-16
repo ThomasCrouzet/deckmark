@@ -61,11 +61,17 @@ jobs:
         with:
           toolchain: 1.97.1
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Cache cargo-audit
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/cargo-audit
+          key: cargo-audit-ubuntu24.04-${{ runner.arch }}-rust1.97.1-v0.22.2
+
+      - name: Verify pinned cargo-audit installation
+        run: cargo install cargo-audit --locked --version 0.22.2 --root "$HOME/.cache/cargo-audit"
 
       - name: Audit Cargo.lock
-        run: cargo audit --file src-tauri/Cargo.lock --deny unsound
+        run: '"$HOME/.cache/cargo-audit/bin/cargo-audit" audit --file src-tauri/Cargo.lock --deny unsound'
 
   codeql:
     runs-on: ubuntu-24.04
