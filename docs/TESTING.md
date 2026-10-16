@@ -283,7 +283,9 @@ Open the HTML report with `npx playwright show-report playwright-report`. Inspec
 failed trace with `npx playwright show-trace <trace.zip>`. Use the report's file,
 test title, and browser project to repeat one case with `--project` and `--grep`.
 
-CI uploads `playwright-report` on success and failure and keeps it for 14 days.
+CI runs two browser shards with one worker each. The protected `e2e` check requires both shards to succeed.
+Append `--shard=1/2` or `--shard=2/2` to repeat one shard.
+CI uploads `playwright-report-1` and `playwright-report-2` on success and failure and keeps them for 14 days.
 The artifact belongs to the workflow run and its source commit. Compare that
 commit with the release tag before using the results as release evidence.
 Native WebView runs also upload `native-smoke-<platform>` artifacts.
