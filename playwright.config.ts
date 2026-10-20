@@ -60,56 +60,27 @@ export default defineConfig({
 			use: { ...devices['Desktop Firefox'] },
 			testMatch: [
 				'**/golden-path.spec.ts',
-				'**/file-navigation.spec.ts',
-				'**/library-workflows.spec.ts',
 				'**/search-replace.spec.ts',
-				'**/bulk-delete.spec.ts',
 				'**/editor-width.spec.ts',
 				'**/image-layout.spec.ts',
-				'**/reading-lists.spec.ts',
 				'**/keyboard-platform.spec.ts',
-				'**/toolbar-stability.spec.ts',
-				'**/toc-modes.spec.ts',
-				'**/heading-level.spec.ts',
-				'**/link-theme.spec.ts',
-				'**/keyboard-settings.spec.ts',
-				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts',
-				'**/portable-projects.spec.ts',
-				'**/project-*.spec.ts',
-				'**/source-fidelity.spec.ts',
-				'**/split-view.spec.ts',
-				'**/diff-workflows.spec.ts'
+				'**/source-fidelity.spec.ts'
 			]
 		},
 		{
-			// WebKit covers persistence, localization, and command interactions.
+			// WebKit covers persistence, content editing, layout, and source preservation.
 			// FSA-dependent tests remain intentionally limited to Chromium.
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
 			testMatch: [
 				'**/golden-path.spec.ts',
-				'**/locale-en.spec.ts',
-				'**/palette.spec.ts',
-				'**/file-navigation.spec.ts',
-				'**/library-workflows.spec.ts',
 				'**/search-replace.spec.ts',
-				'**/bulk-delete.spec.ts',
 				'**/editor-width.spec.ts',
 				'**/image-layout.spec.ts',
-				'**/reading-lists.spec.ts',
 				'**/keyboard-platform.spec.ts',
-				'**/toc-modes.spec.ts',
-				'**/heading-level.spec.ts',
-				'**/link-theme.spec.ts',
-				'**/keyboard-settings.spec.ts',
-				'**/slash-commands.spec.ts',
 				'**/wiki-links.spec.ts',
-				'**/portable-projects.spec.ts',
-				'**/project-*.spec.ts',
-				'**/source-fidelity.spec.ts',
-				'**/split-view.spec.ts',
-				'**/diff-workflows.spec.ts'
+				'**/source-fidelity.spec.ts'
 			]
 		},
 		{

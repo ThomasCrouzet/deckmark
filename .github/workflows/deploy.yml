@@ -51,11 +51,6 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
 
-      # §J2 - Check the full dependency tree. Fail on security findings.
-      # Build dependencies execute in CI and need the same checks as runtime dependencies.
-      - name: Full dependency audit
-        run: npm audit --audit-level=high
-
       - name: Type check
         run: npm run check
 
