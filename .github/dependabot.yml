@@ -7,7 +7,7 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Paris
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     labels:
       - dependencies
     # Open one weekly pull request for patch and minor updates, except packages
@@ -59,7 +59,7 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Paris
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     labels:
       - dependencies
       - ci
@@ -76,7 +76,7 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Paris
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     labels:
       - dependencies
     groups:
