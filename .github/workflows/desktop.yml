@@ -247,7 +247,7 @@ jobs:
         with:
           name: native-smoke-${{ matrix.platform }}
           path: native-test-results/
-          retention-days: 14
+          retention-days: 7
 
   desktop-validation:
     name: desktop-validation
@@ -327,6 +327,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
       - name: Build workflow artifacts
+        id: build
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           BASE_PATH: ''
@@ -334,7 +335,32 @@ jobs:
           projectPath: .
           tauriScript: npm run tauri
           args: ${{ matrix.args }}
-          uploadWorkflowArtifacts: true
+          uploadWorkflowArtifacts: false
+
+      - name: Select desktop installers
+        id: installers
+        shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
+        run: |
+          {
+            echo 'paths<<EOF'
+            node --input-type=module <<'JS'
+          const paths = JSON.parse(process.env.ARTIFACT_PATHS);
+          const installers = paths.filter((path) => /\.(?:dmg|AppImage|deb|rpm|msi)$|-setup\.exe$/.test(path));
+          if (installers.length === 0) throw new Error('No desktop installer was produced.');
+          process.stdout.write(`${installers.join('\n')}\n`);
+          JS
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload desktop installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-installers-${{ matrix.platform }}
+          path: ${{ steps.installers.outputs.paths }}
+          if-no-files-found: error
+          retention-days: 3
 
   build-sbom:
     needs: [resolve-source, desktop-validation]
@@ -387,6 +413,7 @@ jobs:
             sbom-*.cdx.json
             desktop-source.json
           if-no-files-found: error
+          retention-days: 30
 
   publish-desktop-beta:
     needs: [resolve-source, build-desktop, build-sbom]

@@ -7,8 +7,14 @@ const desktopPatterns = [
 	/^(?:\.node-version|\.npmrc|package(?:-lock)?\.json|rust-toolchain\.toml|svelte\.config\.js|tsconfig\.json|vite\.config\.ts)$/
 ];
 
+const desktopIgnoredPatterns = [/^src\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/, /^src\/.*\/__tests__\//];
+
 export function needsDesktopValidation(paths) {
-	return paths.some((path) => desktopPatterns.some((pattern) => pattern.test(path)));
+	return paths.some(
+		(path) =>
+			!desktopIgnoredPatterns.some((pattern) => pattern.test(path)) &&
+			desktopPatterns.some((pattern) => pattern.test(path))
+	);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {

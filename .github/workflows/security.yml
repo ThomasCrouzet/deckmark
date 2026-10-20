@@ -36,6 +36,7 @@ jobs:
           fail-on-severity: high
 
   dependency-audit:
+    needs: rust-changes
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -54,39 +55,77 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Verify GLib source and security backport
+        if: needs.rust-changes.outputs.required == 'true'
         run: node scripts/vendor-glib.mjs --check
 
       - name: Setup Rust
+        if: needs.rust-changes.outputs.required == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.97.1
 
       - name: Cache cargo-audit
+        if: needs.rust-changes.outputs.required == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/cargo-audit
           key: cargo-audit-ubuntu24.04-${{ runner.arch }}-rust1.97.1-v0.22.2
 
       - name: Verify pinned cargo-audit installation
+        if: needs.rust-changes.outputs.required == 'true'
         run: cargo install cargo-audit --locked --version 0.22.2 --root "$HOME/.cache/cargo-audit"
 
       - name: Audit Cargo.lock
+        if: needs.rust-changes.outputs.required == 'true'
         run: '"$HOME/.cache/cargo-audit/bin/cargo-audit" audit --file src-tauri/Cargo.lock --deny unsound'
 
-  codeql:
+  rust-changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.filter.outputs.required }}
+    steps:
+      - name: Checkout change range
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect Rust security inputs
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = 'schedule' ] || [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = 'pull_request' ]; then
+            base_sha="$BASE_SHA"
+          else
+            base_sha="$BEFORE_SHA"
+          fi
+          if [ -z "$base_sha" ] || [[ "$base_sha" =~ ^0+$ ]]; then
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$base_sha" "$HEAD_SHA" > "$RUNNER_TEMP/changed-files"
+          if grep -Eq '^(src-tauri/|patches/glib/|scripts/(annotate-cargo-sbom|vendor-glib)\.mjs$|\.github/workflows/(desktop|security)\.yml$)' "$RUNNER_TEMP/changed-files"; then
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'required=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  codeql-javascript:
+    name: codeql (javascript-typescript, none)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
       security-events: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - language: javascript-typescript
-            build_mode: none
-          - language: rust
-            build_mode: none
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,24 +135,65 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build_mode }}
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+
+  codeql-rust-scan:
+    name: Rust CodeQL scan
+    needs: rust-changes
+    if: needs.rust-changes.outputs.required == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: rust
+          build-mode: none
 
       - name: Setup Rust
-        if: matrix.language == 'rust'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.97.1
 
       - name: Install Linux WebKit dependencies
-        if: matrix.language == 'rust'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Build Rust
-        if: matrix.language == 'rust'
         run: cargo build --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Analyze
         uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+
+  codeql-rust:
+    name: codeql (rust, none)
+    needs: [rust-changes, codeql-rust-scan]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require Rust analysis when Rust inputs change
+        env:
+          CHANGES_RESULT: ${{ needs.rust-changes.result }}
+          ANALYSIS_REQUIRED: ${{ needs.rust-changes.outputs.required }}
+          ANALYSIS_RESULT: ${{ needs.codeql-rust-scan.result }}
+        run: |
+          test "$CHANGES_RESULT" = 'success'
+          if [ "$ANALYSIS_REQUIRED" = 'true' ]; then
+            test "$ANALYSIS_RESULT" = 'success'
+          else
+            test "$ANALYSIS_RESULT" = 'skipped'
+          fi
