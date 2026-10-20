@@ -134,7 +134,7 @@ jobs:
             playwright-report/
             test-results/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
   e2e:
     needs: e2e-shard
@@ -237,8 +237,18 @@ jobs:
         with:
           configPath: ./.github/lighthouserc.json
           budgetPath: ./.github/lighthouse-budget.json
-          uploadArtifacts: true
+          uploadArtifacts: false
           temporaryPublicStorage: false
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .lighthouseci/
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 7
 
   deploy:
     # Publishing requires the build, browser suite, and Lighthouse audit.
