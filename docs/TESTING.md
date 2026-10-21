@@ -286,10 +286,8 @@ test title, and browser project to repeat one case with `--project` and `--grep`
 CI runs two browser shards with one worker each. The protected `e2e` check requires both shards to succeed.
 Chromium runs all scenarios. Firefox and WebKit run engine-sensitive persistence, editing, layout, and source checks.
 Append `--shard=1/2` or `--shard=2/2` to repeat one shard.
-CI uploads `playwright-report-1` and `playwright-report-2` on success and failure and keeps them for 14 days.
-The artifact belongs to the workflow run and its source commit. Compare that
-commit with the release tag before using the results as release evidence.
-Native WebView runs also upload `native-smoke-<platform>` artifacts.
+CI runs the browser and native tests without uploading reports to GitHub.
+Keep repeatable evidence in local storage. Compare its source commit with the release tag before using it.
 
 Source preservation and library export limits use [source-fidelity.md](testing/source-fidelity.md).
 
