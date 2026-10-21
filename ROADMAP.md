@@ -33,7 +33,7 @@ procedures in the user guide and test guide, rather than separate task drafts.
 
 ## Proposals that need user validation
 
-The retired [1.6.0 product review](archive/2026-09-25/PRODUCT_REVIEW.md) contains the original evidence and estimates.
+The remaining proposals from the 1.6.0 product review are listed below.
 Its library, link, navigation, template-manager, and offline-status corrections are delivered.
 These remaining proposals are not release commitments:
 
