@@ -25,4 +25,4 @@
 - [Announcement draft](outreach/announcement.md) and [directory submission drafts](outreach/list-submissions.md).
 - [Archive manifest](../archive/README.md): retired originals and their checksums.
 
-Keep procedures beside their source code. Archive completed reviews instead of maintaining them as current plans.
+Keep procedures beside their source code. Remove completed review reports from the repository.
