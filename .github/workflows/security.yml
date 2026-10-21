@@ -125,7 +125,6 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -140,6 +139,9 @@ jobs:
 
       - name: Analyze
         uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          upload: never
+          upload-database: false
 
   codeql-rust-scan:
     name: Rust CodeQL scan
@@ -149,7 +151,6 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,6 +178,9 @@ jobs:
 
       - name: Analyze
         uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          upload: never
+          upload-database: false
 
   codeql-rust:
     name: codeql (rust, none)

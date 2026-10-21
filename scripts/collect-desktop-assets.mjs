@@ -26,28 +26,13 @@ function releaseName(name) {
 		.replace(/_x64\.dmg$/, '_macOS_Intel.dmg');
 }
 
-/** @param {string} input @param {string} output @param {{ sha: string, tag: string }} expected */
-export function collectDesktopAssets(input, output, expected) {
-	if (!/^[a-f0-9]{40}$/.test(expected.sha) || !/^v\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(expected.tag)) {
-		throw new Error('Invalid source identity');
-	}
+/** @param {string} input @param {string} output */
+export function collectDesktopAssets(input, output) {
 	const candidates = walk(input).filter((path) =>
-		/\.(?:dmg|AppImage|deb|rpm|msi)$|-setup\.exe$|^sbom-(?:npm|cargo)\.cdx\.json$|^desktop-source\.json$/.test(
-			basename(path)
-		)
+		/\.(?:dmg|AppImage|deb|rpm|msi)$|-setup\.exe$/.test(basename(path))
 	);
 	const names = candidates.map((path) => basename(path));
 	if (new Set(names).size !== names.length) throw new Error('Duplicate artifact names');
-	const sourcePath = candidates.find((path) => basename(path) === 'desktop-source.json');
-	if (!sourcePath) throw new Error('Source manifest is missing');
-	const source = JSON.parse(readFileSync(sourcePath, 'utf8'));
-	if (
-		source.sha !== expected.sha ||
-		source.tag !== expected.tag ||
-		`v${source.version}` !== expected.tag
-	) {
-		throw new Error('The artifacts do not match the specified source');
-	}
 	for (const pattern of [
 		/aarch64\.dmg$/,
 		/x64\.dmg$/,
@@ -55,9 +40,7 @@ export function collectDesktopAssets(input, output, expected) {
 		/\.deb$/,
 		/\.rpm$/,
 		/-setup\.exe$/,
-		/\.msi$/,
-		/^sbom-npm\.cdx\.json$/,
-		/^sbom-cargo\.cdx\.json$/
+		/\.msi$/
 	]) {
 		if (!names.some((name) => pattern.test(name)))
 			throw new Error(`Required artifact is missing: ${pattern}`);
@@ -79,12 +62,5 @@ export function collectDesktopAssets(input, output, expected) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-	collectDesktopAssets(
-		process.argv[2] ?? 'downloaded-assets',
-		process.argv[3] ?? 'release-assets',
-		{
-			sha: process.env.SOURCE_SHA ?? '',
-			tag: process.env.RELEASE_TAG ?? ''
-		}
-	);
+	collectDesktopAssets(process.argv[2] ?? 'downloaded-assets', process.argv[3] ?? 'release-assets');
 }

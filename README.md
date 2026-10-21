@@ -87,7 +87,7 @@ install action to add the [PWA](docs/USER_GUIDE.md#install-the-pwa).
 
 [Desktop Beta downloads](https://github.com/ThomasCrouzet/mdsh/releases) are separate
 prereleases. Installers are unsigned and can trigger an operating-system warning.
-Each release includes checksums, dependency inventories, and build provenance.
+Each release includes checksums and build provenance.
 See the [Desktop guide](docs/USER_GUIDE.md#desktop-beta-app) for requirements.
 
 ## Your data and privacy

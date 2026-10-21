@@ -9,7 +9,6 @@ const folders: string[] = [];
 afterEach(() => {
 	for (const folder of folders.splice(0)) rmSync(folder, { recursive: true });
 });
-const identity = { sha: 'a'.repeat(40), tag: 'v1.5.0' };
 function setup() {
 	const root = mkdtempSync(join(tmpdir(), 'mdsh-assets-'));
 	folders.push(root);
@@ -25,13 +24,10 @@ function setup() {
 		'mdsh.msi',
 		'mdsh-setup.exe',
 		'sbom-npm.cdx.json',
-		'sbom-cargo.cdx.json'
+		'sbom-cargo.cdx.json',
+		'desktop-source.json'
 	])
 		writeFileSync(join(input, name), name);
-	writeFileSync(
-		join(input, 'desktop-source.json'),
-		JSON.stringify({ ...identity, version: '1.5.0' })
-	);
 	return { input, output };
 }
 describe('release asset collection', () => {
@@ -40,9 +36,12 @@ describe('release asset collection', () => {
 		mkdirSync(join(input, 'mdsh.app'));
 		writeFileSync(join(input, 'mdsh.app', 'internal.exe'), 'internal');
 		writeFileSync(join(input, 'build.log'), 'log');
-		const files = collectDesktopAssets(input, output, identity);
-		expect(files).toHaveLength(10);
+		const files = collectDesktopAssets(input, output);
+		expect(files).toHaveLength(7);
 		expect(files).not.toContain('internal.exe');
+		expect(files).not.toContain('sbom-npm.cdx.json');
+		expect(files).not.toContain('sbom-cargo.cdx.json');
+		expect(files).not.toContain('desktop-source.json');
 		expect(files).toContain('mdsh_macOS_Apple-Silicon.dmg');
 		expect(files).toContain('mdsh_macOS_Intel.dmg');
 		for (const line of readFileSync(join(output, 'SHA256SUMS'), 'utf8').trim().split('\n')) {
@@ -58,16 +57,11 @@ describe('release asset collection', () => {
 		const { input, output } = setup();
 		mkdirSync(join(input, 'another'));
 		writeFileSync(join(input, 'another', 'mdsh_x64.dmg'), 'other architecture');
-		expect(() => collectDesktopAssets(input, output, identity)).toThrow('Duplicate artifact names');
+		expect(() => collectDesktopAssets(input, output)).toThrow('Duplicate artifact names');
 	});
-	it('rejects mismatched source identity and an incomplete installer matrix', () => {
+	it('rejects an incomplete installer matrix', () => {
 		const { input, output } = setup();
-		expect(() => collectDesktopAssets(input, output, { ...identity, sha: 'b'.repeat(40) })).toThrow(
-			'specified source'
-		);
 		rmSync(join(input, 'mdsh.msi'));
-		expect(() => collectDesktopAssets(input, output, identity)).toThrow(
-			'Required artifact is missing'
-		);
+		expect(() => collectDesktopAssets(input, output)).toThrow('Required artifact is missing');
 	});
 });

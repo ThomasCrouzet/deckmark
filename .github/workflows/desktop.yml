@@ -241,14 +241,6 @@ jobs:
       - name: Exercise actual native WebView
         if: runner.os != 'Linux'
         run: node scripts/native-smoke.mjs
-      - name: Upload native evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: native-smoke-${{ matrix.platform }}
-          path: native-test-results/
-          retention-days: 7
-
   desktop-validation:
     name: desktop-validation
     needs: [changes, resolve-source, validate-desktop, native-smoke]
@@ -362,62 +354,9 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  build-sbom:
-    needs: [resolve-source, desktop-validation]
-    if: ${{ !cancelled() && inputs.release_tag != '' && needs.resolve-source.result == 'success' && needs.desktop-validation.result == 'success' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
-          persist-credentials: false
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install frontend dependencies
-        run: npm ci --legacy-peer-deps
-      - name: Generate npm SBOM
-        run: npm run sbom:npm
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
-        with:
-          toolchain: 1.97.1
-      - name: Install Cargo SBOM generator
-        run: cargo install cargo-cyclonedx --locked --version 0.5.9
-      - name: Generate Cargo SBOM
-        run: cargo cyclonedx --manifest-path src-tauri/Cargo.toml --target all --format json --spec-version 1.5 --override-filename sbom-cargo
-      - name: Collect Cargo SBOM
-        run: cp src-tauri/sbom-cargo.json sbom-cargo.cdx.json
-      - name: Record GLib security backport in Cargo SBOM
-        env:
-          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
-        run: node scripts/annotate-cargo-sbom.mjs sbom-cargo.cdx.json patches/glib/variant-str-iter.patch
-      - name: Record source identity
-        env:
-          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
-        run: |
-          node --input-type=module <<'JS'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
-          writeFileSync('desktop-source.json', JSON.stringify({ sha: process.env.SOURCE_SHA, tag: process.env.RELEASE_TAG, version }, null, 2));
-          JS
-      - name: Upload SBOMs
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: desktop-sboms
-          path: |
-            sbom-*.cdx.json
-            desktop-source.json
-          if-no-files-found: error
-          retention-days: 30
-
   publish-desktop-beta:
-    needs: [resolve-source, build-desktop, build-sbom]
-    if: ${{ !cancelled() && inputs.release_tag != '' && needs.resolve-source.result == 'success' && needs.build-desktop.result == 'success' && needs.build-sbom.result == 'success' }}
+    needs: [resolve-source, build-desktop]
+    if: ${{ !cancelled() && inputs.release_tag != '' && needs.resolve-source.result == 'success' && needs.build-desktop.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -435,9 +374,7 @@ jobs:
         with:
           path: downloaded-assets
           merge-multiple: false
-      - name: Select installers and verify source before checksums
-        env:
-          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
+      - name: Select installers before checksums
         run: node scripts/collect-desktop-assets.mjs downloaded-assets release-assets
       - name: Verify checksums from the release directory
         working-directory: release-assets
@@ -480,7 +417,7 @@ jobs:
             gh release create "$DESKTOP_TAG" \
               --target "$SOURCE_SHA" \
               --title "mdsh editor Desktop Beta $SOURCE_TAG" \
-              --notes "Desktop Beta installers are not signed. macOS Gatekeeper and Windows SmartScreen can show a warning. Check SHA256SUMS, the SBOMs, and the attestation before installation." \
+              --notes "Desktop Beta installers are not signed. macOS Gatekeeper and Windows SmartScreen can show a warning. Check SHA256SUMS and the attestation before installation." \
               --prerelease
           fi
           desktop_tag_sha=$(gh api "repos/$GH_REPO/commits/$DESKTOP_TAG" --jq '.sha')
