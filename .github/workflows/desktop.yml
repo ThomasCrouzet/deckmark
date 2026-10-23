@@ -161,18 +161,16 @@ jobs:
         timeout-minutes: 8
         run: |
           mirror_file=/etc/apt/apt-mirrors.txt
-          grep -Eq '^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' "$mirror_file" || {
-            echo '::error::Expected Azure mirror priority is missing.'
-            exit 1
-          }
-          grep -Eq '^https://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:2$' "$mirror_file" || {
-            echo '::error::Expected Ubuntu archive mirror priority is missing.'
-            exit 1
-          }
-          sudo sed -i \
-            -e 's|^\(http://azure\.archive\.ubuntu\.com/ubuntu/\)[[:space:]]*priority:1$|\1 priority:2|' \
-            -e 's|^\(https://archive\.ubuntu\.com/ubuntu/\)[[:space:]]*priority:2$|\1 priority:1|' \
-            "$mirror_file"
+          if [[ -f "$mirror_file" ]] \
+            && grep -Eq '^https?://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:[0-9]+$' "$mirror_file" \
+            && grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:[0-9]+$' "$mirror_file"; then
+            sudo sed -E -i \
+              -e 's|^(https?://azure\.archive\.ubuntu\.com/ubuntu/)[[:space:]]*priority:[0-9]+$|\1 priority:2|' \
+              -e 's|^(https?://archive\.ubuntu\.com/ubuntu/)[[:space:]]*priority:[0-9]+$|\1 priority:1|' \
+              "$mirror_file"
+          else
+            echo '::warning::Expected Ubuntu mirror entries are unavailable. Keeping the runner mirror configuration.'
+          fi
           sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 update
           sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Setup Node
@@ -232,18 +230,16 @@ jobs:
         timeout-minutes: 8
         run: |
           mirror_file=/etc/apt/apt-mirrors.txt
-          grep -Eq '^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' "$mirror_file" || {
-            echo '::error::Expected Azure mirror priority is missing.'
-            exit 1
-          }
-          grep -Eq '^https://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:2$' "$mirror_file" || {
-            echo '::error::Expected Ubuntu archive mirror priority is missing.'
-            exit 1
-          }
-          sudo sed -i \
-            -e 's|^\(http://azure\.archive\.ubuntu\.com/ubuntu/\)[[:space:]]*priority:1$|\1 priority:2|' \
-            -e 's|^\(https://archive\.ubuntu\.com/ubuntu/\)[[:space:]]*priority:2$|\1 priority:1|' \
-            "$mirror_file"
+          if [[ -f "$mirror_file" ]] \
+            && grep -Eq '^https?://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:[0-9]+$' "$mirror_file" \
+            && grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:[0-9]+$' "$mirror_file"; then
+            sudo sed -E -i \
+              -e 's|^(https?://azure\.archive\.ubuntu\.com/ubuntu/)[[:space:]]*priority:[0-9]+$|\1 priority:2|' \
+              -e 's|^(https?://archive\.ubuntu\.com/ubuntu/)[[:space:]]*priority:[0-9]+$|\1 priority:1|' \
+              "$mirror_file"
+          else
+            echo '::warning::Expected Ubuntu mirror entries are unavailable. Keeping the runner mirror configuration.'
+          fi
           sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 update
           sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-daemon dbus-bin
       - name: Setup Rust
@@ -334,18 +330,16 @@ jobs:
         timeout-minutes: 8
         run: |
           mirror_file=/etc/apt/apt-mirrors.txt
-          grep -Eq '^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' "$mirror_file" || {
-            echo '::error::Expected Azure mirror priority is missing.'
-            exit 1
-          }
-          grep -Eq '^https://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:2$' "$mirror_file" || {
-            echo '::error::Expected Ubuntu archive mirror priority is missing.'
-            exit 1
-          }
-          sudo sed -i \
-            -e 's|^\(http://azure\.archive\.ubuntu\.com/ubuntu/\)[[:space:]]*priority:1$|\1 priority:2|' \
-            -e 's|^\(https://archive\.ubuntu\.com/ubuntu/\)[[:space:]]*priority:2$|\1 priority:1|' \
-            "$mirror_file"
+          if [[ -f "$mirror_file" ]] \
+            && grep -Eq '^https?://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:[0-9]+$' "$mirror_file" \
+            && grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:[0-9]+$' "$mirror_file"; then
+            sudo sed -E -i \
+              -e 's|^(https?://azure\.archive\.ubuntu\.com/ubuntu/)[[:space:]]*priority:[0-9]+$|\1 priority:2|' \
+              -e 's|^(https?://archive\.ubuntu\.com/ubuntu/)[[:space:]]*priority:[0-9]+$|\1 priority:1|' \
+              "$mirror_file"
+          else
+            echo '::warning::Expected Ubuntu mirror entries are unavailable. Keeping the runner mirror configuration.'
+          fi
           sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 update
           sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Setup Rust
