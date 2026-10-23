@@ -156,8 +156,12 @@ jobs:
         with:
           ref: ${{ needs.resolve-source.outputs.sha }}
           persist-credentials: false
+      - name: Configure Ubuntu APT
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/configure-ubuntu-apt.sh
       - name: Install Linux WebKit dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 8
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
@@ -213,8 +217,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Configure Ubuntu APT
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/configure-ubuntu-apt.sh
       - name: Install Linux WebView and virtual display
         if: runner.os == 'Linux'
+        timeout-minutes: 8
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-daemon dbus-bin
@@ -301,8 +309,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Configure Ubuntu APT
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/configure-ubuntu-apt.sh
       - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 8
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf

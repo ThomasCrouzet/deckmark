@@ -108,12 +108,17 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
+      - name: Configure Ubuntu APT
+        run: bash .github/scripts/configure-ubuntu-apt.sh
+
       - name: Install Playwright browsers (+ system dependencies)
         if: steps.cache-pw.outputs.cache-hit != 'true'
+        timeout-minutes: 8
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Install Playwright system dependencies (cache hit)
         if: steps.cache-pw.outputs.cache-hit == 'true'
+        timeout-minutes: 8
         run: npx playwright install-deps chromium firefox webkit
 
       # Visual snapshots: deliberately not a CI gate (local-only policy).
