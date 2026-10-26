@@ -96,6 +96,7 @@ test('rename encodes parentheses and preserves protected Markdown examples', asy
 		info
 	);
 	await panel.getByRole('button', { name: 'Ouvrir target.md', exact: true }).click();
+	await expect(page.locator('#app-statusbar')).toContainText('Brouillons locaux : enregistré');
 	const name = page.locator('#app-toolbar input');
 	await name.fill('target)');
 	await name.press('Enter');
