@@ -5,6 +5,15 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.0.2](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.1...v2.0.2) (2026-10-26)
+
+
+### Bug Fixes
+
+* **ci:** preserve desktop source validation ([5aa571e](https://github.com/ThomasCrouzet/mdsh/commit/5aa571e59b06406fcb4e4cc69362a8cdfd69d35f))
+* patch vulnerable test and serialization dependencies ([#161](https://github.com/ThomasCrouzet/mdsh/issues/161)) ([a53d21d](https://github.com/ThomasCrouzet/mdsh/commit/a53d21d6bfa6aea8f99c6fd0a66038c32ff6cf6c))
+* update DOMPurify security patch ([4a12a7b](https://github.com/ThomasCrouzet/mdsh/commit/4a12a7b576be138f8dac78df97cdb6c1fd7bd02b))
+
 ## [2.0.1](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.0...v2.0.1) (2026-10-10)
 
 
