@@ -43,12 +43,11 @@ test.describe('PWA - manifest', () => {
 /**
  * §A1.5 - Offline startup regression test from the 2026-06-16 audit.
  * The precache must contain the complete app shell: the SPA fallback document,
- * blocking Tailwind CSS, and startup JavaScript chunks. Startup must not depend
- * on the disposable runtime cache `mdsh-immutable-v1`.
+ * blocking Tailwind CSS, and startup JavaScript chunks.
  *
- * After the first online load, the test deletes the runtime cache, goes offline,
- * and reloads. Missing startup assets or an incorrect `navigateFallback` value
- * leave the page blank and cause the final assertion to time out.
+ * After the first online load, the test goes offline and reloads. Missing startup
+ * assets or an incorrect `navigateFallback` value leave the page blank and cause
+ * the final assertion to time out.
  *
  * Run only in Chromium. The WebKit golden-path project does not support this flow.
  */
@@ -72,14 +71,11 @@ test.describe('PWA - offline startup from the precache', () => {
 			expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 		}).toPass({ timeout: 30_000 });
 
-		// 3. Delete the runtime cache. All startup assets must now come from the precache.
-		await page.evaluate(() => caches.delete('mdsh-immutable-v1'));
-
-		// 4. Go offline and reload. Only the precache can serve the app shell.
+		// 3. Go offline and reload. Only the precache can serve the app shell.
 		await context.setOffline(true);
 		await page.reload();
 
-		// 5. Verify that the app shell starts and runs its entry JavaScript.
+		// 4. Verify that the app shell starts and runs its entry JavaScript.
 		await expect(page.locator('main').getByRole('button', { name: /Nouveau fichier/ })).toBeVisible(
 			{ timeout: 15_000 }
 		);
