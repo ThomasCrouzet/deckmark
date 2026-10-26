@@ -101,11 +101,18 @@ test('rename encodes parentheses and preserves protected Markdown examples', asy
 	await name.press('Enter');
 	await expect(name).toHaveValue('target)');
 	await expect
-		.poll(async () =>
-			(await readProjectDocuments(page)).find((row) => row.relativePath === 'README.md')
-		)
+		.poll(async () => {
+			const documents = await readProjectDocuments(page);
+			return {
+				renamed: documents.some((row) => row.relativePath === 'target).md'),
+				readme: documents.find((row) => row.relativePath === 'README.md')
+			};
+		})
 		.toMatchObject({
-			content: source.replace('[Live](target.md)', '[Live](target%29.md)')
+			renamed: true,
+			readme: {
+				content: source.replace('[Live](target.md)', '[Live](target%29.md)')
+			}
 		});
 });
 

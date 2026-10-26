@@ -98,10 +98,12 @@ test('synchronizes sections and stacks both panes on a narrow screen', async ({ 
 	await expect(split.getByRole('heading', { name: 'Final section' })).toBeInViewport();
 
 	await page.setViewportSize({ width: 390, height: 720 });
-	const sourceBox = await split.getByRole('region', { name: 'Source Markdown' }).boundingBox();
-	const previewBox = await split.getByRole('region', { name: 'Aperçu du rendu' }).boundingBox();
-	expect(sourceBox).not.toBeNull();
-	expect(previewBox).not.toBeNull();
-	expect(previewBox!.y).toBeGreaterThan(sourceBox!.y);
 	await expect(page.getByRole('separator')).toHaveAttribute('aria-orientation', 'horizontal');
+	await expect
+		.poll(async () => {
+			const sourceBox = await split.getByRole('region', { name: 'Source Markdown' }).boundingBox();
+			const previewBox = await split.getByRole('region', { name: 'Aperçu du rendu' }).boundingBox();
+			return sourceBox !== null && previewBox !== null && previewBox.y > sourceBox.y;
+		})
+		.toBe(true);
 });
