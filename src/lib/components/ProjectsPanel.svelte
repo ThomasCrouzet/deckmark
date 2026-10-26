@@ -168,6 +168,15 @@
 				'.cm-content, .ProseMirror, .mdsh-preview'
 			);
 			if (!editor) continue;
+			const active = document.activeElement;
+			// Keep focus on a control that the user selected while the editor mounted.
+			const restoredProjectsTrigger = active?.matches('[data-testid="projects-open"]') ?? false;
+			if (
+				active !== document.body &&
+				active !== document.documentElement &&
+				!restoredProjectsTrigger
+			)
+				return;
 			editor.focus();
 			if (document.activeElement === editor || editor.contains(document.activeElement)) return;
 		}
