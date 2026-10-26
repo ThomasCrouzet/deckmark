@@ -238,7 +238,11 @@ jobs:
     # Publishing requires the build, browser suite, and Lighthouse audit.
     needs: [build, e2e, lighthouse]
     # Do not deploy pull requests. Publish code only after merge.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Publish merged main code. A manual dispatch lets the drift check repair Pages
+    # after a merge made with the workflow token.
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Only this job needs permission to publish to Pages.

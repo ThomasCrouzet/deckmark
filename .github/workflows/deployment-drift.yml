@@ -8,11 +8,12 @@ on:
 permissions:
   contents: read
   deployments: read
+  actions: write
 
 jobs:
   pages-head:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - name: Verify that Pages includes main HEAD
         env:
@@ -20,8 +21,29 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           EXPECTED_SHA: ${{ github.sha }}
         run: |
-          deployed_sha=$(gh api "repos/$REPOSITORY/deployments?environment=github-pages&per_page=1" --jq '.[0].sha')
-          if [ -z "$deployed_sha" ] || [ "$deployed_sha" != "$EXPECTED_SHA" ]; then
-            echo "GitHub Pages is not deployed from main HEAD: expected $EXPECTED_SHA, found ${deployed_sha:-none}" >&2
-            exit 1
+          deployed_sha() {
+            gh api "repos/$REPOSITORY/deployments?environment=github-pages&per_page=1" \
+              --jq '.[0].sha'
+          }
+
+          current="$(deployed_sha)"
+          if [ "$current" = "$EXPECTED_SHA" ]; then
+            echo "GitHub Pages is deployed from main HEAD: $EXPECTED_SHA."
+            exit 0
           fi
+
+          # A merge made with the workflow token does not start a push workflow.
+          # Dispatch the deployment workflow, then require convergence.
+          echo "GitHub Pages is stale: expected $EXPECTED_SHA, found ${current:-none}." >&2
+          gh workflow run deploy.yml --ref "$GITHUB_REF_NAME"
+
+          for attempt in $(seq 1 50); do
+            sleep 30
+            if [ "$(deployed_sha)" = "$EXPECTED_SHA" ]; then
+              echo "Deployment converged after $((attempt * 30)) seconds."
+              exit 0
+            fi
+          done
+
+          echo "Deployment did not converge within 25 minutes." >&2
+          exit 1
