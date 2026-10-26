@@ -177,7 +177,7 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
       - name: Rust cache
-        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
         with:
           workspaces: src-tauri -> target
           shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
@@ -231,7 +231,7 @@ jobs:
         with:
           toolchain: 1.97.1
       - name: Rust cache
-        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
         with:
           workspaces: src-tauri -> target
           shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
@@ -324,7 +324,7 @@ jobs:
           toolchain: 1.97.1
           targets: ${{ runner.os == 'macOS' && (contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || '' }}
       - name: Rust cache
-        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
         with:
           workspaces: src-tauri -> target
           shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
