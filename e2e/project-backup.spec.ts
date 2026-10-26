@@ -87,6 +87,7 @@ async function restoreBackup(
 	await expect(choice).toContainText('1 ressource');
 	await choice.getByRole('button', { name: 'Remplacer', exact: true }).click();
 	await expect(choice).toBeHidden();
+	await expect(page.getByRole('status').filter({ hasText: 'Sauvegarde restaurée' })).toBeVisible();
 	await page.keyboard.press('Escape');
 }
 
