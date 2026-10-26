@@ -17,7 +17,7 @@ export default defineConfig({
 	// Seed data in source mode through helpers.writeSourceContent.
 	// Do not depend on asynchronous restoration of `mdsh:mode`.
 	retries: process.env.CI ? 2 : 0,
-	workers: process.env.CI ? 1 : undefined,
+	...(process.env.CI ? { workers: 1 } : {}),
 	captureGitInfo: { commit: true, diff: true },
 	metadata: {
 		...testSource(),

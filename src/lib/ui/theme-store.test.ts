@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { themeStore } from './theme.svelte';
-import { THEME_STORAGE_KEY, THEME_COLORS } from '$lib/theme';
+import { THEME_STORAGE_KEY, THEME_COLORS } from '#lib/theme.js';
 
 // jsdom does not implement matchMedia. Provide a controllable MediaQueryList to
 // set the light or dark system preference and dispatch its `change` event.

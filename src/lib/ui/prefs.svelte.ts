@@ -9,8 +9,8 @@
 //
 // Logic extracted from `+page.svelte` (L352-398, L458-467).
 
-import { browser } from '$app/environment';
-import { readPreference, writePreference } from '$lib/preferences';
+import { browser } from '$app/env';
+import { readPreference, writePreference } from '#lib/preferences.js';
 
 // Structural interface matching the exports of SourceEditor.svelte
 // (avoids importing the component, incompatible with InstanceType in Svelte 5).

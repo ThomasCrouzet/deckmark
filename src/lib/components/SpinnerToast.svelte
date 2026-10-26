@@ -2,8 +2,8 @@
 	// Persistent spinner toast for long exports (PDF/HTML with Mermaid).
 	// Distinct from the existing Toast (undo-close 5 s) - this one closes only
 	// when the store decides (`dismiss()` in the caller's finally).
-	import { spinnerStore } from '$lib/spinner.svelte';
-	import { t } from '$lib/i18n';
+	import { spinnerStore } from '#lib/spinner.svelte.js';
+	import { t } from '#lib/i18n/index.js';
 </script>
 
 {#if spinnerStore.visible}

@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 
 /** Preferences must not prevent access to durable documents. */
 export function readPreference(key: string): string | null {

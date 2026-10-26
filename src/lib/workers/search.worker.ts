@@ -1,12 +1,12 @@
 // Cross-file search worker - offloads the O(N×L) loop off the main thread.
-// Matcher logic lives in `$lib/search-core` (unit-tested). This file only holds
+// Matcher logic lives in `#lib/search-core.js` (unit-tested). This file only holds
 // the corpus cache + message bridge.
 //
 // Corpus sync: the main thread may send `files` only when the snapshot changed
 // (fingerprint). Omitting `files` reuses the last corpus held in the worker.
 
-import type { Hit } from '$lib/types';
-import { matchInCorpus, type SearchFile } from '$lib/search-core';
+import type { Hit } from '#lib/types.js';
+import { matchInCorpus, type SearchFile } from '#lib/search-core.js';
 
 export type { SearchFile };
 

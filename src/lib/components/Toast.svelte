@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { filesStore } from '$lib/files.svelte';
-	import { t } from '$lib/i18n';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { t } from '#lib/i18n/index.js';
 	import { onMount } from 'svelte';
 	import { RotateCcw } from '@lucide/svelte';
 

@@ -1,34 +1,26 @@
-// §1.2 - Visible PWA update flow.
-//
-// In `registerType: 'prompt'` mode (cf. vite.config), the service worker
-// no longer overwrites the app silently: when a new version is ready,
-// `onNeedRefresh` fires and we offer an actionable reload toast.
-// This is the right behavior for an EDITOR: no surprise reload that could
-// happen mid-typing.
-//
-// The virtual module `virtual:pwa-register` only exists in the PWA build -
-// we import it dynamically, guarded by `browser` + fail-soft try/catch, to
-// never break dev/SSR/tests.
+import { browser } from '$app/env';
+import { asset } from '$app/paths';
+import { isDesktop } from '#lib/desktop.js';
+import { t } from '#lib/i18n/index.js';
+import { notify } from '#lib/notify.svelte.js';
+import { reportWarning } from '#lib/report.js';
+import { offlineState } from './offline.svelte.js';
 
-import { browser } from '$app/environment';
-import { isDesktop } from '$lib/desktop';
-import { t } from '$lib/i18n';
-import { notify } from '$lib/notify.svelte';
-import { offlineState } from './offline.svelte';
-import { reportWarning } from '$lib/report';
+const UPDATE_INTERVAL_MS = 60 * 60 * 1000;
+const ACTIVATION_TIMEOUT_MS = 15_000;
 
 async function ensureDraftsDurable(): Promise<void> {
-	const { filesStore } = await import('$lib/files.svelte');
+	const { filesStore } = await import('#lib/files.svelte.js');
 	await filesStore.flushPendingAwait();
 }
 
 export async function applyPwaUpdate(
-	updateSW: (reloadPage?: boolean) => Promise<void>,
+	activateUpdate: (reloadPage?: boolean) => Promise<void>,
 	ensureDurable: () => Promise<void> = ensureDraftsDurable
 ): Promise<boolean> {
 	try {
 		await ensureDurable();
-		await updateSW(true);
+		await activateUpdate(true);
 		return true;
 	} catch {
 		notify.error(t('storage.saveFailed'));
@@ -36,10 +28,60 @@ export async function applyPwaUpdate(
 	}
 }
 
+async function activateWorker(worker: ServiceWorker): Promise<void> {
+	if (worker.state === 'activated') {
+		window.location.reload();
+		return;
+	}
+
+	await new Promise<void>((resolve, reject) => {
+		const onControllerChange = () => {
+			clearTimeout(timeout);
+			resolve();
+		};
+		const timeout = setTimeout(() => {
+			navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+			reject(new Error('Service worker activation timed out.'));
+		}, ACTIVATION_TIMEOUT_MS);
+
+		navigator.serviceWorker.addEventListener('controllerchange', onControllerChange, {
+			once: true
+		});
+		try {
+			worker.postMessage({ type: 'SKIP_WAITING' });
+		} catch (error) {
+			clearTimeout(timeout);
+			navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+			reject(error);
+		}
+	});
+
+	window.location.reload();
+}
+
+function offerUpdate(worker: ServiceWorker): void {
+	notify.actionable(t('pwa.updateAvailable'), {
+		label: t('pwa.reload'),
+		run: () => void applyPwaUpdate(() => activateWorker(worker))
+	});
+}
+
+function trackInstallation(worker: ServiceWorker): void {
+	const handleState = () => {
+		if (worker.state !== 'installed') return;
+		if (navigator.serviceWorker.controller) {
+			offerUpdate(worker);
+			return;
+		}
+		offlineState.status = 'ready';
+		notify.success(t('pwa.offlineReady'));
+	};
+	worker.addEventListener('statechange', handleState);
+	handleState();
+}
+
 export function registerPwaUpdates(): void {
 	if (!browser) return;
-	// Desktop shell (Tauri): no service worker - assets are bundled locally
-	// and a SW can conflict with the custom asset/IPC protocols.
 	if (isDesktop()) {
 		offlineState.status = 'ready';
 		return;
@@ -48,49 +90,31 @@ export function registerPwaUpdates(): void {
 		offlineState.status = 'unavailable';
 		return;
 	}
+
 	void (async () => {
 		try {
-			const { registerSW } = await import('virtual:pwa-register');
-			const updateSW = registerSW({
-				immediate: true,
-				onNeedReload() {
-					void applyPwaUpdate(async () => window.location.reload());
-				},
-				onNeedRefresh() {
-					notify.actionable(t('pwa.updateAvailable'), {
-						label: t('pwa.reload'),
-						run: () => void applyPwaUpdate(updateSW)
-					});
-				},
-				onOfflineReady() {
-					offlineState.status = 'ready';
-					notify.success(t('pwa.offlineReady'));
-				},
-				onRegisterError() {
-					offlineState.status = 'error';
-				},
-				onRegisteredSW(_swUrl, registration) {
-					if (registration?.active?.state === 'activated') offlineState.status = 'ready';
-					// Without a periodic check, an editing session left open for several
-					// days never discovers a new version: the reload toast only
-					// fires on a change detected by the browser (often at the next load).
-					// We poll every hour so the voluntary update flow can actually happen
-					// in a long session, without ever reloading mid-typing.
-					if (registration) {
-						setInterval(
-							() => {
-								void registration
-									.update()
-									.catch((error: unknown) => reportWarning('check application update', error));
-							},
-							60 * 60 * 1000
-						);
-					}
-				}
+			const serviceWorkerUrl = asset('sw.js' as Parameters<typeof asset>[0]);
+			const registration = await navigator.serviceWorker.register(serviceWorkerUrl, {
+				updateViaCache: 'none'
 			});
-		} catch {
-			offlineState.status = 'unavailable';
-			// Virtual module absent (dev without SW, build without PWA) - silent.
+
+			if (registration.active?.state === 'activated') offlineState.status = 'ready';
+			if (registration.waiting && navigator.serviceWorker.controller) {
+				offerUpdate(registration.waiting);
+			}
+			if (registration.installing) trackInstallation(registration.installing);
+			registration.addEventListener('updatefound', () => {
+				if (registration.installing) trackInstallation(registration.installing);
+			});
+
+			setInterval(() => {
+				void registration
+					.update()
+					.catch((error: unknown) => reportWarning('check application update', error));
+			}, UPDATE_INTERVAL_MS);
+		} catch (error) {
+			offlineState.status = 'error';
+			reportWarning('register service worker', error);
 		}
 	})();
 }

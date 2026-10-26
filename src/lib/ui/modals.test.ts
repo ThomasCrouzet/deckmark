@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createModals, makeLazyLoader, type ModalsOptions } from './modals.svelte';
 
-vi.mock('$lib/report', () => ({
+vi.mock('#lib/report.js', () => ({
 	reportError: vi.fn()
 }));
 
-import { reportError } from '$lib/report';
-import { t } from '$lib/i18n';
+import { reportError } from '#lib/report.js';
+import { t } from '#lib/i18n/index.js';
 
 function makeOpts(mode: 'wysiwyg' | 'source' | 'read' = 'wysiwyg') {
 	const setActive = vi.fn();

@@ -5,11 +5,11 @@
 //
 // Logic extracted from `+page.svelte` (L63-112, L697-742).
 
-import { isMarkdownFile } from '$lib/file-utils';
-import { t } from '$lib/i18n';
-import { notify } from '$lib/notify.svelte';
-import { reportWarning } from '$lib/report';
-import { MAX_IMAGE_BYTES } from '$lib/config';
+import { isMarkdownFile } from '#lib/file-utils.js';
+import { t } from '#lib/i18n/index.js';
+import { notify } from '#lib/notify.svelte.js';
+import { reportWarning } from '#lib/report.js';
+import { MAX_IMAGE_BYTES } from '#lib/config.js';
 
 // §B5.1 - Guard limit for dropped images: beyond it, we skip the file
 // (with a console warn). A 2 MB image in base64 makes ~2.7 MB of
@@ -58,7 +58,7 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 	const active = store.active;
 	if (!active) return;
 	// Image decoding is needed only after a drop, not at application startup.
-	const media = await import('$lib/render/image-media').catch((error: unknown) => {
+	const media = await import('#lib/render/image-media.js').catch((error: unknown) => {
 		reportWarning('load image decoder', error);
 		notify.error(t('imageDrop.unreadable', { n: images.length }));
 		return null;
@@ -106,8 +106,8 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 		if (active.projectId && active.relativePath) {
 			try {
 				const [{ addProjectImage }, { relativeDestination }] = await Promise.all([
-					import('$lib/projects'),
-					import('$lib/project-paths')
+					import('#lib/projects.js'),
+					import('#lib/project-paths.js')
 				]);
 				source = relativeDestination(
 					active.relativePath,

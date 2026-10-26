@@ -6,8 +6,8 @@
 // like `filesStore`/`notify`. The matchMedia listener is managed
 // imperatively (no `$effect`) to stay outside of any component scope.
 
-import { browser } from '$app/environment';
-import { readPreference, writePreference } from '$lib/preferences';
+import { browser } from '$app/env';
+import { readPreference, writePreference } from '#lib/preferences.js';
 import {
 	THEME_COLORS,
 	THEME_STORAGE_KEY,
@@ -16,7 +16,7 @@ import {
 	resolveTheme,
 	type EffectiveTheme,
 	type ThemePref
-} from '$lib/theme';
+} from '#lib/theme.js';
 
 function systemPrefersLight(): boolean {
 	return browser && typeof window.matchMedia === 'function'

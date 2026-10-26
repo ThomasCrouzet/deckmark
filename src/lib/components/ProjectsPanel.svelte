@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { db, type ProjectRow } from '$lib/db';
-	import { filesStore } from '$lib/files.svelte';
-	import { t } from '$lib/i18n';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { promptStore } from '$lib/prompt.svelte';
-	import { diskConflictStore } from '$lib/disk-conflict.svelte';
-	import { reportError } from '$lib/report';
-	import { notify } from '$lib/notify.svelte';
-	import { readProjectFolder, readProjectZip } from '$lib/project-archive';
+	import { db, type ProjectRow } from '#lib/db.js';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { t } from '#lib/i18n/index.js';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { promptStore } from '#lib/prompt.svelte.js';
+	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
+	import { reportError } from '#lib/report.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { readProjectFolder, readProjectZip } from '#lib/project-archive.js';
 	import ProjectTree from './ProjectTree.svelte';
 	import {
 		importProject,
@@ -16,8 +16,8 @@
 		createProjectDocument,
 		exportProject,
 		checkProjectLinks
-	} from '$lib/projects';
-	import type { ProjectLinkIssue } from '$lib/project-links';
+	} from '#lib/projects.js';
+	import type { ProjectLinkIssue } from '#lib/project-links.js';
 	import {
 		disconnectNativeProject,
 		NativeProjectOperationError,
@@ -27,7 +27,7 @@
 		reopenNativeProjects,
 		saveNativeProject,
 		type NativeProjectFailure
-	} from '$lib/projects-native';
+	} from '#lib/projects-native.js';
 
 	let { onClose }: { onClose: () => void } = $props();
 	let projects = $state<ProjectRow[]>([]);

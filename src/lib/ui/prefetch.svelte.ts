@@ -29,7 +29,7 @@ export function schedulePrefetch(opts: PrefetchOptions): () => void {
 	const timer = window.setTimeout(() => {
 		const load = () => {
 			const target = prefetchTarget(opts.getMode(), opts.getFiles().length > 0, nav.connection);
-			if (target === 'read') void import('$lib/render/markdown').catch(() => {});
+			if (target === 'read') void import('#lib/render/markdown.js').catch(() => {});
 			if (target === 'source') {
 				void Promise.all([
 					import('@codemirror/state'),

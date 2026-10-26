@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import type { FileItem } from '$lib/types';
+import type { FileItem } from '#lib/types.js';
 
 const desktopMocks = vi.hoisted(() => ({
 	isDesktop: vi.fn(() => false),

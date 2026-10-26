@@ -3,13 +3,13 @@
 // Loads the stylesheets from /static/ (KaTeX fonts + print stylesheet),
 // respects BASE_PATH for GitHub Pages.
 
-import { browser } from '$app/environment';
-import { base } from '$app/paths';
+import { browser } from '$app/env';
+import { asset } from '$app/paths';
 import { escapeHTML } from '../file-utils';
 import { TIMERS } from '../config';
 import { hasMath } from './markdown';
-import { t } from '$lib/i18n';
-import { DEFAULT_LOCALE } from '$lib/i18n/locale';
+import { t } from '#lib/i18n/index.js';
+import { DEFAULT_LOCALE } from '#lib/i18n/locale.js';
 import { isDesktop } from '../desktop';
 import { checkAborted } from '../abort';
 
@@ -70,6 +70,7 @@ export async function waitForPrintImages(
 									once: true
 								});
 							});
+
 				await boundedWait(decoded, opts.timeoutMs ?? 10_000, opts.signal);
 				if (image.naturalWidth === 0 || image.naturalHeight === 0) {
 					throw new Error('Image decoded without pixels');
@@ -102,14 +103,16 @@ function resolveDocumentLang(lang?: string): string {
 }
 
 function assetUrl(path: string): string {
-	if (!browser) return `${base}${path}`;
-	return new URL(`${base}${path}`, window.location.href).href;
+	const resolved = asset(path.slice(1) as Parameters<typeof asset>[0]);
+	if (!browser) return resolved;
+	return new URL(resolved, window.location.href).href;
 }
 
 export function buildPrintDocument(opts: PrintDocumentOptions): string {
 	const { title, bodyHtml, source, lang } = opts;
 	const safeTitle = escapeHTML(title);
 	const safeLang = escapeHTML(resolveDocumentLang(lang));
+
 	const needsKatex = source ? hasMath(source) : /class="math-block"|class="katex/.test(bodyHtml);
 
 	const printCssUrl = assetUrl('/print/print.css');
@@ -228,6 +231,7 @@ export async function buildStandaloneHtmlDocument(
 	signal?: AbortSignal
 ): Promise<string> {
 	const needsKatex = source ? hasMath(source) : /class="math-block"|class="katex/.test(bodyHtml);
+
 	const styles: string[] = [await fetchCssText('/print/print.css', signal)];
 	if (needsKatex) {
 		const katexCss = await fetchCssText('/katex/katex.min.css', signal);

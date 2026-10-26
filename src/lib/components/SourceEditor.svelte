@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import type { EditorView } from '@codemirror/view';
-	import { i18n, t } from '$lib/i18n';
-	import { reportError } from '$lib/report';
-	import { editorStateCache, type EditorPosition } from '$lib/editor-state';
+	import { i18n, t } from '#lib/i18n/index.js';
+	import { reportError } from '#lib/report.js';
+	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
 
 	interface Props {
 		fileId: string;

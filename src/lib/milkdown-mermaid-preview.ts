@@ -8,10 +8,10 @@
 // Load the Mermaid module only when the first Mermaid block renders. This keeps
 // approximately 3 MB of minified code out of the editor bundle until needed.
 
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { escapeHTML } from './file-utils';
 import { mermaidThemeFromDataTheme } from './theme';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 import { sanitizeMermaidPreviewHtml, renderMermaidSvg } from './render/sanitize-html';
 
 // Global counter to generate unique IDs on the Mermaid side. Mermaid stores

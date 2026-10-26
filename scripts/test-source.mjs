@@ -4,7 +4,9 @@ import { readFileSync } from 'node:fs';
 import { platform, release, arch } from 'node:os';
 
 export function testSource() {
+	/** @param {string[]} args */
 	const git = (...args) => execFileSync('git', args);
+	/** @param {string | Buffer} data */
 	const hash = (data) => createHash('sha256').update(data).digest('hex');
 	return {
 		command: [process.execPath, ...process.argv.slice(1)],

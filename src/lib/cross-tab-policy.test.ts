@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handleCrossTabPolicy, type CrossTabPolicyHost } from './cross-tab-policy';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 function mockHost(
 	partial: Partial<CrossTabPolicyHost> & {

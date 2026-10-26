@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Toolbar from './Toolbar.svelte';
-import { filesStore } from '$lib/files.svelte';
-import type { EditMode } from '$lib/types';
+import { filesStore } from '#lib/files.svelte.js';
+import type { EditMode } from '#lib/types.js';
 
 function defaultProps(mode: EditMode = 'wysiwyg') {
 	return {

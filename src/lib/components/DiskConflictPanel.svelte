@@ -2,9 +2,9 @@
 	import { tick } from 'svelte';
 	import { Download, Upload, X } from '@lucide/svelte';
 	import DiffView from './DiffView.svelte';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { diskConflictStore } from '$lib/disk-conflict.svelte';
-	import { t, type MessageKey } from '$lib/i18n';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
+	import { t, type MessageKey } from '#lib/i18n/index.js';
 
 	let cancelButton: HTMLButtonElement | null = $state(null);
 	const request = $derived(diskConflictStore.pending);

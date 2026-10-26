@@ -2,13 +2,13 @@ import { render, screen, waitFor, cleanup } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import SearchPanel from './SearchPanel.svelte';
-import { filesStore } from '$lib/files.svelte';
-import { promptStore } from '$lib/prompt.svelte';
-import { notify } from '$lib/notify.svelte';
-import { t } from '$lib/i18n';
-import { commitReplacements } from '$lib/replacement-commit';
+import { filesStore } from '#lib/files.svelte.js';
+import { promptStore } from '#lib/prompt.svelte.js';
+import { notify } from '#lib/notify.svelte.js';
+import { t } from '#lib/i18n/index.js';
+import { commitReplacements } from '#lib/replacement-commit.js';
 
-vi.mock('$lib/replace-worker', () => ({
+vi.mock('#lib/replace-worker.js', () => ({
 	replaceInFilesAsync: vi.fn(async () => ({
 		results: [{ id: 'a', name: 'a.md', content: 'after', count: 1 }],
 		total: 1,
@@ -16,7 +16,7 @@ vi.mock('$lib/replace-worker', () => ({
 	}))
 }));
 
-vi.mock('$lib/replacement-commit', () => ({
+vi.mock('#lib/replacement-commit.js', () => ({
 	commitReplacements: vi.fn()
 }));
 

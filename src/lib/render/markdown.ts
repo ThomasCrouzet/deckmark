@@ -7,14 +7,14 @@
 
 import 'katex/dist/katex.min.css';
 
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { Marked, type Tokens } from 'marked';
 import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import { escapeHTML } from '../file-utils';
 import { getTags, getTitle, parseFrontmatter } from '../frontmatter';
 import { preprocessWikiLinks, slugify } from '../wiki-links';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 import {
 	applyRemoteImagePolicy,
 	MARKDOWN_PURIFY,
@@ -208,8 +208,15 @@ function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked 
 						// raw text. If not closed on the line, we let it through (no
 						// confusion with two $…$).
 						const block = /^\$\$([^\n]+?)\$\$/.exec(src);
+
 						if (block)
-							return { type: 'inlineMath', raw: block[0], text: block[1]!.trim(), display: true };
+							return {
+								type: 'inlineMath',
+								raw: block[0],
+								text: block[1]!.trim(),
+								display: true
+							};
+
 						return;
 					}
 					// Avoid prices like "$10" via the `(?!\d)` lookahead after the closing `$`.
@@ -232,7 +239,6 @@ function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked 
 // Mermaid - diagrams rendered as SVG, lazy-loaded. Global theme (mermaid
 // singleton): a re-init is forced if the requested theme changes.
 // ---------------------------------------------------------------------------
-
 interface MermaidCounter {
 	current: number;
 }

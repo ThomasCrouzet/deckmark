@@ -1,5 +1,7 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
+
 import { db, newId, type DraftRow, type ProjectAssetRow, type ProjectRow } from './db';
+
 import { diskConflictStore } from './disk-conflict.svelte';
 import { isDesktop } from './desktop';
 import { filesStore } from './files.svelte';
@@ -823,9 +825,11 @@ async function renameNativeProjectDocumentInternal(
 			delete baseline[oldPath];
 			baseline[newPath] = renamed.revision;
 			await storeBaseline(projectId, baseline);
+
 			const current = filesStore.library.find(
 				(file) => file.projectId === projectId && file.relativePath === newPath
 			);
+
 			if (current && (await sha256(textBytes(current.content))) === renamed.revision) {
 				current.dirty = false;
 			}

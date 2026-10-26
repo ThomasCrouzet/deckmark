@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { X } from '@lucide/svelte';
-	import { filesStore } from '$lib/files.svelte';
-	import { promptStore } from '$lib/prompt.svelte';
-	import { t } from '$lib/i18n';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { promptStore } from '#lib/prompt.svelte.js';
+	import { t } from '#lib/i18n/index.js';
 
 	let { onEmpty }: { onEmpty: () => void } = $props();
 	let summary: HTMLElement | undefined = $state();

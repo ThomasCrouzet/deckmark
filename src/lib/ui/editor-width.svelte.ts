@@ -6,10 +6,10 @@
 //
 // Logic extracted from `+page.svelte` (L180-242 + L415-435).
 
-import { browser } from '$app/environment';
-import { readPreference, writePreference } from '$lib/preferences';
-import { EDITOR } from '$lib/config';
-import { PRINT_TEXT_WIDTH_PX } from '$lib/render/print-geometry';
+import { browser } from '$app/env';
+import { readPreference, writePreference } from '#lib/preferences.js';
+import { EDITOR } from '#lib/config.js';
+import { PRINT_TEXT_WIDTH_PX } from '#lib/render/print-geometry.js';
 
 const DEFAULT_EDITOR_WIDTH = EDITOR.defaultWidth;
 const MIN_EDITOR_WIDTH = EDITOR.minWidth;

@@ -1,5 +1,5 @@
 import { READING } from './config';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 export interface DocStats {
 	chars: number;

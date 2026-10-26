@@ -1,29 +1,11 @@
-import { readFileSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import { defineConfig, loadEnv } from 'vite';
 import { bundleGraphPlugin } from './scripts/bundle-graph.mjs';
 
-// Served base path (`paths.base` in production).
-// The manifest transform maps `index.html` to this base path.
-const PWA_BASE = process.env.BASE_PATH ?? '';
-
-// Mermaid 12 bundles the ELK layout in a separate chunk. The app pins
-// `layout: 'dagre'` (see `src/lib/render/sanitize-html.ts`), so ELK stays unused
-// by default. The chunk is about 1.4 MB, which breaks the precache budget.
-// Match the ELK source marker because the chunk file name has a hash only.
-function isMermaidElkChunk(url: string): boolean {
-	if (!url.includes('/chunks/') || !url.endsWith('.js')) return false;
-	const file = resolve('.svelte-kit/output', url);
-	try {
-		if (statSync(file).size < 1_000_000) return false;
-		return readFileSync(file, 'utf8').includes('org.eclipse.elk');
-	} catch {
-		return false;
-	}
-}
+const dev = process.env.NODE_ENV !== 'production';
+const repoBase = (process.env.BASE_PATH ?? '') as '' | `/${string}`;
 
 export default defineConfig(({ mode }) => {
 	// Vite does not load `.env.local` into `process.env` for this configuration.
@@ -54,190 +36,46 @@ export default defineConfig(({ mode }) => {
 		},
 		plugins: [
 			tailwindcss(),
-			sveltekit(),
-			bundleGraphPlugin(),
-			SvelteKitPWA({
-				// §1.2 - `prompt` lets `onNeedRefresh` show a Reload notification (see ui/pwa-update).
-				// Do not reload while the user writes in the editor.
-				registerType: 'prompt',
-				strategies: 'generateSW',
-				// `auto` detects the `virtual:pwa-register` import in ui/pwa-update.
-				// The plugin does not add a second registration.
-				injectRegister: 'auto',
-				manifest: {
-					name: 'mdsh - local-first markdown editor',
-					short_name: 'mdsh',
-					description: 'A local-first offline Markdown workspace with light and dark themes.',
-					theme_color: '#0b0c0d',
-					background_color: '#0b0c0d',
-					display: 'standalone',
-					orientation: 'any',
-					start_url: '.',
-					scope: '.',
-					lang: 'en',
-					categories: ['productivity', 'utilities'],
-					icons: [
-						{ src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },
-						{ src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-						{ src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-						{
-							src: 'maskable-icon-512x512.png',
-							sizes: '512x512',
-							type: 'image/png',
-							purpose: 'maskable'
-						}
-					],
-					// Chrome and Android show these screenshots in the installation prompt.
-					// Use `form_factor: wide` for these 2560x1600 desktop screenshots.
-					screenshots: [
-						{
-							src: 'screenshots/mode-wysiwyg.webp',
-							sizes: '2560x1600',
-							type: 'image/webp',
-							form_factor: 'wide',
-							label: 'WYSIWYG editing mode with math, code and a populated sidebar'
-						},
-						{
-							src: 'screenshots/mode-source.webp',
-							sizes: '2560x1600',
-							type: 'image/webp',
-							form_factor: 'wide',
-							label: 'Source mode with markdown syntax highlighting'
-						},
-						{
-							src: 'screenshots/mode-read.webp',
-							sizes: '2560x1600',
-							type: 'image/webp',
-							form_factor: 'wide',
-							label: 'Reading mode with a floating table of contents and backlinks'
-						},
-						{
-							src: 'screenshots/palette.webp',
-							sizes: '2560x1600',
-							type: 'image/webp',
-							form_factor: 'wide',
-							label: 'Command palette with keyboard shortcuts'
-						}
-					],
-					shortcuts: [
-						{
-							name: 'New file',
-							short_name: 'New',
-							description: 'Create a new markdown draft',
-							url: './?action=new',
-							icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
-						},
-						{
-							// §2.11 - App shortcut: cross-file search.
-							name: 'Search',
-							short_name: 'Search',
-							description: 'Open cross-file search',
-							url: './?action=search',
-							icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
-						},
-						{
-							// §2.11 - App shortcut: command palette.
-							name: 'Command palette',
-							short_name: 'Commands',
-							description: 'Open the command palette',
-							url: './?action=palette',
-							icons: [{ src: 'pwa-192x192.png', sizes: '192x192' }]
-						}
-					],
-					file_handlers: [
-						{
-							action: './',
-							accept: {
-								'text/markdown': ['.md', '.markdown', '.mdx'],
-								'text/plain': ['.txt']
-							}
-						}
-					],
-					share_target: {
-						action: './',
-						method: 'GET',
-						params: {
-							title: 'title',
-							text: 'text',
-							url: 'url'
-						}
-					},
-					launch_handler: {
-						client_mode: 'focus-existing'
-					},
-					handle_links: 'preferred'
+			sveltekit({
+				compilerOptions: {
+					runes: ({ filename }) =>
+						filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 				},
-				workbox: {
-					// Download each engine and its resources for offline use.
-					// Do not evaluate JavaScript before it is needed.
-					globPatterns: [
-						'client/_app/immutable/entry/*.js',
-						'client/_app/immutable/nodes/*.js',
-						'client/_app/immutable/chunks/*.js',
-						// Precache the cross-file search worker for the first offline start.
-						// Without this entry, offline search has no cached worker.
-						// The worker is about 1.2 KB, below the chunk size limit.
-						'client/_app/immutable/workers/*.js',
-						'client/_app/immutable/assets/*.{css,woff2}',
-						'client/print/*.css',
-						'client/katex/**/*.css',
-						'client/katex/**/*.woff2',
-						// adapter-static serves `index.html` as the SPA fallback.
-						// Workbox reads the pre-adapter output, which has no such file in `.svelte-kit/output/client/`.
-						// Workbox creates the service worker fallback from `navigateFallback` below.
-						'client/favicon.{ico,svg}',
-						'client/brand/logo-{dark,light}.svg',
-						'client/apple-touch-icon-180x180.png',
-						'client/maskable-icon-512x512.png',
-						'client/pwa-{64x64,192x192,512x512}.png',
-						'client/manifest.webmanifest'
-					],
-					maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-					// Keep the plugin URL mapping and the exact root path.
-					// This also applies when BASE_PATH=/mdsh.
-					manifestTransforms: [
-						(entries) => {
-							const manifest = entries
-								// Keep the unused Mermaid ELK chunk out of the precache.
-								// A diagram with an explicit `layout: elk` loads it on demand.
-								.filter((e) => !isMermaidElkChunk(e.url))
-								// Map to the served URL (see the plugin createManifestTransform).
-								.map((e) => {
-									let url = e.url;
-									if (url.startsWith('client/')) url = url.slice(7);
-									else if (url.startsWith('prerendered/dependencies/')) url = url.slice(25);
-									else if (url.startsWith('prerendered/pages/')) url = url.slice(18);
-									if (url.endsWith('.html')) {
-										if (url.startsWith('/')) url = url.slice(1);
-										// Precache `index.html` at the URL that the browser requests.
-										// Use the base root with a final slash: `/` locally or `/mdsh/` on Pages.
-										// Without the slash, `/mdsh` matched neither navigation nor `navigateFallback`.
-										// The app could not start offline. With an empty base, an empty entry
-										// prevented precache installation and left the cache empty.
-										url =
-											url === 'index.html' ? `${PWA_BASE}/` : url.slice(0, url.lastIndexOf('.'));
-									}
-									return { ...e, url };
-								})
-								// Serve the webmanifest at runtime. Do not precache it, as with the plugin.
-								.filter((e) => e.url !== 'manifest.webmanifest');
-							return { manifest };
-						}
-					],
-					// Offline navigation uses the cached SPA shell at the base root with a final slash.
-					// This includes an installed PWA restart and a page reload.
-					// Match the precache key exactly (see manifestTransforms).
-					// Otherwise, `createHandlerBoundToURL` finds no entry and the page stays blank.
-					navigateFallback: `${PWA_BASE}/`,
-					navigateFallbackDenylist: [/^\/api/],
-					// Precache revisions also replace print CSS and fonts with each update.
-					// Do not keep a separate 30-day cache.
-					cleanupOutdatedCaches: true
+				adapter: adapter({ fallback: 'index.html', precompress: false, strict: true }),
+				paths: { base: dev ? '' : repoBase },
+				prerender: {
+					// With ssr = false, static HTML contains only the hydration shell.
+					// Internal anchors, including the #main skip link, resolve after hydration.
+					handleMissingId: 'ignore'
 				},
-				devOptions: {
-					enabled: false
+				csp: {
+					mode: 'hash',
+					directives: {
+						'default-src': ['self'],
+						// No runtime dependency creates WebAssembly instances (checked with mermaid 11.16, katex, and highlight.js).
+						// Do not add wasm-unsafe-eval.
+						// Mermaid/KaTeX e2e tests use the built app with this CSP.
+						// They check whether a future dependency needs WebAssembly.
+						'script-src': ['self'],
+						'style-src': ['self', 'unsafe-inline'],
+						'font-src': ['self', 'data:'],
+						'img-src': ['self', 'data:', 'blob:'],
+						'media-src': ['self', 'blob:'],
+						'connect-src': ['self', 'https:'],
+						'worker-src': ['self', 'blob:'],
+						'base-uri': ['self'],
+						'form-action': ['none'],
+						// Block iframes. The app does not need them.
+						// Mermaid uses its own sandbox with `securityLevel: strict`, independently of CSP.
+						'frame-src': ['none'],
+						// Prevent third-party sites from embedding mdsh (clickjacking).
+						'frame-ancestors': ['none'],
+						// Block `<object>`, `<embed>`, and `<applet>`. The app does not need them.
+						'object-src': ['none']
+					}
 				}
-			})
+			}),
+			bundleGraphPlugin()
 		],
 		build: {
 			rollupOptions: {

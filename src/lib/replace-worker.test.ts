@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 import { replaceInFilesAsync, REGEX_EXECUTION_TIMEOUT_MS } from './replace-worker';
 
 class FakeWorker extends EventTarget {

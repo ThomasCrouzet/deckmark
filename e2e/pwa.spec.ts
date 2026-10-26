@@ -6,8 +6,7 @@ import { expect, test } from '@playwright/test';
 /**
  * §1.2 - PWA installation regression test.
  *
- * @vite-pwa/sveltekit creates and precaches `manifest.webmanifest`, but it does not
- * add the `<link rel="manifest">` element. `+layout.svelte` adds it through `pwaInfo`.
+ * The static manifest and its document link must remain available in the built app.
  * Without this link, the browser ignores all installation features.
  *
  * Run this test against the build, where the server emits the actual manifest.

@@ -15,8 +15,8 @@
 // content), a draft can weigh several MB - the quota becomes reachable, and a
 // silent failure = invisible data loss.
 
-import { browser } from '$app/environment';
-import { t } from '$lib/i18n';
+import { browser } from '$app/env';
+import { t } from '#lib/i18n/index.js';
 import { db } from './db';
 import { notify } from './notify.svelte';
 
@@ -161,8 +161,7 @@ export function formatStorageBytes(value: number): string {
 export function isQuotaError(err: unknown): boolean {
 	if (err instanceof DOMException) {
 		return (
-			err.name === 'QuotaExceededError' ||
-			// Historical Firefox.
+			err.name === 'QuotaExceededError' || // Historical Firefox.
 			err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
 			err.code === 22
 		);

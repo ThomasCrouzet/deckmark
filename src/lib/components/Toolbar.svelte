@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { filesStore } from '$lib/files.svelte';
+	import { filesStore } from '#lib/files.svelte.js';
 	import {
 		Menu,
 		Download,
@@ -12,11 +12,11 @@
 		HardDriveDownload,
 		Printer
 	} from '@lucide/svelte';
-	import type { EditMode } from '$lib/types';
-	import { isDiskLinkingAvailable } from '$lib/disk-sync';
-	import { keyboardStore } from '$lib/ui/keyboard.svelte';
-	import { t } from '$lib/i18n';
-	import { offlineState } from '$lib/ui/offline.svelte';
+	import type { EditMode } from '#lib/types.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { t } from '#lib/i18n/index.js';
+	import { offlineState } from '#lib/ui/offline.svelte.js';
 
 	interface Props {
 		mode: EditMode;

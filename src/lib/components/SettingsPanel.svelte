@@ -10,34 +10,34 @@
 	// service + reloads the stores - pattern identical to the other panels.
 
 	import { tick } from 'svelte';
-	import { browser } from '$app/environment';
-	import { t, i18n, LOCALES, LOCALE_LABELS } from '$lib/i18n';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { coreCommands } from '$lib/ui/commands';
-	import { keyboardStore, type ShortcutError } from '$lib/ui/keyboard.svelte';
-	import { formatKbd, isMac } from '$lib/platform';
-	import { isDesktop } from '$lib/desktop';
-	import { EDITOR, IMPORT_LIMITS } from '$lib/config';
-	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '$lib/render/print-geometry';
-	import { readUtf8File } from '$lib/import-limits';
-	import { notify } from '$lib/notify.svelte';
-	import { promptStore } from '$lib/prompt.svelte';
-	import { filesStore } from '$lib/files.svelte';
-	import { workspaceStore } from '$lib/workspaces.svelte';
-	import { templatesStore } from '$lib/templates.svelte';
+	import { browser } from '$app/env';
+	import { t, i18n, LOCALES, LOCALE_LABELS } from '#lib/i18n/index.js';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { coreCommands } from '#lib/ui/commands.js';
+	import { keyboardStore, type ShortcutError } from '#lib/ui/keyboard.svelte.js';
+	import { formatKbd, isMac } from '#lib/platform.js';
+	import { isDesktop } from '#lib/desktop.js';
+	import { EDITOR, IMPORT_LIMITS } from '#lib/config.js';
+	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '#lib/render/print-geometry.js';
+	import { readUtf8File } from '#lib/import-limits.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { promptStore } from '#lib/prompt.svelte.js';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { workspaceStore } from '#lib/workspaces.svelte.js';
+	import { templatesStore } from '#lib/templates.svelte.js';
 	import {
 		downloadBackup,
 		restoreFromText,
 		isEncryptedBackup,
 		inspectBackupText,
 		serializeBackup
-	} from '$lib/services/backup';
+	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
-	import { offlineState } from '$lib/ui/offline.svelte';
-	import type { TemplateRow } from '$lib/db';
-	import { reportError } from '$lib/report';
-	import { spinnerStore } from '$lib/spinner.svelte';
-	import { themeStore } from '$lib/ui/theme.svelte';
+	import { offlineState } from '#lib/ui/offline.svelte.js';
+	import type { TemplateRow } from '#lib/db.js';
+	import { reportError } from '#lib/report.js';
+	import { spinnerStore } from '#lib/spinner.svelte.js';
+	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import {
 		formatStorageBytes,
 		getStorageHealth,
@@ -45,10 +45,10 @@
 		recordExternalBackupFailure,
 		recordExternalBackupSuccess,
 		type StorageHealth
-	} from '$lib/storage';
-	import type { createEditorWidth, EditorWidth } from '$lib/ui/editor-width.svelte';
-	import type { createUiPrefs } from '$lib/ui/prefs.svelte';
-	import type { ThemePref } from '$lib/theme';
+	} from '#lib/storage.js';
+	import type { createEditorWidth, EditorWidth } from '#lib/ui/editor-width.svelte.js';
+	import type { createUiPrefs } from '#lib/ui/prefs.svelte.js';
+	import type { ThemePref } from '#lib/theme.js';
 	import { Settings, X, Download, Upload, Check, Lock } from '@lucide/svelte';
 
 	interface Props {
@@ -81,6 +81,7 @@
 		if (['Control', 'Meta', 'Shift', 'Alt'].includes(event.key)) return;
 		event.preventDefault();
 		event.stopPropagation();
+
 		if (
 			!(event.ctrlKey || event.metaKey) ||
 			(event.ctrlKey && event.metaKey) ||

@@ -5,10 +5,10 @@
 // current document as a template, and deleting user templates (the builtin ones
 // are protected).
 
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { db, newId, type TemplateRow } from './db';
 import { reportPersistenceError } from './storage';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 import {
 	BUILTIN_TEMPLATES,
 	applyTemplateVars,

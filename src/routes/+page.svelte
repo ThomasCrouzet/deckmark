@@ -1,40 +1,40 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { readPreference, writePreference } from '$lib/preferences';
-	import { browser } from '$app/environment';
-	import { t, i18n } from '$lib/i18n';
-	import SourceEditor from '$lib/components/SourceEditor.svelte';
-	import { keyboardStore } from '$lib/ui/keyboard.svelte';
-	import ImportProgress from '$lib/components/ImportProgress.svelte';
-	import Sidebar from '$lib/components/Sidebar.svelte';
-	import Toolbar from '$lib/components/Toolbar.svelte';
-	import StatusBar from '$lib/components/StatusBar.svelte';
-	import Toast from '$lib/components/Toast.svelte';
-	import SpinnerToast from '$lib/components/SpinnerToast.svelte';
-	import Toasts from '$lib/components/Toasts.svelte';
-	import PromptModal from '$lib/components/PromptModal.svelte';
-	import Modals from '$lib/components/Modals.svelte';
-	import EditorPane from '$lib/components/EditorPane.svelte';
-	import { promptStore } from '$lib/prompt.svelte';
-	import { notify } from '$lib/notify.svelte';
-	import { reportError } from '$lib/report';
-	import { createModals } from '$lib/ui/modals.svelte';
-	import { filesStore } from '$lib/files.svelte';
-	import { requestPersistentStorage, checkStoragePressure } from '$lib/storage';
-	import { isDiskLinkingAvailable } from '$lib/disk-sync';
-	import { isDesktop } from '$lib/desktop';
-	import { shouldFallThroughToFileInput } from '$lib/import-intent';
-	import type { EditMode } from '$lib/types';
-	import { createEditorWidth } from '$lib/ui/editor-width.svelte';
-	import { buildKeydownHandler } from '$lib/ui/shortcuts.svelte';
-	import { createUiPrefs } from '$lib/ui/prefs.svelte';
-	import { themeStore } from '$lib/ui/theme.svelte';
-	import { registerPwaUpdates } from '$lib/ui/pwa-update';
-	import { buildDropHandlers } from '$lib/ui/image-drop.svelte';
-	import { schedulePrefetch } from '$lib/ui/prefetch.svelte';
-	import { createFileIntents } from '$lib/ui/file-intents.svelte';
-	import { initDesktopShell, type DesktopMenuAction } from '$lib/desktop-shell';
-	import { diskConflictStore } from '$lib/disk-conflict.svelte';
+	import { readPreference, writePreference } from '#lib/preferences.js';
+	import { browser } from '$app/env';
+	import { t, i18n } from '#lib/i18n/index.js';
+	import SourceEditor from '#lib/components/SourceEditor.svelte';
+	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import ImportProgress from '#lib/components/ImportProgress.svelte';
+	import Sidebar from '#lib/components/Sidebar.svelte';
+	import Toolbar from '#lib/components/Toolbar.svelte';
+	import StatusBar from '#lib/components/StatusBar.svelte';
+	import Toast from '#lib/components/Toast.svelte';
+	import SpinnerToast from '#lib/components/SpinnerToast.svelte';
+	import Toasts from '#lib/components/Toasts.svelte';
+	import PromptModal from '#lib/components/PromptModal.svelte';
+	import Modals from '#lib/components/Modals.svelte';
+	import EditorPane from '#lib/components/EditorPane.svelte';
+	import { promptStore } from '#lib/prompt.svelte.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { reportError } from '#lib/report.js';
+	import { createModals } from '#lib/ui/modals.svelte.js';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { requestPersistentStorage, checkStoragePressure } from '#lib/storage.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { isDesktop } from '#lib/desktop.js';
+	import { shouldFallThroughToFileInput } from '#lib/import-intent.js';
+	import type { EditMode } from '#lib/types.js';
+	import { createEditorWidth } from '#lib/ui/editor-width.svelte.js';
+	import { buildKeydownHandler } from '#lib/ui/shortcuts.svelte.js';
+	import { createUiPrefs } from '#lib/ui/prefs.svelte.js';
+	import { themeStore } from '#lib/ui/theme.svelte.js';
+	import { registerPwaUpdates } from '#lib/ui/pwa-update.js';
+	import { buildDropHandlers } from '#lib/ui/image-drop.svelte.js';
+	import { schedulePrefetch } from '#lib/ui/prefetch.svelte.js';
+	import { createFileIntents } from '#lib/ui/file-intents.svelte.js';
+	import { initDesktopShell, type DesktopMenuAction } from '#lib/desktop-shell.js';
+	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
 
 	let mode = $state<EditMode>('wysiwyg');
 	let projectsOpen = $state(false);
@@ -650,9 +650,9 @@
 />
 
 {#if diskConflictStore.pending}
-	{#await import('$lib/components/DiskConflictPanel.svelte') then module}
+	{#await import('#lib/components/DiskConflictPanel.svelte') then module}
 		<module.default />
-	{:catch}
+	{:catch _error}
 		<div role="alert" class="fixed inset-0 z-[80] bg-bg p-6 text-fg">
 			{t('projects.operationFailed')}<button onclick={() => diskConflictStore.choose('cancel')}
 				>{t('diskConflict.cancel')}</button
@@ -662,7 +662,7 @@
 {/if}
 
 {#if projectsOpen}
-	{#await import('$lib/components/ProjectsPanel.svelte') then module}
+	{#await import('#lib/components/ProjectsPanel.svelte') then module}
 		<module.default
 			onClose={() => {
 				projectsOpen = false;
@@ -671,11 +671,10 @@
 				);
 			}}
 		/>
-	{:catch}
+	{:catch _error}
 		<div role="alert" class="fixed inset-0 z-50 bg-bg p-6 text-fg">
-			{t('projects.operationFailed')}<button onclick={() => (projectsOpen = false)}
-				>{t('projects.close')}</button
-			>
+			{t('projects.operationFailed')}
+			<button onclick={() => (projectsOpen = false)}>{t('projects.close')}</button>
 		</div>
 	{/await}
 {/if}

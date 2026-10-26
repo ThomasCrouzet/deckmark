@@ -4,14 +4,14 @@
 	// space / Esc. Reuses the lazy-loaded rendering pipeline (marked + KaTeX +
 	// Mermaid + DOMPurify) - no external presentation library.
 
-	import { browser } from '$app/environment';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { t } from '$lib/i18n';
-	import { filesStore } from '$lib/files.svelte';
-	import { splitSlides } from '$lib/slides';
-	import { reportError } from '$lib/report';
-	import { mermaidThemeFromDataTheme } from '$lib/theme';
-	import { themeStore } from '$lib/ui/theme.svelte';
+	import { browser } from '$app/env';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { t } from '#lib/i18n/index.js';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { splitSlides } from '#lib/slides.js';
+	import { reportError } from '#lib/report.js';
+	import { mermaidThemeFromDataTheme } from '#lib/theme.js';
+	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { ChevronLeft, ChevronRight, X } from '@lucide/svelte';
 
 	interface Props {
@@ -49,7 +49,7 @@
 		}
 		const mermaidTheme = mermaidThemeFromDataTheme(themeStore.effective);
 		let cancelled = false;
-		void import('$lib/render/markdown')
+		void import('#lib/render/markdown.js')
 			.then(({ renderMarkdown }) => renderMarkdown(md, { mermaidTheme, showFrontmatter: false }))
 			.then((out) => {
 				if (!cancelled) html = out;

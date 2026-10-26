@@ -1,35 +1,35 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import LoadError from './LoadError.svelte';
-	import { reportPersistenceError } from '$lib/storage';
-	import { browser } from '$app/environment';
-	import { t } from '$lib/i18n';
-	import { filesStore } from '$lib/files.svelte';
-	import { workspaceStore } from '$lib/workspaces.svelte';
-	import { templatesStore } from '$lib/templates.svelte';
-	import { themeStore } from '$lib/ui/theme.svelte';
-	import { promptStore } from '$lib/prompt.svelte';
-	import { notify } from '$lib/notify.svelte';
-	import { reportError } from '$lib/report';
-	import { spinnerStore } from '$lib/spinner.svelte';
-	import { copyMarkdown, copyRichHtml, isClipboardSupported } from '$lib/services/clipboard';
+	import { reportPersistenceError } from '#lib/storage.js';
+	import { browser } from '$app/env';
+	import { t } from '#lib/i18n/index.js';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { workspaceStore } from '#lib/workspaces.svelte.js';
+	import { templatesStore } from '#lib/templates.svelte.js';
+	import { themeStore } from '#lib/ui/theme.svelte.js';
+	import { promptStore } from '#lib/prompt.svelte.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { reportError } from '#lib/report.js';
+	import { spinnerStore } from '#lib/spinner.svelte.js';
+	import { copyMarkdown, copyRichHtml, isClipboardSupported } from '#lib/services/clipboard.js';
 	import {
 		runPaletteCopyActive,
 		runPaletteDirectoryImport,
 		runPaletteSaveTemplate,
 		runPaletteSaveWorkspace
-	} from '$lib/palette-ops';
-	import { isDirectoryPickerSupported } from '$lib/fsa';
-	import { isDesktop } from '$lib/desktop';
-	import { isDiskLinkingAvailable } from '$lib/disk-sync';
-	import type { EditMode } from '$lib/types';
-	import { EDITOR } from '$lib/config';
-	import type { EditorWidth } from '$lib/ui/editor-width.svelte';
-	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '$lib/render/print-geometry';
-	import { coreCommands, normalizeCommandSearch } from '$lib/ui/commands';
-	import { keyboardStore } from '$lib/ui/keyboard.svelte';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { formatKbd } from '$lib/platform';
+	} from '#lib/palette-ops.js';
+	import { isDirectoryPickerSupported } from '#lib/fsa.js';
+	import { isDesktop } from '#lib/desktop.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import type { EditMode } from '#lib/types.js';
+	import { EDITOR } from '#lib/config.js';
+	import type { EditorWidth } from '#lib/ui/editor-width.svelte.js';
+	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '#lib/render/print-geometry.js';
+	import { coreCommands, normalizeCommandSearch } from '#lib/ui/commands.js';
+	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { formatKbd } from '#lib/platform.js';
 	import {
 		FilePlus,
 		Upload,
@@ -177,6 +177,7 @@
 		if (command.id.startsWith('export-') && spinnerStore.visible) return false;
 		if (command.id.startsWith('copy-') && !isClipboardSupported()) return false;
 		const core = coreCommands.find((entry) => entry.id === command.id);
+
 		return (
 			(!(needsDocument || core?.document) || filesStore.active !== null) &&
 			command.enabled?.() !== false
@@ -259,7 +260,15 @@
 						});
 			}
 		},
-		{ id: 'new', label: t('palette.newFile'), kbd: formatKbd('⌘N'), icon: FilePlus, run: onNew },
+
+		{
+			id: 'new',
+			label: t('palette.newFile'),
+			kbd: formatKbd('⌘N'),
+			icon: FilePlus,
+			run: onNew
+		},
+
 		{
 			id: 'import',
 			label: t('palette.importMd'),
@@ -325,8 +334,21 @@
 					});
 			}
 		},
-		{ id: 'export-html', label: t('palette.exportHtml'), icon: FileOutput, run: onExportHtml },
-		{ id: 'export-all', label: t('palette.exportAll'), icon: Files, run: onExportAll },
+
+		{
+			id: 'export-html',
+			label: t('palette.exportHtml'),
+			icon: FileOutput,
+			run: onExportHtml
+		},
+
+		{
+			id: 'export-all',
+			label: t('palette.exportAll'),
+			icon: Files,
+			run: onExportAll
+		},
+
 		{
 			id: 'export-open',
 			label: t('palette.exportOpen'),
@@ -747,8 +769,10 @@
 									class="flex min-h-11 items-center gap-2 rounded border border-border px-3 py-2 text-left text-sm hover:bg-bg-2"
 									disabled={!isAvailable(command)}
 									onclick={() => runCommand(command)}
-									><command.icon size={16} class="shrink-0" /><span>{command.label}</span></button
 								>
+									<command.icon size={16} class="shrink-0" />
+									<span>{command.label}</span>
+								</button>
 							{/each}
 						</div>
 					{/each}
@@ -764,8 +788,10 @@
 				<!-- §B1.5 - ARIA combobox + listbox pattern: the input drives the listbox
 			     via aria-activedescendant. Before: no role nor announcement of
 			     the highlighted item, the SR saw just a text field without context. -->
+
 				<div class="palette-input-row flex items-center gap-2 border-b border-border px-3 py-3">
-					<span class="font-mono text-xs text-accent" aria-hidden="true">&gt;_</span>
+					<span class="font-mono text-xs text-accent" aria-hidden="true">>_</span>
+
 					<Search size={15} class="text-fg-dim" />
 					<input
 						bind:this={inputEl}

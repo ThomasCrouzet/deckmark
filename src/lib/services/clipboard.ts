@@ -8,7 +8,7 @@
 // The renderer (`marked` + KaTeX + highlight.js + DOMPurify) stays lazy-loaded
 // (dynamic import) - zero impact on the initial bundle.
 
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 export function isClipboardSupported(): boolean {
 	return typeof navigator !== 'undefined' && !!navigator.clipboard;

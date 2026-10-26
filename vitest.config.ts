@@ -49,10 +49,8 @@ export default defineConfig({
 	resolve: {
 		conditions: ['browser'],
 		alias: {
-			$lib: resolve('./src/lib'),
-			'$app/environment': resolve('./src/lib/test-env.ts'),
-			'$app/paths': resolve('./src/lib/test-paths.ts'),
-			'virtual:pwa-register': resolve('./src/lib/test-pwa-register.ts')
+			'$app/env': resolve('./src/lib/test-env.ts'),
+			'$app/paths': resolve('./src/lib/test-paths.ts')
 		}
 	}
 });

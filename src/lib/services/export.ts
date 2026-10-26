@@ -14,9 +14,9 @@
 // `typeof document !== 'undefined'` - useful in unit tests where the
 // calling store cannot guarantee the context (jsdom OK, SSR no).
 
-import type { FileItem } from '$lib/types';
+import type { FileItem } from '#lib/types.js';
 import type { ProjectAssetRow } from '../db';
-import { stripMdExtension, untitledBasename, untitledFilename } from '$lib/file-utils';
+import { stripMdExtension, untitledBasename, untitledFilename } from '#lib/file-utils.js';
 import { abortable, checkAborted } from '../abort';
 import { IMPORT_LIMITS } from '../config';
 
@@ -107,7 +107,7 @@ export async function exportHTML(
 			import('../render/markdown'),
 			import('../render/print'),
 			import('../render/image-media'),
-			import('$lib/i18n')
+			import('#lib/i18n/index.js')
 		]),
 		options.signal
 	);
@@ -165,7 +165,7 @@ export async function exportPDF(
 			import('../render/markdown'),
 			import('../render/print'),
 			import('../render/image-media'),
-			import('$lib/i18n')
+			import('#lib/i18n/index.js')
 		]),
 		options.signal
 	);

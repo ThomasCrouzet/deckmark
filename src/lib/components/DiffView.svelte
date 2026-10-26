@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { lineDiff, type DiffLine } from '$lib/diff';
-	import { t, type MessageKey } from '$lib/i18n';
+	import { lineDiff, type DiffLine } from '#lib/diff.js';
+	import { t, type MessageKey } from '#lib/i18n/index.js';
 
 	interface Props {
 		before: string;

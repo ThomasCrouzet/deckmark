@@ -3,9 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, it, expect, vi } from 'vitest';
 import WorkspacesPanel from './WorkspacesPanel.svelte';
 import DiskLinksPanel from './DiskLinksPanel.svelte';
-import { workspaceStore } from '$lib/workspaces.svelte';
-import * as fsa from '$lib/fsa';
-import { t } from '$lib/i18n';
+import { workspaceStore } from '#lib/workspaces.svelte.js';
+import * as fsa from '#lib/fsa.js';
+import { t } from '#lib/i18n/index.js';
 
 afterEach(() => {
 	cleanup();

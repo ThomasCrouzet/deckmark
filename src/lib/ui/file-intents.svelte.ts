@@ -11,9 +11,9 @@
 // The handleLaunchQueue and handleShareTarget functions are exposed to be
 // called in onMount (browser only).
 
-import { browser } from '$app/environment';
-import { registerFileLaunch, type FileLaunchQueue } from '$lib/launch-files';
-import { t } from '$lib/i18n';
+import { browser } from '$app/env';
+import { registerFileLaunch, type FileLaunchQueue } from '#lib/launch-files.js';
+import { t } from '#lib/i18n/index.js';
 
 interface FilesStoreRef {
 	active: { id: string } | null;

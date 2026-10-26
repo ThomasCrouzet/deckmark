@@ -4,9 +4,9 @@
 		focusDocumentHeading,
 		renderedDocumentHeadings,
 		type DocumentHeading
-	} from '$lib/document-navigation';
-	import type { EditMode } from '$lib/types';
-	import { t } from '$lib/i18n';
+	} from '#lib/document-navigation.js';
+	import type { EditMode } from '#lib/types.js';
+	import { t } from '#lib/i18n/index.js';
 
 	let {
 		container,

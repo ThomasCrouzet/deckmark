@@ -29,7 +29,7 @@ import {
 	type TemplateRow
 } from '../db';
 import { encryptString, decryptString, isEncryptedEnvelope } from '../crypto';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 import { rewriteWikiLinkTargets } from '../wiki-links';
 import { pathKey, projectPath } from '../project-paths';
 

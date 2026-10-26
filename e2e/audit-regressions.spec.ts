@@ -74,6 +74,10 @@ test('an hourly update failure leaves the offline editor usable', async ({
 	await page.clock.install();
 	await page.goto('/');
 	await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+	await expect(async () => {
+		await page.reload();
+		expect(await page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+	}).toPass({ timeout: 30_000 });
 	await expect(page.locator('.mdsh-shell[aria-busy="false"]')).toBeVisible();
 	await createFirstFile(page);
 	await context.setOffline(true);

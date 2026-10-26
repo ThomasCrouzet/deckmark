@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n/index.js';
 	let { onRetry, busy = false }: { onRetry: () => void; busy?: boolean } = $props();
 </script>
 

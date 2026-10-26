@@ -6,14 +6,14 @@
 	// enters read mode (or triggers a PDF/HTML export elsewhere).
 
 	import '../render/preview.css';
-	import { filesStore } from '$lib/files.svelte';
-	import { decodeWikiTarget } from '$lib/wiki-links';
-	import { t } from '$lib/i18n';
-	import { mermaidThemeFromDataTheme } from '$lib/theme';
-	import { themeStore } from '$lib/ui/theme.svelte';
-	import { notify } from '$lib/notify.svelte';
-	import { reportError } from '$lib/report';
-	import { editorStateCache } from '$lib/editor-state';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { decodeWikiTarget } from '#lib/wiki-links.js';
+	import { t } from '#lib/i18n/index.js';
+	import { mermaidThemeFromDataTheme } from '#lib/theme.js';
+	import { themeStore } from '#lib/ui/theme.svelte.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { reportError } from '#lib/report.js';
+	import { editorStateCache } from '#lib/editor-state.js';
 	import { onDestroy, tick } from 'svelte';
 
 	interface Props {

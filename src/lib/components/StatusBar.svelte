@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { filesStore } from '$lib/files.svelte';
-	import { computeStats, formatSaveAge } from '$lib/stats';
-	import { t } from '$lib/i18n';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { computeStats, formatSaveAge } from '#lib/stats.js';
+	import { t } from '#lib/i18n/index.js';
 	import { onMount } from 'svelte';
 	import {
 		reportPersistenceError,
 		getStorageHealth,
 		recordBackupReminderShown
-	} from '$lib/storage';
+	} from '#lib/storage.js';
 	let { onOpenSettings }: { onOpenSettings?: () => void } = $props();
 	let backupDue = $state(false);
 	function dismissReminder() {
