@@ -89,6 +89,7 @@ jobs:
           persist-credentials: false
       - name: Resolve and validate source identity
         id: source
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -359,6 +360,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Record installer source identity
+        shell: bash
         env:
           SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
@@ -413,6 +415,7 @@ jobs:
         with:
           subject-path: release-assets/*
       - name: Publish distinct Desktop Beta release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
