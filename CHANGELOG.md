@@ -5,6 +5,13 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.0.4](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.3...v2.0.4) (2026-10-29)
+
+
+### Bug Fixes
+
+* **ci:** stabilize the draft save check and the Windows source step ([#170](https://github.com/ThomasCrouzet/mdsh/issues/170)) ([de38eee](https://github.com/ThomasCrouzet/mdsh/commit/de38eeed3cd60bbaee629f03aa8e45742ddf3e65))
+
 ## [2.0.3](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.2...v2.0.3) (2026-10-29)
 
 
