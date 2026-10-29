@@ -64,6 +64,7 @@ export default defineConfig({
 				'**/editor-width.spec.ts',
 				'**/image-layout.spec.ts',
 				'**/keyboard-platform.spec.ts',
+				'**/editor-tab.spec.ts',
 				'**/wiki-links.spec.ts',
 				'**/source-fidelity.spec.ts'
 			]
@@ -79,6 +80,7 @@ export default defineConfig({
 				'**/editor-width.spec.ts',
 				'**/image-layout.spec.ts',
 				'**/keyboard-platform.spec.ts',
+				'**/editor-tab.spec.ts',
 				'**/wiki-links.spec.ts',
 				'**/source-fidelity.spec.ts'
 			]

@@ -23,15 +23,22 @@ export function renderedDocumentHeadings(root: HTMLElement | null): DocumentHead
 export function focusDocumentHeading(heading: DocumentHeading, editable: boolean): void {
 	const element = heading.element;
 	if (!element) return;
-	element.scrollIntoView({ block: 'start' });
-	if (!editable) return;
-	element.closest<HTMLElement>('.ProseMirror')?.focus({ preventScroll: true });
-	const selection = window.getSelection();
-	const range = document.createRange();
-	range.selectNodeContents(element);
-	range.collapse(true);
-	selection?.removeAllRanges();
-	selection?.addRange(range);
+	const scrollToHeading = () => element.scrollIntoView({ block: 'start', inline: 'nearest' });
+	if (editable) {
+		// Focus first. The editor can restore its previous selection and scroll when
+		// it receives focus, so the heading scroll below must run after that restore.
+		element.closest<HTMLElement>('.ProseMirror')?.focus({ preventScroll: true });
+		const selection = window.getSelection();
+		const range = document.createRange();
+		range.selectNodeContents(element);
+		range.collapse(true);
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+	}
+	scrollToHeading();
+	// A rendered document can replace a heading node during the same click. Repeat
+	// the scroll on the next frame so a single click always reaches the heading.
+	requestAnimationFrame(scrollToHeading);
 }
 
 /** Reads source headings without treating YAML or code examples as headings. */

@@ -101,10 +101,22 @@
 		};
 	});
 
+	function currentHeadings(): DocumentHeading[] {
+		if (mode === 'source') return documentHeadings(content);
+		const root =
+			container?.querySelector<HTMLElement>(mode === 'read' ? '.mdsh-preview' : '.ProseMirror') ??
+			null;
+		return renderedDocumentHeadings(root);
+	}
+
 	function jump(item: DocumentHeading, index: number) {
 		activeIndex = index;
-		if (mode === 'source') onLine(item.line);
-		else focusDocumentHeading(item, mode === 'wysiwyg');
+		// Resolve the heading again at click time. A render can replace the nodes
+		// held by the list, and a detached node cannot scroll into view. Without
+		// this lookup, the first click after a render did nothing.
+		const fresh = currentHeadings()[index] ?? item;
+		if (mode === 'source') onLine(fresh.line);
+		else focusDocumentHeading(fresh, mode === 'wysiwyg');
 	}
 </script>
 

@@ -7,6 +7,7 @@
 	// (default for onboarding) become instant.
 
 	import type { Crepe as CrepeType } from '@milkdown/crepe';
+	import type { EditorView } from '@milkdown/kit/prose/view';
 	import { onDestroy, untrack } from 'svelte';
 	import { renderMermaidPreview } from '../milkdown-mermaid-preview';
 	import { reportError } from '#lib/report.js';
@@ -116,7 +117,9 @@
 				inlineImageConfig: inlineImageConfigCtx,
 				codeBlockConfig: codeBlockConfigCtx,
 				wikiLinkPlugins,
-				replaceAll
+				replaceAll,
+				sinkListItem,
+				liftListItem
 			},
 			{ editorImageSource, embedImageFile, ImageFileError, MAX_IMAGE_BYTES }
 		] = await Promise.all([
@@ -243,6 +246,48 @@
 					}
 				})
 		);
+		// Tab must indent the text at the caret. The browser default moves focus to
+		// the next control instead, which can scroll the page to the end. Lists keep
+		// their structural indent and tables keep their cell navigation.
+		const tabIndentPlugin = prosePlugin(
+			() =>
+				new Plugin({
+					props: {
+						handleKeyDown(view: EditorView, event: KeyboardEvent) {
+							if (
+								event.key !== 'Tab' ||
+								event.altKey ||
+								event.ctrlKey ||
+								event.metaKey ||
+								event.isComposing ||
+								!view.editable
+							)
+								return false;
+							const selection = view.state.selection;
+							const from = selection.$from;
+							let inList = false;
+							for (let depth = from.depth; depth > 0; depth--) {
+								const name = from.node(depth).type.name;
+								if (name === 'table' || name === 'code_block') return false;
+								if (name === 'list_item') inList = true;
+							}
+							if (inList) {
+								const listItem = view.state.schema.nodes.list_item;
+								if (!listItem) return false;
+								event.preventDefault();
+								return (event.shiftKey ? liftListItem : sinkListItem)(listItem)(
+									view.state,
+									view.dispatch
+								);
+							}
+							if (event.shiftKey) return false;
+							event.preventDefault();
+							view.dispatch(view.state.tr.insertText('\t').scrollIntoView());
+							return true;
+						}
+					}
+				})
+		);
 		const imageTitlePlugin = remarkPlugin(
 			'mdshNormalizeImageTitles',
 			() => () => normalizeImageTitlesForMilkdown
@@ -280,6 +325,7 @@
 		instance.editor.use(wikiLinkPlugins);
 		instance.editor.use(imageTitlePlugin);
 		instance.editor.use(headingLevelPlugin);
+		instance.editor.use(tabIndentPlugin);
 		instance.on((listener) => {
 			listener.markdownUpdated((_ctx, md) => {
 				// A queued event must not replace a newer editor document.

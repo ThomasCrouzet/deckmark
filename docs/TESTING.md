@@ -31,6 +31,13 @@ Write browser scenarios before implementation. Test the following failures throu
 
 Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), and [native projects](testing/native-projects.md).
 
+The outline and editor keyboard scenarios in `e2e/toc-modes.spec.ts` and
+`e2e/editor-tab.spec.ts` check two failure modes. A render can replace heading
+nodes before the outline refresh. Tab can move focus and scroll the page instead
+of inserting indentation. The Tab scenario runs in Chromium, WebKit, and Firefox.
+The outline scenarios run in Chromium. The outline check replaces the heading
+nodes in the same frame as the click, so a detached node cannot hide the failure.
+
 The browser filesystem workflow uses an OPFS file selected by its fixture.
 It verifies cancellation, stale comparison rejection, reload, and a retained local checkpoint.
 Browser file APIs cannot make the final revision check and write atomic against another application.

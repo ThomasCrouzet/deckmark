@@ -15,14 +15,11 @@
 - [Testing](TESTING.md): commands, failure risks, and repeatable evidence.
 - [GitHub settings](GITHUB_SETTINGS.md): repository controls and release checks.
 - [Brand assets](BRANDING.md): icon generation, screenshots, and demo capture.
-- [Roadmap](../ROADMAP.md): deferred work and product limits.
 - [Changelog](../CHANGELOG.md): released changes.
 
 ## Project records
 
 - [Governance](../GOVERNANCE.md) and [Code of conduct](../CODE_OF_CONDUCT.md).
 - [Third-party notices](../THIRD_PARTY_NOTICES.md) and [GLib backport](../patches/glib/README.md).
-- [Announcement draft](outreach/announcement.md) and [directory submission drafts](outreach/list-submissions.md).
-- [Archive manifest](../archive/README.md): retired originals and their checksums.
 
 Keep procedures beside their source code. Remove completed review reports from the repository.
