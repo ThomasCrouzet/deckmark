@@ -123,8 +123,8 @@ jobs:
 
       # Visual snapshots: deliberately not a CI gate (local-only policy).
       # Docker Playwright baselines diverge from ubuntu-latest font rendering
-      # (see ROADMAP.md + CONTRIBUTING.md). Baselines stay versioned for local
-      # comparison; do not remove --ignore-snapshots without regenerating on CI.
+      # (see CONTRIBUTING.md). Baselines stay versioned for local comparison;
+      # do not remove --ignore-snapshots without regenerating on CI.
       - name: E2E tests (without visual snapshots)
         run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/2"
         env:

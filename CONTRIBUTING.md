@@ -65,7 +65,7 @@ CI does not upload test reports to GitHub. See [docs/TESTING.md](docs/TESTING.md
 
 ## Visual tests (snapshots)
 
-The Playwright snapshots (`e2e/visual.spec.ts`) are **local-only by design** - not a CI gate (`--ignore-snapshots --grep-invert "Snapshots visuels"` in `deploy.yml`). A Linux baseline generated via the official Playwright Docker image diverges enough from the fixed GitHub runner's font rendering to fail unrelated PRs. Linux and macOS baselines remain versioned for local comparison only. See `ROADMAP.md` for the policy rationale.
+The Playwright snapshots (`e2e/visual.spec.ts`) are **local-only by design** - not a CI gate (`--ignore-snapshots --grep-invert "Snapshots visuels"` in `deploy.yml`). A Linux baseline generated via the official Playwright Docker image diverges enough from the fixed GitHub runner's font rendering to fail unrelated PRs. Linux and macOS baselines remain versioned for local comparison only.
 
 To compare locally against your platform's own baseline :
 
