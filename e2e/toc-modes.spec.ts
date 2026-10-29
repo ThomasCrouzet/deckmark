@@ -122,3 +122,43 @@ test('keeps a long outline reachable and honors focus and visibility preferences
 		contentType: 'text/markdown'
 	});
 });
+
+test('navigates with one click after a render replaces the heading nodes', async ({
+	page
+}, testInfo) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await resetAppState(page);
+	await createFirstFile(page);
+	const fixture = Array.from(
+		{ length: 40 },
+		(_, index) => `## Section ${index + 1}\n\nParagraph ${index + 1} with enough text.`
+	).join('\n\n');
+	await writeSourceContent(page, fixture);
+	await page.locator('button[data-mode="read"]').click();
+	const toc = page.locator('.mdsh-toc-col nav');
+	await expect(toc.getByRole('button')).toHaveCount(40);
+	const scroller = page.locator('.mdsh-read');
+	await scroller.evaluate((element) => (element.scrollTop = element.scrollHeight));
+	await expect
+		.poll(() => scroller.evaluate((element) => Math.round(element.scrollTop)))
+		.toBeGreaterThan(1000);
+
+	// Replace the heading nodes without waiting for the 120 ms outline refresh.
+	// This matches a rendered document update: the stored heading elements become
+	// detached. A click in the same frame must still find the new node.
+	await page.evaluate(() => {
+		const root = document.querySelector('.mdsh-preview');
+		root?.querySelectorAll('h2').forEach((heading) => heading.replaceWith(heading.cloneNode(true)));
+		document.querySelectorAll<HTMLButtonElement>('.mdsh-toc button')[1]?.click();
+	});
+
+	await expect(page.locator('.mdsh-preview h2').nth(1)).toBeInViewport();
+	await expect(toc.getByRole('button', { name: 'Section 2', exact: true })).toHaveAttribute(
+		'aria-current',
+		'location'
+	);
+	await testInfo.attach('outline-stale-node', {
+		body: await page.screenshot(),
+		contentType: 'image/png'
+	});
+});
