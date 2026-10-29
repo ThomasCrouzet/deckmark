@@ -211,6 +211,7 @@ export const en = {
 	'settings.shortcutParagraph': 'Paragraph',
 	'settings.shortcutCodeBlock': 'Code block',
 	'settings.shortcutHardBreak': 'Hard line break',
+	'settings.shortcutInsertIndentation': 'Insert indentation',
 	'settings.shortcutNewListItem': 'New list item',
 	'settings.shortcutIndentListItem': 'Indent list item',
 	'settings.shortcutOutdentListItem': 'Outdent list item',

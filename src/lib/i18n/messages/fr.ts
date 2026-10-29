@@ -209,6 +209,7 @@ export const fr: Record<MessageKey, string> = {
 	'settings.shortcutParagraph': 'Paragraphe',
 	'settings.shortcutCodeBlock': 'Bloc de code',
 	'settings.shortcutHardBreak': 'Saut de ligne forcé',
+	'settings.shortcutInsertIndentation': 'Insérer une indentation',
 	'settings.shortcutNewListItem': 'Nouvel élément de liste',
 	'settings.shortcutIndentListItem': 'Indenter l’élément de liste',
 	'settings.shortcutOutdentListItem': 'Désindenter l’élément de liste',

@@ -259,6 +259,12 @@
 			shortcuts: [formatKbd('⌘⌥7')]
 		},
 		{
+			id: 'insert-indentation',
+			label: t('settings.shortcutInsertIndentation'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: ['Tab']
+		},
+		{
 			id: 'new-list-item',
 			label: t('settings.shortcutNewListItem'),
 			context: t('settings.shortcutEditListContext'),

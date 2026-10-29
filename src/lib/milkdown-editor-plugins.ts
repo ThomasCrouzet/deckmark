@@ -6,4 +6,5 @@ export { commandsCtx, editorViewCtx } from '@milkdown/kit/core';
 export { Plugin, TextSelection } from '@milkdown/kit/prose/state';
 export { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 export { $prose as prosePlugin, $remark as remarkPlugin, replaceAll } from '@milkdown/kit/utils';
+export { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list';
 export { wikiLinkPlugins } from './milkdown-wiki-links';
