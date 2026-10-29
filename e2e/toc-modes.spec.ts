@@ -162,3 +162,43 @@ test('navigates with one click after a render replaces the heading nodes', async
 		contentType: 'image/png'
 	});
 });
+
+test('navigates with one click from the document outline after a render', async ({
+	page
+}, testInfo) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await resetAppState(page);
+	await createFirstFile(page);
+	const fixture = Array.from(
+		{ length: 40 },
+		(_, index) => `## Section ${index + 1}\n\nParagraph ${index + 1} with enough text.`
+	).join('\n\n');
+	await writeSourceContent(page, fixture);
+	await page.locator('button[data-mode="read"]').click();
+	await expect(page.locator('.mdsh-preview h2')).toHaveCount(40);
+	await openPalette(page);
+	await page.getByRole('combobox').fill('Plan du document');
+	await page.keyboard.press('Enter');
+	const outline = page.locator('[data-document-navigation]');
+	await expect(outline.getByRole('button')).toHaveCount(41);
+	const scroller = page.locator('.mdsh-read');
+	await scroller.evaluate((element) => (element.scrollTop = element.scrollHeight));
+	await expect
+		.poll(() => scroller.evaluate((element) => Math.round(element.scrollTop)))
+		.toBeGreaterThan(1000);
+
+	await page.evaluate(() => {
+		const root = document.querySelector('.mdsh-preview');
+		root?.querySelectorAll('h2').forEach((heading) => heading.replaceWith(heading.cloneNode(true)));
+		document
+			.querySelectorAll<HTMLButtonElement>('[data-document-navigation] nav button')[1]
+			?.click();
+	});
+
+	await expect(page.locator('.mdsh-preview h2').nth(1)).toBeInViewport();
+	await expect(outline).toHaveCount(0);
+	await testInfo.attach('outline-panel-stale-node', {
+		body: await page.screenshot(),
+		contentType: 'image/png'
+	});
+});

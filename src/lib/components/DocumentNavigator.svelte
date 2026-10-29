@@ -118,9 +118,17 @@
 			clearHighlights();
 		};
 	});
-	function jump(heading: (typeof headings)[number]) {
-		if (mode === 'source') onLine(heading.line);
-		else focusDocumentHeading(heading, mode === 'wysiwyg');
+	function jump(heading: (typeof headings)[number], index: number) {
+		// Resolve the heading again at click time. A render can replace the nodes
+		// held by the list, and a detached node cannot scroll into view.
+		const fresh =
+			(kind === 'outline'
+				? mode === 'source'
+					? documentHeadings(content)
+					: renderedDocumentHeadings(target())
+				: [])[index] ?? heading;
+		if (mode === 'source') onLine(fresh.line);
+		else focusDocumentHeading(fresh, mode === 'wysiwyg');
 		onClose();
 	}
 </script>
@@ -194,7 +202,7 @@
 			{#each headings as heading, index (index)}<button
 					class="block min-h-10 w-full truncate rounded py-2 pr-3 text-left text-sm text-fg-muted hover:bg-bg-2"
 					style:padding-left={`${heading.level * 12}px`}
-					onclick={() => jump(heading)}>{heading.text || t('toolbar.untitled')}</button
+					onclick={() => jump(heading, index)}>{heading.text || t('toolbar.untitled')}</button
 				>
 			{:else}<p class="p-3 text-xs text-fg-muted">{t('navigation.empty')}</p>{/each}
 		</nav>
