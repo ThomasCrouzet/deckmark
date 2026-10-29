@@ -34,9 +34,9 @@ Feature scenarios cover [split view](testing/split-view.md), [comparisons](testi
 The outline and editor keyboard scenarios in `e2e/toc-modes.spec.ts` and
 `e2e/editor-tab.spec.ts` check two failure modes. A render can replace heading
 nodes before the outline refresh. Tab can move focus and scroll the page instead
-of inserting indentation. Both scenarios run in the browsers listed in
-`playwright.config.ts`. The outline check replaces the heading nodes in the same
-frame as the click, so a detached node cannot hide the failure.
+of inserting indentation. The Tab scenario runs in Chromium, WebKit, and Firefox.
+The outline scenarios run in Chromium. The outline check replaces the heading
+nodes in the same frame as the click, so a detached node cannot hide the failure.
 
 The browser filesystem workflow uses an OPFS file selected by its fixture.
 It verifies cancellation, stale comparison rejection, reload, and a retained local checkpoint.
