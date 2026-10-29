@@ -63,6 +63,9 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		await expect(preview).toContainText('Saved from the visual editor.');
 		await verifyReading();
 
+		// Wait for the 400 ms save delay before the reload. A reload during the
+		// delay can keep the previous draft and hide a real persistence failure.
+		await expect(page.locator('#app-statusbar')).toContainText('Brouillons locaux : enregistré');
 		await page.reload();
 		await expect(preview).toContainText('Saved from the visual editor.');
 		await verifyReading();
