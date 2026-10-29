@@ -5,6 +5,14 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.0.3](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.2...v2.0.3) (2026-10-29)
+
+
+### Bug Fixes
+
+* **deps:** migrate to SvelteKit 3 ([#166](https://github.com/ThomasCrouzet/mdsh/issues/166)) ([2fc5ff6](https://github.com/ThomasCrouzet/mdsh/commit/2fc5ff655be73a8dd9418945247c1db671c87059))
+* single-click outline navigation and Tab indentation ([#169](https://github.com/ThomasCrouzet/mdsh/issues/169)) ([8bd117d](https://github.com/ThomasCrouzet/mdsh/commit/8bd117daf79d14d0844ea03a06408129c388ce65))
+
 ## [2.0.2](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.1...v2.0.2) (2026-10-26)
 
 
