@@ -1,10 +1,10 @@
 // i18n store (singleton runes), modeled on `themeStore`: importable everywhere
-// (`import { t } from '$lib/i18n'`). The default is `DEFAULT_LOCALE` (English)
+// (`import { t } from '#lib/i18n'`). The default is `DEFAULT_LOCALE` (English)
 // at module load, which guarantees the first client render matches the server /
 // prerender render (no hydration mismatch). The actual locale (persisted /
 // detected) is applied on mount via `load()`, like `themeStore.load()`.
 
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { en, type MessageKey } from './messages/en';
 import { fr } from './messages/fr';
 import {

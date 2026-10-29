@@ -6,17 +6,17 @@
 	// All local (Dexie), no network.
 
 	import { tick } from 'svelte';
-	import { browser } from '$app/environment';
-	import { t } from '$lib/i18n';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { filesStore } from '$lib/files.svelte';
-	import { promptStore } from '$lib/prompt.svelte';
-	import { notify } from '$lib/notify.svelte';
-	import { reportError } from '$lib/report';
-	import { reportPersistenceError } from '$lib/storage';
-	import { listVersions } from '$lib/version-history';
-	import { formatSaveAge } from '$lib/stats';
-	import type { VersionRow } from '$lib/db';
+	import { browser } from '$app/env';
+	import { t } from '#lib/i18n/index.js';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { promptStore } from '#lib/prompt.svelte.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { reportError } from '#lib/report.js';
+	import { reportPersistenceError } from '#lib/storage.js';
+	import { listVersions } from '#lib/version-history.js';
+	import { formatSaveAge } from '#lib/stats.js';
+	import type { VersionRow } from '#lib/db.js';
 	import { History, X, RotateCcw } from '@lucide/svelte';
 	import DiffView from './DiffView.svelte';
 

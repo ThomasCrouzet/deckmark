@@ -1,5 +1,7 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
+
 import { db, newId, type DraftRow, type ProjectAssetRow, type ProjectRow } from './db';
+
 import { filesStore } from './files.svelte';
 import {
 	projectPath,
@@ -68,8 +70,10 @@ export async function createProject(name: string): Promise<ProjectRow> {
 
 export async function createProjectDocument(projectId: string, path: string): Promise<string> {
 	const relativePath = projectPath(/\.(md|markdown|mdx|txt)$/i.test(path) ? path : `${path}.md`);
+
 	if (relativePath.split('/')[0]!.toLowerCase() === '.mdsh')
 		throw new Error('Reserved project path');
+
 	await filesStore.flushPendingAwait();
 	const now = Date.now();
 	const row: DraftRow = {
@@ -173,6 +177,7 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 						if (candidates.length !== 1 || candidates[0]!.id !== id || target === id) return target;
 						const suffix = target.match(/#.*$/)?.[0] ?? '';
 						const next = relativeDestination(from === oldPath ? newPath : from, newPath);
+
 						return (
 							(/\.(?:md|markdown|mdx|txt)$/i.test(target.split('#', 1)[0]!)
 								? next

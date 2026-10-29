@@ -1,7 +1,7 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { coreCommands } from './commands';
-import { formatKbd, isMac } from '$lib/platform';
-import { isDesktop } from '$lib/desktop';
+import { formatKbd, isMac } from '#lib/platform.js';
+import { isDesktop } from '#lib/desktop.js';
 
 export interface ShortcutBinding {
 	key: string;
@@ -23,6 +23,7 @@ export function isReservedShortcut(binding: ShortcutBinding, desktop: boolean): 
 function isBinding(value: unknown): value is ShortcutBinding {
 	if (!value || typeof value !== 'object') return false;
 	const binding = value as Partial<ShortcutBinding>;
+
 	return (
 		typeof binding.key === 'string' &&
 		/^[a-z0-9/,.;]$/.test(binding.key) &&
@@ -55,6 +56,7 @@ class KeyboardStore {
 	match(event: KeyboardEvent) {
 		return coreCommands.find((command) => {
 			const binding = this.binding(command.id);
+
 			return (
 				binding &&
 				binding.shift === event.shiftKey &&

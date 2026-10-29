@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { tick, onMount } from 'svelte';
-	import { browser } from '$app/environment';
-	import { filesStore } from '$lib/files.svelte';
-	import { focusTrap } from '$lib/a11y/focusTrap';
+	import { browser } from '$app/env';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import {
 		FilePlus,
 		Upload,
@@ -15,10 +15,10 @@
 		CircleX,
 		AlertTriangle
 	} from '@lucide/svelte';
-	import { keyboardStore } from '$lib/ui/keyboard.svelte';
-	import { spinnerStore } from '$lib/spinner.svelte';
-	import { t } from '$lib/i18n';
-	import { promptStore } from '$lib/prompt.svelte';
+	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { spinnerStore } from '#lib/spinner.svelte.js';
+	import { t } from '#lib/i18n/index.js';
+	import { promptStore } from '#lib/prompt.svelte.js';
 	import BrandLogo from './BrandLogo.svelte';
 	import TrashPanel from './TrashPanel.svelte';
 	import { ArrowUp, ArrowDown } from '@lucide/svelte';

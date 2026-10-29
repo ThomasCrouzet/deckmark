@@ -4,7 +4,7 @@ import {
 	runPaletteDirectoryImport,
 	runPaletteSaveWorkspace
 } from './palette-ops';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 describe('runPaletteDirectoryImport', () => {
 	const showSpinner = vi.fn(() => vi.fn());

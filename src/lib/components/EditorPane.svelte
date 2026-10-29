@@ -11,15 +11,15 @@
 	// belonging to this component.
 	//
 	// Load optional editor views when the selected mode needs them.
-	import SourceEditor from '$lib/components/SourceEditor.svelte';
-	import Welcome from '$lib/components/Welcome.svelte';
+	import SourceEditor from '#lib/components/SourceEditor.svelte';
+	import Welcome from '#lib/components/Welcome.svelte';
 	import { Upload } from '@lucide/svelte';
 	import { onMount } from 'svelte';
-	import type { EditMode, FileItem } from '$lib/types';
-	import type { createEditorWidth } from '$lib/ui/editor-width.svelte';
-	import type { createModals } from '$lib/ui/modals.svelte';
-	import { t } from '$lib/i18n';
-	import { readPreference, writePreference } from '$lib/preferences';
+	import type { EditMode, FileItem } from '#lib/types.js';
+	import type { createEditorWidth } from '#lib/ui/editor-width.svelte.js';
+	import type { createModals } from '#lib/ui/modals.svelte.js';
+	import { t } from '#lib/i18n/index.js';
+	import { readPreference, writePreference } from '#lib/preferences.js';
 
 	interface Props {
 		libraryCount?: number;
@@ -119,7 +119,7 @@
 				onLine={(line) => sourceEditorEl?.goToLine(line)}
 				onClose={closeTool}
 			/>
-		{:catch}<p class="p-2 text-sm text-danger">
+		{:catch _error}<p class="p-2 text-sm text-danger">
 				{t('source.loadErrorTitle')}
 				<button class="underline" onclick={onCloseTool}>{t('settings.close')}</button>
 			</p>{/await}
@@ -152,7 +152,7 @@
 										onSourceEditorRef={(ref) => (sourceEditorEl = ref)}
 										{onArticleRef}
 									/>
-								{:catch}<p role="alert" class="p-4 text-danger">
+								{:catch _error}<p role="alert" class="p-4 text-danger">
 										{t('source.loadErrorTitle')}
 									</p>{/await}
 							{:else}
@@ -170,7 +170,9 @@
 			{:else if mode === 'read'}
 				{#await import('./ReadView.svelte') then module}
 					<module.default fileId={activeFile.id} content={activeFile.content} {onArticleRef} />
-				{:catch}<p role="alert" class="p-4 text-danger">{t('source.loadErrorTitle')}</p>{/await}
+				{:catch _error}<p role="alert" class="p-4 text-danger">
+						{t('source.loadErrorTitle')}
+					</p>{/await}
 			{:else}
 				{#await import('./Editor.svelte') then module}
 					<module.default
@@ -179,7 +181,9 @@
 						onChange={onEditorChange}
 						onFlush={onEditorFlush}
 					/>
-				{:catch}<p role="alert" class="p-4 text-danger">{t('editor.loadErrorTitle')}</p>{/await}
+				{:catch _error}<p role="alert" class="p-4 text-danger">
+						{t('editor.loadErrorTitle')}
+					</p>{/await}
 			{/if}
 
 			<!-- Resize handle (desktop only); role presentation because

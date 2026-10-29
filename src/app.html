@@ -49,12 +49,8 @@
 			rel="apple-touch-icon-precomposed"
 			href="%sveltekit.assets%/apple-touch-icon-180x180.png"
 		/>
-		<!-- §1.2 - @vite-pwa/sveltekit generates and precaches `manifest.webmanifest`,
-		     but it does not insert this link. Without the link, browsers ignore the
-		     installation prompt, file_handlers, share_target, launch_handler,
-		     shortcuts, and standalone mode. Put the link in this template so all HTML
-		     outputs include it, including the SPA fallback. `%sveltekit.assets%`
-		     resolves the GitHub Pages subpath. -->
+		<!-- Keep the manifest link in every HTML output, including the SPA fallback.
+		     `%sveltekit.assets%` resolves the GitHub Pages subpath. -->
 		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
 		<script type="application/ld+json">
 			{

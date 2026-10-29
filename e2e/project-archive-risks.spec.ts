@@ -89,23 +89,35 @@ test('rename encodes parentheses and preserves protected Markdown examples', asy
 	const zip = new (await import('jszip')).default();
 	zip.file('README.md', source);
 	zip.file('target.md', '# Target');
-	const panel = await importArchive(
+	let panel = await importArchive(
 		page,
 		await zip.generateAsync({ type: 'nodebuffer' }),
 		'protected-links.zip',
 		info
 	);
 	await panel.getByRole('button', { name: 'Ouvrir target.md', exact: true }).click();
+	await expect(page.locator('.cm-content')).toBeFocused();
+	panel = await openProjects(page);
+	const target = panel.getByRole('button', { name: 'Ouvrir target.md', exact: true });
+	await target.focus();
+	await page.keyboard.press('Enter');
 	const name = page.locator('#app-toolbar input');
 	await name.fill('target)');
 	await name.press('Enter');
 	await expect(name).toHaveValue('target)');
 	await expect
-		.poll(async () =>
-			(await readProjectDocuments(page)).find((row) => row.relativePath === 'README.md')
-		)
+		.poll(async () => {
+			const documents = await readProjectDocuments(page);
+			return {
+				renamed: documents.some((row) => row.relativePath === 'target).md'),
+				readme: documents.find((row) => row.relativePath === 'README.md')
+			};
+		})
 		.toMatchObject({
-			content: source.replace('[Live](target.md)', '[Live](target%29.md)')
+			renamed: true,
+			readme: {
+				content: source.replace('[Live](target.md)', '[Live](target%29.md)')
+			}
 		});
 });
 

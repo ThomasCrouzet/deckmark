@@ -23,6 +23,7 @@ pre-push:
   commands:
     repository-policy:
       run: 'policy_check="${REPOSITORY_POLICY_CHECK:-$HOME/.config/git/repository-policy/policy-check.sh}"; [ ! -x "$policy_check" ] || "$policy_check" push'
+      use_stdin: true
     typecheck:
       run: npm run check
     tests:

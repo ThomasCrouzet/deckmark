@@ -6,10 +6,10 @@
 	// Clicking a node opens the file. Lazy-loaded (modal).
 
 	import { tick, untrack } from 'svelte';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { t } from '$lib/i18n';
-	import { filesStore } from '$lib/files.svelte';
-	import { buildGraph, computeLayout, type PositionedNode, type GraphEdge } from '$lib/graph';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { t } from '#lib/i18n/index.js';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { buildGraph, computeLayout, type PositionedNode, type GraphEdge } from '#lib/graph.js';
 	import { Workflow, X } from '@lucide/svelte';
 
 	interface Props {

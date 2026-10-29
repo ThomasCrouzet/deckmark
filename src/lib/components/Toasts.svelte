@@ -7,8 +7,8 @@
 	// (assertive announcement) and `role="status"` for success/info (polite
 	// announcement). The icon is purely decorative (`aria-hidden`) - the
 	// message carries the meaning.
-	import { notify, type ToastLevel } from '$lib/notify.svelte';
-	import { t } from '$lib/i18n';
+	import { notify, type ToastLevel } from '#lib/notify.svelte.js';
+	import { t } from '#lib/i18n/index.js';
 	import { TriangleAlert, CircleCheck, Info, X } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 

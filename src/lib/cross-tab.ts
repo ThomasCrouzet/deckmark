@@ -14,7 +14,7 @@
 // only publishes/receives messages. Conservative choice: we never merge
 // automatically - we reload a non-dirty draft, we notify a dirty conflict.
 
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 
 const CHANNEL_NAME = 'mdsh';
 

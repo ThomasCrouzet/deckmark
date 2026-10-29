@@ -1,4 +1,4 @@
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 // Shared DOMPurify helpers for markdown HTML (reading / export / print)
 // and the WYSIWYG Mermaid preview. Both paths must neutralize remote

@@ -1,4 +1,4 @@
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 function headingLabel(level: number): string {
 	// Crepe searches the label text. Keep both aliases in each translated label.

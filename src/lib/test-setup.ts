@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import '@testing-library/jest-dom/vitest';
-import { i18n } from '$lib/i18n';
+import { i18n } from '#lib/i18n/index.js';
 
 // Default test locale = French. The app default is English (i18n layer), but
 // the content assertions of the tests target the historical French strings. The

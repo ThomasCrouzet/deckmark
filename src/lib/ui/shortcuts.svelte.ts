@@ -6,11 +6,11 @@
 //
 // Logic extracted from `+page.svelte` (L630-695).
 
-import { isDiskLinkingAvailable } from '$lib/disk-sync';
+import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 import { keyboardStore } from './keyboard.svelte';
-import type { EditMode } from '$lib/types';
-import { isMac } from '$lib/platform';
-import { isDesktop } from '$lib/desktop';
+import type { EditMode } from '#lib/types.js';
+import { isMac } from '#lib/platform.js';
+import { isDesktop } from '#lib/desktop.js';
 
 export interface ShortcutCallbacks {
 	// Files

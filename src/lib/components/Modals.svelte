@@ -8,10 +8,10 @@
 	// BUNDLE CONSTRAINT: no static import of a modal here. All
 	// components are mounted via `{#await modals.loadXxx() then Cmp}`.
 
-	import type { EditMode } from '$lib/types';
-	import type { createModals } from '$lib/ui/modals.svelte';
-	import type { createEditorWidth } from '$lib/ui/editor-width.svelte';
-	import type { createUiPrefs } from '$lib/ui/prefs.svelte';
+	import type { EditMode } from '#lib/types.js';
+	import type { createModals } from '#lib/ui/modals.svelte.js';
+	import type { createEditorWidth } from '#lib/ui/editor-width.svelte.js';
+	import type { createUiPrefs } from '#lib/ui/prefs.svelte.js';
 
 	interface Props {
 		onOpenOutline: () => void;
@@ -89,7 +89,7 @@
 			onOpenGraph={modals.openGraph}
 			onOpenPresentation={modals.openPresentation}
 		/>
-	{:catch}
+	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}
 {/if}
@@ -107,7 +107,7 @@
 			onClose={() => (modals.searchOpen = false)}
 			onOpenHit={modals.handleOpenHit}
 		/>
-	{:catch}
+	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}
 {/if}
@@ -115,7 +115,7 @@
 {#if modals.diskLinksOpen}
 	{#await modals.loadDiskLinksPanel() then DiskLinksPanel}
 		<DiskLinksPanel open={modals.diskLinksOpen} onClose={() => (modals.diskLinksOpen = false)} />
-	{:catch}
+	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}
 {/if}
@@ -123,7 +123,7 @@
 {#if modals.workspacesOpen}
 	{#await modals.loadWorkspacesPanel() then WorkspacesPanel}
 		<WorkspacesPanel open={modals.workspacesOpen} onClose={() => (modals.workspacesOpen = false)} />
-	{:catch}
+	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}
 {/if}
@@ -136,7 +136,7 @@
 			{editorWidth}
 			{prefs}
 		/>
-	{:catch}
+	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}
 {/if}
@@ -144,7 +144,7 @@
 {#if modals.historyOpen}
 	{#await modals.loadHistoryPanel() then VersionHistoryPanel}
 		<VersionHistoryPanel open={modals.historyOpen} onClose={() => (modals.historyOpen = false)} />
-	{:catch}
+	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}
 {/if}
@@ -152,7 +152,7 @@
 {#if modals.graphOpen}
 	{#await modals.loadGraphPanel() then GraphPanel}
 		<GraphPanel open={modals.graphOpen} onClose={() => (modals.graphOpen = false)} />
-	{:catch}
+	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}
 {/if}
@@ -163,7 +163,7 @@
 			open={modals.presentationOpen}
 			onClose={() => (modals.presentationOpen = false)}
 		/>
-	{:catch}
+	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}
 {/if}

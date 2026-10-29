@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { FileItem } from '$lib/types';
-	import { t } from '$lib/i18n';
+	import type { FileItem } from '#lib/types.js';
+	import { t } from '#lib/i18n/index.js';
 	import { Folder, FileText } from '@lucide/svelte';
 
 	let {

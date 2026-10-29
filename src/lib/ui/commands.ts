@@ -1,5 +1,5 @@
-import type { MessageKey } from '$lib/i18n';
-import { formatKbd } from '$lib/platform';
+import type { MessageKey } from '#lib/i18n/index.js';
+import { formatKbd } from '#lib/platform.js';
 
 // Shared metadata for shortcuts, the command palette, and shortcut help.
 export const coreCommands = [

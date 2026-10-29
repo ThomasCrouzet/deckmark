@@ -7,7 +7,7 @@
 // No Svelte runes - directly testable (mockable services).
 // The store keeps only one-liner delegations.
 
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import {
 	exportHTML as exportHTMLService,
 	exportMarkdown as exportMarkdownService,
@@ -15,7 +15,7 @@ import {
 	exportZip as exportZipService
 } from './services/export';
 import { spinnerStore } from './spinner.svelte';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 import { notify } from './notify.svelte';
 import { reportError } from './report';
 import type { FileItem } from './types';

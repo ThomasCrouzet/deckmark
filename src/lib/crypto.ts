@@ -15,7 +15,7 @@
 // IV per encryption, explicit parameters to decrypt without assuming hardcoded
 // constants.
 
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 export const ENVELOPE_VERSION = 1;
 // OWASP 2023 tier for PBKDF2-HMAC-SHA256. The iteration count is stored in the

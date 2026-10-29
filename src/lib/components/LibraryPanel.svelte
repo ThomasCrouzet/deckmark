@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { filesStore } from '$lib/files.svelte';
-	import { t, i18n } from '$lib/i18n';
-	import { normalizeCommandSearch } from '$lib/ui/commands';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { promptStore } from '$lib/prompt.svelte';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { t, i18n } from '#lib/i18n/index.js';
+	import { normalizeCommandSearch } from '#lib/ui/commands.js';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { promptStore } from '#lib/prompt.svelte.js';
 	import { X, Search, Trash2 } from '@lucide/svelte';
 	let { onClose }: { onClose: () => void } = $props();
 	let input: HTMLInputElement | undefined = $state();

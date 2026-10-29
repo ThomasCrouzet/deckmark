@@ -9,18 +9,18 @@
 	import type { Crepe as CrepeType } from '@milkdown/crepe';
 	import { onDestroy, untrack } from 'svelte';
 	import { renderMermaidPreview } from '../milkdown-mermaid-preview';
-	import { reportError } from '$lib/report';
-	import { i18n, t } from '$lib/i18n';
-	import { blockEditLabels, toolbarLabels } from '$lib/editor-labels';
-	import { notify } from '$lib/notify.svelte';
-	import { filesStore } from '$lib/files.svelte';
+	import { reportError } from '#lib/report.js';
+	import { i18n, t } from '#lib/i18n/index.js';
+	import { blockEditLabels, toolbarLabels } from '#lib/editor-labels.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { filesStore } from '#lib/files.svelte.js';
 	import {
 		ImageMarkdownRoundTrip,
 		normalizeImageTitlesForMilkdown
-	} from '$lib/render/image-markdown';
-	import { editorStateCache } from '$lib/editor-state';
-	import { stripFrontmatter } from '$lib/frontmatter';
-	import { themeStore } from '$lib/ui/theme.svelte';
+	} from '#lib/render/image-markdown.js';
+	import { editorStateCache } from '#lib/editor-state.js';
+	import { stripFrontmatter } from '#lib/frontmatter.js';
+	import { themeStore } from '#lib/ui/theme.svelte.js';
 
 	interface Props {
 		fileId: string;
@@ -82,7 +82,7 @@
 		const position = editorStateCache.getPosition(id, 'wysiwyg');
 		if (!position) return;
 		try {
-			const { editorViewCtx, TextSelection } = await import('$lib/milkdown-editor-plugins');
+			const { editorViewCtx, TextSelection } = await import('#lib/milkdown-editor-plugins.js');
 			if (token !== mountToken) return;
 			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
 			const maxPosition = editorView.state.doc.content.size;
@@ -121,8 +121,8 @@
 			{ editorImageSource, embedImageFile, ImageFileError, MAX_IMAGE_BYTES }
 		] = await Promise.all([
 			loadCrepeModule(),
-			import('$lib/milkdown-editor-plugins'),
-			import('$lib/render/image-media')
+			import('#lib/milkdown-editor-plugins.js'),
+			import('#lib/render/image-media.js')
 		]);
 		if (token !== mountToken) return;
 		// Keep YAML outside the Markdown editor so it cannot become headings or links.
@@ -164,7 +164,7 @@
 			blockConfirmButton: t('prompt.confirm'),
 			inlineConfirmButton: t('prompt.confirm'),
 			proxyDomURL: async (source: string) => {
-				const { projectContextFor, projectImageSource } = await import('$lib/project-media');
+				const { projectContextFor, projectImageSource } = await import('#lib/project-media.js');
 				try {
 					return (
 						(await projectImageSource(source, await projectContextFor(idForMount))) ??
@@ -179,8 +179,8 @@
 					const document = filesStore.library.find((document) => document.id === idForMount);
 					if (document?.projectId && document.relativePath) {
 						const [{ addProjectImage }, { relativeDestination }] = await Promise.all([
-							import('$lib/projects'),
-							import('$lib/project-paths')
+							import('#lib/projects.js'),
+							import('#lib/project-paths.js')
 						]);
 						const path = await addProjectImage(document.projectId, file);
 						const source = relativeDestination(document.relativePath, path);

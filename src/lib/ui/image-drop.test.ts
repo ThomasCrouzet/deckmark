@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { appendImagesToActive, MAX_IMAGE_BYTES, buildDropHandlers } from './image-drop.svelte';
-import { notify } from '$lib/notify.svelte';
-import { i18n } from '$lib/i18n';
+import { notify } from '#lib/notify.svelte.js';
+import { i18n } from '#lib/i18n/index.js';
 
 const PNG_BYTES = Uint8Array.from(
 	atob(

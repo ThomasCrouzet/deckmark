@@ -1,5 +1,5 @@
-import { replaceInFiles } from '$lib/replace';
-import type { ReplaceWorkerRequest } from '$lib/replace-worker';
+import { replaceInFiles } from '#lib/replace.js';
+import type { ReplaceWorkerRequest } from '#lib/replace-worker.js';
 
 self.addEventListener('message', (event: MessageEvent<ReplaceWorkerRequest>) => {
 	const { files, query, replacement, opts } = event.data;

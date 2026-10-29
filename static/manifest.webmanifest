@@ -1,0 +1,93 @@
+{
+	"name": "mdsh - local-first markdown editor",
+	"short_name": "mdsh",
+	"description": "A local-first offline Markdown workspace with light and dark themes.",
+	"theme_color": "#0b0c0d",
+	"background_color": "#0b0c0d",
+	"display": "standalone",
+	"orientation": "any",
+	"start_url": ".",
+	"scope": ".",
+	"lang": "en",
+	"categories": ["productivity", "utilities"],
+	"icons": [
+		{ "src": "pwa-64x64.png", "sizes": "64x64", "type": "image/png" },
+		{ "src": "pwa-192x192.png", "sizes": "192x192", "type": "image/png" },
+		{ "src": "pwa-512x512.png", "sizes": "512x512", "type": "image/png" },
+		{
+			"src": "maskable-icon-512x512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		}
+	],
+	"screenshots": [
+		{
+			"src": "screenshots/mode-wysiwyg.webp",
+			"sizes": "2560x1600",
+			"type": "image/webp",
+			"form_factor": "wide",
+			"label": "WYSIWYG editing mode with math, code and a populated sidebar"
+		},
+		{
+			"src": "screenshots/mode-source.webp",
+			"sizes": "2560x1600",
+			"type": "image/webp",
+			"form_factor": "wide",
+			"label": "Source mode with markdown syntax highlighting"
+		},
+		{
+			"src": "screenshots/mode-read.webp",
+			"sizes": "2560x1600",
+			"type": "image/webp",
+			"form_factor": "wide",
+			"label": "Reading mode with a floating table of contents and backlinks"
+		},
+		{
+			"src": "screenshots/palette.webp",
+			"sizes": "2560x1600",
+			"type": "image/webp",
+			"form_factor": "wide",
+			"label": "Command palette with keyboard shortcuts"
+		}
+	],
+	"shortcuts": [
+		{
+			"name": "New file",
+			"short_name": "New",
+			"description": "Create a new markdown draft",
+			"url": "./?action=new",
+			"icons": [{ "src": "pwa-192x192.png", "sizes": "192x192" }]
+		},
+		{
+			"name": "Search",
+			"short_name": "Search",
+			"description": "Open cross-file search",
+			"url": "./?action=search",
+			"icons": [{ "src": "pwa-192x192.png", "sizes": "192x192" }]
+		},
+		{
+			"name": "Command palette",
+			"short_name": "Commands",
+			"description": "Open the command palette",
+			"url": "./?action=palette",
+			"icons": [{ "src": "pwa-192x192.png", "sizes": "192x192" }]
+		}
+	],
+	"file_handlers": [
+		{
+			"action": "./",
+			"accept": {
+				"text/markdown": [".md", ".markdown", ".mdx"],
+				"text/plain": [".txt"]
+			}
+		}
+	],
+	"share_target": {
+		"action": "./",
+		"method": "GET",
+		"params": { "title": "title", "text": "text", "url": "url" }
+	},
+	"launch_handler": { "client_mode": "focus-existing" },
+	"handle_links": "preferred"
+}

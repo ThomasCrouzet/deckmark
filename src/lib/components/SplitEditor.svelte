@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
-	import ReadView from '$lib/components/ReadView.svelte';
-	import SourceEditor from '$lib/components/SourceEditor.svelte';
-	import { documentHeadings } from '$lib/document-navigation';
-	import { readPreference, writePreference } from '$lib/preferences';
-	import { t } from '$lib/i18n';
+	import ReadView from '#lib/components/ReadView.svelte';
+	import SourceEditor from '#lib/components/SourceEditor.svelte';
+	import { documentHeadings } from '#lib/document-navigation.js';
+	import { readPreference, writePreference } from '#lib/preferences.js';
+	import { t } from '#lib/i18n/index.js';
 
 	interface Props {
 		fileId: string;

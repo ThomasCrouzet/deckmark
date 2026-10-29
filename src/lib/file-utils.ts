@@ -1,4 +1,4 @@
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 export function isMarkdownFile(f: { name: string; type?: string }): boolean {
 	const name = f.name.toLowerCase();

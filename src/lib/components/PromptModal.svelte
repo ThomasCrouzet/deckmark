@@ -20,8 +20,8 @@
 	// (prompt mode) or `onResolve(true|false)` (confirm mode).
 
 	import { tick } from 'svelte';
-	import { focusTrap } from '$lib/a11y/focusTrap';
-	import { t } from '$lib/i18n';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { t } from '#lib/i18n/index.js';
 	import { X } from '@lucide/svelte';
 
 	interface Props {

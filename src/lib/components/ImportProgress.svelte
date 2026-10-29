@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { filesStore } from '$lib/files.svelte';
-	import { t, type MessageKey } from '$lib/i18n';
-	import { formatStorageBytes } from '$lib/storage';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { t, type MessageKey } from '#lib/i18n/index.js';
+	import { formatStorageBytes } from '#lib/storage.js';
 	let { blocked = false }: { blocked?: boolean } = $props();
 	let dismissed = $state(false);
 	$effect(() => {

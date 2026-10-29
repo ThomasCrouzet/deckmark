@@ -20,7 +20,7 @@ import {
 //  - `onCreate(name, content)` → FileItem   (delegates to createNew)
 //  - `scheduleSave(id)` → void              (schedules Dexie persistence)
 
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { IMPORT_LIMITS } from './config';
 import { isDesktop } from './desktop';
 import {
@@ -54,7 +54,7 @@ import {
 	tauriWritePath,
 	type NativeDiskGrant
 } from './disk-tauri';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 import { notify } from './notify.svelte';
 import { diskConflictStore } from './disk-conflict.svelte';
 import { createCheckpoint } from './version-history';
@@ -119,6 +119,7 @@ async function openFromDiskFsa(deps: DiskSyncDeps, options: ImportOptions): Prom
 			const content = await session.read(file);
 			if (content === null) {
 				if (session.cancelled) break;
+
 				reportError(
 					`open file "${file.name}"`,
 					new ImportReadError(session.report.issues.at(-1)!.reason)
@@ -364,8 +365,10 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 				notify.info(t('disk.saveCancelled', { name }));
 				return false;
 			}
+
 			if (!(await checkpointDiskBranch(id, name, resolution === 'reload' ? content : diskContent)))
 				return false;
+
 			if (
 				!sameDiskSource(id, file, content, name, deps) ||
 				(await revisionForFile(await handle.getFile())) !== onDiskRevision
@@ -496,6 +499,7 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 					notify.info(t('disk.saveCancelled', { name }));
 					return false;
 				}
+
 				if (
 					!(await checkpointDiskBranch(
 						id,
@@ -504,6 +508,7 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 					))
 				)
 					return false;
+
 				if (!sameDiskSource(id, file, content, name, deps)) {
 					notify.error(t('files.otherTabChanges'));
 					return false;

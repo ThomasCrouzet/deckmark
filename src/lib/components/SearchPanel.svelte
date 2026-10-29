@@ -1,18 +1,18 @@
 <script lang="ts">
 	import { tick, onMount, untrack } from 'svelte';
-	import { browser } from '$app/environment';
-	import { filesStore } from '$lib/files.svelte';
-	import { t, type MessageKey } from '$lib/i18n';
-	import { promptStore } from '$lib/prompt.svelte';
-	import { notify } from '$lib/notify.svelte';
-	import { reportError } from '$lib/report';
-	import { reportPersistenceError } from '$lib/storage';
-	import { commitReplacements } from '$lib/replacement-commit';
-	import { replaceInFilesAsync } from '$lib/replace-worker';
-	import type { Hit } from '$lib/types';
-	import type { SearchRequest, SearchResponse } from '$lib/workers/search.worker';
-	import { corpusFingerprint, SEARCH_MAX_HITS } from '$lib/search-core';
-	import { focusTrap } from '$lib/a11y/focusTrap';
+	import { browser } from '$app/env';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { t, type MessageKey } from '#lib/i18n/index.js';
+	import { promptStore } from '#lib/prompt.svelte.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { reportError } from '#lib/report.js';
+	import { reportPersistenceError } from '#lib/storage.js';
+	import { commitReplacements } from '#lib/replacement-commit.js';
+	import { replaceInFilesAsync } from '#lib/replace-worker.js';
+	import type { Hit } from '#lib/types.js';
+	import type { SearchRequest, SearchResponse } from '#lib/workers/search.worker.js';
+	import { corpusFingerprint, SEARCH_MAX_HITS } from '#lib/search-core.js';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { Search, X, CaseSensitive, Regex, WholeWord, Replace } from '@lucide/svelte';
 	import DiffView from './DiffView.svelte';
 
@@ -110,7 +110,7 @@
 	}
 	function createWorker(): void {
 		try {
-			worker = new Worker(new URL('$lib/workers/search.worker.ts', import.meta.url), {
+			worker = new Worker(new URL('../workers/search.worker.ts', import.meta.url), {
 				type: 'module'
 			});
 		} catch (error) {
@@ -349,6 +349,7 @@
 	function previewIsCurrent(preview: ReplacePreview): boolean {
 		return preview.files.every((planned) => {
 			const current = filesStore.library.find((file) => file.id === planned.id);
+
 			return (
 				current?.name === planned.name &&
 				current.content === planned.before &&

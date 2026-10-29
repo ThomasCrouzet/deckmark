@@ -1,7 +1,7 @@
 import { ImportSession, type ImportOptions, type ImportReport } from './import-limits';
 import { readPreference, writePreference } from './preferences';
 import { IMPORT_LIMITS } from './config';
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { db, newId } from './db';
 import type { DraftRow } from './db';
 import type { FileItem, TrashedFile } from './types';
@@ -26,7 +26,9 @@ import {
 	unlinkFromDisk as diskUnlinkFromDisk,
 	refreshBrokenLinks as diskRefreshBrokenLinks
 } from './disk-sync';
+
 import { isMarkdownFile, normalizeRename, uniqueName, stripMdExtension } from './file-utils';
+
 import {
 	exportMarkdown as exportMarkdownOp,
 	exportAllZip as exportAllZipOp,
@@ -45,7 +47,7 @@ import type { ReplaceOptions } from './replace';
 import { replaceInFilesAsync } from './replace-worker';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
 import { handleCrossTabPolicy } from './cross-tab-policy';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 import { notify } from './notify.svelte';
 import { DEMO_DOCS } from './demo-doc';
 import { toggleSelection, rangeSelection, clearSelection } from './selection';
@@ -88,6 +90,7 @@ class FilesStore {
 
 	requiresRenderConfirmation(id: string): boolean {
 		const file = this.files.find((file) => file.id === id);
+
 		return (
 			!!file &&
 			file.content.length >= IMPORT_LIMITS.largeDocumentChars &&
@@ -856,7 +859,10 @@ class FilesStore {
 					),
 					content: entry.file.content,
 					...(entry.file.projectId
-						? { projectId: entry.file.projectId, relativePath: entry.file.relativePath }
+						? {
+								projectId: entry.file.projectId,
+								relativePath: entry.file.relativePath
+							}
 						: {}),
 					createdAt: entry.file.createdAt,
 					updatedAt: entry.file.updatedAt,
@@ -1062,6 +1068,7 @@ class FilesStore {
 			if (!current) return false;
 			if (current.linkedToDisk && !(await renameOnDisk(id, normalized, this.diskDeps)))
 				return false;
+
 			this.syncDiskName(id, normalized);
 			for (const change of changes) {
 				// Use the latest text if an edit occurred during native I/O.
@@ -1353,6 +1360,7 @@ class FilesStore {
 			results.every((result) => {
 				const before = slices.find((file) => file.id === result.id);
 				const current = this.library.find((file) => file.id === result.id);
+
 				return (
 					before && current && before.content === current.content && before.name === current.name
 				);

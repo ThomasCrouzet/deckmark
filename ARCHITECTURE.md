@@ -9,9 +9,9 @@ mdsh has no server. Dexie stores drafts in IndexedDB. The File System Access API
 edits disk files in place. Exports are plain files. The PWA must work offline on
 its first use, before a previous online visit can fill browser caches.
 
-The pre-1.0 hardening pass broke this guarantee. The precache transform in
-`vite.config.ts` converts Workbox build URLs to requested browser URLs. But
-the SPA fallback used `/mdsh` instead of the served `/mdsh/` path. A new install
+The pre-1.0 hardening pass broke this guarantee. The post-build step in
+`scripts/generate-service-worker.mjs` converts Workbox URLs to requested browser URLs.
+The SPA fallback used `/mdsh` instead of the served `/mdsh/` path. A new install
 could not match its navigation request to the precache key. `navigateFallback`
 then returned a blank offline shell. With an empty base path, the same transform
 produced an empty precache.

@@ -1,7 +1,7 @@
 import { ImportSession, type ImportOptions, type ImportReport } from './import-limits';
 import { IMPORT_LIMITS } from './config';
-import { browser } from '$app/environment';
-import { t } from '$lib/i18n';
+import { browser } from '$app/env';
+import { t } from '#lib/i18n/index.js';
 import { getDiskLinkEpoch, LEGACY_DISK_LINK_EPOCH } from './db';
 import {
 	isPathLinkRecord,
@@ -30,7 +30,12 @@ export interface PathLinkWithEpoch {
 
 /** Unified disk link entry for DiskLinksPanel / broken-link checks. */
 export type StoredDiskLink =
-	| { id: string; kind: 'fsa'; handle: FileSystemFileHandle; label: string }
+	| {
+			id: string;
+			kind: 'fsa';
+			handle: FileSystemFileHandle;
+			label: string;
+	  }
 	| { id: string; kind: 'path'; path: string; label: string };
 
 const HANDLE_DB = 'mdsh-fs';
@@ -198,6 +203,7 @@ function matchesEpoch(value: unknown, epoch: string): boolean {
 	if (isStoredFsaLinkRecord(value)) return value.epoch === epoch;
 	if (isPathLinkRecord(value)) {
 		const stored = value as StoredPathLinkRecord;
+
 		return (
 			stored.epoch === epoch || (stored.epoch === undefined && epoch === LEGACY_DISK_LINK_EPOCH)
 		);

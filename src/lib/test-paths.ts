@@ -1,2 +1,2 @@
-export const base = '';
-export const assets = '';
+export const asset = (path: string) => `/${path}`;
+export const resolve = (path: string) => `/${path}`;

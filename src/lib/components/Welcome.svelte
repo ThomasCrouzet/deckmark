@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FilePlus, Upload, Compass, FolderOpen } from '@lucide/svelte';
-	import { keyboardStore } from '$lib/ui/keyboard.svelte';
-	import { t } from '$lib/i18n';
+	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { t } from '#lib/i18n/index.js';
 	import BrandLogo from './BrandLogo.svelte';
 
 	interface Props {

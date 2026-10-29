@@ -10,11 +10,11 @@
 // Note: the store never touches the `drafts` rows directly - it manipulates the
 // "open/active" state via `filesStore`. The files themselves stay in the DB.
 
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { db, newId, type WorkspaceRow } from './db';
 import { filesStore } from './files.svelte';
 import { reportPersistenceError } from './storage';
-import { t } from '$lib/i18n';
+import { t } from '#lib/i18n/index.js';
 
 class WorkspaceStore {
 	workspaces = $state<WorkspaceRow[]>([]);

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n/index.js';
 	import {
 		documentHeadings,
 		documentMatches,
 		focusDocumentHeading,
 		renderedDocumentHeadings,
 		type DocumentHeading
-	} from '$lib/document-navigation';
+	} from '#lib/document-navigation.js';
 	import { X, ArrowUp, ArrowDown } from '@lucide/svelte';
 	let {
 		kind,

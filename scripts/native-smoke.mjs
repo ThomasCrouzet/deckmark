@@ -780,7 +780,7 @@ try {
 		const inspector = join(temp, 'pdf-inspector');
 		execFileSync('swiftc', ['-O', resolve('scripts/inspect-native-pdf.swift'), '-o', inspector], {
 			stdio: 'inherit',
-			timeout: 60_000
+			timeout: 180_000
 		});
 		const inspect = (directory) => {
 			mkdirSync(directory, { recursive: true });

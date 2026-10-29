@@ -2,7 +2,7 @@
 	"ci": {
 		"collect": {
 			"staticDistDir": "./build",
-			"url": ["http://localhost/index.html"],
+			"url": ["http://localhost/"],
 			"numberOfRuns": 3,
 			"settings": {
 				"preset": "desktop",

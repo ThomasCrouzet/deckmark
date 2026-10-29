@@ -12,16 +12,16 @@
 
 	import { tick } from 'svelte';
 	import LoadError from './LoadError.svelte';
-	import { reportPersistenceError } from '$lib/storage';
-	import { browser } from '$app/environment';
-	import { t } from '$lib/i18n';
-	import { keyboardStore } from '$lib/ui/keyboard.svelte';
-	import { filesStore } from '$lib/files.svelte';
-	import { notify } from '$lib/notify.svelte';
-	import { listDiskLinks, checkHandle } from '$lib/fsa';
-	import { isDiskLinkingAvailable } from '$lib/disk-sync';
-	import { tauriCheckPath } from '$lib/disk-tauri';
-	import { focusTrap } from '$lib/a11y/focusTrap';
+	import { reportPersistenceError } from '#lib/storage.js';
+	import { browser } from '$app/env';
+	import { t } from '#lib/i18n/index.js';
+	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { filesStore } from '#lib/files.svelte.js';
+	import { notify } from '#lib/notify.svelte.js';
+	import { listDiskLinks, checkHandle } from '#lib/fsa.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { tauriCheckPath } from '#lib/disk-tauri.js';
+	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import {
 		Link2,
 		Link2Off,

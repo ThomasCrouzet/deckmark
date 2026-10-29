@@ -13,9 +13,9 @@
 // BUNDLE CONSTRAINT: no static import of any modal / rendering lib here.
 // All component imports go through memoized dynamic import()s.
 
-import type { EditMode } from '$lib/types';
-import { reportError } from '$lib/report';
-import { t, type MessageKey } from '$lib/i18n';
+import type { EditMode } from '#lib/types.js';
+import { reportError } from '#lib/report.js';
+import { t, type MessageKey } from '#lib/i18n/index.js';
 
 /**
  * Builds a memoized loader for a lazy modal. An import can fail offline or with
@@ -97,63 +97,63 @@ export function createModals(opts: ModalsOptions) {
 	// (internal to `makeLazyLoader`) is reset on an import failure to allow
 	// a retry, and closes + notifies instead of failing silently.
 	const loadCommandPalette = makeLazyLoader(
-		() => import('$lib/components/CommandPalette.svelte'),
+		() => import('#lib/components/CommandPalette.svelte'),
 		() => {
 			paletteOpen = false;
 		},
 		'modals.labelPalette'
 	);
 	const loadLibrary = makeLazyLoader(
-		() => import('$lib/components/LibraryPanel.svelte'),
+		() => import('#lib/components/LibraryPanel.svelte'),
 		() => {
 			libraryOpen = false;
 		},
 		'library.title'
 	);
 	const loadSearchPanel = makeLazyLoader(
-		() => import('$lib/components/SearchPanel.svelte'),
+		() => import('#lib/components/SearchPanel.svelte'),
 		() => {
 			searchOpen = false;
 		},
 		'modals.labelSearch'
 	);
 	const loadDiskLinksPanel = makeLazyLoader(
-		() => import('$lib/components/DiskLinksPanel.svelte'),
+		() => import('#lib/components/DiskLinksPanel.svelte'),
 		() => {
 			diskLinksOpen = false;
 		},
 		'modals.labelDiskLinks'
 	);
 	const loadWorkspacesPanel = makeLazyLoader(
-		() => import('$lib/components/WorkspacesPanel.svelte'),
+		() => import('#lib/components/WorkspacesPanel.svelte'),
 		() => {
 			workspacesOpen = false;
 		},
 		'modals.labelWorkspaces'
 	);
 	const loadSettingsPanel = makeLazyLoader(
-		() => import('$lib/components/SettingsPanel.svelte'),
+		() => import('#lib/components/SettingsPanel.svelte'),
 		() => {
 			settingsOpen = false;
 		},
 		'modals.labelSettings'
 	);
 	const loadHistoryPanel = makeLazyLoader(
-		() => import('$lib/components/VersionHistoryPanel.svelte'),
+		() => import('#lib/components/VersionHistoryPanel.svelte'),
 		() => {
 			historyOpen = false;
 		},
 		'modals.labelHistory'
 	);
 	const loadGraphPanel = makeLazyLoader(
-		() => import('$lib/components/GraphPanel.svelte'),
+		() => import('#lib/components/GraphPanel.svelte'),
 		() => {
 			graphOpen = false;
 		},
 		'modals.labelGraph'
 	);
 	const loadPresentation = makeLazyLoader(
-		() => import('$lib/components/PresentationView.svelte'),
+		() => import('#lib/components/PresentationView.svelte'),
 		() => {
 			presentationOpen = false;
 		},
@@ -161,7 +161,7 @@ export function createModals(opts: ModalsOptions) {
 	);
 	// The TOC has no open state of its own (mounted in EditorPane): close is a no-op.
 	const loadToc = makeLazyLoader(
-		() => import('$lib/components/Toc.svelte'),
+		() => import('#lib/components/Toc.svelte'),
 		() => {},
 		'modals.labelToc'
 	);
