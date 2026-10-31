@@ -10,10 +10,7 @@
 	"start_url": ".",
 	"scope": ".",
 	"lang": "en",
-	"categories": [
-		"productivity",
-		"utilities"
-	],
+	"categories": ["productivity", "utilities"],
 	"icons": [
 		{
 			"src": "pwa-64x64.png",
@@ -116,14 +113,8 @@
 		{
 			"action": "./",
 			"accept": {
-				"text/markdown": [
-					".md",
-					".markdown",
-					".mdx"
-				],
-				"text/plain": [
-					".txt"
-				]
+				"text/markdown": [".md", ".markdown", ".mdx"],
+				"text/plain": [".txt"]
 			}
 		}
 	],
