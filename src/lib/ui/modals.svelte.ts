@@ -79,6 +79,7 @@ export function createModals(opts: ModalsOptions) {
 	let historyOpen = $state(false);
 	let graphOpen = $state(false);
 	let presentationOpen = $state(false);
+	let presentationStartPlaying = $state(true);
 
 	function closeAll(): void {
 		libraryOpen = false;
@@ -153,7 +154,7 @@ export function createModals(opts: ModalsOptions) {
 		'modals.labelGraph'
 	);
 	const loadPresentation = makeLazyLoader(
-		() => import('#lib/components/PresentationView.svelte'),
+		() => import('#lib/presentation/entry.js'),
 		() => {
 			presentationOpen = false;
 		},
@@ -214,6 +215,13 @@ export function createModals(opts: ModalsOptions) {
 
 	function openPresentation() {
 		closeAll();
+		presentationStartPlaying = true;
+		presentationOpen = true;
+	}
+
+	function openSlideEditor() {
+		closeAll();
+		presentationStartPlaying = false;
 		presentationOpen = true;
 	}
 
@@ -335,6 +343,10 @@ export function createModals(opts: ModalsOptions) {
 		openHistory,
 		openGraph,
 		openPresentation,
+		openSlideEditor,
+		get presentationStartPlaying() {
+			return presentationStartPlaying;
+		},
 		handleOpenHit
 	};
 }

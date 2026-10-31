@@ -29,6 +29,7 @@
 		onToggleSidebar: () => void;
 		onSetMode: (m: EditMode) => void;
 		onOpenInFileSearch: () => void;
+		onOpenSlides: () => void;
 	}
 
 	let {
@@ -45,7 +46,8 @@
 		onSaveToDisk,
 		onToggleSidebar,
 		onSetMode,
-		onOpenInFileSearch
+		onOpenInFileSearch,
+		onOpenSlides
 	}: Props = $props();
 </script>
 
@@ -88,6 +90,7 @@
 			onOpenHistory={modals.openHistory}
 			onOpenGraph={modals.openGraph}
 			onOpenPresentation={modals.openPresentation}
+			{onOpenSlides}
 		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
@@ -161,6 +164,7 @@
 	{#await modals.loadPresentation() then PresentationView}
 		<PresentationView
 			open={modals.presentationOpen}
+			initialPresenting={modals.presentationStartPlaying}
 			onClose={() => (modals.presentationOpen = false)}
 		/>
 	{:catch _error}

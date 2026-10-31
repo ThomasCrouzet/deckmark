@@ -19,11 +19,115 @@ import type { ProjectAssetRow } from '../db';
 import { stripMdExtension, untitledBasename, untitledFilename } from '#lib/file-utils.js';
 import { abortable, checkAborted } from '../abort';
 import { IMPORT_LIMITS } from '../config';
+import { isPresentation } from '../presentation/detect';
 
 export interface MediaExportOptions {
 	allowNetworkImages?: boolean;
 	signal?: AbortSignal;
 	onDialog?: () => void;
+}
+
+function presentationBasename(title: string, fallback: string): string {
+	const basename = title
+		.normalize('NFKD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 120);
+	return basename || fallback;
+}
+
+async function exportPresentationHTML(
+	file: FileItem,
+	options: MediaExportOptions
+): Promise<boolean> {
+	const [presentation, media, frontmatter, { i18n }] = await abortable(
+		Promise.all([
+			import('../presentation/entry'),
+			import('../render/image-media'),
+			import('../frontmatter'),
+			import('#lib/i18n/index.js')
+		]),
+		options.signal
+	);
+	const fallback = stripMdExtension(file.name);
+	const parsedFrontmatter = await frontmatter.parseFrontmatter(file.content);
+	const docTitle = frontmatter.getTitle(
+		parsedFrontmatter.data,
+		parsedFrontmatter.content,
+		fallback
+	);
+	const deck = presentation.parsePresentation(file.content);
+	const rendered = await presentation.renderPresentationDeck(deck, {
+		...(file.projectId && file.relativePath
+			? { projectContext: { projectId: file.projectId, relativePath: file.relativePath } }
+			: {}),
+		allowRemoteImages: options.allowNetworkImages === true,
+		...(options.signal ? { signal: options.signal } : {})
+	});
+	const htmlWithEmbeddedMedia = await media.prepareHtmlMediaOrThrow(rendered.html, {
+		allowNetwork: options.allowNetworkImages === true,
+		signal: options.signal
+	});
+	const html = await presentation.buildPresentationHtmlDocument(
+		docTitle,
+		deck,
+		{ ...rendered, html: htmlWithEmbeddedMedia },
+		i18n.locale,
+		options.signal
+	);
+	checkAborted(options.signal);
+	options.onDialog?.();
+	return triggerDownload(
+		new Blob([html], { type: 'text/html;charset=utf-8' }),
+		sanitizeFilename(`${presentationBasename(fallback, fallback)}.html`)
+	);
+}
+
+async function exportPresentationPDF(
+	file: FileItem,
+	options: MediaExportOptions
+): Promise<boolean> {
+	const [presentation, media, print, frontmatter, { i18n }] = await abortable(
+		Promise.all([
+			import('../presentation/entry'),
+			import('../render/image-media'),
+			import('../render/print'),
+			import('../frontmatter'),
+			import('#lib/i18n/index.js')
+		]),
+		options.signal
+	);
+	const fallback = stripMdExtension(file.name);
+	const parsedFrontmatter = await frontmatter.parseFrontmatter(file.content);
+	const docTitle = frontmatter.getTitle(
+		parsedFrontmatter.data,
+		parsedFrontmatter.content,
+		fallback
+	);
+	const deck = presentation.parsePresentation(file.content);
+	const rendered = await presentation.renderPresentationDeck(deck, {
+		...(file.projectId && file.relativePath
+			? { projectContext: { projectId: file.projectId, relativePath: file.relativePath } }
+			: {}),
+		allowRemoteImages: options.allowNetworkImages === true,
+		...(options.signal ? { signal: options.signal } : {})
+	});
+	const htmlWithEmbeddedMedia = await media.prepareHtmlMediaOrThrow(rendered.html, {
+		allowNetwork: options.allowNetworkImages === true,
+		signal: options.signal
+	});
+	const html = presentation.buildPresentationPrintDocument(
+		docTitle,
+		deck,
+		{ ...rendered, html: htmlWithEmbeddedMedia },
+		i18n.locale
+	);
+	return print.printInIframe(html, {
+		...options,
+		pageSize: { widthPx: deck.width, heightPx: deck.height }
+	});
 }
 
 /**
@@ -97,6 +201,7 @@ export async function exportHTML(
 	options: MediaExportOptions = {}
 ): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
+	if (isPresentation(file.content)) return exportPresentationHTML(file, options);
 	const [
 		{ renderMarkdownDetailed },
 		{ buildStandaloneHtmlDocument },
@@ -155,6 +260,7 @@ export async function exportPDF(
 	options: MediaExportOptions = {}
 ): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
+	if (isPresentation(file.content)) return exportPresentationPDF(file, options);
 	const [
 		{ renderMarkdownDetailed },
 		{ buildPrintDocument, printInIframe },

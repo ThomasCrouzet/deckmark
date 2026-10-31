@@ -10,7 +10,8 @@
 		Ellipsis,
 		HardDrive,
 		HardDriveDownload,
-		Printer
+		Printer,
+		Presentation
 	} from '@lucide/svelte';
 	import type { EditMode } from '#lib/types.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
@@ -28,6 +29,7 @@
 		onOpenPalette: () => void;
 		onSaveToDisk: () => void;
 		onOpenActions?: () => void;
+		onOpenPresentation?: () => void;
 	}
 
 	let {
@@ -39,7 +41,8 @@
 		onExportPDF,
 		onOpenPalette,
 		onSaveToDisk,
-		onOpenActions
+		onOpenActions,
+		onOpenPresentation
 	}: Props = $props();
 
 	let nameInput = $state<HTMLInputElement | null>(null);
@@ -258,6 +261,21 @@
 			<Eye size={14} /><span class="ml-1 hidden lg:inline">{t('toolbar.modeRead')}</span>
 		</button>
 	</div>
+
+	{#if onOpenPresentation}
+		<button
+			class="mdsh-icon-button flex items-center justify-center rounded p-2 text-fg-muted"
+			onclick={(event) => {
+				event.currentTarget.focus({ preventScroll: true });
+				onOpenPresentation?.();
+			}}
+			data-testid="slides-open"
+			aria-label={t('slides.open')}
+			title={t('slides.open')}
+		>
+			<Presentation size={17} />
+		</button>
+	{/if}
 
 	<span class="mdsh-local-indicator" role="status"
 		>{t(

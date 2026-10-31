@@ -179,6 +179,39 @@ The standalone HTML file embeds its styles, images, and required KaTeX fonts. Yo
 Library ZIP exports keep each project in a separate nested ZIP with its assets.
 Open-tab and selection exports include the selected project documents. Their link reports identify references to documents outside that selection.
 
+## Presentations
+
+Select **Slides** in the toolbar, or press `Cmd+Shift+L`, to open the presentation editor.
+For a new document, the editor creates a slide deck. For an ordinary document, it
+imports the Markdown as slides. A document with presentation metadata opens its
+stored layout.
+
+The left strip lists slides. Add, duplicate, move, or delete a slide there. The
+canvas holds text, images, rectangles, ellipses, lines, and arrows. Drag an object
+to move it, or use the arrow keys for one-pixel steps and Shift with an arrow for
+ten-pixel steps. Drag a corner to resize, or use the properties panel for exact
+position and size. Shift-click selects more than one object. The properties panel
+also controls stacking, grouping, alignment, colors, text size, and connectors.
+
+Select **Present** to use the full-screen view. Use the arrow keys, Page Up, Page
+Down, Space, Home, and End to move. Press Escape to return to the editor. Presenter
+notes appear in the editor and in the presenter view, not on a printed page.
+
+The **Markdown source** view shows the complete file. Keep the slide and element
+markers when you edit text or image content. The **Visual editor** view returns to
+the canvas. The same file opens as a normal document in Source and Read modes.
+
+**Markdown**, **HTML**, and **PDF / Print** export the deck. HTML works offline.
+PDF and print produce one slide per page. A deck prints in landscape at its stored
+canvas size. An ordinary document keeps its A4 print settings.
+
+A presentation is one Markdown file with optional front matter, slide content, and
+one terminal `mdsh-presentation` metadata block. The metadata block controls
+geometry and styles. The Markdown body controls text and image content. If a file
+uses an unknown format version, the editor shows an error and keeps the file
+unchanged. See the [presentation format](presentation-format.md) for the complete
+contract.
+
 ## Templates
 
 Use Commands to create a document from a built-in or custom template, or save the current document as a template. Settings contains **Manage templates** for editing and deleting custom templates. The `{{date}}` variable uses the local calendar date. Built-in template labels follow the interface language.

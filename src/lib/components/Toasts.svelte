@@ -11,9 +11,11 @@
 	import { t } from '#lib/i18n/index.js';
 	import { TriangleAlert, CircleCheck, Info, X } from '@lucide/svelte';
 	import { onMount } from 'svelte';
+	let { embedded = false }: { embedded?: boolean } = $props();
 
 	let toolbarBottom = $state(48);
 	onMount(() => {
+		if (embedded) return;
 		const toolbar = document.getElementById('app-toolbar');
 		let frame = 0;
 		const measure = () => {
@@ -46,8 +48,10 @@
 
 {#if notify.toasts.length > 0}
 	<div
-		class="pointer-events-none fixed left-1/2 z-[60] flex w-[min(92vw,28rem)] -translate-x-1/2 flex-col gap-2"
-		style:top="{toolbarBottom + 16}px"
+		class={embedded
+			? 'flex shrink-0 flex-col gap-2 px-3 py-2'
+			: 'pointer-events-none fixed left-1/2 z-[60] flex w-[min(92vw,28rem)] -translate-x-1/2 flex-col gap-2'}
+		style:top={embedded ? undefined : `${toolbarBottom + 16}px`}
 	>
 		{#each notify.toasts as toast (toast.id)}
 			{@const Icon = icons[toast.level]}

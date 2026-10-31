@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { detectLocale, interpolate } from './locale';
 import { en } from './messages/en';
 import { fr } from './messages/fr';
+import { slidesEn } from './messages/slides-en';
+import { slidesFr } from './messages/slides-fr';
 import { i18n } from './i18n.svelte';
 
 describe('locale - pure logic', () => {
@@ -33,6 +35,10 @@ describe('message dictionaries', () => {
 				expect(value, `Empty message: ${key}`).toBeTruthy();
 			}
 		}
+	});
+
+	it('defines the same slide key set in both locales', () => {
+		expect(Object.keys(slidesFr).sort()).toEqual(Object.keys(slidesEn).sort());
 	});
 });
 

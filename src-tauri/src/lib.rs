@@ -18,6 +18,23 @@ fn smoke_startup_phase(started: std::time::Instant, phase: &str) {
     );
 }
 
+#[cfg(feature = "native-smoke")]
+fn smoke_data_store_identifier() -> [u8; 16] {
+    let value = std::env::var("MDSH_SMOKE_DATA_STORE_ID")
+        .expect("MDSH_SMOKE_DATA_STORE_ID is required for isolated native smoke data");
+    assert_eq!(
+        value.len(),
+        32,
+        "MDSH_SMOKE_DATA_STORE_ID must contain 32 hexadecimal characters"
+    );
+    let mut identifier = [0_u8; 16];
+    for (index, byte) in identifier.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .expect("MDSH_SMOKE_DATA_STORE_ID must contain hexadecimal characters");
+    }
+    identifier
+}
+
 fn queue_open_paths(app: &tauri::AppHandle, paths: Vec<String>) {
     let paths = collect_paths_from_directory(paths, None);
     if paths.is_empty() {
@@ -127,8 +144,20 @@ pub fn run() {
 
     #[cfg(feature = "native-smoke")]
     smoke_startup_phase(started, "before-build");
+    let context = tauri::generate_context!();
+    #[cfg(feature = "native-smoke")]
+    let context = {
+        let mut context = context;
+        let identifier = smoke_data_store_identifier();
+        for window in &mut context.config_mut().app.windows {
+            if window.label == "main" {
+                window.data_store_identifier = Some(identifier);
+            }
+        }
+        context
+    };
     let app = builder
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application");
     #[cfg(feature = "native-smoke")]
     smoke_startup_phase(started, "after-build");

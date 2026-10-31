@@ -6,29 +6,49 @@ import { isMac } from '../platform';
 // The shadow tree keeps the document styles separate from the application.
 export async function printOnDesktop(
 	html: string,
-	opts: { signal?: AbortSignal; onDialog?: () => void } = {}
+	opts: {
+		signal?: AbortSignal;
+		onDialog?: () => void;
+		pageSize?: { widthPx: number; heightPx: number };
+	} = {}
 ): Promise<boolean> {
 	if (document.getElementById('mdsh-native-print')) throw new Error('Printing is already active');
+	if (
+		opts.pageSize &&
+		(!Number.isFinite(opts.pageSize.widthPx) ||
+			!Number.isFinite(opts.pageSize.heightPx) ||
+			opts.pageSize.widthPx < 96 ||
+			opts.pageSize.heightPx < 96 ||
+			opts.pageSize.widthPx > 7680 ||
+			opts.pageSize.heightPx > 7680)
+	) {
+		throw new Error('Custom print dimensions must be from 96 to 7680 pixels');
+	}
 	const parsed = new DOMParser().parseFromString(html, 'text/html');
 	const host = document.createElement('section');
 	host.id = 'mdsh-native-print';
 	host.setAttribute('aria-hidden', 'true');
 	const root = host.attachShadow({ mode: 'open' });
 	const layout = document.createElement('style');
+	const pageWidth = opts.pageSize ? `${opts.pageSize.widthPx}px` : '21cm';
+	const printWidth = opts.pageSize ? `${opts.pageSize.widthPx}px` : '178mm';
+	const pageRule = opts.pageSize
+		? `@page { size: ${opts.pageSize.widthPx / 96}in ${opts.pageSize.heightPx / 96}in; margin: 0; }`
+		: '@page { size: A4; margin: 1.8cm 1.6cm 2.2cm; }';
 	layout.textContent = `
-@media screen { #mdsh-native-print { position: fixed; left: -100000px; top: 0; width: 21cm; pointer-events: none; } }
+@media screen { #mdsh-native-print { position: fixed; left: -100000px; top: 0; width: ${pageWidth}; pointer-events: none; } }
 @media print {
 	body > :not(#mdsh-native-print) { display: none !important; }
 	html, body { display: block !important; height: auto !important; overflow: visible !important; background: white !important; margin: 0 !important; }
 	#mdsh-native-print { display: block !important; position: static !important; width: auto !important; }
 }
-@page { size: A4; margin: 1.8cm 1.6cm 2.2cm; }
+${pageRule}
 `;
 	if (isMac())
 		layout.textContent += `
 html[data-mdsh-printing] body > :not(#mdsh-native-print) { display: none !important; }
 html[data-mdsh-printing], html[data-mdsh-printing] body { display: block !important; height: auto !important; overflow: visible !important; background: white !important; margin: 0 !important; }
-html[data-mdsh-printing] #mdsh-native-print { display: block !important; position: static !important; width: 178mm !important; margin: 0 auto !important; }
+html[data-mdsh-printing] #mdsh-native-print { display: block !important; position: static !important; width: ${printWidth} !important; margin: 0 auto !important; }
 `;
 	const originalTitle = document.title;
 	let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
@@ -96,7 +116,11 @@ html[data-mdsh-printing] #mdsh-native-print { display: block !important; positio
 		if (isMac()) {
 			const { invoke } = await import('@tauri-apps/api/core');
 			try {
-				return await invoke<boolean>('desktop_print', { title: parsed.title || originalTitle });
+				return await invoke<boolean>('desktop_print', {
+					title: parsed.title || originalTitle,
+					pageWidthPoints: opts.pageSize ? opts.pageSize.widthPx * 0.75 : null,
+					pageHeightPoints: opts.pageSize ? opts.pageSize.heightPx * 0.75 : null
+				});
 			} finally {
 				cleanup();
 			}
