@@ -13,7 +13,7 @@ portable HTML, PDF, and print. PDF and print put one slide on each page and leav
 the presenter notes out.
 
 A presentation remains one Markdown file. Optional front matter, Markdown content,
-and a terminal `deckmark-presentation` block share the file. Text and images stay
+and a terminal `mdsh-presentation` block share the file. Text and images stay
 readable in another editor. If a file uses an unknown format version, the editor
 shows an error and keeps the file unchanged. An ordinary document that you open and
 close without a layout change keeps its exact bytes.

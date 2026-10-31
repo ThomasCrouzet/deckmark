@@ -58,7 +58,7 @@ Consecutive separators represent blank slides.
 The metadata block starts and ends on isolated lines:
 
 ```markdown
-<!-- deckmark-presentation
+<!-- mdsh-presentation
 {"version":1,"width":1280,"height":720,"theme":"light","slides":[{"id":"slide-1","background":"#ffffff","notes":"","elements":[]}]}
 -->
 ```
@@ -81,26 +81,26 @@ The last element renders above earlier elements.
 
 ## Markdown content
 
-The standard Markdown section remains useful without deckmark.
+The standard Markdown section remains useful without DeckMark.
 Each imported Markdown slide becomes one editable text element.
 The element keeps the slide Markdown in its `content` field.
 
 The serializer frames each source-backed element with isolated start and end markers:
 
 ```markdown
-<!-- deckmark-slide:slide-1 -->
+<!-- mdsh-slide:slide-1 -->
 
-<!-- deckmark-element:title-1 -->
+<!-- mdsh-element:title-1 -->
 # First slide
-<!-- deckmark-end-element:title-1 gap=1 -->
+<!-- mdsh-end-element:title-1 gap=1 -->
 
 ---
 
-<!-- deckmark-slide:slide-2 -->
+<!-- mdsh-slide:slide-2 -->
 
-<!-- deckmark-element:image-1 -->
+<!-- mdsh-element:image-1 -->
 ![Image](data:image/png;base64,AAAA)
-<!-- deckmark-end-element:image-1 gap=1 -->
+<!-- mdsh-end-element:image-1 gap=1 -->
 ```
 
 The parser recognizes identity markers only outside closed code fences.
@@ -113,13 +113,13 @@ Its `gap` value identifies one framing line break that is not element content.
 The serializer prefixes a conflicting literal line with this invisible comment:
 
 ```markdown
-<!-- deckmark-literal -->
-<!-- deckmark-element:user-example -->
+<!-- mdsh-literal -->
+<!-- mdsh-element:user-example -->
 ```
 
 The prefix escapes one following line.
 The parser removes the prefix and keeps the following line unchanged.
-The serializer also escapes a literal `<!-- deckmark-literal -->` line.
+The serializer also escapes a literal `<!-- mdsh-literal -->` line.
 This recursive rule keeps the transformation reversible.
 
 The serializer escapes framing markers and horizontal rules outside closed code fences.

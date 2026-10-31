@@ -38,22 +38,22 @@ beforeAll(() => {
 beforeEach(() => {
 	localStorage.clear();
 	mqlMatches = false; // système = sombre par défaut
-	themeStore.pref = 'system';
+	themeStore.pref = 'dark';
 	document.documentElement.removeAttribute('data-theme');
 });
 
 describe('themeStore', () => {
-	it('applies the light theme for a light system setting', () => {
+	it('starts dark on a light system', () => {
 		mqlMatches = true;
 		themeStore.load();
-		expect(document.documentElement.getAttribute('data-theme')).toBe('light');
-		expect(metaContent('theme-color')).toBe(THEME_COLORS.light);
+		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+		expect(metaContent('theme-color')).toBe(THEME_COLORS.dark);
 	});
 
 	it('ignores an invalid localStorage value', () => {
 		localStorage.setItem(THEME_STORAGE_KEY, 'rainbow');
 		themeStore.load();
-		expect(themeStore.pref).toBe('system');
+		expect(themeStore.pref).toBe('dark');
 	});
 
 	it('applies and persists a theme and updates metadata', () => {
@@ -69,6 +69,7 @@ describe('themeStore', () => {
 	});
 
 	it('follows operating system changes for the system preference', () => {
+		localStorage.setItem(THEME_STORAGE_KEY, 'system');
 		themeStore.load();
 		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
 		setSystemLight(true);

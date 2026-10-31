@@ -23,7 +23,7 @@ if (katexFonts.length === 0) throw new Error('No redistributed KaTeX fonts were 
 
 const content = `# Third-party notices
 
-This file records notices for third-party code and assets redistributed directly with mdsh editor. The generated dependency SBOM provides the complete package inventory.
+This file records notices for third-party code and assets redistributed directly with DeckMark. The generated dependency SBOM provides the complete package inventory.
 
 ## KaTeX ${katexVersion} and bundled fonts
 

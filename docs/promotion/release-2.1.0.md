@@ -10,7 +10,7 @@ objects with a pointer, keyboard, or touch screen. Add presenter notes and start
 full-screen presentation.
 
 A presentation remains one Markdown file. Optional front matter, Markdown content,
-and one terminal `deckmark-presentation` block share the file. The Markdown body stays
+and one terminal `mdsh-presentation` block share the file. The Markdown body stays
 readable in another editor.
 
 ## Documents and data

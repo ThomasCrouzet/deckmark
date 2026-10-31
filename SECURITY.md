@@ -1,17 +1,17 @@
 # Security policy
 
-mdsh editor is a local-first static PWA with an optional Tauri Desktop Beta shell. It has no application backend, account, cloud synchronization, or telemetry. Browser drafts live in IndexedDB.
+DeckMark is a local-first static PWA with an optional Tauri Desktop Beta shell. It has no application backend, account, cloud synchronization, or telemetry. Browser drafts live in IndexedDB.
 
 ## Supported versions
 
 | Version                         | Support     |
 | ------------------------------- | ----------- |
-| Latest `1.x` release and `main` | Supported   |
+| Latest `2.x` release and `main` | Supported   |
 | Older tags                      | Best effort |
 
 ## Report a vulnerability privately
 
-Do not open a public issue for a security-sensitive finding. Use [GitHub Private Vulnerability Reporting](https://github.com/ThomasCrouzet/mdsh/security/advisories/new). This is the private enforcement and conduct contact for this repository as well as the preferred security channel.
+Do not open a public issue for a security-sensitive finding. Use [GitHub Private Vulnerability Reporting](https://github.com/ThomasCrouzet/deckmark/security/advisories/new). This is the private enforcement and conduct contact for this repository as well as the preferred security channel.
 
 Include the version or commit, browser or operating system, reproduction steps, impact, and any planned disclosure. The solo maintainer aims to acknowledge a report within seven days on a best-effort basis. Disclosure timing is coordinated after a fix or an explicit risk decision.
 

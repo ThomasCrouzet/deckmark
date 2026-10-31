@@ -90,7 +90,7 @@ Read-Diagnostic 'processes' {
 }
 
 Read-Diagnostic 'directories' {
-    $defaultProfile = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'io.github.thomascrouzet.mdsh.smoke'
+    $defaultProfile = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'io.github.thomascrouzet.deckmark.smoke'
     $paths = [ordered]@{
         defaultProfile = $defaultProfile
         profileOverride = [Environment]::GetEnvironmentVariable('WEBVIEW2_USER_DATA_FOLDER')

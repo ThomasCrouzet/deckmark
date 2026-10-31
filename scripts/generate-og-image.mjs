@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Create the Open Graph SVG and its 1200x630 PNG from the canonical mdsh logo.
+ * Create the Open Graph SVG and its 1200x630 PNG from the canonical DeckMark logo.
  *
  * Use the locked Playwright package and its installed Chromium browser.
  * See generate-brand-assets.mjs for requirements and the card layout.

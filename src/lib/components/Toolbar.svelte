@@ -172,11 +172,12 @@
 				onfocus={handleRenameFocus}
 				onblur={handleRenameBlur}
 				onkeydown={handleNameKey}
-				class="w-full min-w-0 rounded border border-transparent bg-transparent px-2 py-1 text-sm
+				class="w-full min-w-0 text-ellipsis rounded border border-transparent bg-transparent px-2 py-1 text-sm
 				       font-medium text-fg outline-none transition-colors focus:border-border focus:bg-bg-1
-				       hover:border-border"
+				       hover:border-border focus:text-clip"
 				class:border-accent={renameSuccess}
 				placeholder={t('toolbar.untitled')}
+				title={stripExt(filesStore.active.name)}
 				spellcheck="false"
 				aria-label={t('toolbar.fileNameLabel')}
 			/>

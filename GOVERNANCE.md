@@ -1,6 +1,6 @@
 # Governance
 
-Thomas Crouzet maintains [mdsh editor](https://github.com/ThomasCrouzet) alone. Contributions are welcome within the defined local-first scope.
+Thomas Crouzet maintains [DeckMark](https://github.com/ThomasCrouzet/deckmark) alone. Contributions are welcome within the defined local-first scope.
 
 The maintainer makes final decisions about releases, architecture, security response, roadmap, moderation, and scope. Decisions favor offline operation, user control, a small initial bundle, accessibility, and maintainable behavior. Open an issue before a material change so that its tradeoffs are recorded.
 

@@ -10,9 +10,9 @@ test.describe('Welcome demo document', () => {
 		const demoBtn = page.locator('main').getByRole('button', { name: /document de démo/ });
 		await demoBtn.click();
 
-		// loadDemo creates and activates "Welcome to the mdsh demo" first.
+		// loadDemo creates and activates "Welcome to the DeckMark demo" first.
 		const nameInput = page.locator('input[aria-label^="Nom du fichier"]');
-		await expect(nameInput).toHaveValue('Welcome to the mdsh demo', { timeout: 10_000 });
+		await expect(nameInput).toHaveValue('Welcome to the DeckMark demo', { timeout: 10_000 });
 
 		// The sidebar opens and lists the three demo files.
 		const sidebar = page.locator('aside');

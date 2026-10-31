@@ -1,6 +1,6 @@
 {
 	"identifier": "io.github.thomascrouzet.deckmark.smoke",
-	"productName": "mdsh test",
+	"productName": "DeckMark test",
 	"app": {
 		"withGlobalTauri": true
 	}

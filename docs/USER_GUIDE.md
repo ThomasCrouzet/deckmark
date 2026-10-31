@@ -54,7 +54,7 @@ Rename an open document through the toolbar. DeckMark updates incoming document 
 Select **Check links** to list missing resources, ambiguous wiki links, paths outside the project, and remote images.
 
 Select **Export project** to download the documents and resources together.
-The ZIP contains `.deckmark/project.json` and `.deckmark/link-report.json` for project metadata and link diagnostics.
+The ZIP contains `.mdsh/project.json` and `.mdsh/link-report.json` for project metadata and link diagnostics.
 Image data embedded in Markdown becomes a separate asset in the archive. The stored source remains unchanged.
 An individual Markdown download keeps its relative references. Use the project ZIP when those references need local resources.
 
@@ -206,7 +206,7 @@ PDF and print produce one slide per page. A deck prints in landscape at its stor
 canvas size. An ordinary document keeps its A4 print settings.
 
 A presentation is one Markdown file with optional front matter, slide content, and
-one terminal `deckmark-presentation` metadata block. The metadata block controls
+one terminal `mdsh-presentation` metadata block. The metadata block controls
 geometry and styles. The Markdown body controls text and image content. If a file
 uses an unknown format version, the editor shows an error and keeps the file
 unchanged. See the [presentation format](presentation-format.md) for the complete
@@ -244,7 +244,9 @@ remain available.
 
 Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The release also contains npm and Cargo SBOMs and a provenance attestation.
 
-Choose `mdsh_<version>_macOS_Apple-Silicon.dmg` for a Mac with an Apple M-series chip.
-Choose `mdsh_<version>_macOS_Intel.dmg` for an Intel Mac.
+Choose `deckmark_<version>_macOS_Apple-Silicon.dmg` for a Mac with an Apple M-series chip.
+Choose `deckmark_<version>_macOS_Intel.dmg` for an Intel Mac.
+
+Earlier releases use the previous `mdsh_` filename prefix.
 
 The macOS version requires macOS 14 or later. Windows uses the Tauri installation mode to install WebView2 if it is absent. Linux packages use WebKitGTK. Native selections and file associations authorize each Markdown path. The app restores that access after restart, so `Cmd+Shift+S` or `Ctrl+Shift+S` saves the restored draft directly. Removing a disk link revokes access. Files first selected in an older version need one new native selection to enter the access registry.

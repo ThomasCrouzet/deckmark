@@ -858,10 +858,10 @@ export async function downloadBackup(
 		const encrypted = JSON.stringify(envelope);
 		assertBackupTextSize(encrypted);
 		const blob = new Blob([encrypted], { type: 'application/json;charset=utf-8' });
-		return triggerDownload(blob, `mdsh-backup-${stamp}.encrypted.json`);
+		return triggerDownload(blob, `deckmark-backup-${stamp}.encrypted.json`);
 	}
 	const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-	return triggerDownload(blob, `mdsh-backup-${stamp}.json`);
+	return triggerDownload(blob, `deckmark-backup-${stamp}.json`);
 }
 
 /** §2.8 - Detects whether a backup text is an encrypted envelope. */

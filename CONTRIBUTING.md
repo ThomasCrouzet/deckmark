@@ -1,6 +1,6 @@
-# Contributing to mdsh
+# Contributing to DeckMark
 
-mdsh is a solo-maintained, local-first project with a deliberate scope. Contributions must preserve its offline and privacy boundaries.
+DeckMark is a solo-maintained, local-first project with a deliberate scope. Contributions must preserve its offline and privacy boundaries.
 
 **Welcome:**
 
@@ -35,7 +35,7 @@ Desktop development also needs Rust 1.97.1. Linux packaging needs `libwebkit2gtk
 - **UI strings**: Put all user-facing text in `src/lib/i18n`. Add each message key to the `en` and `fr` dictionaries. English is the default. The first launch can detect French, and Settings can change the locale. Do not hard-code UI text.
 - **Svelte 5 runes required** (`$state`, `$derived`, `$effect`, `$props`) - no `$:` and no reactive `let`.
 - **TypeScript strict**, `checkJs` enabled.
-- **Tailwind 4**, system theme by default, with light and dark choices (see `theme.ts` and the `data-theme` attribute). Use theme tokens for colors. Do not use `text-align: justify` (WCAG 1.4.8).
+- **Tailwind 4**, dark theme by default, with light and system choices (see `theme.ts` and the `data-theme` attribute). Use theme tokens for colors. Do not use `text-align: justify` (WCAG 1.4.8).
 - **Offline-first**: Use system fonts. Do not add an app-initiated network request by default. Remote document images require explicit consent. Import `marked`, `katex`, `highlight.js`, `mermaid`, `jszip`, and `js-yaml` dynamically. Do not import them statically.
 - **Browser guards** : any access to `window`/`document`/`localStorage`/`IndexedDB` must be inside `onMount` or guarded by `if (browser)`.
 - **A11y** : contrast ≥ 4.5:1 (text) / 3:1 (UI), `aria-label` on icon-only buttons, full keyboard navigation.
@@ -91,7 +91,7 @@ Do not commit snapshots from a platform other than the two already versioned (Li
 
 ## Issues
 
-[Bugs / features](https://github.com/ThomasCrouzet/mdsh/issues). For a large PR, open an issue before coding.
+[Bugs / features](https://github.com/ThomasCrouzet/deckmark/issues). For a large PR, open an issue before coding.
 
 ## License
 

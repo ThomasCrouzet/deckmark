@@ -881,7 +881,7 @@
 				</section>
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
-					<p>mdsh {version} · {isDesktop() ? 'Desktop Beta' : 'PWA'}</p>
+					<p>{t('brand.name')} {version} · {isDesktop() ? 'Desktop Beta' : 'PWA'}</p>
 					<p class="mt-1" role="status">
 						{t(
 							offlineState.status === 'ready'
@@ -894,7 +894,7 @@
 					<p class="mt-1">{t('welcome.privacy')}</p>
 					<a
 						class="mt-2 inline-block underline"
-						href="https://github.com/ThomasCrouzet/mdsh/blob/main/docs/USER_GUIDE.md"
+						href="https://github.com/ThomasCrouzet/deckmark/blob/main/docs/USER_GUIDE.md"
 						target="_blank"
 						rel="noopener noreferrer">{t('settings.userGuide')}</a
 					>

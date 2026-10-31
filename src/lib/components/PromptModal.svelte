@@ -180,10 +180,10 @@
 					class:border-danger={danger}
 					class:text-danger={danger}
 					class:hover:bg-danger={danger}
-					class:hover:text-bg={danger}
+					class:hover:text-on-danger={danger}
 					class:border-accent={!danger}
 					class:bg-accent={!danger}
-					class:text-bg={!danger}
+					class:text-on-accent={!danger}
 					class:hover:opacity-90={!danger}
 					onclick={handleConfirm}
 				>

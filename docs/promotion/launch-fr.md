@@ -15,7 +15,7 @@ portable, en PDF et vers l'impression. Le PDF et l'impression placent une
 diapositive par page et excluent les notes du présentateur.
 
 Une présentation reste un seul fichier Markdown. Un en-tête YAML facultatif, le
-contenu Markdown et un bloc terminal `deckmark-presentation` partagent le fichier. Le
+contenu Markdown et un bloc terminal `mdsh-presentation` partagent le fichier. Le
 texte et les images restent lisibles dans un autre éditeur. Si un fichier utilise
 une version inconnue, l'éditeur affiche une erreur et ne modifie pas le fichier. Un
 document ordinaire ouvert puis fermé sans modification de disposition garde ses

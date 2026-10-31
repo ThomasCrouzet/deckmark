@@ -38,11 +38,11 @@ export function createFileIntents(opts: FileIntentsOptions) {
 	// → DOM untouched). `$derived` here because we are in a .svelte.ts factory,
 	// hence within the init scope of the parent component that calls it top-level.
 	const titleString = $derived.by(() => {
-		if (!browser) return 'mdsh';
+		if (!browser) return t('brand.name');
 		const store = opts.getFilesStore();
 		const active = store.active;
-		if (!active) return 'mdsh';
-		return `${store.displayTitle(active.id)} - mdsh`;
+		if (!active) return t('brand.name');
+		return `${store.displayTitle(active.id)} - ${t('brand.name')}`;
 	});
 
 	$effect(() => {

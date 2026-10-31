@@ -242,5 +242,9 @@
 		.welcome-shortcuts {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
+		.welcome-shortcuts span {
+			white-space: normal;
+			overflow-wrap: anywhere;
+		}
 	}
 </style>

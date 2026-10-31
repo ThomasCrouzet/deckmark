@@ -1,12 +1,13 @@
 # Brand assets and demo capture
 
-The DeckMark mark uses a Markdown hash between brackets. The canonical artwork is in
-`static/brand/`. Dark and light filenames refer to the background. Wordmark letters
-are outlined paths, so the logo does not require an installed or remote font.
+DeckMark uses the Relay symbol. Three horizontal plates share a stepped diagonal cut.
+Keep the supplied paths intact. Use amber on graphite and bronze on light surfaces.
+The wordmark uses outlined letters. Use system fonts for all interface text.
 
-Use `logo-dark.svg` and `logo-light.svg` for the wordmark. Use the symbol files for
-small marks and `app-icon.svg` as the application icon source. Keep the supplied
-geometry and colors. The source ZIP is not part of the project.
+Use the lockup above 128 px wide. Use the symbol alone at smaller sizes. Leave
+clear space equal to one half of the top plate height on all sides of the artwork.
+Keep the cut free of text and avoid shadows, gradients, and fine outlines.
+Use the app icon for launchers and the supplied favicon for browser tabs.
 
 ## Generate icons and the social card
 
@@ -38,7 +39,10 @@ their own preview servers. They use a fixed viewport, English, seeded documents,
 and explicit theme settings. They capture the real interface.
 
 The screenshot script updates `docs/screenshots/` and `static/screenshots/`. The
-demo script writes `docs/demo.gif` at 960 by 600 pixels. Capture evidence, source
+demo script writes `docs/demo.gif` at 960 by 600 pixels and captures the desktop
+and mobile slide editor. The demo shows writing, source, reading, wiki links,
+diagrams, the library, the PDF width guide, the graph, slides, and the light theme.
+Capture evidence, source
 frames, build hashes, and encoding settings stay in `test-results/capture-*`.
 Inspect the images and GIF before committing them. Browser and system font
 versions can affect raster output.

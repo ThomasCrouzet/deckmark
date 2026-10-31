@@ -583,7 +583,21 @@
 		};
 		crepe = instance;
 		restoreMountedMarkdown = restoreMarkdown;
-		imageObserver = new MutationObserver(applyImageAlternatives);
+		// Milkdown wraps each native list item in a direct child of its list.
+		// Give that wrapper the list item role. Expose its contents only once.
+		const applyListRoles = () => {
+			for (const item of container.querySelectorAll(
+				'.milkdown-list-item-block > li:not([role="none"])'
+			)) {
+				item.parentElement?.setAttribute('role', 'listitem');
+				item.setAttribute('role', 'none');
+			}
+		};
+		applyListRoles();
+		imageObserver = new MutationObserver((records) => {
+			if (records.some((record) => record.type === 'childList')) applyListRoles();
+			applyImageAlternatives();
+		});
 		imageObserver.observe(container, {
 			childList: true,
 			subtree: true,
@@ -709,7 +723,15 @@
 		<button type="button" onclick={() => retryVersion++}>{t('source.retry')}</button>
 	</div>
 {/if}
-<div bind:this={container} class="mdsh-editor"></div>
+<!-- The scroll region accepts focus so keyboard users can read the document without moving the caret. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div
+	bind:this={container}
+	class="mdsh-editor"
+	role="region"
+	aria-label={t('editor.ariaLabel')}
+	tabindex="0"
+></div>
 
 <style>
 	.mdsh-editor {

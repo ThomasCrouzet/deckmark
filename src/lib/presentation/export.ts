@@ -137,6 +137,7 @@ body {
 .mdsh-slide-element-rich ol { margin: 0 0 0.55em; padding-left: 1.35em; }
 .mdsh-slide-element-rich ul { list-style: disc; }
 .mdsh-slide-element-rich ol { list-style: decimal; }
+.mdsh-slide-element-rich li.task-list-item { list-style: none; }
 .mdsh-slide-element-rich a { color: inherit; text-decoration: underline; }
 .mdsh-slide-element-rich hr { margin: 0.55em 0; border: 0; border-top: 1px solid currentColor; }
 .mdsh-slide-element-rich blockquote { margin: 0.5em 0; padding-left: 0.7em; border-left: 0.12em solid currentColor; }

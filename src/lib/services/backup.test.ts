@@ -505,7 +505,7 @@ describe('downloadBackup - orchestration DOM', () => {
 		expect(await downloadBackup('motdepasse')).toBe(true);
 
 		expect(createdAnchor.click).toHaveBeenCalledTimes(1);
-		expect(createdAnchor.download).toMatch(/^mdsh-backup-\d{4}-\d{2}-\d{2}\.encrypted\.json$/);
+		expect(createdAnchor.download).toMatch(/^deckmark-backup-\d{4}-\d{2}-\d{2}\.encrypted\.json$/);
 
 		// The blob is an encrypted envelope and must be detected as one.
 		const text = await blobText(capturedBlobs[0]!);

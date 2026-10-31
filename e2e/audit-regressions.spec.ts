@@ -5,6 +5,10 @@ for (const mode of ['read', 'wysiwyg'] as const) {
 	test(`updates ${mode} diagrams when the system theme changes`, async ({ page }, testInfo) => {
 		await page.emulateMedia({ colorScheme: 'light' });
 		await resetAppState(page);
+		await page.keyboard.press('ControlOrMeta+,');
+		await page.getByRole('button', { name: 'Système', exact: true }).click();
+		await page.keyboard.press('Escape');
+		await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 		await createFirstFile(page);
 		await writeSourceContent(page, '```mermaid\ngraph LR\nA --> B\n```');
 		await page.locator(`button[data-mode="${mode}"]`).click();

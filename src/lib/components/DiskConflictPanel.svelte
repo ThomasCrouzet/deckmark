@@ -83,7 +83,7 @@
 					{message('diskConflict.reload')}
 				</button>
 				<button
-					class="flex items-center gap-1.5 rounded-md bg-danger px-3 py-2 text-xs text-white transition hover:opacity-90"
+					class="flex items-center gap-1.5 rounded-md bg-danger px-3 py-2 text-xs text-on-danger transition hover:opacity-90"
 					onclick={() => diskConflictStore.choose('overwrite')}
 				>
 					<Upload size={14} aria-hidden="true" />

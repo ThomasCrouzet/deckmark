@@ -226,6 +226,9 @@
 	.mdsh-slide-element-rich :global(ol) {
 		list-style: decimal;
 	}
+	.mdsh-slide-element-rich :global(li.task-list-item) {
+		list-style: none;
+	}
 	.mdsh-slide-element-rich :global(a) {
 		color: inherit;
 		text-decoration: underline;

@@ -1,11 +1,11 @@
 # Architecture
 
-This document explains the main design decisions in mdsh. For a module reference,
+This document explains the main design decisions in DeckMark. For a module reference,
 see the map in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Offline-first without a backend
 
-mdsh has no server. Dexie stores drafts in IndexedDB. The File System Access API
+DeckMark has no server. Dexie stores drafts in IndexedDB. The File System Access API
 edits disk files in place. Exports are plain files. The PWA must work offline on
 its first use, before a previous online visit can fill browser caches.
 
@@ -60,7 +60,7 @@ IndexedDB failure reaches `onError` instead of a silent store `console.error`.
 
 ## An in-house bilingual layer instead of a library
 
-mdsh uses a small runes-based layer in `src/lib/i18n/`. It supports English and
+DeckMark uses a small runes-based layer in `src/lib/i18n/`. It supports English and
 French without a general i18n library. English is the default. The app detects
 French in the browser, and Settings can change the locale.
 

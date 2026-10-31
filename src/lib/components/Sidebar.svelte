@@ -53,15 +53,10 @@
 	// disappears from the corpus (file deleted / modified without the tag).
 	let activeTag = $state<string | null>(null);
 
-	// §A4.2 - Conditional virtualization of the file list. When
-	// the corpus exceeds VIRTUALIZATION_THRESHOLD, we only render the visible
-	// window + an overscan to absorb smooth scrolling. Below it, the
-	// behavior stays identical to before (full render) - zero
-	// regression for the common case. ITEM_HEIGHT_PX is approximate but
-	// stable because a tab's height depends on neither the label nor the badge:
-	// `py-2` + `text-sm` → ~36 px in practice.
+	// Keep virtual offsets equal to the rendered row heights. Project paths and
+	// touch controls need a second line or a larger activation area.
 	const VIRTUALIZATION_THRESHOLD = 80;
-	const ITEM_HEIGHT_PX = 36;
+	let coarsePointer = $state(false);
 	const OVERSCAN = 10;
 	let scrollContainer = $state<HTMLDivElement | null>(null);
 	let scrollTop = $state(0);
@@ -90,24 +85,49 @@
 			: filesStore.files.filter((f) => filesStore.getTags(f.id).includes(activeTag!))
 	);
 
-	// Bounds of the virtualized window. Below the threshold, we render everything.
+	const rowHeights = $derived(
+		filteredFiles.map((file) => (coarsePointer || file.relativePath ? 52 : 36))
+	);
+	const rowOffsets = $derived.by(() => {
+		const offsets = [0];
+		for (const height of rowHeights) offsets.push(offsets[offsets.length - 1]! + height);
+		return offsets;
+	});
+
+	function rowIndexAt(position: number): number {
+		let low = 0;
+		let high = rowHeights.length;
+		while (low < high) {
+			const middle = Math.floor((low + high) / 2);
+			if (rowOffsets[middle + 1]! <= position) low = middle + 1;
+			else high = middle;
+		}
+		return Math.max(0, Math.min(low, rowHeights.length - 1));
+	}
+
 	const useVirtualization = $derived(filteredFiles.length > VIRTUALIZATION_THRESHOLD);
 	const visibleStart = $derived(
-		useVirtualization ? Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT_PX) - OVERSCAN) : 0
+		useVirtualization ? Math.max(0, rowIndexAt(scrollTop) - OVERSCAN) : 0
 	);
 	const visibleEnd = $derived(
 		useVirtualization
-			? Math.min(
-					filteredFiles.length,
-					Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT_PX) + OVERSCAN
-				)
+			? Math.min(filteredFiles.length, rowIndexAt(scrollTop + containerHeight) + OVERSCAN + 1)
 			: filteredFiles.length
 	);
 	const visibleFiles = $derived(filteredFiles.slice(visibleStart, visibleEnd));
-	const topSpacerHeight = $derived(useVirtualization ? visibleStart * ITEM_HEIGHT_PX : 0);
+	const topSpacerHeight = $derived(useVirtualization ? rowOffsets[visibleStart]! : 0);
 	const bottomSpacerHeight = $derived(
-		useVirtualization ? (filteredFiles.length - visibleEnd) * ITEM_HEIGHT_PX : 0
+		useVirtualization ? rowOffsets[rowOffsets.length - 1]! - rowOffsets[visibleEnd]! : 0
 	);
+
+	onMount(() => {
+		if (!browser || typeof window.matchMedia !== 'function') return;
+		const pointer = window.matchMedia('(pointer: coarse)');
+		const update = () => (coarsePointer = pointer.matches);
+		update();
+		pointer.addEventListener('change', update);
+		return () => pointer.removeEventListener('change', update);
+	});
 
 	function handleListScroll(e: Event) {
 		const el = e.currentTarget as HTMLDivElement;
@@ -383,7 +403,7 @@
 				type="button"
 				class="mdsh-tag px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors"
 				class:bg-accent={activeTag === null}
-				class:text-bg={activeTag === null}
+				class:text-on-accent={activeTag === null}
 				class:bg-bg-2={activeTag !== null}
 				class:text-fg-muted={activeTag !== null}
 				onclick={() => selectTag(null)}
@@ -396,7 +416,7 @@
 					type="button"
 					class="mdsh-tag flex items-center gap-1 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors"
 					class:bg-accent={activeTag === tag}
-					class:text-bg={activeTag === tag}
+					class:text-on-accent={activeTag === tag}
 					class:bg-bg-2={activeTag !== tag}
 					class:text-fg-muted={activeTag !== tag}
 					class:hover:bg-bg-3={activeTag !== tag}
@@ -476,6 +496,7 @@
 					{@const label = filesStore.displayTitle(file.id)}
 					{@const isSelected = filesStore.selectedIds.has(file.id)}
 					<li
+						style:height={`${rowHeights[visibleStart + fileIndex]}px`}
 						aria-posinset={visibleStart + fileIndex + 1}
 						aria-setsize={filteredFiles.length}
 						class="mdsh-file-row group relative flex items-stretch transition-colors
@@ -688,7 +709,7 @@
 	.mdsh-sidebar-brand {
 		display: flex;
 		min-width: 0;
-		width: 7rem;
+		width: 9rem;
 		flex-direction: column;
 		gap: 0.125rem;
 	}

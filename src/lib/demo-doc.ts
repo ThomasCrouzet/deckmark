@@ -13,10 +13,10 @@ export interface DemoDoc {
 
 export const DEMO_DOCS: DemoDoc[] = [
 	{
-		name: 'Welcome to the mdsh demo.md',
-		content: `# Welcome to the mdsh demo
+		name: 'Welcome to the DeckMark demo.md',
+		content: `# Welcome to the DeckMark demo
 
-A short, offline tour of what mdsh can do. Nothing here is pinned: multi-select
+A short, offline tour of what DeckMark can do. Nothing here is pinned: multi-select
 these three files in the sidebar and trash them whenever you are done.
 
 ## Try it
@@ -37,7 +37,7 @@ these three files in the sidebar and trash them whenever you are done.
 		name: 'Math and diagrams.md',
 		content: `# Math and diagrams
 
-Back to [[Welcome to the mdsh demo]].
+Back to [[Welcome to the DeckMark demo]].
 
 ## Math (KaTeX)
 
@@ -66,7 +66,7 @@ it, not only in reading mode.
 		name: 'Task list.md',
 		content: `# Task list
 
-Back to [[Welcome to the mdsh demo]].
+Back to [[Welcome to the DeckMark demo]].
 
 A plain markdown checklist - click a box in WYSIWYG mode to toggle it.
 
