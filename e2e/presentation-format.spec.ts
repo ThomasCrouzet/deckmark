@@ -202,6 +202,52 @@ test('rejects an element outside the slide bounds', async ({ page }, testInfo) =
 	await attachFailure(testInfo, 'outside-slide', fixture, 'invalid coordinates');
 });
 
+test('rejects a connector that refers to a missing object', async ({ page }, testInfo) => {
+	const fixture = presentation(
+		metadata({
+			slides: [
+				{
+					...emptySlide,
+					elements: [
+						{
+							id: 'arrow',
+							type: 'arrow',
+							x: 100,
+							y: 100,
+							width: 200,
+							height: 0,
+							rotation: 0,
+							fill: 'transparent',
+							stroke: '#000000',
+							strokeWidth: 2,
+							color: '#000000',
+							fontSize: 20,
+							textAlign: 'left',
+							content: '',
+							startId: 'missing'
+						}
+					]
+				}
+			]
+		})
+	);
+	await seed(page, fixture);
+	const editor = await openSlides(page);
+	await expect(editor.getByTestId('slide-source-error')).toBeVisible();
+	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(fixture);
+	await attachFailure(testInfo, 'missing-connector', fixture, 'invalid connector reference');
+});
+
+test('keeps a blank slide between consecutive separators', async ({ page }, testInfo) => {
+	const fixture = ['# First', '', '---', '', '---', '', '# Last'].join('\n');
+	await seed(page, fixture);
+	const editor = await openSlides(page);
+	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(3);
+	await editor.getByTestId('slide-thumbnail').nth(1).click();
+	await expect(editor.locator('[data-testid="slide-object"]')).toHaveCount(0);
+	await attachFailure(testInfo, 'blank-slide', fixture, 'three slides with one blank');
+});
+
 test('keeps a separator inside a fence in one slide', async ({ page }, testInfo) => {
 	const fixture = ['# Opening', '', '~~~md', '---', '~~~', '', '---', '', '# Closing'].join('\n');
 	await seed(page, fixture);
