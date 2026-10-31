@@ -1,18 +1,18 @@
-// Serve the static build locally at /mdsh/ to simulate GitHub Pages.
+// Serve the static build locally at /deckmark/ to simulate GitHub Pages.
 // Use this server to reproduce absolute path failures before deployment.
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 
-console.log('🔨 Build with BASE_PATH=/mdsh...');
+console.log('🔨 Build with BASE_PATH=/deckmark...');
 execSync('npm run build', {
 	stdio: 'inherit',
-	env: { ...process.env, BASE_PATH: '/mdsh' }
+	env: { ...process.env, BASE_PATH: '/deckmark' }
 });
 
 const ROOT = resolve('build');
-const PREFIX = '/mdsh';
+const PREFIX = '/deckmark';
 const PORT = 4173;
 const TYPES = {
 	'.html': 'text/html; charset=utf-8',
@@ -32,7 +32,7 @@ const TYPES = {
 
 const server = createServer(async (req, res) => {
 	const url = req.url ?? '/';
-	// Redirect the root and paths outside the prefix to /mdsh/, as on GitHub Pages.
+	// Redirect the root and paths outside the prefix to /deckmark/, as on GitHub Pages.
 	if (!url.startsWith(PREFIX)) {
 		res.writeHead(302, { Location: PREFIX + url });
 		res.end();

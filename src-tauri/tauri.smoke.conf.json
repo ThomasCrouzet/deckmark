@@ -1,5 +1,5 @@
 {
-	"identifier": "io.github.thomascrouzet.mdsh.smoke",
+	"identifier": "io.github.thomascrouzet.deckmark.smoke",
 	"productName": "mdsh test",
 	"app": {
 		"withGlobalTauri": true
