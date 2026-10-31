@@ -379,7 +379,7 @@ jobs:
             ${{ steps.installers.outputs.paths }}
             desktop-source.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   publish-desktop-beta:
     needs: [resolve-source, build-desktop]
