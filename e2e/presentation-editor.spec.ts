@@ -527,6 +527,14 @@ test('directly manipulates every object type and preserves Markdown text', async
 	expect(afterDrag!.y - beforeDrag!.y).toBeGreaterThan(25);
 
 	await rectangle.click();
+	// Keep the object away from the slide edges. The drag above moved it to the
+	// right, and a resize that reaches the deck boundary is clamped, so the
+	// measured growth no longer matches the pointer distance.
+	await setProperty(editor, 'slide-prop-x', '100');
+	await setProperty(editor, 'slide-prop-y', '100');
+	await setProperty(editor, 'slide-prop-width', '300');
+	await setProperty(editor, 'slide-prop-height', '150');
+	await rectangle.click();
 	const beforeResize = await rectangle.boundingBox();
 	await dragBy(page, editor.getByTestId('slide-resize-se'), 70, 45);
 	const afterResize = await rectangle.boundingBox();
