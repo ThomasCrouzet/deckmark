@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="static/brand/logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="static/brand/logo-light.svg">
-    <img src="static/brand/logo-light.svg" alt="deckmark" width="320" height="94">
+    <img src="static/brand/logo-light.svg" alt="DeckMark" width="320" height="94">
   </picture>
 </p>
 
@@ -25,7 +25,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-c79a55" alt="MIT license"></a>
 </p>
 
-![The deckmark interface: the new logo, heading shortcuts, visual and source editing, reading, document selection, the PDF width guide, and linked notes](docs/demo.gif)
+![The DeckMark interface: the new logo, heading shortcuts, visual and source editing, reading, document selection, the PDF width guide, and linked notes](docs/demo.gif)
 
 ## One document, four views
 
@@ -76,7 +76,7 @@ consistent across the web app and Desktop.
 <details>
 <summary><strong>See the light theme, reading view, and slide editor</strong></summary>
 
-![Visual editing in the light theme with the deckmark logo](docs/screenshots/mode-wysiwyg-light.webp)
+![Visual editing in the light theme with the DeckMark logo](docs/screenshots/mode-wysiwyg-light.webp)
 
 ![Reading view with rendered formulas and the document sidebar](docs/screenshots/mode-read.webp)
 

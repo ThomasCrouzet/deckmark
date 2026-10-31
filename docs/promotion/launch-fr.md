@@ -2,9 +2,9 @@
 
 Statut : préparé, non publié.
 
-## deckmark 2.1.0 ajoute un éditeur de diapositives hors ligne
+## DeckMark 2.1.0 ajoute un éditeur de diapositives hors ligne
 
-deckmark est un espace de travail Markdown local. La version 2.1.0 ajoute une
+DeckMark est un espace de travail Markdown local. La version 2.1.0 ajoute une
 quatrième vue : Diapositives.
 
 Écrivez un document, puis sélectionnez **Slides** pour placer du texte, des images,

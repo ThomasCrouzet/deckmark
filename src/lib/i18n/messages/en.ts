@@ -18,7 +18,7 @@ export const en = {
 	...projectEn,
 	...diffEn,
 	...backupProjectEn,
-	'brand.name': 'deckmark',
+	'brand.name': 'DeckMark',
 	'brand.localWorkspace': 'Local workspace',
 	'library.browseCount': 'Open your library ({n})',
 	'files.invalidLinkName': 'Use a document name without brackets, a vertical bar, or a line break.',
@@ -60,7 +60,7 @@ export const en = {
 	'settings.backupValid': 'Backup checked. Your library has not changed.',
 	'settings.backupDownloadHint':
 		'Keep the exported file outside this browser. Check it here before you need to restore it. A browser download must finish before the file is safe.',
-	'settings.about': 'About deckmark',
+	'settings.about': 'About DeckMark',
 	'settings.userGuide': 'User guide (opens in a new tab)',
 	'actions.title': 'Actions',
 	'actions.commands': 'Commands and shortcuts',
@@ -137,11 +137,11 @@ export const en = {
 		'The backup exceeds the limits: 64 MiB total, 3,000 documents and 16 MiB per document.',
 	'backup.encryptedInvalidJson': 'Unreadable encrypted file: this is not valid JSON.',
 	'backup.futureVersion':
-		'Backup created by a newer version of deckmark (schema v{version}). Update the app.',
+		'Backup created by a newer version of DeckMark (schema v{version}). Update the app.',
 	'backup.invalidJson': 'Unreadable file: this is not valid JSON.',
 	'backup.invalidSchema': 'Invalid backup: schema version missing or inconsistent.',
 	'backup.notEncrypted': 'This file is not encrypted.',
-	'backup.notMdshBackup': 'This file is not a deckmark backup.',
+	'backup.notMdshBackup': 'This file is not a DeckMark backup.',
 	'backup.passphraseRequired': 'Encrypted backup: passphrase required.',
 
 	// common
@@ -309,7 +309,7 @@ export const en = {
 	'disk.overwriteCancel': 'Cancel',
 	'disk.overwriteConfirm': 'Overwrite',
 	'disk.overwriteMessage':
-		'"{name}" was modified outside deckmark since it was opened. Overwrite the disk version with the editor\'s anyway?',
+		'"{name}" was modified outside DeckMark since it was opened. Overwrite the disk version with the editor\'s anyway?',
 	'disk.overwriteTitle': 'The disk file has changed',
 	'disk.saveCancelled': 'Saving "{name}" cancelled (disk file modified).',
 	'disk.saveFailed': 'Failed to save "{name}" to disk.',
@@ -532,7 +532,7 @@ export const en = {
 	'prompt.ok': 'OK',
 
 	// pwa
-	'pwa.offlineReady': 'deckmark is ready to work offline.',
+	'pwa.offlineReady': 'DeckMark is ready to work offline.',
 	'pwa.reload': 'Reload',
 	'pwa.updateAvailable': 'A new version of deckmark is available.',
 

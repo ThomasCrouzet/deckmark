@@ -1,6 +1,6 @@
 # Brand assets and demo capture
 
-The deckmark mark uses a Markdown hash between brackets. The canonical artwork is in
+The DeckMark mark uses a Markdown hash between brackets. The canonical artwork is in
 `static/brand/`. Dark and light filenames refer to the background. Wordmark letters
 are outlined paths, so the logo does not require an installed or remote font.
 

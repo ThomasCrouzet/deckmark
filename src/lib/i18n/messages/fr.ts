@@ -14,7 +14,7 @@ export const fr: Record<MessageKey, string> = {
 	...projectFr,
 	...diffFr,
 	...backupProjectFr,
-	'brand.name': 'deckmark',
+	'brand.name': 'DeckMark',
 	'brand.localWorkspace': 'Espace local',
 	'library.browseCount': 'Retrouver vos documents ({n})',
 	'files.invalidLinkName': 'Utilisez un nom sans crochets, barre verticale ni saut de ligne.',
@@ -138,7 +138,7 @@ export const fr: Record<MessageKey, string> = {
 	'backup.invalidJson': 'Fichier illisible : ce n’est pas du JSON valide.',
 	'backup.invalidSchema': 'Sauvegarde invalide : version de schéma absente ou incohérente.',
 	'backup.notEncrypted': 'Ce fichier n’est pas chiffré.',
-	'backup.notMdshBackup': 'Ce fichier n’est pas une sauvegarde deckmark.',
+	'backup.notMdshBackup': 'Ce fichier n’est pas une sauvegarde DeckMark.',
 	'backup.passphraseRequired': 'Sauvegarde chiffrée : passphrase requise.',
 
 	// common

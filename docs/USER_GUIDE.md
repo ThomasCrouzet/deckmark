@@ -50,7 +50,7 @@ Documents keep their paths, so `README.md` and `notes/README.md` remain separate
 Relative Markdown links and images resolve inside the project. Wiki paths also stay within the source project.
 
 Use **New project document** to add a path such as `notes/guide.md`.
-Rename an open document through the toolbar. deckmark updates incoming document links and keeps history checkpoints.
+Rename an open document through the toolbar. DeckMark updates incoming document links and keeps history checkpoints.
 Select **Check links** to list missing resources, ambiguous wiki links, paths outside the project, and remote images.
 
 Select **Export project** to download the documents and resources together.

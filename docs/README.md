@@ -1,6 +1,6 @@
 # Documentation
 
-## Use deckmark
+## Use DeckMark
 
 - [Project overview](../README.md): features, downloads, browser support, and limits.
 - [User guide](USER_GUIDE.md): editing, images, disk links, backups, exports, and shortcuts.

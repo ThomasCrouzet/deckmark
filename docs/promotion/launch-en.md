@@ -2,9 +2,9 @@
 
 Status: prepared, not published.
 
-## deckmark 2.1.0 adds an offline slide editor
+## DeckMark 2.1.0 adds an offline slide editor
 
-deckmark is a local Markdown workspace. Version 2.1.0 adds a fourth view: Slides.
+DeckMark is a local Markdown workspace. Version 2.1.0 adds a fourth view: Slides.
 
 Write a document, then select **Slides** to arrange text, images, shapes, and
 connectors on a canvas. Add presenter notes, reorder slides, and present in full
