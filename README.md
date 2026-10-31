@@ -74,11 +74,13 @@ consistent across the web app and Desktop.
 - **Use English or French:** change the interface language in Settings.
 
 <details>
-<summary><strong>See the light theme and reading view</strong></summary>
+<summary><strong>See the light theme, reading view, and slide editor</strong></summary>
 
 ![Visual editing in the light theme with the mdsh logo](docs/screenshots/mode-wysiwyg-light.webp)
 
 ![Reading view with rendered formulas and the document sidebar](docs/screenshots/mode-read.webp)
+
+![Slide editor with a slide strip, shapes, connectors, and object properties](docs/screenshots/presentation-editor.png)
 
 </details>
 
