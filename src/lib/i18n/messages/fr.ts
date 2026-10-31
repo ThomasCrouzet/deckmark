@@ -6,8 +6,10 @@ import { splitFr } from './split-fr';
 import { projectFr } from './project-fr';
 import { diffFr } from './diff-fr';
 import { backupProjectFr } from './backup-project-fr';
+import { slidesFr } from './slides-fr';
 
 export const fr: Record<MessageKey, string> = {
+	...slidesFr,
 	...splitFr,
 	...projectFr,
 	...diffFr,

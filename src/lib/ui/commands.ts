@@ -109,6 +109,14 @@ export const coreCommands = [
 		document: false
 	},
 	{
+		id: 'slides',
+		label: 'slides.open',
+		key: 'l',
+		shift: true,
+		shortcut: '⌘⇧L',
+		document: false
+	},
+	{
 		id: 'close-file',
 		label: 'palette.closeFile',
 		key: 'w',

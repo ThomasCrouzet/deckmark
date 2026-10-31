@@ -29,7 +29,7 @@ Write browser scenarios before implementation. Test the following failures throu
 - A large comparison can block the interface. Bound comparison work and show any omitted context explicitly.
 - A replacement preview can become stale. Refuse changed inputs and rebuild the preview before applying changes.
 
-Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), and [native projects](testing/native-projects.md).
+Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), [native projects](testing/native-projects.md), and [presentations](testing/presentations.md).
 
 The outline and editor keyboard scenarios in `e2e/toc-modes.spec.ts` and
 `e2e/editor-tab.spec.ts` check two failure modes. A render can replace heading
@@ -65,6 +65,11 @@ tests cover these additional risks:
 | UI coordination | Competing prompts, rejected lazy imports, stale search results, worker timeouts, failed preference writes, and keyboard composition. |
 | Release scripts and budgets | Incorrect checksums, missing installers, source identity, SBOM patch provenance, changelog boundaries, and shared-chunk accounting. |
 | Native Rust code | Symlink substitution, persisted grants, file replacement, close ordering, and the GLib iterator security regression. |
+
+The presentation round-trip test keeps one byte-identity case that a browser workflow
+cannot observe directly. The browser suite checks the visible import, edit, and save
+path. The isolated test compares the exact parse and serialize result for an ordinary
+document and confirms that an edit adds the metadata block.
 
 Remove an isolated case when a reliable E2E test covers the same risk. Keep the
 reason for each remaining case clear in its test name. `npm run test:coverage`
@@ -297,6 +302,30 @@ CI runs the browser and native tests without uploading reports to GitHub.
 Keep repeatable evidence in local storage. Compare its source commit with the release tag before using it.
 
 Source preservation and library export limits use [source-fidelity.md](testing/source-fidelity.md).
+
+## Presentation workflows
+
+The presentation editor keeps one Markdown document with a terminal metadata block.
+Run the browser workflows with:
+
+```sh
+npm run test:e2e -- presentation-editor.spec.ts presentation-format.spec.ts presentation-export.spec.ts presentation-offline.spec.ts presentation-performance.spec.ts --project=chromium --workers=1
+npm run test:e2e -- presentation-mobile.spec.ts --project=mobile-chromium --workers=1
+```
+
+The editor workflow checks fenced separators, front matter bytes, object editing,
+save failures, keyboard playback, selection announcements, focus restoration, and axe results.
+The format workflow checks an unknown version, malformed JSON, duplicate identifiers,
+an element outside the slide, a marker inside a fence, and a separator inside a fence.
+Each failure case must keep the source bytes visible and unchanged.
+The export workflow retains the HTML file and the PDF. It checks one PDF page for each slide.
+The offline workflow opens the lazy editor after the first installation loses its network.
+The performance workflow drags a 20-slide deck and records the interaction budget.
+
+Each run keeps the HTML report, `test-results/results.json`, traces, screenshots,
+and the attachments written by the workflow. Keep these files local.
+The source metadata in the JSON report identifies the commit, working diff, Node
+version, and browser projects. Do not upload reports to GitHub.
 
 ## Version 2 accessibility
 

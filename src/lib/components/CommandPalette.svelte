@@ -50,6 +50,7 @@
 		Link2,
 		Layers,
 		Play,
+		Presentation,
 		AlignVerticalJustifyCenter,
 		Settings,
 		SunMoon,
@@ -103,6 +104,7 @@
 		onOpenHistory: () => void;
 		onOpenGraph: () => void;
 		onOpenPresentation: () => void;
+		onOpenSlides: () => void;
 	}
 
 	let {
@@ -135,7 +137,8 @@
 		onOpenSettings,
 		onOpenHistory,
 		onOpenGraph,
-		onOpenPresentation
+		onOpenPresentation,
+		onOpenSlides
 	}: Props = $props();
 
 	let query = $state('');
@@ -498,6 +501,13 @@
 			hint: t('palette.presentationModeHint'),
 			icon: Play,
 			run: onOpenPresentation
+		},
+		{
+			id: 'slides',
+			label: t('slides.open'),
+			hint: t('slides.openHint'),
+			icon: Presentation,
+			run: onOpenSlides
 		},
 		{
 			id: 'template-save',

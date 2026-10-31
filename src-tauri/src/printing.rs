@@ -1,8 +1,29 @@
 #[tauri::command]
-pub async fn desktop_print(window: tauri::WebviewWindow, title: String) -> Result<bool, String> {
+pub async fn desktop_print(
+    window: tauri::WebviewWindow,
+    title: String,
+    page_width_points: Option<f64>,
+    page_height_points: Option<f64>,
+) -> Result<bool, String> {
     if window.label() != "main" {
         return Err("Printing requires the main window".into());
     }
+    let page_size = match (page_width_points, page_height_points) {
+        (None, None) => None,
+        (Some(width), Some(height))
+            if width.is_finite()
+                && height.is_finite()
+                && (72.0..=5760.0).contains(&width)
+                && (72.0..=5760.0).contains(&height) =>
+        {
+            Some((width, height))
+        }
+        _ => {
+            return Err(
+                "Custom print dimensions must be a valid pair from 72 to 5760 points".into(),
+            )
+        }
+    };
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
@@ -11,9 +32,15 @@ pub async fn desktop_print(window: tauri::WebviewWindow, title: String) -> Resul
         window
             .with_webview(move |webview| {
                 // Tauri runs this closure on the main thread and owns the WKWebView.
-                if let Err(error) =
-                    unsafe { macos::start(&*webview.inner().cast(), &title, sender.clone(), app) }
-                {
+                if let Err(error) = unsafe {
+                    macos::start(
+                        &*webview.inner().cast(),
+                        &title,
+                        page_size,
+                        sender.clone(),
+                        app,
+                    )
+                } {
                     let _ = sender.send(Err(error));
                 }
             })
@@ -26,6 +53,7 @@ pub async fn desktop_print(window: tauri::WebviewWindow, title: String) -> Resul
     #[cfg(not(target_os = "macos"))]
     {
         let _ = title;
+        let _ = page_size;
         window.print().map_err(|error| error.to_string())?;
         Ok(true)
     }
@@ -81,6 +109,7 @@ mod macos {
     pub unsafe fn start(
         view: &objc2_web_kit::WKWebView,
         title: &str,
+        page_size: Option<(f64, f64)>,
         sender: SyncSender<Result<bool, String>>,
         app: tauri::AppHandle,
     ) -> Result<(), String> {
@@ -93,12 +122,26 @@ mod macos {
         }
         // Do not change the user's shared printer settings.
         let info = NSPrintInfo::sharedPrintInfo().copy();
-        info.setPaperSize(NSSize::new(210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4));
-        info.setOrientation(NSPaperOrientation::Portrait);
-        info.setTopMargin(18.0 * 72.0 / 25.4);
-        info.setBottomMargin(22.0 * 72.0 / 25.4);
-        info.setLeftMargin(16.0 * 72.0 / 25.4);
-        info.setRightMargin(16.0 * 72.0 / 25.4);
+        let (page_width, page_height) =
+            page_size.unwrap_or((210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4));
+        if page_width > page_height {
+            info.setPaperSize(NSSize::new(page_height, page_width));
+            info.setOrientation(NSPaperOrientation::Landscape);
+        } else {
+            info.setPaperSize(NSSize::new(page_width, page_height));
+            info.setOrientation(NSPaperOrientation::Portrait);
+        }
+        if page_size.is_some() {
+            info.setTopMargin(0.0);
+            info.setBottomMargin(0.0);
+            info.setLeftMargin(0.0);
+            info.setRightMargin(0.0);
+        } else {
+            info.setTopMargin(18.0 * 72.0 / 25.4);
+            info.setBottomMargin(22.0 * 72.0 / 25.4);
+            info.setLeftMargin(16.0 * 72.0 / 25.4);
+            info.setRightMargin(16.0 * 72.0 / 25.4);
+        }
         info.setHorizontallyCentered(false);
         info.setVerticallyCentered(false);
 

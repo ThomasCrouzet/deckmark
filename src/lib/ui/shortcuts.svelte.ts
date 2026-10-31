@@ -30,6 +30,7 @@ export interface ShortcutCallbacks {
 	onOpenInFileSearch: () => void;
 	onOpenSettings: () => void;
 	onToggleFocus: () => void;
+	onOpenSlides: () => void;
 	// Current file
 	getActiveId: () => string | null;
 	onClose: (id: string) => void;
@@ -117,6 +118,9 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 				break;
 			case 'focus':
 				cb.onToggleFocus();
+				break;
+			case 'slides':
+				cb.onOpenSlides();
 				break;
 			case 'close-file':
 				if (activeId) cb.onClose(activeId);

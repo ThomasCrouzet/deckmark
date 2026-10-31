@@ -10,8 +10,10 @@ import { splitEn } from './split-en';
 import { projectEn } from './project-en';
 import { diffEn } from './diff-en';
 import { backupProjectEn } from './backup-project-en';
+import { slidesEn } from './slides-en';
 
 export const en = {
+	...slidesEn,
 	...splitEn,
 	...projectEn,
 	...diffEn,

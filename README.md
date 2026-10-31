@@ -27,15 +27,22 @@
 
 ![The mdsh interface: the new logo, heading shortcuts, visual and source editing, reading, document selection, the PDF width guide, and linked notes](docs/demo.gif)
 
-## One document, three views
+## One document, four views
 
 **Edit** with a visual Markdown editor. Use `/h1` or `/t1` for a heading, add a
 checklist, and insert images. **Source** gives you the Markdown directly, with
 syntax highlighting, search, replacement, and per-document undo. **Read** shows
-the rendered document with an outline for navigation.
+the rendered document with an outline for navigation. **Slides** arranges the same
+document on a visual canvas for a presentation.
 
 In Source, select **Show preview** to edit beside the rendered document.
 Resize the divider with the pointer or arrow keys. The app remembers its position.
+
+A presentation stays one Markdown file. The slide canvas stores layout metadata in
+a terminal block, and the Markdown body keeps text and images readable in another
+editor. Use Slides for a new deck or for an ordinary document. Presenter notes stay
+out of the printed pages. See the [presentation guide](docs/presentation-editor.md)
+and the [file format](docs/presentation-format.md).
 
 Switch views without leaving your document. Choose the light, dark, or system
 theme. The bracket-and-hash logo, warm text, and amber accents keep the interface
@@ -43,12 +50,12 @@ consistent across the web app and Desktop.
 
 ## A workspace that stays local
 
-| Write | Organize | Take your work with you |
-| --- | --- | --- |
-| GFM tables, task lists, and code | Open and closed documents in one library | Markdown and ZIP export |
-| KaTeX formulas and Mermaid diagrams | Tags, search, and cross-file replacement | Content-only PDF export |
-| YAML front matter and embedded images | Wiki links, backlinks, and a link graph | Self-contained offline HTML |
-| Heading shortcuts and document outlines | Workspaces, templates, and version history | JSON backup, with optional encryption |
+| Write | Organize | Present | Take your work with you |
+| --- | --- | --- | --- |
+| GFM tables, task lists, and code | Open and closed documents in one library | Text, images, shapes, connectors, and notes | Markdown and ZIP export |
+| KaTeX formulas and Mermaid diagrams | Tags, search, and cross-file replacement | Keyboard and touch layout controls | Content-only PDF export |
+| YAML front matter and embedded images | Wiki links, backlinks, and a link graph | One Markdown file with layout metadata | Self-contained offline HTML |
+| Heading shortcuts and document outlines | Workspaces, templates, and version history | One slide per printed page | JSON backup, with optional encryption |
 
 - **Manage many documents:** filter the library, select several documents, or move
   the full library to trash. Restore individual documents or empty the trash.
@@ -59,6 +66,9 @@ consistent across the web app and Desktop.
   Desktop. Revision checks detect external edits before an overwrite.
 - **Check the PDF width:** select **PDF (A4)** for a guide to the 178 mm text area.
   The print dialog controls the final page settings.
+- **Build a presentation:** open **Slides** to arrange text, images, and shapes on a
+  canvas. Add presenter notes, reorder slides, and present in full screen.
+  A presentation prints one slide per page without the notes.
 - **Work offline:** install the PWA and wait for offline preparation to finish.
   Editing, rendering, search, and export then work without a connection.
 - **Use English or French:** change the interface language in Settings.
@@ -119,6 +129,7 @@ shortcuts, and Settings lets you change them.
 | `Cmd+F` / `Cmd+Shift+F` | Find in document / search across documents |
 | `Cmd+S` / `Cmd+Shift+S` | Export Markdown / save to disk |
 | `Cmd+P` / `Cmd+,` | Export PDF / Settings |
+| `Cmd+Shift+L` | Slides |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous open document |
 
 The interface supports keyboard navigation and reduced motion. Browser tests
@@ -157,7 +168,9 @@ and native libraries specified in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 The working target is about 200 to 300 documents. Cloud services, collaboration,
 and plugins are outside the project scope. Visual editing can normalize Markdown;
-use Source when exact formatting matters.
+use Source when exact formatting matters. A presentation uses the same document
+limits as an ordinary draft. The default slide canvas is 1280 by 720 pixels, and the
+editor supports 16:9 and 4:3 decks.
 
 [Architecture](ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) ·
 [Documentation index](docs/README.md) ·

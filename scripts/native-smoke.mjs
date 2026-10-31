@@ -2,7 +2,7 @@
 // Packaged installers contain no test server or additional permissions.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import {
 	existsSync,
@@ -19,6 +19,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { testSource } from './test-source.mjs';
 import { nativeDiskRaces } from './native-disk-races.mjs';
 import { nativeExportCancellation } from './native-export-cancellation.mjs';
+import { nativePresentationPdf } from './native-presentation.mjs';
 import { nativeProjects } from './native-projects.mjs';
 
 const binary = resolve(
@@ -42,9 +43,12 @@ const endpoint = `http://127.0.0.1:${port}`;
 const output = resolve(process.env.NATIVE_TEST_OUTPUT ?? 'native-test-results');
 mkdirSync(output, { recursive: true });
 const temp = mkdtempSync(join(tmpdir(), 'mdsh-native-'));
+const nativeHome = join(temp, 'home');
+mkdirSync(nativeHome, { recursive: true });
 const nativeProjectRoot = join(temp, 'native-project');
 const nativeProjectRegistry = join(temp, 'project-roots.json');
 const nativePdfPath = join(temp, 'native.pdf');
+const nativeDataStoreId = randomBytes(16).toString('hex');
 const diskGate = join(temp, 'disk-gate');
 const panelMarker = join(temp, 'print-panel');
 const title = `Native ${Date.now()}`;
@@ -77,6 +81,8 @@ const results = {
 	platform: process.platform,
 	arch: process.arch,
 	binary,
+	nativeProfile: nativeHome,
+	nativeDataStoreId,
 	pdfDestination: nativePdfPath,
 	binarySha256,
 	source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
@@ -89,6 +95,21 @@ const passed = (name) => {
 	/** @type {string[]} */ (results.checks).push(name);
 	console.log(`OK ${name}`);
 };
+
+function smokeEnvironment() {
+	return {
+		...process.env,
+		HOME: nativeHome,
+		CFFIXED_USER_HOME: nativeHome,
+		XDG_CONFIG_HOME: join(nativeHome, '.config'),
+		XDG_DATA_HOME: join(nativeHome, '.local', 'share'),
+		XDG_CACHE_HOME: join(nativeHome, '.cache'),
+		APPDATA: join(nativeHome, 'AppData', 'Roaming'),
+		LOCALAPPDATA: join(nativeHome, 'AppData', 'Local'),
+		MDSH_SMOKE_DATA_STORE_ID: nativeDataStoreId,
+		TAURI_WEBDRIVER_PORT: String(port)
+	};
+}
 /** @param {string} path @param {unknown} [body] @param {string} [method] */
 async function request(path, body, method = 'POST') {
 	const response = await fetch(`${endpoint}${path}`, {
@@ -199,8 +220,7 @@ function launch(openFile = true) {
 	app = spawn(binary, openFile ? [fixture] : [], {
 		stdio: ['ignore', log, log],
 		env: {
-			...process.env,
-			TAURI_WEBDRIVER_PORT: String(port),
+			...smokeEnvironment(),
 			MDSH_SMOKE_PDF: nativePdfPath,
 			MDSH_SMOKE_DISK_GATE: diskGate,
 			MDSH_NATIVE_PROJECT_ROOT: nativeProjectRoot,
@@ -228,7 +248,7 @@ function launch(openFile = true) {
 async function deliverFixture() {
 	const second = spawn(binary, [fixture], {
 		stdio: ['ignore', log, log],
-		env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) }
+		env: smokeEnvironment()
 	});
 	secondary = second;
 	const [exitCode, exitSignal] = await Promise.race([
@@ -804,6 +824,17 @@ try {
 		);
 		results.pdfInspections.push(inspect(join(output, 'repeated-pdf')));
 		passed('native PDF shortcut can export again after completion');
+		results.presentationPdf = await nativePresentationPdf({
+			execute,
+			click,
+			nativeShortcut,
+			until,
+			nativePdfPath,
+			output,
+			temp,
+			expectedTitle: title
+		});
+		passed('native presentation export keeps one 16:9 page for each slide');
 	} else {
 		// Keep the actual preparation steps. Replace only the final OS dialog call
 		// to let the driver produce the PDF automatically.

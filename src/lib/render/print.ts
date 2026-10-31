@@ -250,7 +250,11 @@ export async function buildStandaloneHtmlDocument(
  */
 export async function printInIframe(
 	html: string,
-	opts: { signal?: AbortSignal; onDialog?: () => void } = {}
+	opts: {
+		signal?: AbortSignal;
+		onDialog?: () => void;
+		pageSize?: { widthPx: number; heightPx: number };
+	} = {}
 ): Promise<boolean> {
 	if (!browser) throw new Error('printInIframe requires a browser environment');
 	if (opts.signal?.aborted) throw abortError();

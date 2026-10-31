@@ -98,6 +98,28 @@ The native directory registry owns access independently of IndexedDB.
 Session tokens authorize relative operations under one selected root. Backups exclude registry identifiers and revision baselines.
 Native refresh is explicit. Local and external changes require comparison before either branch replaces the other.
 
+## Markdown presentations
+
+The editor, document preview, and exports use one lazy module, `presentation/entry.ts`.
+A separate format detector keeps presentation code outside the startup bundle.
+The detector is a small static module. The model, editor, renderer, and exporters
+load together only when a document carries presentation metadata or a user opens
+Slides. An ordinary document never loads this graph.
+Its model stores layout metadata and normal Markdown content in one document.
+Source markers connect visible content to stable object identifiers.
+The parser rejects invalid metadata before visual edits can replace the source.
+An unedited ordinary document keeps its exact bytes through a parse and serialize cycle.
+
+Pointer gestures update reactive geometry once per animation frame.
+They serialize the completed operation once and use the existing 400 ms save queue.
+The editor keeps bounded undo history and reports storage failures inside its dialog.
+Visible thumbnails share the slide renderer and load through an intersection observer.
+
+HTML, browser printing, and native printing use the same slide geometry.
+Each slide occupies one fixed-size page. Native macOS printing receives optional page dimensions.
+Ordinary documents retain the existing A4 print settings.
+The browser suite and native PDF inspector retain exported files and page evidence.
+
 ## Source preview and change comparisons
 
 Source preview keeps one CodeMirror editor and a delayed reading view.
