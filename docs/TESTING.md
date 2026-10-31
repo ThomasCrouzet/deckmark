@@ -185,7 +185,7 @@ native print operation must produce a complete PDF.
 The macOS runner compiles the PDF inspector once with `swiftc -O` (60 second
 compile limit). It inspects two separate product exports. Each inspection has
 a 20 second internal budget and a 30 second process deadline on both Apple
-Silicon and Intel CI runners. The inspector renders every page to a 595 by 842
+Apple Silicon CI runner. The inspector renders every page to a 595 by 842
 RGBA bitmap, counts both colored image bands, and checks A4 dimensions and the
 final paragraph. It retains both PDFs, all PNG pages, extracted text, per-page
 timings, and `native-pdf-inspection.json`, including under `repeated-pdf/`.

@@ -18,7 +18,6 @@ function setup() {
 	mkdirSync(input);
 	const artifacts = {
 		'desktop-installers-macos-arm': ['mdsh_aarch64.dmg'],
-		'desktop-installers-macos-intel': ['mdsh_x64.dmg'],
 		'desktop-installers-linux': ['mdsh.AppImage', 'mdsh.deb', 'mdsh.rpm'],
 		'desktop-installers-windows': ['mdsh.msi', 'mdsh-setup.exe']
 	};
@@ -42,13 +41,12 @@ describe('release asset collection', () => {
 		);
 		writeFileSync(join(input, 'desktop-installers-linux', 'build.log'), 'log');
 		const files = collectDesktopAssets(input, output, identity);
-		expect(files).toHaveLength(7);
+		expect(files).toHaveLength(6);
 		expect(files).not.toContain('internal.exe');
 		expect(files).not.toContain('sbom-npm.cdx.json');
 		expect(files).not.toContain('sbom-cargo.cdx.json');
 		expect(files).not.toContain('desktop-source.json');
 		expect(files).toContain('mdsh_macOS_Apple-Silicon.dmg');
-		expect(files).toContain('mdsh_macOS_Intel.dmg');
 		expect(readdirSync(output).sort()).toEqual([...files, 'SHA256SUMS'].sort());
 		for (const line of readFileSync(join(output, 'SHA256SUMS'), 'utf8').trim().split('\n')) {
 			const [hash, name] = line.split('  ');
@@ -61,7 +59,12 @@ describe('release asset collection', () => {
 	});
 	it('rejects filename collisions before copying', () => {
 		const { input, output } = setup();
-		writeFileSync(join(input, 'desktop-installers-windows', 'mdsh_x64.dmg'), 'other architecture');
+		// An installer that already carries the release name collides with the renamed
+		// Apple Silicon build.
+		writeFileSync(
+			join(input, 'desktop-installers-linux', 'mdsh_macOS_Apple-Silicon.dmg'),
+			'other architecture'
+		);
 		expect(() => collectDesktopAssets(input, output, identity)).toThrow('Duplicate artifact names');
 	});
 	it('rejects invalid expected and supplied source identities', () => {

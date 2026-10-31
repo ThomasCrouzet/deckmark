@@ -245,7 +245,6 @@ remain available.
 Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The release also contains npm and Cargo SBOMs and a provenance attestation.
 
 Choose `deckmark_<version>_macOS_Apple-Silicon.dmg` for a Mac with an Apple M-series chip.
-Choose `deckmark_<version>_macOS_Intel.dmg` for an Intel Mac.
 
 Earlier releases use the previous `mdsh_` filename prefix.
 
