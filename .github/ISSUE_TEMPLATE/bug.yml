@@ -23,7 +23,7 @@ body:
       description: |
         List the steps that reproduce the bug.
       placeholder: |
-        1. Open mdsh
+        1. Open DeckMark
         2. Create a new file
         3. Paste the following content
         4. ...

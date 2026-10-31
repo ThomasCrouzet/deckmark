@@ -180,16 +180,6 @@ async function record(session) {
 	}
 	await expect(library.getByRole('status')).toHaveText('2 document(s) selected');
 	await frame('Select open and closed documents in the library', 1.6);
-	const beforeCancel = await readDrafts(page);
-	await library.getByRole('button', { name: 'Delete selected', exact: true }).click();
-	const confirm = page.getByRole('dialog', { name: 'Delete 2 document(s)?', exact: true });
-	await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
-	await frame('Review the deletion confirmation', 1.2);
-	await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
-	await expect(confirm).not.toBeVisible();
-	await expect(library.getByRole('status')).toHaveText('2 document(s) selected');
-	expect(await readDrafts(page)).toEqual(beforeCancel);
-	await frame('Cancel deletion and keep all three documents', 0.8);
 	await library.getByRole('button', { name: 'Open Field notes.md', exact: true }).click();
 	await expect(page.locator('#app-toolbar input')).toHaveValue(NAME);
 	await ensureMode(page, 'wysiwyg');
@@ -232,8 +222,36 @@ async function record(session) {
 	await graph.getByRole('button', { name: 'Close', exact: true }).click();
 	await expect(graph).not.toBeVisible();
 	await expect(editor.locator('h1')).toHaveText(NAME);
-	await frame('Continue writing in mdsh', 2);
-	return { frames, documents: await readDrafts(page), deletionCancelled: true };
+	await page.getByTestId('slides-open').click();
+	const slides = page.getByTestId('presentation-editor');
+	await expect(slides.getByTestId('slide-canvas')).toBeVisible();
+	await slides.getByTestId('slide-object-list-item').first().click();
+	for (const [property, value] of [
+		['width', '1040'],
+		['height', '520'],
+		['fontSize', '28']
+	]) {
+		await slides.getByTestId(`slide-prop-${property}`).fill(value);
+		await slides.getByTestId(`slide-prop-${property}`).press('Tab');
+	}
+	await expect(slides.locator('.save-state')).toHaveText('saved');
+	await frame('Arrange the same document as slides', 2.4);
+	await saveScreenshot(page, join(ROOT, 'docs/screenshots/presentation-editor.png'));
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(slides.getByTestId('slide-canvas')).toBeInViewport();
+	await saveScreenshot(page, join(ROOT, 'docs/screenshots/presentation-editor-mobile.png'));
+	await page.setViewportSize(VIEWPORT);
+	await slides.getByTestId('slide-close').click();
+	await expect(slides).not.toBeVisible();
+	await page.keyboard.press('ControlOrMeta+,');
+	await page
+		.getByRole('dialog', { name: 'Settings', exact: true })
+		.getByRole('button', { name: 'Light', exact: true })
+		.click();
+	await page.keyboard.press('Escape');
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+	await frame('Continue writing with the light theme', 2);
+	return { frames, documents: await readDrafts(page) };
 }
 
 async function encode(session, frames) {

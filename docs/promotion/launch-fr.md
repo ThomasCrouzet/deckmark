@@ -2,9 +2,9 @@
 
 Statut : préparé, non publié.
 
-## mdsh 2.1.0 ajoute un éditeur de diapositives hors ligne
+## DeckMark 2.1.0 ajoute un éditeur de diapositives hors ligne
 
-mdsh est un espace de travail Markdown local. La version 2.1.0 ajoute une
+DeckMark est un espace de travail Markdown local. La version 2.1.0 ajoute une
 quatrième vue : Diapositives.
 
 Écrivez un document, puis sélectionnez **Slides** pour placer du texte, des images,
@@ -37,5 +37,5 @@ Limites : l'édition visuelle peut normaliser le Markdown. Utilisez le mode Sour
 si la mise en forme exacte compte. La synchronisation cloud, la collaboration et
 les extensions restent hors du périmètre du projet.
 
-Liens : https://thomascrouzet.github.io/mdsh/ et
-https://github.com/ThomasCrouzet/mdsh/releases
+Liens : https://thomascrouzet.github.io/deckmark/ et
+https://github.com/ThomasCrouzet/deckmark/releases

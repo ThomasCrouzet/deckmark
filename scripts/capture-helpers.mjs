@@ -179,6 +179,8 @@ export async function withCapture(name, defaultPort, scenario) {
 			[
 				join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'),
 				'preview',
+				'--outDir',
+				'build',
 				'--host',
 				'127.0.0.1',
 				'--port',
@@ -306,7 +308,7 @@ export async function newCapturePage(session, theme = 'dark') {
 	await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 	await expect(page.getByTestId('welcome-new')).toBeVisible();
 	await expect(
-		page.locator('#welcome-title').getByRole('img', { name: 'mdsh', exact: true })
+		page.locator('#welcome-title').getByRole('img', { name: 'DeckMark', exact: true })
 	).toBeVisible();
 	await expect(page.locator(`#welcome-title .brand-logo-${theme}`)).toBeVisible();
 	await expect(page.locator('.mdsh-local-indicator')).toHaveText('Ready offline', {

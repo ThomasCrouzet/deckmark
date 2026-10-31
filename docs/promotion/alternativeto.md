@@ -4,14 +4,14 @@ Status: prepared, not submitted.
 
 ## Product summary
 
-mdsh is a local-first Markdown workspace for the web and the Desktop Beta. It
+DeckMark is a local-first Markdown workspace for the web and the Desktop Beta. It
 combines visual editing, a source editor, a reading view, and a slide editor in
 one application. It stores drafts in the browser profile or in local files. It
 does not require an account, a server, or a cloud service.
 
 ## Suggested listing
 
-- **Name:** mdsh
+- **Name:** DeckMark
 - **Tagline:** Local Markdown workspace with slides.
 - **Categories:** Note-taking, Markdown editor, Productivity
 - **Platforms:** Web, macOS, Windows, Linux
@@ -23,10 +23,10 @@ does not require an account, a server, or a cloud service.
 
 | Alternative | Difference |
 | --- | --- |
-| Obsidian | mdsh is open source, runs as a PWA, and needs no vault plugin for slides. |
-| Typora | mdsh adds a document library, disk links, projects, and a slide canvas. |
-| Notion | mdsh keeps data on the device and needs no account or hosted workspace. |
-| Google Slides | mdsh keeps the deck in Markdown and works offline without a cloud account. |
+| Obsidian | DeckMark is open source, runs as a PWA, and needs no vault plugin for slides. |
+| Typora | DeckMark adds a document library, disk links, projects, and a slide canvas. |
+| Notion | DeckMark keeps data on the device and needs no account or hosted workspace. |
+| Google Slides | DeckMark keeps the deck in Markdown and works offline without a cloud account. |
 
 ## Advantages
 

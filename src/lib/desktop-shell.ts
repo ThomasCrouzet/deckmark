@@ -265,9 +265,9 @@ async function installAppMenu(
 	if (mac) {
 		menus.unshift(
 			await Submenu.new({
-				text: 'mdsh',
+				text: t('brand.name'),
 				items: [
-					await PredefinedMenuItem.new({ item: { About: { name: 'mdsh' } } }),
+					await PredefinedMenuItem.new({ item: { About: { name: t('brand.name') } } }),
 					await PredefinedMenuItem.new({ item: 'Separator' }),
 					await item('settings', labels.settings),
 					await PredefinedMenuItem.new({ item: 'Separator' }),

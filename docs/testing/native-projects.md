@@ -117,7 +117,7 @@ Run these scenarios through the desktop WebView with a real temporary directory:
 
 1. Pick a root with nested Markdown and image files. Verify the imported paths,
    content, assets, persistent root identifier, and baseline revisions.
-2. Pick the same root again. Verify that mdsh selects the existing project and
+2. Pick the same root again. Verify that DeckMark selects the existing project and
    does not create duplicate database rows.
 3. Restart the native process. Open the project through its registry identifier
    and verify that the new session token can refresh and save the project.
@@ -125,7 +125,7 @@ Run these scenarios through the desktop WebView with a real temporary directory:
    both successful paths and their new baseline revisions.
 5. Change the same document locally and on disk. Verify that the conflict dialog
    shows the exact reviewed snapshots before reload or overwrite.
-6. Choose reload, then change the disk file again before apply. Verify that mdsh
+6. Choose reload, then change the disk file again before apply. Verify that DeckMark
    keeps the local draft and reports the changed revision.
 7. Choose overwrite. Verify the external checkpoint and the expected-revision
    write. A second external change must reject the write.

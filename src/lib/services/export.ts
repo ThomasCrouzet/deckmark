@@ -317,7 +317,10 @@ export async function exportPDF(
  * suffix `-2`, `-3`, … while preserving the extension.
  */
 /** @returns `false` if the desktop save dialog was cancelled. */
-export async function exportZip(files: FileItem[], filename = 'mdsh-export.zip'): Promise<boolean> {
+export async function exportZip(
+	files: FileItem[],
+	filename = 'deckmark-export.zip'
+): Promise<boolean> {
 	if (typeof window === 'undefined' || typeof document === 'undefined' || files.length === 0)
 		return false;
 	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');

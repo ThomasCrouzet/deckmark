@@ -654,7 +654,7 @@
 							{diffMessage('replacePreview.cancel')}
 						</button>
 						<button
-							class="rounded bg-danger px-3 py-1.5 text-xs text-white transition hover:opacity-90 disabled:opacity-40"
+							class="rounded bg-danger px-3 py-1.5 text-xs text-on-danger transition hover:opacity-90 disabled:opacity-40"
 							disabled={replacing}
 							onclick={() => void confirmReplacement()}
 						>

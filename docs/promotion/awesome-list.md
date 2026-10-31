@@ -4,13 +4,13 @@ Status: prepared, not submitted. Obtain owner approval before submission.
 
 ## One-line entry
 
-- [mdsh](https://github.com/ThomasCrouzet/mdsh) - Local-first offline Markdown workspace with visual editing, source editing, reading, and a slide editor.
+- [DeckMark](https://github.com/ThomasCrouzet/deckmark) - Local-first offline Markdown workspace with visual editing, source editing, reading, and a slide editor.
 
 ## Short entry
 
-- **Name:** mdsh
-- **Website:** https://thomascrouzet.github.io/mdsh/
-- **Source:** https://github.com/ThomasCrouzet/mdsh
+- **Name:** DeckMark
+- **Website:** https://thomascrouzet.github.io/deckmark/
+- **Source:** https://github.com/ThomasCrouzet/deckmark
 - **License:** MIT
 - **Description:** A local-first Markdown workspace. Write, connect, present,
   and export documents without an account, server, or telemetry.
@@ -20,7 +20,7 @@ Status: prepared, not submitted. Obtain owner approval before submission.
 
 ## Notes for the list owner
 
-mdsh is a client-side application. It has no backend and no hosted account.
+DeckMark is a client-side application. It has no backend and no hosted account.
 The PWA installs from a static site and works offline after the first preparation.
 The Desktop Beta uses Tauri and stores drafts in the local profile.
 The presentation editor keeps one Markdown file with a terminal metadata block.

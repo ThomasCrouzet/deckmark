@@ -39,7 +39,7 @@ function applyTheme(pref: ThemePref): void {
 }
 
 class ThemeStore {
-	pref = $state<ThemePref>('system');
+	pref = $state<ThemePref>('dark');
 	effective = $state<EffectiveTheme>('dark');
 	private apply(): void {
 		this.effective = resolveTheme(this.pref, systemPrefersLight());
@@ -55,7 +55,7 @@ class ThemeStore {
 	load(): void {
 		if (!browser) return;
 		const saved = readPreference(THEME_STORAGE_KEY);
-		if (isThemePref(saved)) this.pref = saved;
+		this.pref = isThemePref(saved) ? saved : 'dark';
 		if (!this.mq && typeof window.matchMedia === 'function') {
 			this.mq = window.matchMedia('(prefers-color-scheme: light)');
 			this.mq.addEventListener('change', this.onSystemChange);

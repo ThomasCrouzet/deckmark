@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="symbol-light-title symbol-light-desc">
-  <title id="symbol-light-title">mdsh symbol for light backgrounds</title>
-  <desc id="symbol-light-desc">An amber Markdown heading mark between graphite brackets.</desc>
-  <path d="M8 22H30V33H19V95H30V106H8Z M98 22H120V106H98V95H109V33H98Z" fill="#171819"/>
-  <path d="M53 31H63L52 97H42Z M77 31H87L76 97H66Z" fill="#946d34"/>
-  <path d="M37 48H94V58H35Z M33 73H90V83H31Z" fill="#946d34"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64" viewBox="0 0 96 64" role="img" aria-label="DeckMark Relay"><title>DeckMark Relay</title><path transform="translate(-3.5000 -18.0000) scale(1.000000)" fill="#735019" d="M9 24H51L42 36H9Z M59 24H87L94 31V36H50Z M9 43H37L34 47H46L39 56H9Z M45 43H85V50L79 56H47L54 47H42Z M9 63H34L24 76H9Z M42 63H76V69L69 76H32Z"/></svg>

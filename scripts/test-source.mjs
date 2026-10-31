@@ -5,7 +5,7 @@ import { platform, release, arch } from 'node:os';
 
 export function testSource() {
 	/** @param {string[]} args */
-	const git = (...args) => execFileSync('git', args);
+	const git = (...args) => execFileSync('git', args, { maxBuffer: 64 * 1024 * 1024 });
 	/** @param {string | Buffer} data */
 	const hash = (data) => createHash('sha256').update(data).digest('hex');
 	return {

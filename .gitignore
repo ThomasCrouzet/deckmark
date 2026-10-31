@@ -15,6 +15,7 @@ Thumbs.db
 
 # Source archive supplied for the brand update. Keep canonical assets only.
 /mdsh-logo-04-balises.zip
+/Kit Design - DeckMark/
 
 # Env
 .env

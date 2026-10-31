@@ -1,6 +1,6 @@
 # Third-party notices
 
-This file records notices for third-party code and assets redistributed directly with mdsh editor. The generated dependency SBOM provides the complete package inventory.
+This file records notices for third-party code and assets redistributed directly with DeckMark. The generated dependency SBOM provides the complete package inventory.
 
 ## KaTeX 0.19.0 and bundled fonts
 

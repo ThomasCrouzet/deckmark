@@ -8,6 +8,7 @@
 	import { spinnerStore } from '#lib/spinner.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import Toasts from '#lib/components/Toasts.svelte';
+	import BrandLogo from '#lib/components/BrandLogo.svelte';
 	import { PresentationEditor } from './editor.svelte';
 	import { createPresentationGestures } from './gestures.svelte';
 	import type { PresentationElementType } from './model';
@@ -561,9 +562,8 @@
 >
 	<header class="presentation-header">
 		<div class="presentation-brand">
-			<span class="brand-mark" aria-hidden="true">▤</span><span class="brand-label"
-				>mdsh <strong>{t('slides.open')}</strong></span
-			>
+			<span class="presentation-signature"><BrandLogo /></span>
+			<span class="brand-label"><strong>{t('slides.open')}</strong></span>
 		</div>
 		{#if !presenting}
 			<input
@@ -1138,12 +1138,12 @@
 	button:focus-visible,
 	input:focus-visible,
 	textarea:focus-visible {
-		outline: 2px solid var(--color-accent);
+		outline: 3px solid var(--color-focus);
 		outline-offset: 2px;
 	}
 	button.primary {
 		background: var(--color-accent);
-		color: var(--color-bg);
+		color: var(--color-on-accent);
 		padding-inline: 15px;
 		font-weight: 650;
 	}
@@ -1162,9 +1162,9 @@
 		align-items: center;
 		white-space: nowrap;
 	}
-	.brand-mark {
-		font-size: 28px;
-		color: var(--color-accent);
+	.presentation-signature {
+		width: 128px;
+		flex: none;
 	}
 	.brand-label {
 		font-size: 13px;

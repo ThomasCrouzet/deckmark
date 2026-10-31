@@ -21,7 +21,7 @@ npm run preview:pages
 
 `make dev` binds Vite to `127.0.0.1`.
 `make dev-tailnet` exposes the development server on a private network address and prints the URL.
-`npm run preview:pages` checks the `/mdsh/` base path.
+`npm run preview:pages` checks the `/deckmark/` base path.
 Run the browser and native commands from [TESTING.md](TESTING.md) for changed workflows.
 Do not run two builds in the same working directory at the same time.
 On a shared machine, use `npm test -- --maxWorkers=1`, Playwright `--workers=1`,

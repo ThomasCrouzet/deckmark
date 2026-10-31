@@ -2,7 +2,7 @@
 
 ## Slides
 
-mdsh now has four views: Edit, Source, Read, and Slides.
+DeckMark now has four views: Edit, Source, Read, and Slides.
 
 The Slides view arranges text, images, rectangles, rounded rectangles, ellipses,
 lines, and arrows on a canvas. Move, resize, rotate, align, group, and reorder

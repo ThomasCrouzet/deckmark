@@ -77,7 +77,7 @@ export function annotateCargoSbom(input, patch, sourceSha) {
 	) {
 		throw new Error('The local glib component identity is inconsistent.');
 	}
-	const patchUrl = `https://raw.githubusercontent.com/ThomasCrouzet/mdsh/${sourceSha}/${patchRepositoryPath}`;
+	const patchUrl = `https://raw.githubusercontent.com/ThomasCrouzet/deckmark/${sourceSha}/${patchRepositoryPath}`;
 	const expectedPatch = {
 		type: 'backport',
 		diff: {

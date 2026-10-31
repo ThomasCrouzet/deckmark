@@ -24,7 +24,7 @@ import { nativeProjects } from './native-projects.mjs';
 
 const binary = resolve(
 	process.env.NATIVE_BINARY ??
-		`src-tauri/target/debug/mdsh${process.platform === 'win32' ? '.exe' : ''}`
+		`src-tauri/target/debug/deckmark${process.platform === 'win32' ? '.exe' : ''}`
 );
 const binarySha256 = (() => {
 	const bytes = readFileSync(binary);
@@ -33,7 +33,7 @@ const binarySha256 = (() => {
 		'Build with --features native-smoke before running this workflow'
 	);
 	assert.ok(
-		bytes.includes(Buffer.from('io.github.thomascrouzet.mdsh.smoke')),
+		bytes.includes(Buffer.from('io.github.thomascrouzet.deckmark.smoke')),
 		'Use tauri.smoke.conf.json to isolate native test data'
 	);
 	return createHash('sha256').update(bytes).digest('hex');
@@ -536,7 +536,7 @@ try {
 	const identifier = await executeAsync(
 		`const done = arguments[arguments.length - 1]; window.__TAURI__.app.getIdentifier().then(done);`
 	);
-	assert.equal(identifier, 'io.github.thomascrouzet.mdsh.smoke');
+	assert.equal(identifier, 'io.github.thomascrouzet.deckmark.smoke');
 	passed('isolated native profile and cold file association');
 	if (process.platform === 'linux') {
 		assert.ok(process.env.DBUS_SESSION_BUS_ADDRESS, 'Shared D-Bus session is required');

@@ -1,18 +1,18 @@
 {
-	"name": "mdsh",
+	"name": "deckmark",
 	"private": true,
 	"version": "2.1.0",
 	"packageManager": "npm@10.9.8",
 	"description": "A local-first WYSIWYG markdown editor - offline, 100% client-side PWA. No server, no account, no telemetry.",
 	"license": "MIT",
 	"author": "Thomas Crouzet",
-	"homepage": "https://thomascrouzet.github.io/mdsh/",
+	"homepage": "https://thomascrouzet.github.io/deckmark/",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/ThomasCrouzet/mdsh.git"
+		"url": "git+https://github.com/ThomasCrouzet/deckmark.git"
 	},
 	"bugs": {
-		"url": "https://github.com/ThomasCrouzet/mdsh/issues"
+		"url": "https://github.com/ThomasCrouzet/deckmark/issues"
 	},
 	"keywords": [
 		"markdown",

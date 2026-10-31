@@ -81,7 +81,7 @@ The last element renders above earlier elements.
 
 ## Markdown content
 
-The standard Markdown section remains useful without mdsh.
+The standard Markdown section remains useful without DeckMark.
 Each imported Markdown slide becomes one editable text element.
 The element keeps the slide Markdown in its `content` field.
 

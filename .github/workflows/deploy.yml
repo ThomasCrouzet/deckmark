@@ -146,8 +146,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
-      # Build in parallel with an empty BASE_PATH for custom domains and /mdsh for GitHub Pages.
-      # Only the /mdsh variant supplies the deployment artifact.
+      # Build in parallel with an empty BASE_PATH for custom domains and /deckmark for GitHub Pages.
+      # Only the /deckmark variant supplies the deployment artifact.
       # The empty variant detects incorrect absolute paths.
       fail-fast: false
       matrix:

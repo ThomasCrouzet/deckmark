@@ -335,3 +335,42 @@ Check initial focus, focus confinement, focus restoration, scroll access, and te
 Run `npm run test:e2e -- v2-accessibility.spec.ts --project=chromium`.
 The Playwright report retains screenshots and axe results.
 Wait for interface animations before the contrast check. Keep all serious and critical violations as failures.
+
+## DeckMark Relay design
+
+The Relay checks retain these failure risks: a first visit can follow a light OS
+instead of the dark default; a saved theme can be lost; touch targets can be too
+small; the toolbar can overflow; list semantics and keyboard focus can be lost.
+A library with more than 80 documents can hide rows if virtual offsets do not
+include the height of touch controls or a second line for project paths.
+
+Build the app, start a preview, then run the design check in another terminal:
+
+```sh
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4893 --strictPort
+RELAY_URL=http://127.0.0.1:4893 node scripts/relay-review.mjs
+```
+
+The check uses the Night survey document. It captures dark and light views at
+1440 by 900, 820 by 1180, and 390 by 844 pixels. It asserts tagged axe results,
+44 px touch toolbar targets, theme persistence, system theme changes, drawer
+focus, and reflow at 320, 600, 768, and 1024 pixels. It keeps screenshots and
+`test-results/relay/validation/browser.json`, including the command, source
+revision, working diff hash, environment, fixture, and results. These checks do
+not replace review with assistive technology on physical devices.
+
+Filled danger buttons must keep readable text in both themes. Check the disk
+conflict and replacement dialogs with axe. The System theme fixtures must select
+System explicitly because the first visit starts dark. Reading and slide views
+must show one checkbox per task without an additional list marker.
+
+Run the full browser suite on Linux with a virtual display:
+
+```sh
+xvfb-run -a npm run test:e2e -- --ignore-snapshots --grep-invert "Snapshots visuels" --workers=4 --output=test-results/final-e2e
+```
+
+The final browser output is in `test-results/final-e2e/`. The HTML report and
+JSON result use the standard paths above. Use a separate output directory to
+keep capture evidence from an earlier run.

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    mdsh_lib::run();
+    deckmark_lib::run();
 }

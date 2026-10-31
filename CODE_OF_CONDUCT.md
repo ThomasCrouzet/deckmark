@@ -24,7 +24,7 @@ Harassment, character attacks, stereotyping, discrimination, sexualization, disc
 
 ## Reporting and enforcement
 
-Report a possible violation privately through [GitHub Private Vulnerability Reporting](https://github.com/ThomasCrouzet/mdsh/security/advisories/new). Do not include sensitive incident details in a public issue. The solo maintainer receives these reports and will protect confidentiality while investigating available messages, logs, and witness accounts.
+Report a possible violation privately through [GitHub Private Vulnerability Reporting](https://github.com/ThomasCrouzet/deckmark/security/advisories/new). Do not include sensitive incident details in a public issue. The solo maintainer receives these reports and will protect confidentiality while investigating available messages, logs, and witness accounts.
 
 Depending on severity and history, enforcement may include a private warning, a temporary limitation on participation, a temporary suspension, or a permanent ban. Serious incidents may skip earlier steps. Decisions prioritize participant safety, proportionality, a clear record of the reasoning, and opportunities to repair harm where appropriate.
 

@@ -39,7 +39,7 @@
 
 ## Checklist
 
-- [ ] I followed [CONTRIBUTING.md](https://github.com/ThomasCrouzet/mdsh/blob/main/CONTRIBUTING.md)
+- [ ] I followed [CONTRIBUTING.md](https://github.com/ThomasCrouzet/deckmark/blob/main/CONTRIBUTING.md)
 - [ ] Comments and identifiers in English; UI strings go through the i18n layer
 - [ ] Svelte 5 runes only (no `$:` or legacy reactive `let`)
 - [ ] `if (browser)` or `onMount` around any `window`/`localStorage` access

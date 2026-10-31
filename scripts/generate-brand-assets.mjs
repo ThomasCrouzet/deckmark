@@ -161,30 +161,11 @@ function sortIcns(data) {
 	return Buffer.concat([data.subarray(0, 8), ...entries.sort(Buffer.compare)]);
 }
 
-/** @param {string} logo */
-function createOgSvg(logo) {
-	const embeddedLogo = logo
-		.trim()
-		.replace('width="356" height="104"', 'x="80" y="150" width="960" height="280.449438"');
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="og-title og-desc">
-  <title id="og-title">mdsh: offline Markdown editor</title>
-  <desc id="og-desc">Your Markdown. On your device. No account. No server. No tracking.</desc>
-  <rect width="1200" height="630" fill="#0b0c0d"/>
-  <rect x="96" y="84" width="72" height="4" fill="#c79a55"/>
-  <text x="192" y="93" font-family="Arial, Helvetica, sans-serif" font-size="16" letter-spacing="3" fill="#c79a55">OFFLINE MARKDOWN EDITOR</text>
-${embeddedLogo}
-  <text x="96" y="485" font-family="Arial, Helvetica, sans-serif" font-size="36" fill="#e6dfd1">Your Markdown. On your device.</text>
-  <text x="96" y="556" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#bbb1a2">No account. No server. No tracking.</text>
-</svg>
-`;
-}
-
 /** @param {{ check?: boolean, ogOnly?: boolean }} [options] */
 export async function generateBrandAssets({ check = false, ogOnly = false } = {}) {
 	/** @type {Map<string, Buffer>} */
 	const assets = new Map();
-	const logo = await readFile(join(ROOT, 'static/brand/logo-dark.svg'), 'utf8');
-	const ogSvg = createOgSvg(logo);
+	const ogSvg = await readFile(join(ROOT, 'static/brand/social-card.svg'), 'utf8');
 	assets.set('static/og-image.svg', Buffer.from(ogSvg));
 	const browser = await chromium.launch();
 	try {

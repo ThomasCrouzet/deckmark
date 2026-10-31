@@ -1,6 +1,7 @@
 {
-	"name": "mdsh - local-first markdown editor",
-	"short_name": "mdsh",
+	"name": "DeckMark - local-first markdown editor",
+	"short_name": "DeckMark",
+	"id": "/",
 	"description": "A local-first offline Markdown workspace with light and dark themes.",
 	"theme_color": "#0b0c0d",
 	"background_color": "#0b0c0d",
@@ -11,9 +12,21 @@
 	"lang": "en",
 	"categories": ["productivity", "utilities"],
 	"icons": [
-		{ "src": "pwa-64x64.png", "sizes": "64x64", "type": "image/png" },
-		{ "src": "pwa-192x192.png", "sizes": "192x192", "type": "image/png" },
-		{ "src": "pwa-512x512.png", "sizes": "512x512", "type": "image/png" },
+		{
+			"src": "pwa-64x64.png",
+			"sizes": "64x64",
+			"type": "image/png"
+		},
+		{
+			"src": "pwa-192x192.png",
+			"sizes": "192x192",
+			"type": "image/png"
+		},
+		{
+			"src": "pwa-512x512.png",
+			"sizes": "512x512",
+			"type": "image/png"
+		},
 		{
 			"src": "maskable-icon-512x512.png",
 			"sizes": "512x512",
@@ -49,6 +62,13 @@
 			"type": "image/webp",
 			"form_factor": "wide",
 			"label": "Command palette with keyboard shortcuts"
+		},
+		{
+			"src": "screenshots/relay-mobile.webp",
+			"sizes": "390x844",
+			"type": "image/webp",
+			"form_factor": "narrow",
+			"label": "DeckMark mobile editor with the library drawer closed."
 		}
 	],
 	"shortcuts": [
@@ -57,21 +77,36 @@
 			"short_name": "New",
 			"description": "Create a new markdown draft",
 			"url": "./?action=new",
-			"icons": [{ "src": "pwa-192x192.png", "sizes": "192x192" }]
+			"icons": [
+				{
+					"src": "pwa-192x192.png",
+					"sizes": "192x192"
+				}
+			]
 		},
 		{
 			"name": "Search",
 			"short_name": "Search",
 			"description": "Open cross-file search",
 			"url": "./?action=search",
-			"icons": [{ "src": "pwa-192x192.png", "sizes": "192x192" }]
+			"icons": [
+				{
+					"src": "pwa-192x192.png",
+					"sizes": "192x192"
+				}
+			]
 		},
 		{
 			"name": "Command palette",
 			"short_name": "Commands",
 			"description": "Open the command palette",
 			"url": "./?action=palette",
-			"icons": [{ "src": "pwa-192x192.png", "sizes": "192x192" }]
+			"icons": [
+				{
+					"src": "pwa-192x192.png",
+					"sizes": "192x192"
+				}
+			]
 		}
 	],
 	"file_handlers": [
@@ -86,8 +121,14 @@
 	"share_target": {
 		"action": "./",
 		"method": "GET",
-		"params": { "title": "title", "text": "text", "url": "url" }
+		"params": {
+			"title": "title",
+			"text": "text",
+			"url": "url"
+		}
 	},
-	"launch_handler": { "client_mode": "focus-existing" },
+	"launch_handler": {
+		"client_mode": "focus-existing"
+	},
 	"handle_links": "preferred"
 }

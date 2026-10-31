@@ -98,7 +98,7 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	const dismiss = spinnerStore.show(t('export.creatingZip'));
 	try {
 		const stamp = new Date().toISOString().slice(0, 10);
-		const ok = await exportZipService(snapshot, `mdsh-export-${stamp}.zip`);
+		const ok = await exportZipService(snapshot, `deckmark-export-${stamp}.zip`);
 		if (!ok) return; // desktop dialog cancelled - keep dirty, no success toast
 		notify.success(t('export.zipCreated', { n: snapshot.length }));
 	} catch (err) {
@@ -181,7 +181,7 @@ export async function exportSelectionZip(
 	const dismiss = spinnerStore.show(t('export.creatingZip'));
 	try {
 		const stamp = new Date().toISOString().slice(0, 10);
-		const ok = await exportZipService(files, `mdsh-selection-${stamp}.zip`);
+		const ok = await exportZipService(files, `deckmark-selection-${stamp}.zip`);
 		if (!ok) return; // desktop dialog cancelled
 		notify.success(t('export.zipCreated', { n: files.length }));
 	} catch (err) {

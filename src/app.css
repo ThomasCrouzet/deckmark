@@ -1,37 +1,28 @@
 @import 'tailwindcss';
 
-/* ==========================================================================
-   Theme tokens - mdsh [#]
-   Use graphite, warm ivory, and amber with the supplied logo. Keep the darker
-   light-theme accent for readable controls. Keep the document surface quiet.
-   ========================================================================== */
+/* Relay uses warm text and a single amber accent. */
 @theme {
 	--color-bg: #0b0c0d;
-	--color-bg-1: #101214;
-	--color-bg-2: #17191b;
-	--color-bg-3: #222326;
-	--color-border: #30302e;
-	--color-border-strong: #5a5348;
-
-	/* §B1.6 - The gray scale meets WCAG AA (4.5:1) against #0b0c0d.
-	   Previously, fg-dim had a ratio of approximately 3.2:1. All levels now
-	   meet AA, and fg-muted meets AAA (7:1). */
-	--color-fg: #e6dfd1; /* ~14.8:1 AAA */
-	--color-fg-muted: #bbb1a2; /* ~9.3:1 AAA */
-	--color-fg-subtle: #9b9183; /* ~6.3:1 AA */
-	--color-fg-dim: #998e7e; /* >4.8:1 on the lightest dark surface */
-
+	--color-bg-1: #131619;
+	--color-bg-2: #1a1d20;
+	--color-bg-3: #25282b;
+	--color-border: #3f4141;
+	--color-border-strong: #8a8275;
+	--color-fg: #eee8dd;
+	--color-fg-muted: #cbc2b5;
+	--color-fg-subtle: #b8afa0;
+	--color-fg-dim: #aba294;
 	--color-accent: #c79a55;
-	--color-accent-dim: #896735;
-	--color-danger: #f07868;
-	/* §a11y - Warning color, for example a disk link that needs permission.
-	   This theme token replaces text-amber-400, which failed WCAG 1.4.11 on
-	   the light theme with a ratio of approximately 1.5:1. */
-	--color-warning: #e2ad54;
+	--color-accent-dim: #af8a50;
+	--color-focus: #f3c982;
+	--color-on-accent: #15130f;
+	--color-on-danger: #15130f;
+	--color-danger: #ffa69b;
+	--color-warning: #edc078;
+	--color-success: #9ad7ad;
+	--color-selection: #514027;
 
-	--font-sans:
-		Bahnschrift, 'DIN Alternate', 'Arial Narrow', 'Aptos', -apple-system, BlinkMacSystemFont,
-		'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+	--font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
 	--font-prose:
 		-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, ui-sans-serif, system-ui,
 		sans-serif;
@@ -61,28 +52,31 @@
    value on <html>. CSS only needs overrides for `[data-theme='light']` because
    `dark` is the default. One matchMedia listener tracks system theme changes.
 
-   The light palette meets WCAG AA (4.5:1) against #f0ede5 and follows the dark
+   The light palette meets WCAG AA (4.5:1) against #f4f0e8 and follows the dark
    theme's gray scale.
    ========================================================================== */
 :root[data-theme='light'] {
 	color-scheme: light;
 
-	--color-bg: #f0ede5;
-	--color-bg-1: #e7e2d8;
-	--color-bg-2: #dcd5c8;
-	--color-bg-3: #cec4b4;
-	--color-border: #c9c0b2;
-	--color-border-strong: #9a8c78;
-
-	--color-fg: #231f1a; /* ~14:1 AAA */
-	--color-fg-muted: #4e473e; /* ~7.8:1 AAA */
-	--color-fg-subtle: #61594d; /* ~5.9:1 AA */
-	--color-fg-dim: #584f44; /* >5.2:1 on the darkest light surface */
-
-	--color-accent: #6f4e18; /* ~6.5:1 against #f0ede5 */
-	--color-accent-dim: #9b6c24;
-	--color-danger: #991b1b;
-	--color-warning: #7d5200;
+	--color-bg: #f4f0e8;
+	--color-bg-1: #ece6da;
+	--color-bg-2: #fffcf6;
+	--color-bg-3: #e2dacd;
+	--color-border: #c2b8a9;
+	--color-border-strong: #786d5f;
+	--color-fg: #241f1b;
+	--color-fg-muted: #514b42;
+	--color-fg-subtle: #5c554a;
+	--color-fg-dim: #60594f;
+	--color-accent: #735019;
+	--color-accent-dim: #78551f;
+	--color-focus: #654212;
+	--color-on-accent: #fffcf6;
+	--color-on-danger: #fffcf6;
+	--color-danger: #8c3028;
+	--color-warning: #684706;
+	--color-success: #265d3d;
+	--color-selection: #e6d0aa;
 }
 
 :root[data-theme='dark'] {
@@ -118,7 +112,7 @@ body {
 
 /* Selection */
 ::selection {
-	background: color-mix(in oklab, var(--color-accent) 35%, transparent);
+	background: var(--color-selection);
 	color: var(--color-fg);
 }
 
@@ -147,7 +141,7 @@ body {
 	outline: none;
 }
 :focus-visible {
-	outline: 2px solid var(--color-accent);
+	outline: 3px solid var(--color-focus);
 	outline-offset: 2px;
 	border-radius: var(--radius-xs);
 }
@@ -302,7 +296,7 @@ body.typewriter-mode .mdsh-editor {
 	left: 5px;
 	right: 5px;
 	bottom: -1px;
-	height: 1px;
+	height: 3px;
 	background: var(--color-accent);
 }
 
@@ -314,8 +308,8 @@ body.typewriter-mode .mdsh-editor {
 	gap: 0.45rem;
 	padding-inline: 0.6rem;
 	font-family: var(--font-mono);
-	font-size: 9px;
-	letter-spacing: 0.16em;
+	font-size: 0.75rem;
+	letter-spacing: 0.06em;
 	color: var(--color-fg-dim);
 }
 
@@ -402,10 +396,10 @@ body.typewriter-mode .mdsh-editor {
 		--color-fg: #ffffff;
 		--color-fg-muted: #c8c3b8;
 		--color-fg-subtle: #aaa597;
-		--color-fg-dim: #8a867a;
+		--color-fg-dim: #d4cfc4;
 		--color-border: #5a5e66;
 		--color-border-strong: #8a8f98;
-		--color-accent: #9fffd0;
+		--color-accent: #ffe2a8;
 		--color-warning: #ffd84d;
 	}
 	/* Increase light-theme contrast toward black and use stronger borders. */
@@ -416,7 +410,7 @@ body.typewriter-mode .mdsh-editor {
 		--color-fg-dim: #4e525a;
 		--color-border: #9a9a90;
 		--color-border-strong: #6a6a60;
-		--color-accent: #0a5c3d;
+		--color-accent: #503400;
 		--color-warning: #6b4a00;
 	}
 }
@@ -499,5 +493,36 @@ body.typewriter-mode .mdsh-editor {
 @media (max-width: 639px) {
 	.search-input-row input[role='combobox'] {
 		flex-basis: calc(100% - 2rem);
+	}
+}
+
+@media (forced-colors: active) {
+	:focus-visible {
+		outline: 3px solid Highlight;
+	}
+	.mdsh-mode-switch button[aria-checked='true'] {
+		border: 2px solid ButtonText;
+	}
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+	#files-panel {
+		width: 12.5rem;
+	}
+}
+
+.mdsh-dialog-panel button[aria-pressed='true'] {
+	text-decoration: underline;
+	text-decoration-thickness: 2px;
+	text-underline-offset: 0.25em;
+}
+
+.mdsh-toc-col button {
+	min-height: 28px;
+}
+
+@media (pointer: coarse) {
+	.mdsh-toc-col button {
+		min-height: 44px;
 	}
 }

@@ -1,6 +1,6 @@
 # Support
 
-For usage questions, read the [user guide](docs/USER_GUIDE.md), [README](README.md), and existing [issues](https://github.com/ThomasCrouzet/mdsh/issues).
+For usage questions, read the [user guide](docs/USER_GUIDE.md), [README](README.md), and existing [issues](https://github.com/ThomasCrouzet/deckmark/issues).
 
 Use the bug report template for a reproducible defect. Include the app version, platform, steps, expected behavior, and applicable console output. Remove secrets from the output. Use the feature template for a scoped proposal that preserves offline and local-first operation.
 
