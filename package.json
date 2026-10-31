@@ -1,7 +1,7 @@
 {
 	"name": "mdsh",
 	"private": true,
-	"version": "2.0.4",
+	"version": "2.1.0",
 	"packageManager": "npm@10.9.8",
 	"description": "A local-first WYSIWYG markdown editor - offline, 100% client-side PWA. No server, no account, no telemetry.",
 	"license": "MIT",

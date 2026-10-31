@@ -5,6 +5,13 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.1.0](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.4...v2.1.0) (2026-10-31)
+
+
+### Features
+
+* add offline Markdown presentation editor ([#172](https://github.com/ThomasCrouzet/mdsh/issues/172)) ([da97e8d](https://github.com/ThomasCrouzet/mdsh/commit/da97e8dc558630e7b3805ddf73a429757bf07d14))
+
 ## [2.0.4](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.3...v2.0.4) (2026-10-29)
 
 
