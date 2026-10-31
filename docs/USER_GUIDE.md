@@ -2,7 +2,7 @@
 
 ## Start writing
 
-Open the [web app](https://thomascrouzet.github.io/mdsh/) and create a document. Select WYSIWYG, source, or reading mode on the toolbar. Drafts stay in the current browser profile. The app does not create an account or remote copy.
+Open the [web app](https://thomascrouzet.github.io/deckmark/) and create a document. Select WYSIWYG, source, or reading mode on the toolbar. Drafts stay in the current browser profile. The app does not create an account or remote copy.
 
 Closing a tab keeps the document in the library. The delete command moves it to the trash for 30 days. Open the library and trash from the sidebar.
 
@@ -50,11 +50,11 @@ Documents keep their paths, so `README.md` and `notes/README.md` remain separate
 Relative Markdown links and images resolve inside the project. Wiki paths also stay within the source project.
 
 Use **New project document** to add a path such as `notes/guide.md`.
-Rename an open document through the toolbar. mdsh updates incoming document links and keeps history checkpoints.
+Rename an open document through the toolbar. deckmark updates incoming document links and keeps history checkpoints.
 Select **Check links** to list missing resources, ambiguous wiki links, paths outside the project, and remote images.
 
 Select **Export project** to download the documents and resources together.
-The ZIP contains `.mdsh/project.json` and `.mdsh/link-report.json` for project metadata and link diagnostics.
+The ZIP contains `.deckmark/project.json` and `.deckmark/link-report.json` for project metadata and link diagnostics.
 Image data embedded in Markdown becomes a separate asset in the archive. The stored source remains unchanged.
 An individual Markdown download keeps its relative references. Use the project ZIP when those references need local resources.
 
@@ -206,7 +206,7 @@ PDF and print produce one slide per page. A deck prints in landscape at its stor
 canvas size. An ordinary document keeps its A4 print settings.
 
 A presentation is one Markdown file with optional front matter, slide content, and
-one terminal `mdsh-presentation` metadata block. The metadata block controls
+one terminal `deckmark-presentation` metadata block. The metadata block controls
 geometry and styles. The Markdown body controls text and image content. If a file
 uses an unknown format version, the editor shows an error and keeps the file
 unchanged. See the [presentation format](presentation-format.md) for the complete

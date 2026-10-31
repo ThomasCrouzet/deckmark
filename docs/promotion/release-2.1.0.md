@@ -2,7 +2,7 @@
 
 ## Slides
 
-mdsh now has four views: Edit, Source, Read, and Slides.
+deckmark now has four views: Edit, Source, Read, and Slides.
 
 The Slides view arranges text, images, rectangles, rounded rectangles, ellipses,
 lines, and arrows on a canvas. Move, resize, rotate, align, group, and reorder
@@ -10,7 +10,7 @@ objects with a pointer, keyboard, or touch screen. Add presenter notes and start
 full-screen presentation.
 
 A presentation remains one Markdown file. Optional front matter, Markdown content,
-and one terminal `mdsh-presentation` block share the file. The Markdown body stays
+and one terminal `deckmark-presentation` block share the file. The Markdown body stays
 readable in another editor.
 
 ## Documents and data

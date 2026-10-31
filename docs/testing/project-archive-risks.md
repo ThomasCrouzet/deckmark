@@ -4,7 +4,7 @@ These browser scenarios cover archive boundaries that can damage portable projec
 
 ## Failure risks
 
-- A case variant of `.mdsh` can replace internal metadata on a case-insensitive filesystem.
+- A case variant of `.deckmark` can replace internal metadata on a case-insensitive filesystem.
 - A filename with parentheses can produce an invalid Markdown destination after a rename.
 - A rename can change links inside quoted fences, list fences, or raw HTML examples.
 - A reference-style remote image can bypass the remote-image link diagnostic.
@@ -20,7 +20,7 @@ These browser scenarios cover archive boundaries that can damage portable projec
 
 `project-archive-risks.spec.ts` imports archives through the Projects panel.
 
-1. Import rejects a case variant of the reserved `.mdsh` directory before storage changes.
+1. Import rejects a case variant of the reserved `.deckmark` directory before storage changes.
 2. Rename encodes a closing parenthesis and keeps links inside protected examples unchanged.
 3. The link report identifies a reference-style remote image without a network request.
 4. The link report identifies a basename-only wiki link with multiple project targets.

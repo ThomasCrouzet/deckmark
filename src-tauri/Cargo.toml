@@ -1,16 +1,16 @@
 [package]
-name = "mdsh"
+name = "deckmark"
 # The application version comes from ../package.json through tauri.conf.json.
 version = "0.0.0"
 description = "Local-first offline WYSIWYG markdown editor"
 authors = ["Thomas Crouzet"]
 license = "MIT"
-repository = "https://github.com/ThomasCrouzet/mdsh"
+repository = "https://github.com/ThomasCrouzet/deckmark"
 edition = "2021"
 rust-version = "1.88"
 
 [lib]
-name = "mdsh_lib"
+name = "deckmark_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -4,10 +4,10 @@ Status: prepared, not submitted. Check the current form before submission.
 
 | Field | Value |
 | --- | --- |
-| Name | mdsh |
+| Name | deckmark |
 | Short description | Local-first offline Markdown workspace with visual editing, reading, and slides. |
-| Website | https://thomascrouzet.github.io/mdsh/ |
-| Source code | https://github.com/ThomasCrouzet/mdsh |
+| Website | https://thomascrouzet.github.io/deckmark/ |
+| Source code | https://github.com/ThomasCrouzet/deckmark |
 | License | MIT |
 | Category | Note-taking and documentation |
 | Platforms | Web PWA, macOS, Windows, Linux |
@@ -23,7 +23,7 @@ Status: prepared, not submitted. Check the current form before submission.
 
 ## Review note
 
-mdsh is not a self-hosted server application. It is a static PWA with an optional
+deckmark is not a self-hosted server application. It is a static PWA with an optional
 desktop build. The listing must not imply a Docker image, a database server, or a
 shared account. The "self-hosted" value is the static site and the local data store.
 

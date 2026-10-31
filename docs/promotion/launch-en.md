@@ -2,9 +2,9 @@
 
 Status: prepared, not published.
 
-## mdsh 2.1.0 adds an offline slide editor
+## deckmark 2.1.0 adds an offline slide editor
 
-mdsh is a local Markdown workspace. Version 2.1.0 adds a fourth view: Slides.
+deckmark is a local Markdown workspace. Version 2.1.0 adds a fourth view: Slides.
 
 Write a document, then select **Slides** to arrange text, images, shapes, and
 connectors on a canvas. Add presenter notes, reorder slides, and present in full
@@ -13,7 +13,7 @@ portable HTML, PDF, and print. PDF and print put one slide on each page and leav
 the presenter notes out.
 
 A presentation remains one Markdown file. Optional front matter, Markdown content,
-and a terminal `mdsh-presentation` block share the file. Text and images stay
+and a terminal `deckmark-presentation` block share the file. Text and images stay
 readable in another editor. If a file uses an unknown format version, the editor
 shows an error and keeps the file unchanged. An ordinary document that you open and
 close without a layout change keeps its exact bytes.
@@ -32,5 +32,5 @@ Limits: visual editing can normalize Markdown. Use Source mode when exact
 formatting matters. Cloud sync, collaboration, and plugins remain outside the
 project scope.
 
-Links: https://thomascrouzet.github.io/mdsh/ and
-https://github.com/ThomasCrouzet/mdsh/releases
+Links: https://thomascrouzet.github.io/deckmark/ and
+https://github.com/ThomasCrouzet/deckmark/releases

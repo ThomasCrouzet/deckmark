@@ -78,7 +78,7 @@ The browser tests use the English locale. They select controls through stable
 - A quota failure can look saved or omit the retry action inside the editor.
 - Reload can lose slides during the 400 ms delayed save.
 - Concurrent tabs can replace newer slide metadata with an older revision.
-- A malformed presentation block can make the source unreadable in mdsh.
+- A malformed presentation block can make the source unreadable in deckmark.
 - A marker inside a YAML literal can misclassify ordinary Markdown.
 - Alignment can invert or move a negative line endpoint outside the slide.
 - A reserved slide marker in element text can start a new slide after reload.

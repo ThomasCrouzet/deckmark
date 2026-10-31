@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="static/brand/logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="static/brand/logo-light.svg">
-    <img src="static/brand/logo-light.svg" alt="mdsh" width="320" height="94">
+    <img src="static/brand/logo-light.svg" alt="deckmark" width="320" height="94">
   </picture>
 </p>
 
@@ -14,18 +14,18 @@
 </p>
 
 <p align="center">
-  <a href="https://thomascrouzet.github.io/mdsh/"><strong>Open the web app</strong></a> ·
-  <a href="https://github.com/ThomasCrouzet/mdsh/releases">Download Desktop Beta</a> ·
+  <a href="https://thomascrouzet.github.io/deckmark/"><strong>Open the web app</strong></a> ·
+  <a href="https://github.com/ThomasCrouzet/deckmark/releases">Download Desktop Beta</a> ·
   <a href="docs/USER_GUIDE.md">User guide</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml"><img src="https://github.com/ThomasCrouzet/mdsh/actions/workflows/deploy.yml/badge.svg" alt="Build, browser tests, and deployment"></a>
-  <a href="https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml"><img src="https://github.com/ThomasCrouzet/mdsh/actions/workflows/security.yml/badge.svg" alt="Security checks"></a>
+  <a href="https://github.com/ThomasCrouzet/deckmark/actions/workflows/deploy.yml"><img src="https://github.com/ThomasCrouzet/deckmark/actions/workflows/deploy.yml/badge.svg" alt="Build, browser tests, and deployment"></a>
+  <a href="https://github.com/ThomasCrouzet/deckmark/actions/workflows/security.yml"><img src="https://github.com/ThomasCrouzet/deckmark/actions/workflows/security.yml/badge.svg" alt="Security checks"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-c79a55" alt="MIT license"></a>
 </p>
 
-![The mdsh interface: the new logo, heading shortcuts, visual and source editing, reading, document selection, the PDF width guide, and linked notes](docs/demo.gif)
+![The deckmark interface: the new logo, heading shortcuts, visual and source editing, reading, document selection, the PDF width guide, and linked notes](docs/demo.gif)
 
 ## One document, four views
 
@@ -76,7 +76,7 @@ consistent across the web app and Desktop.
 <details>
 <summary><strong>See the light theme, reading view, and slide editor</strong></summary>
 
-![Visual editing in the light theme with the mdsh logo](docs/screenshots/mode-wysiwyg-light.webp)
+![Visual editing in the light theme with the deckmark logo](docs/screenshots/mode-wysiwyg-light.webp)
 
 ![Reading view with rendered formulas and the document sidebar](docs/screenshots/mode-read.webp)
 
@@ -86,7 +86,7 @@ consistent across the web app and Desktop.
 
 ## Start in your browser or on Desktop
 
-The [web app](https://thomascrouzet.github.io/mdsh/) needs no installation.
+The [web app](https://thomascrouzet.github.io/deckmark/) needs no installation.
 Create a file, import Markdown, or open the built-in demo. Use your browser's
 install action to add the [PWA](docs/USER_GUIDE.md#install-the-pwa).
 
@@ -97,7 +97,7 @@ install action to add the [PWA](docs/USER_GUIDE.md#install-the-pwa).
 | Safari / WebKit | Core desktop and mobile workflow tests | Download fallback |
 | Desktop Beta | Local Tauri app, native WebView tests | Native file access on macOS, Windows, and Linux |
 
-[Desktop Beta downloads](https://github.com/ThomasCrouzet/mdsh/releases) are separate
+[Desktop Beta downloads](https://github.com/ThomasCrouzet/deckmark/releases) are separate
 prereleases. Installers are unsigned and can trigger an operating-system warning.
 Each release includes checksums and build provenance.
 See the [Desktop guide](docs/USER_GUIDE.md#desktop-beta-app) for requirements.
@@ -176,7 +176,7 @@ editor supports 16:9 and 4:3 decks.
 
 [Architecture](ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) ·
 [Documentation index](docs/README.md) ·
-[Brand assets and demo capture](docs/BRANDING.md) · [Issues](https://github.com/ThomasCrouzet/mdsh/issues) ·
+[Brand assets and demo capture](docs/BRANDING.md) · [Issues](https://github.com/ThomasCrouzet/deckmark/issues) ·
 [Support](SUPPORT.md)
 
 ## License

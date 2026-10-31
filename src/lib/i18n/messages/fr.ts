@@ -14,7 +14,7 @@ export const fr: Record<MessageKey, string> = {
 	...projectFr,
 	...diffFr,
 	...backupProjectFr,
-	'brand.name': 'mdsh',
+	'brand.name': 'deckmark',
 	'brand.localWorkspace': 'Espace local',
 	'library.browseCount': 'Retrouver vos documents ({n})',
 	'files.invalidLinkName': 'Utilisez un nom sans crochets, barre verticale ni saut de ligne.',
@@ -56,7 +56,7 @@ export const fr: Record<MessageKey, string> = {
 	'settings.backupValid': 'Sauvegarde vérifiée. Votre bibliothèque est inchangée.',
 	'settings.backupDownloadHint':
 		'Conservez le fichier exporté hors de ce navigateur. Vérifiez-le ici avant de devoir le restaurer. Le téléchargement doit être terminé pour que la copie soit disponible.',
-	'settings.about': 'À propos de mdsh',
+	'settings.about': 'À propos de deckmark',
 	'settings.userGuide': 'Guide utilisateur (nouvel onglet)',
 	'actions.title': 'Actions',
 	'actions.commands': 'Commandes et raccourcis',
@@ -134,11 +134,11 @@ export const fr: Record<MessageKey, string> = {
 		'La sauvegarde dépasse les limites : 64 Mio au total, 3 000 documents et 16 Mio par document.',
 	'backup.encryptedInvalidJson': 'Fichier chiffré illisible : ce n’est pas du JSON valide.',
 	'backup.futureVersion':
-		'Sauvegarde créée par une version plus récente de mdsh (schéma v{version}). Mets l’application à jour.',
+		'Sauvegarde créée par une version plus récente de deckmark (schéma v{version}). Mets l’application à jour.',
 	'backup.invalidJson': 'Fichier illisible : ce n’est pas du JSON valide.',
 	'backup.invalidSchema': 'Sauvegarde invalide : version de schéma absente ou incohérente.',
 	'backup.notEncrypted': 'Ce fichier n’est pas chiffré.',
-	'backup.notMdshBackup': 'Ce fichier n’est pas une sauvegarde mdsh.',
+	'backup.notMdshBackup': 'Ce fichier n’est pas une sauvegarde deckmark.',
 	'backup.passphraseRequired': 'Sauvegarde chiffrée : passphrase requise.',
 
 	// common
@@ -314,7 +314,7 @@ export const fr: Record<MessageKey, string> = {
 	'disk.overwriteCancel': 'Annuler',
 	'disk.overwriteConfirm': 'Écraser',
 	'disk.overwriteMessage':
-		"« {name} » a été modifié hors de mdsh depuis son ouverture. Écraser quand même la version disque par celle de l'éditeur ?",
+		"« {name} » a été modifié hors de deckmark depuis son ouverture. Écraser quand même la version disque par celle de l'éditeur ?",
 	'disk.overwriteTitle': 'Le fichier disque a changé',
 	'disk.saveCancelled': 'Enregistrement de « {name} » annulé (fichier disque modifié).',
 	'disk.saveFailed': "Échec de l'enregistrement sur le disque de « {name} ».",
@@ -539,9 +539,9 @@ export const fr: Record<MessageKey, string> = {
 	'prompt.ok': 'OK',
 
 	// pwa
-	'pwa.offlineReady': 'mdsh est prêt à fonctionner hors-ligne.',
+	'pwa.offlineReady': 'deckmark est prêt à fonctionner hors-ligne.',
 	'pwa.reload': 'Recharger',
-	'pwa.updateAvailable': 'Nouvelle version de mdsh disponible.',
+	'pwa.updateAvailable': 'Nouvelle version de deckmark disponible.',
 
 	// read
 	'read.codeBlock': 'Bloc de code',

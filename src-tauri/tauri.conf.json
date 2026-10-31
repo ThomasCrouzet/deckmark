@@ -1,8 +1,8 @@
 {
 	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-	"productName": "mdsh",
+	"productName": "deckmark",
 	"version": "../package.json",
-	"identifier": "io.github.thomascrouzet.mdsh",
+	"identifier": "io.github.thomascrouzet.deckmark",
 	"build": {
 		"frontendDist": "../build",
 		"devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
 		"windows": [
 			{
 				"label": "main",
-				"title": "mdsh",
+				"title": "deckmark",
 				"width": 1280,
 				"height": 800,
 				"minWidth": 720,

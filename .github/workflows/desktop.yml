@@ -448,7 +448,7 @@ jobs:
           else
             gh release create "$DESKTOP_TAG" \
               --target "$SOURCE_SHA" \
-              --title "mdsh editor Desktop Beta $SOURCE_TAG" \
+              --title "deckmark editor Desktop Beta $SOURCE_TAG" \
               --notes "Desktop Beta installers are not signed. macOS Gatekeeper and Windows SmartScreen can show a warning. Check SHA256SUMS and the attestation before installation." \
               --prerelease
           fi

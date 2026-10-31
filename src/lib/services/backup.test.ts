@@ -181,7 +181,7 @@ describe('parseBackup - validation', () => {
 
 	it('rejects an object with the wrong format', () => {
 		expect(() => parseBackup(JSON.stringify({ format: 'autre', schemaVersion: 1 }))).toThrow(
-			/pas une sauvegarde mdsh/
+			/pas une sauvegarde deckmark/
 		);
 	});
 
