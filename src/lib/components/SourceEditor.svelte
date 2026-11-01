@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import type { EditorView } from '@codemirror/view';
+	import type { EditorView, ViewUpdate } from '@codemirror/view';
 	import { i18n, t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
@@ -31,6 +31,33 @@
 	let host: HTMLDivElement;
 	let view: EditorView | null = null;
 	let lastEmitted = '';
+	let applyingExternal = false;
+
+	function sourceChanges(update: ViewUpdate): string {
+		const source = lastEmitted;
+		const lineStarts = [0];
+		for (const match of source.matchAll(/\r\n?|\n/g))
+			lineStarts.push(match.index + match[0].length);
+		const offset = (position: number) => {
+			const line = update.startState.doc.lineAt(position);
+			return lineStarts[line.number - 1]! + position - line.from;
+		};
+		const parts: string[] = [];
+		let cursor = 0;
+		update.changes.iterChanges((from, to, _newFrom, _newTo, inserted) => {
+			const rawFrom = offset(from);
+			const rawTo = offset(to);
+			const separator =
+				/\r\n?|\n/.exec(source.slice(rawFrom))?.[0] ?? /\r\n?|\n/.exec(source)?.[0] ?? '\n';
+			parts.push(
+				source.slice(cursor, rawFrom),
+				inserted.sliceString(0, inserted.length, separator)
+			);
+			cursor = rawTo;
+		});
+		parts.push(source.slice(cursor));
+		return parts.join('');
+	}
 	// Failure state of the CodeMirror lazy-load (chunk unavailable: first
 	// offline opening, or stale PWA cache after deployment). Shows an in-place
 	// message + a "Retry" button instead of a silent blank pane.
@@ -139,7 +166,7 @@
 		editorStateCache.setSourceState(
 			fileId,
 			{
-				content: view.state.doc.toString(),
+				content: lastEmitted,
 				state: view.state.toJSON({ history: activeCM.historyField })
 			},
 			{
@@ -362,8 +389,8 @@
 				if (update.viewportChanged || update.docChanged) {
 					onViewportLine?.(update.state.doc.lineAt(update.view.viewport.from).number);
 				}
-				if (update.docChanged) {
-					const v = update.state.doc.toString();
+				if (update.docChanged && !applyingExternal) {
+					const v = sourceChanges(update);
 					if (v !== lastEmitted) {
 						lastEmitted = v;
 						onChange(v);
@@ -463,10 +490,15 @@
 		const c = content;
 		if (view && activeCM && c !== lastEmitted) {
 			lastEmitted = c;
-			view.dispatch({
-				changes: { from: 0, to: view.state.doc.length, insert: c },
-				annotations: activeCM.Transaction.addToHistory.of(false)
-			});
+			applyingExternal = true;
+			try {
+				view.dispatch({
+					changes: { from: 0, to: view.state.doc.length, insert: c },
+					annotations: activeCM.Transaction.addToHistory.of(false)
+				});
+			} finally {
+				applyingExternal = false;
+			}
 		}
 	});
 

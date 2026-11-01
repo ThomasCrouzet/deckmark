@@ -50,6 +50,8 @@ test('keeps a representative 20-slide deck responsive during a real drag', async
 	const rectangle = editor.locator(
 		`[data-testid="slide-object"][data-object-id="${firstRectangleId}"]`
 	);
+	// Wait for the fitted canvas to settle after the Source view closes.
+	await rectangle.click({ trial: true });
 	const before = await rectangle.boundingBox();
 	if (!before) throw new Error('The performance target is not visible.');
 
@@ -117,11 +119,6 @@ test('keeps a representative 20-slide deck responsive during a real drag', async
 		};
 	});
 	const after = await rectangle.boundingBox();
-	expect(after!.x - before.x).toBeGreaterThan(50);
-	expect(after!.y - before.y).toBeGreaterThan(20);
-	expect(metrics.frameCount).toBeGreaterThanOrEqual(30);
-	expect(metrics.p95FrameMs).toBeLessThanOrEqual(50);
-	expect(metrics.maxLongTaskMs).toBeLessThanOrEqual(100);
 
 	await testInfo.attach('presentation-performance.md', {
 		body: source,
@@ -142,4 +139,9 @@ test('keeps a representative 20-slide deck responsive during a real drag', async
 		),
 		contentType: 'application/json'
 	});
+	expect(after!.x - before.x).toBeGreaterThan(50);
+	expect(after!.y - before.y).toBeGreaterThan(20);
+	expect(metrics.frameCount).toBeGreaterThanOrEqual(30);
+	expect(metrics.p95FrameMs).toBeLessThanOrEqual(50);
+	expect(metrics.maxLongTaskMs).toBeLessThanOrEqual(100);
 });

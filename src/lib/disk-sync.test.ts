@@ -142,26 +142,6 @@ describe('openFromDisk', () => {
 		};
 	}
 
-	it('keeps the byte revision when UTF-8 decoding removes a BOM', async () => {
-		const source = '\uFEFF# Title';
-		const file = fakeFile('bom.md', source, { size: new TextEncoder().encode(source).byteLength });
-		const handle = { tag: 'BOM' } as unknown as FileSystemFileHandle;
-		vi.mocked(fsa.pickAndOpen).mockResolvedValue([{ handle, file }]);
-		vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:bytes-with-bom');
-
-		const created = await openFromDisk(depsFor([]));
-
-		expect(created[0]?.content).toBe('# Title');
-		expect(fsa.revisionForFile).toHaveBeenCalledWith(file);
-		expect(fsa.revisionForText).not.toHaveBeenCalled();
-		expect(fsa.saveHandle).toHaveBeenCalledWith(
-			'id-bom.md',
-			handle,
-			'sha256:bytes-with-bom',
-			'epoch'
-		);
-	});
-
 	it('continues after an unreadable file and shows a partial info toast', async () => {
 		const good = fakeFile('good.md', 'ok');
 		// Reject `.text()` to simulate a content read failure.

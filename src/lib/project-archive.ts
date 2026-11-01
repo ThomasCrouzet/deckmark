@@ -130,7 +130,7 @@ function appendEntry(input: ProjectInput, path: string, data: Uint8Array): void 
 	if (pathKey(path).startsWith('.mdsh/')) throw new Error('Reserved project path');
 	if (/\.(md|markdown|mdx|txt)$/i.test(path)) {
 		if (input.documents.length >= IMPORT_LIMITS.maxFiles) throw new Error('Project document limit');
-		const content = new TextDecoder('utf-8', { fatal: true }).decode(data);
+		const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
 		validateMarkdownContent(content);
 		input.documents.push({ relativePath: path, content });
 	} else {

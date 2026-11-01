@@ -143,7 +143,11 @@ additional asset and archive limits. See the
 [import limits](docs/USER_GUIDE.md#import-documents) and
 [portable project guide](docs/USER_GUIDE.md#portable-projects).
 
-Visual editing can normalize Markdown. Use Source when exact formatting matters.
+Sentence edits in the visual editor retain source formatting outside the changed
+content. Structural edits can require new Markdown syntax. The
+[source fidelity harness](docs/testing/source-fidelity.md) checks exact exported
+source and records any changes outside the expected edit. Use Source for syntax
+that the visual editor cannot represent.
 A presentation uses the same document limits as an ordinary draft. Its default
 canvas is 1280 by 720 pixels, with support for 16:9 and 4:3 decks. Cloud services,
 collaboration, and plugins are outside the project scope.

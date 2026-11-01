@@ -43,10 +43,11 @@ export function focusDocumentHeading(heading: DocumentHeading, editable: boolean
 
 /** Reads source headings without treating YAML or code examples as headings. */
 export function documentHeadings(markdown: string): DocumentHeading[] {
-	const lines = markdown.split('\n');
+	const body = markdown.replace(/^\uFEFF/, '');
+	const lines = body.split('\n');
 	const headings: DocumentHeading[] = [];
 	let fence = '';
-	let yaml = stripFrontmatter(markdown).raw.length > 0;
+	let yaml = stripFrontmatter(body).raw.length > 0;
 	for (let index = 0; index < lines.length; index++) {
 		const line = lines[index]!;
 		if (yaml) {

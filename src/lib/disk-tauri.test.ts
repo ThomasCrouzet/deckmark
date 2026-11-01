@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	createTauriDiskIo,
@@ -58,6 +61,29 @@ beforeEach(() => {
 afterEach(() => setTauriDiskIoForTests(null));
 
 describe('native capability helpers', () => {
+	it('keeps the UTF-8 bytes from a Markdown export in the saved file', async () => {
+		const directory = await mkdtemp(join(tmpdir(), 'deckmark-native-source-'));
+		const path = join(directory, 'source.md');
+		const source = '\uFEFF# Café\r\n\r\nKeep this sentence.\r\n';
+		try {
+			setTauriDiskIoForTests(
+				mockIo({
+					saveExportGrant: async () => ({ token: 'export-source', path, stat: null }),
+					writeText: async (_token, content) => {
+						await writeFile(path, content, 'utf8');
+						return meta('sha256:saved-source');
+					}
+				})
+			);
+			await expect(
+				tauriSaveExportBlob(new Blob([source], { type: 'text/markdown' }), 'source.md')
+			).resolves.toBe(true);
+			expect(await readFile(path)).toEqual(Buffer.from(source, 'utf8'));
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
 	it('restores only native approved paths and shares one restoration request', async () => {
 		const io = mockIo({ restoreGrants: vi.fn(async () => [grant('/tmp/approved.md', 'renewed')]) });
 		setTauriDiskIoForTests(io);

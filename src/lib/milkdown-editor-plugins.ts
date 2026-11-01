@@ -2,7 +2,13 @@ export { codeBlockConfig } from '@milkdown/kit/component/code-block';
 export { imageBlockConfig } from '@milkdown/kit/component/image-block';
 export { inlineImageConfig } from '@milkdown/kit/component/image-inline';
 export { linkTooltipConfig } from '@milkdown/kit/component/link-tooltip';
-export { commandsCtx, editorViewCtx } from '@milkdown/kit/core';
+export {
+	commandsCtx,
+	editorViewCtx,
+	remarkCtx,
+	parserCtx,
+	serializerCtx
+} from '@milkdown/kit/core';
 export { Plugin, TextSelection } from '@milkdown/kit/prose/state';
 export { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 export { $prose as prosePlugin, $remark as remarkPlugin, replaceAll } from '@milkdown/kit/utils';

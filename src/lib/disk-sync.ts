@@ -350,7 +350,7 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		if (existingLink.revision === null || onDiskRevision !== existingLink.revision) {
 			let diskContent: string;
 			try {
-				diskContent = await readUtf8File(onDiskFile, IMPORT_LIMITS.maxFileBytes);
+				diskContent = await readUtf8File(onDiskFile, IMPORT_LIMITS.maxFileBytes, undefined, true);
 				validateMarkdownContent(diskContent);
 			} catch (error) {
 				reportError('disk comparison read', error, { notifyUser: t('disk.saveFailed', { name }) });

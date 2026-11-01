@@ -287,7 +287,7 @@ export async function tauriSaveExportBlob(blob: Blob, suggestedName: string): Pr
 	if (/\.(md|markdown|mdx|txt|html|htm|json)$/i.test(grant.path)) {
 		grant.stat = await currentIo.writeText(
 			grant.token,
-			new TextDecoder('utf-8').decode(bytes),
+			new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes),
 			expectedRevision,
 			false
 		);

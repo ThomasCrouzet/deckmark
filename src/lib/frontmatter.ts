@@ -17,7 +17,7 @@ export interface ParsedFrontmatter {
 	data: Record<string, unknown>;
 	/** Markdown without the front-matter block. */
 	content: string;
-	/** Raw front-matter block (including the `---` delimiters), '' if absent. */
+	/** Raw source prefix with the byte order mark and front matter, if present. */
 	raw: string;
 }
 
@@ -41,18 +41,20 @@ function hasFrontmatterMarker(md: string): boolean {
  * just the raw block without the dependency.
  */
 export async function parseFrontmatter(md: string): Promise<ParsedFrontmatter> {
-	if (!hasFrontmatterMarker(md)) {
-		return { data: {}, content: md, raw: '' };
+	const prefix = md.startsWith('\uFEFF') ? '\uFEFF' : '';
+	const body = md.slice(prefix.length);
+	if (!hasFrontmatterMarker(body)) {
+		return { data: {}, content: body, raw: prefix };
 	}
 
 	// Extracts the raw YAML block without loading js-yaml - we avoid importing
 	// the lib if the regex fails further down (badly closed front-matter, etc.).
-	const match = /^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(md);
-	if (!match) return { data: {}, content: md, raw: '' };
+	const match = /^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(body);
+	if (!match) return { data: {}, content: body, raw: prefix };
 	// invariant: group 1 and index 0 are guaranteed non-undefined after the
 	// `!match` check above (regex with a single mandatory capture group).
 	const yamlText = match[1]!;
-	const raw = match[0]!;
+	const raw = prefix + match[0]!;
 	const content = md.slice(raw.length);
 
 	try {
@@ -89,11 +91,13 @@ export async function parseFrontmatter(md: string): Promise<ParsedFrontmatter> {
  * real metadata.
  */
 export function stripFrontmatter(md: string): { content: string; raw: string } {
-	const match = /^(---\s*\r?\n[\s\S]*?\r?\n---(?:\r?\n|$))/.exec(md);
-	if (!match) return { content: md, raw: '' };
+	const prefix = md.startsWith('\uFEFF') ? '\uFEFF' : '';
+	const body = md.slice(prefix.length);
+	const match = /^(---\s*\r?\n[\s\S]*?\r?\n---(?:\r?\n|$))/.exec(body);
+	if (!match) return { content: body, raw: prefix };
 	// invariant: match[0] and match[1] are guaranteed after the `!match` check
 	// (regex with a single capture group spanning the whole match).
-	return { content: md.slice(match[0]!.length), raw: match[1]! };
+	return { content: body.slice(match[0]!.length), raw: prefix + match[1]! };
 }
 
 /**
