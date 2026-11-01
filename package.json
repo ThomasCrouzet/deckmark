@@ -6,7 +6,7 @@
 	"description": "A local-first WYSIWYG markdown editor - offline, 100% client-side PWA. No server, no account, no telemetry.",
 	"license": "MIT",
 	"author": "Thomas Crouzet",
-	"homepage": "https://thomascrouzet.github.io/deckmark/",
+	"homepage": "https://www.deckmark.dev/",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/ThomasCrouzet/deckmark.git"
@@ -127,6 +127,8 @@
 		"serialize-javascript": "7.1.3",
 		"brace-expansion": "5.0.12",
 		"lodash-es": "4.18.1",
+		"minimatch": "11.0.1",
+		"glob": "14.0.3",
 		"postcss": {
 			"nanoid": "3.3.18"
 		},
