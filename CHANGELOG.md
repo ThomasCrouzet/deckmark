@@ -5,6 +5,14 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.2.1](https://github.com/ThomasCrouzet/deckmark/compare/v2.2.0...v2.2.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **deps:** force the patched minimatch and glob versions ([#184](https://github.com/ThomasCrouzet/deckmark/issues/184)) ([1bcd4fe](https://github.com/ThomasCrouzet/deckmark/commit/1bcd4fe18a0fb3e3cbdf46204ec42df4b7cc0589))
+* **site:** use the official deckmark.dev address ([#185](https://github.com/ThomasCrouzet/deckmark/issues/185)) ([25672d2](https://github.com/ThomasCrouzet/deckmark/commit/25672d2b8d531e96993e21183f7be9e3105a0480))
+
 ## [2.2.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.1.0...v2.2.0) (2026-11-01)
 
 
