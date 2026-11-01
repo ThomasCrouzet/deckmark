@@ -21,9 +21,7 @@ function walk(root) {
 
 /** @param {string} name */
 function releaseName(name) {
-	return name
-		.replace(/_aarch64\.dmg$/, '_macOS_Apple-Silicon.dmg')
-		.replace(/_x64\.dmg$/, '_macOS_Intel.dmg');
+	return name.replace(/_aarch64\.dmg$/, '_macOS_Apple-Silicon.dmg');
 }
 
 const installerPattern = /\.(?:dmg|AppImage|deb|rpm|msi)$|-setup\.exe$/;
@@ -70,7 +68,6 @@ export function collectDesktopAssets(input, output, expected) {
 	if (new Set(names).size !== names.length) throw new Error('Duplicate artifact names');
 	for (const pattern of [
 		/aarch64\.dmg$/,
-		/x64\.dmg$/,
 		/\.AppImage$/,
 		/\.deb$/,
 		/\.rpm$/,
