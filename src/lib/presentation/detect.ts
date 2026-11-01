@@ -5,9 +5,13 @@ const PRESENTATION_ELEMENT_MARKER =
 const PRESENTATION_ELEMENT_END_MARKER =
 	/^[ \t]*<!-- mdsh-end-element:([A-Za-z0-9][A-Za-z0-9._:-]{0,127}) gap=[01](?: fence=[bt][0-9]+)? -->[ \t]*\r?$/;
 
-/** Return the first content offset after a complete YAML front matter block. */
+/** Return the first content offset after the byte order mark and front matter. */
 export function presentationContentStart(markdown: string): number {
-	return /^(---\s*\r?\n[\s\S]*?\r?\n---(?:\r?\n|$))/.exec(markdown)?.[0].length ?? 0;
+	const prefix = markdown.startsWith('\uFEFF') ? 1 : 0;
+	return (
+		prefix +
+		(/^(---\s*\r?\n[\s\S]*?\r?\n---(?:\r?\n|$))/.exec(markdown.slice(prefix))?.[0].length ?? 0)
+	);
 }
 
 export function nextPresentationFence(line: string, fence: string): string {

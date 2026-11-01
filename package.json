@@ -51,6 +51,7 @@
 		"test:coverage": "vitest run --coverage",
 		"test:watch": "vitest",
 		"test:e2e": "playwright test",
+		"test:fidelity": "playwright test source-fidelity.spec.ts",
 		"test:e2e:ui": "playwright test --ui",
 		"size": "size-limit && node scripts/bundle-graph.mjs && node scripts/check-precache-budget.mjs",
 		"sync:katex-assets": "node scripts/sync-katex-assets.mjs",

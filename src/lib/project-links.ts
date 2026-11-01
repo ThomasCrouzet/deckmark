@@ -39,6 +39,13 @@ function referenceLabel(value: string): string {
 
 /** Find source ranges without changing code, front matter, labels, or titles. */
 export function projectDestinations(markdown: string): ProjectDestination[] {
+	const prefix = /^\uFEFF+/.exec(markdown)?.[0].length ?? 0;
+	if (prefix)
+		return projectDestinations(markdown.slice(prefix)).map((destination) => ({
+			...destination,
+			start: destination.start + prefix,
+			end: destination.end + prefix
+		}));
 	const out: ProjectDestination[] = [];
 	const definitions: Array<{ destination: ProjectDestination; label: string }> = [];
 	const imageReferences = new Set<string>();

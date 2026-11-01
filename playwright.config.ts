@@ -28,7 +28,8 @@ export default defineConfig({
 		...(process.env.CI ? ([['github']] as const) : []),
 		['list'],
 		['html', { outputFolder: 'playwright-report', open: 'never' }],
-		['json', { outputFile: 'test-results/results.json' }]
+		['json', { outputFile: 'test-results/results.json' }],
+		['./scripts/source-fidelity-reporter.mjs']
 	],
 	use: {
 		baseURL: e2eBaseUrl,

@@ -59,7 +59,8 @@ async function readBytes(file: File, signal?: AbortSignal): Promise<ArrayBuffer>
 export async function readUtf8File(
 	file: File,
 	maxBytes: number,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	preserveByteOrderMark = false
 ): Promise<string> {
 	if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > maxBytes)
 		throw new ImportReadError('file-size');
@@ -68,7 +69,9 @@ export async function readUtf8File(
 	if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
 	if (bytes.byteLength !== file.size) throw new ImportReadError('read');
 	try {
-		return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+		return new TextDecoder('utf-8', { fatal: true, ignoreBOM: preserveByteOrderMark }).decode(
+			bytes
+		);
 	} catch {
 		throw new ImportReadError('encoding');
 	}
@@ -135,7 +138,12 @@ export class ImportSession {
 		if (this.cancelled) return null;
 		try {
 			this.reserve(file.size);
-			const content = await readUtf8File(file, IMPORT_LIMITS.maxFileBytes, this.options.signal);
+			const content = await readUtf8File(
+				file,
+				IMPORT_LIMITS.maxFileBytes,
+				this.options.signal,
+				true
+			);
 			if (this.cancelled) return null;
 			validateMarkdownContent(content);
 			return content;

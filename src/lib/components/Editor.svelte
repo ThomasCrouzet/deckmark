@@ -21,6 +21,7 @@
 	} from '#lib/render/image-markdown.js';
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { stripFrontmatter } from '#lib/frontmatter.js';
+	import { SourceFidelity } from '#lib/source-fidelity.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 
 	interface Props {
@@ -106,6 +107,9 @@
 			{ Crepe },
 			{
 				editorViewCtx,
+				remarkCtx,
+				parserCtx,
+				serializerCtx,
 				commandsCtx,
 				Plugin,
 				Decoration,
@@ -133,10 +137,12 @@
 		let roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);
 		let sourceMarkdown = initial;
 		let editorBaseline: string | null = null;
+		let fidelity: SourceFidelity | null = null;
 		const restoreMarkdown = (markdown: string) =>
 			editorBaseline === null || markdown === editorBaseline
 				? sourceMarkdown
-				: frontmatter.raw + roundTrip.restore(markdown);
+				: frontmatter.raw +
+					(fidelity?.restore(roundTrip.restore(markdown)) ?? roundTrip.restore(markdown));
 		lastEditorMarkdown = initial;
 		const applyImageAlternatives = () => {
 			const alternatives = roundTrip.alternatives;
@@ -358,6 +364,23 @@
 			await instance.destroy().catch(() => {});
 			return;
 		}
+		const resetFidelity = () => {
+			instance.editor.action((ctx) => {
+				const remark = ctx.get(remarkCtx);
+				const parser = ctx.get(parserCtx);
+				const serializer = ctx.get(serializerCtx);
+				fidelity = new SourceFidelity(
+					frontmatter.content,
+					roundTrip.restore(instance.getMarkdown()),
+					(markdown) => remark.parse(markdown),
+					(markdown) => {
+						const images = new ImageMarkdownRoundTrip(markdown);
+						return images.restore(serializer(parser(images.editorMarkdown)));
+					}
+				);
+			});
+		};
+		resetFidelity();
 		refreshMountedLocale = () => {
 			const previousSlashGroups = [
 				{
@@ -627,8 +650,10 @@
 			lastEditorMarkdown = markdown;
 			sourceMarkdown = markdown;
 			editorBaseline = null;
+			fidelity = null;
 			instance.editor.action(replaceAll(roundTrip.editorMarkdown));
 			editorBaseline = instance.getMarkdown();
+			resetFidelity();
 			applyImageAlternatives();
 		};
 		if (content !== initial && fileId === idForMount) await updateExternalContent(content);

@@ -129,6 +129,22 @@ History, disk conflicts, and replacement previews share a bounded line-diff rend
 It displays text without HTML execution. Work limits prevent large comparisons from blocking the interface.
 Replacement confirms its inputs and writes checkpoints with replacements in one database transaction.
 
+## Source fidelity in visual edits
+
+The visual editor keeps the imported source and its initial serialized Markdown.
+`source-fidelity.ts` compares Markdown trees and applies changes to source spans.
+Unchanged nodes keep their original bytes. Text changes retain surrounding
+markers, reference definitions, blank lines, escapes, and line endings.
+A second parse checks the meaning of each candidate. If a text patch changes
+syntax, the editor tries the changed block before the full serializer fallback.
+An external revision resets the source map. Undo can return the exact initial
+source, and synchronous flushes use the same source restoration as edit events.
+
+The Source editor applies CodeMirror change ranges to its stored source. This
+keeps unchanged CRLF and mixed line endings through Source and Split edits.
+The source fidelity browser report compares actual exported source with an
+explicit expected file and retains both Git diffs.
+
 ## Durability is a state transition, not a timer
 
 The 400 ms save debounce is an optimization, not proof that content is durable. `SaveQueue` serializes writes per document and records a rejected IndexedDB revision as a durability failure. `flushAwait()` retries failed rows and rejects while any in-memory revision is not represented in IndexedDB. Backup export, restore, and workspace replacement stop at that barrier. The UI reports the error without converting it into a successful save.

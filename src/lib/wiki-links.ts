@@ -157,6 +157,8 @@ function mapWikiLinks(
 	md: string,
 	transform: (target: string, alias: string | undefined, match: string) => string
 ): string {
+	const prefix = /^\uFEFF+/.exec(md)?.[0] ?? '';
+	if (prefix) return prefix + mapWikiLinks(md.slice(prefix.length), transform);
 	const indentedCode = indentedCodeOffsets(md);
 	const scanner =
 		/^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)|^(?: {4}|\t)[^\n]*(?:\n|$)|`+|\[\[([^[\]|\n]+)(\|[^[\]\n]*)?\]\]/gm;

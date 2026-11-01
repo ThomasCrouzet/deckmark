@@ -301,7 +301,15 @@ Append `--shard=1/2` or `--shard=2/2` to repeat one shard.
 CI runs the browser and native tests without uploading reports to GitHub.
 Keep repeatable evidence in local storage. Compare its source commit with the release tag before using it.
 
-Source preservation and library export limits use [source-fidelity.md](testing/source-fidelity.md).
+Source fidelity and library export limits use [source-fidelity.md](testing/source-fidelity.md).
+Run `E2E_PORT=4287 npm run test:fidelity -- --workers=3` for sentence edits,
+source syntax, line endings, undo, mode changes, reload, and export. Inspect
+`test-results/source-fidelity.json`. Every comparison must be exact, with zero
+unexpected changed lines. Check test statuses as well as comparison totals.
+The BOM import, disk save, and external-conflict browser cases replace the
+isolated disk test that expected BOM removal and checked mocked revision calls.
+The browser case retains actual disk bytes and confirms that an external
+revision cannot be replaced without consent.
 
 ## Presentation workflows
 
@@ -374,3 +382,19 @@ xvfb-run -a npm run test:e2e -- --ignore-snapshots --grep-invert "Snapshots visu
 The final browser output is in `test-results/final-e2e/`. The HTML report and
 JSON result use the standard paths above. Use a separate output directory to
 keep capture evidence from an earlier run.
+
+### Native text export source bytes
+
+The browser cannot run the Tauri export bridge. A UTF-8 decode in that bridge can
+remove a Markdown byte order mark before the native write. Keep one isolated
+integration case for this failure. It supplies the native picker grant and writes
+the bridge output to a real temporary file. Compare the saved bytes with the
+export Blob. Do not replace this check with a mocked call-count assertion.
+Run `npm run test -- src/lib/disk-tauri.test.ts` to repeat this case.
+
+The drag performance fixture waits for a stable object after it closes Source
+view. A pending canvas resize can move the screen baseline without a drag error.
+Keep the movement and frame-time limits. Retain measurements before assertions.
+The disk source fixture retries a fresh File snapshot while a write completes.
+A browser can reject an older snapshot with `NotReadableError` during that write.
+The fixture must still compare the committed file bytes and the rejected branch.

@@ -990,7 +990,7 @@ export function serializePresentation(input: PresentationDeck): string {
 		slides
 	}).replace(/[<>]/g, (character) => (character === '<' ? '\\u003c' : '\\u003e'));
 	let result = deck.frontmatter ?? '';
-	if (result && !result.endsWith('\n')) result += '\n';
+	if (result && result !== '\uFEFF' && !result.endsWith('\n')) result += '\n';
 	result += body;
 	if (body) result += '\n\n';
 	result += `<!-- mdsh-presentation\n${metadata}\n-->`;
