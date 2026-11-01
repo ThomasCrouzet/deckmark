@@ -32,5 +32,5 @@ Limits: visual editing can normalize Markdown. Use Source mode when exact
 formatting matters. Cloud sync, collaboration, and plugins remain outside the
 project scope.
 
-Links: https://thomascrouzet.github.io/deckmark/ and
+Links: https://www.deckmark.dev/ and
 https://github.com/ThomasCrouzet/deckmark/releases

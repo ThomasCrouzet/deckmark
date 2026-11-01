@@ -2,7 +2,7 @@
 
 ## Start writing
 
-Open the [web app](https://thomascrouzet.github.io/deckmark/) and create a document. Select WYSIWYG, source, or reading mode on the toolbar. Drafts stay in the current browser profile. The app does not create an account or remote copy.
+Open the [web app](https://www.deckmark.dev/) and create a document. Select WYSIWYG, source, or reading mode on the toolbar. Drafts stay in the current browser profile. The app does not create an account or remote copy.
 
 Closing a tab keeps the document in the library. The delete command moves it to the trash for 30 days. Open the library and trash from the sidebar.
 

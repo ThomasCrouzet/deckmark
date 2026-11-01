@@ -9,7 +9,7 @@ Status: prepared, not submitted. Obtain owner approval before submission.
 ## Short entry
 
 - **Name:** DeckMark
-- **Website:** https://thomascrouzet.github.io/deckmark/
+- **Website:** https://www.deckmark.dev/
 - **Source:** https://github.com/ThomasCrouzet/deckmark
 - **License:** MIT
 - **Description:** A local-first Markdown workspace. Write, connect, present,

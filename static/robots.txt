@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://thomascrouzet.github.io/deckmark/sitemap.xml
+Sitemap: https://www.deckmark.dev/sitemap.xml

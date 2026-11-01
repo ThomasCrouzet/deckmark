@@ -6,7 +6,7 @@ Status: prepared, not submitted. Check the current form before submission.
 | --- | --- |
 | Name | DeckMark |
 | Short description | Local-first offline Markdown workspace with visual editing, reading, and slides. |
-| Website | https://thomascrouzet.github.io/deckmark/ |
+| Website | https://www.deckmark.dev/ |
 | Source code | https://github.com/ThomasCrouzet/deckmark |
 | License | MIT |
 | Category | Note-taking and documentation |

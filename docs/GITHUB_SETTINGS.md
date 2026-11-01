@@ -5,7 +5,7 @@ This file records settings that a maintainer must apply manually. Repository aut
 ## General
 
 - Description: `Local-first offline Markdown workspace for web and Desktop Beta with visual editing, reading, and slides`.
-- Website: `https://thomascrouzet.github.io/deckmark/`.
+- Website: `https://www.deckmark.dev/`.
 - Topics: `markdown-editor`, `wysiwyg`, `local-first`, `offline-first`, `privacy`, `pwa`, `svelte`, `sveltekit`, `tauri`, `typescript`.
 - Enable Issues. Enable Discussions only if the maintainer wants another support channel.
 - Enable Private Vulnerability Reporting and verify the private advisory link in `SECURITY.md`.

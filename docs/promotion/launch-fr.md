@@ -37,5 +37,5 @@ Limites : l'édition visuelle peut normaliser le Markdown. Utilisez le mode Sour
 si la mise en forme exacte compte. La synchronisation cloud, la collaboration et
 les extensions restent hors du périmètre du projet.
 
-Liens : https://thomascrouzet.github.io/deckmark/ et
+Liens : https://www.deckmark.dev/ et
 https://github.com/ThomasCrouzet/deckmark/releases

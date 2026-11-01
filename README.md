@@ -12,7 +12,7 @@
 <p align="center"><strong>Your Markdown. On your device.</strong></p>
 
 <p align="center">
-  <a href="https://thomascrouzet.github.io/deckmark/"><strong>Open the web app</strong></a> ·
+  <a href="https://www.deckmark.dev/"><strong>Open the web app</strong></a> ·
   <a href="#get-started">Get started</a> ·
   <a href="#browser-and-desktop-support">Desktop and browsers</a> ·
   <a href="#documentation">Docs</a> ·
@@ -163,7 +163,7 @@ claim that every test passes on every device.
 **Requirements:** A browser with JavaScript and IndexedDB, and a connection for
 the first load. No credentials or configuration are required.
 
-1. Open the [web app](https://thomascrouzet.github.io/deckmark/) and select
+1. Open the [web app](https://www.deckmark.dev/) and select
    **New file**. You can also import Markdown or open the built-in demo.
 2. Select **Source** and enter this Markdown:
 
