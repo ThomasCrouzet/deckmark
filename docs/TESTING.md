@@ -302,6 +302,15 @@ CI runs the browser and native tests without uploading reports to GitHub.
 Keep repeatable evidence in local storage. Compare its source commit with the release tag before using it.
 
 Source fidelity and library export limits use [source-fidelity.md](testing/source-fidelity.md).
+The source comparison algorithm also needs isolated checks. Browser exports cannot
+identify which span or semantic check selected a fallback. The retained risks are
+word offsets, edits across marks, repeated occurrences, block insertion and removal,
+delimiter changes, CRLF, the BOM prefix, final newlines, empty input, and rejection
+of a patch that changes meaning. Write these checks before changes to the algorithm.
+Use the real Markdown parser and exact strings. Run
+`npm run test -- src/lib/source-fidelity.test.ts`. The BOM check uses the same
+prefix removal as the visual editor. Browser cases still verify the complete save.
+
 Run `E2E_PORT=4287 npm run test:fidelity -- --workers=3` for sentence edits,
 source syntax, line endings, undo, mode changes, reload, and export. Inspect
 `test-results/source-fidelity.json`. Every comparison must be exact, with zero
