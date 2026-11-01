@@ -12,10 +12,14 @@ export default class SourceFidelityReporter {
 
 	onTestEnd(test, result) {
 		if (!test.location.file.endsWith('/source-fidelity.spec.ts')) return;
+		const paths = result.attachments.find(
+			(item) => item.name === 'source-fidelity-path-counts.json'
+		)?.body;
 		this.tests.push({
 			title: test.titlePath().join(' / '),
 			status: result.status,
 			retry: result.retry,
+			...(paths ? JSON.parse(paths.toString()) : {}),
 			errors: result.errors.map((error) => error.message)
 		});
 		for (const attachment of result.attachments) {
@@ -42,6 +46,10 @@ export default class SourceFidelityReporter {
 		if (!this.tests.length) return;
 		await mkdir('test-results', { recursive: true });
 		const exact = this.comparisons.filter((item) => item.exact).length;
+		const pathCounts = { fastPath: 0, blockFallback: 0, fullSerializer: 0 };
+		for (const test of this.tests) {
+			for (const path of Object.keys(pathCounts)) pathCounts[path] += test.pathCounts?.[path] ?? 0;
+		}
 		const unexpectedLines = this.comparisons.reduce(
 			(total, item) => total + item.unexpectedLines.added + item.unexpectedLines.removed,
 			0
@@ -50,10 +58,10 @@ export default class SourceFidelityReporter {
 			'test-results/source-fidelity.json',
 			JSON.stringify(
 				{
-					schema: 1,
+					schema: 2,
 					...this.metadata,
 					status: result.status,
-					totals: { comparisons: this.comparisons.length, exact, unexpectedLines },
+					totals: { comparisons: this.comparisons.length, exact, unexpectedLines, pathCounts },
 					tests: this.tests,
 					comparisons: this.comparisons.toSorted(
 						(a, b) =>
@@ -67,7 +75,7 @@ export default class SourceFidelityReporter {
 			) + '\n'
 		);
 		console.log(
-			`Source fidelity: ${exact}/${this.comparisons.length} exact comparisons; ${unexpectedLines} unexpected changed lines. See test-results/source-fidelity.json.`
+			`Source fidelity: ${exact}/${this.comparisons.length} exact comparisons; ${unexpectedLines} unexpected changed lines; paths: ${pathCounts.fastPath} fast, ${pathCounts.blockFallback} block fallback, ${pathCounts.fullSerializer} full serializer. See test-results/source-fidelity.json.`
 		);
 	}
 }

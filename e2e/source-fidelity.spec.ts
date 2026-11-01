@@ -6,8 +6,36 @@ import {
 	editCodeLine,
 	exportSource,
 	importSource,
-	recordFidelity
+	recordFidelity,
+	installFidelityCounters,
+	readFidelityCounters
 } from './source-fidelity-harness';
+
+test.beforeEach(async ({ page }) => {
+	await installFidelityCounters(page);
+});
+
+test.afterEach(async ({ page }, info) => {
+	if (info.status === 'skipped') return;
+	const pathCounts = await readFidelityCounters(page);
+	const expectedFullSerializer = Number(
+		info.annotations.find((item) => item.type === 'source-fidelity-full-serializer')?.description ??
+			0
+	);
+	await info.attach('source-fidelity-path-counts.json', {
+		body: JSON.stringify({ pathCounts, expectedFullSerializer }),
+		contentType: 'application/json'
+	});
+	expect(pathCounts.fullSerializer, 'Unexpected full serializer fallback in this corpus case').toBe(
+		expectedFullSerializer
+	);
+	if (info.title.startsWith('one sentence changes only required bytes:')) {
+		expect(
+			pathCounts.fastPath + pathCounts.blockFallback + pathCounts.fullSerializer,
+			'The visual corpus must exercise the source fidelity counters'
+		).toBeGreaterThan(0);
+	}
+});
 
 test('a visual editor visit preserves the exact Markdown source without an edit', async ({
 	page
@@ -343,23 +371,25 @@ test('a linked disk file keeps its BOM and rejects an external revision', async 
 	await page.locator('[data-mode=wysiwyg]').click();
 	await editSentence(page, sentence, replacement);
 	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
-	const diskText = () =>
+	const diskBytes = () =>
 		page.evaluate(async () => {
 			const file = await (
 				await (await navigator.storage.getDirectory()).getFileHandle('bom-disk.md')
 			).getFile();
-			return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-				await file.arrayBuffer()
-			);
+			return Array.from(new Uint8Array(await file.arrayBuffer()));
 		});
 	const expected = source.replace(sentence, replacement);
-	const committedSnapshot = async (expected: string) => {
-		let snapshot = '';
+	const committedSnapshot = async (expected: string, phase: string) => {
+		let bytes: Buffer = Buffer.alloc(0);
 		await expect(async () => {
-			snapshot = await diskText();
-			expect(snapshot).toBe(expected);
+			bytes = Buffer.from(await diskBytes());
+			expect(bytes).toEqual(Buffer.from(expected, 'utf8'));
 		}).toPass({ timeout: 10_000 });
-		return snapshot;
+		await info.attach(`${phase}-disk-bytes.md`, {
+			body: bytes,
+			contentType: 'text/markdown'
+		});
+		return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
 	};
 	await recordFidelity(
 		info,
@@ -367,7 +397,7 @@ test('a linked disk file keeps its BOM and rejects an external revision', async 
 		'bom-disk-save',
 		source,
 		expected,
-		await committedSnapshot(expected)
+		await committedSnapshot(expected, 'bom-disk-save')
 	);
 	const external = expected.replace(replacement, 'An external sentence.');
 	await page.evaluate(async (text) => {
@@ -389,7 +419,7 @@ test('a linked disk file keeps its BOM and rejects an external revision', async 
 		'bom-disk-conflict',
 		source,
 		external,
-		await committedSnapshot(external)
+		await committedSnapshot(external, 'bom-disk-conflict')
 	);
 });
 

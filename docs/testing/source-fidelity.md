@@ -46,6 +46,15 @@ The other cases check these risks:
 The portable project workflow also checks that a same-document link moves to its
 heading. Run it with `npm run test:e2e -- portable-projects.spec.ts --project=chromium`.
 
+The linked-file case uses a real Chromium `FileSystemFileHandle` in the origin
+private file system. Only the picker returns a supplied handle. The application
+imports, links, and saves that file through its browser disk path. The case reads
+the committed file as bytes and compares the full buffer with the expected UTF-8
+buffer. It retains the saved bytes and the external revision after a rejected
+overwrite. This check includes the BOM and CRLF. Tauri file capabilities and writes
+to user-selected native paths need the Desktop runtime. This browser case does
+not run that native path.
+
 ## Evidence
 
 Each run writes `test-results/source-fidelity.json`. It records the command,
@@ -60,6 +69,17 @@ The report sorts comparisons by the number of unexpected changed lines. Its
 `exact` count must equal its comparison count, and `unexpectedLines` must be zero.
 Also check the test statuses. A failed action before export has no comparison.
 Retries remain separate records so that a later pass cannot hide an earlier failure.
+
+The instrumented browser build sets `VITE_SOURCE_FIDELITY_METRICS=1`. Local events
+count the path that returns each new comparison result: `fastPath`, `blockFallback`,
+or `fullSerializer`. Cache reads and return to the initial source do not count.
+Each source comparison records counts since the previous comparison, including
+edits before a reload. Each test also records its complete counts. The report
+sums these test counts once in `totals.pathCounts` and prints one summary line.
+Every corpus test requires zero full serializer results. A test can expect an
+exact fallback count with a `source-fidelity-full-serializer` annotation whose
+description is that count. The 19 visual fixtures also require a nonzero path
+count, so a missing hook cannot pass. Ordinary builds do not send these events.
 
 The HTML report at `playwright-report/index.html` retains the same source files,
 Git diffs, and metrics as attachments. Failed cases also retain screenshots and
