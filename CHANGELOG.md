@@ -5,6 +5,14 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.2.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.1.0...v2.2.0) (2026-11-01)
+
+
+### Features
+
+* apply the DeckMark Relay identity and refresh the README ([#176](https://github.com/ThomasCrouzet/deckmark/issues/176)) ([4edc12f](https://github.com/ThomasCrouzet/deckmark/commit/4edc12f4571e0bb4a0b1c2c24e355338eb88ee45))
+* keep source bytes through visual edits ([#181](https://github.com/ThomasCrouzet/deckmark/issues/181)) ([3399808](https://github.com/ThomasCrouzet/deckmark/commit/3399808b424eaf9a8209678552c23b651029b705))
+
 ## [2.1.0](https://github.com/ThomasCrouzet/mdsh/compare/v2.0.4...v2.1.0) (2026-10-31)
 
 
