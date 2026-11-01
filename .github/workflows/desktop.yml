@@ -1,10 +1,16 @@
 name: Desktop
 
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
+    paths:
+      - 'src-tauri/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop.yml'
+  # Rebuild weekly so an upstream toolchain change cannot rot the installers.
+  schedule:
+    - cron: '0 4 * * 1'
   workflow_dispatch:
     inputs:
       release_tag:
