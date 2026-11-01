@@ -5,6 +5,35 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { openPalette } from './helpers';
+import type { SourceFidelityCounts } from '../src/lib/source-fidelity-diagnostics';
+
+const counterKey = 'deckmark:source-fidelity-paths';
+const previousCounts = new WeakMap<Page, SourceFidelityCounts>();
+
+export async function installFidelityCounters(page: Page) {
+	await page.addInitScript((key) => {
+		window.addEventListener('deckmark:source-fidelity', (event) => {
+			const path = (event as CustomEvent<string>).detail;
+			if (!['fastPath', 'blockFallback', 'fullSerializer'].includes(path))
+				throw new Error(`Unknown source fidelity path: ${path}`);
+			const counts = JSON.parse(
+				sessionStorage.getItem(key) ?? '{"fastPath":0,"blockFallback":0,"fullSerializer":0}'
+			);
+			counts[path]++;
+			sessionStorage.setItem(key, JSON.stringify(counts));
+		});
+	}, counterKey);
+}
+
+export async function readFidelityCounters(page: Page): Promise<SourceFidelityCounts> {
+	return page.evaluate(
+		(key) =>
+			JSON.parse(
+				sessionStorage.getItem(key) ?? '{"fastPath":0,"blockFallback":0,"fullSerializer":0}'
+			),
+		counterKey
+	);
+}
 
 async function selectText(page: Page, editor: Locator, before: string) {
 	await expect(editor).toBeVisible();
@@ -73,6 +102,14 @@ export async function recordFidelity(
 	expected: string,
 	actual: string
 ) {
+	const current = await readFidelityCounters(page);
+	const previous = previousCounts.get(page) ?? { fastPath: 0, blockFallback: 0, fullSerializer: 0 };
+	const pathCounts: SourceFidelityCounts = {
+		fastPath: current.fastPath - previous.fastPath,
+		blockFallback: current.blockFallback - previous.blockFallback,
+		fullSerializer: current.fullSerializer - previous.fullSerializer
+	};
+	previousCounts.set(page, current);
 	const directory = await mkdtemp(join(tmpdir(), 'deckmark-fidelity-'));
 	let diff: string;
 	let extraDiff: string;
@@ -116,6 +153,7 @@ export async function recordFidelity(
 				browser: info.project.name,
 				browserVersion: page.context().browser()?.version(),
 				fixture: id,
+				pathCounts,
 				sha256: Object.fromEntries(
 					Object.entries({ source, expected, actual }).map(([name, value]) => [
 						name,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { remark } from 'remark';
 import { stripFrontmatter } from './frontmatter';
 import { SourceFidelity } from './source-fidelity';
@@ -6,6 +6,26 @@ import { SourceFidelity } from './source-fidelity';
 const processor = remark();
 const parse = (value: string) => processor.parse(value);
 const normalize = (value: string) => String(processor.processSync(value));
+let paths: string[] = [];
+const observe = (event: Event) => paths.push((event as CustomEvent<string>).detail);
+
+beforeEach(() => {
+	paths = [];
+	vi.stubEnv('VITE_SOURCE_FIDELITY_METRICS', '1');
+	window.addEventListener('deckmark:source-fidelity', observe);
+});
+
+afterEach((context) => {
+	window.removeEventListener('deckmark:source-fidelity', observe);
+	vi.unstubAllEnvs();
+	Object.assign(context.task.meta, {
+		pathCounts: {
+			fastPath: paths.filter((path) => path === 'fastPath').length,
+			blockFallback: paths.filter((path) => path === 'blockFallback').length,
+			fullSerializer: paths.filter((path) => path === 'fullSerializer').length
+		}
+	});
+});
 
 function editor(source: string, baseline?: string) {
 	return new SourceFidelity(source, baseline ?? normalize(source), parse, normalize);
@@ -96,12 +116,14 @@ describe('source span preservation', () => {
 	it('rejects an unsafe code delimiter patch and serializes the changed block', () => {
 		const fidelity = editor('Heading\n=======\n\n`bird`\n');
 		expect(fidelity.restore('# Heading\n\n``bi`rd``\n')).toBe('Heading\n=======\n\n``bi`rd``\n');
+		expect(paths).toEqual(['blockFallback']);
 	});
 
 	it('uses the full serializer when both candidates fail the semantic check', () => {
 		// This parser retains definitions. Neither candidate can match an inline link.
 		const fidelity = editor('[bird][ref]\n\n[ref]: /bird\n', '[bird](/bird)\n');
 		expect(fidelity.restore('[bright bird](/bird)\n')).toBe('[bright bird](/bird)\n');
+		expect(paths).toEqual(['fullSerializer']);
 	});
 
 	it('returns the exact source on undo after a cached edit', () => {
@@ -109,5 +131,6 @@ describe('source span preservation', () => {
 		expect(fidelity.restore('A **bright** bird.\n')).toBe('A __bright__ bird.');
 		expect(fidelity.restore('A **bright** bird.\n')).toBe('A __bright__ bird.');
 		expect(fidelity.restore('A **small** bird.\n')).toBe('A __small__ bird.');
+		expect(paths).toEqual(['fastPath']);
 	});
 });

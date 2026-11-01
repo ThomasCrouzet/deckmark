@@ -100,6 +100,7 @@ export default defineConfig({
 		}
 	],
 	webServer: {
+		env: { VITE_SOURCE_FIDELITY_METRICS: '1' },
 		command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
 		url: e2eBaseUrl,
 		// Do not reuse an unknown server.

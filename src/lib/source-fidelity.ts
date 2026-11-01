@@ -1,3 +1,5 @@
+import { recordSourceFidelityPath, type SourceFidelityPath } from './source-fidelity-diagnostics';
+
 interface MarkdownNode {
 	type: string;
 	value?: string | undefined;
@@ -207,6 +209,7 @@ export class SourceFidelity {
 		}
 		const after = next.children ?? [];
 		let result = markdown;
+		let path: SourceFidelityPath = 'fullSerializer';
 		if (originals.length === before.length) {
 			const patches: Patch[] = [];
 			let prefix = 0;
@@ -258,8 +261,10 @@ export class SourceFidelity {
 					return false;
 				}
 			};
-			if (matches(candidate)) result = candidate;
-			else if (oldCount === newCount) {
+			if (matches(candidate)) {
+				result = candidate;
+				path = 'fastPath';
+			} else if (oldCount === newCount) {
 				const blocks: Patch[] = [];
 				for (let index = prefix; index < before.length - suffix; index++) {
 					if (equal(before[index]!, after[index]!)) continue;
@@ -270,11 +275,15 @@ export class SourceFidelity {
 					});
 				}
 				const fallback = apply(this.source, blocks);
-				if (matches(fallback)) result = fallback;
+				if (matches(fallback)) {
+					result = fallback;
+					path = 'blockFallback';
+				}
 			}
 		}
 		this.cachedMarkdown = markdown;
 		this.cachedSource = result;
+		recordSourceFidelityPath(path);
 		return result;
 	}
 

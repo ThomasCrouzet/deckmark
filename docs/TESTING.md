@@ -310,6 +310,8 @@ of a patch that changes meaning. Write these checks before changes to the algori
 Use the real Markdown parser and exact strings. Run
 `npm run test -- src/lib/source-fidelity.test.ts`. The BOM check uses the same
 prefix removal as the visual editor. Browser cases still verify the complete save.
+Add `--reporter=default --reporter=json --outputFile=test-results/fidelity-unit.json`
+to retain exact test results and path counts in each result's `meta.pathCounts`.
 
 Run `E2E_PORT=4287 npm run test:fidelity -- --workers=3` for sentence edits,
 source syntax, line endings, undo, mode changes, reload, and export. Inspect

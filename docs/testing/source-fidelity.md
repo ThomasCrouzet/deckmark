@@ -61,6 +61,17 @@ The report sorts comparisons by the number of unexpected changed lines. Its
 Also check the test statuses. A failed action before export has no comparison.
 Retries remain separate records so that a later pass cannot hide an earlier failure.
 
+The instrumented browser build sets `VITE_SOURCE_FIDELITY_METRICS=1`. Local events
+count the path that returns each new comparison result: `fastPath`, `blockFallback`,
+or `fullSerializer`. Cache reads and return to the initial source do not count.
+Each source comparison records counts since the previous comparison, including
+edits before a reload. Each test also records its complete counts. The report
+sums these test counts once in `totals.pathCounts` and prints one summary line.
+Every corpus test requires zero full serializer results. A test can expect an
+exact fallback count with a `source-fidelity-full-serializer` annotation whose
+description is that count. The 19 visual fixtures also require a nonzero path
+count, so a missing hook cannot pass. Ordinary builds do not send these events.
+
 The HTML report at `playwright-report/index.html` retains the same source files,
 Git diffs, and metrics as attachments. Failed cases also retain screenshots and
 traces. `test-results/results.json` contains the browser results. Keep these
