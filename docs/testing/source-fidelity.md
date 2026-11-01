@@ -46,6 +46,15 @@ The other cases check these risks:
 The portable project workflow also checks that a same-document link moves to its
 heading. Run it with `npm run test:e2e -- portable-projects.spec.ts --project=chromium`.
 
+The linked-file case uses a real Chromium `FileSystemFileHandle` in the origin
+private file system. Only the picker returns a supplied handle. The application
+imports, links, and saves that file through its browser disk path. The case reads
+the committed file as bytes and compares the full buffer with the expected UTF-8
+buffer. It retains the saved bytes and the external revision after a rejected
+overwrite. This check includes the BOM and CRLF. Tauri file capabilities and writes
+to user-selected native paths need the Desktop runtime. This browser case does
+not run that native path.
+
 ## Evidence
 
 Each run writes `test-results/source-fidelity.json`. It records the command,

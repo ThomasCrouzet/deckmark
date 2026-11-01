@@ -321,6 +321,11 @@ The BOM import, disk save, and external-conflict browser cases replace the
 isolated disk test that expected BOM removal and checked mocked revision calls.
 The browser case retains actual disk bytes and confirms that an external
 revision cannot be replaced without consent.
+Repeat it with `npm run test:fidelity -- --project=chromium --grep "a linked disk file"`.
+Its `bom-disk-save-disk-bytes.md` and `bom-disk-conflict-disk-bytes.md` attachments
+come from fresh file snapshots. The case compares complete UTF-8 buffers before
+it decodes them for the source report. This checks the browser linked-file path
+with a real origin-private file handle. It cannot run Tauri native file writes.
 
 ## Presentation workflows
 
