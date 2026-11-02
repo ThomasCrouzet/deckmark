@@ -14,3 +14,6 @@ export { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 export { $prose as prosePlugin, $remark as remarkPlugin, replaceAll } from '@milkdown/kit/utils';
 export { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list';
 export { wikiLinkPlugins } from './milkdown-wiki-links';
+export { installTableBreaks } from './milkdown-table-breaks';
+export { installTableClipboard } from './milkdown-table-clipboard';
+export { configureTableTextSelection } from './milkdown-table-selection';

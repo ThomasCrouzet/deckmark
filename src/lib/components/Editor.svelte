@@ -122,6 +122,9 @@
 				inlineImageConfig: inlineImageConfigCtx,
 				codeBlockConfig: codeBlockConfigCtx,
 				wikiLinkPlugins,
+				installTableBreaks,
+				installTableClipboard,
+				configureTableTextSelection,
 				replaceAll,
 				sinkListItem,
 				liftListItem
@@ -344,6 +347,9 @@
 			}
 		});
 		instance.editor.use(wikiLinkPlugins);
+		installTableBreaks(instance.editor);
+		installTableClipboard(instance.editor);
+		await configureTableTextSelection(instance.editor);
 		instance.editor.use(imageTitlePlugin);
 		instance.editor.use(headingLevelPlugin);
 		instance.editor.use(tabIndentPlugin);

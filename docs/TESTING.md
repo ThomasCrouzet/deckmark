@@ -11,6 +11,18 @@ constant values, or mocked call sequences alone.
 
 ## Version 2.0 project risks
 
+At native 200% browser zoom in a 320 by 844 viewport, save-status text can wrap
+and reduce the slide editor height. A button that had keyboard focus before the
+save can then be covered by the application status bar. Check English and French.
+Hold the browser clock before notes input, reach Properties with Tab, then advance
+the existing 400 ms save timer. Record the control and editor bounds before and
+after the saved-state indicator changes. Keep native zoom, clipping, hit-test,
+keyboard, source, and export checks. Retain the runner trace and screenshots.
+
+Run the focused workflow with `npx playwright test e2e/slide-zoom-review.spec.ts
+--project=chromium --workers=1 --retries=0`. Record source revision, environment,
+build hashes, command, fixtures, and results with each report.
+
 Write browser scenarios before implementation. Test the following failures through visible results and downloaded artifacts where possible.
 
 - Old drafts or backups can lose documents during the schema upgrade. Keep a version 1.9 fixture and compare its complete content.
@@ -49,6 +61,29 @@ Chromium and Firefox use browser offline emulation.
 WebKit uses a stopped origin server because [Playwright offline emulation can reject service worker responses](https://github.com/microsoft/playwright/issues/42775).
 The report records the disruption and confirms service worker control.
 This server outage check does not reproduce every operating system network condition.
+
+## Visual table risks
+
+`table-editing.spec.ts` checks Enter and Shift+Enter in header and body cells.
+The first-click case waits for two animation frames, then types without End.
+The cell must keep a collapsed caret and retain its existing text.
+Line breaks must remain in the selected cell, including consecutive breaks.
+Trailing breaks and breaks in empty cells must survive reload and undo.
+Imported `<br>` tags must appear as line breaks. Other HTML must remain inert.
+HTML paste must keep line breaks and the content of adjacent cells.
+The WebKit case sends composition events to check the Safari Enter guard.
+This case does not reproduce a physical input method or phone keyboard.
+Mode changes, reload, and Markdown export must keep the edited content and other
+cells. Table navigation and structural actions must not lose adjacent paragraphs.
+A copied row or rectangle pasted into a table must keep one table, the expected
+cells, and the surrounding paragraphs. Hidden table controls must leave the tab
+order, and visible controls need accessible names.
+Retain the input Markdown, stored and exported bytes, screenshots, and browser
+traces with the command and source identity.
+
+```sh
+CI=1 xvfb-run -a npm run test:e2e -- table-editing.spec.ts --workers=1 --retries=0
+```
 
 ## Retained isolated risks
 

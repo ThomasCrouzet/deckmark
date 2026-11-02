@@ -163,6 +163,19 @@ syntax, the editor tries the changed block before the full serializer fallback.
 An external revision resets the source map. Undo can return the exact initial
 source, and synchronous flushes use the same source restoration as edit events.
 
+`milkdown-table-breaks.ts` keeps visual line breaks inside table cells. It reads
+safe `<br>` tags before Milkdown removes empty-line placeholders. Both cell
+serializers retain trailing and consecutive breaks as `<br>` tags. A blank cell
+stays empty. The Enter handler runs after ProseMirror's input-method guards.
+`milkdown-table-selection.ts` sends cell pointer events to ProseMirror instead of
+selecting the whole paragraph after a click. It retains the Crepe table node view.
+The same node view labels the icon-only table controls and removes hidden ones
+from the tab order.
+`milkdown-table-clipboard.ts` keeps table structure when a copied row or rectangle
+is pasted into a table. It converts copied cell types to the destination row type,
+skips the whole-table header repair inside a table, and keeps an author break at
+the end of a cell. Paste outside a table keeps the default clipboard path.
+
 The Source editor applies CodeMirror change ranges to its stored source. This
 keeps unchanged CRLF and mixed line endings through Source and Split edits.
 The source fidelity browser report compares actual exported source with an

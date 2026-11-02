@@ -256,6 +256,10 @@ The writing section identifies the modes that support each shortcut.
 In Edit mode, point to a heading or put the caret inside it to show its level, H1 through H6.
 The level indicator does not change the document or its exports.
 Press Tab to insert indentation at the caret. In a list, Tab indents the item. In a table, Tab moves to the next cell.
+
+In a table cell, press Enter or Shift+Enter to add a line break. Press Shift+Tab
+to move to the previous cell. Press Ctrl+Enter, or Cmd+Enter on macOS, to leave
+the table. Markdown exports use `<br>` for line breaks inside cells.
 In a plain text block, use Shift+Tab to move focus out of the editor.
 
 The Commands menu shows all active shortcuts. In Settings, you can customize commands, detect conflicts, and restore defaults. The app saves web and Desktop profiles separately. Content-editing shortcuts have priority when the cursor is in the editor.

@@ -14,8 +14,14 @@ async function tabTo(page: Page, target: Locator) {
 	await expect(target).toBeFocused();
 }
 
-for (const locale of ['en', 'fr'] as const) {
-	test(`full slide workflow at native 200 percent zoom in ${locale}`, async ({ baseURL }, info) => {
+for (const { locale, holdSave } of [
+	{ locale: 'en', holdSave: false },
+	{ locale: 'fr', holdSave: false },
+	{ locale: 'en', holdSave: true },
+	{ locale: 'fr', holdSave: true }
+] as const) {
+	const title = `full slide workflow at native 200 percent zoom in ${locale}${holdSave ? ' across save completion' : ''}`;
+	test(title, async ({ baseURL }, info) => {
 		test.setTimeout(120_000);
 		const extension = info.outputPath('zoom-extension');
 		await mkdir(extension, { recursive: true });
@@ -43,54 +49,81 @@ for (const locale of ['en', 'fr'] as const) {
 			args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
 		});
 		const page = await context.newPage();
+		if (holdSave) await page.clock.install({ time: new Date('2026-11-02T12:00:00Z') });
 		const observations: object[] = [];
 		async function inspect(control: Locator, state: string) {
 			await expect(control).toBeFocused();
-			const geometry = await control.evaluate((element) => {
-				const box = element.getBoundingClientRect();
-				let left = 0,
-					top = 0,
-					right = innerWidth,
-					bottom = innerHeight;
-				for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-					const style = getComputedStyle(parent);
-					const rect = parent.getBoundingClientRect();
-					if (style.overflowX !== 'visible') {
-						left = Math.max(left, rect.left);
-						right = Math.min(right, rect.right);
+			const measure = () =>
+				control.evaluate((element) => {
+					const box = element.getBoundingClientRect();
+					let left = 0,
+						top = 0,
+						right = innerWidth,
+						bottom = innerHeight;
+					for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+						const style = getComputedStyle(parent);
+						const rect = parent.getBoundingClientRect();
+						if (style.overflowX !== 'visible') {
+							left = Math.max(left, rect.left);
+							right = Math.min(right, rect.right);
+						}
+						if (style.overflowY !== 'visible') {
+							top = Math.max(top, rect.top);
+							bottom = Math.min(bottom, rect.bottom);
+						}
 					}
-					if (style.overflowY !== 'visible') {
-						top = Math.max(top, rect.top);
-						bottom = Math.min(bottom, rect.bottom);
-					}
-				}
-				const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-				const style = getComputedStyle(element);
-				return {
-					box: box.toJSON(),
-					viewport: { width: innerWidth, height: innerHeight },
-					fits:
-						box.left >= left - 1 &&
-						box.right <= right + 1 &&
-						box.top >= top - 1 &&
-						box.bottom <= bottom + 1,
-					uncovered: hit === element || element.contains(hit),
-					pageOverflow: document.documentElement.scrollWidth > innerWidth,
-					cssZoom: getComputedStyle(document.documentElement).zoom,
-					contentHeight:
-						element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
-					lineHeight: parseFloat(style.lineHeight),
-					label: element.getAttribute('aria-label') ?? element.textContent,
-					editorScroll: document.querySelector('[data-testid="presentation-editor"]')?.scrollTop
-				};
-			});
-			observations.push({ state, ...geometry });
+					const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+					const style = getComputedStyle(element);
+					return {
+						time: performance.now(),
+						bounds: { left, top, right, bottom },
+						hit: hit?.outerHTML,
+						dpr: devicePixelRatio,
+						visualScale: visualViewport?.scale,
+						active: document.activeElement?.outerHTML,
+						save: document.querySelector('.title-save')?.textContent,
+						box: box.toJSON(),
+						viewport: { width: innerWidth, height: innerHeight },
+						fits:
+							box.left >= left - 1 &&
+							box.right <= right + 1 &&
+							box.top >= top - 1 &&
+							box.bottom <= bottom + 1,
+						uncovered: hit === element || element.contains(hit),
+						pageOverflow: document.documentElement.scrollWidth > innerWidth,
+						cssZoom: getComputedStyle(document.documentElement).zoom,
+						contentHeight:
+							element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+						lineHeight: parseFloat(style.lineHeight),
+						label: element.getAttribute('aria-label') ?? element.textContent,
+						editorScroll: document.querySelector('[data-testid="presentation-editor"]')?.scrollTop
+					};
+				});
+			let geometry = await measure();
+			const samples = [geometry];
+			await expect.soft
+				.poll(
+					async () => {
+						geometry = await measure();
+						samples.push(geometry);
+						return {
+							fits: state === 'welcome-new' || geometry.fits,
+							uncovered: geometry.uncovered
+						};
+					},
+					{ message: `${state}: focused control remains visible after layout`, timeout: 5000 }
+				)
+				.toEqual({ fits: true, uncovered: true });
+			await expect(control).toBeFocused();
+			observations.push({ state, ...geometry, samples });
 			await info.attach(`${state}.png`, {
 				body: await page.screenshot(),
 				contentType: 'image/png'
 			});
 			expect.soft(geometry.viewport.width, state).toBe(160);
 			expect.soft(geometry.cssZoom, state).toBe('1');
+			expect.soft(geometry.dpr, state).toBe(2);
+			expect.soft(geometry.visualScale, state).toBe(1);
 			expect.soft(geometry.pageOverflow, state).toBe(false);
 			if (state !== 'welcome-new')
 				expect.soft(geometry.fits, `${state}: focused control fits its scroll viewport`).toBe(true);
@@ -147,8 +180,23 @@ for (const locale of ['en', 'fr'] as const) {
 			const notes = page.getByTestId('slide-notes');
 			await tabTo(page, notes);
 			await inspect(notes, 'notes-input');
+			if (holdSave) await page.clock.pauseAt(new Date('2026-11-02T12:01:00Z'));
 			await page.keyboard.insertText('Zoom speaker notes');
-			await activate('slide-properties');
+			if (holdSave) {
+				const properties = page.getByTestId('slide-properties');
+				await tabTo(page, properties);
+				await expect(page.locator('.title-save')).toHaveText(
+					locale === 'en' ? 'saving...' : 'enregistrement…'
+				);
+				await inspect(properties, 'properties-before-save');
+				await page.clock.runFor(400);
+				await page.clock.resume();
+				await expect(page.locator('.title-save')).toHaveText(
+					locale === 'en' ? 'saved' : 'enregistré'
+				);
+				await inspect(properties, 'slide-properties');
+				await page.keyboard.press('Enter');
+			} else await activate('slide-properties');
 			const fontSize = page.getByTestId('slide-prop-fontSize');
 			await tabTo(page, fontSize);
 			await inspect(fontSize, 'font-size');
@@ -168,7 +216,8 @@ for (const locale of ['en', 'fr'] as const) {
 			expect(original).toContain('Zoom text');
 			expect(original).toContain('Zoom speaker notes');
 			await page.keyboard.press('Control+A');
-			await page.keyboard.insertText(original.replace('Zoom text', 'Zoom source edit'));
+			const expectedSource = original.replace('Zoom text', 'Zoom source edit');
+			await page.keyboard.insertText(expectedSource);
 			await activate('slide-source-apply');
 			await expect(page.locator('[role="status"].pointer-events-auto')).toHaveCount(0);
 			await activate('slide-present');
@@ -184,12 +233,26 @@ for (const locale of ['en', 'fr'] as const) {
 			expect(downloaded).toContain('Zoom source edit');
 			expect(downloaded).toContain('Zoom speaker notes');
 			expect(downloaded).toContain('"fontSize":32');
+			expect(downloaded).toBe(expectedSource);
 			await info.attach('exported-deck.md', { body: downloaded, contentType: 'text/markdown' });
+			await expect(page.locator('.title-save')).toHaveText(
+				locale === 'en' ? 'saved' : 'enregistré'
+			);
+			await page.reload();
+			await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+			await activate('slide-advanced');
+			await activate('slide-source');
+			await expect(source).toHaveValue(expectedSource);
+			await info.attach('reopened-deck.md', {
+				body: await source.inputValue(),
+				contentType: 'text/markdown'
+			});
 		} finally {
 			await info.attach('observations.json', {
 				body: JSON.stringify(
 					{
 						locale,
+						holdSave,
 						observations,
 						command: process.env.REVIEW_COMMAND,
 						metadata: info.config.metadata,

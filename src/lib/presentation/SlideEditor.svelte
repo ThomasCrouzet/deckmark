@@ -99,7 +99,7 @@
 	let disposed = false;
 	let focusFrame: number | null = null;
 	let focusedViewportHeight = $state<number | undefined>();
-	function keepFocusedFieldVisible() {
+	function keepFocusedControlVisible() {
 		if (focusFrame !== null) return;
 		focusFrame = window.requestAnimationFrame(() => {
 			focusFrame = null;
@@ -110,7 +110,7 @@
 					!root ||
 					!(field instanceof HTMLElement) ||
 					!root.contains(field) ||
-					!field.matches('textarea, input, select')
+					field === root
 				) {
 					focusedViewportHeight = undefined;
 					return;
@@ -222,7 +222,7 @@
 			if (box) {
 				viewportWidth = box.width;
 				viewportHeight = box.height;
-				keepFocusedFieldVisible();
+				keepFocusedControlVisible();
 			}
 		});
 		observer.observe(element);
@@ -264,20 +264,23 @@
 		};
 		window.addEventListener('mdsh:presentation-action', nativeAction);
 		const visualViewport = window.visualViewport;
-		window.addEventListener('resize', keepFocusedFieldVisible);
-		visualViewport?.addEventListener('resize', keepFocusedFieldVisible);
-		root?.addEventListener('focusin', keepFocusedFieldVisible);
-		root?.addEventListener('focusout', keepFocusedFieldVisible);
+		const resizeObserver = new ResizeObserver(keepFocusedControlVisible);
+		if (root) resizeObserver.observe(root);
+		window.addEventListener('resize', keepFocusedControlVisible);
+		visualViewport?.addEventListener('resize', keepFocusedControlVisible);
+		root?.addEventListener('focusin', keepFocusedControlVisible);
+		root?.addEventListener('focusout', keepFocusedControlVisible);
 		return () => {
 			onPresentingChange(false);
 			disposed = true;
 			clipboardShortcut = null;
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
-			window.removeEventListener('resize', keepFocusedFieldVisible);
-			visualViewport?.removeEventListener('resize', keepFocusedFieldVisible);
-			root?.removeEventListener('focusin', keepFocusedFieldVisible);
-			root?.removeEventListener('focusout', keepFocusedFieldVisible);
+			resizeObserver.disconnect();
+			window.removeEventListener('resize', keepFocusedControlVisible);
+			visualViewport?.removeEventListener('resize', keepFocusedControlVisible);
+			root?.removeEventListener('focusin', keepFocusedControlVisible);
+			root?.removeEventListener('focusout', keepFocusedControlVisible);
 			if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
 		};
 	});
