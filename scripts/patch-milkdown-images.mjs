@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const expectedVersion = '7.22.2';
+const expectedVersion = '7.23.0';
 const mode = process.argv[2];
 if (mode !== '--write' && mode !== '--check') {
 	throw new Error('Usage: node scripts/patch-milkdown-images.mjs --write|--check');

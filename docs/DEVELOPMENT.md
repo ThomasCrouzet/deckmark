@@ -123,7 +123,7 @@ The visual editor loads its Milkdown plugin imports through one deferred module.
 
 ### Milkdown image proxy patch
 
-Milkdown 7.22.2 initializes each image view with the raw Markdown source.
+Milkdown 7.23.0 initializes each image view with the raw Markdown source.
 The view mounts before an asynchronous image proxy resolves.
 A relative project path can therefore cause a request to the application origin.
 
