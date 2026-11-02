@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
+import type { ProjectLinkIssue } from '../src/lib/project-links';
 import { resetAppState } from './helpers';
 
 // Risks: repeated unmatched suffix scans block input; a pairing change can lose
@@ -131,14 +132,19 @@ for (const action of ['check', 'export'] as const) {
 					Buffer.from(pixel, 'base64')
 				);
 				const report = JSON.parse(await output.file('.mdsh/link-report.json')!.async('string'));
-				expect(report.issues).toEqual([
-					{ document: 'stress.md', destination: 'missing-after.md', reason: 'missing' },
+				// Random document IDs determine the database traversal order.
+				expect(
+					report.issues.toSorted((left: ProjectLinkIssue, right: ProjectLinkIssue) =>
+						left.document.localeCompare(right.document)
+					)
+				).toEqual([
 					{ document: 'nested.md', destination: 'missing.md', reason: 'missing' },
 					{
 						document: 'nested.md',
 						destination: 'https://example.invalid/pixel.png',
 						reason: 'remote'
-					}
+					},
+					{ document: 'stress.md', destination: 'missing-after.md', reason: 'missing' }
 				]);
 				evidence.report = report;
 			}

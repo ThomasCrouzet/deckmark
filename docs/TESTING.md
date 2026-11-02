@@ -112,6 +112,16 @@ Keep the HTML and JSON reports, fixtures, downloads, screenshots, and failure
 traces with the command and source identity. Development-server results establish
 the correction only. Run the complete production suite before release.
 
+Project link reports follow database traversal order. Random document IDs can
+change the order between documents. The project link performance test sorts a
+copy by document path before comparison. It checks complete issue objects, their
+counts, and their order within each document. Keep the original report and ZIP
+downloads in the artifacts. To check repeated imports without retries, run:
+
+```sh
+npm run test:e2e -- project-link-performance.spec.ts --project=chromium --workers=1 --retries=0 --repeat-each=8
+```
+
 The visual note guard sets a collapsed DOM range at the paragraph end and waits
 for browser selection events before paste. This fixture does not test native End-key
 navigation. Keep `before-paste-caret.json`, `after-rejection-caret.json`, and
