@@ -51,6 +51,12 @@ updates:
       - dependency-name: '@playwright/test'
         versions:
           - '1.63.0'
+      # axe-core 4.14.0 requires visible shortcut and index text in the
+      # accessible name of several controls. The browser a11y gate needs a
+      # dedicated label review before this update.
+      - dependency-name: '@axe-core/playwright'
+        versions:
+          - '4.14.0'
 
   - package-ecosystem: github-actions
     directory: /
