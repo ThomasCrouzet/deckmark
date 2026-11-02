@@ -5,6 +5,13 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.2.2](https://github.com/ThomasCrouzet/deckmark/compare/v2.2.1...v2.2.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **ci:** match the desktop validation gate to the platform matrix ([#187](https://github.com/ThomasCrouzet/deckmark/issues/187)) ([44397ac](https://github.com/ThomasCrouzet/deckmark/commit/44397ac57e59f8f133e6d323f2e83a03a2aca741))
+
 ## [2.2.1](https://github.com/ThomasCrouzet/deckmark/compare/v2.2.0...v2.2.1) (2026-11-01)
 
 

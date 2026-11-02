@@ -133,6 +133,7 @@ jobs:
               'api',
               `repos/${process.env.GH_REPO}/actions/runs/${validationRunId}/jobs?per_page=100`
             ], { encoding: 'utf8' })).jobs;
+            // Keep these platforms equal to the two job matrices below.
             const platforms = ['ubuntu-24.04', 'windows-2022', 'macos-15'];
             for (const group of ['validate-desktop', 'native-smoke']) {
               const expected = platforms.map((platform) => `${group} (${platform})`);
