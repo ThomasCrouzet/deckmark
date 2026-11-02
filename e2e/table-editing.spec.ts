@@ -73,15 +73,35 @@ test('table controls have names and hidden controls leave the tab order', async 
 	await writeSourceContent(page, fixture);
 	await page.locator('button[data-mode="wysiwyg"]').click();
 	const editor = page.locator('.ProseMirror');
-	await editor.locator('td').first().click();
-	await page.keyboard.press('End');
-	const unnamed = await editor.evaluate((root) =>
-		Array.from(root.querySelectorAll('table button'))
+	const block = editor.locator('.milkdown-table-block');
+	await editor.locator('td').first().hover();
+	await page.locator('[data-role="row-drag-handle"][data-show="true"]').click();
+	const unnamed = await block.evaluate((root) =>
+		Array.from(root.querySelectorAll('button'))
 			.filter((button) => button.tabIndex >= 0)
 			.filter((button) => !button.getAttribute('aria-label')?.trim())
 			.map((button) => button.outerHTML.slice(0, 120))
 	);
 	expect(unnamed).toEqual([]);
+	const hiddenTabbable = await block.evaluate((root) => {
+		const isHidden = (start: Element | null) => {
+			for (
+				let current = start;
+				current && current !== root.parentElement;
+				current = current.parentElement
+			) {
+				if (current.getAttribute('data-show') === 'false') return true;
+				if (getComputedStyle(current).opacity === '0') return true;
+			}
+			return false;
+		};
+		return Array.from(root.querySelectorAll('button')).filter(
+			(button) => isHidden(button) && button.tabIndex >= 0
+		).length;
+	});
+	expect(hiddenTabbable).toBe(0);
+	await editor.locator('td').last().click();
+	await page.keyboard.press('End');
 	await page.keyboard.press('Tab');
 	const focused = await page.evaluate(() => {
 		const element = document.activeElement;
@@ -99,7 +119,7 @@ test('table controls have names and hidden controls leave the tab order', async 
 	});
 	expect(focused?.hidden).toBe(false);
 	await info.attach('table-controls.json', {
-		body: JSON.stringify({ unnamed, focused }, null, 2),
+		body: JSON.stringify({ unnamed, hiddenTabbable, focused }, null, 2),
 		contentType: 'application/json'
 	});
 });

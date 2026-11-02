@@ -74,10 +74,12 @@ HTML paste must keep line breaks and the content of adjacent cells.
 The WebKit case sends composition events to check the Safari Enter guard.
 This case does not reproduce a physical input method or phone keyboard.
 Mode changes, reload, and Markdown export must keep the edited content and other
-cells. Table navigation and structural actions must not lose adjacent paragraphs.
-A copied row or rectangle pasted into a table must keep one table, the expected
-cells, and the surrounding paragraphs. Hidden table controls must leave the tab
-order, and visible controls need accessible names.
+cells. A copied row pasted into a table must keep one table, the row content, and
+the surrounding paragraphs. The rectangle-paste, insert, delete, move, and
+alignment matrix lives in the retained clipboard audit, not in this spec.
+Hidden table controls must leave the tab order, and tabbable controls need
+accessible names. The HTML-paste case runs in Chromium only because it uses the
+browser clipboard permission.
 Retain the input Markdown, stored and exported bytes, screenshots, and browser
 traces with the command and source identity.
 
