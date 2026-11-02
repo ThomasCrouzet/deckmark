@@ -98,26 +98,49 @@ The native directory registry owns access independently of IndexedDB.
 Session tokens authorize relative operations under one selected root. Backups exclude registry identifiers and revision baselines.
 Native refresh is explicit. Local and external changes require comparison before either branch replaces the other.
 
-## Markdown presentations
+## Notes and Markdown presentations
 
-The editor, document preview, and exports use one lazy module, `presentation/entry.ts`.
-A separate format detector keeps presentation code outside the startup bundle.
-The detector is a small static module. The model, editor, renderer, and exporters
-load together only when a document carries presentation metadata or a user opens
-Slides. An ordinary document never loads this graph.
-Its model stores layout metadata and normal Markdown content in one document.
-Source markers connect visible content to stable object identifiers.
+`document-kind.ts` derives the document type from content through `isPresentation()`.
+A file without presentation metadata is a note. A recognized marker with valid
+or malformed metadata makes the file a presentation. Markers inside code fences,
+front matter, or framed element content do not change a note's type.
+There is no stored type field, database migration, or format change. Presentations
+keep format version 1.
+
+The New dialog offers Note and Presentation. Presentation creation serializes an
+empty deck with one slide before the first save. The app does not convert notes
+to presentations or rewrite existing files when it opens them.
+
+`EditorPane.svelte` selects the note editor or the inline slide editor. The active
+file ID keys the slide editor so a file switch cannot reuse another deck's state.
+The editor and exports use the lazy module `presentation/entry.ts`. The small
+static type detector keeps the presentation graph outside the startup bundle.
+Note modes, split view, outline, tags, backlinks, and the link graph remain note
+features. Search includes slide text and identifies document types.
+
+Presentation metadata stores layout and presenter notes in the same Markdown
+file as the slide content. Source markers connect content to stable object IDs.
 The parser rejects invalid metadata before visual edits can replace the source.
-An unedited ordinary document keeps its exact bytes through a parse and serialize cycle.
+Malformed presentations stay in the slide editor with an error and source access.
+**Advanced > Markdown source** edits a draft. Apply rejects a missing metadata
+marker and keeps both the draft and stored content. Cancel discards the draft.
+Malformed metadata keeps the presentation type and shows a parse error for repair.
+An external source change blocks a stale Apply.
+
+The inline editor owns Present, Export, Advanced, and Presenter notes controls.
+The notes panel is visible by default. Only Present uses a full-screen overlay;
+Escape returns to the inline editor. Desktop actions use the
+`mdsh:presentation-action` event for the active presentation.
 
 Pointer gestures update reactive geometry once per animation frame.
 They serialize the completed operation once and use the existing 400 ms save queue.
-The editor keeps bounded undo history and reports storage failures inside its dialog.
+The editor keeps bounded undo history and reports storage failures in the document area.
 Visible thumbnails share the slide renderer and load through an intersection observer.
 
 HTML, browser printing, and native printing use the same slide geometry.
 Each slide occupies one fixed-size page. Native macOS printing receives optional page dimensions.
-Ordinary documents retain the existing A4 print settings.
+Notes retain the existing A4 print settings. HTML and PDF omit presenter notes;
+Markdown export retains them in the metadata.
 The browser suite and native PDF inspector retain exported files and page evidence.
 
 ## Source preview and change comparisons
@@ -139,6 +162,19 @@ A second parse checks the meaning of each candidate. If a text patch changes
 syntax, the editor tries the changed block before the full serializer fallback.
 An external revision resets the source map. Undo can return the exact initial
 source, and synchronous flushes use the same source restoration as edit events.
+
+`milkdown-table-breaks.ts` keeps visual line breaks inside table cells. It reads
+safe `<br>` tags before Milkdown removes empty-line placeholders. Both cell
+serializers retain trailing and consecutive breaks as `<br>` tags. A blank cell
+stays empty. The Enter handler runs after ProseMirror's input-method guards.
+`milkdown-table-selection.ts` sends cell pointer events to ProseMirror instead of
+selecting the whole paragraph after a click. It retains the Crepe table node view.
+The same node view labels the icon-only table controls and removes hidden ones
+from the tab order.
+`milkdown-table-clipboard.ts` keeps table structure when a copied row or rectangle
+is pasted into a table. It converts copied cell types to the destination row type,
+skips the whole-table header repair inside a table, and keeps an author break at
+the end of a cell. Paste outside a table keeps the default clipboard path.
 
 The Source editor applies CodeMirror change ranges to its stored source. This
 keeps unchanged CRLF and mixed line endings through Source and Split edits.

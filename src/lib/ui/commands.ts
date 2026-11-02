@@ -109,12 +109,12 @@ export const coreCommands = [
 		document: false
 	},
 	{
-		id: 'slides',
-		label: 'slides.open',
+		id: 'presentation',
+		label: 'slides.presentActive',
 		key: 'l',
 		shift: true,
 		shortcut: '⌘⇧L',
-		document: false
+		document: true
 	},
 	{
 		id: 'close-file',

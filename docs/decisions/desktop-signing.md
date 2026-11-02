@@ -7,8 +7,8 @@
 ## Current state
 
 The Desktop Beta installers are unsigned. macOS can show a Gatekeeper warning.
-Windows can show a SmartScreen warning. Each release publishes the SHA-256 values,
-the npm and Cargo SBOM files, and a build provenance attestation. The application
+Windows can show a SmartScreen warning. The release workflow publishes SHA-256
+checksums and creates a GitHub build provenance attestation. The application
 uses Tauri, and the build runs in the project GitHub Actions workflow.
 
 The stable source release and the `desktop-v*` prerelease stay separate. The web

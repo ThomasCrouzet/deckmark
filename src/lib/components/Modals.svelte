@@ -9,11 +9,14 @@
 	// components are mounted via `{#await modals.loadXxx() then Cmp}`.
 
 	import type { EditMode } from '#lib/types.js';
+	import type { DocumentKind } from '#lib/document-kind.js';
 	import type { createModals } from '#lib/ui/modals.svelte.js';
 	import type { createEditorWidth } from '#lib/ui/editor-width.svelte.js';
 	import type { createUiPrefs } from '#lib/ui/prefs.svelte.js';
 
 	interface Props {
+		kind: DocumentKind;
+		onCreate: (kind: DocumentKind) => Promise<void>;
 		onOpenOutline: () => void;
 		modals: ReturnType<typeof createModals>;
 		editorWidth: ReturnType<typeof createEditorWidth>;
@@ -29,10 +32,13 @@
 		onToggleSidebar: () => void;
 		onSetMode: (m: EditMode) => void;
 		onOpenInFileSearch: () => void;
-		onOpenSlides: () => void;
+		onPresent: () => void;
+		onAdvancedSource: () => void;
 	}
 
 	let {
+		kind,
+		onCreate,
 		onOpenOutline,
 		modals,
 		editorWidth,
@@ -47,7 +53,8 @@
 		onToggleSidebar,
 		onSetMode,
 		onOpenInFileSearch,
-		onOpenSlides
+		onPresent,
+		onAdvancedSource
 	}: Props = $props();
 </script>
 
@@ -60,6 +67,8 @@
 {#if modals.paletteOpen}
 	{#await modals.loadCommandPalette() then CommandPalette}
 		<CommandPalette
+			{kind}
+			{onCreate}
 			{onOpenOutline}
 			initialView={modals.paletteView}
 			onOpenLibrary={modals.openLibrary}
@@ -89,8 +98,8 @@
 			onOpenSettings={modals.openSettings}
 			onOpenHistory={modals.openHistory}
 			onOpenGraph={modals.openGraph}
-			onOpenPresentation={modals.openPresentation}
-			{onOpenSlides}
+			{onPresent}
+			{onAdvancedSource}
 		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
@@ -160,13 +169,9 @@
 	{/await}
 {/if}
 
-{#if modals.presentationOpen}
-	{#await modals.loadPresentation() then PresentationView}
-		<PresentationView
-			open={modals.presentationOpen}
-			initialPresenting={modals.presentationStartPlaying}
-			onClose={() => (modals.presentationOpen = false)}
-		/>
+{#if modals.newDocumentOpen}
+	{#await modals.loadNewDocument() then NewDocumentDialog}
+		<NewDocumentDialog {onCreate} onClose={() => (modals.newDocumentOpen = false)} />
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}

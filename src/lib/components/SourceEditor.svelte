@@ -4,6 +4,8 @@
 	import { i18n, t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
+	import { documentKind } from '#lib/document-kind.js';
+	import { notify } from '#lib/notify.svelte.js';
 
 	interface Props {
 		fileId: string;
@@ -33,7 +35,7 @@
 	let lastEmitted = '';
 	let applyingExternal = false;
 
-	function sourceChanges(update: ViewUpdate): string {
+	function sourceChanges(update: Pick<ViewUpdate, 'startState' | 'changes'>): string {
 		const source = lastEmitted;
 		const lineStarts = [0];
 		for (const match of source.matchAll(/\r\n?|\n/g))
@@ -382,6 +384,17 @@
 			localeCompartment.of(localeExtensions(cm)),
 			cm.EditorView.editable.of(!readonly),
 			cm.EditorState.readOnly.of(readonly),
+			cm.EditorState.changeFilter.of((transaction) => {
+				if (
+					!transaction.docChanged ||
+					applyingExternal ||
+					documentKind(sourceChanges(transaction)) === 'note'
+				)
+					return true;
+				notify.error(t('documents.noConversion'));
+				// Reject the change before the document, history, or saved source can diverge.
+				return false;
+			}),
 			cm.EditorView.updateListener.of((update) => {
 				if (update.selectionSet || update.docChanged) {
 					onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);

@@ -22,9 +22,9 @@
 <!-- readme:section positioning -->
 ## Why DeckMark?
 
-DeckMark is a Markdown workspace for notes, linked documents, and presentations.
-Write visually, edit the source, read the result, or arrange slides from the same
-file. The web app stores drafts on your device and works offline after its
+DeckMark is a Markdown workspace with two document types: notes and presentations.
+Write and link notes, or create a presentation and arrange its slides.
+The web app stores drafts on your device and works offline after its
 offline resources are ready. An optional Desktop Beta adds native file access.
 
 Use it for a personal document library that you can export as plain files.
@@ -50,23 +50,27 @@ select **Retry save**. A browser or system crash can lose text that has not reac
 IndexedDB.
 
 <!-- readme:section capabilities -->
-## One document, four views
+## Notes and presentations
 
-![DeckMark demo: write a document, switch views, follow a linked diagram, arrange slides, and choose the light theme.](docs/demo.gif)
+![DeckMark demo: create a note, change its view, then create and edit a separate presentation.](docs/demo.gif)
 
-| View | What you can do |
+Select **New file**, then choose **Note** or **Presentation**. Each file keeps its
+own type. The app does not convert notes to presentations.
+
+| Document type | What you can do |
 | --- | --- |
-| **Edit** | Write visually. Use `/h1` or `/t1` for headings. Add tables, checklists, images, formulas, and diagrams. |
-| **Source** | Edit Markdown with syntax highlighting, search, replacement, and per-document undo. Open a rendered preview beside the source. |
-| **Read** | Read the rendered document and use its outline to move between sections. |
-| **Slides** | Arrange text, images, shapes, and connectors on a canvas. Add presenter notes and present in full screen. |
+| **Note** | Use **Edit**, **Source**, and **Read**. Add tables, checklists, images, formulas, and diagrams. Use an outline, tags, and wiki links. |
+| **Presentation** | Edit slides directly in the document area. Arrange text, images, shapes, and connectors. Add presenter notes and select **Present** for full screen. |
 
-The source preview divider works with the pointer or arrow keys. The app remembers
-its position and stacks the panes on narrow screens.
+For notes, Source provides syntax highlighting, search, replacement, and
+per-document undo. Its preview divider works with the pointer or arrow keys.
+The app remembers its position and stacks the panes on narrow screens.
 
 Presentations stay in one Markdown file. A terminal metadata block stores slide
-layouts, and the body keeps text and images readable in other editors. Print one
-slide per page without presenter notes. See the
+layouts, and the body keeps text and images readable in other editors. Use
+**Export** for Markdown, HTML, or PDF. HTML and PDF omit presenter notes; Markdown
+keeps them in the file data. Use **Advanced > Markdown source** to edit a source
+draft, then **Apply** or **Cancel**. See the
 [presentation guide](docs/presentation-editor.md) and
 [file format](docs/presentation-format.md).
 
@@ -76,7 +80,9 @@ your device. Settings offers English and French. English is the default; the app
 selects French when it detects a French browser language.
 
 <details>
-<summary><strong>See visual editing, reading, and the slide editor</strong></summary>
+<summary><strong>See document creation, notes, and the slide editor</strong></summary>
+
+![Create a document dialog with Note and Presentation choices.](docs/screenshots/new-document.png)
 
 <p align="center">
   <picture>
@@ -92,7 +98,7 @@ selects French when it detects a French browser language.
   </picture>
 </p>
 
-![Slide editor with document text, a slide strip, and object properties.](docs/screenshots/presentation-editor.png)
+![Inline presentation editor with a slide strip, canvas, presenter notes, and labeled Present, Export, and Advanced controls.](docs/screenshots/presentation-editor.png)
 
 </details>
 
@@ -100,7 +106,8 @@ selects French when it detects a French browser language.
 ## Keep your documents together
 
 - **Write structured content:** use GFM tables, task lists, code blocks, KaTeX
-  formulas, Mermaid diagrams, YAML front matter, and embedded images.
+  formulas, Mermaid diagrams, YAML front matter, and embedded images. Mermaid
+  uses the Dagre layout online and offline; document layout overrides are ignored.
 - **Find and connect notes:** use tags, document search, wiki links, backlinks,
   and the link graph. Workspaces and templates help organize recurring work.
 - **Review changes:** compare version history, disk conflicts, and cross-file
@@ -146,7 +153,7 @@ The web app needs no installation. Disk access depends on the browser:
 [Desktop Beta downloads](https://github.com/ThomasCrouzet/deckmark/releases) are
 separate prereleases. Installers are unsigned and can trigger an operating-system
 warning. Older releases can use the previous mdsh name. The Desktop release
-workflow includes checksums, dependency inventories, and build provenance.
+workflow includes checksums and build provenance.
 See the [Desktop guide](docs/USER_GUIDE.md#desktop-beta-app) for requirements.
 
 The interface supports keyboard navigation and reduced motion. Browser tests
@@ -164,7 +171,7 @@ claim that every test passes on every device.
 the first load. No credentials or configuration are required.
 
 1. Open the [web app](https://www.deckmark.dev/) and select
-   **New file**. You can also import Markdown or open the built-in demo.
+   **New file**, then **Note**. You can also import Markdown or open the built-in demo.
 2. Select **Source** and enter this Markdown:
 
    ```markdown
@@ -181,6 +188,18 @@ the first load. No credentials or configuration are required.
 5. Use **Actions > Export as markdown** to download the source. Use
    **Settings > Export a backup** to keep a copy of the full library.
 
+### Create your first presentation
+
+1. Select **New file**, then **Presentation**. The slide editor opens in the
+   document area with one empty slide.
+2. Select **Text** to add content. Double-click the object to edit it, then select
+   **Done**.
+3. Enter your speech in **Presenter notes** below the slide. The header control
+   hides or shows this panel.
+4. Select **Present**. Press Escape to return to editing.
+5. Select **Export > HTML** for an offline slide show, or **Export > PDF / Print**
+   for one slide per page.
+
 ### Work offline
 
 Use the browser install action to add the PWA. Wait until **Ready offline**
@@ -196,12 +215,12 @@ all shortcuts, and Settings lets you change application shortcuts.
 | Default shortcut | Action |
 | --- | --- |
 | `Cmd+N` / `Cmd+O` | New document / import Markdown |
-| `Cmd+E` / `Cmd+/` / `Cmd+R` | Edit / Source / Read |
+| `Cmd+E` / `Cmd+/` / `Cmd+R` | Note: Edit / Source / Read |
 | `Cmd+Shift+P` | Command palette |
 | `Cmd+F` / `Cmd+Shift+F` | Find in document / search across documents |
 | `Cmd+S` / `Cmd+Shift+S` | Export Markdown / save to disk |
 | `Cmd+P` / `Cmd+,` | Export PDF / Settings |
-| `Cmd+Shift+L` | Slides |
+| `Cmd+Shift+L` | Present active presentation |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous open document |
 
 Some browsers reserve these keys. Use **Commands** when a shortcut is unavailable.

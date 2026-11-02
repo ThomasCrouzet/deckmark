@@ -64,6 +64,7 @@ export async function renderPresentationElementContent(
 		return renderMarkdown(element.content, {
 			...(projectContext ? { projectContext } : {}),
 			showFrontmatter: false,
+			wikiLinks: false,
 			allowRemoteImages: options.allowRemoteImages === true
 		});
 	}

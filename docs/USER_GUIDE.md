@@ -2,7 +2,17 @@
 
 ## Start writing
 
-Open the [web app](https://www.deckmark.dev/) and create a document. Select WYSIWYG, source, or reading mode on the toolbar. Drafts stay in the current browser profile. The app does not create an account or remote copy.
+Open the [web app](https://www.deckmark.dev/) and select **New file**. In the
+**Create a document** dialog, choose **Note** or **Presentation**. A note opens in
+its last Edit, Source, or Read mode. A presentation opens in the inline slide
+editor. The app does not convert notes to presentations.
+
+`Cmd+N` (`Ctrl+N` on Windows and Linux) opens the same dialog. The command palette
+also has **Create a note** and **Create a presentation** commands. Escape or
+**Cancel** closes the dialog without creating a file.
+
+Drafts stay in the current browser profile. The app does not create an account or
+remote copy. The header, library, and search results identify each document type.
 
 Closing a tab keeps the document in the library. The delete command moves it to the trash for 30 days. Open the library and trash from the sidebar.
 
@@ -17,9 +27,9 @@ Documents move to trash. In the trash, select individual documents or use
 **Empty trash** to remove them permanently. This removes their version history
 and unused disk permissions, but does not delete files from disk.
 
-**Document outline** in Actions works in all three modes and on small screens. Source mode includes headings outside code and front matter. Reading and WYSIWYG modes use the visible headings. Find in document keeps the current mode. In source mode, the search panel also supports replacement.
+For notes, **Document outline** in Actions works in all three modes and on small screens. Source mode includes headings outside code and front matter. Reading and Edit modes use the visible headings. Find in document keeps the current mode. In source mode, the search panel also supports replacement.
 
-On wide screens, the table of contents stays beside the document in all three modes.
+On wide screens, the table of contents stays beside the note in all three modes.
 It includes heading levels H1 through H6 and changes as you edit.
 Select a heading to move to that section. In Source and Edit modes, this also moves the caret.
 The column stays hidden in focus mode and when the document has no headings.
@@ -31,7 +41,7 @@ The current browser session keeps editor positions for up to 32 recently used dr
 
 ## Install the PWA
 
-Use the browser install action from the web app. Wait for offline preparation to finish before you disconnect the network. The cache contains both editors, Markdown rendering, formulas, diagrams, fonts, and export modules. You can then create, edit, search, and export documents offline.
+Use the browser install action from the web app. Wait for offline preparation to finish before you disconnect the network. The cache contains the note and presentation editors, Markdown rendering, formulas, diagrams, fonts, and export modules. You can then create, edit, search, and export documents offline.
 
 A new version waits for IndexedDB writes before it reloads the app. If a local save fails, the document stays visible. The update does not force a reload.
 
@@ -39,7 +49,11 @@ A new version waits for IndexedDB writes before it reloads the app. If a local s
 
 A selection or folder can contain up to 300 files and 64 MiB. Each file can contain up to 16 MiB. The app rejects binary files, prohibited control characters, and text that is not UTF-8. It shows a result for each rejection. If you cancel an import, the app keeps imported documents and reports how many it added.
 
-A document with at least 262,144 characters opens first in source mode. You must confirm before you change to visual rendering because parsing can take more time.
+A note with at least 262,144 characters opens first in source mode. You must confirm before you change to visual rendering because parsing can take more time.
+
+Imported presentations open directly in the slide editor. The presentation data
+in the file determines its type. A malformed presentation stays in that editor
+with a source error so you can repair it.
 
 On supported systems, opening a file with the installed PWA uses the same import limits.
 
@@ -73,7 +87,7 @@ Library ZIP exports accept at most 300 documents and 64 MiB of source and asset 
 
 ## Source and preview
 
-In Source mode, select **Show preview**. The preview follows the source after a short delay.
+For a note in Source mode, select **Show preview**. The preview follows the source after a short delay.
 Drag the divider, or focus it and use the arrow keys. Home and End select the minimum and maximum sizes.
 The panes stack vertically on narrow screens. Section synchronization follows source navigation without changing the document.
 
@@ -93,6 +107,9 @@ Use Source when a document requires exact formatting or syntax outside the visua
 Whole-word search includes Unicode letters, marks, numbers, and underscores. Apostrophes and hyphens separate words. Search and replacement use the same boundaries.
 
 Cross-file search includes closed documents by default. Select **Open tabs** to limit its scope. Replacement uses the selected scope and saves a history checkpoint. Search shows up to 200 matching lines and reports this limit.
+
+Search includes presentation slide text. Tags, backlinks, and the link graph
+apply to notes. Presentation text does not enter those note indices.
 
 Global replacement first shows a comparison for each affected document.
 Confirmation refuses an outdated preview. Create a new preview after another tab changes an input document.
@@ -123,6 +140,8 @@ The app blocks remote images by default. Reading mode can load and embed them in
 To resolve a relative image path, select the applicable file or folder. The app then embeds the image to keep the document portable.
 
 Mermaid diagrams reject images and network styles. Put images directly in the Markdown.
+Diagrams use the Dagre layout online and offline. Document settings cannot select
+the ELK layout. The app keeps these settings in the Markdown source without applying them.
 
 <a id="backups-and-storage-health"></a>
 
@@ -168,7 +187,7 @@ to stop waiting for media or styles. In a native save or print panel, use its
 **Cancel** button. Cancellation keeps the draft and its unexported-change marker.
 You can edit the document and start another export.
 
-Select **PDF (A4)** under **Editor width** in Settings or through Commands. This
+For notes, select **PDF (A4)** under **Editor width** in Settings or through Commands. This
 preset uses the 178 mm text width of an A4 page with 16 mm side margins. It is a
 width guide. Fonts, page breaks, and print settings can differ from the editor.
 
@@ -181,32 +200,46 @@ Open-tab and selection exports include the selected project documents. Their lin
 
 ## Presentations
 
-Select **Slides** in the toolbar, or press `Cmd+Shift+L`, to open the presentation editor.
-For a new document, the editor creates a slide deck. For an ordinary document, it
-imports the Markdown as slides. A document with presentation metadata opens its
-stored layout.
+Select **New file**, then **Presentation**. The slide editor opens directly in the
+document area with one empty slide. Open an existing presentation from a tab or
+the library to edit its stored layout. Notes remain notes; there is no conversion
+action or global Slides button.
 
-The left strip lists slides. Add, duplicate, move, or delete a slide there. The
+Presentations have their own controls. Note modes, split preview, outline, tags,
+backlinks, and the link graph do not apply to them. Disk links, version history,
+trash, and backups work for both document types.
+
+The slide strip lists slides. Add, duplicate, move, or delete a slide there. The
 canvas holds text, images, rectangles, ellipses, lines, and arrows. Drag an object
 to move it, or use the arrow keys for one-pixel steps and Shift with an arrow for
 ten-pixel steps. Drag a corner to resize, or use the properties panel for exact
 position and size. Shift-click selects more than one object. The properties panel
 also controls stacking, grouping, alignment, colors, text size, and connectors.
 
-Select **Present** to use the full-screen view. Use the arrow keys, Page Up, Page
-Down, Space, Home, and End to move. Press Escape to return to the editor. Presenter
-notes appear in the editor and in the presenter view, not on a printed page.
+The **Presenter notes** panel is visible below the slide by default. Write your
+speech there. Use the header control to hide or show the panel.
 
-The **Markdown source** view shows the complete file. Keep the slide and element
-markers when you edit text or image content. The **Visual editor** view returns to
-the canvas. The same file opens as a normal document in Source and Read modes.
+Select **Present**, or press `Cmd+Shift+L` (`Ctrl+Shift+L` on Windows and Linux),
+to use the full-screen overlay. Use the arrow keys, Page Up, Page Down, Space,
+Home, and End to move. Use **Show notes** to display your speech. Press Escape to
+return to the inline editor. Select another tab or library file to change documents.
 
-**Markdown**, **HTML**, and **PDF / Print** export the deck. HTML works offline.
-PDF and print produce one slide per page. A deck prints in landscape at its stored
-canvas size. An ordinary document keeps its A4 print settings.
+**Advanced > Markdown source** opens a draft of the complete file. Keep the slide
+and element markers and the terminal presentation data. Select **Apply** to save
+the source, or **Cancel** to discard the draft. Apply rejects a missing
+presentation marker and keeps both your draft and the previous file content.
+A marker inside code or front matter does not satisfy this check. Malformed
+metadata keeps the presentation type and shows a parse error. Correct it to
+resume visual editing.
+
+Use **Export** to select **Markdown**, **HTML**, or **PDF / Print**. HTML works
+offline. PDF and print produce one slide per page at the stored canvas size.
+HTML and PDF omit presenter notes. Markdown keeps them in the presentation data.
+Notes keep their A4 print settings.
 
 A presentation is one Markdown file with optional front matter, slide content, and
-one terminal `mdsh-presentation` metadata block. The metadata block controls
+one terminal `mdsh-presentation` metadata block. The format remains version 1;
+existing files need no migration. The metadata block controls
 geometry and styles. The Markdown body controls text and image content. If a file
 uses an unknown format version, the editor shows an error and keeps the file
 unchanged. See the [presentation format](presentation-format.md) for the complete
@@ -223,6 +256,10 @@ The writing section identifies the modes that support each shortcut.
 In Edit mode, point to a heading or put the caret inside it to show its level, H1 through H6.
 The level indicator does not change the document or its exports.
 Press Tab to insert indentation at the caret. In a list, Tab indents the item. In a table, Tab moves to the next cell.
+
+In a table cell, press Enter or Shift+Enter to add a line break. Press Shift+Tab
+to move to the previous cell. Press Ctrl+Enter, or Cmd+Enter on macOS, to leave
+the table. Markdown exports use `<br>` for line breaks inside cells.
 In a plain text block, use Shift+Tab to move focus out of the editor.
 
 The Commands menu shows all active shortcuts. In Settings, you can customize commands, detect conflicts, and restore defaults. The app saves web and Desktop profiles separately. Content-editing shortcuts have priority when the cursor is in the editor.
@@ -242,7 +279,7 @@ remain available.
 
 ## Desktop Beta app
 
-Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The release also contains npm and Cargo SBOMs and a provenance attestation.
+Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The workflow also creates a GitHub build provenance attestation.
 
 Choose `deckmark_<version>_macOS_Apple-Silicon.dmg` for a Mac with an Apple M-series chip.
 

@@ -1,5 +1,5 @@
 import { preserveTrashEntry } from '../trash';
-import { BACKUP_LIMITS, IMPORT_LIMITS } from '../config';
+import { BACKUP_LIMITS, IMPORT_LIMITS, MAX_IMAGE_BYTES } from '../config';
 import { readUtf8File, ImportReadError, validateMarkdownContent } from '../import-limits';
 // §1.1 - Versioned backup / restore of portable application state.
 //
@@ -31,7 +31,8 @@ import {
 import { encryptString, decryptString, isEncryptedEnvelope } from '../crypto';
 import { t } from '#lib/i18n/index.js';
 import { rewriteWikiLinkTargets } from '../wiki-links';
-import { pathKey, projectPath } from '../project-paths';
+import { documentKind } from '../document-kind';
+import { imageMime, pathKey, projectPath } from '../project-paths';
 
 export const BACKUP_FORMAT = 'mdsh-backup';
 export const BACKUP_SCHEMA_VERSION = 2;
@@ -39,7 +40,6 @@ export const BACKUP_SCHEMA_VERSION = 2;
 const PROJECT_BACKUP_LIMITS = {
 	maxProjects: IMPORT_LIMITS.maxFiles,
 	maxAssets: 1300,
-	maxAssetBytes: 2 * 1024 * 1024,
 	maxAssetBytesTotal: IMPORT_LIMITS.maxBatchBytes
 } as const;
 const PROJECT_NATIVE_BASELINE_PREFIX = 'project-native-revisions:';
@@ -72,6 +72,15 @@ export interface BackupProjectAsset {
 	data: string;
 }
 
+function rewriteDraftLinks(content: string, idMap: Map<string, string>): string {
+	if (documentKind(content) === 'presentation') return content;
+	return rewriteWikiLinkTargets(content, (target) => {
+		const id = target.split('#', 1)[0]!;
+		const mapped = idMap.get(id);
+		return mapped === undefined ? target : mapped + target.slice(id.length);
+	});
+}
+
 /** Preserves imported ID links, including cycles and repeated merges. */
 export function planDraftMerge(
 	incoming: DraftRow[],
@@ -97,17 +106,18 @@ export function planDraftMerge(
 		const candidate = matches.find((row) => row.content === draft.content) ?? matches[0];
 		if (candidate) candidates.set(draft.id, candidate);
 		importedIdMap.set(draft.id, candidate?.id ?? newId());
+		if (documentKind(draft.content) === 'presentation') continue;
 		rewriteWikiLinkTargets(draft.content, (target) => {
-			if (byId.has(target)) {
-				const ids = dependants.get(target) ?? new Set<string>();
+			const id = target.split('#', 1)[0]!;
+			if (byId.has(id)) {
+				const ids = dependants.get(id) ?? new Set<string>();
 				ids.add(draft.id);
-				dependants.set(target, ids);
+				dependants.set(id, ids);
 			}
 			return target;
 		});
 	}
-	const rewrite = (content: string) =>
-		rewriteWikiLinkTargets(content, (id) => importedIdMap.get(id) ?? id);
+	const rewrite = (content: string) => rewriteDraftLinks(content, importedIdMap);
 	const queue = [...candidates.keys()];
 	for (let index = 0; index < queue.length; index++) {
 		const id = queue[index]!;
@@ -260,7 +270,7 @@ function bytesToBase64(data: Uint8Array): string {
 }
 
 function base64ToBytes(value: string): Uint8Array {
-	if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+	if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
 	}
 	let binary: string;
@@ -315,7 +325,7 @@ function validProjectAsset(v: unknown): v is BackupProjectAsset {
 		typeof v.path === 'string' &&
 		v.path.length > 0 &&
 		typeof v.mime === 'string' &&
-		v.mime.startsWith('image/') &&
+		(v.mime.startsWith('image/') || v.mime === 'application/octet-stream') &&
 		v.mime.length <= 128 &&
 		typeof v.data === 'string'
 	);
@@ -503,12 +513,15 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 		const key = `${asset.projectId}\0${pathKey(normalized)}`;
 		if (projectPaths.has(key)) throw new BackupParseError(t('backup.notMdshBackup'));
 		projectPaths.add(key);
+		const maximum =
+			asset.mime.startsWith('image/') || imageMime(asset.path)
+				? MAX_IMAGE_BYTES
+				: IMPORT_LIMITS.maxFileBytes;
+		if (asset.data.length > Math.ceil(maximum / 3) * 4)
+			throw new BackupParseError(t('backup.tooLarge'));
 		const size = base64ToBytes(asset.data).byteLength;
 		assetBytes += size;
-		if (
-			size > PROJECT_BACKUP_LIMITS.maxAssetBytes ||
-			assetBytes > PROJECT_BACKUP_LIMITS.maxAssetBytesTotal
-		) {
+		if (size > maximum || assetBytes > PROJECT_BACKUP_LIMITS.maxAssetBytesTotal) {
 			throw new BackupParseError(t('backup.tooLarge'));
 		}
 	}
@@ -558,13 +571,20 @@ function sameProjectContent(
 		.filter((draft) => draft.projectId === existingProjectId)
 		.sort((left, right) => (left.relativePath ?? '').localeCompare(right.relativePath ?? ''));
 	if (incomingDocuments.length !== existingDocuments.length) return false;
+	const idMap = new Map<string, string>();
+	for (let index = 0; index < incomingDocuments.length; index++) {
+		const incoming = incomingDocuments[index]!;
+		const existing = existingDocuments[index]!;
+		if (incoming.relativePath !== existing.relativePath) return false;
+		idMap.set(incoming.id, existing.id);
+	}
 	for (let index = 0; index < incomingDocuments.length; index++) {
 		const incoming = incomingDocuments[index]!;
 		const existing = existingDocuments[index]!;
 		if (
 			incoming.relativePath !== existing.relativePath ||
 			incoming.name !== existing.name ||
-			incoming.content !== existing.content ||
+			rewriteDraftLinks(incoming.content, idMap) !== existing.content ||
 			incoming.createdAt !== existing.createdAt ||
 			incoming.updatedAt !== existing.updatedAt ||
 			incoming.open !== existing.open
@@ -693,10 +713,40 @@ export async function applyBackup(
 			if (mode === 'replace') {
 				// Keep a durable recovery point, including writes from other tabs that
 				// committed immediately before this transaction acquired the database.
-				const currentDrafts = await db.drafts.toArray();
+				const [currentDrafts, currentProjects, currentAssets] = await Promise.all([
+					db.drafts.toArray(),
+					db.projects.toArray(),
+					db.projectAssets.toArray()
+				]);
+				const unchangedProjects = new Set(
+					currentProjects
+						.filter((project) =>
+							projects.some(
+								(incoming) =>
+									incoming.id === project.id &&
+									incoming.name === project.name &&
+									sameProjectContent(
+										project.id,
+										incoming.id,
+										currentDrafts,
+										backup.drafts,
+										currentAssets,
+										projectAssets
+									)
+							)
+						)
+						.map((project) => project.id)
+				);
 				for (const current of currentDrafts) {
 					const incoming = backup.drafts.find((draft) => draft.id === current.id);
-					if (incoming?.content === current.content && incoming.name === current.name) continue;
+					if (
+						incoming?.content === current.content &&
+						incoming.name === current.name &&
+						incoming.projectId === current.projectId &&
+						incoming.relativePath === current.relativePath &&
+						(!current.projectId || unchangedProjects.has(current.projectId))
+					)
+						continue;
 					await preserveTrashEntry(current.id);
 					await db.trashed.put({
 						id: current.id,
@@ -705,6 +755,54 @@ export async function applyBackup(
 						trashedAt: Date.now()
 					});
 				}
+				// Retained trash needs its original assets, including trash from before this restore.
+				const retained = await db.trashed.toArray();
+				const recoveryProjects: ProjectRow[] = [];
+				const recoveryAssets: ProjectAssetRow[] = [];
+				const projectIdMap = new Map<string, string>();
+				const draftIdMap = new Map<string, string>();
+				const projectIds = new Set([...projects, ...currentProjects].map((project) => project.id));
+				const assetIds = new Set([...projectAssets, ...currentAssets].map((asset) => asset.id));
+				for (const projectId of new Set(retained.flatMap((row) => row.file.projectId ?? []))) {
+					const project = currentProjects.find((row) => row.id === projectId);
+					if (!project) throw new BackupParseError(t('backup.notMdshBackup'));
+					let mappedId = projectId;
+					if (projects.some((row) => row.id === projectId)) {
+						do mappedId = newId();
+						while (projectIds.has(mappedId));
+					}
+					projectIds.add(mappedId);
+					projectIdMap.set(projectId, mappedId);
+					recoveryProjects.push({ ...normalizeProject(project), id: mappedId });
+					for (const asset of currentAssets.filter((row) => row.projectId === projectId)) {
+						let assetId = asset.id;
+						if (projectAssets.some((row) => row.id === assetId)) {
+							do assetId = newId();
+							while (assetIds.has(assetId));
+						}
+						assetIds.add(assetId);
+						recoveryAssets.push({ ...asset, id: assetId, projectId: mappedId });
+					}
+				}
+				for (let index = 0; index < retained.length; index++) {
+					const row = retained[index]!;
+					// Keep standalone trash references until restoration resolves the collision.
+					if (!row.file.projectId || !backup.drafts.some((draft) => draft.id === row.id)) continue;
+					const preserved = (await preserveTrashEntry(row.id))!;
+					await db.trashed.delete(row.id);
+					draftIdMap.set(row.id, preserved.id);
+					retained[index] = preserved;
+				}
+				await db.trashed.bulkPut(
+					retained.map((row) => ({
+						...row,
+						file: {
+							...normalizeDraft(row.file),
+							content: rewriteDraftLinks(row.file.content, draftIdMap),
+							...(row.file.projectId ? { projectId: projectIdMap.get(row.file.projectId)! } : {})
+						}
+					}))
+				);
 				await Promise.all([
 					db.drafts.clear(),
 					db.workspaces.clear(),
@@ -718,8 +816,8 @@ export async function applyBackup(
 					db.drafts.bulkPut(backup.drafts),
 					db.workspaces.bulkPut(backup.workspaces),
 					db.templates.bulkPut(backup.templates),
-					db.projects.bulkPut(projects),
-					db.projectAssets.bulkPut(projectAssets)
+					db.projects.bulkPut([...projects, ...recoveryProjects]),
+					db.projectAssets.bulkPut([...projectAssets, ...recoveryAssets])
 				]);
 				counts.drafts = backup.drafts.length;
 				counts.workspaces = backup.workspaces.length;

@@ -53,6 +53,7 @@ test('mobile actions expose export and the document library with a neutral keybo
 }) => {
 	await resetAppState(page);
 	await page.getByTestId('welcome-new').click();
+	await page.getByTestId('create-note').click();
 	await page.locator('.cm-content').fill('# Mobile note');
 	await expect(page.locator('#app-toolbar .lucide-keyboard')).toBeVisible();
 	await expect(page.locator('#app-toolbar .lucide-command')).toHaveCount(0);

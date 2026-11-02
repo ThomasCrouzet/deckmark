@@ -2,6 +2,7 @@
 	import { tick, onMount, untrack } from 'svelte';
 	import { browser } from '$app/env';
 	import { filesStore } from '#lib/files.svelte.js';
+	import { documentKind } from '#lib/document-kind.js';
 	import { t, type MessageKey } from '#lib/i18n/index.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { notify } from '#lib/notify.svelte.js';
@@ -13,7 +14,16 @@
 	import type { SearchRequest, SearchResponse } from '#lib/workers/search.worker.js';
 	import { corpusFingerprint, SEARCH_MAX_HITS } from '#lib/search-core.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
-	import { Search, X, CaseSensitive, Regex, WholeWord, Replace } from '@lucide/svelte';
+	import {
+		Search,
+		X,
+		CaseSensitive,
+		Regex,
+		WholeWord,
+		Replace,
+		FileText,
+		Presentation
+	} from '@lucide/svelte';
 	import DiffView from './DiffView.svelte';
 
 	interface Props {
@@ -30,6 +40,7 @@
 	let query = $state('');
 	let scope = $state<'library' | 'open'>('library');
 	const corpus = $derived(scope === 'library' ? filesStore.library : filesStore.files);
+	const kindsById = $derived(new Map(corpus.map((file) => [file.id, documentKind(file.content)])));
 	// Debounced query (120 ms): avoids the split×lines of every file
 	// on each keystroke. Measurable gain from ~20 moderately-sized files.
 	let debouncedQuery = $state('');
@@ -300,13 +311,15 @@
 		const replacementValue = replacement;
 		try {
 			await filesStore.flushPendingAwait();
-			const slices = corpus.map((file) => ({
-				id: file.id,
-				name: file.name,
-				content: file.content,
-				updatedAt: file.updatedAt,
-				relativePath: file.relativePath
-			}));
+			const slices = corpus
+				.filter((file) => documentKind(file.content) === 'note')
+				.map((file) => ({
+					id: file.id,
+					name: file.name,
+					content: file.content,
+					updatedAt: file.updatedAt,
+					relativePath: file.relativePath
+				}));
 			const preview = await replaceInFilesAsync(slices, q, replacementValue, opts);
 			if (preview.regexError) {
 				queryError = preview.regexError;
@@ -690,6 +703,9 @@
 						</li>
 					{:else}
 						{#each hits as hit, i (hit.fileId + ':' + hit.line + ':' + i)}
+							{@const kind = kindsById.get(hit.fileId) ?? 'note'}
+							{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
+							{@const TypeIcon = kind === 'note' ? FileText : Presentation}
 							<li
 								role="option"
 								id={`search-hit-${hit.fileId}-${hit.line}-${i}`}
@@ -702,9 +718,11 @@
 									onmouseenter={() => (selected = i)}
 									tabindex="-1"
 								>
-									<div class="flex items-center gap-2 text-xs text-fg-muted">
+									<div class="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+										<TypeIcon size={14} class="shrink-0" aria-hidden="true" />
 										<span class="truncate font-medium">{stripExt(hit.name)}</span>
 										<span class="text-fg-dim">:{hit.line}</span>
+										<span>{typeLabel}</span>
 									</div>
 									<div class="truncate font-mono text-xs text-fg">
 										{hit.snippet.slice(0, hit.matchStart)}<mark
@@ -721,3 +739,17 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	@media (max-width: 639px), (pointer: coarse) {
+		button {
+			min-width: 44px;
+			min-height: 44px;
+		}
+		.search-input-row button {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+	}
+</style>

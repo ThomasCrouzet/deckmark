@@ -16,6 +16,7 @@
 import type { EditMode } from '#lib/types.js';
 import { reportError } from '#lib/report.js';
 import { t, type MessageKey } from '#lib/i18n/index.js';
+import { documentKind } from '#lib/document-kind.js';
 
 /**
  * Builds a memoized loader for a lazy modal. An import can fail offline or with
@@ -57,7 +58,7 @@ interface SourceEditorRef {
 export interface ModalsOptions {
 	getMode: () => EditMode;
 	setMode: (m: EditMode) => void;
-	getFilesStoreActive: () => { id: string } | null;
+	getFilesStoreActive: () => { id: string; content?: string } | null;
 	getFilesStoreSetActive: () => (id: string) => void;
 	getSourceEditorRef: () => SourceEditorRef | null;
 	// Callback to post a contextual accessibility announcement
@@ -78,8 +79,8 @@ export function createModals(opts: ModalsOptions) {
 	let settingsOpen = $state(false);
 	let historyOpen = $state(false);
 	let graphOpen = $state(false);
-	let presentationOpen = $state(false);
-	let presentationStartPlaying = $state(true);
+	let presenting = $state(false);
+	let newDocumentOpen = $state(false);
 
 	function closeAll(): void {
 		libraryOpen = false;
@@ -90,7 +91,7 @@ export function createModals(opts: ModalsOptions) {
 		settingsOpen = false;
 		historyOpen = false;
 		graphOpen = false;
-		presentationOpen = false;
+		newDocumentOpen = false;
 	}
 
 	// §A1.1 / A1.2 - Memoized loaders: one loading function per modal.
@@ -153,12 +154,12 @@ export function createModals(opts: ModalsOptions) {
 		},
 		'modals.labelGraph'
 	);
-	const loadPresentation = makeLazyLoader(
-		() => import('#lib/presentation/entry.js'),
+	const loadNewDocument = makeLazyLoader(
+		() => import('#lib/components/NewDocumentDialog.svelte'),
 		() => {
-			presentationOpen = false;
+			newDocumentOpen = false;
 		},
-		'modals.labelPresentation'
+		'documents.new'
 	);
 	// The TOC has no open state of its own (mounted in EditorPane): close is a no-op.
 	const loadToc = makeLazyLoader(
@@ -213,16 +214,9 @@ export function createModals(opts: ModalsOptions) {
 		graphOpen = true;
 	}
 
-	function openPresentation() {
+	function openNewDocument() {
 		closeAll();
-		presentationStartPlaying = true;
-		presentationOpen = true;
-	}
-
-	function openSlideEditor() {
-		closeAll();
-		presentationStartPlaying = false;
-		presentationOpen = true;
+		newDocumentOpen = true;
 	}
 
 	// §B3.7 - Handler invoked by SearchPanel when a hit is clicked: switches
@@ -232,6 +226,10 @@ export function createModals(opts: ModalsOptions) {
 	function handleOpenHit(fileId: string, line: number, query: string) {
 		const changedFile = opts.getFilesStoreActive()?.id !== fileId;
 		opts.getFilesStoreSetActive()(fileId);
+		if (documentKind(opts.getFilesStoreActive()?.content ?? '') === 'presentation') {
+			opts.setPendingGoToHit(null);
+			return;
+		}
 		if (opts.getMode() !== 'source' || changedFile) {
 			opts.setPendingGoToHit({ line, query });
 			opts.setMode('source');
@@ -264,7 +262,8 @@ export function createModals(opts: ModalsOptions) {
 				settingsOpen ||
 				historyOpen ||
 				graphOpen ||
-				presentationOpen
+				newDocumentOpen ||
+				presenting
 			);
 		},
 		// Open states (read/write via getters)
@@ -317,13 +316,21 @@ export function createModals(opts: ModalsOptions) {
 			if (v) openGraph();
 			else graphOpen = false;
 		},
-		get presentationOpen() {
-			return presentationOpen;
+		get presenting() {
+			return presenting;
 		},
-		set presentationOpen(v: boolean) {
-			if (v) openPresentation();
-			else presentationOpen = false;
+		set presenting(v: boolean) {
+			presenting = v;
 		},
+		get newDocumentOpen() {
+			return newDocumentOpen;
+		},
+		set newDocumentOpen(value: boolean) {
+			if (value) openNewDocument();
+			else newDocumentOpen = false;
+		},
+		loadNewDocument,
+		openNewDocument,
 		// Loaders
 		loadCommandPalette,
 		loadSearchPanel,
@@ -332,7 +339,6 @@ export function createModals(opts: ModalsOptions) {
 		loadSettingsPanel,
 		loadHistoryPanel,
 		loadGraphPanel,
-		loadPresentation,
 		loadToc,
 		// Actions
 		openPalette,
@@ -342,11 +348,6 @@ export function createModals(opts: ModalsOptions) {
 		openSettings,
 		openHistory,
 		openGraph,
-		openPresentation,
-		openSlideEditor,
-		get presentationStartPlaying() {
-			return presentationStartPlaying;
-		},
 		handleOpenHit
 	};
 }

@@ -33,6 +33,7 @@ test.describe('English default locale (OSS)', () => {
 		await expect(page.getByTestId('welcome-new')).toContainText('New file');
 
 		await page.getByTestId('welcome-new').click();
+		await page.getByTestId('create-note').click();
 		await page.getByRole('button', { name: 'Command palette' }).click();
 		await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
 	});

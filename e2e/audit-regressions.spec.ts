@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import { presentationFixture } from './presentation-helpers';
 
 for (const mode of ['read', 'wysiwyg'] as const) {
 	test(`updates ${mode} diagrams when the system theme changes`, async ({ page }, testInfo) => {
@@ -33,19 +34,26 @@ for (const mode of ['read', 'wysiwyg'] as const) {
 
 test('keeps shorter fences inside a presentation code sample', async ({ page }, testInfo) => {
 	await resetAppState(page);
-	await createFirstFile(page);
-	const fixture =
-		'# First slide\n\n````markdown\n```js\n---\n```\nInside the sample\n````\n\n---\n\n# Last slide';
-	await writeSourceContent(page, fixture);
-	await openPalette(page);
-	await page.getByRole('combobox').fill('Présentation');
-	await page.keyboard.press('Enter');
-	const dialog = page.getByRole('dialog');
-	await expect(dialog).toContainText('1 / 2');
-	await expect(dialog.locator('pre')).toContainText('Inside the sample');
+	const fixture = presentationFixture([
+		'# First slide\n\n````markdown\n```js\n---\n```\nInside the sample\n````',
+		'# Last slide'
+	]);
+	await page.locator('input[type=file][accept*="text/markdown"]').setInputFiles({
+		name: 'Fenced slides.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from(fixture)
+	});
+	await page.getByRole('button', { name: 'Fermer le bilan d’import', exact: true }).click();
+	const editor = page.getByTestId('presentation-editor');
+	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(2);
+	await editor.getByTestId('slide-present').click();
+	await expect(editor).toContainText('1 / 2');
+	await expect(editor.getByTestId('slide-canvas').locator('pre')).toContainText(
+		'Inside the sample'
+	);
 	await page.keyboard.press('ArrowRight');
-	await expect(dialog).toContainText('2 / 2');
-	await expect(dialog.locator('h1')).toHaveText('Last slide');
+	await expect(editor).toContainText('2 / 2');
+	await expect(editor.getByTestId('slide-canvas').locator('h1')).toHaveText('Last slide');
 	await testInfo.attach('presentation-fixture', { body: fixture, contentType: 'text/markdown' });
 	await testInfo.attach('presentation-last-slide', {
 		body: await page.screenshot(),

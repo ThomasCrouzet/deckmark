@@ -99,8 +99,12 @@ export default defineConfig(({ mode }) => {
 						groups: [
 							{
 								name(id: string): string | null {
-									// Startup state and its shared dependencies use one offline resource.
-									if (id.endsWith('/src/lib/files.svelte.ts')) return 'workspace-state';
+									// Startup state, notices, and shared dependencies use one offline resource.
+									if (
+										id.endsWith('/src/lib/files.svelte.ts') ||
+										id.endsWith('/src/lib/components/Toasts.svelte')
+									)
+										return 'workspace-state';
 									// These dependency-free helpers share one small offline resource.
 									if (id.endsWith('/src/lib/config.ts') || id.endsWith('/src/lib/abort.ts'))
 										return 'operation-utils';

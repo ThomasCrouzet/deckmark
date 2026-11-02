@@ -61,7 +61,8 @@ test('edits and presents a deck with touch input on a mobile viewport', async ({
 	page
 }, testInfo) => {
 	test.setTimeout(60_000);
-	await page.getByTestId('slides-open').tap();
+	await page.getByTestId('welcome-new').tap();
+	await page.getByTestId('create-presentation').tap();
 	const editor = page.getByTestId('presentation-editor');
 	await expect(editor).toBeVisible({ timeout: 15_000 });
 	await expect(editor.getByTestId('slide-canvas')).toBeInViewport();
@@ -88,6 +89,18 @@ test('edits and presents a deck with touch input on a mobile viewport', async ({
 	await editor.getByTestId('slide-properties').tap();
 	const objectItems = editor.getByTestId('slide-object-list-item');
 	await objectItems.nth(0).tap();
+	// The resize check can reach the slide edge in a small inline canvas.
+	// Leave room for the independent grouped movement check.
+	for (const [key, value] of [
+		['x', '100'],
+		['y', '100'],
+		['width', '300'],
+		['height', '180']
+	]) {
+		const input = editor.getByTestId(`slide-prop-${key}`);
+		await input.fill(value!);
+		await input.press('Tab');
+	}
 	await editor.getByTestId('slide-multiselect').scrollIntoViewIfNeeded();
 	await editor.getByTestId('slide-multiselect').tap();
 	await expect(editor.getByTestId('slide-multiselect')).toHaveAttribute('aria-pressed', 'true');

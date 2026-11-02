@@ -17,6 +17,7 @@ test('drafts remain usable when preference storage is denied', async ({ page }) 
 	page.on('pageerror', (error) => errors.push(error.message));
 	await page.reload();
 	await page.getByTestId('welcome-new').click();
+	await page.getByTestId('create-note').click();
 	await writeSourceContent(page, 'Durable without preferences');
 	await page.reload();
 	await page.locator('button[data-mode="source"]').click();

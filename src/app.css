@@ -1,5 +1,31 @@
 @import 'tailwindcss';
 
+.mdsh-embedded-notice {
+	display: grid;
+	grid-template-columns: 16px minmax(0, 1fr) auto;
+}
+.mdsh-embedded-notice .notice-action {
+	grid-column: 2 / -1;
+	grid-row: 2;
+	justify-self: start;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+.mdsh-embedded-notice .notice-dismiss {
+	grid-column: 3;
+	grid-row: 1;
+}
+@media (max-width: 639px), (pointer: coarse) {
+	.mdsh-embedded-notice button {
+		min-width: 44px;
+		min-height: 44px;
+	}
+	.mdsh-embedded-notice .notice-dismiss {
+		display: grid;
+		place-items: center;
+	}
+}
+
 /* Relay uses warm text and a single amber accent. */
 @theme {
 	--color-bg: #0b0c0d;

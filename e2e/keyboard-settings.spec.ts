@@ -233,6 +233,9 @@ test('persists a customized shortcut and executes it once after reload', async (
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
 	await page.keyboard.press('ControlOrMeta+;');
+	await expect(page.getByTestId('create-note')).toBeFocused();
+	await expect.poll(() => draftCount(page)).toBe(0);
+	await page.keyboard.press('Enter');
 	await expect.poll(() => draftCount(page)).toBe(1);
 
 	dialog = page.getByRole('dialog', { name: 'Réglages', exact: true });

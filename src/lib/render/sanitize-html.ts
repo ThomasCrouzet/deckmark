@@ -94,8 +94,7 @@ export function neutralizeRemoteSvgReferences(node: SanitizeNode): void {
 		'marker-end'
 	]) {
 		const value = node.getAttribute(attribute);
-		if (value && /url\s*\(/i.test(value) && stripRemoteStyleUrls(value) === '')
-			node.removeAttribute?.(attribute);
+		if (value && stripRemoteStyleUrls(value) === '') node.removeAttribute?.(attribute);
 	}
 	if (node.tagName?.toLowerCase() !== 'use') return;
 	for (const attribute of ['href', 'xlink:href']) {
@@ -109,7 +108,7 @@ function isNetworkImageSource(value: string): boolean {
 	return source !== '' && !/^(?:data:|blob:|#)/i.test(source);
 }
 
-/** Blocks network-capable image sources unless the caller records explicit consent. */
+/** Blocks remote images without consent and keeps unsupported media sources inert. */
 export function applyRemoteImagePolicy(html: string, allowRemoteImages: boolean): string {
 	if (typeof document === 'undefined') return html;
 	const template = document.createElement('template');
@@ -124,11 +123,23 @@ export function applyRemoteImagePolicy(html: string, allowRemoteImages: boolean)
 			image.removeAttribute('src');
 			image.classList.add('mdsh-remote-image-blocked');
 		}
-		const srcset = image.getAttribute('srcset');
-		if (!allowRemoteImages && srcset) {
-			image.setAttribute('data-mdsh-remote-srcset', srcset);
-			image.removeAttribute('srcset');
-			image.classList.add('mdsh-remote-image-blocked');
+	}
+	// Image consent does not authorize browser-selected candidates or other media.
+	// Keep the source markers so export can report unsupported content.
+	for (const image of template.content.querySelectorAll('img[srcset], source[srcset]')) {
+		image.setAttribute('data-mdsh-remote-srcset', image.getAttribute('srcset') ?? '');
+		image.removeAttribute('srcset');
+		image.classList.add('mdsh-remote-image-blocked');
+	}
+	for (const media of template.content.querySelectorAll(
+		'audio, video, source, track, input[type="image"]'
+	)) {
+		for (const attribute of ['src', 'poster']) {
+			const source = media.getAttribute(attribute);
+			if (source && isNetworkImageSource(source)) {
+				media.setAttribute(`data-mdsh-remote-${attribute}`, source);
+				media.removeAttribute(attribute);
+			}
 		}
 	}
 
@@ -167,6 +178,8 @@ export function registerMdshDomPurifyHooks(purify: {
 }): void {
 	if (hookRegistered) return;
 	purify.addHook('afterSanitizeAttributes', (node) => {
+		// Legacy background URLs bypass image consent.
+		node.removeAttribute?.('background');
 		hardenExternalLink(node);
 		neutralizeRemoteStyleUrls(node);
 		neutralizeRemoteSvgReferences(node);
@@ -332,8 +345,8 @@ export function renderMermaidSvg(
 			startOnLoad: false,
 			securityLevel: 'strict',
 			theme,
-			// Mermaid 12 defaults to the ELK layout and the `neo` look.
-			// Pin the Mermaid 11 values to keep the current diagram output.
+			// Keep the offline-supported Dagre layout and the classic appearance.
+			// Secure layout and flowchart so document settings cannot load ELK.
 			layout: 'dagre',
 			look: 'classic',
 			htmlLabels: false,
@@ -344,6 +357,7 @@ export function renderMermaidSvg(
 				'maxTextSize',
 				'maxEdges',
 				'htmlLabels',
+				'layout',
 				'flowchart',
 				'themeCSS',
 				'themeVariables',
@@ -383,6 +397,7 @@ export const MARKDOWN_PURIFY: SanitizeHtmlConfig = {
 		'data-mdsh-wiki',
 		'data-mdsh-remote-src',
 		'data-mdsh-remote-srcset',
+		'data-mdsh-remote-poster',
 		'data-mdsh-remote-href',
 		'data-mdsh-remote-xlink-href',
 		'data-mdsh-image-ratio',

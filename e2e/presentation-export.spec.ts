@@ -2,6 +2,7 @@ import { expect, test, type Browser, type Locator, type Page } from '@playwright
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { resetAppState } from './helpers';
+import { createPresentation, exportPresentation, renamePresentation } from './presentation-helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -14,13 +15,6 @@ async function resetEnglishApp(page: Page): Promise<void> {
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
 }
 
-async function openPresentation(page: Page): Promise<Locator> {
-	await page.getByTestId('slides-open').click();
-	const editor = page.getByTestId('presentation-editor');
-	await expect(editor).toBeVisible({ timeout: 15_000 });
-	return editor;
-}
-
 async function addText(editor: Locator, markdown: string): Promise<void> {
 	await editor.getByTestId('slide-add-text').click();
 	const text = editor.locator('[data-testid="slide-object"][data-object-type="text"]').last();
@@ -30,8 +24,8 @@ async function addText(editor: Locator, markdown: string): Promise<void> {
 }
 
 async function createExportDeck(page: Page): Promise<Locator> {
-	const editor = await openPresentation(page);
-	await editor.getByTestId('slide-title').fill('Offline launch deck');
+	const editor = await createPresentation(page);
+	await renamePresentation(page, 'Offline launch deck');
 	await addText(editor, '# Opening slide\n\nFirst exported page.');
 	await editor.getByTestId('slide-add-rectangle').click();
 	await editor.locator('[data-testid="slide-object"][data-object-type="rectangle"]').dblclick();
@@ -163,11 +157,7 @@ test('downloads a standalone presentation that works offline', async ({
 }, testInfo) => {
 	const editor = await createExportDeck(page);
 	const output = testInfo.outputPath('offline-launch-deck.html');
-	const filename = await saveDownload(
-		page,
-		() => editor.getByTestId('slide-export-html').click(),
-		output
-	);
+	const filename = await saveDownload(page, () => exportPresentation(editor, 'html'), output);
 	expect(filename).toMatch(/offline-launch-deck\.html$/i);
 	const html = await readFile(output, 'utf8');
 	expect(html).toContain('main class="mdsh-presentation"');
@@ -204,7 +194,7 @@ test('prints exactly one fixed-ratio PDF page for each slide', async ({
 	test.skip(browserName !== 'chromium', 'Playwright PDF output requires Chromium');
 	const editor = await createExportDeck(page);
 	const captured = await capturePrintDocument(page);
-	await editor.getByTestId('slide-export-pdf').click();
+	await exportPresentation(editor, 'pdf');
 	await expect.poll(() => captured().length).toBeGreaterThan(100);
 	const printHtml = captured();
 	expect(printHtml).not.toContain('Notes must not enter exported pages.');

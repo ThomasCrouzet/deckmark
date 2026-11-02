@@ -82,7 +82,7 @@ export async function editSentence(page: Page, before: string, after: string, pa
 
 export async function exportSource(page: Page, name?: string): Promise<string> {
 	await openPalette(page);
-	await page.getByRole('combobox').fill('Exporter tous les fichiers (ZIP)');
+	await page.getByRole('dialog').getByRole('combobox').fill('Exporter tous les fichiers (ZIP)');
 	const download = page.waitForEvent('download');
 	await page.keyboard.press('Enter');
 	const chunks: Buffer[] = [];

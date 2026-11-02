@@ -3,6 +3,7 @@ import { browser } from '$app/env';
 import { db, newId, type DraftRow, type ProjectAssetRow, type ProjectRow } from './db';
 
 import { filesStore } from './files.svelte';
+import { documentKind } from './document-kind';
 import {
 	projectPath,
 	pathKey,
@@ -172,6 +173,7 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					const file = snapshot.find((entry) => entry.id === fileId)!;
 					const from = file.relativePath!;
 					const linked = renameProjectLinks(content, from, oldPath, newPath);
+					if (documentKind(content) === 'presentation') return linked;
 					return rewriteWikiLinkTargets(linked, (target) => {
 						const candidates = projectWikiCandidates(file, target, snapshot);
 						if (candidates.length !== 1 || candidates[0]!.id !== id || target === id) return target;

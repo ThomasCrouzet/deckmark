@@ -30,7 +30,7 @@ export interface ShortcutCallbacks {
 	onOpenInFileSearch: () => void;
 	onOpenSettings: () => void;
 	onToggleFocus: () => void;
-	onOpenSlides: () => void;
+	onPresent: () => void;
 	// Current file
 	getActiveId: () => string | null;
 	onClose: (id: string) => void;
@@ -54,7 +54,8 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 			target?.tagName === 'TEXTAREA' ||
 			target?.tagName === 'SELECT' ||
 			target?.isContentEditable;
-		if (editable && !target?.closest?.('.cm-editor, .milkdown, .ProseMirror')) return;
+		if (editable && !target?.closest?.('.cm-editor, .milkdown, .ProseMirror, .presentation-editor'))
+			return;
 		if (
 			typeof document !== 'undefined' &&
 			document.querySelector('[role="dialog"][aria-modal="true"]')
@@ -119,8 +120,8 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 			case 'focus':
 				cb.onToggleFocus();
 				break;
-			case 'slides':
-				cb.onOpenSlides();
+			case 'presentation':
+				cb.onPresent();
 				break;
 			case 'close-file':
 				if (activeId) cb.onClose(activeId);

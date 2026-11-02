@@ -2,9 +2,12 @@
 	import { tick, onMount } from 'svelte';
 	import { browser } from '$app/env';
 	import { filesStore } from '#lib/files.svelte.js';
+	import { documentKind } from '#lib/document-kind.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import {
 		FilePlus,
+		FileText,
+		Presentation,
 		Upload,
 		X,
 		Circle,
@@ -72,7 +75,11 @@
 
 	// Auto-reset the filter if the active tag no longer exists in the corpus.
 	$effect(() => {
-		if (activeTag && !tags.includes(activeTag)) {
+		if (
+			activeTag &&
+			(!tags.includes(activeTag) ||
+				(filesStore.active && documentKind(filesStore.active.content) === 'presentation'))
+		) {
 			activeTag = null;
 		}
 	});
@@ -495,6 +502,9 @@
 					{@const dirtyHint = file.dirty ? t('sidebar.unexportedChangesHint') : ''}
 					{@const label = filesStore.displayTitle(file.id)}
 					{@const isSelected = filesStore.selectedIds.has(file.id)}
+					{@const kind = documentKind(file.content)}
+					{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
+					{@const TypeIcon = kind === 'note' ? FileText : Presentation}
 					<li
 						style:height={`${rowHeights[visibleStart + fileIndex]}px`}
 						aria-posinset={visibleStart + fileIndex + 1}
@@ -529,6 +539,7 @@
 							onkeydown={(e) => handleFileKey(e, file.id)}
 							data-file-id={file.id}
 							aria-label={`${label}${dirtyHint}${file.relativePath ? ` (${file.relativePath})` : ''}${isSelected ? t('sidebar.selectedSuffix') : ''}${file.brokenLink ? '. ' + t('sidebar.brokenDiskLink') : ''}`}
+							aria-describedby={`sidebar-type-${file.id}`}
 							aria-pressed={isSelected}
 							aria-current={isActive ? 'true' : undefined}
 						>
@@ -538,6 +549,15 @@
 								{:else}
 									<Circle size={8} class="text-fg-dim" />
 								{/if}
+							</span>
+							<span
+								id={`sidebar-type-${file.id}`}
+								class="shrink-0"
+								role="img"
+								aria-label={typeLabel}
+								title={typeLabel}
+							>
+								<TypeIcon size={14} aria-hidden="true" />
 							</span>
 							<span class="min-w-0 flex-1">
 								<span class="block truncate">{label}</span>
@@ -610,13 +630,29 @@
 				>{t('sidebar.closedFiles')} ({filesStore.closedFiles.length})</summary
 			>
 			{#each filesStore.closedFiles as file (file.id)}
+				{@const kind = documentKind(file.content)}
+				{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
+				{@const TypeIcon = kind === 'note' ? FileText : Presentation}
 				<button
-					class="block w-full truncate py-2 text-left"
+					class="flex w-full items-center gap-2 py-2 text-left"
+					aria-label={file.name}
+					aria-describedby={`closed-type-${file.id}`}
 					onclick={() => {
 						filesStore.reopen(file.id);
 						if (isMobile) onClose();
-					}}>{file.name}</button
+					}}
 				>
+					<span
+						id={`closed-type-${file.id}`}
+						class="shrink-0"
+						role="img"
+						aria-label={typeLabel}
+						title={typeLabel}
+					>
+						<TypeIcon size={14} aria-hidden="true" />
+					</span>
+					<span class="truncate">{file.name}</span>
+				</button>
 			{/each}
 		</details>
 	{/if}

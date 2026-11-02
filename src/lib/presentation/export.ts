@@ -208,6 +208,8 @@ body {
 	html, body { width: ${widthInches}in; min-height: 0; background: #fff; overflow: visible; }
 	.mdsh-presentation { position: static; width: ${widthInches}in; height: auto; overflow: visible; }
 	.mdsh-slide {
+		-webkit-print-color-adjust: exact;
+		print-color-adjust: exact;
 		display: block !important;
 		position: relative;
 		left: auto;

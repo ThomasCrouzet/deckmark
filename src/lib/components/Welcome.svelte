@@ -25,8 +25,7 @@
 				</h1>
 				<div class="welcome-rule" aria-hidden="true"></div>
 				<p class="mt-6 max-w-md text-base leading-relaxed text-fg-muted">
-					{t('welcome.tagline')}<br />
-					{t('welcome.taglineLine2')}
+					{t('welcome.tagline')}
 				</p>
 				<p class="mt-3 max-w-md font-mono text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
 					{t('welcome.privacy')}
@@ -37,7 +36,6 @@
 			</div>
 
 			<div class="welcome-actions">
-				<div class="mdsh-kicker mb-3">{t('welcome.initializeLabel')}</div>
 				{#if documentCount > 0 && onLibrary}
 					<button
 						class="welcome-action"
@@ -111,6 +109,7 @@
 	}
 	.welcome-console {
 		position: relative;
+		min-width: 0;
 		border-top: 1px solid var(--color-border-strong);
 		border-bottom: 1px solid var(--color-border);
 		padding: clamp(2rem, 5vw, 4.5rem) clamp(1rem, 4vw, 3rem) 1.5rem;
@@ -217,7 +216,7 @@
 	}
 	@media (max-width: 920px) {
 		.welcome-grid {
-			grid-template-columns: 1fr;
+			grid-template-columns: minmax(0, 1fr);
 			gap: 2.5rem;
 		}
 		.welcome-intro {
@@ -245,6 +244,27 @@
 		.welcome-shortcuts span {
 			white-space: normal;
 			overflow-wrap: anywhere;
+		}
+	}
+	@media (max-width: 240px) {
+		.welcome-shell,
+		.welcome-console {
+			padding-inline: 8px;
+		}
+		.welcome-console {
+			overflow-wrap: anywhere;
+		}
+		.welcome-action {
+			flex-wrap: wrap;
+			gap: 8px;
+			padding: 8px;
+		}
+		.welcome-action > .flex-1 {
+			min-width: 0;
+			flex-basis: calc(100% - 36px);
+		}
+		.welcome-action-icon {
+			flex-shrink: 0;
 		}
 	}
 </style>

@@ -54,23 +54,36 @@ export default defineConfig({
 			// CI installs Chromium with `npx playwright install --with-deps chromium`.
 			name: 'mobile-chromium',
 			use: { ...devices['Pixel 5'] },
-			testMatch: ['**/mobile.spec.ts', '**/presentation-mobile.spec.ts']
+			testMatch: [
+				'**/mobile.spec.ts',
+				'**/presentation-mobile.spec.ts',
+				'**/presentation-responsive-tasks.spec.ts'
+			]
 		},
 		{
 			name: 'firefox',
 			use: { ...devices['Desktop Firefox'] },
 			testMatch: [
+				'**/editor-state.spec.ts',
+				'**/toast-overlap.spec.ts',
 				'**/golden-path.spec.ts',
 				'**/search-replace.spec.ts',
 				'**/editor-width.spec.ts',
 				'**/image-layout.spec.ts',
 				'**/keyboard-platform.spec.ts',
 				'**/editor-tab.spec.ts',
+				'**/table-editing.spec.ts',
 				'**/wiki-links.spec.ts',
 				'**/source-fidelity.spec.ts',
 				'**/presentation-editor.spec.ts',
 				'**/presentation-export.spec.ts',
 				'**/presentation-offline.spec.ts',
+				'**/offline-review.spec.ts',
+				'**/presentation-files.spec.ts',
+				'**/presentation-review.spec.ts',
+				'**/note-type-guard.spec.ts',
+				'**/read-preview-isolation.spec.ts',
+				'**/modal-isolation-review.spec.ts',
 				'**/presentation-format.spec.ts'
 			]
 		},
@@ -80,16 +93,25 @@ export default defineConfig({
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
 			testMatch: [
+				'**/editor-state.spec.ts',
+				'**/toast-overlap.spec.ts',
 				'**/golden-path.spec.ts',
 				'**/search-replace.spec.ts',
 				'**/editor-width.spec.ts',
 				'**/image-layout.spec.ts',
 				'**/keyboard-platform.spec.ts',
 				'**/editor-tab.spec.ts',
+				'**/table-editing.spec.ts',
 				'**/wiki-links.spec.ts',
 				'**/source-fidelity.spec.ts',
 				'**/presentation-editor.spec.ts',
 				'**/presentation-export.spec.ts',
+				'**/presentation-files.spec.ts',
+				'**/offline-review.spec.ts',
+				'**/presentation-review.spec.ts',
+				'**/note-type-guard.spec.ts',
+				'**/read-preview-isolation.spec.ts',
+				'**/modal-isolation-review.spec.ts',
 				'**/presentation-format.spec.ts'
 			]
 		},

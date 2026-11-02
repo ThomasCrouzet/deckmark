@@ -1,8 +1,17 @@
 <script lang="ts">
 	import { t, type MessageKey } from '#lib/i18n/index.js';
 	import type { PresentationEditor, NumericProperty } from './editor.svelte';
-	let { editor, multiSelect = false }: { editor: PresentationEditor; multiSelect?: boolean } =
-		$props();
+	let {
+		editor,
+		multiSelect = false,
+		onClose,
+		onToggleMultiSelect
+	}: {
+		editor: PresentationEditor;
+		multiSelect?: boolean;
+		onClose: () => void;
+		onToggleMultiSelect: () => void;
+	} = $props();
 	const numeric: NumericProperty[] = [
 		'x',
 		'y',
@@ -23,7 +32,13 @@
 {/snippet}
 
 <aside class="slide-inspector" aria-label={t('slides.properties')} data-testid="slide-inspector">
-	<h2>{t('slides.properties')}</h2>
+	<div class="inspector-heading">
+		<h2>{t('slides.properties')}</h2>
+		<button class="close-properties" onclick={onClose}>{t('settings.close')}</button>
+		<button data-testid="slide-multiselect" aria-pressed={multiSelect} onclick={onToggleMultiSelect}
+			>{t('slides.multiSelect')}</button
+		>
+	</div>
 	{#if editor.primary}
 		<p class="selection-count">{t('slides.selectionCount', { n: editor.selected.length })}</p>
 		<fieldset>
@@ -236,6 +251,7 @@
 
 <style>
 	.slide-inspector {
+		flex: none;
 		width: 252px;
 		height: 100%;
 		overflow: auto;
@@ -281,7 +297,7 @@
 	select {
 		width: 100%;
 		min-width: 0;
-		min-height: 36px;
+		min-height: 44px;
 		border: 1px solid var(--color-border-strong);
 		border-radius: 5px;
 		background: var(--color-bg);
@@ -306,7 +322,7 @@
 		margin-bottom: 16px;
 	}
 	button {
-		min-height: 36px;
+		min-height: 44px;
 		padding: 6px 8px;
 		border: 1px solid var(--color-border);
 		border-radius: 5px;
@@ -335,18 +351,52 @@
 		flex-direction: column;
 		gap: 4px;
 	}
-	@media (max-width: 767px) {
+	.close-properties {
+		margin-bottom: 12px;
+	}
+	.inspector-heading {
+		position: sticky;
+		top: -16px;
+		padding-block: 8px;
+		background: var(--color-bg-1);
+		z-index: 1;
+	}
+	@container (max-width: 800px) {
 		.slide-inspector {
+			position: absolute;
+			bottom: 44px;
+			right: 0;
+			z-index: 15;
 			width: 100%;
-			max-height: 36dvh;
+			max-height: 65%;
 			border-left: 0;
 			border-top: 1px solid var(--color-border);
 		}
 		.fields {
-			grid-template-columns: repeat(3, 1fr);
+			grid-template-columns: repeat(2, 1fr);
 		}
 		.actions {
-			grid-template-columns: repeat(3, 1fr);
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+	@container (max-width: 320px) {
+		.slide-inspector {
+			position: static;
+			height: auto;
+			max-height: none;
+			overflow: visible;
+		}
+		.inspector-heading {
+			position: static;
+		}
+		.fields,
+		.actions {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		button,
+		legend {
+			max-width: 100%;
+			overflow-wrap: anywhere;
 		}
 	}
 </style>

@@ -10,16 +10,17 @@
 		Ellipsis,
 		HardDrive,
 		HardDriveDownload,
-		Printer,
-		Presentation
+		Printer
 	} from '@lucide/svelte';
 	import type { EditMode } from '#lib/types.js';
+	import type { DocumentKind } from '#lib/document-kind.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
 
 	interface Props {
+		kind?: DocumentKind;
 		mode: EditMode;
 		sidebarOpen: boolean;
 		onToggleSidebar: () => void;
@@ -29,10 +30,10 @@
 		onOpenPalette: () => void;
 		onSaveToDisk: () => void;
 		onOpenActions?: () => void;
-		onOpenPresentation?: () => void;
 	}
 
 	let {
+		kind = 'note',
 		mode,
 		sidebarOpen,
 		onToggleSidebar,
@@ -41,8 +42,7 @@
 		onExportPDF,
 		onOpenPalette,
 		onSaveToDisk,
-		onOpenActions,
-		onOpenPresentation
+		onOpenActions
 	}: Props = $props();
 
 	let nameInput = $state<HTMLInputElement | null>(null);
@@ -145,6 +145,7 @@
 		aria-controls="files-panel"
 	>
 		<Menu size={18} />
+		<span class="ml-1 text-xs">{t('documents.files')}</span>
 	</button>
 
 	<button
@@ -157,10 +158,11 @@
 		title={`${t('toolbar.panel')} (${keyboardStore.label('sidebar') ?? ''})`}
 	>
 		<Menu size={16} />
+		<span class="ml-1 text-xs">{t('documents.files')}</span>
 	</button>
 
 	<!-- File name -->
-	<div class="flex min-w-0 max-w-28 flex-1 items-center gap-1 sm:max-w-none">
+	<div class="document-title flex min-w-0 flex-1 items-center gap-1">
 		{#if filesStore.active}
 			<!-- §B1.7 - Visible focus border to signal that the input is editable.
 			     §B3.5 - Accent success flash 800 ms after blur if rename was effective. -->
@@ -181,6 +183,16 @@
 				spellcheck="false"
 				aria-label={t('toolbar.fileNameLabel')}
 			/>
+			<span data-testid="document-kind" class="type-badge"
+				>{t(kind === 'note' ? 'documents.note' : 'documents.presentation')}</span
+			>
+			<span class="title-save" role="status"
+				>{filesStore.saveErrorIds.includes(filesStore.active.id)
+					? t('statusBar.saveFailed')
+					: filesStore.hasPendingSave
+						? t('statusBar.saving')
+						: t('stats.saved')}</span
+			>
 			{#if filesStore.active.linkedToDisk}
 				<span
 					class="flex items-center gap-1 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5
@@ -208,75 +220,60 @@
 
 	<!-- Mode toggle - radiogroup semantics (3 exclusive modes) with
 	     Arrow / Home / End navigation per the ARIA Authoring Practices. -->
-	<div
-		bind:this={modeGroup}
-		class="mdsh-mode-switch ml-auto flex items-center border border-border bg-bg-1 p-0.5 text-fg-muted min-[520px]:ml-1"
-		role="radiogroup"
-		aria-label={t('toolbar.editMode')}
-		tabindex="-1"
-		onkeydown={handleModeKey}
-	>
-		<button
-			class="flex items-center justify-center rounded px-2 py-1 transition"
-			class:bg-bg-3={mode === 'wysiwyg'}
-			class:text-fg={mode === 'wysiwyg'}
-			onclick={() => onSetMode('wysiwyg')}
-			title={`${t('toolbar.wysiwygEdit')} (${keyboardStore.label('mode-wysiwyg') ?? ''})`}
-			aria-label={t('toolbar.wysiwygMode')}
-			aria-keyshortcuts={keyboardStore.aria('mode-wysiwyg')}
-			role="radio"
-			aria-checked={mode === 'wysiwyg'}
-			tabindex={mode === 'wysiwyg' ? 0 : -1}
-			data-mode="wysiwyg"
+	{#if kind === 'note'}<div
+			bind:this={modeGroup}
+			class="mdsh-mode-switch ml-auto flex items-center border border-border bg-bg-1 p-0.5 text-fg-muted min-[520px]:ml-1"
+			role="radiogroup"
+			aria-label={t('toolbar.editMode')}
+			tabindex="-1"
+			onkeydown={handleModeKey}
 		>
-			<Pencil size={14} /><span class="ml-1 hidden lg:inline">{t('toolbar.modeEdit')}</span>
-		</button>
-		<button
-			class="flex items-center justify-center rounded px-2 py-1 transition"
-			class:bg-bg-3={mode === 'source'}
-			class:text-fg={mode === 'source'}
-			onclick={() => onSetMode('source')}
-			title={`${t('toolbar.sourceMarkdown')} (${keyboardStore.label('mode-source') ?? ''})`}
-			aria-label={t('toolbar.sourceMode')}
-			aria-keyshortcuts={keyboardStore.aria('mode-source')}
-			role="radio"
-			aria-checked={mode === 'source'}
-			tabindex={mode === 'source' ? 0 : -1}
-			data-mode="source"
-		>
-			<Code2 size={14} /><span class="ml-1 hidden lg:inline">{t('toolbar.modeSource')}</span>
-		</button>
-		<button
-			class="flex items-center justify-center rounded px-2 py-1 transition"
-			class:bg-bg-3={mode === 'read'}
-			class:text-fg={mode === 'read'}
-			onclick={() => onSetMode('read')}
-			title={`${t('toolbar.reading')} (${keyboardStore.label('mode-read') ?? ''})`}
-			aria-label={t('toolbar.readingMode')}
-			aria-keyshortcuts={keyboardStore.aria('mode-read')}
-			role="radio"
-			aria-checked={mode === 'read'}
-			tabindex={mode === 'read' ? 0 : -1}
-			data-mode="read"
-		>
-			<Eye size={14} /><span class="ml-1 hidden lg:inline">{t('toolbar.modeRead')}</span>
-		</button>
-	</div>
-
-	{#if onOpenPresentation}
-		<button
-			class="mdsh-icon-button flex items-center justify-center rounded p-2 text-fg-muted"
-			onclick={(event) => {
-				event.currentTarget.focus({ preventScroll: true });
-				onOpenPresentation?.();
-			}}
-			data-testid="slides-open"
-			aria-label={t('slides.open')}
-			title={t('slides.open')}
-		>
-			<Presentation size={17} />
-		</button>
-	{/if}
+			<button
+				class="flex items-center justify-center rounded px-2 py-1 transition"
+				class:bg-bg-3={mode === 'wysiwyg'}
+				class:text-fg={mode === 'wysiwyg'}
+				onclick={() => onSetMode('wysiwyg')}
+				title={`${t('toolbar.wysiwygEdit')} (${keyboardStore.label('mode-wysiwyg') ?? ''})`}
+				aria-label={t('toolbar.wysiwygMode')}
+				aria-keyshortcuts={keyboardStore.aria('mode-wysiwyg')}
+				role="radio"
+				aria-checked={mode === 'wysiwyg'}
+				tabindex={mode === 'wysiwyg' ? 0 : -1}
+				data-mode="wysiwyg"
+			>
+				<Pencil size={14} /><span class="ml-1">{t('toolbar.modeEdit')}</span>
+			</button>
+			<button
+				class="flex items-center justify-center rounded px-2 py-1 transition"
+				class:bg-bg-3={mode === 'source'}
+				class:text-fg={mode === 'source'}
+				onclick={() => onSetMode('source')}
+				title={`${t('toolbar.sourceMarkdown')} (${keyboardStore.label('mode-source') ?? ''})`}
+				aria-label={t('toolbar.sourceMode')}
+				aria-keyshortcuts={keyboardStore.aria('mode-source')}
+				role="radio"
+				aria-checked={mode === 'source'}
+				tabindex={mode === 'source' ? 0 : -1}
+				data-mode="source"
+			>
+				<Code2 size={14} /><span class="ml-1">{t('toolbar.modeSource')}</span>
+			</button>
+			<button
+				class="flex items-center justify-center rounded px-2 py-1 transition"
+				class:bg-bg-3={mode === 'read'}
+				class:text-fg={mode === 'read'}
+				onclick={() => onSetMode('read')}
+				title={`${t('toolbar.reading')} (${keyboardStore.label('mode-read') ?? ''})`}
+				aria-label={t('toolbar.readingMode')}
+				aria-keyshortcuts={keyboardStore.aria('mode-read')}
+				role="radio"
+				aria-checked={mode === 'read'}
+				tabindex={mode === 'read' ? 0 : -1}
+				data-mode="read"
+			>
+				<Eye size={14} /><span class="ml-1">{t('toolbar.modeRead')}</span>
+			</button>
+		</div>{/if}
 
 	<span class="mdsh-local-indicator" role="status"
 		>{t(
@@ -305,29 +302,29 @@
 	<!-- §B2.3 - `aria-keyshortcuts` announces the shortcuts to SRs (the `title=`
 	     is for the sighted eye). ARIA format: "Control+B Meta+B" - Meta
 	     covers macOS, Control the rest. -->
-	<button
-		class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
+	{#if kind === 'note'}<button
+			class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-		onclick={onExport}
-		disabled={!filesStore.active}
-		title={`${t('toolbar.export')} (${keyboardStore.label('export-md') ?? ''})`}
-		aria-label={t('toolbar.export')}
-		aria-keyshortcuts={keyboardStore.aria('export-md')}
-	>
-		<Download size={16} />
-	</button>
+			onclick={onExport}
+			disabled={!filesStore.active}
+			title={`${t('toolbar.export')} (${keyboardStore.label('export-md') ?? ''})`}
+			aria-label={t('toolbar.export')}
+			aria-keyshortcuts={keyboardStore.aria('export-md')}
+		>
+			<Download size={16} />
+		</button>
 
-	<button
-		class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
+		<button
+			class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-		onclick={onExportPDF}
-		disabled={!filesStore.active}
-		title={`${t('toolbar.exportPdf')} (${keyboardStore.label('export-pdf') ?? ''})`}
-		aria-label={t('toolbar.exportPdf')}
-		aria-keyshortcuts={keyboardStore.aria('export-pdf')}
-	>
-		<Printer size={16} />
-	</button>
+			onclick={onExportPDF}
+			disabled={!filesStore.active}
+			title={`${t('toolbar.exportPdf')} (${keyboardStore.label('export-pdf') ?? ''})`}
+			aria-label={t('toolbar.exportPdf')}
+			aria-keyshortcuts={keyboardStore.aria('export-pdf')}
+		>
+			<Printer size={16} />
+		</button>{/if}
 
 	{#if onOpenActions}
 		<button
@@ -355,3 +352,60 @@
 		<span class="hidden xl:inline text-xs font-medium">{t('actions.commands')}</span>
 	</button>
 </header>
+
+<style>
+	#app-toolbar {
+		flex-wrap: wrap;
+		padding-block: 4px;
+	}
+	.document-title {
+		flex: 1 1 20rem;
+		min-width: min(100%, 20rem);
+		flex-wrap: wrap;
+	}
+	.document-title input {
+		flex: 1 1 10rem;
+		width: 0;
+		min-width: min(100%, 10rem);
+	}
+	#app-toolbar button {
+		min-width: 44px;
+		min-height: 44px;
+		flex-shrink: 0;
+	}
+	.mdsh-mode-switch {
+		flex-shrink: 0;
+	}
+	.type-badge {
+		flex: none;
+		padding: 2px 6px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-xs);
+		font-size: 11px;
+		color: var(--color-fg-muted);
+	}
+	.title-save {
+		flex: none;
+		font-size: 10px;
+		color: var(--color-fg-muted);
+	}
+	@media (max-width: 639px) {
+		.document-title {
+			order: -1;
+			flex-basis: 100%;
+		}
+		.type-badge {
+			font-size: 10px;
+		}
+	}
+	@media (max-width: 240px) {
+		#app-toolbar .mdsh-mode-switch {
+			flex-wrap: wrap;
+		}
+	}
+	@media (max-width: 639px), (pointer: coarse) {
+		.document-title input {
+			min-height: 44px;
+		}
+	}
+</style>

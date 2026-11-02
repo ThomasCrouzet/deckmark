@@ -149,6 +149,7 @@ test.describe('Golden path - persistence lifecycle', () => {
 			.toEqual(['Document conservé avant rechargement']);
 
 		await page.keyboard.press('ControlOrMeta+n');
+		await page.getByTestId('create-note').click();
 		await writeSourceContent(page, 'Création après chargement');
 		const expected = ['Création après chargement', 'Document conservé avant rechargement'].sort();
 		await expect

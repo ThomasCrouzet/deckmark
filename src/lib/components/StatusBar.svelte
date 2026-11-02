@@ -8,7 +8,9 @@
 		getStorageHealth,
 		recordBackupReminderShown
 	} from '#lib/storage.js';
-	let { onOpenSettings }: { onOpenSettings?: () => void } = $props();
+	import type { DocumentKind } from '#lib/document-kind.js';
+	let { kind = 'note', onOpenSettings }: { kind?: DocumentKind; onOpenSettings?: () => void } =
+		$props();
 	let backupDue = $state(false);
 	function dismissReminder() {
 		recordBackupReminderShown();
@@ -45,7 +47,7 @@
 	$effect(() => {
 		const active = filesStore.active;
 		const id = active?.id ?? null;
-		const c = active?.content ?? '';
+		const c = kind === 'note' ? (active?.content ?? '') : '';
 		if (id !== debouncedActiveId) {
 			// File switch or opening: immediate flush of the snapshot.
 			if (debounceTimer) {
@@ -85,15 +87,15 @@
 		class="flex min-h-6 flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border
 		       bg-bg px-3 font-mono text-[11px] text-fg-muted"
 	>
-		<div class="flex items-center gap-3">
-			<span>{t('statusBar.words', { n: stats.words })}</span>
-			<span class="text-fg-dim/60">·</span>
-			<span>{t('statusBar.chars', { n: stats.chars })}</span>
-			<span class="hidden sm:inline text-fg-dim/60">·</span>
-			<span class="hidden sm:inline">{t('statusBar.lines', { n: stats.lines })}</span>
-			<span class="hidden md:inline text-fg-dim/60">·</span>
-			<span class="hidden md:inline">{t('statusBar.readMinutes', { n: stats.readMinutes })}</span>
-		</div>
+		{#if kind === 'note'}<div class="flex items-center gap-3">
+				<span>{t('statusBar.words', { n: stats.words })}</span>
+				<span class="text-fg-dim/60">·</span>
+				<span>{t('statusBar.chars', { n: stats.chars })}</span>
+				<span class="hidden sm:inline text-fg-dim/60">·</span>
+				<span class="hidden sm:inline">{t('statusBar.lines', { n: stats.lines })}</span>
+				<span class="hidden md:inline text-fg-dim/60">·</span>
+				<span class="hidden md:inline">{t('statusBar.readMinutes', { n: stats.readMinutes })}</span>
+			</div>{/if}
 		<!-- §B3.2 - Ephemeral "saving" state during the debounce + IDB write.
 		     Without this, the "saved Xs ago" label only moves every 10 s
 		     (setInterval), with no feedback that typing has been saved. -->

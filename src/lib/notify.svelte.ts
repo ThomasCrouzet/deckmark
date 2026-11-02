@@ -15,6 +15,8 @@ export type ToastLevel = 'error' | 'success' | 'info';
 export interface ToastAction {
 	label: string;
 	run: () => void;
+	/** Set false when successful completion must dismiss the notification. */
+	dismissOnRun?: boolean;
 }
 
 export interface NotifyToast {
@@ -22,6 +24,13 @@ export interface NotifyToast {
 	level: ToastLevel;
 	message: string;
 	action?: ToastAction | undefined;
+	key?: string | undefined;
+}
+
+interface ToastOptions {
+	action?: ToastAction;
+	ttl?: number;
+	key?: string;
 }
 
 // Display duration per level (ms). Errors stay longer: they often require an
@@ -43,18 +52,17 @@ class NotifyStore {
 	 * Avoids the avalanche when an error repeats (e.g. full quota → failure on
 	 * every saved keystroke).
 	 */
-	private push(
-		level: ToastLevel,
-		message: string,
-		opts: { action?: ToastAction; ttl?: number } = {}
-	): number {
-		const existing = this.toasts.find((t) => t.level === level && t.message === message);
+	private push(level: ToastLevel, message: string, opts: ToastOptions = {}): number {
+		const existing = this.toasts.find(
+			(t) =>
+				t.level === level && t.key === opts.key && (opts.key !== undefined || t.message === message)
+		);
 		if (existing) {
 			this.arm(existing.id, level, opts.ttl);
 			return existing.id;
 		}
 		const id = this.nextId++;
-		this.toasts = [...this.toasts, { id, level, message, action: opts.action }];
+		this.toasts = [...this.toasts, { id, level, message, action: opts.action, key: opts.key }];
 		this.arm(id, level, opts.ttl);
 		return id;
 	}
@@ -79,8 +87,8 @@ class NotifyStore {
 	}
 
 	/** Error notification (announced assertively, long TTL). */
-	error(message: string): number {
-		return this.push('error', message);
+	error(message: string, opts: ToastOptions = {}): number {
+		return this.push('error', message, opts);
 	}
 	/** Success notification (announced politely). */
 	success(message: string): number {

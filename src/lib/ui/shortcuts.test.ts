@@ -17,7 +17,7 @@ function makeCallbacks(overrides: Partial<ShortcutCallbacks> = {}) {
 		onOpenInFileSearch: vi.fn(),
 		onOpenSettings: vi.fn(),
 		onToggleFocus: vi.fn(),
-		onOpenSlides: vi.fn(),
+		onPresent: vi.fn(),
 		getActiveId: vi.fn(() => 'file1' as string | null),
 		onClose: vi.fn(),
 		...overrides
@@ -72,9 +72,9 @@ describe('buildKeydownHandler', () => {
 		expect(c.onToggleFocus).toHaveBeenCalledOnce();
 	});
 
-	it('opens the slide editor with ⌘⇧L', () => {
+	it('requests presentation playback with ⌘⇧L', () => {
 		handler(fire('l', { shift: true }).event);
-		expect(cb.onOpenSlides).toHaveBeenCalledOnce();
+		expect(cb.onPresent).toHaveBeenCalledOnce();
 		expect(cb.onToggleFocus).not.toHaveBeenCalled();
 	});
 

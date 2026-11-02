@@ -77,11 +77,11 @@ To regenerate the **Linux** baseline (for local reference, not currently CI-enfo
 
 ```sh
 docker run --rm -v "$(pwd)":/work -w /work --ipc=host \
-  mcr.microsoft.com/playwright@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e \
+  mcr.microsoft.com/playwright@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f \
   bash -c "npm ci --legacy-peer-deps && npm run build && npx playwright test visual.spec.ts --project=chromium --update-snapshots"
 ```
 
-The digest above is the multi-platform manifest for `v1.62.1-noble`, matching the exact `@playwright/test` version in `package.json`. To regenerate the **macOS** baselines:
+The digest above is the multi-platform manifest for `v1.64.1-noble`, matching the exact `@playwright/test` version in `package.json`. To regenerate the **macOS** baselines:
 
 ```sh
 npm run test:e2e -- visual.spec.ts --update-snapshots

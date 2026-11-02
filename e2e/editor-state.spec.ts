@@ -112,6 +112,7 @@ test.describe('Editor state isolation and restoration', () => {
 		await page.reload();
 		await switchToSource(page);
 		await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
+		const savedBeforeEdit = await savedPositionContent(page);
 		await page.locator('.cm-content').first().focus();
 		await page.keyboard.insertText('X');
 		await expect.poll(() => savedPositionContent(page)).toContain('POSITIONTOKENX');
@@ -121,6 +122,12 @@ test.describe('Editor state isolation and restoration', () => {
 			'placeholder',
 			'Rechercher'
 		);
+		const searchInput = page.locator('.cm-search input[name="search"]');
+		const replaceInput = page.locator('.cm-search input[name="replace"]');
+		await searchInput.fill('line');
+		await replaceInput.fill('row');
+		await page.locator('.cm-search input[name="case"]').check();
+		await searchInput.click();
 		await openSettings(page);
 		await page
 			.getByRole('group', { name: 'Langue' })
@@ -140,11 +147,65 @@ test.describe('Editor state isolation and restoration', () => {
 			'Find'
 		);
 		await expect(page.locator('.cm-search button[name="next"]')).toHaveText('next');
+		await expect(searchInput).toHaveValue('line');
+		await expect(replaceInput).toHaveValue('row');
+		await expect(replaceInput).toHaveAttribute('placeholder', 'Replace');
+		await expect(page.locator('.cm-search input[name="case"]')).toBeChecked();
+		await expect(searchInput).toBeFocused();
 
 		await page.keyboard.press('Escape');
+		await expect(page.locator('.cm-search')).toBeHidden();
+		await expect(page.locator('.cm-content').first()).toBeFocused();
 		await page.keyboard.press('ControlOrMeta+z');
 		await expect.poll(() => savedPositionContent(page)).not.toContain('POSITIONTOKENX');
 		await expect.poll(() => savedPositionContent(page)).toContain('POSITIONTOKEN');
+		await expect.poll(() => savedPositionContent(page)).toBe(savedBeforeEdit);
+		await page.reload();
+		await expect.poll(() => savedPositionContent(page)).toBe(savedBeforeEdit);
+	});
+
+	test('restores the Replace button after a locale change and keeps keyboard replacement durable', async ({
+		page
+	}) => {
+		await resetAppState(page);
+		await createFirstFile(page);
+		await renameActiveFile(page, 'Position.md');
+		const content = 'ALPHA omega\nALPHA end';
+		await writeSourceContent(page, content);
+		await expect.poll(() => savedPositionContent(page)).toBe(content);
+		await page.keyboard.press('ControlOrMeta+f');
+		const searchInput = page.locator('.cm-search input[name="search"]');
+		const replaceInput = page.locator('.cm-search input[name="replace"]');
+		const replaceButton = page.locator('.cm-search button[name="replace"]');
+		await searchInput.fill('ALPHA');
+		await replaceInput.fill('BETA');
+		await page.keyboard.press('Tab');
+		await expect(replaceButton).toBeFocused();
+		await openSettings(page);
+		await page
+			.getByRole('group', { name: 'Langue' })
+			.getByRole('button', { name: 'English' })
+			.click();
+		await page
+			.getByRole('dialog', { name: 'Settings' })
+			.getByRole('button', { name: 'Close', exact: true })
+			.click();
+		await expect(replaceButton).toHaveText('replace');
+		await expect(replaceButton).toBeFocused();
+		await expect(replaceInput).toHaveValue('BETA');
+		await page.keyboard.press('Space');
+		await expect(page.locator('.cm-searchMatch-selected')).toHaveText('ALPHA');
+		await expect(replaceButton).toBeFocused();
+		await page.keyboard.press('Space');
+		await expect.poll(() => savedPositionContent(page)).toBe('BETA omega\nALPHA end');
+		await expect(replaceInput).toHaveValue('BETA');
+		await page.keyboard.press('Escape');
+		await expect(page.locator('.cm-search')).toBeHidden();
+		await expect(page.locator('.cm-content').first()).toBeFocused();
+		await page.keyboard.press('ControlOrMeta+z');
+		await expect.poll(() => savedPositionContent(page)).toBe(content);
+		await page.reload();
+		await expect.poll(() => savedPositionContent(page)).toBe(content);
 	});
 
 	test('keeps the WYSIWYG instance and restores positions in visual and reading modes', async ({
@@ -190,6 +251,7 @@ test.describe('Editor state isolation and restoration', () => {
 		await page.keyboard.press('ArrowLeft');
 		for (let index = 0; index < 4; index++) await page.keyboard.press('ArrowRight');
 		await page.keyboard.press('ControlOrMeta+n');
+		await page.getByTestId('create-note').click();
 		await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 20_000 });
 		const fileName = page.locator('input[aria-label^="File name"]');
 		await fileName.fill('Visual B.md');

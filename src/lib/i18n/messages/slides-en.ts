@@ -1,4 +1,28 @@
 export const slidesEn = {
+	'slides.loading': 'Loading presentation...',
+	'documents.new': 'Create a document',
+	'documents.files': 'Files',
+	'documents.noConversion':
+		'This note cannot become a presentation. Create or import a presentation instead.',
+	'documents.note': 'Note',
+	'documents.presentation': 'Presentation',
+	'documents.noteDescription': 'Write and read Markdown.',
+	'documents.presentationDescription': 'Arrange slides and present.',
+	'documents.createNote': 'Create a note',
+	'documents.createPresentation': 'Create a presentation',
+	'documents.created': '{type} created.',
+	'slides.newPresentationName': 'Presentation.md',
+	'slides.advanced': 'Advanced',
+	'slides.export': 'Export',
+	'slides.apply': 'Apply',
+	'slides.cancel': 'Cancel',
+	'slides.sourceRequiresData':
+		'A presentation must keep its presentation data. Restore the data or cancel.',
+	'slides.sourceConflict': 'The file changed. Copy your draft, then cancel and reopen the source.',
+	'slides.sourceApplied': 'Source applied.',
+	'slides.presentActive': 'Present active file',
+	'slides.presentationRequired': 'Open a presentation first.',
+	'slides.slideCount': '{n} slides',
 	'slides.open': 'Slides',
 	'slides.openHint': 'Edit slides in the active document',
 	'slides.title': 'Presentation editor',
@@ -68,7 +92,7 @@ export const slidesEn = {
 	'slides.background': 'Slide background',
 	'slides.aspect': 'Slide format',
 	'slides.notes': 'Presenter notes',
-	'slides.notesPlaceholder': 'Notes stay outside the slide and printed pages.',
+	'slides.notesPlaceholder': 'Write your speech. It stays out of slide exports.',
 	'slides.source': 'Markdown source',
 	'slides.visual': 'Visual editor',
 	'slides.sourceHint':
@@ -79,6 +103,7 @@ export const slidesEn = {
 	'slides.exportHtml': 'HTML',
 	'slides.exportPdf': 'PDF / Print',
 	'slides.present': 'Present',
+	'slides.presentSourceHint': 'Apply or cancel source changes to present.',
 	'slides.exitPresent': 'Exit presentation',
 	'slides.fullscreen': 'Fullscreen',
 	'slides.showNotes': 'Show notes',
@@ -90,6 +115,7 @@ export const slidesEn = {
 	'slides.snap': 'Snap to guides',
 	'slides.multiSelect': 'Multiple selection',
 	'slides.selectionCount': '{n} object(s) selected',
+	'slides.selectToEdit': 'Select an object to edit it.',
 	'slides.selectionHint':
 		'Select an object. Shift-click to select more. Drag to move. Use arrows for precise movement.',
 	'slides.touchHint':

@@ -35,11 +35,14 @@
 	import { createFileIntents } from '#lib/ui/file-intents.svelte.js';
 	import { initDesktopShell, type DesktopMenuAction } from '#lib/desktop-shell.js';
 	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
+	import { documentKind, type DocumentKind } from '#lib/document-kind.js';
+	const kind = $derived(documentKind(filesStore.active?.content ?? ''));
 
 	let mode = $state<EditMode>('wysiwyg');
 	let projectsOpen = $state(false);
 	let documentTool = $state<'find' | 'outline' | null>(null);
 	function openDocumentTool(kind: 'find' | 'outline') {
+		if (documentKind(filesStore.active?.content ?? '') !== 'note') return;
 		documentTool = kind;
 		void tick().then(() =>
 			document
@@ -53,6 +56,7 @@
 		openDocumentTool('outline');
 	}
 	async function requestMode(nextMode: EditMode): Promise<void> {
+		if (kind !== 'note') return;
 		documentTool = null;
 		const activeId = filesStore.activeId;
 		if (nextMode !== 'source' && activeId && filesStore.requiresRenderConfirmation(activeId)) {
@@ -68,18 +72,21 @@
 	}
 	$effect(() => {
 		const activeId = filesStore.activeId;
-		if (activeId && filesStore.requiresRenderConfirmation(activeId)) mode = 'source';
+		if (kind === 'note' && activeId && filesStore.requiresRenderConfirmation(activeId))
+			mode = 'source';
 	});
 	// §B1.10 / B2.2 - Text announced to SRs on each mode switch + one-off
 	// contextual announcement (e.g. "⌘F switched to source mode for search").
 	// `contextAnnounce` is cleared after 2 s to free the live region (otherwise a
 	// focus return would read it again).
 	const modeAnnounce = $derived(
-		mode === 'wysiwyg'
-			? t('page.modeWysiwyg')
-			: mode === 'source'
-				? t('page.modeSourceMarkdown')
-				: t('page.modeReading')
+		kind === 'presentation'
+			? t('documents.presentation')
+			: mode === 'wysiwyg'
+				? t('page.modeWysiwyg')
+				: mode === 'source'
+					? t('page.modeSourceMarkdown')
+					: t('page.modeReading')
 	);
 	let contextAnnounce = $state('');
 	let contextTimer: ReturnType<typeof setTimeout> | null = null;
@@ -108,6 +115,7 @@
 	// tocEmpty stays local: it is a value pushed by Toc via onEmpty, not a pref.
 	let tocEmpty = $state(true);
 	const prefs = createUiPrefs({
+		getNoteActive: () => kind === 'note',
 		getHydrated: () => hydrated,
 		getMode: () => mode,
 		getTocVisible: () => prefs.tocVisible,
@@ -155,10 +163,26 @@
 
 	let hadDialog = false;
 	let dialogTrigger: HTMLElement | null = null;
+	let dialogSearchControl: { editor: Element; selector: string } | null = null;
 	$effect.pre(() => {
 		if (!browser) return;
 		const open = modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending;
-		if (open && !hadDialog) dialogTrigger = document.activeElement as HTMLElement | null;
+		if (open && !hadDialog) {
+			dialogTrigger = document.activeElement as HTMLElement | null;
+			const editor = dialogTrigger?.closest('.cm-search')?.closest('.cm-editor');
+			const name = dialogTrigger?.getAttribute('name');
+			const tagName = dialogTrigger?.localName;
+			const type = dialogTrigger?.getAttribute('type') ?? null;
+			dialogSearchControl =
+				editor && name && tagName
+					? {
+							editor,
+							selector: `.cm-search ${CSS.escape(tagName)}[name="${CSS.escape(name)}"]${
+								type === null ? ':not([type])' : `[type="${CSS.escape(type)}"]`
+							}`
+						}
+					: null;
+		}
 		if (!open && hadDialog) {
 			void tick().then(() => {
 				const focused = document.activeElement;
@@ -169,7 +193,10 @@
 					!focused.closest('[inert]')
 				)
 					return;
-				const trigger = dialogTrigger;
+				// Locale changes replace CodeMirror search controls. Restore the same control.
+				const trigger = dialogTrigger?.isConnected
+					? dialogTrigger
+					: dialogSearchControl?.editor.querySelector<HTMLElement>(dialogSearchControl.selector);
 				if (trigger?.isConnected && !trigger.closest('[inert]') && trigger.getClientRects().length)
 					trigger.focus({ preventScroll: true });
 				else document.querySelector<HTMLElement>('[data-actions-trigger]')?.focus();
@@ -282,8 +309,21 @@
 
 	function handleNew() {
 		if (!canInteract) return;
-		filesStore.createNew();
-		if (window.innerWidth < 768) sidebarOpen = false;
+		modals.openNewDocument();
+	}
+	async function handleCreate(kind: DocumentKind) {
+		try {
+			await filesStore.createDocument(kind);
+			modals.newDocumentOpen = false;
+			if (window.innerWidth < 768) sidebarOpen = false;
+			announceContext(
+				t('documents.created', {
+					type: t(kind === 'note' ? 'documents.note' : 'documents.presentation')
+				})
+			);
+		} catch (error) {
+			reportError('create document', error, { notifyUser: t('page.saveToDiskError') });
+		}
 	}
 
 	function handleDemo() {
@@ -292,12 +332,9 @@
 		sidebarOpen = true;
 	}
 
-	async function handlePresentation() {
-		if (!canInteract) return;
-		window.dispatchEvent(new Event('mdsh:flush-editor'));
-		await tick();
-		if (!filesStore.active) filesStore.createNew(t('slides.newName'));
-		modals.openSlideEditor();
+	function presentationAction(action: string) {
+		if (kind === 'presentation')
+			window.dispatchEvent(new CustomEvent('mdsh:presentation-action', { detail: action }));
 	}
 
 	async function handleImport() {
@@ -337,10 +374,6 @@
 	}
 
 	async function handleDesktopMenuAction(action: DesktopMenuAction) {
-		if (canInteract && modals.presentationOpen && !promptStore.open) {
-			window.dispatchEvent(new CustomEvent('mdsh:presentation-action', { detail: action }));
-			return;
-		}
 		if (
 			!canInteract ||
 			modals.anyOpen ||
@@ -349,6 +382,13 @@
 			!!diskConflictStore.pending
 		)
 			return;
+		if (
+			kind === 'presentation' &&
+			['export-md', 'export-html', 'export-pdf', 'save-disk'].includes(action)
+		) {
+			window.dispatchEvent(new CustomEvent('mdsh:presentation-action', { detail: action }));
+			return;
+		}
 		switch (action) {
 			case 'new':
 				handleNew();
@@ -403,7 +443,12 @@
 	}
 
 	function handleEditorChange(markdown: string) {
-		if (filesStore.active) filesStore.updateContent(filesStore.active.id, markdown);
+		if (documentKind(markdown) !== 'note') {
+			notify.error(t('documents.noConversion'));
+			return;
+		}
+		if (filesStore.active && kind === 'note')
+			filesStore.updateContent(filesStore.active.id, markdown);
 	}
 
 	// §C1 - WYSIWYG flush: explicitly writes to the file `id` provided by the
@@ -411,7 +456,9 @@
 	// when switching tabs right after typing (Milkdown's markdownUpdated is
 	// asynchronous). `updateContent` ignores identical content.
 	function handleEditorFlush(id: string, markdown: string) {
-		filesStore.updateContent(id, markdown);
+		if (documentKind(markdown) !== 'note') return;
+		const file = filesStore.library.find((entry) => entry.id === id);
+		if (file && documentKind(file.content) === 'note') filesStore.updateContent(id, markdown);
 	}
 
 	function handleExport() {
@@ -481,7 +528,7 @@
 
 	/** Keep visual find in the current mode. Source uses CodeMirror search and replace. */
 	function openInFileSearch() {
-		if (!filesStore.active) return;
+		if (!filesStore.active || kind !== 'note') return;
 		if (mode === 'source') {
 			sourceEditorRef?.openSearch();
 		} else {
@@ -516,8 +563,10 @@
 		onOpenSearch: modals.openSearch,
 		onOpenInFileSearch: openInFileSearch,
 		onOpenSettings: modals.openSettings,
-		onToggleFocus: prefs.toggleFocusMode,
-		onOpenSlides: () => void handlePresentation(),
+		onToggleFocus: () => {
+			if (kind === 'note') prefs.toggleFocusMode();
+		},
+		onPresent: () => presentationAction('present'),
 		getActiveId: () => filesStore.activeId,
 		onClose: (id) => filesStore.close(id)
 	});
@@ -530,6 +579,7 @@
 	});
 
 	function handleWindowKeydown(event: KeyboardEvent) {
+		if (modals.anyOpen || promptStore.open || projectsOpen || diskConflictStore.pending) return;
 		if (!canInteract) {
 			if (
 				!event.isComposing &&
@@ -545,9 +595,16 @@
 	}
 
 	function handleWindowDrag(event: DragEvent, handler: (event: DragEvent) => void | Promise<void>) {
-		if (!canInteract) {
-			// Ignore drops during startup. Do not import or open the file in the browser.
+		if (
+			!canInteract ||
+			modals.anyOpen ||
+			promptStore.open ||
+			projectsOpen ||
+			diskConflictStore.pending
+		) {
+			// Keep file drops outside startup and modal workflows.
 			event.preventDefault();
+			dragOver = false;
 			return;
 		}
 		void handler(event);
@@ -576,39 +633,43 @@
 
 <div
 	inert={!canInteract ||
-		modals.anyOpen ||
+		(modals.anyOpen && !modals.presenting) ||
 		promptStore.open ||
 		projectsOpen ||
 		!!diskConflictStore.pending}
 	aria-busy={!hydrated}
 	class="mdsh-shell flex h-[100dvh] w-full overflow-hidden bg-bg text-fg"
 >
-	<Sidebar
-		open={sidebarOpen}
-		focusMode={prefs.focusMode}
-		onClose={() => (sidebarOpen = false)}
-		onNew={handleNew}
-		onImport={handleImport}
-		onOpenLibrary={modals.openLibrary}
-		onOpenProjects={() => (projectsOpen = true)}
-	/>
+	<div class="contents" inert={modals.presenting}>
+		<Sidebar
+			open={sidebarOpen}
+			focusMode={prefs.focusMode && kind === 'note'}
+			onClose={() => (sidebarOpen = false)}
+			onNew={handleNew}
+			onImport={handleImport}
+			onOpenLibrary={modals.openLibrary}
+			onOpenProjects={() => (projectsOpen = true)}
+		/>
+	</div>
 
 	<div
 		inert={sidebarOpen && viewportWidth < 768}
 		class="mdsh-workspace flex min-w-0 flex-1 flex-col"
 	>
-		<Toolbar
-			{mode}
-			{sidebarOpen}
-			onToggleSidebar={toggleSidebar}
-			onSetMode={(m) => void requestMode(m)}
-			onExport={handleExport}
-			onExportPDF={handleExportPDF}
-			onOpenPalette={modals.openPalette}
-			onOpenActions={modals.openActions}
-			onOpenPresentation={() => void handlePresentation()}
-			onSaveToDisk={handleSaveToDisk}
-		/>
+		<div class="contents" inert={modals.presenting}>
+			<Toolbar
+				{kind}
+				{mode}
+				{sidebarOpen}
+				onToggleSidebar={toggleSidebar}
+				onSetMode={(m) => void requestMode(m)}
+				onExport={handleExport}
+				onExportPDF={handleExportPDF}
+				onOpenPalette={modals.openPalette}
+				onOpenActions={modals.openActions}
+				onSaveToDisk={handleSaveToDisk}
+			/>
+		</div>
 
 		<!-- §P3.2 - The editing pane (3 modes + resize + drag + TOC) is delegated
 		     to EditorPane.svelte to reduce the markup of +page.svelte. -->
@@ -619,6 +680,7 @@
 			tabindex="-1"
 		>
 			<EditorPane
+				{kind}
 				libraryCount={filesStore.library.length}
 				{documentTool}
 				onCloseTool={() => {
@@ -644,11 +706,13 @@
 			/>
 		</main>
 
-		<StatusBar onOpenSettings={modals.openSettings} />
+		<div class="contents" inert={modals.presenting}>
+			<StatusBar {kind} onOpenSettings={modals.openSettings} />
+		</div>
 	</div>
 </div>
 
-{#if prefs.focusMode}
+{#if prefs.focusMode && kind === 'note'}
 	<button
 		inert={modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending}
 		type="button"
@@ -716,7 +780,7 @@
 
 <Toast />
 <SpinnerToast />
-{#if !modals.presentationOpen}<Toasts />{/if}
+{#if !modals.presenting && !modals.libraryOpen}<Toasts />{/if}
 
 <!-- §B1.3 - Singleton prompt/confirm modal, driven by `promptStore`.
      Replaces the native `window.prompt` / `window.confirm` (CommandPalette +
@@ -724,6 +788,7 @@
      handles its own internal `{#if open}`. -->
 {#if promptStore.config}
 	<PromptModal
+		showNotices={modals.libraryOpen}
 		open={promptStore.open}
 		mode={promptStore.config.mode}
 		title={promptStore.config.title}
@@ -743,6 +808,8 @@
      The open state and memoized loaders live in `modals` (createModals).
      Lazy-load is preserved: no modal bytes are pulled before the 1st opening. -->
 <Modals
+	{kind}
+	onCreate={handleCreate}
 	onOpenOutline={openOutline}
 	{modals}
 	{editorWidth}
@@ -757,7 +824,8 @@
 	onToggleSidebar={toggleSidebar}
 	onSetMode={(m) => void requestMode(m)}
 	onOpenInFileSearch={openInFileSearch}
-	onOpenSlides={() => void handlePresentation()}
+	onPresent={() => presentationAction('present')}
+	onAdvancedSource={() => presentationAction('source')}
 />
 
 <input

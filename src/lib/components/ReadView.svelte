@@ -58,6 +58,10 @@
 	 * rendered links and continues to work after DOM rebuilds.
 	 */
 	function openWikiLinkFromEvent(e: Event): boolean {
+		if (htmlFileId !== fileId) {
+			e.preventDefault();
+			return true;
+		}
 		const target = e.target as HTMLElement | null;
 		const projectLink = target?.closest<HTMLAnchorElement>('a[href]:not(.wiki-link)');
 		const destination = projectLink?.getAttribute('href');
@@ -100,7 +104,8 @@
 		onArticleRef?.(articleEl);
 	});
 
-	$effect(() => {
+	// Save before a file change removes the article and resets the scroll position.
+	$effect.pre(() => {
 		const id = fileId;
 		const scroller = readScroller;
 		if (!scroller) return;
@@ -110,6 +115,8 @@
 	});
 
 	let html = $state('');
+	// Keep the HTML owner while a same-file refresh is pending.
+	let htmlFileId = $state<string | null>(null);
 	let renderedFileId = $state<string | null>(null);
 
 	$effect(() => {
@@ -159,6 +166,7 @@
 			if (seq !== renderSeq) return; // a more recent render has started
 			if (fid !== fileId) return; // the file changed in the meantime
 			html = out;
+			htmlFileId = fid;
 			renderedFileId = fid;
 			hasBlockedRemoteImages = out.includes('data-mdsh-remote-');
 			if (filesStore.projectAnchor?.id !== fid) restoreReadPosition(fid);
@@ -254,7 +262,7 @@
 				<pre>{err}</pre>
 				<button type="button" onclick={() => retryVersion++}>{t('source.retry')}</button>
 			</div>
-		{:else}
+		{:else if htmlFileId === fileId}
 			{#if hasBlockedRemoteImages}
 				<div class="mdsh-remote-images-notice" role="status">
 					<span>{t('read.remoteImagesBlocked')}</span>

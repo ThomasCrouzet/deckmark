@@ -7,6 +7,7 @@ import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { testSource } from './test-source.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const VIEWPORT = { width: 1280, height: 800 };
@@ -147,6 +148,7 @@ export async function withCapture(name, defaultPort, scenario) {
 		build,
 		revision: runTool('git', ['rev-parse', 'HEAD']),
 		workingTree: runTool('git', ['status', '--short']),
+		sourceIdentity: testSource(),
 		node: process.version,
 		platform: `${process.platform}/${process.arch}`,
 		ffmpegVersion,
@@ -385,6 +387,7 @@ export async function createDocument(page, name) {
 			.getByRole('button', { name: /^New file, shortcut / })
 			.click();
 	}
+	await page.getByTestId('create-note').click();
 	const input = page.locator('#app-toolbar input[aria-label^="File name"]');
 	await input.fill(name);
 	await input.press('Enter');

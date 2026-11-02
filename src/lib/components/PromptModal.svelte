@@ -23,6 +23,7 @@
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { t } from '#lib/i18n/index.js';
 	import { X } from '@lucide/svelte';
+	import Toasts from './Toasts.svelte';
 
 	interface Props {
 		open: boolean;
@@ -36,6 +37,7 @@
 		alternateLabel?: string | undefined;
 		inputType?: 'text' | 'password' | undefined;
 		danger?: boolean | undefined;
+		showNotices?: boolean;
 		onResolve: (value: string | boolean | null) => void;
 	}
 
@@ -51,6 +53,7 @@
 		alternateLabel,
 		inputType = 'text',
 		danger = false,
+		showNotices = false,
 		onResolve
 	}: Props = $props();
 
@@ -134,6 +137,7 @@
 					<X size={14} />
 				</button>
 			</header>
+			{#if showNotices}<Toasts embedded />{/if}
 
 			{#if message}
 				<p id="prompt-modal-message" class="text-sm text-fg-muted">{message}</p>

@@ -20,9 +20,10 @@
 	import type { createModals } from '#lib/ui/modals.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { readPreference, writePreference } from '#lib/preferences.js';
-	import { isPresentation } from '#lib/presentation/detect.js';
+	import type { DocumentKind } from '#lib/document-kind.js';
 
 	interface Props {
+		kind: DocumentKind;
 		libraryCount?: number;
 		documentTool?: 'find' | 'outline' | null;
 		onCloseTool?: () => void;
@@ -51,6 +52,7 @@
 	}
 
 	let {
+		kind,
 		libraryCount = 0,
 		documentTool = null,
 		onCloseTool = () => {},
@@ -110,7 +112,7 @@
 </script>
 
 <div class="mdsh-content-col relative flex min-h-0 min-w-0 flex-1 flex-col">
-	{#if activeFile && documentTool}
+	{#if activeFile && kind === 'note' && documentTool}
 		{#await import('./DocumentNavigator.svelte') then module}
 			<module.default
 				kind={documentTool}
@@ -127,8 +129,14 @@
 	{/if}
 	<div bind:this={contentRoot} class="relative min-h-0 flex-1">
 		{#if activeFile}
-			{#if modals.presentationOpen}
-				<div class="h-full"></div>
+			{#if kind === 'presentation'}
+				{#key activeFile.id}
+					{#await import('#lib/presentation/entry.js')}
+						<div class="h-full p-4" role="status">{t('slides.loading')}</div>
+					{:then module}
+						<module.default onPresentingChange={(value) => (modals.presenting = value)} />
+					{:catch}<p role="alert" class="p-4 text-danger">{t('slides.renderFailed')}</p>{/await}
+				{/key}
 			{:else if mode === 'source'}
 				{#key activeFile.id}
 					<div class="mdsh-source-mode">
@@ -170,14 +178,6 @@
 						</div>
 					</div>
 				{/key}
-			{:else if isPresentation(activeFile.content)}
-				{#await import('#lib/presentation/entry.js') then module}
-					<module.PresentationDocument
-						fileId={activeFile.id}
-						content={activeFile.content}
-						onEdit={modals.openSlideEditor}
-					/>
-				{:catch}<p role="alert" class="p-4 text-danger">{t('slides.renderFailed')}</p>{/await}
 			{:else if mode === 'read'}
 				{#await import('./ReadView.svelte') then module}
 					<module.default fileId={activeFile.id} content={activeFile.content} {onArticleRef} />
@@ -195,7 +195,7 @@
 
 			<!-- Resize handle (desktop only); role presentation because
 		     mouse dragging is a convenience, keyboard presets go through the palette (⌘⇧P). -->
-			{#if mode !== 'source' || !splitView}
+			{#if kind === 'note' && (mode !== 'source' || !splitView)}
 				<div
 					bind:this={resizeHandleEl}
 					class="resize-handle"
@@ -236,7 +236,7 @@
 </div>
 
 <!-- Keep one lazy TOC instance while headings appear or disappear. -->
-{#if tocVisible && activeFile && !focusMode}
+{#if kind === 'note' && tocVisible && activeFile && !focusMode}
 	<aside class="mdsh-toc-col" class:toc-empty={tocEmpty}>
 		{#await modals.loadToc() then Toc}
 			<Toc
