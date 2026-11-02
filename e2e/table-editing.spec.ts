@@ -141,10 +141,26 @@ test('trailing and empty-cell breaks survive reload and undo', async ({ page }, 
 	await page.keyboard.press('ControlOrMeta+Shift+z');
 	await expect.poll(() => savedContent(page)).toContain('ALPHA<br>');
 	const empty = editor.locator('td').nth(2);
-	await empty.locator('p').click();
+	const emptyParagraph = empty.locator('p');
+	await expect(async () => {
+		await emptyParagraph.click();
+		await page.evaluate(
+			() =>
+				new Promise<void>((resolve) =>
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+				)
+		);
+		const caretInEmptyCell = await empty.evaluate((cell) => {
+			const selection = window.getSelection();
+			return cell.contains(selection?.anchorNode ?? null);
+		});
+		expect(caretInEmptyCell).toBe(true);
+	}).toPass();
 	await page.keyboard.press('Enter');
 	await expect.poll(async () => (await savedContent(page)).match(/<br>/g)?.length).toBe(2);
 	const saved = await savedContent(page);
+	expect(saved).toContain('| ALPHA<br> | BETA |');
+	expect(saved).toMatch(/\| <br> +\| DELTA \|/);
 	await page.reload();
 	await expect(body.locator('br[data-type="hardbreak"]')).toHaveCount(1);
 	await expect(empty.locator('br[data-type="hardbreak"]')).toHaveCount(1);
