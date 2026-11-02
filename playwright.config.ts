@@ -64,6 +64,8 @@ export default defineConfig({
 			name: 'firefox',
 			use: { ...devices['Desktop Firefox'] },
 			testMatch: [
+				'**/editor-state.spec.ts',
+				'**/toast-overlap.spec.ts',
 				'**/golden-path.spec.ts',
 				'**/search-replace.spec.ts',
 				'**/editor-width.spec.ts',
@@ -90,6 +92,8 @@ export default defineConfig({
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
 			testMatch: [
+				'**/editor-state.spec.ts',
+				'**/toast-overlap.spec.ts',
 				'**/golden-path.spec.ts',
 				'**/search-replace.spec.ts',
 				'**/editor-width.spec.ts',

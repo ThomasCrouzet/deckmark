@@ -58,6 +58,7 @@
 			<div
 				class="animate-fade-in pointer-events-auto flex items-start gap-2.5 rounded-md border border-border bg-bg-1 px-3 py-2.5 text-sm text-fg shadow-lg"
 				class:border-danger={toast.level === 'error'}
+				class:mdsh-embedded-notice={embedded}
 				role={toast.level === 'error' ? 'alert' : 'status'}
 			>
 				<span class="mt-0.5 shrink-0 {iconColor[toast.level]}">
@@ -66,7 +67,7 @@
 				<span class="min-w-0 flex-1 break-words">{toast.message}</span>
 				{#if toast.action}
 					<button
-						class="shrink-0 rounded border border-accent-dim px-2 py-0.5 text-xs font-medium text-accent transition hover:bg-bg-2"
+						class="notice-action shrink-0 rounded border border-accent-dim px-2 py-0.5 text-xs font-medium text-accent transition hover:bg-bg-2"
 						onclick={() => {
 							toast.action?.run();
 							if (toast.action?.dismissOnRun !== false) notify.dismiss(toast.id);
@@ -76,7 +77,7 @@
 					</button>
 				{/if}
 				<button
-					class="-mr-1 shrink-0 rounded p-0.5 text-fg-muted transition hover:bg-bg-2 hover:text-fg"
+					class="notice-dismiss -mr-1 shrink-0 rounded p-0.5 text-fg-muted transition hover:bg-bg-2 hover:text-fg"
 					onclick={() => notify.dismiss(toast.id)}
 					aria-label={t('toasts.dismiss')}
 				>

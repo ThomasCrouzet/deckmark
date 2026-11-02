@@ -177,24 +177,34 @@ test('library selection is accessible, scoped to results, and preserves retained
 	await checkbox.focus();
 	await page.keyboard.press('Space');
 	await expect(checkbox).toBeChecked();
-	await expect(library.getByRole('status')).toHaveText('1 document(s) sélectionné(s)');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'1 document(s) sélectionné(s)'
+	);
 	await library.getByRole('textbox').fill('remove-');
-	await expect(library.getByRole('status')).toHaveText('0 document(s) sélectionné(s)');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'0 document(s) sélectionné(s)'
+	);
 	await library
 		.getByRole('checkbox', { name: 'Sélectionner tous les résultats', exact: true })
 		.check();
-	await expect(library.getByRole('status')).toHaveText('2 document(s) sélectionné(s)');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'2 document(s) sélectionné(s)'
+	);
 	await library.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
 	const confirm = page.getByRole('dialog', { name: 'Supprimer 2 document(s) ?', exact: true });
 	await expect(confirm).toContainText('corbeille');
 	await expect(confirm.getByRole('button', { name: 'Annuler', exact: true })).toBeFocused();
 	await page.keyboard.press('Escape');
 	await expect(library).toBeVisible();
-	await expect(library.getByRole('status')).toHaveText('2 document(s) sélectionné(s)');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'2 document(s) sélectionné(s)'
+	);
 	expect(await storedState(page)).toEqual(before);
 	await library.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
 	await confirm.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
-	await expect(library.getByRole('status')).toHaveText('0 document(s) sélectionné(s)');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'0 document(s) sélectionné(s)'
+	);
 	await expect(library.getByRole('textbox')).toBeFocused();
 	await expect
 		.poll(async () => (await storedState(page)).trash.map((row) => row.id))
@@ -241,7 +251,9 @@ test('deleting the active selection keeps the next open document active after re
 		.getByRole('dialog', { name: 'Supprimer 2 document(s) ?', exact: true })
 		.getByRole('button', { name: 'Supprimer la sélection', exact: true })
 		.click();
-	await expect(library.getByRole('status')).toHaveText('0 document(s) sélectionné(s)');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'0 document(s) sélectionné(s)'
+	);
 	await page.keyboard.press('Escape');
 	await expect(page.locator('#app-toolbar input')).toHaveValue('next');
 	await page.reload();
@@ -267,7 +279,9 @@ test('Delete all confirms the whole library even with a filter and handles a lar
 	await library
 		.getByRole('checkbox', { name: 'Sélectionner tous les résultats', exact: true })
 		.check();
-	await expect(library.getByRole('status')).toHaveText('1 document(s) sélectionné(s)');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'1 document(s) sélectionné(s)'
+	);
 	await library.getByRole('button', { name: 'Tout supprimer', exact: true }).click();
 	const confirm = page.getByRole('dialog', {
 		name: 'Supprimer les 200 document(s) de la bibliothèque ?',
@@ -387,7 +401,9 @@ for (const operation of ['put', 'delete'] as const) {
 		await expect(
 			panel.getByRole('button', { name: 'Supprimer la sélection', exact: true })
 		).toBeEnabled();
-		await expect(panel.getByRole('status')).toHaveText('2 document(s) sélectionné(s)');
+		await expect(panel.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+			'2 document(s) sélectionné(s)'
+		);
 		expect(await storedState(page)).toEqual(before);
 		await panel.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
 		await page
@@ -398,7 +414,9 @@ for (const operation of ['put', 'delete'] as const) {
 			.poll(async () => (await storedState(page)).trash.length)
 			.toBe(operation === 'put' ? 2 : 0);
 		if (operation === 'put') {
-			await expect(panel.getByRole('status')).toHaveText('0 document(s) sélectionné(s)');
+			await expect(panel.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+				'0 document(s) sélectionné(s)'
+			);
 		} else await expect(panel).toHaveCount(0);
 		await page.reload();
 		await expect(page.locator('#app-toolbar input')).toHaveValue('keep');
@@ -468,17 +486,22 @@ test('a failed pending save blocks deletion and retry keeps the retained edit', 
 	await library.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
 	const confirm = page.getByRole('dialog', { name: 'Supprimer 2 document(s) ?', exact: true });
 	await confirm.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
-	await expect(
-		page.getByText('Une opération de stockage local a échoué.', { exact: true })
-	).toBeVisible();
-	await expect(library.getByRole('status')).toHaveText('2 document(s) sélectionné(s)');
+	const warning = page.getByRole('alert').filter({ hasText: 'keep.md:' });
+	await expect(warning).toBeVisible();
+	await expect(warning).toContainText('Échec de l’enregistrement local');
+	const retry = warning.getByRole('button', { name: "Réessayer l'enregistrement", exact: true });
+	await expect(retry).toBeVisible();
+	await expect(retry).toBeEnabled();
+	const selectionStatus = library.getByRole('status').filter({ hasText: /document\(s\)/ });
+	await expect(selectionStatus).toHaveText('2 document(s) sélectionné(s)');
 	const failed = await storedState(page);
 	expect(failed.trash).toEqual([]);
 	expect(failed.drafts).toHaveLength(3);
 	expect(failed.drafts.find((row) => row.id === 'keep')?.content).toBe('Before');
 	await library.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
 	await confirm.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
-	await expect(library.getByRole('status')).toHaveText('0 document(s) sélectionné(s)');
+	await expect(selectionStatus).toHaveText('0 document(s) sélectionné(s)');
+	await expect(warning).toHaveCount(0);
 	await page.clock.resume();
 	await page.reload();
 	await expect(page.locator('.cm-content')).toContainText('Retained pending edit');
@@ -497,12 +520,16 @@ test('English bulk controls and confirmations are localized', async ({ page }) =
 		.click();
 	const library = page.getByRole('dialog', { name: 'Document library', exact: true });
 	await library.getByRole('checkbox', { name: 'Select english.md', exact: true }).check();
-	await expect(library.getByRole('status')).toHaveText('1 document(s) selected');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'1 document(s) selected'
+	);
 	await library.getByRole('button', { name: 'Delete selected', exact: true }).click();
 	const confirm = page.getByRole('dialog', { name: 'Delete 1 document(s)?', exact: true });
 	await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
 	await confirm.getByRole('button', { name: 'Delete selected', exact: true }).click();
-	await expect(library.getByRole('status')).toHaveText('0 document(s) selected');
+	await expect(library.getByRole('status').filter({ hasText: /document\(s\)/ })).toHaveText(
+		'0 document(s) selected'
+	);
 	await page.keyboard.press('Escape');
 	const trash = page
 		.locator('aside details')

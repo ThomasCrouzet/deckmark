@@ -9,6 +9,41 @@ func fail(_ message: String) -> Never {
 let started = ProcessInfo.processInfo.systemUptime
 let source = URL(fileURLWithPath: CommandLine.arguments[1])
 let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
+let fixture = try String(contentsOfFile: CommandLine.arguments[3], encoding: .utf8)
+guard let metadataStart = fixture.range(of: "<!-- mdsh-presentation\n"),
+      let metadataEnd = fixture.range(of: "-->", range: metadataStart.upperBound..<fixture.endIndex),
+      let metadata = fixture[metadataStart.upperBound..<metadataEnd.lowerBound].data(using: .utf8),
+      let deck = try JSONSerialization.jsonObject(with: metadata) as? [String: Any],
+      deck["width"] as? Int == 1280, deck["height"] as? Int == 720,
+      let slides = deck["slides"] as? [[String: Any]], slides.count == 3 else {
+    fail("Expected the retained 1280 by 720 presentation fixture")
+}
+
+func rgb(_ value: Any?) -> [Int] {
+    guard let hex = value as? String, hex.count == 7, hex.first == "#",
+          let number = Int(hex.dropFirst(), radix: 16) else {
+        fail("Expected an opaque fixture color")
+    }
+    return [(number >> 16) & 255, (number >> 8) & 255, number & 255]
+}
+
+// Coordinates are in the rendered bitmap, from the top left.
+func colorPatch(_ pixels: [UInt8], _ name: String, _ x: Int, _ y: Int, _ expected: [Int]) -> [String: Any] {
+    var matched = 0
+    var sum = [0, 0, 0]
+    for row in y..<(y + 20) {
+        for column in x..<(x + 20) {
+            let offset = (row * 960 + column) * 4
+            let actual = (0..<3).map { Int(pixels[offset + $0]) }
+            for channel in 0..<3 { sum[channel] += actual[channel] }
+            if zip(actual, expected).allSatisfy({ abs($0.0 - $0.1) <= 8 }) { matched += 1 }
+        }
+    }
+    return ["name": name, "x": x, "y": y, "width": 20, "height": 20,
+            "expectedRGB": expected, "meanRGB": sum.map { Double($0) / 400 },
+            "matchedPixels": matched, "totalPixels": 400, "passed": matched >= 396]
+}
+
 guard let document = PDFDocument(url: source), document.pageCount == 3 else {
     fail("Expected exactly three presentation pages")
 }
@@ -29,6 +64,7 @@ let renderWidth = 960
 let renderHeight = 540
 let stride = renderWidth * 4
 var pages: [[String: Any]] = []
+var colorsPassed = true
 for index in 0..<document.pageCount {
     let pageStarted = ProcessInfo.processInfo.systemUptime
     let page = document.page(at: index)!
@@ -38,6 +74,7 @@ for index in 0..<document.pageCount {
     }
     var pixels = [UInt8](repeating: 255, count: stride * renderHeight)
     var nonWhitePixels = 0
+    var strokePixels = 0
     let png: Data = pixels.withUnsafeMutableBytes { bytes in
         guard let context = CGContext(
             data: bytes.baseAddress,
@@ -45,7 +82,7 @@ for index in 0..<document.pageCount {
             height: renderHeight,
             bitsPerComponent: 8,
             bytesPerRow: stride,
-            space: CGColorSpaceCreateDeviceRGB(),
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
         ) else {
             fail("Cannot allocate the presentation page bitmap")
@@ -61,6 +98,11 @@ for index in 0..<document.pageCount {
             if bytes[offset] < 245 || bytes[offset + 1] < 245 || bytes[offset + 2] < 245 {
                 nonWhitePixels += 1
             }
+            if abs(Int(bytes[offset]) - 31) <= 8 &&
+               abs(Int(bytes[offset + 1]) - 41) <= 8 &&
+               abs(Int(bytes[offset + 2]) - 55) <= 8 {
+                strokePixels += 1
+            }
         }
         guard let image = context.makeImage(),
               let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
@@ -68,16 +110,36 @@ for index in 0..<document.pageCount {
         }
         return data
     }
-    guard nonWhitePixels > 100 else {
-        fail("Each presentation page must contain rendered pixels")
-    }
     try png.write(to: output.appendingPathComponent("native-presentation-page-\(index + 1).png"))
+    let background = rgb(slides[index]["background"])
+    var patches = [
+        colorPatch(pixels, "background-top-left", 16, 16, background),
+        colorPatch(pixels, "background-top-right", 924, 16, background),
+        colorPatch(pixels, "background-bottom-left", 16, 504, background),
+        colorPatch(pixels, "background-bottom-right", 924, 504, background)
+    ]
+    if index < 2 {
+        guard let elements = slides[index]["elements"] as? [[String: Any]],
+              elements.count == 1, let shape = elements.first,
+              shape["type"] as? String == (index == 0 ? "rectangle" : "ellipse"),
+              shape["x"] as? Int == 100, shape["y"] as? Int == 100,
+              shape["width"] as? Int == 480, shape["height"] as? Int == 240,
+              shape["rotation"] as? Int == 0 else {
+            fail("Expected the native fixture shape geometry")
+        }
+        patches.append(colorPatch(pixels, index == 0 ? "rectangle-fill" : "ellipse-fill", 245, 155, rgb(shape["fill"])))
+    }
+    let pagePassed = strokePixels > 100 && patches.allSatisfy { $0["passed"] as? Bool == true }
+    colorsPassed = colorsPassed && pagePassed
     pages.append([
         "page": index + 1,
         "width": bounds.width,
         "height": bounds.height,
         "ratio": bounds.width / bounds.height,
         "nonWhitePixels": nonWhitePixels,
+        "strokePixels": strokePixels,
+        "colorPatches": patches,
+        "passed": pagePassed,
         "inspectionSeconds": ProcessInfo.processInfo.systemUptime - pageStarted
     ])
 }
@@ -87,9 +149,13 @@ let evidence: [String: Any] = [
     "pageCount": document.pageCount,
     "pages": pages,
     "privateNotesExcluded": true,
+    "colorsPassed": colorsPassed,
+    "colorTolerance": 8,
+    "minimumPatchMatch": 0.99,
     "inspectionSeconds": elapsed,
-    "bitmap": ["width": renderWidth, "height": renderHeight, "format": "RGBA8"]
+    "bitmap": ["width": renderWidth, "height": renderHeight, "format": "RGBA8", "colorSpace": "sRGB", "origin": "top-left"]
 ]
 let json = try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys])
 try json.write(to: output.appendingPathComponent("native-presentation-pdf-inspection.json"))
-print("Verified three 16:9 native presentation pages")
+guard colorsPassed else { fail("Presentation backgrounds, shape fills, or strokes do not match the fixture") }
+print("Verified three 16:9 native presentation pages with fixture colors")

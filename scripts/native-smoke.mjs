@@ -77,7 +77,7 @@ let currentProcess;
 const processes = [];
 /** @type {Record<string, unknown>} */
 const results = {
-	...testSource(),
+	...testSource(join(output, 'source-runtime')),
 	platform: process.platform,
 	arch: process.arch,
 	binary,

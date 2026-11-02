@@ -249,10 +249,15 @@ jobs:
           shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
+      - name: Record native source before build
+        run: node scripts/native-source.mjs native-test-results/source-before-build
       - name: Build isolated native test app
         run: npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
         env:
           BASE_PATH: ''
+      - name: Record native source after build
+        if: always()
+        run: node scripts/native-source.mjs native-test-results/source-after-build
       - name: Exercise actual Linux WebView
         if: runner.os == 'Linux'
         run: dbus-run-session -- xvfb-run -a node scripts/native-smoke.mjs

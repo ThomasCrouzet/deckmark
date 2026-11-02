@@ -2,6 +2,9 @@ import { chromium, expect, test, type Locator, type Page } from '@playwright/tes
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+// Let the test runner retain traces for the persistent browser context.
+test.use({ trace: 'on' });
+
 // Reach each control through the browser tab order. Do not scroll or focus it with script.
 async function tabTo(page: Page, target: Locator) {
 	for (let step = 0; step < 180; step++) {
@@ -39,7 +42,6 @@ for (const locale of ['en', 'fr'] as const) {
 			reducedMotion: 'reduce',
 			args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
 		});
-		await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
 		const page = await context.newPage();
 		const observations: object[] = [];
 		async function inspect(control: Locator, state: string) {
@@ -109,6 +111,11 @@ for (const locale of ['en', 'fr'] as const) {
 			await page.addInitScript((value) => localStorage.setItem('mdsh:locale', value), locale);
 			await page.goto('/');
 			await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+			// Wait for installation before checking that its temporary notice has closed.
+			await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+			await expect(page.locator('[role="status"].pointer-events-auto')).toHaveCount(0, {
+				timeout: 15_000
+			});
 			const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
 			await worker.evaluate(async (origin) => {
 				const tabs = (
@@ -203,7 +210,6 @@ for (const locale of ['en', 'fr'] as const) {
 				body: await page.locator('body').ariaSnapshot(),
 				contentType: 'text/plain'
 			});
-			await context.tracing.stop({ path: info.outputPath('native-zoom-trace.zip') });
 			await context.close();
 		}
 	});

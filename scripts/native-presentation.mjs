@@ -133,10 +133,10 @@ export async function nativePresentationPdf({
 		source,
 		'Cancel must keep the presentation source'
 	);
-	const appliedSource = source.replace(
-		'NATIVE_PRESENTATION_PRIVATE_NOTE',
-		'NATIVE_PRESENTATION_PRIVATE_NOTE Applied'
-	);
+	const appliedSource = source
+		.replace('"fill":"#dbeafe"', '"fill":"#fecaca"')
+		.replace('NATIVE_PRESENTATION_PRIVATE_NOTE', 'NATIVE_PRESENTATION_PRIVATE_NOTE Applied');
+	assert.ok(appliedSource.includes('"fill":"#fecaca"'), 'The rectangle must have a distinct fill');
 	await setControl(execute, '[data-testid="slide-source-editor"]', appliedSource);
 	await click('[data-testid="slide-source-apply"]');
 	await until(
@@ -277,15 +277,20 @@ export async function nativePresentationPdf({
 			assert.ok(pdf.length > 1_000);
 			let inspection;
 			if (mac) {
-				execFileSync(inspector, [retainedPdf, actionDirectory], {
-					stdio: 'inherit',
-					timeout: 30_000
-				});
+				execFileSync(
+					inspector,
+					[retainedPdf, actionDirectory, join(directory, 'native-presentation.md')],
+					{
+						stdio: 'inherit',
+						timeout: 30_000
+					}
+				);
 				inspection = JSON.parse(
 					readFileSync(join(actionDirectory, 'native-presentation-pdf-inspection.json'), 'utf8')
 				);
 				assert.equal(inspection.pageCount, 3);
 				assert.equal(inspection.privateNotesExcluded, true);
+				assert.equal(inspection.colorsPassed, true);
 			} else {
 				const structure = pdf.toString('latin1');
 				const pageCount = structure.match(/\/Type\s*\/Page\b/g)?.length ?? 0;

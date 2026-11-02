@@ -104,7 +104,8 @@
 		onArticleRef?.(articleEl);
 	});
 
-	$effect(() => {
+	// Save before a file change removes the article and resets the scroll position.
+	$effect.pre(() => {
 		const id = fileId;
 		const scroller = readScroller;
 		if (!scroller) return;

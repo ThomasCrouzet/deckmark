@@ -41,6 +41,46 @@ async function sourceText(page: Page) {
 		.evaluateAll((lines) => lines.map((line) => line.textContent).join('\n'));
 }
 
+async function visualCaret(page: Page) {
+	return page.locator('.ProseMirror').evaluate((root) => {
+		const paragraph = root.querySelector('p');
+		const selection = window.getSelection();
+		const offset = (node: Node | null, position: number) => {
+			if (!paragraph || !node || !paragraph.contains(node)) return null;
+			const range = document.createRange();
+			range.setStart(paragraph, 0);
+			range.setEnd(node, position);
+			return range.toString().length;
+		};
+		return {
+			focused: document.activeElement === root,
+			collapsed: selection?.isCollapsed ?? false,
+			anchor: offset(selection?.anchorNode ?? null, selection?.anchorOffset ?? 0),
+			head: offset(selection?.focusNode ?? null, selection?.focusOffset ?? 0),
+			text: paragraph?.textContent ?? null
+		};
+	});
+}
+
+async function expectVisualCaret(page: Page, info: TestInfo, stage: string, text: string) {
+	try {
+		await expect
+			.poll(() => visualCaret(page))
+			.toEqual({
+				focused: true,
+				collapsed: true,
+				anchor: text.length,
+				head: text.length,
+				text
+			});
+	} finally {
+		await info.attach(`${stage}-caret.json`, {
+			body: JSON.stringify(await visualCaret(page)),
+			contentType: 'application/json'
+		});
+	}
+}
+
 async function record(page: Page, info: TestInfo, stage: string) {
 	await info.attach(`${stage}.json`, {
 		body: JSON.stringify(
@@ -130,8 +170,26 @@ test('rejects visual HTML marker nodes before acceptance and keeps later edits',
 	await page.locator('[data-mode="wysiwyg"]').click();
 	const visual = page.locator('.ProseMirror');
 	await expect(visual).toBeVisible({ timeout: 30000 });
-	await visual.click();
-	await page.keyboard.press('ControlOrMeta+End');
+	const paragraph = 'Saved paragraph.';
+	await expect(visual.locator('p')).toHaveText(paragraph);
+	// Set the paste location without depending on native End-key navigation.
+	await visual.evaluate((root) => {
+		const range = document.createRange();
+		range.selectNodeContents(root.querySelector('p')!);
+		range.collapse(false);
+		(root as HTMLElement).focus();
+		const selection = window.getSelection()!;
+		selection.removeAllRanges();
+		selection.addRange(range);
+	});
+	// Let the browser deliver selectionchange before the paste event.
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+			)
+	);
+	await expectVisualCaret(page, info, 'before-paste', paragraph);
 	await record(page, info, 'before');
 	// Milkdown copies HTML atoms as spans with the value in a data attribute.
 	const clipboard = await visual.evaluate((element, value) => {
@@ -160,7 +218,9 @@ test('rejects visual HTML marker nodes before acceptance and keeps later edits',
 	await record(page, info, 'rejected');
 	await info.attach('rejected.png', { body: await page.screenshot(), contentType: 'image/png' });
 	await expect.soft(visual).not.toContainText('mdsh-presentation');
+	await expectVisualCaret(page, info, 'after-rejection', paragraph);
 	await page.keyboard.insertText(' Retained visual edit.');
+	await expectVisualCaret(page, info, 'after-insertion', paragraph + ' Retained visual edit.');
 	await expect(visual).toContainText('Retained visual edit.');
 	await page.keyboard.press('ControlOrMeta+z');
 	await expect(visual).not.toContainText('Retained visual edit.');

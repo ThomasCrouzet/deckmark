@@ -167,13 +167,41 @@ test('preserves a malformed-source correction when another tab repairs the file'
 	page,
 	context
 }) => {
-	await importMarkdown(page, '<!-- mdsh-presentation\n{broken}\n-->', 'Repair.md');
+	const malformed = '<!-- mdsh-presentation\n{broken}\n-->';
+	await importMarkdown(page, malformed, 'Repair.md');
+	// The second tab must load the committed fixture, not race the 400 ms save.
+	await expect(page.locator('.save-state')).toHaveText('saved');
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() =>
+					new Promise<string[]>((resolve, reject) => {
+						const request = indexedDB.open('mdsh');
+						request.onerror = () => reject(request.error);
+						request.onsuccess = () => {
+							const database = request.result;
+							const transaction = database.transaction('drafts', 'readonly');
+							const rows = transaction.objectStore('drafts').getAll();
+							transaction.oncomplete = () => {
+								database.close();
+								resolve(rows.result.map((row: { content: string }) => row.content));
+							};
+							transaction.onabort = () => {
+								database.close();
+								reject(transaction.error);
+							};
+						};
+					})
+			)
+		)
+		.toEqual([malformed]);
 	const source = page.getByTestId('slide-source-editor');
 	const correction = presentationFixture(['# Local correction']);
 	await source.fill(correction);
 	const other = await context.newPage();
 	await other.goto('/');
 	await expect(other.getByTestId('slide-source-editor')).toBeVisible();
+	await expect(other.getByTestId('slide-source-editor')).toHaveValue(malformed);
 	await other.getByTestId('slide-source-editor').fill(presentationFixture(['# Remote repair']));
 	await other.getByTestId('slide-source-apply').click();
 	await expect(other.locator('.save-state')).toHaveText('saved');

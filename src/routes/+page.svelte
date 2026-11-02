@@ -761,7 +761,7 @@
 
 <Toast />
 <SpinnerToast />
-{#if !modals.presenting}<Toasts />{/if}
+{#if !modals.presenting && !modals.libraryOpen}<Toasts />{/if}
 
 <!-- §B1.3 - Singleton prompt/confirm modal, driven by `promptStore`.
      Replaces the native `window.prompt` / `window.confirm` (CommandPalette +
@@ -769,6 +769,7 @@
      handles its own internal `{#if open}`. -->
 {#if promptStore.config}
 	<PromptModal
+		showNotices={modals.libraryOpen}
 		open={promptStore.open}
 		mode={promptStore.config.mode}
 		title={promptStore.config.title}

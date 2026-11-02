@@ -87,13 +87,15 @@ browser cases check their observable results:
 | Spec | Failure risk and retained result |
 | --- | --- |
 | `durability-review.spec.ts` | Single delete and a delayed cross-tab read can lose the final visual edit. Check restored content, rollback, conflict copies, and history. Record the event intervals. |
-| `note-type-guard.spec.ts` | A rejected note edit can remain visible with a saved status. Check source and visual input, undo, export, and reopened bytes. |
+| `note-type-guard.spec.ts` | A rejected note edit can remain visible with a saved status. Check source and visual input, the caret before and after rejection, undo, export, and reopened bytes. |
 | `read-preview-isolation.spec.ts` | A delayed render can show interactive content from another file. Check the visible preview and link targets during the delay. |
+| `editor-state.spec.ts` | Removing the read article can reset its scroll position before storage. Switch files and restore the previous read and visual positions. |
 | `presentation-review.spec.ts` | Delayed image insertion can replace newer edits. Check edits made during decoding, file drops, and text shortcuts. |
 | `backup-review.spec.ts` | Replace restore can remove trash resources. Repeated merge can duplicate projects or break ID fragments. Check recovery, binary assets, rollback, and downloaded bytes. |
 | `project-link-performance.spec.ts` | Unmatched brackets can block Check links and project export. Record heartbeat gaps and verify nested links and exported Markdown. |
 | `modal-isolation-review.spec.ts` | File drops can change the document behind a dialog. Error notices can become inaccessible. Check unchanged content after reload and one accessible alert. |
 | `save-recovery-review.spec.ts` | A recovered draft can keep a failure warning, or one recovery can clear another draft's warning. Check per-file retry, partial recovery, and durable content after reload. |
+| `toast-overlap.spec.ts` | Save warnings can cover actions, leave recovery controls outside the focus trap, or collapse the document list. Check row selection, direct deletion, Retry, and dismiss in Library and its confirmation dialog at 320 and 1280 px, in English and French. |
 | `mixed-document-review.spec.ts` | Search, replacement, backup merge, and project export can use the wrong document type. Compare complete deck bytes, literal ID links, relative links, and presenter notes. |
 | `ux-review.spec.ts` | Creation cards and titles can clip at native browser zoom. Check English and French, card-child bounds, Cancel visibility, filename editing, and 44 px controls. |
 | `slide-guidance-review.spec.ts` | Disabled source and selection actions can have no visible reason. Check contextual guidance and accessible descriptions at narrow and desktop widths. |
@@ -110,11 +112,23 @@ Keep the HTML and JSON reports, fixtures, downloads, screenshots, and failure
 traces with the command and source identity. Development-server results establish
 the correction only. Run the complete production suite before release.
 
+The visual note guard sets a collapsed DOM range at the paragraph end and waits
+for browser selection events before paste. This fixture does not test native End-key
+navigation. Keep `before-paste-caret.json`, `after-rejection-caret.json`, and
+`after-insertion-caret.json` with the exact source and export comparisons. The
+post-rejection check must not move the caret.
+
 The native zoom fixture uses a local Chromium extension to set browser zoom to
 200 percent. It records the viewport width and device pixel ratio and confirms
 that CSS zoom remains unchanged. This differs from the CSS zoom scenario in
 `presentation-files.spec.ts`. Neither fixture establishes physical phone keyboard
 behavior.
+
+The slide zoom fixture lets Playwright own the trace for its persistent context.
+Starting a second trace fails before the workflow. Wait for service worker
+installation and the normal offline-ready notice to finish before geometry checks.
+A zero-notice count before installation does not establish this barrier. Keep the
+successful traces as well as the screenshots, focus checks, and exported bytes.
 
 Save-warning checks include a failed Retry from the warning itself, a later
 failure after manual dismissal, and recovery of only one failed draft. Trash
@@ -124,6 +138,9 @@ not replace a tab that the user selected while the operation was pending.
 For imported presentation reload checks, wait for the saved indicator and the
 exact committed fixture before reload. Record the same draft ID and content after
 reload. An import report confirms parsing, not completion of the 400 ms save.
+Use the same barrier before a second tab loads an imported malformed presentation.
+Check its exact initial source before the remote repair. Keep the local correction
+and revision-conflict checks after that repair.
 
 `e2e/offline-review.spec.ts` checks first-use presentation creation, reload, and
 source editing after network loss. It also compares Mermaid diagram geometry
@@ -158,6 +175,33 @@ the shortcut export starts. macOS checks the native print operation and its PDF
 pixels. Linux and Windows use driver capture of the prepared print document; this
 does not prove an operating system print dialog. The CI artifacts are named
 `native-smoke-<platform>`.
+
+The native presentation color gate must reject white slide backgrounds and white
+shape interiors even when borders remain visible. It must also reject missing
+borders and missing arrows when slide backgrounds are present. The PDF inspector
+uses sRGB pixels, four background patches per page, and a patch inside each filled
+shape. Each patch must match the retained Markdown fixture within eight channel
+units for at least 99 percent of its pixels. The rectangle fill must differ from
+its slide background so a transparent rectangle cannot pass. Keep all page PNGs
+and the inspection JSON even when a color check fails.
+
+Repeat the macOS inspection without rebuilding the app:
+
+```sh
+swiftc -O scripts/inspect-native-presentation-pdf.swift -o /tmp/presentation-pdf-inspector
+/tmp/presentation-pdf-inspector native-test-results/presentation-pdf/menu/native-presentation.pdf native-test-results/presentation-pdf/menu native-test-results/presentation-pdf/native-presentation.md
+/tmp/presentation-pdf-inspector native-test-results/presentation-pdf/shortcut/native-presentation.pdf native-test-results/presentation-pdf/shortcut native-test-results/presentation-pdf/native-presentation.md
+```
+
+Linux PDF rendering can demonstrate the retained macOS color defect. Only a new
+macOS native run can verify the corrected WKWebView and AppKit print operation.
+
+Native build tools can change tracked configuration files. A working diff hash
+alone cannot identify those changes. Keep `source-before-build/`,
+`source-after-build/`, and `source-runtime/` under `native-test-results/`. Each
+snapshot contains the binary Git diff, full porcelain status, source tree ID,
+metadata, and any untracked source bytes. Compare these snapshots with the runtime
+binary hash before assigning results to a revision.
 
 ### Media consent and export
 

@@ -1,6 +1,7 @@
 # Presentation files plan
 
-Status: implemented. Release checks are in progress.
+Status: implemented. [PR #192](https://github.com/ThomasCrouzet/deckmark/pull/192)
+records the release checks and retained evidence.
 
 The implementation uses content-derived types and presentation format v1.
 See `docs/testing/presentation-files.md` for the review and test commands.

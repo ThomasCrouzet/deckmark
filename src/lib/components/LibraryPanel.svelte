@@ -7,6 +7,7 @@
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { X, Search, Trash2, FileText, Presentation } from '@lucide/svelte';
+	import Toasts from './Toasts.svelte';
 	let { onClose }: { onClose: () => void } = $props();
 	let input: HTMLInputElement | undefined = $state();
 	let query = $state('');
@@ -98,7 +99,7 @@
 	}}
 >
 	<section
-		class="mdsh-dialog-panel flex max-h-[80dvh] w-full max-w-2xl flex-col border border-border bg-bg-1 shadow-xl"
+		class="mdsh-dialog-panel max-h-[80dvh] w-full max-w-2xl overflow-y-auto border border-border bg-bg-1 shadow-xl"
 		aria-busy={filesStore.trashBusy}
 	>
 		<header class="flex items-center gap-3 border-b border-border px-4 py-3">
@@ -112,6 +113,7 @@
 				aria-label={t('settings.close')}><X size={16} /></button
 			>
 		</header>
+		{#if !promptStore.open}<Toasts embedded />{/if}
 		<label class="flex items-center gap-2 px-4 py-3"
 			><Search size={16} /><input
 				bind:this={input}
@@ -187,7 +189,7 @@
 					>{/each}
 			</details>
 		{/if}
-		<ul class="min-h-0 flex-1 overflow-y-auto border-t border-border">
+		<ul class="border-t border-border">
 			{#each matches as file (file.id)}
 				{@const kind = documentKind(file.content)}
 				{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
