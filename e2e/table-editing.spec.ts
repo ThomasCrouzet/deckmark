@@ -146,8 +146,8 @@ test('trailing and empty-cell breaks survive reload and undo', async ({ page }, 
 	await expect.poll(async () => (await savedContent(page)).match(/<br>/g)?.length).toBe(2);
 	const saved = await savedContent(page);
 	await page.reload();
-	await expect(body.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(1);
-	await expect(empty.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(1);
+	await expect(body.locator('br[data-type="hardbreak"]')).toHaveCount(1);
+	await expect(empty.locator('br[data-type="hardbreak"]')).toHaveCount(1);
 	await empty.locator('p').click();
 	await page.keyboard.press('ControlOrMeta+Enter');
 	await page.keyboard.insertText('Outside.');
@@ -172,11 +172,9 @@ test('imported safe break tags are editable without rendering other HTML', async
 	const editor = page.locator('.ProseMirror');
 	const cell = editor.locator('td').first();
 	await expect(cell).toHaveText('ABC');
-	await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(3);
+	await expect(cell.locator('br[data-type="hardbreak"]')).toHaveCount(3);
 	await expect(editor.locator('th').first()).toHaveText('HHEAD');
-	await expect(
-		editor.locator('td').nth(1).locator('br:not(.ProseMirror-trailingBreak)')
-	).toHaveCount(1);
+	await expect(editor.locator('td').nth(1).locator('br[data-type="hardbreak"]')).toHaveCount(1);
 	await expect(editor.locator('td').nth(2)).toHaveText('<span>inert</span>');
 	await expect(editor.locator('td').nth(3).locator('code')).toHaveText('a<br>b');
 	await editor.locator('th').nth(1).getByText('OTHER', { exact: true }).click();
@@ -185,11 +183,9 @@ test('imported safe break tags are editable without rendering other HTML', async
 	await expect.poll(() => savedContent(page)).toBe(input.replace('OTHER', 'OTHEREDIT'));
 	await page.reload();
 	await expect(cell).toHaveText('ABC');
-	await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(3);
+	await expect(cell.locator('br[data-type="hardbreak"]')).toHaveCount(3);
 	await expect.poll(() => savedContent(page)).toBe(input.replace('OTHER', 'OTHEREDIT'));
-	await expect(
-		editor.locator('td').nth(1).locator('br:not(.ProseMirror-trailingBreak)')
-	).toHaveCount(1);
+	await expect(editor.locator('td').nth(1).locator('br[data-type="hardbreak"]')).toHaveCount(1);
 	await info.attach('table-import.json', {
 		body: JSON.stringify({ input, saved: await savedContent(page) }, null, 2),
 		contentType: 'application/json'
@@ -232,11 +228,11 @@ test('HTML paste keeps line breaks and adjacent cells', async ({ page, context }
 	});
 	await page.keyboard.press('ControlOrMeta+v');
 	await expect(cell).toHaveText('ALPHAONETWO');
-	await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(3);
+	await expect(cell.locator('br[data-type="hardbreak"]')).toHaveCount(3);
 	await expect.poll(async () => (await savedContent(page)).match(/<br>/g)?.length).toBe(3);
 	await page.reload();
 	await expect(cell).toHaveText('ALPHAONETWO');
-	await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(3);
+	await expect(cell.locator('br[data-type="hardbreak"]')).toHaveCount(3);
 	await expect(page.locator('.ProseMirror td').nth(1)).toHaveText('BETA');
 	await info.attach('table-paste.json', {
 		body: JSON.stringify({ fixture, saved: await savedContent(page) }, null, 2),
@@ -289,11 +285,11 @@ test('a break inside formatted text keeps both text segments', async ({ page }, 
 	for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
 	await page.keyboard.press('Enter');
 	await expect(cell).toHaveText('LEFT RIGHT');
-	await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(1);
+	await expect(cell.locator('br[data-type="hardbreak"]')).toHaveCount(1);
 	await expect.poll(() => savedContent(page)).toContain('<br>');
 	await page.reload();
 	await expect(cell).toHaveText('LEFT RIGHT');
-	await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(1);
+	await expect(cell.locator('br[data-type="hardbreak"]')).toHaveCount(1);
 	await expect(cell.locator('strong')).toHaveText(['LEFT ', 'RIGHT']);
 	await info.attach('table-formatted.json', {
 		body: JSON.stringify({ input, saved: await savedContent(page) }, null, 2),
@@ -336,9 +332,9 @@ test('WebKit ignores the Enter event that confirms an IME composition', async ({
 		body: JSON.stringify(events),
 		contentType: 'application/json'
 	});
-	await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(0);
+	await expect(cell.locator('br[data-type="hardbreak"]')).toHaveCount(0);
 	await page.keyboard.press('Enter');
-	await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(1);
+	await expect(cell.locator('br[data-type="hardbreak"]')).toHaveCount(1);
 	await expect.poll(() => savedContent(page)).toContain('ALPHAIME<br>');
 });
 
