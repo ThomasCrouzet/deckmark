@@ -29,7 +29,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
 sha2 = "0.11"
 uuid = { version = "1", features = ["v4"] }
-tauri-plugin-wdio-webdriver = { version = "=1.5.0", optional = true }
+tauri-plugin-wdio-webdriver = { version = "=1.5.1", optional = true }
 cap-std = "4.0.3"
 cap-fs-ext = "4.0.3"
 
