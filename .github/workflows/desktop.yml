@@ -135,10 +135,12 @@ jobs:
               'api',
               `repos/${process.env.GH_REPO}/actions/runs/${validationRunId}/jobs?per_page=100`
             ], { encoding: 'utf8' })).jobs;
+            // Keep this count equal to the platform matrix of the two jobs below.
+            const platformCount = 3;
             for (const prefix of ['validate-desktop (', 'native-smoke (']) {
               const matching = jobs.filter((job) => job.name.startsWith(prefix));
-              if (matching.length !== 4 || matching.some((job) => job.conclusion !== 'success')) {
-                throw new Error(`Reused validation does not contain four successful ${prefix} jobs`);
+              if (matching.length !== platformCount || matching.some((job) => job.conclusion !== 'success')) {
+                throw new Error(`Reused validation does not contain ${platformCount} successful ${prefix} jobs`);
               }
             }
             if (!jobs.some((job) => job.name === 'desktop-validation' && job.conclusion === 'success')) {
