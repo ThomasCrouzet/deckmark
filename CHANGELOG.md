@@ -5,6 +5,13 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.3.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.2.2...v2.3.0) (2026-11-02)
+
+
+### Features
+
+* add separate presentation files and improve local workflows ([#192](https://github.com/ThomasCrouzet/deckmark/issues/192)) ([f0e89ad](https://github.com/ThomasCrouzet/deckmark/commit/f0e89adb9a7e2c706d5aa6f5b83de894a3c48b6c))
+
 ## [2.2.2](https://github.com/ThomasCrouzet/deckmark/compare/v2.2.1...v2.2.2) (2026-11-02)
 
 
