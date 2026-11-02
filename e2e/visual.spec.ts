@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAppState, createFirstFile, openPalette } from './helpers';
+import { resetAppState, createFirstFile, openPalette, writeSourceContent } from './helpers';
 
 const FIXTURE = `# Titre H1
 
@@ -48,15 +48,16 @@ test.describe('Snapshots visuels - 3 modes', () => {
 		await resetAppState(page, { mode: 'source' });
 		await createFirstFile(page);
 
-		// Insert the fixture content into CodeMirror in source mode.
-		// Async mode restoration can finish after startup. Select source mode explicitly.
-		await page.locator('button[data-mode="source"]').click();
+		// Insert exact fixture bytes without automatic indentation from typed newlines.
+		await writeSourceContent(page, FIXTURE);
 		const cm = page.locator('.cm-content').first();
-		await expect(cm).toBeVisible({ timeout: 10_000 });
-		await cm.click();
-		// `keyboard.type` simulates user input and calls the CodeMirror update listeners.
-		await page.keyboard.type(FIXTURE);
-		await page.waitForTimeout(500); // debounce save
+		await page.keyboard.press('ControlOrMeta+Home');
+		await expect(cm.locator('.cm-line').first()).toHaveText('# Titre H1');
+		await page.evaluate(() => navigator.serviceWorker.ready);
+		// Let the initial offline-ready notice finish before image comparison.
+		await expect(
+			page.getByRole('status').filter({ hasText: 'prêt à fonctionner hors-ligne' })
+		).toHaveCount(0, { timeout: 15_000 });
 	});
 
 	test('mode source', async ({ page }) => {

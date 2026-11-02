@@ -75,5 +75,11 @@ To repeat the full browser gate:
 E2E_PORT=4291 xvfb-run -a env CI=1 npm run test:e2e -- --ignore-snapshots --grep-invert "Snapshots visuels" --workers=2
 ```
 
-The zoom test records CSS zoom separately from browser zoom. It is not a claim
-that native browser zoom or a physical phone keyboard was tested.
+`presentation-files.spec.ts` records CSS zoom. `slide-zoom-review.spec.ts` and
+`ux-review.spec.ts` use native Chromium zoom at 200 percent. The responsive task
+suite records viewport-height simulation and trusted browser touch input. These
+checks do not establish physical phone keyboard behavior.
+
+The whole-application review risks and repeat commands are in `docs/TESTING.md`.
+Keep screen reader speech logs, capture metadata, and the independent closure
+report outside the browser output directory before another run resets it.
