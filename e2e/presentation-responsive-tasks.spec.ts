@@ -136,29 +136,44 @@ async function fill(
 
 async function compareMotion(page: Page, evidence: Evidence) {
 	const selector = '#app-toolbar input, [data-testid="slide-present"]';
-	const read = () =>
-		page.locator(selector).evaluateAll((elements) =>
-			elements.map((element) => {
-				const style = getComputedStyle(element);
-				return {
-					name: element.getAttribute('data-testid') ?? element.getAttribute('aria-label'),
-					transition: style.transitionDuration,
-					animation: style.animationDuration,
-					property: style.transitionProperty
-				};
-			})
+	const fileName =
+		evidence.locale === 'en'
+			? 'File name (Enter to confirm, Esc to cancel)'
+			: 'Nom du fichier (Entrée pour valider, Échap pour annuler)';
+	const read = async () => {
+		await expect(
+			page.locator('#app-toolbar').getByRole('textbox', { name: fileName, exact: true })
+		).toBeVisible();
+		await expect(page.getByTestId('slide-present')).toBeVisible();
+		// Select and measure in one browser task so a detached node cannot enter the sample.
+		return page.evaluate(
+			(selector) =>
+				[...document.querySelectorAll(selector)].map((element) => {
+					const style = getComputedStyle(element);
+					return {
+						name: element.getAttribute('data-testid') ?? element.getAttribute('aria-label'),
+						transition: style.transitionDuration,
+						animation: style.animationDuration,
+						property: style.transitionProperty
+					};
+				}),
+			selector
 		);
+	};
 	await page.emulateMedia({ reducedMotion: 'no-preference' });
 	const normal = await read();
 	await page.emulateMedia({ reducedMotion: 'reduce' });
 	const reduced = await read();
 	evidence.motion.push({ normal, reduced });
-	expect(reduced).toHaveLength(normal.length);
-	for (const control of reduced) {
-		for (const duration of `${control.transition},${control.animation}`.split(',')) {
-			// Short durations can preserve completion events without visible motion.
-			const seconds = Number.parseFloat(duration) / (duration.trim().endsWith('ms') ? 1000 : 1);
-			expect(seconds, control.name ?? 'Motion duration').toBeLessThanOrEqual(0.001);
+	for (const sample of [normal, reduced]) {
+		expect(sample.map((control) => control.name)).toEqual([fileName, 'slide-present']);
+		for (const control of sample) {
+			for (const duration of `${control.transition},${control.animation}`.split(',')) {
+				const seconds = Number.parseFloat(duration) / (duration.trim().endsWith('ms') ? 1000 : 1);
+				expect(Number.isFinite(seconds), `${control.name}: ${duration}`).toBe(true);
+				// Short durations can preserve completion events without visible motion.
+				if (sample === reduced) expect(seconds, control.name!).toBeLessThanOrEqual(0.001);
+			}
 		}
 	}
 }
@@ -198,6 +213,8 @@ async function runCell(page: Page, info: TestInfo, evidence: Evidence, touch: bo
 	);
 	await screenshot(page, info, `${id}-creation`);
 	await click(page.getByTestId('create-presentation'), 'Create presentation');
+	// The previous editor can stay visible while asynchronous creation is pending.
+	await expect(page.getByRole('dialog')).toHaveCount(0);
 	await expect(editor).toBeVisible({ timeout: 15000 });
 	await expect(page.getByTestId('document-kind')).toHaveText(
 		evidence.locale === 'en' ? 'Presentation' : 'Présentation'

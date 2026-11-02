@@ -48,9 +48,10 @@ cargo test --manifest-path src-tauri/Cargo.toml --release --locked --test glib_v
 cargo audit --file src-tauri/Cargo.lock --deny unsound
 ```
 
-The inventory check runs on all four Desktop platforms. Git attributes preserve
-upstream and patch bytes on Windows. The Cargo SBOM describes the backport,
-patch SHA256, and upstream references. It keeps the actual 0.18.5 version.
+The inventory check runs on each Desktop platform. Git attributes preserve
+upstream and patch bytes on Windows. The Cargo SBOM annotation tool records the
+backport, patch SHA256, and upstream references in a supplied SBOM. It keeps the
+actual 0.18.5 version.
 
 The version remains 0.18.5. `cargo-audit 0.22.2` uses RustSec 0.33.0.
 `Database::query_vulnerabilities` excludes packages without a registry source,

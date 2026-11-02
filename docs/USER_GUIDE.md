@@ -275,7 +275,7 @@ remain available.
 
 ## Desktop Beta app
 
-Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The release also contains npm and Cargo SBOMs and a provenance attestation.
+Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The workflow also creates a GitHub build provenance attestation.
 
 Choose `deckmark_<version>_macOS_Apple-Silicon.dmg` for a Mac with an Apple M-series chip.
 

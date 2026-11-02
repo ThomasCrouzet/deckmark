@@ -163,10 +163,26 @@
 
 	let hadDialog = false;
 	let dialogTrigger: HTMLElement | null = null;
+	let dialogSearchControl: { editor: Element; selector: string } | null = null;
 	$effect.pre(() => {
 		if (!browser) return;
 		const open = modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending;
-		if (open && !hadDialog) dialogTrigger = document.activeElement as HTMLElement | null;
+		if (open && !hadDialog) {
+			dialogTrigger = document.activeElement as HTMLElement | null;
+			const editor = dialogTrigger?.closest('.cm-search')?.closest('.cm-editor');
+			const name = dialogTrigger?.getAttribute('name');
+			const tagName = dialogTrigger?.localName;
+			const type = dialogTrigger?.getAttribute('type') ?? null;
+			dialogSearchControl =
+				editor && name && tagName
+					? {
+							editor,
+							selector: `.cm-search ${CSS.escape(tagName)}[name="${CSS.escape(name)}"]${
+								type === null ? ':not([type])' : `[type="${CSS.escape(type)}"]`
+							}`
+						}
+					: null;
+		}
 		if (!open && hadDialog) {
 			void tick().then(() => {
 				const focused = document.activeElement;
@@ -177,7 +193,10 @@
 					!focused.closest('[inert]')
 				)
 					return;
-				const trigger = dialogTrigger;
+				// Locale changes replace CodeMirror search controls. Restore the same control.
+				const trigger = dialogTrigger?.isConnected
+					? dialogTrigger
+					: dialogSearchControl?.editor.querySelector<HTMLElement>(dialogSearchControl.selector);
 				if (trigger?.isConnected && !trigger.closest('[inert]') && trigger.getClientRects().length)
 					trigger.focus({ preventScroll: true });
 				else document.querySelector<HTMLElement>('[data-actions-trigger]')?.focus();

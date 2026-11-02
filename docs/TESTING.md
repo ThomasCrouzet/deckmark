@@ -89,7 +89,7 @@ browser cases check their observable results:
 | `durability-review.spec.ts` | Single delete and a delayed cross-tab read can lose the final visual edit. Check restored content, rollback, conflict copies, and history. Record the event intervals. |
 | `note-type-guard.spec.ts` | A rejected note edit can remain visible with a saved status. Check source and visual input, the caret before and after rejection, undo, export, and reopened bytes. |
 | `read-preview-isolation.spec.ts` | A delayed render can show interactive content from another file. Check the visible preview and link targets during the delay. |
-| `editor-state.spec.ts` | Removing the read article can reset its scroll position before storage. Switch files and restore the previous read and visual positions. |
+| `editor-state.spec.ts` | Removing the read article can reset its scroll position before storage. A language change can replace a focused search control and send Undo to another control. Check restored positions, search focus, and exact saved content. |
 | `presentation-review.spec.ts` | Delayed image insertion can replace newer edits. Check edits made during decoding, file drops, and text shortcuts. |
 | `backup-review.spec.ts` | Replace restore can remove trash resources. Repeated merge can duplicate projects or break ID fragments. Check recovery, binary assets, rollback, and downloaded bytes. |
 | `project-link-performance.spec.ts` | Unmatched brackets can block Check links and project export. Record heartbeat gaps and verify nested links and exported Markdown. |
@@ -117,6 +117,27 @@ for browser selection events before paste. This fixture does not test native End
 navigation. Keep `before-paste-caret.json`, `after-rejection-caret.json`, and
 `after-insertion-caret.json` with the exact source and export comparisons. The
 post-rejection check must not move the caret.
+
+For source search, open Settings from the search control with the keyboard.
+Change the language and close Settings. Check focus before Escape and Undo.
+The replacement input and Replace button share a name. Check that each control
+keeps its own focus target. Retain the search values, selection, scroll position,
+and exact saved bytes before and after reload.
+
+For responsive presentation checks, wait for the creation dialog to close before
+using the editor. The previous presentation can remain visible during creation.
+Select motion targets and read their styles in one browser task. Require the
+filename input and Present button in both samples. Reject non-finite durations
+and keep the 0.001-second reduced-motion limit. Retain every viewport cell and
+its exact Markdown export comparison.
+
+Repeat the editor, modal, and responsive workflows with one worker:
+
+```sh
+CI=1 xvfb-run -a npm run test:e2e -- editor-state.spec.ts modal-isolation-review.spec.ts presentation-responsive-tasks.spec.ts --workers=1
+```
+
+Keep the JSON and HTML reports, focus traces, motion samples, and exported files.
 
 The native zoom fixture uses a local Chromium extension to set browser zoom to
 200 percent. It records the viewport width and device pixel ratio and confirms

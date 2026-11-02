@@ -156,7 +156,11 @@ Do not raise a budget to hide an unintended eager import.
 2. Push reviewed Conventional Commits and wait for the applicable CI checks.
 3. Review and merge the release-please version and changelog pull request.
 4. Verify the stable `v*` source release and its exact Pages deployment.
-5. Verify the separate `desktop-v*` prerelease, installers, checksums, SBOMs, and provenance.
+5. Verify the separate `desktop-v*` prerelease, installers, checksums, and provenance.
+
+Desktop publishing does not generate or upload SBOMs. `npm run sbom:npm` generates
+an npm SBOM from the lockfile. `scripts/annotate-cargo-sbom.mjs` adds GLib backport
+records to an existing Cargo SBOM; it does not generate the inventory.
 
 Desktop publishing reuses successful validation only when the source SHA matches exactly.
 A manual Desktop run requires `release_tag` and must run from that source tag.

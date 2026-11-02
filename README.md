@@ -153,7 +153,7 @@ The web app needs no installation. Disk access depends on the browser:
 [Desktop Beta downloads](https://github.com/ThomasCrouzet/deckmark/releases) are
 separate prereleases. Installers are unsigned and can trigger an operating-system
 warning. Older releases can use the previous mdsh name. The Desktop release
-workflow includes checksums, dependency inventories, and build provenance.
+workflow includes checksums and build provenance.
 See the [Desktop guide](docs/USER_GUIDE.md#desktop-beta-app) for requirements.
 
 The interface supports keyboard navigation and reduced motion. Browser tests

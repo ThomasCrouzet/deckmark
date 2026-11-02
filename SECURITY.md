@@ -56,9 +56,9 @@ CI audits the complete npm tree and Cargo lockfile. It reviews dependency
 changes, runs CodeQL, scans Git history for secrets, and verifies third-party
 notices. Tests and bundle budgets are blocking. Release builds have no write
 credentials. A separate final job publishes Desktop Beta artifacts. It includes
-SHA-256 checksums, npm and Cargo SBOMs, and GitHub build provenance.
+SHA-256 checksums and GitHub build provenance.
 
-The Linux Tauri GTK3 toolchain still requires `glib 0.18.5`. The project applies the official fix for `GHSA-wrw7-89jp-8q8g` and `RUSTSEC-2024-0429` in a local copy. It does not change the version or licenses. The repository contains the [provenance and patch](patches/glib/README.md). CI and Desktop publishing verify the official archive with SHA256. They apply the canonical patch, then compare each byte with the local copy. Six optimized Linux tests cover the affected iterators. The unpatched version causes SIGSEGV failures on nonempty paths. The Cargo SBOM keeps the actual version and describes the backport and its origin.
+The Linux Tauri GTK3 toolchain still requires `glib 0.18.5`. The project applies the official fix for `GHSA-wrw7-89jp-8q8g` and `RUSTSEC-2024-0429` in a local copy. It does not change the version or licenses. The repository contains the [provenance and patch](patches/glib/README.md). CI and Desktop publishing verify the official archive with SHA256. They apply the canonical patch, then compare each byte with the local copy. Six optimized Linux tests cover the affected iterators. The unpatched version causes SIGSEGV failures on nonempty paths. The `scripts/annotate-cargo-sbom.mjs` tool can add the backport and its origin to a Cargo SBOM without changing the recorded version.
 
 `cargo audit --deny unsound` also blocks undefined-behavior advisories. Cargo Audit does not check local dependencies as registry packages. Thus, no alert does not prove that the backport is correct. Provenance verification and optimized tests are separate blocking controls. Maintenance advisories remain visible. The project will remove the backport when the GTK toolchain accepts an officially fixed version.
 
