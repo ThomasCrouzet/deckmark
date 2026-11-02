@@ -2,7 +2,7 @@
 
 This file records notices for third-party code and assets redistributed directly with DeckMark. The generated dependency SBOM provides the complete package inventory.
 
-## KaTeX 0.19.0 and bundled fonts
+## KaTeX 0.19.1 and bundled fonts
 
 Source: https://github.com/KaTeX/KaTeX
 
@@ -32,7 +32,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Lucide for Svelte 1.61.0
+## Lucide for Svelte 1.64.0
 
 Source: https://github.com/lucide-icons/lucide
 
