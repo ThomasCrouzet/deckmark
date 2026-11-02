@@ -73,7 +73,10 @@
 		run: () => void;
 	}
 
+	import { documentKind, type DocumentKind } from '#lib/document-kind.js';
 	interface Props {
+		kind: DocumentKind;
+		onCreate: (kind: DocumentKind) => Promise<void>;
 		onOpenOutline?: () => void;
 		initialView?: 'commands' | 'actions';
 		onOpenLibrary?: () => void;
@@ -103,11 +106,13 @@
 		onOpenSettings: () => void;
 		onOpenHistory: () => void;
 		onOpenGraph: () => void;
-		onOpenPresentation: () => void;
-		onOpenSlides: () => void;
+		onPresent: () => void;
+		onAdvancedSource: () => void;
 	}
 
 	let {
+		kind,
+		onCreate,
 		onOpenOutline,
 		initialView = 'commands',
 		onOpenLibrary,
@@ -137,8 +142,8 @@
 		onOpenSettings,
 		onOpenHistory,
 		onOpenGraph,
-		onOpenPresentation,
-		onOpenSlides
+		onPresent,
+		onAdvancedSource
 	}: Props = $props();
 
 	let query = $state('');
@@ -231,7 +236,8 @@
 			id: `reopen-${file.id}`,
 			label: t('palette.reopenFile', { name: file.name }),
 			keywords: filesStore.documentTitle(file.id),
-			icon: FileText,
+			hint: t(documentKind(file.content) === 'note' ? 'documents.note' : 'documents.presentation'),
+			icon: documentKind(file.content) === 'note' ? FileText : Presentation,
 			run: () => {
 				filesStore.reopen(file.id);
 			}
@@ -266,10 +272,22 @@
 
 		{
 			id: 'new',
-			label: t('palette.newFile'),
+			label: t('documents.new'),
 			kbd: formatKbd('⌘N'),
 			icon: FilePlus,
 			run: onNew
+		},
+		{
+			id: 'new-note',
+			label: t('documents.createNote'),
+			icon: FileText,
+			run: () => void onCreate('note')
+		},
+		{
+			id: 'new-presentation',
+			label: t('documents.createPresentation'),
+			icon: Presentation,
+			run: () => void onCreate('presentation')
 		},
 
 		{
@@ -497,17 +515,17 @@
 		},
 		{
 			id: 'presentation',
-			label: t('palette.presentationMode'),
-			hint: t('palette.presentationModeHint'),
+			label: t('slides.presentActive'),
+			hint: kind === 'note' ? t('slides.presentationRequired') : t('documents.presentation'),
+			enabled: () => kind === 'presentation',
 			icon: Play,
-			run: onOpenPresentation
+			run: onPresent
 		},
 		{
-			id: 'slides',
-			label: t('slides.open'),
-			hint: t('slides.openHint'),
-			icon: Presentation,
-			run: onOpenSlides
+			id: 'advanced-source',
+			label: t('slides.source'),
+			icon: Code2,
+			run: onAdvancedSource
 		},
 		{
 			id: 'template-save',
@@ -603,8 +621,8 @@
 			id: `file-${f.id}`,
 			label: stripExt(f.name),
 			keywords: filesStore.documentTitle(f.id),
-			hint: t('palette.openFileHint'),
-			icon: FilePlus,
+			hint: t(documentKind(f.content) === 'note' ? 'documents.note' : 'documents.presentation'),
+			icon: documentKind(f.content) === 'note' ? FileText : Presentation,
 			run: () => filesStore.setActive(f.id)
 		}))
 	);
@@ -639,16 +657,33 @@
 	);
 
 	const filtered: Command[] = $derived.by(() => {
-		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands].map(
-			(command) => {
+		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands]
+			.filter((command) => {
+				if (command.id === 'advanced-source') return kind === 'presentation';
+				if (kind === 'note') return true;
+				return (
+					![
+						'outline',
+						'search-in-file',
+						'graph',
+						'typewriter',
+						'toc',
+						'focus',
+						'template-save',
+						'copy-html'
+					].includes(command.id) &&
+					!command.id.startsWith('mode-') &&
+					!command.id.startsWith('width-')
+				);
+			})
+			.map((command) => {
 				const core = coreCommands.find((entry) => entry.id === command.id);
 				if (!core) return command;
 				const { kbd: _defaultKbd, ...rest } = command;
 				void _defaultKbd;
 				const kbd = keyboardStore.label(command.id);
 				return kbd ? { ...rest, kbd } : rest;
-			}
-		);
+			});
 		const q = normalizeCommandSearch(query.trim());
 		if (!q) return all;
 		return all.filter((c) => normalizeCommandSearch(`${c.label} ${c.keywords ?? ''}`).includes(q));

@@ -69,13 +69,130 @@ tests cover these additional risks:
 The presentation round-trip test keeps one byte-identity case that a browser workflow
 cannot observe directly. The browser suite checks the visible import, edit, and save
 path. The isolated test compares the exact parse and serialize result for an ordinary
-document and confirms that an edit adds the metadata block.
+document and confirms that a model edit adds the metadata block. This is a
+low-level format check, not an application conversion path. The application
+opens notes only in the note editor.
 
 Remove an isolated case when a reliable E2E test covers the same risk. Keep the
 reason for each remaining case clear in its test name. `npm run test:coverage`
 still reports coverage for diagnosis. No percentage target requires extra tests.
 
 ## Repeat the browser suite
+
+### Whole-application review
+
+The presentation-file review found failures in shared workflows. These retained
+browser cases check their observable results:
+
+| Spec | Failure risk and retained result |
+| --- | --- |
+| `durability-review.spec.ts` | Single delete and a delayed cross-tab read can lose the final visual edit. Check restored content, rollback, conflict copies, and history. Record the event intervals. |
+| `note-type-guard.spec.ts` | A rejected note edit can remain visible with a saved status. Check source and visual input, undo, export, and reopened bytes. |
+| `read-preview-isolation.spec.ts` | A delayed render can show interactive content from another file. Check the visible preview and link targets during the delay. |
+| `presentation-review.spec.ts` | Delayed image insertion can replace newer edits. Check edits made during decoding, file drops, and text shortcuts. |
+| `backup-review.spec.ts` | Replace restore can remove trash resources. Repeated merge can duplicate projects or break ID fragments. Check recovery, binary assets, rollback, and downloaded bytes. |
+| `project-link-performance.spec.ts` | Unmatched brackets can block Check links and project export. Record heartbeat gaps and verify nested links and exported Markdown. |
+| `modal-isolation-review.spec.ts` | File drops can change the document behind a dialog. Error notices can become inaccessible. Check unchanged content after reload and one accessible alert. |
+| `save-recovery-review.spec.ts` | A recovered draft can keep a failure warning, or one recovery can clear another draft's warning. Check per-file retry, partial recovery, and durable content after reload. |
+| `mixed-document-review.spec.ts` | Search, replacement, backup merge, and project export can use the wrong document type. Compare complete deck bytes, literal ID links, relative links, and presenter notes. |
+| `ux-review.spec.ts` | Creation cards and titles can clip at native browser zoom. Check English and French, card-child bounds, Cancel visibility, filename editing, and 44 px controls. |
+| `slide-guidance-review.spec.ts` | Disabled source and selection actions can have no visible reason. Check contextual guidance and accessible descriptions at narrow and desktop widths. |
+| `slide-zoom-review.spec.ts` | The slide header, inspector, and source actions can become unreachable at 200 percent browser zoom. Complete the English and French keyboard workflows and compare exported source. |
+| `presentation-responsive-tasks.spec.ts` | Landscape footers can cover Apply, and a smaller visible viewport can hide the focused field. Check the full task matrix, pointer hit targets, reduced motion, and keyboard-height simulation. |
+
+Run these cases against a production build:
+
+```sh
+npm run test:e2e -- durability-review.spec.ts note-type-guard.spec.ts read-preview-isolation.spec.ts presentation-review.spec.ts backup-review.spec.ts project-link-performance.spec.ts modal-isolation-review.spec.ts --project=chromium --workers=1
+```
+
+Keep the HTML and JSON reports, fixtures, downloads, screenshots, and failure
+traces with the command and source identity. Development-server results establish
+the correction only. Run the complete production suite before release.
+
+The native zoom fixture uses a local Chromium extension to set browser zoom to
+200 percent. It records the viewport width and device pixel ratio and confirms
+that CSS zoom remains unchanged. This differs from the CSS zoom scenario in
+`presentation-files.spec.ts`. Neither fixture establishes physical phone keyboard
+behavior.
+
+Save-warning checks include a failed Retry from the warning itself, a later
+failure after manual dismissal, and recovery of only one failed draft. Trash
+rollback must restore an open tab's active ID when no other tab is active. It must
+not replace a tab that the user selected while the operation was pending.
+
+For imported presentation reload checks, wait for the saved indicator and the
+exact committed fixture before reload. Record the same draft ID and content after
+reload. An import report confirms parsing, not completion of the 400 ms save.
+
+`e2e/offline-review.spec.ts` checks first-use presentation creation, reload, and
+source editing after network loss. It also compares Mermaid diagram geometry
+online and offline when the document requests another layout. The application
+uses Dagre in both cases to keep its offline resource budget. Chromium and
+Firefox use offline emulation. WebKit stops the origin server. Each case confirms
+service worker control and retains build hashes, requests, and source bytes.
+
+To repeat these cases against the current production build without rebuilding:
+
+```sh
+OFFLINE_REVIEW_PHASE=final npx playwright test --config e2e/offline-review.config.ts
+```
+
+### Desktop release checks
+
+The Desktop reuse validator must reject missing, repeated, failed, skipped, or
+incomplete platform jobs. It must reject a different source SHA, workflow, or run
+event. A valid run has one validation job and one native smoke job for each of
+Ubuntu, Windows, and macOS, plus one successful aggregate gate. The workflow
+trigger must reach the same path classifier for frontend and native changes.
+
+Browser tests cannot observe GitHub job records. The release-review artifact
+retains a 75-case runner that executes the workflow's JavaScript with recorded job
+fixtures. It includes the pre-fix and corrected results, commands, and hashes.
+
+The native smoke workflow checks presentation creation, editing, source Apply and
+Cancel, file restoration, and separate menu and shortcut exports on each platform.
+Keep both exports under `native-test-results/presentation-pdf/menu/` and
+`native-test-results/presentation-pdf/shortcut/`. Inspect the menu result before
+the shortcut export starts. macOS checks the native print operation and its PDF
+pixels. Linux and Windows use driver capture of the prepared print document; this
+does not prove an operating system print dialog. The CI artifacts are named
+`native-smoke-<platform>`.
+
+### Media consent and export
+
+The legacy HTML background case checks that table, header, and cell background
+attributes are removed before preview and HTML export. Visible text must remain.
+Passive `cite`, `href`, and `usemap` controls check for automatic requests.
+The red-first development proof and downloaded HTML are in
+`/tmp/opencode/media-background/`. Repeat the seven scoped cases with:
+
+```sh
+MEDIA_REVIEW_PHASE=green npx playwright test --config test-results/expert-review/media-consent/background.config.ts
+```
+
+The `srcset` case repeats HTML export after the first error is dismissed. Both
+attempts must report the same error without a request or download. The existing
+isolated media test compares the complete issue arrays and HTML across repeated
+preparation, including the expired-blob marker. Its old count of three omitted
+two retained `srcset` diagnostics. Evidence is in `/tmp/opencode/media-diagnostics/`.
+
+`e2e/media-consent-review.spec.ts` records requests from HTML media and escaped
+SVG paint URLs. It also checks that unsupported `srcset` causes an export error,
+local images and fragment paints survive HTML export, and an ordinary remote
+image is fetched only after consent. Each test retains its fixture, intercepted
+requests, export outcome, screenshot, and any downloaded HTML.
+
+Run `npx playwright test e2e/media-consent-review.spec.ts --project chromium`
+for the production workflow. The scoped development proof uses port 4303:
+
+```sh
+MEDIA_REVIEW_PHASE=green-final npx playwright test --config test-results/expert-review/media-consent/playwright.config.ts
+```
+
+The scoped configuration, source hashes, pre-fix failures, and corrected results
+are in `test-results/expert-review/media-consent/`. This development proof does
+not verify the production CSP, service worker, native printing, or audio playback.
 
 ### Heading navigation and editing controls
 
@@ -329,11 +446,31 @@ with a real origin-private file handle. It cannot run Tauri native file writes.
 
 ## Presentation workflows
 
-The presentation editor keeps one Markdown document with a terminal metadata block.
+Document type comes from content. Notes open in the note editor; valid and
+malformed presentation markers select the inline slide editor. The format stays
+at version 1 with no database migration.
+
+Retain these failure risks for `e2e/presentation-files.spec.ts` and the existing
+presentation workflows:
+
+- New can create the wrong type, create a file after Cancel, or lose keyboard focus.
+- Opening, switching, or reloading files can rewrite source or show the previous deck.
+- A note action can add presentation data, or a note-only shortcut can edit a deck.
+- A fenced or front matter marker can misclassify a note. Invalid metadata can
+  incorrectly open the note editor and hide the source error.
+- Advanced source can save before Apply, discard a rejected draft, remove the
+  presentation marker, or overwrite an external change. Verify Apply and Cancel.
+- The inline editor can block global navigation as if it were a modal. Only
+  Present must confine focus; Escape must restore the inline editor.
+- Presenter notes can be hidden on first open, lost after reload, or included in
+  HTML or PDF. Markdown must retain them.
+- Creation cards, Export, Advanced, and presenter notes controls can become
+  unavailable at narrow widths, with French labels, or at 200 percent zoom.
+
 Run the browser workflows with:
 
 ```sh
-npm run test:e2e -- presentation-editor.spec.ts presentation-format.spec.ts presentation-export.spec.ts presentation-offline.spec.ts presentation-performance.spec.ts --project=chromium --workers=1
+npm run test:e2e -- presentation-files.spec.ts presentation-editor.spec.ts presentation-format.spec.ts presentation-export.spec.ts presentation-offline.spec.ts presentation-performance.spec.ts --project=chromium --workers=1
 npm run test:e2e -- presentation-mobile.spec.ts --project=mobile-chromium --workers=1
 ```
 
@@ -350,6 +487,26 @@ Each run keeps the HTML report, `test-results/results.json`, traces, screenshots
 and the attachments written by the workflow. Keep these files local.
 The source metadata in the JSON report identifies the commit, working diff, Node
 version, and browser projects. Do not upload reports to GitHub.
+
+At the end of each presentation-file run, record a summary in
+`test-results/presentation-files-<revision>.json`. Use the tested source revision
+in the name. Include the exact command, source revision and working diff
+identity, platform, Node and browser versions, fixtures, pass/fail/skipped
+results, and the path to `playwright-report/index.html`. Include paths to the
+retained Markdown, HTML, PDF, and screenshot evidence as applicable.
+
+Record the responsive and first-use review with that artifact. Test widths 320,
+360, 390, 768, 1024, 1280, and 1440 in portrait and landscape, English and French,
+200 percent zoom, and reduced motion. Review creation, editing, presenter notes,
+Present, and Export. Record keyboard-only and human screen reader checks
+separately from axe and accessibility-tree assertions. Mark a check that was not
+run as **not run**. This test plan does not report a passing run or manual review.
+
+See [presentation scenarios](testing/presentations.md) and the
+[presentation file review](testing/presentation-files.md). The release gate also
+requires `npm run check`, `npm run lint`, `npm run test`, `npm run build`, and the
+full E2E suite because document types affect navigation, storage, export, and PWA
+paths. A focused run does not replace that gate.
 
 ## Version 2 accessibility
 

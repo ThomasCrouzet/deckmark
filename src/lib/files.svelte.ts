@@ -5,6 +5,7 @@ import { browser } from '$app/env';
 import { db, newId } from './db';
 import type { DraftRow } from './db';
 import type { FileItem, TrashedFile } from './types';
+import { documentKind, type DocumentKind } from './document-kind';
 import { isFSASupported, listDiskLinks, pickDirectoryFiles } from './fsa';
 import { isDesktop } from './desktop';
 import type { NativeDiskGrant } from './disk-tauri';
@@ -40,7 +41,7 @@ import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { projectWikiCandidates } from './project-paths';
 import { SaveQueue } from './save-queue';
-import { reportPersistenceError } from './storage';
+import { reportPersistenceError, resolveDraftSaveError } from './storage';
 import { reportError } from './report';
 import { recordVersion, createCheckpoint, createCheckpoints } from './version-history';
 import type { ReplaceOptions } from './replace';
@@ -171,10 +172,30 @@ class FilesStore {
 		onSaved: (ts) => {
 			this.lastSavedAt = ts;
 		},
-		onError: (err) => reportPersistenceError(err, 'save'),
+		onError: (err) => {
+			// The queue records the failed ID before it calls this callback.
+			const failed = this.library.filter((file) => this.saveQueue.hasDurabilityFailure(file.id));
+			reportPersistenceError(
+				err,
+				'save',
+				failed.length
+					? failed.map((file) => ({
+							id: file.id,
+							name: file.name,
+							retry: () => {
+								this.dispatchEditorFlush();
+								const row = this.rowForFlush(file.id);
+								if (row && this.saveQueue.hasDurabilityFailure(file.id))
+									this.saveQueue.persist(row);
+							}
+						}))
+					: undefined
+			);
+		},
 		// §M3 - After each successful write, we publish to the other tabs so they
 		// resynchronize this draft (and do not overwrite our write).
 		onDraftSaved: (id, updatedAt) => {
+			resolveDraftSaveError(id);
 			this.crossTab.post({ type: 'draft-written', id, updatedAt });
 		},
 		onDraftReconciled: (row) => {
@@ -291,8 +312,9 @@ class FilesStore {
 		try {
 			const row = await db.drafts.get(id);
 			if (!row) return;
-			// Re-check the absence of local editing AFTER the await (a keystroke may
-			// have arrived in the meantime): if it became dirty, we abstain.
+			// Capture input that arrived while the database read was pending.
+			this.dispatchEditorFlush();
+			if (![...this.files, ...this.closedFiles].some((entry) => entry === file)) return;
 			if (this.trashBusy || this.saveQueue.has(id)) return;
 			file.name = row.name;
 			file.content = row.content;
@@ -486,6 +508,16 @@ class FilesStore {
 		return file;
 	}
 
+	async createDocument(kind: DocumentKind): Promise<FileItem> {
+		if (kind === 'note') {
+			this.dispatchEditorFlush();
+			return this.createNew();
+		}
+		const { createDeck, serializePresentation } = await import('./presentation/model');
+		this.dispatchEditorFlush();
+		return this.createNew(t('slides.newPresentationName'), serializePresentation(createDeck()));
+	}
+
 	async openProjectLink(sourceId: string, destination: string): Promise<void> {
 		const source = this.library.find((file) => file.id === sourceId);
 		if (!source?.projectId || !source.relativePath) return;
@@ -601,6 +633,7 @@ class FilesStore {
 	/** Moves a document to the durable trash. This is distinct from closing a tab. */
 	delete(id: string): void {
 		if (this.trashBusy) return;
+		this.dispatchEditorFlush();
 		const open = this.detachFromView(id);
 		const closedIndex = this.closedFiles.findIndex((file) => file.id === id);
 		const file =
@@ -946,6 +979,10 @@ class FilesStore {
 		if (wasOpen && !this.files.some((f) => f.id === id)) {
 			this.files.splice(Math.min(idx, this.files.length), 0, file);
 			this.metaIndex.invalidateBacklinksIndex();
+			if (this.activeId === null) {
+				this.activeId = id;
+				this.persistActiveId();
+			}
 		} else if (!wasOpen && !this.closedFiles.some((entry) => entry.id === id)) {
 			this.closedFiles.push(file);
 			this.metaIndex.invalidateMeta(id);
@@ -1013,10 +1050,13 @@ class FilesStore {
 			const oldTarget = stripMdExtension(file.name).toLowerCase();
 			const nextTarget = stripMdExtension(normalized);
 			const rewrite = (content: string) =>
-				rewriteWikiLinkTargets(content, (target) =>
-					target.toLowerCase() === oldTarget ? nextTarget : target
-				);
+				documentKind(content) === 'note'
+					? rewriteWikiLinkTargets(content, (target) =>
+							target.toLowerCase() === oldTarget ? nextTarget : target
+						)
+					: content;
 			const changes =
+				documentKind(file.content) === 'note' &&
 				this.metaIndex.wikiLinkCandidates(oldTarget).length === 1
 					? this.library.flatMap((entry) =>
 							rewrite(entry.content) === entry.content
@@ -1344,11 +1384,13 @@ class FilesStore {
 		opts: ReplaceOptions,
 		scope: 'library' | 'open' = 'library'
 	): Promise<{ files: number; occurrences: number; regexError: string | null }> {
-		const slices = (scope === 'library' ? this.library : this.files).map((f) => ({
-			id: f.id,
-			name: f.name,
-			content: f.content
-		}));
+		const slices = (scope === 'library' ? this.library : this.files)
+			.filter((file) => documentKind(file.content) === 'note')
+			.map((f) => ({
+				id: f.id,
+				name: f.name,
+				content: f.content
+			}));
 		const { results, total, regexError } = await replaceInFilesAsync(
 			slices,
 			query,
@@ -1420,9 +1462,12 @@ class FilesStore {
 	}
 	/** Files that contain a wiki-link pointing to `targetId`. */
 	backlinks(targetId: string): FileItem[] {
+		const targetFile = this.library.find((file) => file.id === targetId);
+		if (!targetFile || documentKind(targetFile.content) !== 'note') return [];
 		return this.library.filter(
 			(file) =>
 				file.id !== targetId &&
+				documentKind(file.content) === 'note' &&
 				this.metaIndex
 					.wikiLinkTargets(file.id)
 					.some((target) => this.resolveWikiLink(target, file.id) === targetId)
@@ -1431,8 +1476,13 @@ class FilesStore {
 	/** Resolves a wiki-link → file id, or `null` if not found. */
 	resolveWikiLink(target: string, sourceId?: string): string | null {
 		const source = this.library.find((file) => file.id === sourceId);
+		if (source && documentKind(source.content) !== 'note') return null;
 		if (source?.projectId) {
-			const candidates = projectWikiCandidates(source, target, this.library);
+			const candidates = projectWikiCandidates(
+				source,
+				target,
+				this.library.filter((file) => documentKind(file.content) === 'note')
+			);
 			return candidates.length === 1 ? candidates[0]!.id : null;
 		}
 		return this.metaIndex.resolveWikiLink(target);
@@ -1443,8 +1493,13 @@ class FilesStore {
 	 */
 	openWikiLink(target: string, sourceId?: string): string | null {
 		const source = this.library.find((file) => file.id === sourceId);
+		if (source && documentKind(source.content) !== 'note') return null;
 		if (source?.projectId) {
-			const matches = projectWikiCandidates(source, target, this.library);
+			const matches = projectWikiCandidates(
+				source,
+				target,
+				this.library.filter((file) => documentKind(file.content) === 'note')
+			);
 			if (matches.length !== 1) {
 				notify.info(
 					matches.length ? t('files.ambiguousLink', { name: target }) : t('projects.linkMissing')

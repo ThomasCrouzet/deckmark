@@ -408,7 +408,8 @@ export async function prepareHtmlMedia(
 ): Promise<PreparedMedia> {
 	if (typeof document === 'undefined') return { html, issues: [], embedded: 0 };
 	const template = document.createElement('template');
-	template.innerHTML = html;
+	// Keep browser-managed media inert. Approved images use the bounded fetch path below.
+	template.innerHTML = applyRemoteImagePolicy(html, false);
 	const issues: MediaIssue[] = [];
 	let embedded = 0;
 	let totalBytes = 0;
@@ -423,13 +424,18 @@ export async function prepareHtmlMedia(
 	}
 
 	for (const image of template.content.querySelectorAll(
-		'img[srcset], img[data-mdsh-remote-srcset]'
+		'img[data-mdsh-remote-srcset], source[data-mdsh-remote-srcset]'
 	)) {
-		const source =
-			image.getAttribute('srcset') ?? image.getAttribute('data-mdsh-remote-srcset') ?? '';
+		const source = image.getAttribute('data-mdsh-remote-srcset') ?? '';
 		issues.push({ source, reason: 'unsupported-srcset' });
-		image.removeAttribute('srcset');
-		image.removeAttribute('data-mdsh-remote-srcset');
+	}
+	for (const media of template.content.querySelectorAll(
+		'audio, video, source, track, input[type="image"]'
+	)) {
+		for (const attribute of ['data-mdsh-remote-src', 'data-mdsh-remote-poster']) {
+			const source = media.getAttribute(attribute);
+			if (source) issues.push({ source, reason: 'unsupported-type' });
+		}
 	}
 
 	for (const reference of collectMediaReferences(template.content)) {

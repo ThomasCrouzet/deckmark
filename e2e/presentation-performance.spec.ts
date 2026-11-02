@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { resetAppState } from './helpers';
+import { createPresentation, openPresentationSource } from './presentation-helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -16,9 +17,7 @@ test('keeps a representative 20-slide deck responsive during a real drag', async
 	test.skip(testInfo.project.name !== 'chromium', 'performance evidence uses Chromium timing');
 	test.setTimeout(90_000);
 	await resetEnglishApp(page);
-	await page.getByTestId('slides-open').click();
-	const editor = page.getByTestId('presentation-editor');
-	await expect(editor).toBeVisible({ timeout: 15_000 });
+	const editor = await createPresentation(page);
 
 	for (let index = 0; index < 10; index++) {
 		await editor.getByTestId('slide-add-rectangle').click();
@@ -35,7 +34,7 @@ test('keeps a representative 20-slide deck responsive during a real drag', async
 	await editor.getByTestId('slide-object-list-item').first().click();
 	await editor.getByTestId('slide-front').click();
 
-	await editor.getByTestId('slide-source').click();
+	await openPresentationSource(editor);
 	const source = await editor.getByTestId('slide-source-editor').inputValue();
 	const metadataMatch = source.match(/<!-- mdsh-presentation\n([\s\S]*?)\n-->\s*$/);
 	if (!metadataMatch) throw new Error('Presentation metadata is missing.');
@@ -45,7 +44,7 @@ test('keeps a representative 20-slide deck responsive during a real drag', async
 	const objectCount = metadata.slides.reduce((total, slide) => total + slide.elements.length, 0);
 	expect(metadata.slides).toHaveLength(20);
 	expect(objectCount).toBe(200);
-	await editor.getByTestId('slide-source').click();
+	await editor.getByTestId('slide-source-cancel').click();
 
 	const rectangle = editor.locator(
 		`[data-testid="slide-object"][data-object-id="${firstRectangleId}"]`

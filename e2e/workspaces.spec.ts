@@ -37,6 +37,7 @@ test.describe('Workspaces - save and restore sessions', () => {
 			.locator('aside')
 			.getByRole('button', { name: /Nouveau fichier/ })
 			.click();
+		await page.getByTestId('create-note').click();
 		await renameActiveFile(page, 'doc-c');
 		await expect(fileButtons.locator('.truncate')).toHaveText(['doc-b', 'doc-c']);
 		await page.reload();

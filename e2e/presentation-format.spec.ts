@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { resetAppState, writeSourceContent } from './helpers';
+import { resetAppState } from './helpers';
+import { importMarkdown, presentationFixture, waitForPresentation } from './presentation-helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -37,15 +38,61 @@ function presentation(json: string, body = '# Keep this content'): string {
 }
 
 async function openSlides(page: Page) {
-	await page.getByTestId('slides-open').click();
-	const editor = page.getByTestId('presentation-editor');
-	await expect(editor).toBeVisible({ timeout: 15_000 });
-	return editor;
+	return waitForPresentation(page);
 }
 
 async function seed(page: Page, content: string): Promise<void> {
-	await page.getByTestId('welcome-new').click();
-	await writeSourceContent(page, content);
+	await importMarkdown(page, content);
+}
+
+async function persistenceSnapshot(page: Page) {
+	return page.evaluate(async () => {
+		const status = document.querySelector('.save-state, #app-statusbar')?.textContent?.trim();
+		const capturedAt = performance.now();
+		const drafts = await new Promise<{ id: string; content: string }[]>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const database = request.result;
+				const transaction = database.transaction('drafts', 'readonly');
+				const rows = transaction.objectStore('drafts').getAll();
+				transaction.oncomplete = () => {
+					database.close();
+					resolve(rows.result.map(({ id, content }) => ({ id, content })));
+				};
+				transaction.onabort = () => {
+					database.close();
+					reject(transaction.error);
+				};
+			};
+		});
+		return { status, capturedAt, completedAt: performance.now(), drafts };
+	});
+}
+
+async function reloadSavedFixture(page: Page, testInfo: TestInfo, fixture: string): Promise<void> {
+	const before = await persistenceSnapshot(page);
+	let saved: Awaited<ReturnType<typeof persistenceSnapshot>> | undefined;
+	let after: Awaited<ReturnType<typeof persistenceSnapshot>> | undefined;
+	try {
+		// Closing the import report does not wait for the 400 ms draft save.
+		await expect(page.locator('#app-statusbar')).toContainText(/\bsaved\b/);
+		await expect
+			.poll(async () => {
+				saved = await persistenceSnapshot(page);
+				return saved.drafts.map((draft) => draft.content);
+			})
+			.toEqual([fixture]);
+		await page.reload();
+		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+		after = await persistenceSnapshot(page);
+		expect(after.drafts).toEqual(saved?.drafts);
+	} finally {
+		await testInfo.attach('reload-persistence.json', {
+			body: JSON.stringify({ fixture, before, saved, after }, null, 2),
+			contentType: 'application/json'
+		});
+	}
 }
 
 async function attachFailure(
@@ -58,7 +105,7 @@ async function attachFailure(
 	await testInfo.attach(`${name}.json`, {
 		body: JSON.stringify(
 			{
-				command: 'npm run test:e2e -- presentation-format.spec.ts --project=chromium --workers=1',
+				command: `npm run test:e2e -- presentation-format.spec.ts --project=${testInfo.project.name} --workers=1`,
 				project: testInfo.project.name,
 				expected,
 				sourceUnchanged: true
@@ -77,10 +124,11 @@ test('rejects an unknown metadata version and keeps the file bytes', async ({ pa
 	await expect(editor.getByTestId('slide-source-error')).toBeVisible();
 	await expect(editor.getByTestId('slide-source-error')).toHaveAttribute('role', 'alert');
 	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(fixture);
-	await editor.getByTestId('slide-close').click();
-	await page.waitForTimeout(600);
-	await page.reload();
-	await expect(page.locator('.cm-content')).toContainText('Keep this content');
+	await reloadSavedFixture(page, testInfo, fixture);
+	const restored = await openSlides(page);
+	await expect(restored.getByTestId('slide-source-error')).toBeVisible();
+	await expect(restored.getByTestId('slide-source-editor')).toHaveValue(fixture);
+	await expect(page.locator('.cm-content')).toHaveCount(0);
 	await attachFailure(testInfo, 'unknown-version', fixture, 'unsupported version');
 });
 
@@ -90,10 +138,11 @@ test('rejects malformed metadata without replacing the document', async ({ page 
 	const editor = await openSlides(page);
 	await expect(editor.getByTestId('slide-source-error')).toBeVisible();
 	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(fixture);
-	await editor.getByTestId('slide-close').click();
-	await page.waitForTimeout(600);
-	await page.reload();
-	await expect(page.locator('.cm-content')).toContainText('Keep this content');
+	await reloadSavedFixture(page, testInfo, fixture);
+	const restored = await openSlides(page);
+	await expect(restored.getByTestId('slide-source-error')).toBeVisible();
+	await expect(restored.getByTestId('slide-source-editor')).toHaveValue(fixture);
+	await expect(page.locator('.cm-content')).toHaveCount(0);
 	await attachFailure(testInfo, 'malformed-json', fixture, 'invalid JSON');
 });
 
@@ -108,11 +157,14 @@ test('ignores a metadata marker inside a code fence', async ({ page }, testInfo)
 		'```'
 	].join('\n');
 	await seed(page, fixture);
-	await expect(page.getByTestId('presentation-document')).toHaveCount(0);
-	const editor = await openSlides(page);
-	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(1);
-	await editor.getByTestId('slide-source').click();
-	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(fixture);
+	await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
+	await expect(page.getByTestId('slides-open')).toHaveCount(0);
+	await expect(page.locator('.cm-content')).toBeVisible();
+	await expect.poll(() => page.locator('.cm-line').allTextContents()).toEqual(fixture.split('\n'));
+	await reloadSavedFixture(page, testInfo, fixture);
+	await expect(page.locator('.cm-content')).toBeVisible();
+	await expect.poll(() => page.locator('.cm-line').allTextContents()).toEqual(fixture.split('\n'));
+	await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
 	await attachFailure(testInfo, 'marker-inside-fence', fixture, 'marker ignored');
 });
 
@@ -239,7 +291,7 @@ test('rejects a connector that refers to a missing object', async ({ page }, tes
 });
 
 test('keeps a blank slide between consecutive separators', async ({ page }, testInfo) => {
-	const fixture = ['# First', '', '---', '', '---', '', '# Last'].join('\n');
+	const fixture = presentationFixture(['# First', '', '# Last']);
 	await seed(page, fixture);
 	const editor = await openSlides(page);
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(3);
@@ -249,9 +301,8 @@ test('keeps a blank slide between consecutive separators', async ({ page }, test
 });
 
 test('keeps a separator inside a fence in one slide', async ({ page }, testInfo) => {
-	const fixture = ['# Opening', '', '~~~md', '---', '~~~', '', '---', '', '# Closing'].join('\n');
+	const fixture = presentationFixture(['# Opening\n\n~~~md\n---\n~~~', '# Closing']);
 	await seed(page, fixture);
-	await expect(page.getByTestId('presentation-document')).toHaveCount(0);
 	const editor = await openSlides(page);
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(2);
 	await attachFailure(testInfo, 'separator-in-fence', fixture, 'two slides only');

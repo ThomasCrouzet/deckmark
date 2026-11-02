@@ -190,6 +190,7 @@ test.describe('Editor state isolation and restoration', () => {
 		await page.keyboard.press('ArrowLeft');
 		for (let index = 0; index < 4; index++) await page.keyboard.press('ArrowRight');
 		await page.keyboard.press('ControlOrMeta+n');
+		await page.getByTestId('create-note').click();
 		await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 20_000 });
 		const fileName = page.locator('input[aria-label^="File name"]');
 		await fileName.fill('Visual B.md');

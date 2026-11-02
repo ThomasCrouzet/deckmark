@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './helpers';
+import {
+	createPresentation,
+	presentationTitle,
+	renamePresentation,
+	waitForPresentation
+} from './presentation-helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -32,10 +38,8 @@ test('opens the lazy presentation editor for the first time offline', async ({
 			timeout: 15_000
 		});
 
-		await page.getByTestId('slides-open').click();
-		const editor = page.getByTestId('presentation-editor');
-		await expect(editor).toBeVisible({ timeout: 15_000 });
-		await editor.getByTestId('slide-title').fill('Offline first open');
+		const editor = await createPresentation(page);
+		await renamePresentation(page, 'Offline first open');
 		await editor.getByTestId('slide-add-text').click();
 		await editor.getByTestId('slide-edit-text').click();
 		await editor.getByTestId('slide-text-editor').fill('## Created without a network');
@@ -48,9 +52,8 @@ test('opens the lazy presentation editor for the first time offline', async ({
 		await expect(page.locator('.mdsh-shell[aria-busy="false"]:not([inert])')).toBeVisible({
 			timeout: 15_000
 		});
-		await page.getByTestId('slides-open').click();
-		const restored = page.getByTestId('presentation-editor');
-		await expect(restored.getByTestId('slide-title')).toHaveValue('Offline first open.md');
+		const restored = await waitForPresentation(page);
+		await expect(presentationTitle(page)).toHaveValue('Offline first open');
 		await expect(restored.getByTestId('slide-thumbnail')).toHaveCount(2);
 		await restored.getByTestId('slide-thumbnail').first().click();
 		await expect(

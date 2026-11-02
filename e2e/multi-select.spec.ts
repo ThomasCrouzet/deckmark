@@ -12,6 +12,7 @@ async function createFiles(page: Page, count: number) {
 	// button. The toggle is idempotent.
 	const welcomeBtn = page.locator('main').getByRole('button', { name: /Nouveau fichier/ });
 	await welcomeBtn.click();
+	await page.getByTestId('create-note').click();
 	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toBeVisible({
 		timeout: 10_000
 	});
@@ -19,6 +20,7 @@ async function createFiles(page: Page, count: number) {
 	const sidebarNewBtn = page.locator('aside').getByRole('button', { name: /Nouveau fichier/ });
 	for (let i = 1; i < count; i++) {
 		await sidebarNewBtn.click();
+		await page.getByTestId('create-note').click();
 		// Wait one tick for the store to create the file.
 		await page.waitForTimeout(50);
 	}

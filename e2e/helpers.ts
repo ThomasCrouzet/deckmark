@@ -52,7 +52,7 @@ export async function resetAppState(
 }
 
 /**
- * Create the first file from the Welcome screen button in `<main>`.
+ * Create the first note from the Welcome screen button in `<main>`.
  * Wait until the toolbar rename input shows the active file.
  */
 export async function createFirstFile(page: Page) {
@@ -66,6 +66,7 @@ export async function createFirstFile(page: Page) {
 			.getByRole('button', { name: /Nouveau fichier/ })
 			.click();
 	}
+	await page.getByTestId('create-note').click();
 	// §B1.7/B1.8 - The accessible name includes keyboard hints. Match its prefix.
 	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toBeVisible({
 		timeout: 10_000
@@ -166,11 +167,13 @@ export async function seedFiles(page: Page, files: SeedFile[]) {
 		.locator('main')
 		.getByRole('button', { name: /Nouveau fichier/ })
 		.click();
+	await page.getByTestId('create-note').click();
 	await renameActiveFile(page, first.name);
 	await writeSourceContent(page, first.content);
 	// Create later files from the sidebar button.
 	for (const f of rest) {
 		await page.locator('aside button[aria-label^="Nouveau fichier"]').first().click();
+		await page.getByTestId('create-note').click();
 		await renameActiveFile(page, f.name);
 		await writeSourceContent(page, f.content);
 	}

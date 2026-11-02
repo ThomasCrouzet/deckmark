@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createFirstFile, resetAppState, writeSourceContent } from './helpers';
+import { presentationFixture } from './presentation-helpers';
 
 test('reading mode shows bullets and numbering while task lists keep only their checkboxes', async ({
 	page
@@ -39,12 +40,23 @@ test('reading mode shows bullets and numbering while task lists keep only their 
 		});
 	}
 	await testInfo.attach('list-fixture', { body: fixture, contentType: 'text/markdown' });
-	await page.getByTestId('slides-open').click();
+	await expect(page.getByTestId('slides-open')).toHaveCount(0);
+	await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
+	await page.locator('button[data-mode="source"]').click();
+	await expect(page.locator('.cm-content')).not.toContainText('<!-- mdsh-presentation');
+	const deck = presentationFixture([fixture]);
+	await page.locator('input[type=file][accept*="text/markdown"]').setInputFiles({
+		name: 'Reading lists.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from(deck)
+	});
+	await page.getByRole('button', { name: 'Fermer le bilan d’import', exact: true }).click();
 	const slide = page.getByTestId('slide-canvas');
 	await expect(slide.locator('.task-list-item')).toHaveCount(2);
 	for (const task of await slide.locator('.task-list-item').all()) {
 		await expect(task).toHaveCSS('list-style-type', 'none');
 	}
+	await testInfo.attach('slide-list-fixture', { body: deck, contentType: 'text/markdown' });
 	await testInfo.attach('slide-lists', {
 		body: await page.screenshot(),
 		contentType: 'image/png'

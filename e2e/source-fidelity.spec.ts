@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { resetAppState, seedFiles, openPalette, createFirstFile } from './helpers';
 import { fidelityFixtures, sentence, replacement } from './fixtures/source-fidelity';
+import { openPresentationSource, presentationFixture } from './presentation-helpers';
 import {
 	editSentence,
 	editCodeLine,
@@ -523,39 +524,41 @@ test('a JSON backup with a BOM retains the Markdown BOM after restore', async ({
 });
 
 for (const yaml of [false, true]) {
-	test(`a presentation visit keeps a BOM with front matter ${yaml}`, async ({ page }, info) => {
+	test(`notes and presentations keep a BOM with front matter ${yaml}`, async ({ page }, info) => {
 		await resetAppState(page);
-		const source =
-			'\uFEFF' +
-			(yaml ? '---\ntitle: BOM slide\n---\n\n' : '') +
-			'# Single slide\n\n' +
-			sentence +
-			'\n';
+		const prefix = '\uFEFF' + (yaml ? '---\ntitle: BOM slide\n---\n\n' : '');
+		const source = prefix + '# Single slide\n\n' + sentence + '\n';
 		await importSource(page, source);
-		await page.getByTestId('slides-open').click();
+		await expect(page.locator('.cm-content')).toBeVisible();
+		await expect(page.getByTestId('slides-open')).toHaveCount(0);
+		await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
+		await recordFidelity(info, page, `bom-note-${yaml}`, source, source, await exportSource(page));
+		const deck = prefix + presentationFixture(['# Single slide\n\n' + sentence]);
+		await importSource(page, deck, 'bom-presentation');
 		const editor = page.getByTestId('presentation-editor');
 		await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(1);
-		await editor.getByTestId('slide-close').click();
 		await recordFidelity(
 			info,
 			page,
 			`bom-presentation-${yaml}`,
-			source,
-			source,
-			await exportSource(page)
+			deck,
+			deck,
+			await exportSource(page, 'bom-presentation.md')
 		);
-		await page.getByTestId('slides-open').click();
 		await editor.locator('[data-testid=slide-object][data-object-type=text]').first().dblclick();
 		await editor.getByTestId('slide-text-editor').fill('# Single slide\n\n' + replacement);
 		await editor.getByTestId('slide-text-done').click();
-		await editor.getByTestId('slide-source').click();
-		const converted = await editor.getByTestId('slide-source-editor').inputValue();
-		expect(converted.startsWith('\uFEFF')).toBe(true);
-		expect(converted.startsWith('\uFEFF\n')).toBe(false);
-		if (yaml) expect(converted.startsWith('\uFEFF---\ntitle: BOM slide\n---\n')).toBe(true);
-		expect(converted).toContain(replacement);
-		await info.attach(`bom-converted-${yaml}.md`, {
-			body: converted,
+		await openPresentationSource(editor);
+		const edited = await editor.getByTestId('slide-source-editor').inputValue();
+		expect(edited.startsWith('\uFEFF')).toBe(true);
+		expect(edited.startsWith('\uFEFF\n')).toBe(false);
+		if (yaml) expect(edited.startsWith('\uFEFF---\ntitle: BOM slide\n---\n')).toBe(true);
+		expect(edited).toContain(replacement);
+		await editor.getByTestId('slide-source-cancel').click();
+		expect(await exportSource(page, 'bom-presentation.md')).toBe(edited);
+		expect(await exportSource(page, 'fidelity.md')).toBe(source);
+		await info.attach(`bom-edited-presentation-${yaml}.md`, {
+			body: edited,
 			contentType: 'text/markdown'
 		});
 	});

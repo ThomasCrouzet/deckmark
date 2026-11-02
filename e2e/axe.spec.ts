@@ -107,6 +107,7 @@ test.describe('Axe accessibility scan', () => {
 			await page.reload();
 			await expectNoBlockingViolations(page, new AxeBuilder({ page }));
 			await page.locator('main [data-testid="welcome-new"]').click();
+			await page.getByTestId('create-note').click();
 			await expect(page.locator('.cm-content')).toBeVisible();
 			await expect(page.locator('.cm-content')).toHaveAttribute('aria-label');
 			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('#main'));
@@ -126,8 +127,7 @@ test('secondary panels pass accessibility checks in both themes', async ({ page 
 			'Charger un workspace',
 			'Gérer les liens disque',
 			'Historique des versions',
-			'Graphe des liens',
-			'Mode présentation'
+			'Graphe des liens'
 		]) {
 			await openPalette(page);
 			await page.getByRole('combobox').fill(command);
@@ -140,6 +140,16 @@ test('secondary panels pass accessibility checks in both themes', async ({ page 
 			await page.keyboard.press('Escape');
 			await expect(page.getByRole('dialog')).toHaveCount(0);
 		}
+		await page.locator('aside button[aria-label^="Nouveau fichier"]').click();
+		await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('[role="dialog"]'));
+		await page.getByTestId('create-presentation').click();
+		await expect(page.getByTestId('presentation-editor')).toBeVisible();
+		await expectNoBlockingViolations(
+			page,
+			new AxeBuilder({ page }).include('[data-testid="presentation-editor"]')
+		);
+		await page.keyboard.press('ControlOrMeta+w');
+		await expect(page.locator('.cm-content')).toBeVisible();
 	}
 });
 

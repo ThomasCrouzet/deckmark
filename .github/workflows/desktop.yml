@@ -3,11 +3,9 @@ name: Desktop
 on:
   push:
     branches: [main]
-    paths:
-      - 'src-tauri/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/desktop.yml'
+  pull_request:
+    branches: [main]
+  # The changes job uses scripts/desktop-changes.mjs as the single path filter.
   # Rebuild weekly so an upstream toolchain change cannot rot the installers.
   schedule:
     - cron: '0 4 * * 1'
@@ -125,7 +123,7 @@ jobs:
               'api',
               `repos/${process.env.GH_REPO}/actions/runs/${validationRunId}`
             ], { encoding: 'utf8' }));
-            if (run.head_sha !== sha || run.event !== 'push' || run.conclusion !== 'success') {
+            if (run.head_sha !== sha || run.event !== 'push' || run.status !== 'completed' || run.conclusion !== 'success') {
               throw new Error('Reused Desktop validation is not a successful push run for this source SHA');
             }
             if (run.path !== '.github/workflows/desktop.yml') {
@@ -135,14 +133,20 @@ jobs:
               'api',
               `repos/${process.env.GH_REPO}/actions/runs/${validationRunId}/jobs?per_page=100`
             ], { encoding: 'utf8' })).jobs;
-            for (const prefix of ['validate-desktop (', 'native-smoke (']) {
-              const matching = jobs.filter((job) => job.name.startsWith(prefix));
-              if (matching.length !== 4 || matching.some((job) => job.conclusion !== 'success')) {
-                throw new Error(`Reused validation does not contain four successful ${prefix} jobs`);
+            const platforms = ['ubuntu-24.04', 'windows-2022', 'macos-15'];
+            for (const group of ['validate-desktop', 'native-smoke']) {
+              const expected = platforms.map((platform) => `${group} (${platform})`);
+              const matching = jobs.filter((job) => job.name.startsWith(`${group} (`));
+              if (matching.length !== expected.length || expected.some((name) => {
+                const entries = matching.filter((job) => job.name === name);
+                return entries.length !== 1 || entries[0].status !== 'completed' || entries[0].conclusion !== 'success';
+              })) {
+                throw new Error(`Reused validation requires one successful completed ${group} job for each platform: ${platforms.join(', ')}`);
               }
             }
-            if (!jobs.some((job) => job.name === 'desktop-validation' && job.conclusion === 'success')) {
-              throw new Error('Reused validation has no successful desktop-validation gate');
+            const gates = jobs.filter((job) => job.name === 'desktop-validation');
+            if (gates.length !== 1 || gates[0].status !== 'completed' || gates[0].conclusion !== 'success') {
+              throw new Error('Reused validation requires one successful completed desktop-validation gate');
             }
           }
           appendFileSync(process.env.GITHUB_OUTPUT, `sha=${sha}\n`);
@@ -256,6 +260,13 @@ jobs:
       - name: Exercise actual native WebView
         if: runner.os != 'Linux'
         run: node scripts/native-smoke.mjs
+      - name: Retain native workflow evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-smoke-${{ matrix.platform }}
+          path: native-test-results/
+          if-no-files-found: warn
   desktop-validation:
     name: desktop-validation
     needs: [changes, resolve-source, validate-desktop, native-smoke]

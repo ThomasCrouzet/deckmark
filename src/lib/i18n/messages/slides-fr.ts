@@ -1,6 +1,31 @@
 import type { SlidesMessageKey } from './slides-en';
 
 export const slidesFr: Record<SlidesMessageKey, string> = {
+	'slides.loading': 'Chargement de la présentation...',
+	'documents.new': 'Créer un document',
+	'documents.files': 'Fichiers',
+	'documents.noConversion':
+		'Cette note ne peut pas devenir une présentation. Créez ou importez une présentation.',
+	'documents.note': 'Note',
+	'documents.presentation': 'Présentation',
+	'documents.noteDescription': 'Écrivez et lisez en Markdown.',
+	'documents.presentationDescription': 'Composez et présentez vos diapositives.',
+	'documents.createNote': 'Créer une note',
+	'documents.createPresentation': 'Créer une présentation',
+	'documents.created': '{type} créée.',
+	'slides.newPresentationName': 'Présentation.md',
+	'slides.advanced': 'Avancé',
+	'slides.export': 'Exporter',
+	'slides.apply': 'Appliquer',
+	'slides.cancel': 'Annuler',
+	'slides.sourceRequiresData':
+		'Une présentation doit garder ses données de présentation. Restaurez-les ou annulez.',
+	'slides.sourceConflict':
+		'Le fichier a changé. Copiez votre brouillon, puis annulez et rouvrez la source.',
+	'slides.sourceApplied': 'Source appliquée.',
+	'slides.presentActive': 'Présenter le fichier actif',
+	'slides.presentationRequired': 'Ouvrez une présentation.',
+	'slides.slideCount': '{n} diapositives',
 	'slides.open': 'Slides',
 	'slides.openHint': 'Modifier les diapositives du document actif',
 	'slides.title': 'Éditeur de présentations',
@@ -70,7 +95,7 @@ export const slidesFr: Record<SlidesMessageKey, string> = {
 	'slides.background': 'Fond de la diapositive',
 	'slides.aspect': 'Format des diapositives',
 	'slides.notes': 'Notes du présentateur',
-	'slides.notesPlaceholder': 'Ces notes restent hors de la diapositive et des pages imprimées.',
+	'slides.notesPlaceholder': 'Écrivez votre discours. Il reste hors des exports de diapositives.',
 	'slides.source': 'Source Markdown',
 	'slides.visual': 'Éditeur visuel',
 	'slides.sourceHint':
@@ -81,6 +106,7 @@ export const slidesFr: Record<SlidesMessageKey, string> = {
 	'slides.exportHtml': 'HTML',
 	'slides.exportPdf': 'PDF / Imprimer',
 	'slides.present': 'Présenter',
+	'slides.presentSourceHint': 'Appliquez ou annulez les modifications de la source pour présenter.',
 	'slides.exitPresent': 'Quitter la présentation',
 	'slides.fullscreen': 'Plein écran',
 	'slides.showNotes': 'Afficher les notes',
@@ -92,6 +118,7 @@ export const slidesFr: Record<SlidesMessageKey, string> = {
 	'slides.snap': 'Alignement magnétique',
 	'slides.multiSelect': 'Sélection multiple',
 	'slides.selectionCount': '{n} objet(s) sélectionné(s)',
+	'slides.selectToEdit': 'Sélectionnez un objet pour le modifier.',
 	'slides.selectionHint':
 		'Sélectionnez un objet. Maj+clic pour en ajouter. Glissez pour déplacer. Les flèches permettent un placement précis.',
 	'slides.touchHint':

@@ -17,6 +17,7 @@
 // Parity for the supported subset is covered in `meta-index.test.ts`.
 
 import type { FileItem } from './types';
+import { documentKind } from './document-kind';
 import { stripMdExtension } from './file-utils';
 import { extractWikiLinkTargets } from './wiki-links';
 import { getTags as getFmTags, getTitle as getFmTitle, stripFrontmatter } from './frontmatter';
@@ -58,6 +59,7 @@ export class MetaIndex {
 		if (cached && cached.content === file.content && cached.name === file.name) return cached;
 
 		const fallback = stripMdExtension(file.name);
+		const isNote = documentKind(file.content) === 'note';
 		const { content, raw } = stripFrontmatter(file.content);
 
 		// Title: YAML > first H1 > filename. We reproduce the logic of the old
@@ -75,7 +77,7 @@ export class MetaIndex {
 
 		// YAML tags - accepts same-line `[a, b]` or CSV `a, b` only.
 		let tags: string[] = [];
-		if (raw) {
+		if (raw && isNote) {
 			const m = /^tags:[ \t]*(.+)$/m.exec(raw);
 			if (m) {
 				// invariant: m[1] is guaranteed non-undefined (mandatory capture group `.+`).
@@ -94,7 +96,7 @@ export class MetaIndex {
 			}
 		}
 
-		const targets = extractWikiLinkTargets(file.content);
+		const targets = isNote ? extractWikiLinkTargets(file.content) : [];
 
 		const entry: MetaEntry = {
 			name: file.name,
@@ -199,7 +201,7 @@ export class MetaIndex {
 	backlinks(targetId: string): FileItem[] {
 		const files = this.getFiles();
 		const target = files.find((f) => f.id === targetId);
-		if (!target) return [];
+		if (!target || documentKind(target.content) !== 'note') return [];
 		if (!this.backlinksIndex) this.buildBacklinksIndex();
 		const idx = this.backlinksIndex!;
 		const targetNameLower = stripMdExtension(target.name).toLowerCase();
@@ -227,7 +229,7 @@ export class MetaIndex {
 	wikiLinkCandidates(target: string): FileItem[] {
 		const t = target.trim();
 		if (!t) return [];
-		const files = this.getFiles();
+		const files = this.getFiles().filter((file) => documentKind(file.content) === 'note');
 		// Match by exact id first.
 		const byId = files.find((f) => f.id === t);
 		if (byId) return [byId];

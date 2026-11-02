@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
 import { db, newId, type DraftRow } from './db';
+import { documentKind } from './document-kind';
 import { pruneVersions } from './version-history';
 
 export interface ReplacementCommitInput {
@@ -23,6 +24,14 @@ export async function commitReplacements(
 	now = Date.now()
 ): Promise<ReplacementCommitResult> {
 	if (inputs.length === 0) return { status: 'committed', rows: [] };
+	if (
+		inputs.some(
+			(input) =>
+				documentKind(input.before) === 'presentation' ||
+				documentKind(input.after) === 'presentation'
+		)
+	)
+		return { status: 'stale' };
 	if (new Set(inputs.map((input) => input.id)).size !== inputs.length) {
 		throw new Error('Replacement input contains duplicate document IDs');
 	}

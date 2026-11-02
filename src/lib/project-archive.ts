@@ -7,6 +7,7 @@ import {
 	rewriteProjectDestinations
 } from './project-links';
 import { rewriteWikiLinkTargets } from './wiki-links';
+import { documentKind } from './document-kind';
 import type { ProjectAssetRow } from './db';
 type JSZipObject = import('jszip').JSZipObject;
 
@@ -233,13 +234,16 @@ export async function buildProjectZip(
 		const documentKey = pathKey(documentPath);
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
-		const portableContent = rewriteWikiLinkTargets(document.content, (target) => {
-			const id = target.split('#', 1)[0]!;
-			const matches = wikiDocuments.filter((candidate) => candidate.id === id);
-			if (matches.length !== 1) return target;
-			const suffix = target.slice(id.length);
-			return relativeDestination(documentPath, matches[0]!.relativePath) + suffix;
-		});
+		const portableContent =
+			documentKind(document.content) === 'presentation'
+				? document.content
+				: rewriteWikiLinkTargets(document.content, (target) => {
+						const id = target.split('#', 1)[0]!;
+						const matches = wikiDocuments.filter((candidate) => candidate.id === id);
+						if (matches.length !== 1) return target;
+						const suffix = target.slice(id.length);
+						return relativeDestination(documentPath, matches[0]!.relativePath) + suffix;
+					});
 		validateMarkdownContent(portableContent);
 		if (new TextEncoder().encode(portableContent).length > IMPORT_LIMITS.maxFileBytes)
 			throw new Error('Project document size limit');

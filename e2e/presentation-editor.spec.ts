@@ -3,6 +3,16 @@ import AxeBuilder from '@axe-core/playwright';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { resetAppState, writeSourceContent } from './helpers';
+import {
+	createPresentation,
+	exportPresentation,
+	importMarkdown,
+	openPresentationSource,
+	presentationFixture,
+	presentationTitle,
+	renamePresentation,
+	waitForPresentation
+} from './presentation-helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -14,14 +24,6 @@ async function resetEnglishApp(page: Page): Promise<void> {
 	await page.evaluate(() => localStorage.setItem('mdsh:locale', 'en'));
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
-}
-
-async function openPresentation(page: Page): Promise<Locator> {
-	await page.getByTestId('slides-open').click();
-	const editor = page.getByTestId('presentation-editor');
-	await expect(editor).toBeVisible({ timeout: 15_000 });
-	await expect(editor.getByTestId('slide-canvas')).toBeVisible();
-	return editor;
 }
 
 function objects(editor: Locator, type?: string): Locator {
@@ -89,7 +91,7 @@ async function attachWorkflow(
 		body: await page.screenshot({ fullPage: true }),
 		contentType: 'image/png'
 	});
-	await editor.getByTestId('slide-source').click();
+	await openPresentationSource(editor);
 	const source = await editor.getByTestId('slide-source-editor').inputValue();
 	await testInfo.attach(`${name}.md`, { body: source, contentType: 'text/markdown' });
 	await testInfo.attach(`${name}.json`, {
@@ -124,10 +126,8 @@ test.beforeEach(async ({ page }) => {
 	await resetEnglishApp(page);
 });
 
-test('imports existing Markdown without splitting fenced separators', async ({
-	page
-}, testInfo) => {
-	const fixture = [
+test('imports a presentation without splitting fenced separators', async ({ page }, testInfo) => {
+	const opening = [
 		'# Existing opening',
 		'',
 		'````markdown',
@@ -135,22 +135,18 @@ test('imports existing Markdown without splitting fenced separators', async ({
 		'---',
 		'```',
 		'Literal separator',
-		'````',
-		'',
-		'---',
-		'',
-		'# Existing closing'
+		'````'
 	].join('\n');
-	await page.getByTestId('welcome-new').click();
-	await writeSourceContent(page, fixture);
-	const editor = await openPresentation(page);
+	const fixture = presentationFixture([opening, '# Existing closing']);
+	await importMarkdown(page, fixture);
+	const editor = await waitForPresentation(page);
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(2);
 	await expect(await renderedObject(editor, objects(editor, 'text').first())).toContainText(
 		'Literal separator'
 	);
-	await editor.getByTestId('slide-source').click();
+	await openPresentationSource(editor);
 	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(fixture);
-	await editor.getByTestId('slide-source').click();
+	await editor.getByTestId('slide-source-cancel').click();
 	await editor.getByTestId('slide-thumbnail').last().click();
 	await expect(await renderedObject(editor, objects(editor, 'text').first())).toContainText(
 		'Existing closing'
@@ -158,7 +154,7 @@ test('imports existing Markdown without splitting fenced separators', async ({
 	await objects(editor, 'text').first().dblclick();
 	await editor.getByTestId('slide-text-editor').fill('# Edited closing');
 	await editor.getByTestId('slide-text-done').click();
-	await editor.getByTestId('slide-source').click();
+	await openPresentationSource(editor);
 	const source = await editor.getByTestId('slide-source-editor').inputValue();
 	expect(source).toContain('---\n```\nLiteral separator');
 	expect(source).toContain('# Edited closing');
@@ -186,29 +182,29 @@ test('preserves a YAML literal that contains a false presentation marker', async
 	].join('\n');
 	const fixture = `${frontmatter}# Ordinary document\n\nVisible body.`;
 	await page.getByTestId('welcome-new').click();
+	await page.getByTestId('create-note').click();
 	await writeSourceContent(page, fixture);
 	await expect(page.locator('.cm-content')).toContainText('Ordinary document');
 	await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
 
-	const editor = await openPresentation(page);
-	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(1);
-	const text = objects(editor, 'text').first();
-	await expect(await renderedObject(editor, text)).toContainText('Ordinary document');
-	await text.dblclick();
-	await editor.getByTestId('slide-text-editor').fill('# Edited ordinary document\n\nVisible body.');
-	await editor.getByTestId('slide-text-done').click();
-	await editor.getByTestId('slide-source').click();
-	const source = await editor.getByTestId('slide-source-editor').inputValue();
+	await expect(page.getByTestId('slides-open')).toHaveCount(0);
+	const edited = fixture.replace('# Ordinary document', '# Edited ordinary document');
+	await writeSourceContent(page, edited);
+	await page.reload();
+	await expect(page.locator('.cm-content')).toContainText('Edited ordinary document');
+	await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
+	const source = (await page.locator('.cm-line').allTextContents()).join('\n');
+	expect(source).toBe(edited);
 	expect(source.slice(0, frontmatter.length)).toBe(frontmatter);
 	expect(source).toContain('# Edited ordinary document');
-	expect(source).toContain('<!-- mdsh-presentation\n');
+	expect(source.match(/<!-- mdsh-presentation/g)).toHaveLength(1);
 	await testInfo.attach('presentation-yaml-literal.md', {
 		body: source,
 		contentType: 'text/markdown'
 	});
 	await testInfo.attach('presentation-yaml-literal.json', {
 		body: JSON.stringify(
-			{ ordinaryBeforeImport: true, frontmatterByteStable: true, slideCount: 1 },
+			{ remainsNote: true, frontmatterByteStable: true, addedPresentationMetadata: false },
 			null,
 			2
 		),
@@ -217,7 +213,7 @@ test('preserves a YAML literal that contains a false presentation marker', async
 });
 
 test('round-trips reserved framing lines and an unclosed fence', async ({ page }, testInfo) => {
-	const editor = await openPresentation(page);
+	const editor = await createPresentation(page);
 	const text = await addObject(editor, 'text');
 	const textId = await text.getAttribute('data-object-id');
 	if (!textId) throw new Error('The text object identifier is missing.');
@@ -250,7 +246,7 @@ test('round-trips reserved framing lines and an unclosed fence', async ({ page }
 	await editor.getByTestId('slide-text-done').click();
 	await expectSaved(editor);
 
-	await editor.getByTestId('slide-source').click();
+	await openPresentationSource(editor);
 	const canonical = await editor.getByTestId('slide-source-editor').inputValue();
 	expect(canonical).toContain(`<!-- mdsh-element:${textId} -->`);
 	expect(canonical).toContain(`<!-- mdsh-end-element:${textId} gap=1 fence=b3 -->`);
@@ -259,10 +255,9 @@ test('round-trips reserved framing lines and an unclosed fence', async ({ page }
 	expect(canonical).toContain('<!-- mdsh-literal -->\n<!-- mdsh-literal -->');
 	expect(canonical).toContain('Speaker note --\\u003e and --!\\u003e remain exact.');
 	expect(canonical).toContain('**Shape --\\u003e and --!\\u003e Markdown**');
-	await editor.getByTestId('slide-source').click();
-	await editor.getByTestId('slide-close').click();
+	await editor.getByTestId('slide-source-cancel').click();
 	await page.reload();
-	const restored = await openPresentation(page);
+	const restored = await waitForPresentation(page);
 	await expect(restored.getByTestId('slide-notes')).toHaveValue(
 		'Speaker note --> and --!> remain exact.'
 	);
@@ -272,21 +267,21 @@ test('round-trips reserved framing lines and an unclosed fence', async ({ page }
 	await expect(await renderedObject(restored, objects(restored, 'rectangle'))).toContainText(
 		'Shape --> and --!> Markdown'
 	);
-	await restored.getByTestId('slide-source').click();
+	await openPresentationSource(restored);
 	await expect(restored.getByTestId('slide-source-editor')).toHaveValue(canonical);
 	await restored
 		.getByTestId('slide-source-editor')
 		.fill(canonical.replace('# Framing collisions', '# Framing collisions edited'));
-	await restored.getByTestId('slide-source').click();
+	await restored.getByTestId('slide-source-apply').click();
 	await expect(
 		restored.getByTestId('slide-canvas').getByText('Framing collisions edited', { exact: true })
 	).toBeVisible();
-	await restored.getByTestId('slide-source').click();
+	await openPresentationSource(restored);
 	const editedCanonical = await restored.getByTestId('slide-source-editor').inputValue();
 	const alternativeClose = editedCanonical.replace(/\n-->\s*$/, '\n--!>');
 	expect(alternativeClose).not.toBe(editedCanonical);
 	await restored.getByTestId('slide-source-editor').fill(alternativeClose);
-	await restored.getByTestId('slide-source').click();
+	await restored.getByTestId('slide-source-apply').click();
 	await expect(restored.getByTestId('slide-source-error')).toHaveCount(0);
 	await expect(restored.getByTestId('slide-notes')).toHaveValue(
 		'Speaker note --> and --!> remain exact.'
@@ -298,14 +293,14 @@ test('round-trips reserved framing lines and an unclosed fence', async ({ page }
 	await notes.fill('Speaker note --> and --!> remain exact. Updated');
 	await notes.press('Tab');
 	await expectSaved(restored);
-	await restored.getByTestId('slide-source').click();
+	await openPresentationSource(restored);
 	const roundTrip = await restored.getByTestId('slide-source-editor').inputValue();
 	expect(roundTrip).toMatch(/\n-->\s*$/);
 	expect(roundTrip).not.toContain('--!>');
-	await restored.getByTestId('slide-source').click();
+	await restored.getByTestId('slide-source-cancel').click();
 
 	const pending = page.waitForEvent('download');
-	await restored.getByTestId('slide-export-html').click();
+	await exportPresentation(restored, 'html');
 	const download = await pending;
 	const output = testInfo.outputPath('framing-collisions.html');
 	await download.saveAs(output);
@@ -325,9 +320,8 @@ test('opens a complete visual deck without changing its Markdown bytes', async (
 	page
 }, testInfo) => {
 	const fixture = await readFile(completeFixturePath, 'utf8');
-	await page.getByTestId('welcome-new').click();
-	await writeSourceContent(page, fixture);
-	const editor = await openPresentation(page);
+	await importMarkdown(page, fixture);
+	const editor = await waitForPresentation(page);
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(3);
 	await expect(objects(editor)).toHaveCount(7);
 	await expect(
@@ -339,16 +333,15 @@ test('opens a complete visual deck without changing its Markdown bytes', async (
 	await expect(editor.getByTestId('slide-notes')).toHaveValue(
 		'Introduce the offline slide editor.'
 	);
-	await editor.getByTestId('slide-source').click();
+	await openPresentationSource(editor);
 	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(fixture);
-	await editor.getByTestId('slide-source').click();
+	await editor.getByTestId('slide-source-cancel').click();
 	await editor.getByTestId('slide-thumbnail').last().click();
 	await expect(objects(editor)).toHaveCount(0);
-	await editor.getByTestId('slide-close').click();
 	await page.reload();
-	const reloaded = await openPresentation(page);
+	const reloaded = await waitForPresentation(page);
 	await expect(reloaded.getByTestId('slide-thumbnail')).toHaveCount(3);
-	await reloaded.getByTestId('slide-source').click();
+	await openPresentationSource(reloaded);
 	await expect(reloaded.getByTestId('slide-source-editor')).toHaveValue(fixture);
 	await testInfo.attach('presentation-complete.md', {
 		path: completeFixturePath,
@@ -370,12 +363,12 @@ test('opens a complete visual deck without changing its Markdown bytes', async (
 	});
 });
 
-test('manages slides and keeps deck settings after close and reload', async ({
+test('manages slides and keeps deck settings after a file switch and reload', async ({
 	page
 }, testInfo) => {
-	const editor = await openPresentation(page);
+	const editor = await createPresentation(page);
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(1);
-	await editor.getByTestId('slide-title').fill('Quarterly plan');
+	await renamePresentation(page, 'Quarterly plan');
 
 	await editor.getByTestId('slide-add').click();
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(2);
@@ -401,12 +394,20 @@ test('manages slides and keeps deck settings after close and reload', async ({
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(2);
 	await expectSaved(editor);
 
-	await editor.getByTestId('slide-close').click();
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^New file/ })
+		.click();
+	await page.getByTestId('create-note').click();
 	await expect(editor).toHaveCount(0);
-	await expect(page.getByTestId('slides-open')).toBeFocused();
+	await expect(page.locator('.cm-content')).toBeVisible();
 
-	const reopened = await openPresentation(page);
-	await expect(reopened.getByTestId('slide-title')).toHaveValue('Quarterly plan.md');
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^Quarterly plan/ })
+		.click();
+	const reopened = await waitForPresentation(page);
+	await expect(presentationTitle(page)).toHaveValue('Quarterly plan');
 	await expect(reopened.getByTestId('slide-thumbnail')).toHaveCount(2);
 	await expect(reopened.getByTestId('slide-aspect')).toHaveValue('4:3');
 	await reopened.getByTestId('slide-thumbnail').last().click();
@@ -415,11 +416,10 @@ test('manages slides and keeps deck settings after close and reload', async ({
 	);
 	await expect(reopened.getByTestId('slide-background')).toHaveValue('#123456');
 
-	await reopened.getByTestId('slide-close').click();
 	await page.reload();
-	const afterReload = await openPresentation(page);
+	const afterReload = await waitForPresentation(page);
 	await expect(afterReload.getByTestId('slide-thumbnail')).toHaveCount(2);
-	await expect(afterReload.getByTestId('slide-title')).toHaveValue('Quarterly plan.md');
+	await expect(presentationTitle(page)).toHaveValue('Quarterly plan');
 	await attachWorkflow(testInfo, page, afterReload, 'presentation-slide-management', {
 		slideCount: 2,
 		aspect: '4:3'
@@ -433,7 +433,7 @@ test('shows a real quota save failure and retries from the presentation', async 
 }, testInfo) => {
 	test.skip(browserName !== 'chromium', 'Chromium exposes the browser quota manager through CDP');
 	test.setTimeout(90_000);
-	const editor = await openPresentation(page);
+	const editor = await createPresentation(page);
 	await addObject(editor, 'text');
 	await expectSaved(editor);
 	const cdp = await context.newCDPSession(page);
@@ -491,7 +491,7 @@ test('directly manipulates every object type and preserves Markdown text', async
 	page
 }, testInfo) => {
 	test.setTimeout(60_000);
-	const editor = await openPresentation(page);
+	const editor = await createPresentation(page);
 	const text = await addObject(editor, 'text');
 	const renderedText = await renderedObject(editor, text);
 	await text.dblclick();
@@ -555,23 +555,22 @@ test('directly manipulates every object type and preserves Markdown text', async
 	await expect(editor.getByTestId('slide-prop-x')).toHaveValue('140');
 	await expect(editor.getByTestId('slide-prop-rotation')).toHaveValue('15');
 
-	await editor.getByTestId('slide-source').click();
+	await openPresentationSource(editor);
 	const sourceEditor = editor.getByTestId('slide-source-editor');
 	const originalSource = await sourceEditor.inputValue();
 	expect(originalSource).toContain('## Delivery');
 	expect(originalSource).toContain('**Offline**');
 	expect(originalSource).toContain('data:image/png;base64,');
 	await sourceEditor.fill(originalSource.replace('Offline', 'Private and offline'));
-	await editor.getByTestId('slide-source').click();
+	await editor.getByTestId('slide-source-apply').click();
 	await expect(renderedText).toContainText('Private and offline');
 	await expect(rectangle).toHaveAttribute('data-object-type', 'rectangle');
 	await selectObject(editor, rectangle);
 	await expect(editor.getByTestId('slide-prop-x')).toHaveValue('140');
 	await expectSaved(editor);
 
-	await editor.getByTestId('slide-close').click();
 	await page.reload();
-	const reloaded = await openPresentation(page);
+	const reloaded = await waitForPresentation(page);
 	await expect(await renderedObject(reloaded, objects(reloaded, 'text'))).toContainText(
 		'Private and offline'
 	);
@@ -590,9 +589,8 @@ test('aligns and distributes a negative line without losing its geometry', async
 	const pageErrors: string[] = [];
 	page.on('pageerror', (error) => pageErrors.push(error.message));
 	const fixture = await readFile(completeFixturePath, 'utf8');
-	await page.getByTestId('welcome-new').click();
-	await writeSourceContent(page, fixture);
-	let editor = await openPresentation(page);
+	await importMarkdown(page, fixture);
+	let editor = await waitForPresentation(page);
 	let line = editor.locator(
 		'[data-testid="slide-object"][data-object-type="line"][data-object-id="accent"]'
 	);
@@ -621,9 +619,8 @@ test('aligns and distributes a negative line without losing its geometry', async
 	expect(Math.min(geometry.y, geometry.y + geometry.height)).toBeGreaterThanOrEqual(0);
 	expect(Math.max(geometry.y, geometry.y + geometry.height)).toBeLessThanOrEqual(720);
 	await expectSaved(editor);
-	await editor.getByTestId('slide-close').click();
 	await page.reload();
-	editor = await openPresentation(page);
+	editor = await waitForPresentation(page);
 	line = editor.locator(
 		'[data-testid="slide-object"][data-object-type="line"][data-object-id="accent"]'
 	);
@@ -649,7 +646,7 @@ test('aligns and distributes a negative line without losing its geometry', async
 });
 
 test('commits text once before applying the redo button', async ({ page }, testInfo) => {
-	const editor = await openPresentation(page);
+	const editor = await createPresentation(page);
 	let text = await addObject(editor, 'text');
 	await text.dblclick();
 	await editor.getByTestId('slide-text-editor').fill('Base text');
@@ -672,9 +669,8 @@ test('commits text once before applying the redo button', async ({ page }, testI
 	await expect(await renderedObject(editor, text)).toContainText('Committed before redo');
 	await expectSaved(editor);
 
-	await editor.getByTestId('slide-close').click();
 	await page.reload();
-	const restored = await openPresentation(page);
+	const restored = await waitForPresentation(page);
 	text = objects(restored, 'text');
 	await expect(await renderedObject(restored, text)).toContainText('Committed before redo');
 	await testInfo.attach('presentation-redo-text.json', {
@@ -695,7 +691,7 @@ test('commits text once before applying the redo button', async ({ page }, testI
 test('applies selection, grouping, stacking, connector, and history commands', async ({
 	page
 }, testInfo) => {
-	const editor = await openPresentation(page);
+	const editor = await createPresentation(page);
 	const rectangle = await addObject(editor, 'rectangle');
 	const ellipse = await addObject(editor, 'ellipse');
 	const initialCount = await objects(editor).count();
@@ -839,7 +835,7 @@ test('applies selection, grouping, stacking, connector, and history commands', a
 test('plays the deck with the keyboard and has no blocking accessibility violations', async ({
 	page
 }, testInfo) => {
-	const editor = await openPresentation(page);
+	const editor = await createPresentation(page);
 	let text = await addObject(editor, 'text');
 	await text.dblclick();
 	await editor
@@ -893,12 +889,8 @@ test('plays the deck with the keyboard and has no blocking accessibility violati
 	});
 });
 
-test('announces selection changes and restores focus after close', async ({ page }, testInfo) => {
-	const trigger = page.getByTestId('slides-open');
-	await trigger.focus();
-	await trigger.click();
-	const editor = page.getByTestId('presentation-editor');
-	await expect(editor).toBeVisible({ timeout: 15_000 });
+test('announces selection changes and restores focus after Present', async ({ page }, testInfo) => {
+	const editor = await createPresentation(page);
 
 	const text = await addObject(editor, 'text');
 	await expect(editor.getByTestId('slide-selection-status')).toContainText('Text');
@@ -908,11 +900,14 @@ test('announces selection changes and restores focus after close', async ({ page
 	await expect(editor.getByTestId('slide-selection-status')).toContainText('2 object(s) selected');
 	await expect(rectangle).toHaveAttribute('aria-pressed', 'true');
 
+	const trigger = editor.getByTestId('slide-present');
+	await trigger.click();
+	await page.keyboard.press('Escape');
+	await expect(editor.getByTestId('slide-canvas')).toBeVisible();
+	await expect(trigger).toBeFocused();
 	await attachWorkflow(testInfo, page, editor, 'presentation-selection-announcement', {
 		announcedTypes: ['Text', 'Rectangle'],
 		multiSelectionCount: 2,
 		focusRestored: true
 	});
-	await editor.getByTestId('slide-close').click();
-	await expect(trigger).toBeFocused();
 });

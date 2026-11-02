@@ -10,6 +10,7 @@ import { t } from '#lib/i18n/index.js';
 import { notify } from '#lib/notify.svelte.js';
 import { reportWarning } from '#lib/report.js';
 import { MAX_IMAGE_BYTES } from '#lib/config.js';
+import { documentKind } from '#lib/document-kind.js';
 
 // §B5.1 - Guard limit for dropped images: beyond it, we skip the file
 // (with a console warn). A 2 MB image in base64 makes ~2.7 MB of
@@ -57,6 +58,10 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 	}
 	const active = store.active;
 	if (!active) return;
+	if (documentKind(active.content) === 'presentation') {
+		notify.error(t('imageDrop.unreadable', { n: images.length }));
+		return;
+	}
 	// Image decoding is needed only after a drop, not at application startup.
 	const media = await import('#lib/render/image-media.js').catch((error: unknown) => {
 		reportWarning('load image decoder', error);
@@ -137,9 +142,14 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 
 	if (blocks.length === 0) return;
 
-	const sep = active.content.endsWith('\n') ? '\n' : '\n\n';
-	const newContent = active.content + sep + blocks.join('\n\n') + '\n';
-	store.updateContent(active.id, newContent);
+	const current = store.active;
+	if (!current || current.id !== active.id || documentKind(current.content) === 'presentation') {
+		notify.error(t('imageDrop.unreadable', { n: blocks.length }));
+		return;
+	}
+	const sep = current.content.endsWith('\n') ? '\n' : '\n\n';
+	const newContent = current.content + sep + blocks.join('\n\n') + '\n';
+	store.updateContent(current.id, newContent);
 }
 
 // Window-level drag & drop must react ONLY to files coming from the OS.
@@ -168,8 +178,10 @@ export function buildDropHandlers(opts: {
 }): ImageDropHandlers {
 	async function handleDrop(e: DragEvent): Promise<void> {
 		if (!isFilesDrag(e)) return;
-		e.preventDefault();
 		opts.setDragOver(false);
+		// A document view can consume the files and still clear the shared overlay.
+		if (e.defaultPrevented) return;
+		e.preventDefault();
 		const files = e.dataTransfer?.files;
 		if (!files || files.length === 0) return;
 

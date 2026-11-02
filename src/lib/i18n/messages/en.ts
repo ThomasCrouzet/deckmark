@@ -779,7 +779,7 @@ export const en = {
 	'welcome.newFile': 'New file',
 	'welcome.openDemo': 'Open a demo document',
 	'welcome.privacy': 'No server. No telemetry. Your files stay with you.',
-	'welcome.tagline': 'Markdown, made simple.',
+	'welcome.tagline': 'Write notes and create presentations.',
 	'welcome.taglineLine2': 'WYSIWYG, read, source - all in your browser.',
 	'welcome.systemLabel': 'Local Markdown workspace',
 

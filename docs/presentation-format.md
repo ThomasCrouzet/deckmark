@@ -2,6 +2,23 @@
 
 This document defines the version 1 presentation format.
 
+## Document type
+
+A file is either a note or a presentation. Its content determines the type; no
+separate database field is stored. A recognized terminal presentation metadata
+block selects the inline slide editor, even when the metadata is malformed.
+A file without that block opens as a note. Markers inside fenced code, YAML front
+matter, or framed element content do not select the presentation editor.
+
+New presentations contain version 1 metadata and one empty slide before the first
+edit. Existing files need no migration or rewrite. The app does not convert notes
+to presentations. It keeps the version 1 format unchanged.
+
+**Advanced > Markdown source** uses a draft with Apply and Cancel. Apply rejects
+source without a recognized presentation marker and keeps the previous file
+content. Malformed metadata retains the presentation type and exposes the parse
+error for correction. Cancel discards changes to the source draft.
+
 ## Failure risks
 
 The implementation must control these failures before it reads or writes a presentation:
@@ -64,7 +81,8 @@ The metadata block starts and ends on isolated lines:
 ```
 
 The block must be the last non-whitespace content in the file.
-The parser only recognizes a block outside fenced code.
+The parser only recognizes a block outside fenced code, YAML front matter, and
+framed element content.
 The parser accepts the HTML comment terminators `-->` and `--!>`.
 The serializer always writes the canonical `-->` terminator.
 The serializer uses JSON Unicode escapes for angle brackets inside metadata.
@@ -82,7 +100,7 @@ The last element renders above earlier elements.
 ## Markdown content
 
 The standard Markdown section remains useful without DeckMark.
-Each imported Markdown slide becomes one editable text element.
+Within a presentation, each unmarked Markdown slide becomes one editable text element.
 The element keeps the slide Markdown in its `content` field.
 
 The serializer frames each source-backed element with isolated start and end markers:
@@ -139,14 +157,16 @@ Serialized text and image elements use an empty metadata `content` value.
 This rule prevents duplicate text and large duplicate data images.
 
 Unmarked nonempty Markdown becomes one text element on its slide.
-An imported blank document creates one blank slide without elements.
-Parsing an ordinary document does not change its source string.
-Serializing an unedited ordinary document returns its original bytes.
-The editor writes presentation metadata only after the first layout change.
+A new presentation contains one blank slide without elements and its metadata
+block. Opening an existing note or presentation does not rewrite its source.
+The parser can read ordinary Markdown, and an unedited parse and serialize cycle
+returns its original bytes. This low-level behavior is not an application
+conversion path. The slide editor accepts presentation files only.
 
 The serializer writes text and image content into the standard Markdown section.
 Shapes and connectors remain in the metadata because standard Markdown cannot describe them.
-Speaker notes remain in the metadata.
+Presenter notes remain in `slide.notes` in the metadata. Markdown export retains
+them. They do not appear on rendered slides or in HTML and PDF exports.
 
 ## Validation
 
@@ -167,5 +187,6 @@ It returns true for malformed presentation metadata so callers can show the pars
 It returns false when the only marker is inside a fenced code block.
 It also ignores a marker inside YAML front matter or framed element content.
 
-The existing presentation reader can continue to split ordinary Markdown on horizontal rules.
-The visual editor uses this format only when the metadata block is present.
+Horizontal rules alone do not make a note a presentation.
+The inline slide editor uses this format only when the metadata block is present.
+Invalid or unsupported metadata shows an error instead of opening the note editor.

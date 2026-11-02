@@ -1,3 +1,9 @@
+<script module lang="ts">
+	import { SvelteMap } from 'svelte/reactivity';
+	// Keep unapplied source input when a file view is remounted.
+	const sourceDrafts = new SvelteMap<string, { draft: string; base: string }>();
+</script>
+
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
@@ -8,7 +14,9 @@
 	import { spinnerStore } from '#lib/spinner.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import Toasts from '#lib/components/Toasts.svelte';
-	import BrandLogo from '#lib/components/BrandLogo.svelte';
+	import { documentKind } from '#lib/document-kind.js';
+	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { isFilesDrag } from '#lib/ui/image-drop.svelte.js';
 	import { PresentationEditor } from './editor.svelte';
 	import { createPresentationGestures } from './gestures.svelte';
 	import type { PresentationElementType } from './model';
@@ -39,12 +47,19 @@
 		ZoomOut
 	} from '@lucide/svelte';
 
-	let { onClose, initialPresenting = false }: { onClose: () => void; initialPresenting?: boolean } =
+	let { onPresentingChange = () => {} }: { onPresentingChange?: (value: boolean) => void } =
 		$props();
 	const fileId = filesStore.active!.id;
-	const editor = new PresentationEditor(filesStore.active?.content ?? '', (source) =>
-		filesStore.updateContent(fileId, source)
-	);
+	const guidanceId = $props.id();
+	const editor = new PresentationEditor(filesStore.active?.content ?? '', (source) => {
+		const file = filesStore.files.find((entry) => entry.id === fileId);
+		if (
+			file &&
+			documentKind(file.content) === 'presentation' &&
+			documentKind(source) === 'presentation'
+		)
+			filesStore.updateContent(fileId, source);
+	});
 	let root = $state<HTMLDivElement | null>(null);
 	let canvas = $state<HTMLDivElement | null>(null);
 	let viewport = $state<HTMLDivElement | null>(null);
@@ -52,7 +67,15 @@
 	let imageInput = $state<HTMLInputElement | null>(null);
 	let viewportWidth = $state(900);
 	let viewportHeight = $state(600);
-	let sourceOpen = $state(false);
+	let sourceOpen = $state(sourceDrafts.has(fileId) || editor.error);
+	let sourceDraft = $state(sourceDrafts.get(fileId)?.draft ?? editor.source);
+	let sourceBase = $state(sourceDrafts.get(fileId)?.base ?? editor.source);
+	let sourceError = $state('');
+	let sourceAlert = $state<HTMLParagraphElement | null>(null);
+	let parseAlert = $state<HTMLParagraphElement | null>(null);
+	let advancedOpen = $state(false);
+	let exportOpen = $state(false);
+	let notesOpen = $state(true);
 	let inspectorOpen = $state(true);
 	let multiSelect = $state(false);
 	let editingId = $state<string | null>(null);
@@ -73,7 +96,45 @@
 		fallbackApplied: boolean;
 	};
 	let clipboardShortcut: ClipboardShortcut | null = null;
-	let clipboardDisposed = false;
+	let disposed = false;
+	let focusFrame: number | null = null;
+	let focusedViewportHeight = $state<number | undefined>();
+	function keepFocusedFieldVisible() {
+		if (focusFrame !== null) return;
+		focusFrame = window.requestAnimationFrame(() => {
+			focusFrame = null;
+			void tick().then(async () => {
+				const field = document.activeElement;
+				if (
+					disposed ||
+					!root ||
+					!(field instanceof HTMLElement) ||
+					!root.contains(field) ||
+					!field.matches('textarea, input, select')
+				) {
+					focusedViewportHeight = undefined;
+					return;
+				}
+				const view = window.visualViewport;
+				// A keyboard can reduce only the visual viewport, leaving the layout height unchanged.
+				focusedViewportHeight =
+					view && view.scale === 1 && view.offsetTop + view.height < window.innerHeight - 1
+						? Math.max(0, view.offsetTop + view.height - root.getBoundingClientRect().top)
+						: undefined;
+				await tick();
+				if (disposed || !root || document.activeElement !== field) return;
+				const bounds = root.getBoundingClientRect();
+				const top = Math.max(bounds.top, view?.offsetTop ?? 0) + 4;
+				const bottom =
+					Math.min(bounds.bottom, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight)) -
+					4;
+				if (bottom <= top) return;
+				const box = field.getBoundingClientRect();
+				const delta = box.top < top ? box.top - top : box.bottom > bottom ? box.bottom - bottom : 0;
+				if (delta) root.scrollBy({ top: delta, behavior: 'instant' });
+			});
+		});
+	}
 	const gestures = createPresentationGestures(
 		editor,
 		() => canvas,
@@ -119,6 +180,22 @@
 			n: index
 		})}`;
 	});
+	$effect(() => {
+		onPresentingChange(presenting);
+	});
+	$effect(() => {
+		if (sourceDraft !== sourceBase)
+			sourceDrafts.set(fileId, { draft: sourceDraft, base: sourceBase });
+		else sourceDrafts.delete(fileId);
+	});
+	$effect(() => {
+		void editor.index;
+		void tick().then(() =>
+			root
+				?.querySelector('[aria-current="true"]')
+				?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+		);
+	});
 
 	$effect(() => {
 		const current = filesStore.files.find((file) => file.id === fileId)?.content;
@@ -126,7 +203,13 @@
 			if (current !== undefined && current !== editor.source) {
 				gestures.cancel();
 				editingId = null;
+				const editingSource = sourceOpen || editor.error;
 				editor.receive(current);
+				if (!editingSource) {
+					sourceDraft = current;
+					sourceBase = current;
+					if (editor.error) sourceOpen = true;
+				}
 				userMessage = t('slides.changedElsewhere');
 			}
 		});
@@ -139,6 +222,7 @@
 			if (box) {
 				viewportWidth = box.width;
 				viewportHeight = box.height;
+				keepFocusedFieldVisible();
 			}
 		});
 		observer.observe(element);
@@ -160,11 +244,13 @@
 	});
 	onMount(() => {
 		inspectorOpen = window.innerWidth >= 768;
-		presenting = initialPresenting;
-		root?.focus();
+		if (editor.error) parseAlert?.focus();
+		else root?.focus();
 		const nativeAction = (event: Event) => {
 			const action = (event as CustomEvent<string>).detail;
-			if (action === 'export-md') void exportFile('md');
+			if (action === 'present') present();
+			else if (action === 'source') openSource();
+			else if (action === 'export-md') void exportFile('md');
 			else if (action === 'export-html') void exportFile('html');
 			else if (action === 'export-pdf') void exportFile('pdf');
 			else if (action === 'save-disk') {
@@ -177,11 +263,22 @@
 			}
 		};
 		window.addEventListener('mdsh:presentation-action', nativeAction);
+		const visualViewport = window.visualViewport;
+		window.addEventListener('resize', keepFocusedFieldVisible);
+		visualViewport?.addEventListener('resize', keepFocusedFieldVisible);
+		root?.addEventListener('focusin', keepFocusedFieldVisible);
+		root?.addEventListener('focusout', keepFocusedFieldVisible);
 		return () => {
-			clipboardDisposed = true;
+			onPresentingChange(false);
+			disposed = true;
 			clipboardShortcut = null;
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
+			window.removeEventListener('resize', keepFocusedFieldVisible);
+			visualViewport?.removeEventListener('resize', keepFocusedFieldVisible);
+			root?.removeEventListener('focusin', keepFocusedFieldVisible);
+			root?.removeEventListener('focusout', keepFocusedFieldVisible);
+			if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
 		};
 	});
 
@@ -227,10 +324,28 @@
 	async function insertImages(files: File[]) {
 		if (!files.length) return;
 		finishText();
+		const slideId = editor.slide.id;
+		let expectedSource = editor.source;
+		function targetIsCurrent(): boolean {
+			if (
+				!disposed &&
+				!editor.error &&
+				!sourceOpen &&
+				filesStore.activeId === fileId &&
+				editor.slide.id === slideId &&
+				editor.source === expectedSource &&
+				filesStore.active?.content === expectedSource
+			)
+				return true;
+			notify.error(t('slides.imageError'));
+			return false;
+		}
 		try {
 			const { embedImageFile } = await import('#lib/render/image-media.js');
+			if (!targetIsCurrent()) return;
 			for (const file of files) {
 				const image = await embedImageFile(file);
+				if (!targetIsCurrent()) return;
 				const id = editor.add('image', image.dataUri);
 				const element = editor.slide.elements.find((entry) => entry.id === id)!;
 				element.width = Math.min(480, editor.deck.width / 2);
@@ -241,6 +356,7 @@
 				element.width = (element.height * image.width) / image.height;
 				editor.constrain(element);
 				editor.publish();
+				expectedSource = editor.source;
 			}
 		} catch (error) {
 			reportError('insert slide image', error);
@@ -248,21 +364,32 @@
 		}
 	}
 	function dropImage(event: DragEvent) {
+		if (!isFilesDrag(event)) return;
+		const files = Array.from(event.dataTransfer?.files ?? []);
+		// Mixed drops use the shared importer, which appends images to the imported note.
+		if (!files.length || !files.every((file) => file.type.startsWith('image/'))) return;
 		event.preventDefault();
-		event.stopPropagation();
-		void insertImages(
-			Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith('image/'))
-		);
+		// Let the window handler clear the overlay without importing these files again.
+		void insertImages(files);
 	}
 	function editKey(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.isComposing) return;
+		if (
+			!event.altKey &&
+			event.metaKey !== event.ctrlKey &&
+			['b', 'i'].includes(event.key.toLowerCase())
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+			formatText(event.key.toLowerCase() === 'b' ? '**' : '*');
+			return;
+		}
+		if (keyboardStore.match(event)) return;
 		event.stopPropagation();
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			finishText();
 			root?.focus();
-		} else if ((event.metaKey || event.ctrlKey) && ['b', 'i'].includes(event.key.toLowerCase())) {
-			event.preventDefault();
-			formatText(event.key.toLowerCase() === 'b' ? '**' : '*');
 		}
 	}
 	function formatText(marker: string) {
@@ -283,10 +410,18 @@
 		});
 	}
 	function handleKey(event: KeyboardEvent) {
+		const appShortcut = keyboardStore.match(event) || (event.ctrlKey && event.key === 'Tab');
+		if (appShortcut && !presenting) return;
 		event.stopPropagation();
 		if (
 			event.isComposing ||
 			(event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')
+		)
+			return;
+		// Keep native activation for buttons, links, and disclosure controls.
+		if (
+			['Enter', ' '].includes(event.key) &&
+			(event.target as HTMLElement).closest('button, summary, a')
 		)
 			return;
 		if (presenting) {
@@ -336,7 +471,7 @@
 			}
 		} else if (event.key === 'Escape') {
 			if (editor.selected.length) editor.selected = [];
-			else close();
+			else if (sourceOpen) cancelSource();
 		} else if (event.key.startsWith('Arrow') && editor.selected.length) {
 			event.preventDefault();
 			const step = event.shiftKey ? 10 : 1;
@@ -381,7 +516,7 @@
 		clipboardShortcut = request;
 		// Native clipboard events run before this fallback task.
 		setTimeout(() => {
-			if (clipboardDisposed || request.nativeHandled) return;
+			if (disposed || request.nativeHandled) return;
 			if (kind === 'paste') void pasteFromClipboard(request);
 			else {
 				request.fallbackApplied = true;
@@ -406,7 +541,7 @@
 			if (typeof navigator.clipboard?.read === 'function') {
 				const items = await navigator.clipboard.read();
 				for (const item of items) {
-					if (clipboardDisposed || request.nativeHandled) return;
+					if (disposed || request.nativeHandled) return;
 					const type = item.types.find((value) => value.startsWith('image/'));
 					if (type) images.push(new File([await item.getType(type)], 'clipboard-image', { type }));
 					else if (item.types.includes('text/plain'))
@@ -425,7 +560,7 @@
 				unavailable = true;
 			}
 		}
-		if (clipboardDisposed || request.nativeHandled || editor.slide.id !== request.slideId) return;
+		if (disposed || request.nativeHandled || editor.slide.id !== request.slideId) return;
 		request.fallbackApplied = true;
 		if (unavailable && !editor.clipboardAvailable) notify.error(t('palette.clipboardUnavailable'));
 		else applyPaste(images, text);
@@ -470,14 +605,14 @@
 	}
 	async function exportFile(kind: 'md' | 'html' | 'pdf') {
 		if (busy || editor.error) return;
+		exportOpen = false;
 		finishText();
-		editor.publish();
 		busy = true;
 		try {
 			await filesStore.flushPendingAwait();
-			if (kind === 'md') filesStore.exportActive();
-			else if (kind === 'html') await filesStore.exportActiveHTML();
-			else await filesStore.exportActivePDF();
+			if (kind === 'md') filesStore.export(fileId);
+			else if (kind === 'html') await filesStore.exportHTML(fileId);
+			else await filesStore.exportPDF(fileId);
 		} catch (error) {
 			reportError('export presentation', error);
 			notify.error(t('slides.exportError'));
@@ -486,23 +621,55 @@
 		}
 	}
 	function present() {
+		if (editor.error || sourceOpen) return;
 		finishText();
 		presenting = true;
 		gestures.resetView();
 		void tick().then(() => root?.focus());
 	}
 	function exitPresent() {
-		if (initialPresenting) {
-			close();
-			return;
-		}
 		presenting = false;
 		if (document.fullscreenElement === root) void document.exitFullscreen?.();
+		void tick().then(() =>
+			root?.querySelector<HTMLButtonElement>('[data-testid="slide-present"]')?.focus()
+		);
 	}
-	function close() {
+	function openSource() {
 		finishText();
-		if (document.fullscreenElement === root) void document.exitFullscreen?.();
-		onClose();
+		advancedOpen = false;
+		if (!sourceOpen && !editor.error) {
+			sourceDraft = editor.source;
+			sourceBase = editor.source;
+			sourceError = '';
+		}
+		sourceOpen = true;
+		void tick().then(() =>
+			root?.querySelector<HTMLTextAreaElement>('[data-testid="slide-source-editor"]')?.focus()
+		);
+	}
+	function cancelSource() {
+		sourceDraft = editor.source;
+		sourceBase = editor.source;
+		sourceError = '';
+		sourceOpen = false;
+		void tick().then(() =>
+			root?.querySelector<HTMLButtonElement>('[data-testid="slide-advanced"]')?.focus()
+		);
+	}
+	function applySource() {
+		if (documentKind(sourceDraft) !== 'presentation') sourceError = t('slides.sourceRequiresData');
+		else if (editor.source !== sourceBase) sourceError = t('slides.sourceConflict');
+		else {
+			editor.writeSource(sourceDraft);
+			sourceBase = editor.source;
+			sourceError = '';
+			if (!editor.error) {
+				cancelSource();
+				notify.success(t('slides.sourceApplied'));
+			} else void tick().then(() => parseAlert?.focus());
+			return;
+		}
+		void tick().then(() => sourceAlert?.focus());
 	}
 	function thumbnailPointerDown(event: PointerEvent, index: number) {
 		if (event.pointerType === 'touch')
@@ -536,9 +703,20 @@
 	onpointercancel={(event) => gestures.pointerEnd(event, true)}
 />
 
-{#snippet action(id: string, label: MessageKey, run: () => void, disabled = false)}
-	<button type="button" data-testid={'slide-' + id} onclick={run} {disabled} title={t(label)}
-		>{t(label)}</button
+{#snippet action(
+	id: string,
+	label: MessageKey,
+	run: () => void,
+	disabled = false,
+	describedBy: string | undefined = undefined
+)}
+	<button
+		type="button"
+		data-testid={'slide-' + id}
+		onclick={run}
+		{disabled}
+		title={t(label)}
+		aria-describedby={describedBy}>{t(label)}</button
 	>
 {/snippet}
 
@@ -546,8 +724,9 @@
 	bind:this={root}
 	class="presentation-editor"
 	class:presenting
-	role="dialog"
-	aria-modal="true"
+	style:max-height={focusedViewportHeight === undefined ? undefined : `${focusedViewportHeight}px`}
+	role={presenting ? 'dialog' : 'region'}
+	aria-modal={presenting ? 'true' : undefined}
 	aria-label={t('slides.title')}
 	tabindex="-1"
 	data-testid="presentation-editor"
@@ -558,50 +737,53 @@
 	onpaste={paste}
 	onbeforeinput={nativeHistory}
 	inert={promptStore.open}
-	use:focusTrap
+	use:focusTrap={{ active: presenting }}
 >
 	<header class="presentation-header">
-		<div class="presentation-brand">
-			<span class="presentation-signature"><BrandLogo /></span>
-			<span class="brand-label"><strong>{t('slides.open')}</strong></span>
-		</div>
 		{#if !presenting}
-			<input
-				class="presentation-name"
-				data-testid="slide-title"
-				aria-label={t('slides.fileName')}
-				value={filesStore.files.find((file) => file.id === fileId)?.name ?? ''}
-				onchange={(event) => void filesStore.rename(fileId, event.currentTarget.value)}
-			/>
 			<div class="header-actions">
-				{@render action('source', sourceOpen ? 'slides.visual' : 'slides.source', () => {
-					finishText();
-					sourceOpen = !sourceOpen;
-				})}
-				{@render action(
-					'export-md',
-					'slides.exportMarkdown',
-					() => void exportFile('md'),
-					busy || editor.error
-				)}
-				{@render action(
-					'export-html',
-					'slides.exportHtml',
-					() => void exportFile('html'),
-					busy || editor.error
-				)}
-				{@render action(
-					'export-pdf',
-					'slides.exportPdf',
-					() => void exportFile('pdf'),
-					busy || editor.error
-				)}
+				<details bind:open={advancedOpen}>
+					<summary data-testid="slide-advanced">{t('slides.advanced')}</summary>
+					<div class="action-menu">{@render action('source', 'slides.source', openSource)}</div>
+				</details>
+				<details bind:open={exportOpen}>
+					<summary data-testid="slide-export">{t('slides.export')}</summary>
+					<div class="action-menu">
+						{@render action(
+							'export-md',
+							'slides.exportMarkdown',
+							() => void exportFile('md'),
+							busy || editor.error
+						)}
+						{@render action(
+							'export-html',
+							'slides.exportHtml',
+							() => void exportFile('html'),
+							busy || editor.error
+						)}
+						{@render action(
+							'export-pdf',
+							'slides.exportPdf',
+							() => void exportFile('pdf'),
+							busy || editor.error
+						)}
+					</div>
+				</details>
+				<button
+					data-testid="slide-notes-toggle"
+					aria-pressed={notesOpen}
+					onclick={() => (notesOpen = !notesOpen)}>{t('slides.notes')}</button
+				>
 				<button
 					class="primary"
 					data-testid="slide-present"
 					onclick={present}
-					disabled={editor.error}><Play size={15} />{t('slides.present')}</button
+					aria-describedby={sourceOpen ? `${guidanceId}-present` : undefined}
+					disabled={editor.error || sourceOpen}><Play size={15} />{t('slides.present')}</button
 				>
+				{#if sourceOpen}<p id={`${guidanceId}-present`} class="action-hint present-hint">
+						{t('slides.presentSourceHint')}
+					</p>{/if}
 			</div>
 		{:else}
 			<span class="present-count">{editor.index + 1} / {editor.deck.slides.length}</span>
@@ -615,17 +797,16 @@
 					><Maximize size={18} /></button
 				>{/if}
 		{/if}
-		<button
-			class="icon-button"
-			data-testid={presenting ? 'slide-present-exit' : 'slide-close'}
-			aria-label={t(presenting ? 'slides.exitPresent' : 'slides.close')}
-			onclick={presenting ? exitPresent : close}><X size={20} /></button
-		>
+		{#if presenting}<button
+				class="icon-button"
+				data-testid="slide-present-exit"
+				onclick={exitPresent}><X size={20} />{t('slides.exitPresent')}</button
+			>{/if}
 	</header>
 	<p class="sr-only" role="status" aria-live="polite" data-testid="slide-selection-status">
 		{selectionAnnouncement}
 	</p>
-	<Toasts embedded />
+	{#if presenting}<Toasts embedded />{/if}
 	{#if userMessage}<p class="message" role="status">
 			{userMessage}<button
 				aria-label={t('slides.close')}
@@ -634,7 +815,13 @@
 				}}>×</button
 			>
 		</p>{/if}
-	{#if editor.error}<p class="error" role="alert" data-testid="slide-source-error">
+	{#if editor.error}<p
+			bind:this={parseAlert}
+			tabindex="-1"
+			class="error"
+			role="alert"
+			data-testid="slide-source-error"
+		>
 			{t('slides.invalidSource')}
 		</p>{/if}
 	{#if busy && spinnerStore.visible}
@@ -702,13 +889,24 @@
 	{/if}
 	{#if sourceOpen || editor.error}
 		<div class="source-panel">
-			<p><Code2 size={18} />{t('slides.sourceHint')}</p>
+			<p id={`${guidanceId}-source`}><Code2 size={18} />{t('slides.sourceHint')}</p>
+			{#if sourceError}<p bind:this={sourceAlert} tabindex="-1" role="alert">{sourceError}</p>{/if}
 			<textarea
 				data-testid="slide-source-editor"
 				aria-label={t('slides.source')}
-				value={editor.source}
-				spellcheck="false"
-				oninput={(event) => editor.writeSource(event.currentTarget.value)}></textarea>
+				aria-describedby={sourceOpen
+					? `${guidanceId}-present ${guidanceId}-source`
+					: `${guidanceId}-source`}
+				bind:value={sourceDraft}
+				spellcheck="false"></textarea>
+			<div class="source-actions">
+				<button class="primary" data-testid="slide-source-apply" onclick={applySource}
+					>{t('slides.apply')}</button
+				>
+				<button data-testid="slide-source-cancel" onclick={cancelSource}
+					>{t('slides.cancel')}</button
+				>
+			</div>
 		</div>
 	{:else}
 		<div class="presentation-workspace">
@@ -804,7 +1002,9 @@
 				{#if !presenting}<div
 						class="selection-tools"
 						role="toolbar"
+						tabindex="0"
 						aria-label={t('slides.objects')}
+						aria-describedby={!editor.selected.length ? `${guidanceId}-selection` : undefined}
 					>
 						{@render action(
 							'copy',
@@ -812,7 +1012,8 @@
 							() => {
 								copySelection();
 							},
-							!editor.selected.length
+							!editor.selected.length,
+							!editor.selected.length ? `${guidanceId}-selection` : undefined
 						)}
 						{@render action(
 							'paste',
@@ -824,31 +1025,33 @@
 							'duplicate',
 							'slides.duplicate',
 							() => editor.duplicate(),
-							!editor.selected.length
+							!editor.selected.length,
+							!editor.selected.length ? `${guidanceId}-selection` : undefined
 						)}
 						{@render action(
 							'delete',
 							'slides.delete',
 							() => editor.remove(),
-							!editor.selected.length
+							!editor.selected.length,
+							!editor.selected.length ? `${guidanceId}-selection` : undefined
 						)}
 						{@render action(
 							'edit-text',
 							'slides.editText',
 							() => void editText(),
-							!editor.primary || ['image', 'line', 'arrow'].includes(editor.primary.type)
+							!editor.primary || ['image', 'line', 'arrow'].includes(editor.primary.type),
+							!editor.selected.length ? `${guidanceId}-selection` : undefined
 						)}
-						<button
-							data-testid="slide-multiselect"
-							aria-pressed={multiSelect}
-							onclick={() => {
-								multiSelect = !multiSelect;
-							}}>{t('slides.multiSelect')}</button
-						>
 						<label class="snap-control"
 							><input type="checkbox" bind:checked={gestures.snap} />{t('slides.snap')}</label
 						>
 					</div>{/if}
+				{#if !presenting && !editor.selected.length}<p
+						id={`${guidanceId}-selection`}
+						class="action-hint"
+					>
+						{t('slides.selectToEdit')}
+					</p>{/if}
 				<div
 					class="slide-viewport"
 					bind:this={viewport}
@@ -858,8 +1061,7 @@
 						if (!presenting) gestures.startBackground(event);
 					}}
 					ondragover={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
+						if (isFilesDrag(event)) event.preventDefault();
 					}}
 					ondrop={dropImage}
 				>
@@ -969,6 +1171,7 @@
 										style:background={editor.slide.background}
 										style:transform={`rotate(${editingElement.rotation}deg)`}
 										onkeydown={editKey}
+										onpointerdown={(event) => event.stopPropagation()}
 										oninput={(event) => {
 											if (editingElement) editingElement.content = event.currentTarget.value;
 											editor.publish();
@@ -1012,7 +1215,7 @@
 					>
 						{t('slides.overflow')}
 					</p>{/if}
-				{#if !presenting}<label class="notes"
+				{#if !presenting && notesOpen}<label class="notes"
 						><span>{t('slides.notes')}</span><textarea
 							data-testid="slide-notes"
 							placeholder={t('slides.notesPlaceholder')}
@@ -1027,11 +1230,34 @@
 							}}
 							onblur={() => editor.commit()}></textarea></label
 					>
-				{:else if showNotes}<div class="present-notes" data-testid="slide-presenter-notes">
-						{editor.slide.notes}
+				{:else if presenting && showNotes}<div
+						class="present-notes"
+						data-testid="slide-presenter-notes"
+					>
+						<p>{editor.slide.notes}</p>
+						{#if editor.deck.slides[editor.index + 1]}<div
+								class="next-slide"
+								aria-label={t('slides.next')}
+							>
+								<SlideThumbnail
+									deck={editor.deck}
+									slide={editor.deck.slides[editor.index + 1]!}
+									{fileId}
+								/>
+							</div>{/if}
 					</div>{/if}
 			</div>
-			{#if inspectorOpen && !presenting}<SlideInspector {editor} {multiSelect} />{/if}
+			{#if inspectorOpen && !presenting}<SlideInspector
+					onToggleMultiSelect={() => (multiSelect = !multiSelect)}
+					{editor}
+					{multiSelect}
+					onClose={() => {
+						inspectorOpen = false;
+						void tick().then(() =>
+							root?.querySelector<HTMLButtonElement>('[data-testid="slide-properties"]')?.focus()
+						);
+					}}
+				/>{/if}
 		</div>
 	{/if}
 	<footer class="presentation-footer">
@@ -1101,9 +1327,12 @@
 
 <style>
 	.presentation-editor {
-		position: fixed;
-		inset: 0;
-		z-index: 55;
+		overflow-y: auto;
+		position: relative;
+		height: 100%;
+		min-width: 0;
+		min-height: 0;
+		container-type: inline-size;
 		display: flex;
 		flex-direction: column;
 		background: var(--color-bg);
@@ -1111,12 +1340,55 @@
 		font-family: var(--font-sans, system-ui, sans-serif);
 		outline: none;
 	}
+	.presentation-editor.presenting {
+		overflow: hidden;
+		position: fixed;
+		inset: 0;
+		z-index: 55;
+		height: 100dvh;
+	}
+	details {
+		position: relative;
+	}
+	summary {
+		cursor: pointer;
+		padding: 12px 10px;
+		min-height: 44px;
+		font-size: 12px;
+	}
+	summary:focus-visible {
+		outline: 2px solid var(--color-focus);
+	}
+	.action-menu {
+		position: absolute;
+		top: 100%;
+		left: 0;
+		z-index: 20;
+		display: flex;
+		flex-direction: column;
+		padding: 6px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-1);
+		box-shadow: var(--shadow-lg);
+	}
+	.source-actions {
+		display: flex;
+		gap: 8px;
+	}
+	.next-slide {
+		position: relative;
+		width: 160px;
+		aspect-ratio: 16 / 9;
+		overflow: hidden;
+	}
 	button {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		gap: 6px;
-		min-height: 36px;
+		min-height: 44px;
+		min-width: 44px;
 		padding: 6px 10px;
 		border: 1px solid transparent;
 		border-radius: 6px;
@@ -1156,42 +1428,27 @@
 		border-bottom: 1px solid var(--color-border);
 		flex: none;
 	}
-	.presentation-brand {
-		display: flex;
-		gap: 10px;
-		align-items: center;
-		white-space: nowrap;
-	}
-	.presentation-signature {
-		width: 128px;
-		flex: none;
-	}
-	.brand-label {
-		font-size: 13px;
-	}
-	.brand-label strong {
-		font-weight: 600;
-	}
-	.presentation-name {
-		width: 180px;
-		min-width: 70px;
-		max-width: 260px;
-		padding: 6px 8px;
-		border: 1px solid transparent;
-		border-radius: 5px;
-		font-size: 13px;
-		background: transparent;
-		color: var(--color-fg);
-	}
-	.presentation-name:hover,
-	.presentation-name:focus {
-		border-color: var(--color-border);
-	}
 	.header-actions {
-		margin-left: auto;
+		width: 100%;
+		flex-wrap: wrap;
 		display: flex;
 		align-items: center;
 		gap: 3px;
+	}
+	.header-actions .primary {
+		margin-left: auto;
+	}
+	.action-hint {
+		margin: 0;
+		padding: 6px 10px;
+		flex: none;
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--color-fg-muted);
+		overflow-wrap: anywhere;
+	}
+	.present-hint {
+		width: 100%;
 	}
 	.icon-button {
 		padding: 8px;
@@ -1224,7 +1481,7 @@
 	.presentation-workspace {
 		display: flex;
 		flex: 1;
-		min-height: 0;
+		min-height: 240px;
 		min-width: 0;
 	}
 	.slide-filmstrip {
@@ -1307,6 +1564,13 @@
 	}
 	.selection-tools button {
 		font-size: 11px;
+	}
+	.selection-tools:focus-visible {
+		outline: 2px solid var(--color-focus);
+		outline-offset: -2px;
+	}
+	.presenting .presentation-workspace {
+		min-height: 0;
 	}
 	.snap-control {
 		margin-left: auto;
@@ -1509,6 +1773,7 @@
 	}
 	.presentation-footer {
 		display: flex;
+		flex-wrap: wrap;
 		min-height: 38px;
 		gap: 14px;
 		align-items: center;
@@ -1535,14 +1800,13 @@
 		flex: none;
 	}
 	.zoom-controls button {
-		min-height: 28px;
+		min-height: 44px;
 		padding: 3px 7px;
 	}
 	.source-panel {
 		display: flex;
 		flex-direction: column;
-		flex: 1;
-		min-height: 0;
+		flex: 1 0 auto;
 		padding: 16px;
 		gap: 12px;
 	}
@@ -1555,7 +1819,7 @@
 	}
 	.source-panel textarea {
 		flex: 1;
-		min-height: 0;
+		min-height: 6em;
 		width: 100%;
 		padding: 16px;
 		border: 1px solid var(--color-border);
@@ -1601,45 +1865,58 @@
 		font-size: 14px;
 	}
 	@media (max-width: 1100px) {
-		.brand-label {
-			display: none;
-		}
-		.presentation-name {
-			width: 140px;
-		}
 		.footer-hint {
 			display: none;
 		}
 	}
-	@media (max-width: 767px) {
+	@container (max-width: 320px) {
+		.presentation-tools,
+		.selection-tools,
+		.source-actions {
+			flex-wrap: wrap;
+		}
+		button {
+			max-width: 100%;
+			white-space: normal;
+			overflow-wrap: anywhere;
+		}
+		.presentation-editor:not(.presenting) .presentation-workspace {
+			flex: none;
+		}
+		.presentation-editor:not(.presenting) .stage-column {
+			min-height: 280px;
+		}
+		.source-panel textarea {
+			padding: 8px;
+		}
+	}
+	@container (max-width: 800px) {
 		.presentation-header {
 			padding: 6px 8px;
 			gap: 4px;
 			min-height: 48px;
 			flex-wrap: wrap;
 		}
-		.presentation-name {
-			flex: 1;
-			max-width: none;
-		}
 		.header-actions {
 			order: 3;
 			width: 100%;
-			overflow-x: auto;
 			border-top: 1px solid var(--color-border);
 			padding-top: 4px;
 		}
 		.header-actions button {
 			flex: none;
+			max-width: 100%;
+			white-space: normal;
 		}
 		.presentation-tools {
 			padding: 4px 6px;
 		}
 		.presentation-tools button {
-			min-height: 40px;
+			min-height: 44px;
 		}
 		.presentation-workspace {
 			flex-direction: column;
+			min-height: 360px;
 		}
 		.slide-filmstrip {
 			width: 100%;
@@ -1688,7 +1965,7 @@
 			border: 0;
 		}
 		.filmstrip-bottom button {
-			min-height: 36px;
+			min-height: 44px;
 			padding: 5px;
 		}
 		.selection-tools {

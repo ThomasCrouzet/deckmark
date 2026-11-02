@@ -288,15 +288,17 @@ describe('limit and read error validation', () => {
 			`<img><img alt="Absent"><img src="data:image/png;base64,${PNG_BASE64}" srcset="a.png 2x"><img src="data:image/png;base64,${PNG_BASE64}" data-mdsh-remote-srcset="b.png 2x"><img src="${blob}">`,
 			{ allowNetwork: false }
 		);
-		expect(result.issues.map((issue) => issue.reason)).toEqual([
-			'unreadable',
-			'unreadable',
-			'unsupported-srcset',
-			'unsupported-srcset',
-			'fetch-failed'
+		expect(result.issues).toEqual([
+			{ source: '', reason: 'unreadable' },
+			{ source: 'Absent', reason: 'unreadable' },
+			{ source: 'a.png 2x', reason: 'unsupported-srcset' },
+			{ source: 'b.png 2x', reason: 'unsupported-srcset' },
+			{ source: blob, reason: 'fetch-failed' }
 		]);
 		expect(result.html).toContain(`data-mdsh-media-src="${blob}"`);
-		expect((await prepareHtmlMedia(result.html, { allowNetwork: false })).issues).toHaveLength(3);
+		const repeated = await prepareHtmlMedia(result.html, { allowNetwork: false });
+		expect(repeated.issues).toEqual(result.issues);
+		expect(repeated.html).toBe(result.html);
 	});
 
 	it('checks the total limit before an additional request', async () => {

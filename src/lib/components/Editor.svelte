@@ -23,6 +23,7 @@
 	import { stripFrontmatter } from '#lib/frontmatter.js';
 	import { SourceFidelity } from '#lib/source-fidelity.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
+	import { documentKind } from '#lib/document-kind.js';
 
 	interface Props {
 		fileId: string;
@@ -298,6 +299,20 @@
 			'mdshNormalizeImageTitles',
 			() => () => normalizeImageTitlesForMilkdown
 		);
+		const noteTypePlugin = prosePlugin(
+			(ctx) =>
+				new Plugin({
+					filterTransaction(transaction) {
+						if (!transaction.docChanged) return true;
+						// Serialize nodes, including HTML atoms, with the same source restoration
+						// as the save callback. Code blocks must keep their fence context.
+						const markdown = restoreMarkdown(ctx.get(serializerCtx)(transaction.doc));
+						if (documentKind(markdown) === 'note') return true;
+						notify.error(t('documents.noConversion'));
+						return false;
+					}
+				})
+		);
 		const instance = new Crepe({
 			root: container,
 			defaultValue: roundTrip.editorMarkdown,
@@ -332,6 +347,7 @@
 		instance.editor.use(imageTitlePlugin);
 		instance.editor.use(headingLevelPlugin);
 		instance.editor.use(tabIndentPlugin);
+		instance.editor.use(noteTypePlugin);
 		instance.on((listener) => {
 			listener.markdownUpdated((_ctx, md) => {
 				// A queued event must not replace a newer editor document.

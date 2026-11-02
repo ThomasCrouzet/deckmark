@@ -583,10 +583,10 @@
 					<h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-dim">
 						{t('settings.appearance')}
 					</h3>
-					<div class="flex items-center justify-between gap-3">
+					<div class="flex flex-wrap items-center justify-between gap-3">
 						<span class="text-sm text-fg-muted">{t('settings.theme')}</span>
 						<div
-							class="flex gap-1 rounded-md border border-border p-0.5"
+							class="flex flex-wrap gap-1 rounded-md border border-border p-0.5"
 							role="group"
 							aria-label={t('settings.themeChoice')}
 						>
@@ -604,10 +604,10 @@
 							{/each}
 						</div>
 					</div>
-					<div class="mt-3 flex items-center justify-between gap-3">
+					<div class="mt-3 flex flex-wrap items-center justify-between gap-3">
 						<span class="text-sm text-fg-muted">{t('settings.language')}</span>
 						<div
-							class="flex gap-1 rounded-md border border-border p-0.5"
+							class="flex flex-wrap gap-1 rounded-md border border-border p-0.5"
 							role="group"
 							aria-label={t('settings.language')}
 						>
@@ -632,7 +632,7 @@
 					<h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-dim">
 						{t('settings.editor')}
 					</h3>
-					<div class="flex items-center justify-between gap-3">
+					<div class="flex flex-wrap items-center justify-between gap-3">
 						<span class="text-sm text-fg-muted">{t('settings.width')}</span>
 						<div
 							class="flex flex-wrap justify-end gap-1 rounded-md border border-border p-0.5"
@@ -646,7 +646,9 @@
 									class:text-fg={editorWidth.isActiveWidth(preset.value)}
 									class:text-fg-dim={!editorWidth.isActiveWidth(preset.value)}
 									aria-pressed={editorWidth.isActiveWidth(preset.value)}
-									aria-describedby={preset.key === 'pdf' ? 'editor-width-pdf-help' : undefined}
+									aria-describedby={preset.key === 'pdf' && editorWidth.isActiveWidth(preset.value)
+										? 'editor-width-pdf-help'
+										: undefined}
 									onclick={() => editorWidth.setEditorWidth(preset.value)}
 								>
 									{preset.label}
@@ -654,7 +656,9 @@
 							{/each}
 						</div>
 					</div>
-					<p id="editor-width-pdf-help" class="mt-2 text-xs text-fg-muted">{pdfWidthHelp}</p>
+					{#if editorWidth.isActiveWidth(EDITOR.widthPresets.pdf)}
+						<p id="editor-width-pdf-help" class="mt-2 text-xs text-fg-muted">{pdfWidthHelp}</p>
+					{/if}
 				</section>
 
 				<details class="mb-5 rounded border border-border p-3 text-sm">
@@ -935,3 +939,19 @@
 		</span>
 	</button>
 {/snippet}
+
+<style>
+	[role='dialog'][aria-hidden='true'] {
+		display: none;
+	}
+	@media (max-width: 639px), (pointer: coarse) {
+		button {
+			min-width: 44px;
+			min-height: 44px;
+		}
+		header button {
+			display: grid;
+			place-items: center;
+		}
+	}
+</style>

@@ -50,6 +50,8 @@ export interface RenderOptions {
 	 * Default: true. Set to false for raw exports (zip, copy/paste).
 	 */
 	showFrontmatter?: boolean;
+	/** Converts wiki links to note links. Default: true. */
+	wikiLinks?: boolean;
 	/** Allows network-backed images after an explicit action in the reading view. */
 	allowRemoteImages?: boolean;
 }
@@ -376,7 +378,7 @@ async function renderMarkdownCore(
 
 	// 2. Pre-process wiki-links on the content (after front-matter so we don't
 	//    accidentally transform a YAML block that contains `[[]]`).
-	const preprocessed = preprocessWikiLinks(fm.content);
+	const preprocessed = opts.wikiLinks === false ? fm.content : preprocessWikiLinks(fm.content);
 
 	const mermaidCodes: string[] = [];
 	// Call-local counter: no shared module state. Mermaid IDs may collide

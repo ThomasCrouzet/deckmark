@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { filesStore } from '#lib/files.svelte.js';
+	import { documentKind } from '#lib/document-kind.js';
 	import { t, i18n } from '#lib/i18n/index.js';
 	import { normalizeCommandSearch } from '#lib/ui/commands.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
-	import { X, Search, Trash2 } from '@lucide/svelte';
+	import { X, Search, Trash2, FileText, Presentation } from '@lucide/svelte';
 	let { onClose }: { onClose: () => void } = $props();
 	let input: HTMLInputElement | undefined = $state();
 	let query = $state('');
@@ -188,6 +189,9 @@
 		{/if}
 		<ul class="min-h-0 flex-1 overflow-y-auto border-t border-border">
 			{#each matches as file (file.id)}
+				{@const kind = documentKind(file.content)}
+				{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
+				{@const TypeIcon = kind === 'note' ? FileText : Presentation}
 				<li class="flex items-center border-b border-border px-2" data-document-id={file.id}>
 					<label class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
 						<input
@@ -208,8 +212,13 @@
 						onclick={() => open(file.id)}
 						disabled={filesStore.trashBusy}
 						aria-label={t('library.openDocument', { name: file.relativePath ?? file.name })}
+						aria-describedby={`library-type-${file.id}`}
 					>
-						<span class="max-w-full truncate text-sm font-medium">{file.name}</span>
+						<span class="flex max-w-full items-center gap-2 text-sm font-medium">
+							<TypeIcon size={14} class="shrink-0" aria-hidden="true" />
+							<span class="truncate">{file.name}</span>
+						</span>
+						<span id={`library-type-${file.id}`} class="text-xs text-fg-muted">{typeLabel}</span>
 						{#if file.relativePath}<span class="max-w-full truncate text-xs text-fg-muted"
 								>{file.relativePath}</span
 							>{/if}

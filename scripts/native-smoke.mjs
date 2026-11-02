@@ -628,6 +628,7 @@ try {
 		);
 		await click('[role="dialog"] button[aria-label="Fermer"]');
 		await nativeShortcut('n');
+		await click('[data-testid="create-note"]');
 		await until(
 			() =>
 				execute(`return document.querySelector('header input')?.value.startsWith('Sans titre')`),
@@ -824,17 +825,6 @@ try {
 		);
 		results.pdfInspections.push(inspect(join(output, 'repeated-pdf')));
 		passed('native PDF shortcut can export again after completion');
-		results.presentationPdf = await nativePresentationPdf({
-			execute,
-			click,
-			nativeShortcut,
-			until,
-			nativePdfPath,
-			output,
-			temp,
-			expectedTitle: title
-		});
-		passed('native presentation export keeps one 16:9 page for each slide');
 	} else {
 		// Keep the actual preparation steps. Replace only the final OS dialog call
 		// to let the driver produce the PDF automatically.
@@ -876,6 +866,28 @@ try {
 			`document.getElementById('native-smoke-capture-style')?.remove(); window.print = window.__nativeOriginalPrint; delete window.__nativeOriginalPrint; window.dispatchEvent(new Event('afterprint'));`
 		);
 	}
+	results.presentationPdf = await nativePresentationPdf({
+		execute,
+		click,
+		nativeShortcut,
+		until,
+		nativePdfPath,
+		output,
+		temp,
+		expectedTitle: title,
+		capturePdf: () =>
+			request(`/session/${session}/print`, {
+				background: true,
+				pageWidth: (1280 * 2.54) / 96,
+				pageHeight: (720 * 2.54) / 96,
+				marginTop: 0,
+				marginRight: 0,
+				marginBottom: 0,
+				marginLeft: 0,
+				shrinkToFit: false
+			})
+	});
+	passed('native presentation workflow retains and inspects menu and shortcut PDFs');
 	await until(
 		() =>
 			execute(

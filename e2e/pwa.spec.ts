@@ -150,6 +150,7 @@ test('recovers two dirty clients after a real update and persistence failure', a
 		const second = await context.newPage();
 		await second.goto(server.origin);
 		await second.locator('aside button[aria-label^="Nouveau fichier"]').click();
+		await second.getByTestId('create-note').click();
 		await writeSourceContent(second, '# Second, état durable');
 
 		async function contents() {

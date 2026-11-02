@@ -789,7 +789,7 @@ export const fr: Record<MessageKey, string> = {
 	'welcome.newFile': 'Nouveau fichier',
 	'welcome.openDemo': 'Ouvrir un document de démo',
 	'welcome.privacy': 'Aucun serveur. Aucune télémétrie. Tes fichiers restent chez toi.',
-	'welcome.tagline': 'Le Markdown, sans détour.',
+	'welcome.tagline': 'Écrivez des notes et créez des présentations.',
 	'welcome.taglineLine2': 'WYSIWYG, lecture, source - tout dans ton navigateur.',
 	'welcome.systemLabel': 'Espace Markdown local',
 

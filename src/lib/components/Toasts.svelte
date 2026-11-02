@@ -69,7 +69,7 @@
 						class="shrink-0 rounded border border-accent-dim px-2 py-0.5 text-xs font-medium text-accent transition hover:bg-bg-2"
 						onclick={() => {
 							toast.action?.run();
-							notify.dismiss(toast.id);
+							if (toast.action?.dismissOnRun !== false) notify.dismiss(toast.id);
 						}}
 					>
 						{toast.action.label}

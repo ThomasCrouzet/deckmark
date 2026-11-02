@@ -222,9 +222,23 @@ async function record(session) {
 	await graph.getByRole('button', { name: 'Close', exact: true }).click();
 	await expect(graph).not.toBeVisible();
 	await expect(editor.locator('h1')).toHaveText(NAME);
-	await page.getByTestId('slides-open').click();
+	await page.locator('.mdsh-sidebar').getByRole('button', { name: /^New/ }).click();
+	await expect(page.getByTestId('create-note')).toBeFocused();
+	await frame('Choose Note or Presentation', 1.4);
+	await saveScreenshot(page, join(ROOT, 'docs/screenshots/new-document.png'));
+	await page.getByTestId('create-presentation').click();
 	const slides = page.getByTestId('presentation-editor');
 	await expect(slides.getByTestId('slide-canvas')).toBeVisible();
+	await page.locator('#app-toolbar input').fill('Field briefing');
+	await page.locator('#app-toolbar input').press('Enter');
+	await slides.getByTestId('slide-add-text').click();
+	await slides.getByTestId('slide-edit-text').click();
+	await slides
+		.getByTestId('slide-text-editor')
+		.fill(
+			'# Field briefing\n\nKeep your notes and presentations on this device.\n\n- Arrange your slides\n- Add your speech\n- Present offline'
+		);
+	await slides.getByTestId('slide-text-done').click();
 	await slides.getByTestId('slide-object-list-item').first().click();
 	for (const [property, value] of [
 		['width', '1040'],
@@ -235,13 +249,30 @@ async function record(session) {
 		await slides.getByTestId(`slide-prop-${property}`).press('Tab');
 	}
 	await expect(slides.locator('.save-state')).toHaveText('saved');
-	await frame('Arrange the same document as slides', 2.4);
+	await slides.getByTestId('slide-notes').fill('Explain the field results and the next steps.');
+	await slides.getByTestId('slide-notes').press('Tab');
+	await expect(slides.locator('.save-state')).toHaveText('saved');
+	await slides.getByTestId('slide-inspector').evaluate((element) => {
+		element.scrollTop = 0;
+	});
+	await frame('Edit a separate presentation and its speech', 2.4);
 	await saveScreenshot(page, join(ROOT, 'docs/screenshots/presentation-editor.png'));
+	await slides.getByTestId('slide-present').click();
+	await frame('Present the deck', 1.4);
+	await saveScreenshot(page, join(ROOT, 'docs/screenshots/presentation-present.png'));
+	await page.keyboard.press('Escape');
 	await page.setViewportSize({ width: 390, height: 844 });
+	if (await slides.getByTestId('slide-inspector').isVisible())
+		await slides.getByTestId('slide-properties').click();
+	await slides.locator('.presentation-tools').evaluate((element) => {
+		element.scrollLeft = 0;
+	});
 	await expect(slides.getByTestId('slide-canvas')).toBeInViewport();
 	await saveScreenshot(page, join(ROOT, 'docs/screenshots/presentation-editor-mobile.png'));
 	await page.setViewportSize(VIEWPORT);
-	await slides.getByTestId('slide-close').click();
+	const files = await openPalette(page);
+	await files.getByRole('combobox').fill(NAME);
+	await files.getByRole('option', { name: NAME, exact: true }).click();
 	await expect(slides).not.toBeVisible();
 	await page.keyboard.press('ControlOrMeta+,');
 	await page

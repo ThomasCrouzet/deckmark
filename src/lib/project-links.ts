@@ -19,6 +19,21 @@ function escaped(text: string, index: number): boolean {
 	return count % 2 === 1;
 }
 
+/** Pair each bracket once, including brackets inside an unmatched outer label. */
+function closingBrackets(text: string): Int32Array {
+	const closes = new Int32Array(text.length).fill(-1);
+	const opens: number[] = [];
+	for (let index = 0; index < text.length; index++) {
+		if (text[index] === '\\') {
+			index++;
+			continue;
+		}
+		if (text[index] === '[') opens.push(index);
+		else if (text[index] === ']' && opens.length) closes[opens.pop()!] = index;
+	}
+	return closes;
+}
+
 function markdownContainerLine(line: string): string {
 	let value = line;
 	while (true) {
@@ -52,6 +67,7 @@ export function projectDestinations(markdown: string): ProjectDestination[] {
 	const frontmatter = /^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(markdown);
 	let fence = '';
 	let htmlBlock = '';
+	let bracketEnds: Int32Array | undefined;
 	for (let index = frontmatter?.[0].length ?? 0; index < markdown.length; index++) {
 		if (index === 0 || markdown[index - 1] === '\n') {
 			const lineEnd = markdown.indexOf('\n', index);
@@ -114,13 +130,11 @@ export function projectDestinations(markdown: string): ProjectDestination[] {
 		}
 		if (markdown[index] !== '[' || escaped(markdown, index) || markdown[index + 1] === '[')
 			continue;
-		let cursor = index + 1;
-		let depth = 1;
-		for (; cursor < markdown.length; cursor++) {
-			if (escaped(markdown, cursor)) continue;
-			if (markdown[cursor] === '[') depth++;
-			if (markdown[cursor] === ']' && --depth === 0) break;
-		}
+		// Use the same raw bracket nesting as the label scan. The outer loop still
+		// excludes code and front matter and selects the destination source ranges.
+		bracketEnds ??= closingBrackets(markdown);
+		let cursor = bracketEnds[index]!;
+		if (cursor < 0) continue;
 		const image = index > 0 && markdown[index - 1] === '!' && !escaped(markdown, index - 1);
 		if (markdown[cursor + 1] !== '(') {
 			if (image) {

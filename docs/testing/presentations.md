@@ -2,17 +2,18 @@
 
 ## Scope
 
-These workflows verify the visual presentation editor, Markdown persistence,
+These workflows verify separate note and presentation files, the inline slide editor, Markdown persistence,
 presentation playback, and exported artifacts. The editor must remain local and
 usable without a network connection.
 
-The browser tests use the English locale. They select controls through stable
-`data-testid` values. Translated labels are not part of the test contract.
+The core browser tests use the English locale. They select controls through
+stable `data-testid` values and accessible names. The responsive review must also
+check French labels.
 
 ## Primary workflow
 
-1. Create a Markdown document.
-2. Open the presentation editor from the existing presentation command.
+1. Open New and select Note. Confirm the note editor and unchanged note content.
+2. Open New and select Presentation. Confirm the inline editor and initial metadata.
 3. Add slides and reorder their thumbnails.
 4. Add text, an image, shapes, a line, and an arrow.
 5. Move, resize, and rotate objects with pointer input.
@@ -21,14 +22,18 @@ The browser tests use the English locale. They select controls through stable
 8. Edit Markdown text inside a text object.
 9. Use copy, paste, duplicate, delete, undo, and redo.
 10. Set slide notes, background, and aspect ratio.
-11. Close and reopen the editor. Reload the application and verify the layout.
+11. Switch files, then reopen the presentation. Reload and verify its type and layout.
 12. Start the slide show and navigate with visible controls and the keyboard.
-13. Export Markdown, offline HTML, and PDF artifacts.
+13. Use Export to download Markdown, offline HTML, and PDF artifacts.
+14. Open Advanced > Markdown source. Apply a valid edit, reject a missing marker,
+    and cancel a draft. Confirm stored content and retained input after rejection.
+
+The format remains version 1. No step converts a note or requires a database migration.
 
 ## Failure risks
 
 - Opening the editor can replace or lose existing Markdown content.
-- A late lazy import can open an empty or unusable dialog.
+- A late lazy import can show an empty document area or the previous file's deck.
 - A failed lazy import can leave the page inert or hide the error.
 - A presentation chunk can be absent from the PWA precache on its first offline use.
 - A horizontal rule or fenced code separator can become an unintended slide.
@@ -53,32 +58,38 @@ The browser tests use the English locale. They select controls through stable
 - Redo can replay stale text after it commits an active text edit.
 - Text editing can insert plain text and lose Markdown marks or line breaks.
 - A source edit can discard visual metadata or corrupt the document body.
+- Source input can write before Apply or overwrite an external source change.
+- Cancel can create a document or save a source draft.
+- A missing metadata marker can convert a presentation to a note.
+- Invalid metadata can hide the repair view by opening the note editor.
+- Note-only commands can write to a presentation or add metadata to a note.
 - An unsupported metadata version can remove readable Markdown content.
 - Image insertion can save a temporary blob URL or request a private path.
 - Large image data can block pointer interaction or exceed local storage.
 - A connector can detach, point to stale identifiers, or stop following a shape.
 - Moving a selected connector can keep stale attachment identifiers.
 - A line or arrow can expose resize controls that change the wrong endpoint.
-- Slide notes can appear on the canvas, slide show, print, or PDF page.
+- Presenter notes can disappear from the default editing panel or from saved Markdown.
+- Presenter notes can appear on audience slides or in HTML and PDF exports.
 - Background and aspect settings can apply to the wrong slide.
 - A non-default aspect ratio can stretch objects or export at the wrong size.
 - Overflowing content can be clipped silently or create an extra PDF page.
 - Slide playback can show editor controls or stale slide content.
-- Escape can close the editor when it must first close slide playback.
+- Escape can close the document when it must return from Present to inline editing.
 - Fullscreen rejection can prevent the in-page slide show from working.
 - Export can use an edit state that differs from the saved Markdown state.
 - HTML export can depend on application assets or make a network request.
 - HTML export can lose object geometry, images, navigation, or aspect ratio.
 - Shape Markdown can render in the editor but disappear from HTML or PDF output.
 - PDF export can add blank pages or split one slide across several pages.
-- PDF export can omit backgrounds, shapes, arrows, images, notes, or text.
+- PDF export can omit backgrounds, shapes, arrows, images, or slide text.
 - Print CSS can use the printer paper ratio instead of the slide ratio.
 - Repeated export can reuse a stale artifact or duplicate temporary content.
 - Export cancellation or failure can leave the editor inert.
 - A quota failure can look saved or omit the retry action inside the editor.
 - Reload can lose slides during the 400 ms delayed save.
 - Concurrent tabs can replace newer slide metadata with an older revision.
-- A malformed presentation block can make the source unreadable in deckmark.
+- A malformed presentation block can make the source unreadable in DeckMark.
 - A marker inside a YAML literal can misclassify ordinary Markdown.
 - Alignment can invert or move a negative line endpoint outside the slide.
 - A reserved slide marker in element text can start a new slide after reload.
@@ -92,7 +103,9 @@ The browser tests use the English locale. They select controls through stable
 - An ordinary fenced marker can incorrectly classify a document as a presentation.
 - Accessibility names can disappear from icon-only controls.
 - Selection, focus, and status changes can be unavailable to assistive software.
-- A modal can fail to trap focus or restore focus to its opening control.
+- New or Present can fail to confine focus or restore it on exit.
+- The inline editor can incorrectly confine focus and block file navigation.
+- New cards and labeled Export or Advanced controls can overflow narrow screens.
 - The editor can contain serious or critical axe violations.
 - A representative deck can miss the interaction frame budget during drag.
 - Long tasks during drag can make desktop or mobile input visibly stall.
@@ -105,6 +118,12 @@ The browser tests use the English locale. They select controls through stable
 - A failed rich clipboard read can hide text that remains available through `readText`.
 
 ## Browser scenarios
+
+Use `e2e/presentation-files.spec.ts` for the document-type workflow. Check New
+dialog focus and cancellation, both creation choices, type labels, persistence,
+file switching, the source guard, and return from Present. Verify that notes
+have no Slides conversion action. Include palette commands and narrow-screen
+checks in the review. This section defines required evidence, not a passing result.
 
 The desktop workflow uses Chromium, Firefox, and WebKit. It verifies slide
 management, every object type, direct manipulation, selection commands, text
@@ -162,11 +181,12 @@ checks for supported desktop platforms.
 
 ## Stable UI contract
 
-The presentation dialog uses these test identifiers:
+The creation dialog and inline presentation editor use these test identifiers:
 
+- `create-note`, `create-presentation`, and `document-kind`
 - `presentation-editor`, `slide-canvas`, `slide-thumbnail`, and `slide-object`
-- `slides-open`, `slide-add`, `slide-duplicate-slide`, `slide-delete-slide`,
-  `slide-move-prev`, `slide-move-next`, `slide-close`, and `slide-title`
+- `slide-add`, `slide-duplicate-slide`, `slide-delete-slide`,
+  `slide-move-prev`, and `slide-move-next`
 - `slide-add-text`, `slide-add-image`, `slide-add-rectangle`,
   `slide-add-rounded-rectangle`, `slide-add-ellipse`, `slide-add-line`, and
   `slide-add-arrow`
@@ -178,10 +198,11 @@ The presentation dialog uses these test identifiers:
   `slide-align-right`, `slide-align-top`, `slide-align-middle`, and
   `slide-align-bottom`
 - `slide-connect`, `slide-prop-startId`, and `slide-prop-endId`
-- `slide-notes`, `slide-background`, `slide-aspect`, `slide-source`,
-  `slide-source-editor`, `slide-present`, `slide-present-exit`,
+- `slide-notes`, `slide-notes-toggle`, `slide-background`, `slide-aspect`,
+  `slide-advanced`, `slide-source`, `slide-source-editor`, `slide-source-apply`,
+  `slide-source-cancel`, `slide-present`, `slide-present-exit`,
   `slide-present-prev`, `slide-present-next`, `slide-present-notes`,
-  `slide-export-html`, and `slide-export-pdf`
+  `slide-presenter-notes`, `slide-export`, `slide-export-html`, and `slide-export-pdf`
 - `slide-text-editor`, `slide-edit-text`, `slide-text-done`, `slide-rotate`,
   `slide-resize-nw`, `slide-resize-ne`, `slide-resize-sw`, and
   `slide-resize-se`
@@ -190,13 +211,14 @@ The presentation dialog uses these test identifiers:
 Object nodes expose a stable object identifier and object type through data
 attributes. Thumbnails expose the stable slide identifier. Resize and rotation
 handles expose their operation through a data attribute.
+Select the New dialog by its accessible name, **Create a document**.
 
 ## Commands and evidence
 
 Run the focused desktop workflows with:
 
 ```sh
-npm run test:e2e -- presentation-editor.spec.ts presentation-export.spec.ts --project=chromium --workers=1
+npm run test:e2e -- presentation-files.spec.ts presentation-editor.spec.ts presentation-export.spec.ts --project=chromium --workers=1
 ```
 
 Run the mobile workflows with:
@@ -221,3 +243,15 @@ The Playwright HTML and JSON reports record the command, source revision,
 working diff identity, environment, fixtures, assertions, timings, and results.
 Each presentation scenario also attaches its Markdown fixture and workflow
 evidence. Export scenarios attach the downloaded artifact and inspection data.
+
+After each presentation-file run, retain
+`test-results/presentation-files-<revision>.json` with the exact command, source
+revision and working diff identity, platform, Node and browser versions, fixtures,
+pass/fail/skipped results, and HTML report path. Link the retained screenshots,
+source files, and exports. See [test policy and evidence](../TESTING.md#presentation-workflows).
+
+Review English and French at widths 320, 360, 390, 768, 1024, 1280, and 1440 in
+portrait and landscape. Include 200 percent zoom and reduced motion. Record
+keyboard-only, first-use, and human screen reader results separately from
+automated checks. Mark checks without evidence as **not run**. The full application
+gate remains required before release.

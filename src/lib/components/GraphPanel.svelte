@@ -9,6 +9,7 @@
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { t } from '#lib/i18n/index.js';
 	import { filesStore } from '#lib/files.svelte.js';
+	import { documentKind } from '#lib/document-kind.js';
 	import { buildGraph, computeLayout, type PositionedNode, type GraphEdge } from '#lib/graph.js';
 	import { Workflow, X } from '@lucide/svelte';
 
@@ -39,10 +40,12 @@
 	$effect(() => {
 		if (!open) return;
 		untrack(() => {
-			const files = filesStore.library.map((f) => ({
-				id: f.id,
-				label: filesStore.displayTitle(f.id)
-			}));
+			const files = filesStore.library
+				.filter((file) => documentKind(file.content) === 'note')
+				.map((f) => ({
+					id: f.id,
+					label: filesStore.displayTitle(f.id)
+				}));
 			const data = buildGraph(
 				files,
 				(id) =>

@@ -19,9 +19,27 @@ import { browser } from '$app/env';
 import { t } from '#lib/i18n/index.js';
 import { db } from './db';
 import { notify } from './notify.svelte';
+import { SaveQueueFlushError } from './save-queue';
 
 /** Context of a storage operation, for a tailored error message. */
 export type PersistenceContext = 'save' | 'trash' | 'reorder' | 'delete' | 'load';
+
+interface FailedDraftNotice {
+	id: string;
+	name: string;
+	retry: () => void;
+}
+
+const draftSaveNotices = new Map<string, number>();
+const reportedDraftErrors = new WeakSet<object>();
+
+/** Clear only the warning for the draft whose write completed. */
+export function resolveDraftSaveError(id: string): void {
+	const notice = draftSaveNotices.get(id);
+	if (notice === undefined) return;
+	notify.dismiss(notice);
+	draftSaveNotices.delete(id);
+}
 
 const BACKUP_SUCCESS_KEY = 'mdsh:storage:last-external-backup';
 const BACKUP_ERROR_KEY = 'mdsh:storage:last-backup-error';
@@ -175,17 +193,46 @@ export function isQuotaError(err: unknown): boolean {
  * failure. The toast is deduplicated on the `notify` side - no avalanche if
  * every write fails (the typical case when the quota is reached).
  */
-export function reportPersistenceError(err: unknown, context: PersistenceContext): void {
-	if (isQuotaError(err)) {
-		notify.error(t('storage.quotaFull'));
+export function reportPersistenceError(
+	err: unknown,
+	context: PersistenceContext,
+	failedDrafts?: readonly FailedDraftNotice[]
+): void {
+	// The queue already reported each failed write. Do not add an unowned warning
+	// when a footer retry or another durability barrier reports the same failures.
+	if (
+		err instanceof SaveQueueFlushError &&
+		err.failures.length > 0 &&
+		err.failures.every(
+			({ error }) => typeof error === 'object' && error !== null && reportedDraftErrors.has(error)
+		)
+	)
+		return;
+	const message = isQuotaError(err)
+		? t('storage.quotaFull')
+		: context === 'save'
+			? t('storage.saveFailed')
+			: context === 'load'
+				? t('storage.loadFailed')
+				: t('storage.genericFailed');
+	if (failedDrafts) {
+		if (typeof err === 'object' && err !== null) reportedDraftErrors.add(err);
+		for (const draft of failedDrafts) {
+			// Existing failures keep their own message and action when another draft fails.
+			const notice = draftSaveNotices.get(draft.id);
+			if (notice !== undefined && notify.toasts.some((toast) => toast.id === notice)) continue;
+			// Manual dismissal hides this warning until another save failure is reported.
+			draftSaveNotices.set(
+				draft.id,
+				notify.error(`${draft.name}: ${message}`, {
+					key: `draft-save:${draft.id}`,
+					ttl: 0,
+					action: { label: t('statusBar.retrySave'), run: draft.retry, dismissOnRun: false }
+				})
+			);
+		}
 	} else {
-		notify.error(
-			context === 'save'
-				? t('storage.saveFailed')
-				: context === 'load'
-					? t('storage.loadFailed')
-					: t('storage.genericFailed')
-		);
+		notify.error(message);
 	}
 	console.error(`[mdsh] persistance (${context}) :`, err);
 }

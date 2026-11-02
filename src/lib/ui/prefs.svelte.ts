@@ -19,6 +19,7 @@ interface SourceEditorRef {
 }
 
 export interface UiPrefsOptions {
+	getNoteActive?: () => boolean;
 	getHydrated: () => boolean;
 	// Extra signals so the focus-inert $effect re-runs when the
 	// header/aside/footer DOM is remounted (mode switch, TOC, etc.)
@@ -67,13 +68,14 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 		void opts.getTocVisible();
 		void opts.getTocEmpty();
 		void opts.getActiveId();
-		document.body.classList.toggle('focus-mode', focusMode);
+		const active = focusMode && (opts.getNoteActive?.() ?? true);
+		document.body.classList.toggle('focus-mode', active);
 		writePreference('mdsh:focus', focusMode ? '1' : '0');
 		const periph = document.querySelectorAll<HTMLElement>(
 			'#app-toolbar, #app-statusbar, .mdsh-toc-col'
 		);
 		for (const el of periph) {
-			if (focusMode) el.setAttribute('inert', '');
+			if (active) el.setAttribute('inert', '');
 			else el.removeAttribute('inert');
 		}
 	});
@@ -85,7 +87,10 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 	// `sourceEditorRef.setTypewriter()` via the $effect below.
 	$effect(() => {
 		if (!browser || !opts.getHydrated()) return;
-		document.body.classList.toggle('typewriter-mode', typewriterMode);
+		document.body.classList.toggle(
+			'typewriter-mode',
+			typewriterMode && (opts.getNoteActive?.() ?? true)
+		);
 		writePreference('mdsh:typewriter', typewriterMode ? '1' : '0');
 	});
 
