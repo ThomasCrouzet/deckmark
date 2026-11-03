@@ -14,6 +14,8 @@ export const fr: Record<MessageKey, string> = {
 	...projectFr,
 	...diffFr,
 	...backupProjectFr,
+	'docsCheck.command': 'Vérifier la documentation',
+	'docsCheck.commandHint': 'Lance un audit hors ligne du projet sélectionné.',
 	'brand.name': 'DeckMark',
 	'brand.localWorkspace': 'Espace local',
 	'library.browseCount': 'Retrouver vos documents ({n})',
@@ -440,6 +442,7 @@ export const fr: Record<MessageKey, string> = {
 	// modals
 	'modals.labelDiskLinks': 'Liens disque',
 	'modals.labelGraph': 'Graphe des liens',
+	'modals.labelDocsCheck': 'Vérification de la documentation',
 	'modals.labelHistory': 'Historique de versions',
 	'modals.labelPalette': 'Palette de commandes',
 	'modals.labelPresentation': 'Mode présentation',

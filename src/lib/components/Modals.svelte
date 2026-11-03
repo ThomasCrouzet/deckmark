@@ -36,6 +36,8 @@
 		onOpenInFileSearch: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
+		onOpenDocsCheck: () => void;
+		onOpenDocsCheckIssue: (fileId: string, line: number) => void;
 	}
 
 	let {
@@ -58,7 +60,9 @@
 		onSetMode,
 		onOpenInFileSearch,
 		onPresent,
-		onAdvancedSource
+		onAdvancedSource,
+		onOpenDocsCheck,
+		onOpenDocsCheckIssue
 	}: Props = $props();
 </script>
 
@@ -103,6 +107,7 @@
 			onOpenSettings={modals.openSettings}
 			onOpenHistory={modals.openHistory}
 			onOpenGraph={modals.openGraph}
+			{onOpenDocsCheck}
 			{onPresent}
 			{onAdvancedSource}
 		/>
@@ -169,6 +174,18 @@
 {#if modals.graphOpen}
 	{#await modals.loadGraphPanel() then GraphPanel}
 		<GraphPanel open={modals.graphOpen} onClose={() => (modals.graphOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.docsCheckOpen}
+	{#await modals.loadDocsCheckPanel() then DocsCheckPanel}
+		<DocsCheckPanel
+			initialProjectId={modals.docsCheckProjectId}
+			onClose={() => (modals.docsCheckOpen = false)}
+			onOpenIssue={onOpenDocsCheckIssue}
+		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}

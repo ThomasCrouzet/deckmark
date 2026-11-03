@@ -549,6 +549,11 @@
 		}
 	}
 
+	function openDocsCheckIssue(fileId: string, line: number): void {
+		modals.docsCheckOpen = false;
+		modals.handleOpenHit(fileId, line, '');
+	}
+
 	// Honors the pendingGoToHit as soon as SourceEditor is mounted in source mode.
 	$effect(() => {
 		if (mode !== 'source' || !pendingGoToHit) return;
@@ -785,6 +790,7 @@
 					document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')?.focus()
 				);
 			}}
+			onOpenDocsCheck={(projectId) => modals.openDocsCheck(projectId)}
 		/>
 	{:catch _error}
 		<div role="alert" class="fixed inset-0 z-50 bg-bg p-6 text-fg">
@@ -863,6 +869,8 @@
 	onToggleSidebar={toggleSidebar}
 	onSetMode={(m) => void requestMode(m)}
 	onOpenInFileSearch={openInFileSearch}
+	onOpenDocsCheck={() => modals.openDocsCheck(filesStore.active?.projectId ?? null)}
+	onOpenDocsCheckIssue={openDocsCheckIssue}
 	onPresent={() => presentationAction('present')}
 	onAdvancedSource={() => presentationAction('source')}
 />

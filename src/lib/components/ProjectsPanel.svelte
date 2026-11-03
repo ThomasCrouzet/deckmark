@@ -29,7 +29,10 @@
 		type NativeProjectFailure
 	} from '#lib/projects-native.js';
 
-	let { onClose }: { onClose: () => void } = $props();
+	let {
+		onClose,
+		onOpenDocsCheck
+	}: { onClose: () => void; onOpenDocsCheck?: (projectId: string) => void } = $props();
 	let projects = $state<ProjectRow[]>([]);
 	let selected = $state<string | null>(filesStore.active?.projectId ?? null);
 	let busy = $state(false);
@@ -282,6 +285,16 @@
 								if (selected) issues = await checkProjectLinks(selected);
 							})}>{t('projects.checkLinks')}</button
 					>
+					{#if onOpenDocsCheck}
+						<button
+							disabled={busy || !selected}
+							onclick={() => {
+								if (!selected) return;
+								onOpenDocsCheck(selected);
+								onClose();
+							}}>{t('docsCheck.command')}</button
+						>
+					{/if}
 					{#if nativeAvailable && selectedProject?.nativeRootId}
 						<button disabled={busy} onclick={refreshNative}>{t('projects.refresh')}</button>
 						<button disabled={busy} onclick={saveNative}>{t('projects.save')}</button>

@@ -18,6 +18,8 @@ export const en = {
 	...projectEn,
 	...diffEn,
 	...backupProjectEn,
+	'docsCheck.command': 'Check documentation',
+	'docsCheck.commandHint': 'Run an offline audit of the selected project.',
 	'brand.name': 'DeckMark',
 	'brand.localWorkspace': 'Local workspace',
 	'library.browseCount': 'Open your library ({n})',
@@ -434,6 +436,7 @@ export const en = {
 	// modals
 	'modals.labelDiskLinks': 'Disk links',
 	'modals.labelGraph': 'Link graph',
+	'modals.labelDocsCheck': 'Documentation check',
 	'modals.labelHistory': 'Version history',
 	'modals.labelPalette': 'Command palette',
 	'modals.labelPresentation': 'Presentation mode',

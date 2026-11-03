@@ -1,0 +1,47 @@
+import type { DocsCheckMessageKey } from './docs-check-en';
+
+export const docsCheckFr: Record<DocsCheckMessageKey, string> = {
+	'docsCheck.title': 'Vérifier la documentation',
+	'docsCheck.close': 'Fermer la vérification de la documentation',
+	'docsCheck.project': 'Projet',
+	'docsCheck.run': 'Lancer la vérification',
+	'docsCheck.cancel': 'Annuler',
+	'docsCheck.running': 'Vérification des documents...',
+	'docsCheck.empty': 'Créez un projet avant de lancer une vérification de la documentation.',
+	'docsCheck.noIssues': 'Aucun problème de documentation détecté.',
+	'docsCheck.errors': '{n} erreur(s)',
+	'docsCheck.warnings': '{n} avertissement(s)',
+	'docsCheck.summary': '{documents} document(s), {errors} erreur(s), {warnings} avertissement(s)',
+	'docsCheck.export': 'Exporter le JSON',
+	'docsCheck.exported': 'Rapport JSON téléchargé.',
+	'docsCheck.exportFailed': 'Le rapport JSON ne peut pas être enregistré.',
+	'docsCheck.failed': 'La vérification de la documentation a échoué. Réessayez.',
+	'docsCheck.cancelled': 'Vérification annulée.',
+	'docsCheck.skipped': 'Non vérifié',
+	'docsCheck.openIssue': 'Ouvrir {path} à la ligne {line}',
+	'docsCheck.limits':
+		'Les vérifications restent sur cet appareil. Aucune modification de fichier et aucune requête réseau.',
+	'docsCheck.severity.error': 'Erreur',
+	'docsCheck.severity.warning': 'Avertissement',
+	'docsCheck.issue.anchor-missing': 'Ancre absente : « {target} ».',
+	'docsCheck.issue.fence-unclosed': 'Le bloc de code n’est pas fermé.',
+	'docsCheck.issue.frontmatter-invalid': 'Le front matter YAML est invalide.',
+	'docsCheck.issue.frontmatter-unclosed': 'Le front matter n’est pas fermé.',
+	'docsCheck.issue.heading-duplicate': 'Ancre de titre en double : « {target} ».',
+	'docsCheck.issue.heading-hierarchy': 'Saut de niveau de titre près de « {target} ».',
+	'docsCheck.issue.image-alt-missing': 'L’image n’a pas de texte alternatif.',
+	'docsCheck.issue.image-missing': 'Image absente : « {target} ».',
+	'docsCheck.issue.image-remote': 'L’image distante « {target} » n’est pas téléchargée.',
+	'docsCheck.issue.link-ambiguous': 'Plusieurs documents correspondent à « {target} ».',
+	'docsCheck.issue.link-missing': 'Cible de lien absente : « {target} ».',
+	'docsCheck.issue.link-outside-project': '« {target} » est hors du projet.',
+	'docsCheck.issue.presentation-image-empty': 'L’image de présentation n’a pas de source.',
+	'docsCheck.issue.presentation-parse-failed': 'Les métadonnées de présentation sont invalides.',
+	'docsCheck.issue.presentation-resource-missing': 'Image de présentation absente : « {target} ».',
+	'docsCheck.skip.presentation-layout':
+		'Le débordement du texte demande une mesure de mise en page. Le modèle limite les bornes des éléments.',
+	'docsCheck.skip.remote-resources':
+		'Les ressources distantes ne sont pas téléchargées. Le contrôle les signale comme avertissements.',
+	'docsCheck.skip.html-content': 'Le contenu HTML brut n’est pas validé.',
+	'docsCheck.skip.external-anchors': 'Les ancres des pages externes ne sont pas vérifiées.'
+};

@@ -107,6 +107,7 @@
 		onOpenSettings: () => void;
 		onOpenHistory: () => void;
 		onOpenGraph: () => void;
+		onOpenDocsCheck: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
 	}
@@ -144,6 +145,7 @@
 		onOpenSettings,
 		onOpenHistory,
 		onOpenGraph,
+		onOpenDocsCheck,
 		onPresent,
 		onAdvancedSource
 	}: Props = $props();
@@ -514,6 +516,13 @@
 			hint: t('palette.linksGraphHint'),
 			icon: Workflow,
 			run: onOpenGraph
+		},
+		{
+			id: 'docs-check',
+			label: t('docsCheck.command'),
+			hint: t('docsCheck.commandHint'),
+			icon: FileText,
+			run: onOpenDocsCheck
 		},
 		{
 			id: 'presentation',
