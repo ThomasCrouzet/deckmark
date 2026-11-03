@@ -962,6 +962,7 @@
 	onCreateFromTemplate={handleCreateFromTemplate}
 	onOpenProperties={modals.openProperties}
 	onOpenComments={modals.openComments}
+	onOpenCollection={modals.openCollection}
 	onOpenOutline={openOutline}
 	{modals}
 	{editorWidth}

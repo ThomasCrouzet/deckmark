@@ -83,6 +83,7 @@ export function createModals(opts: ModalsOptions) {
 	let aiOpen = $state(false);
 	let propertiesOpen = $state(false);
 	let commentsOpen = $state(false);
+	let collectionOpen = $state(false);
 	let docsCheckOpen = $state(false);
 	let docsCheckProjectId = $state<string | null>(null);
 	let snippetsOpen = $state(false);
@@ -102,6 +103,7 @@ export function createModals(opts: ModalsOptions) {
 		aiOpen = false;
 		propertiesOpen = false;
 		commentsOpen = false;
+		collectionOpen = false;
 		docsCheckOpen = false;
 		snippetsOpen = false;
 		newDocumentOpen = false;
@@ -187,6 +189,13 @@ export function createModals(opts: ModalsOptions) {
 			commentsOpen = false;
 		},
 		'modals.labelComments'
+	);
+	const loadCollectionPanel = makeLazyLoader(
+		() => import('#lib/components/CollectionPanel.svelte'),
+		() => {
+			collectionOpen = false;
+		},
+		'modals.labelCollection'
 	);
 	const loadDocsCheckPanel = makeLazyLoader(
 		() => import('#lib/components/DocsCheckPanel.svelte'),
@@ -277,6 +286,11 @@ export function createModals(opts: ModalsOptions) {
 		commentsOpen = true;
 	}
 
+	function openCollection() {
+		closeAll();
+		collectionOpen = true;
+	}
+
 	function openDocsCheck(projectId: string | null = null) {
 		closeAll();
 		docsCheckProjectId = projectId;
@@ -341,6 +355,7 @@ export function createModals(opts: ModalsOptions) {
 				aiOpen ||
 				propertiesOpen ||
 				commentsOpen ||
+				collectionOpen ||
 				docsCheckOpen ||
 				snippetsOpen ||
 				newDocumentOpen ||
@@ -411,6 +426,13 @@ export function createModals(opts: ModalsOptions) {
 			if (value) openComments();
 			else commentsOpen = false;
 		},
+		get collectionOpen() {
+			return collectionOpen;
+		},
+		set collectionOpen(value: boolean) {
+			if (value) openCollection();
+			else collectionOpen = false;
+		},
 		get docsCheckOpen() {
 			return docsCheckOpen;
 		},
@@ -455,9 +477,11 @@ export function createModals(opts: ModalsOptions) {
 		loadAiPanel,
 		loadPropertiesPanel,
 		loadCommentsPanel,
+		loadCollectionPanel,
 		openAi,
 		openProperties,
 		openComments,
+		openCollection,
 		openNewDocument,
 		// Loaders
 		loadCommandPalette,

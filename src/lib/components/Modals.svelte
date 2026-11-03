@@ -42,6 +42,7 @@
 		onAdvancedSource: () => void;
 		onOpenProperties: () => void;
 		onOpenComments: () => void;
+		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenDocsCheckIssue: (fileId: string, line: number) => void;
 		onOpenSnippets: () => void;
@@ -76,6 +77,7 @@
 		onAdvancedSource,
 		onOpenProperties,
 		onOpenComments,
+		onOpenCollection,
 		onOpenDocsCheck,
 		onOpenDocsCheckIssue,
 		onOpenSnippets,
@@ -132,6 +134,7 @@
 			onOpenAi={modals.openAi}
 			{onOpenProperties}
 			{onOpenComments}
+			{onOpenCollection}
 			{onOpenDocsCheck}
 			{onOpenSnippets}
 			{onSaveSnippetSelection}
@@ -226,6 +229,14 @@
 {#if modals.commentsOpen}
 	{#await modals.loadCommentsPanel() then CommentsPanel}
 		<CommentsPanel open={modals.commentsOpen} onClose={() => (modals.commentsOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.collectionOpen}
+	{#await modals.loadCollectionPanel() then CollectionPanel}
+		<CollectionPanel open={modals.collectionOpen} onClose={() => (modals.collectionOpen = false)} />
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}

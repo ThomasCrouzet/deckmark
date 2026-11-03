@@ -57,6 +57,7 @@
 		SunMoon,
 		Sparkles,
 		MessageSquare,
+		Table,
 		FileText,
 		Image as ImageIcon,
 		Clipboard,
@@ -123,6 +124,7 @@
 		onOpenAi: () => void;
 		onOpenProperties: () => void;
 		onOpenComments: () => void;
+		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenSnippets: () => void;
 		onSaveSnippetSelection: () => void;
@@ -171,6 +173,7 @@
 		onOpenAi,
 		onOpenProperties,
 		onOpenComments,
+		onOpenCollection,
 		onOpenDocsCheck,
 		onOpenSnippets,
 		onSaveSnippetSelection,
@@ -643,6 +646,13 @@
 			label: t('slides.source'),
 			icon: Code2,
 			run: onAdvancedSource
+		},
+		{
+			id: 'collection',
+			label: t('palette.collection'),
+			hint: t('palette.collectionHint'),
+			icon: Table,
+			run: onOpenCollection
 		},
 		{
 			id: 'comments',
