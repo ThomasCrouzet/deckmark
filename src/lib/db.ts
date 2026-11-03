@@ -119,6 +119,7 @@ export interface SemanticIndexRow {
 	draftId: string;
 	path: string;
 	contentHash: string;
+	modelId: string;
 	vector: number[];
 	chunks: Array<{ line: number; text: string }>;
 	updatedAt: number;

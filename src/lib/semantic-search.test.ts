@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { embed, indexFiles, search } from './semantic-search';
+import { cosine, embed, indexFiles, search, trainCooccurrenceModel } from './semantic-search';
 import type { FileItem } from './types';
 
 const now = Date.now();
@@ -40,6 +40,28 @@ describe('local semantic index', () => {
 			null
 		);
 		expect(rows).toHaveLength(0);
+	});
+
+	it('trains a selectable co-occurrence model from local text', () => {
+		const model = trainCooccurrenceModel([
+			'documentation guide for the editor. documentation explains the editor.',
+			'cooking recipe for bread.'
+		]);
+		expect(model.modelId).toBe('cooccurrence-v1');
+		expect(cosine(model.embed('guide'), model.embed('documentation'))).toBeGreaterThan(
+			cosine(model.embed('guide'), model.embed('recipe'))
+		);
+		const rows = indexFiles(
+			[
+				file('a', 'guide.md', 'Documentation guide for the editor.'),
+				file('b', 'recipe.md', 'Cooking recipe for bread.')
+			],
+			[],
+			null,
+			model
+		);
+		expect(rows.every((row) => row.modelId === 'cooccurrence-v1')).toBe(true);
+		expect(search(rows, 'guide', model)[0]?.draftId).toBe('a');
 	});
 
 	it('normalizes vectors', () => {

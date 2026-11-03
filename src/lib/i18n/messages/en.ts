@@ -531,6 +531,8 @@ export const en = {
 	'semantic.enable': 'Enable the local search index for this browser',
 	'semantic.note':
 		'Optional. It uses local word and character features. No model download and no network request.',
+	'semantic.model': 'Model',
+	'semantic.rebuild': 'The index was built with another model. Build the index again.',
 	'semantic.scope': 'Index scope',
 	'semantic.library': 'Library documents',
 	'semantic.project': 'Current project',

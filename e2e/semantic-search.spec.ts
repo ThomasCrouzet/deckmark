@@ -33,6 +33,8 @@ test('builds, searches and clears a local index without network access', async (
 	await openSemantic(page);
 	await expect(page.getByTestId('semantic-enabled')).not.toBeChecked();
 	await page.getByTestId('semantic-enabled').check();
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await expect(page.getByTestId('semantic-panel')).toContainText('co-occurrence');
 	await page.getByTestId('semantic-index').click();
 	await expect(page.getByTestId('semantic-panel')).toContainText('2 document');
 	await page.getByTestId('semantic-query').fill('document');

@@ -4,7 +4,16 @@
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { db } from '#lib/db.js';
-	import { indexFiles, search, type SemanticHit } from '#lib/semantic-search.js';
+	import {
+		featureModel,
+		indexFiles,
+		search,
+		SEMANTIC_MODELS,
+		trainCooccurrenceModel,
+		type Embedder,
+		type SemanticHit,
+		type SemanticModelId
+	} from '#lib/semantic-search.js';
 	import { t } from '#lib/i18n/index.js';
 
 	let {
@@ -24,9 +33,14 @@
 	let results = $state<SemanticHit[]>([]);
 	let count = $state(0);
 	let projectId = $state<string | null>(null);
+	let modelId = $state<SemanticModelId>('feature-hash-v1');
+	let embedder: Embedder = featureModel;
+	let modelMismatch = $state(false);
 
 	onMount(() => {
 		enabled = localStorage.getItem(KEY) === '1';
+		const savedModel = localStorage.getItem('mdsh:semantic-model');
+		modelId = savedModel === 'cooccurrence-v1' ? 'cooccurrence-v1' : 'feature-hash-v1';
 		projectId = filesStore.active?.projectId ?? null;
 		if (enabled) void loadCount();
 	});
@@ -52,15 +66,28 @@
 		}
 	}
 
+	async function scopeFiles() {
+		return filesStore.library.filter((file) =>
+			projectId ? file.projectId === projectId : !file.projectId
+		);
+	}
+
+	async function ensureEmbedder() {
+		embedder =
+			modelId === 'cooccurrence-v1'
+				? trainCooccurrenceModel((await scopeFiles()).map((file) => file.content))
+				: featureModel;
+	}
+
 	async function buildIndex() {
 		if (!enabled || indexing) return;
 		indexing = true;
 		try {
-			const files = filesStore.library.filter((file) =>
-				projectId ? file.projectId === projectId : !file.projectId
-			);
+			const files = await scopeFiles();
 			const existing = await scopeRows();
-			const rows = indexFiles(files, existing, projectId);
+			await ensureEmbedder();
+			const rows = indexFiles(files, existing, projectId, embedder);
+			modelMismatch = false;
 			await db.transaction('rw', db.semanticIndex, async () => {
 				if (projectId) await db.semanticIndex.where('projectId').equals(projectId).delete();
 				else await db.semanticIndex.filter((row) => row.projectId === null).delete();
@@ -74,7 +101,14 @@
 
 	async function runSearch() {
 		if (!enabled) return;
-		results = search(await scopeRows(), query);
+		const rows = await scopeRows();
+		modelMismatch = rows.some((row) => row.modelId !== modelId);
+		if (modelMismatch) {
+			results = [];
+			return;
+		}
+		await ensureEmbedder();
+		results = search(rows, query, embedder);
 	}
 
 	async function clearIndex() {
@@ -148,6 +182,27 @@
 						</button>
 						<span role="status">{t('semantic.count', { n: count })}</span>
 					</div>
+					<label>
+						<span>{t('semantic.model')}</span>
+						<select
+							bind:value={modelId}
+							onchange={() => {
+								localStorage.setItem('mdsh:semantic-model', modelId);
+								modelMismatch = true;
+							}}
+							data-testid="semantic-model"
+						>
+							{#each SEMANTIC_MODELS as model (model.id)}
+								<option value={model.id}>{model.name} · {model.dims}</option>
+							{/each}
+						</select>
+					</label>
+					<p class="note">
+						{SEMANTIC_MODELS.find((model) => model.id === modelId)?.description}
+					</p>
+					{#if modelMismatch}
+						<p class="note" role="status">{t('semantic.rebuild')}</p>
+					{/if}
 					<label>
 						<span>{t('semantic.query')}</span>
 						<input

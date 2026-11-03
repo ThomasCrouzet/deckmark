@@ -542,6 +542,8 @@ export const fr: Record<MessageKey, string> = {
 	'semantic.enable': 'Activer l’index de recherche local dans ce navigateur',
 	'semantic.note':
 		'Facultatif. Il utilise des traits locaux de mots et de caractères. Aucun modèle à télécharger et aucune requête réseau.',
+	'semantic.model': 'Modèle',
+	'semantic.rebuild': 'L’index a été construit avec un autre modèle. Reconstruisez l’index.',
 	'semantic.scope': 'Portée de l’index',
 	'semantic.library': 'Documents de la bibliothèque',
 	'semantic.project': 'Projet actif',
