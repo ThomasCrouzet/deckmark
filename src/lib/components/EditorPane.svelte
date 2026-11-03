@@ -41,6 +41,7 @@
 		articleRef: HTMLElement | null;
 		// Callbacks to surface the refs up to +page.svelte
 		onSourceEditorRef: (ref: SourceEditor | null) => void;
+		onCodeEditorRef?: (ref: { getSelectionText?: () => string } | null) => void;
 		onArticleRef: (el: HTMLElement | null) => void;
 		onTocEmpty: (empty: boolean) => void;
 		// Action callbacks
@@ -67,6 +68,7 @@
 		tocVisible,
 		focusMode,
 		onSourceEditorRef,
+		onCodeEditorRef = () => {},
 		onArticleRef,
 		onTocEmpty,
 		onEditorChange,
@@ -87,6 +89,7 @@
 	// (error "bind_invalid_expression") - local variable + $effect to
 	// surface the ref up to +page.svelte via onSourceEditorRef.
 	let sourceEditorEl = $state<SourceEditor | null>(null);
+	let codeEditorEl = $state<{ getSelectionText?: () => string } | null>(null);
 	let contentRoot = $state<HTMLDivElement | null>(null);
 	let sourceLine = $state(1);
 	let splitView = $state(false);
@@ -110,6 +113,9 @@
 	}
 	$effect(() => {
 		onSourceEditorRef(sourceEditorEl);
+	});
+	$effect(() => {
+		onCodeEditorRef(codeEditorEl);
 	});
 </script>
 
@@ -145,6 +151,7 @@
 				{#key activeFile.id}
 					{#await import('./CodeEditor.svelte') then module}
 						<module.default
+							bind:this={codeEditorEl}
 							fileId={activeFile.id}
 							name={activeFile.name}
 							content={activeFile.content}

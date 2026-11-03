@@ -98,6 +98,36 @@ Write browser scenarios before implementation. Test the following failures throu
 
 Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), [native projects](testing/native-projects.md), and [presentations](testing/presentations.md).
 
+## Code snippets
+
+`e2e/snippets.spec.ts` checks the snippet library in Chromium. The cases are:
+
+- A selection becomes a snippet. A second save with the same code and language
+  shows the duplicate message and does not add a row.
+- A snippet copies from the keyboard. `${PROJECT_NAME}` and `${FILE_NAME}`
+  resolve. An escaped `\${PROJECT_NAME}` stays literal. The favorite state
+  survives a reload.
+- Search returns 100 of 3000 metadata rows in less than three seconds. The
+  panel mounts one code editor, not one editor per result. A query that only
+  matches code text returns no result.
+- The JSON export and import keep exact code bytes, language, tags, folder, and
+  favorite state.
+- A backup export and restore keeps the snippet collection and the exact code.
+- A 375 by 812 viewport fits the panel. The dialog, search box, list, and close
+  button have accessible names.
+
+The spec attaches JSON reports and screenshots with the run. Run it with:
+
+```sh
+E2E_PORT=4177 npx playwright test e2e/snippets.spec.ts --project=chromium --workers=1
+```
+
+The checks use browser storage and the Chromium clipboard permission. A native
+Desktop clipboard and a physical screen reader need a manual smoke test.
+The retained failure risks are a lost code byte during a backup round trip, a
+search path that reads code instead of metadata, a stale snippet list after a
+restore, and a panel that loads every code editor.
+
 The outline and editor keyboard scenarios in `e2e/toc-modes.spec.ts` and
 `e2e/editor-tab.spec.ts` check two failure modes. A render can replace heading
 nodes before the outline refresh. Tab can move focus and scroll the page instead

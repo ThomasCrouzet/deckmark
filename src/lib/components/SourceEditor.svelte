@@ -34,6 +34,13 @@
 		return fileId;
 	}
 
+	/** Returns the selected text. The CodeMirror state keeps it after blur. */
+	export function getSelectionText(): string {
+		if (!view) return '';
+		const { from, to } = view.state.selection.main;
+		return from === to ? '' : view.state.sliceDoc(from, to);
+	}
+
 	let host: HTMLDivElement;
 	let view: EditorView | null = null;
 	let lastEmitted = '';

@@ -124,6 +124,9 @@
 		onOpenProperties: () => void;
 		onOpenComments: () => void;
 		onOpenDocsCheck: () => void;
+		onOpenSnippets: () => void;
+		onSaveSnippetSelection: () => void;
+		onSaveSnippetFile: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
 	}
@@ -169,6 +172,9 @@
 		onOpenProperties,
 		onOpenComments,
 		onOpenDocsCheck,
+		onOpenSnippets,
+		onSaveSnippetSelection,
+		onSaveSnippetFile,
 		onPresent,
 		onAdvancedSource
 	}: Props = $props();
@@ -261,6 +267,30 @@
 			run: () => onOpenOutline?.()
 		},
 		{ id: 'library', label: t('library.title'), icon: Files, run: () => onOpenLibrary?.() },
+		{
+			id: 'snippets',
+			label: t('snippets.open'),
+			hint: t('snippets.openHint'),
+			keywords: t('snippets.search'),
+			icon: Code2,
+			run: onOpenSnippets
+		},
+		{
+			id: 'snippet-save-selection',
+			label: t('snippets.saveSelection'),
+			hint: t('snippets.saveSelectionHint'),
+			icon: Code2,
+			enabled: () => filesStore.active !== null && (kind === 'note' || kind === 'code'),
+			run: onSaveSnippetSelection
+		},
+		{
+			id: 'snippet-save-file',
+			label: t('snippets.saveFile'),
+			hint: t('snippets.saveFileHint'),
+			icon: Code2,
+			enabled: () => filesStore.active !== null && (kind === 'note' || kind === 'code'),
+			run: onSaveSnippetFile
+		},
 		{ id: 'backup', label: t('actions.backups'), icon: Download, run: onOpenSettings },
 		...filesStore.closedFiles.map((file) => ({
 			id: `reopen-${file.id}`,
@@ -821,6 +851,9 @@
 					'edit-original',
 					'edit-copy',
 					'library',
+					'snippets',
+					'snippet-save-selection',
+					'snippet-save-file',
 					'search',
 					'search-in-file',
 					'outline',

@@ -94,6 +94,25 @@ export interface CommentRow {
 	updatedAt: number;
 }
 
+/**
+ * Reusable text or code snippet. The row stores the exact code bytes in
+ * `code`. Search reads only the metadata fields.
+ */
+export interface SnippetRow {
+	id: string;
+	title: string;
+	code: string;
+	language: string;
+	tags: string[];
+	/** Optional free-form folder name. */
+	folder?: string;
+	/** Optional project scope. The project may be deleted later. */
+	projectId?: string;
+	favorite: boolean;
+	createdAt: number;
+	updatedAt: number;
+}
+
 export interface MetadataRow {
 	key: string;
 	value: string;
@@ -125,6 +144,7 @@ class MdshDB extends Dexie {
 	workspaces!: Table<WorkspaceRow, string>;
 	versions!: Table<VersionRow, string>;
 	templates!: Table<TemplateRow, string>;
+	snippets!: Table<SnippetRow, string>;
 	metadata!: Table<MetadataRow, string>;
 	projects!: Table<ProjectRow, string>;
 	projectAssets!: Table<ProjectAssetRow, string>;
@@ -176,9 +196,11 @@ class MdshDB extends Dexie {
 			projects: 'id, updatedAt',
 			projectAssets: 'id, projectId, &[projectId+path]'
 		});
-		// v7: editorial comments stay outside the Markdown source.
+		// v7: editorial comments and reusable snippets. Both new tables need no
+		// data migration. Snippet metadata supports search and duplicate checks.
 		this.version(7).stores({
-			comments: 'id, draftId, status, createdAt'
+			comments: 'id, draftId, status, createdAt',
+			snippets: 'id, updatedAt, favorite, projectId, folder, language'
 		});
 	}
 }

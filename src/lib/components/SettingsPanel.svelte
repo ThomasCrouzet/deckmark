@@ -25,6 +25,7 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { workspaceStore } from '#lib/workspaces.svelte.js';
 	import { templatesStore } from '#lib/templates.svelte.js';
+	import { snippetsStore } from '#lib/snippets.svelte.js';
 	import {
 		downloadBackup,
 		restoreFromText,
@@ -508,6 +509,7 @@
 				drafts: backup.drafts.length,
 				workspaces: backup.workspaces.length,
 				templates: backup.templates.length,
+				snippets: backup.snippets?.length ?? 0,
 				projects: backup.projects?.length ?? 0,
 				assets: backup.projectAssets?.length ?? 0
 			});
@@ -544,7 +546,12 @@
 		try {
 			// The restore service saves pending edits before it changes persisted drafts.
 			const counts = await restoreFromText(text, replace ? 'replace' : 'merge', passphrase);
-			await Promise.all([filesStore.reload(), workspaceStore.reload(), templatesStore.reload()]);
+			await Promise.all([
+				filesStore.reload(),
+				workspaceStore.reload(),
+				templatesStore.reload(),
+				snippetsStore.reload()
+			]);
 			// Partial restore: warn if corrupted entries were
 			// skipped, so as not to imply a complete recovery.
 			const skippedSuffix =
@@ -553,6 +560,7 @@
 				counts.unchanged.drafts +
 				counts.unchanged.workspaces +
 				counts.unchanged.templates +
+				(counts.unchanged.snippets ?? 0) +
 				(counts.unchanged.projects ?? 0) +
 				(counts.unchanged.projectAssets ?? 0);
 			const unchangedSuffix =
@@ -561,6 +569,7 @@
 				t('settings.backupProjectRestored', {
 					drafts: counts.drafts,
 					workspaces: counts.workspaces,
+					snippets: counts.snippets,
 					projects: counts.projects,
 					assets: counts.projectAssets
 				}) +

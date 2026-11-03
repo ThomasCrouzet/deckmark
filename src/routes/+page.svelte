@@ -39,6 +39,7 @@
 	import { initDesktopShell, type DesktopMenuAction } from '#lib/desktop-shell.js';
 	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
 	import { documentKind, documentKindForFile, type DocumentKind } from '#lib/document-kind.js';
+	import type { SnippetCapture } from '#lib/snippets.js';
 	const kind = $derived(
 		filesStore.active ? documentKindForFile(filesStore.active) : ('note' as DocumentKind)
 	);
@@ -57,6 +58,44 @@
 				?.focus()
 		);
 	}
+	function snippetCapture(source: 'selection' | 'file'): SnippetCapture | null {
+		const active = filesStore.active;
+		if (!active) {
+			notify.info(t('snippets.fileMissing'));
+			return null;
+		}
+		let code = active.content;
+		if (source === 'selection') {
+			const selected =
+				codeEditorRef?.getSelectionText?.() ||
+				sourceEditorRef?.getSelectionText?.() ||
+				window.getSelection()?.toString() ||
+				'';
+			if (selected.trim()) code = selected;
+			else notify.info(t('snippets.selectionMissing'));
+		}
+		return {
+			code,
+			title: '',
+			fileName: active.name,
+			...(active.projectId ? { projectId: active.projectId } : {}),
+			source
+		};
+	}
+
+	function openSnippetPanel(capture: SnippetCapture | null = null) {
+		const active = filesStore.active;
+		modals.openSnippets({
+			capture,
+			context: {
+				...(active?.projectId ? { projectId: active.projectId } : {}),
+				...(active
+					? { fileName: active.name, documentTitle: filesStore.documentTitle(active.id) }
+					: {})
+			}
+		});
+	}
+
 	function openOutline() {
 		openDocumentTool('outline');
 	}
@@ -148,6 +187,7 @@
 	// (`openSearch()` method) and its typewriter mode (`setTypewriter()`),
 	// both exposed via `bind:this`.
 	let sourceEditorRef = $state<SourceEditor | null>(null);
+	let codeEditorRef = $state<{ getSelectionText?: () => string } | null>(null);
 	// Search panel open-request flag: set when `⌘F` is pressed while in WYSIWYG /
 	// reading mode. We switch to `source` then the `$effect` below opens the
 	// panel as soon as the component is mounted.
@@ -801,6 +841,7 @@
 				focusMode={prefs.focusMode}
 				{articleRef}
 				onSourceEditorRef={(ref) => (sourceEditorRef = ref)}
+				onCodeEditorRef={(ref) => (codeEditorRef = ref)}
 				onArticleRef={(el) => (articleRef = el)}
 				onTocEmpty={(empty) => (tocEmpty = empty)}
 				onEditorChange={handleEditorChange}
@@ -940,6 +981,15 @@
 	onOpenInFileSearch={openInFileSearch}
 	onOpenDocsCheck={() => modals.openDocsCheck(filesStore.active?.projectId ?? null)}
 	onOpenDocsCheckIssue={openDocsCheckIssue}
+	onOpenSnippets={() => openSnippetPanel()}
+	onSaveSnippetSelection={() => {
+		const capture = snippetCapture('selection');
+		if (capture) openSnippetPanel(capture);
+	}}
+	onSaveSnippetFile={() => {
+		const capture = snippetCapture('file');
+		if (capture) openSnippetPanel(capture);
+	}}
 	onPresent={() => presentationAction('present')}
 	onAdvancedSource={() => presentationAction('source')}
 />

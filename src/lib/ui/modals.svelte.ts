@@ -17,6 +17,7 @@ import type { EditMode } from '#lib/types.js';
 import { reportError } from '#lib/report.js';
 import { t, type MessageKey } from '#lib/i18n/index.js';
 import { documentKindForFile } from '#lib/document-kind.js';
+import type { SnippetsOpenOptions } from '#lib/snippets.js';
 
 /**
  * Builds a memoized loader for a lazy modal. An import can fail offline or with
@@ -84,6 +85,8 @@ export function createModals(opts: ModalsOptions) {
 	let commentsOpen = $state(false);
 	let docsCheckOpen = $state(false);
 	let docsCheckProjectId = $state<string | null>(null);
+	let snippetsOpen = $state(false);
+	let snippetsOptions = $state<SnippetsOpenOptions>({});
 	let presenting = $state(false);
 	let newDocumentOpen = $state(false);
 
@@ -100,6 +103,7 @@ export function createModals(opts: ModalsOptions) {
 		propertiesOpen = false;
 		commentsOpen = false;
 		docsCheckOpen = false;
+		snippetsOpen = false;
 		newDocumentOpen = false;
 	}
 
@@ -191,6 +195,13 @@ export function createModals(opts: ModalsOptions) {
 		},
 		'modals.labelDocsCheck'
 	);
+	const loadSnippetsPanel = makeLazyLoader(
+		() => import('#lib/components/SnippetsPanel.svelte'),
+		() => {
+			snippetsOpen = false;
+		},
+		'snippets.title'
+	);
 	const loadNewDocument = makeLazyLoader(
 		() => import('#lib/components/NewDocumentDialog.svelte'),
 		() => {
@@ -272,6 +283,12 @@ export function createModals(opts: ModalsOptions) {
 		docsCheckOpen = true;
 	}
 
+	function openSnippets(options: SnippetsOpenOptions = {}) {
+		closeAll();
+		snippetsOptions = options;
+		snippetsOpen = true;
+	}
+
 	function openNewDocument() {
 		closeAll();
 		newDocumentOpen = true;
@@ -325,6 +342,7 @@ export function createModals(opts: ModalsOptions) {
 				propertiesOpen ||
 				commentsOpen ||
 				docsCheckOpen ||
+				snippetsOpen ||
 				newDocumentOpen ||
 				presenting
 			);
@@ -403,6 +421,16 @@ export function createModals(opts: ModalsOptions) {
 		get docsCheckProjectId() {
 			return docsCheckProjectId;
 		},
+		get snippetsOpen() {
+			return snippetsOpen;
+		},
+		set snippetsOpen(value: boolean) {
+			if (value) openSnippets(snippetsOptions);
+			else snippetsOpen = false;
+		},
+		get snippetsOptions() {
+			return snippetsOptions;
+		},
 		get presenting() {
 			return presenting;
 		},
@@ -440,8 +468,10 @@ export function createModals(opts: ModalsOptions) {
 		loadHistoryPanel,
 		loadGraphPanel,
 		loadDocsCheckPanel,
+		loadSnippetsPanel,
 		loadToc,
 		// Actions
+		openSnippets,
 		openPalette,
 		openSearch,
 		openDiskLinks,
