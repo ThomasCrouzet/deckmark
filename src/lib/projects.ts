@@ -164,6 +164,16 @@ export async function checkProjectLinks(projectId: string) {
 	return projectLinkReport(documents, assets);
 }
 
+/** Rename a project without changing its documents or paths. */
+export async function renameProject(projectId: string, requested: string): Promise<boolean> {
+	const name = requested.trim();
+	if (!name || name.length > 120) return false;
+	const project = await db.projects.get(projectId);
+	if (!project) return false;
+	await db.projects.update(projectId, { name, updatedAt: Date.now() });
+	return true;
+}
+
 let renameQueue: Promise<unknown> = Promise.resolve();
 
 export function renameProjectDocument(id: string, requested: string): Promise<boolean> {

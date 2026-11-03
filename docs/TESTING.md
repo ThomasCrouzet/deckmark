@@ -1002,3 +1002,34 @@ Keep the movement and frame-time limits. Retain measurements before assertions.
 The disk source fixture retries a fresh File snapshot while a write completes.
 A browser can reject an older snapshot with `NotReadableError` during that write.
 The fixture must still compare the committed file bytes and the rejected branch.
+
+## Project explorer and project drops
+
+The project explorer keeps its expansion state in `mdsh:project-expanded`.
+`e2e/project-explorer.spec.ts` checks these failure risks through the browser:
+
+- A document switch or reload can lose the expanded folder state.
+- A project document can appear twice or receive a new identity when it opens.
+- A drop can place a file in the wrong folder or steal an operating system drop.
+- A name conflict can overwrite an existing document.
+- A folder move can break Markdown links, wiki links, or image paths.
+- A cancelled conflict can leave a partial move.
+- A path traversal or unsupported file can change the project before it fails.
+- A large folder can block the interface without bounded rendering.
+
+The spec records the stored drafts, the rewritten Markdown, a screenshot, and a
+JSON report with the expansion keys or the drop result. It also records a
+heartbeat for the 320 document fixture.
+
+Run the focused workflow with:
+
+```sh
+npx playwright test e2e/project-explorer.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The operating system directory case uses `webkitRelativePath` on a synthetic
+`DataTransfer`. Chromium does not give `webkitGetAsEntry` entries to a synthetic
+drag, so the test checks the relative path fallback. A manual desktop drag of a
+real directory is still necessary for the entry traversal branch. The test does
+not reproduce a denied operating system permission or a real storage quota
+failure. The move transaction is the rollback boundary for those failures.

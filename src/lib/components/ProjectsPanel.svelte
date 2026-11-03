@@ -18,6 +18,7 @@
 		checkProjectLinks
 	} from '#lib/projects.js';
 	import type { ProjectLinkIssue } from '#lib/project-links.js';
+	import { projectExplorer } from '#lib/project-explorer.svelte.js';
 	import {
 		disconnectNativeProject,
 		NativeProjectOperationError,
@@ -53,6 +54,7 @@
 	async function load() {
 		projects = await db.projects.orderBy('updatedAt').reverse().toArray();
 		if (!projects.some((project) => project.id === selected)) selected = projects[0]?.id ?? null;
+		await projectExplorer.load();
 	}
 
 	async function run(operation: () => Promise<void>) {
@@ -316,7 +318,12 @@
 						{/if}
 					</div>
 				{/if}
-				<ProjectTree {documents} {busy} onOpen={openDocument} />
+				<ProjectTree
+					{documents}
+					projects={selectedProject ? [{ id: selectedProject.id, name: selectedProject.name }] : []}
+					{busy}
+					onOpen={openDocument}
+				/>
 			{:else}<p class="py-6 text-sm text-fg-muted">{t('projects.empty')}</p>{/if}
 		</div>
 		<footer class="space-y-1 border-t border-border p-3 text-xs text-fg-muted">

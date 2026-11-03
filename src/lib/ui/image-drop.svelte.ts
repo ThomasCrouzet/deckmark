@@ -221,7 +221,7 @@ export function buildDropHandlers(opts: {
 	}
 
 	function handleDragOver(e: DragEvent): void {
-		if (!isFilesDrag(e)) return;
+		if (!isFilesDrag(e) || e.defaultPrevented) return;
 		e.preventDefault();
 		opts.setDragOver(true);
 	}
