@@ -37,14 +37,16 @@
 	import { createFileIntents } from '#lib/ui/file-intents.svelte.js';
 	import { initDesktopShell, type DesktopMenuAction } from '#lib/desktop-shell.js';
 	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
-	import { documentKind, type DocumentKind } from '#lib/document-kind.js';
-	const kind = $derived(documentKind(filesStore.active?.content ?? ''));
+	import { documentKind, documentKindForFile, type DocumentKind } from '#lib/document-kind.js';
+	const kind = $derived(
+		filesStore.active ? documentKindForFile(filesStore.active) : ('note' as DocumentKind)
+	);
 
 	let mode = $state<EditMode>('wysiwyg');
 	let projectsOpen = $state(false);
 	let documentTool = $state<'find' | 'outline' | null>(null);
 	function openDocumentTool(kind: 'find' | 'outline') {
-		if (documentKind(filesStore.active?.content ?? '') !== 'note') return;
+		if (!filesStore.active || documentKindForFile(filesStore.active) !== 'note') return;
 		documentTool = kind;
 		void tick().then(() =>
 			document
@@ -58,7 +60,11 @@
 		openDocumentTool('outline');
 	}
 	async function requestMode(nextMode: EditMode): Promise<void> {
-		if (kind !== 'note') return;
+		if (kind !== 'note' && kind !== 'code') return;
+		if (kind === 'code') {
+			mode = 'source';
+			return;
+		}
 		documentTool = null;
 		const activeId = filesStore.activeId;
 		if (nextMode !== 'source' && activeId && filesStore.requiresRenderConfirmation(activeId)) {
@@ -476,13 +482,13 @@
 		input.value = '';
 	}
 
-	function handleEditorChange(markdown: string) {
-		if (documentKind(markdown) !== 'note') {
+	function handleEditorChange(text: string) {
+		if (!filesStore.active) return;
+		if (kind === 'note' && documentKind(text) !== 'note') {
 			notify.error(t('documents.noConversion'));
 			return;
 		}
-		if (filesStore.active && kind === 'note')
-			filesStore.updateContent(filesStore.active.id, markdown);
+		if (kind === 'note' || kind === 'code') filesStore.updateContent(filesStore.active.id, text);
 	}
 
 	// §C1 - WYSIWYG flush: explicitly writes to the file `id` provided by the
@@ -490,9 +496,12 @@
 	// when switching tabs right after typing (Milkdown's markdownUpdated is
 	// asynchronous). `updateContent` ignores identical content.
 	function handleEditorFlush(id: string, markdown: string) {
-		if (documentKind(markdown) !== 'note') return;
 		const file = filesStore.library.find((entry) => entry.id === id);
-		if (file && documentKind(file.content) === 'note') filesStore.updateContent(id, markdown);
+		if (!file) return;
+		const fileKind = documentKindForFile(file);
+		if (fileKind !== 'note' && fileKind !== 'code') return;
+		if (fileKind === 'note' && documentKind(markdown) !== 'note') return;
+		filesStore.updateContent(id, markdown);
 	}
 
 	function handleExport() {

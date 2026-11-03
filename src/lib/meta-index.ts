@@ -17,7 +17,7 @@
 // Parity for the supported subset is covered in `meta-index.test.ts`.
 
 import type { FileItem } from './types';
-import { documentKind } from './document-kind';
+import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-utils';
 import { extractWikiLinkTargets } from './wiki-links';
 import { getTags as getFmTags, getTitle as getFmTitle, stripFrontmatter } from './frontmatter';
@@ -59,7 +59,7 @@ export class MetaIndex {
 		if (cached && cached.content === file.content && cached.name === file.name) return cached;
 
 		const fallback = stripMdExtension(file.name);
-		const isNote = documentKind(file.content) === 'note';
+		const isNote = documentKindForFile(file) === 'note';
 		const { content, raw } = stripFrontmatter(file.content);
 
 		// Title: YAML > first H1 > filename. We reproduce the logic of the old
@@ -201,7 +201,7 @@ export class MetaIndex {
 	backlinks(targetId: string): FileItem[] {
 		const files = this.getFiles();
 		const target = files.find((f) => f.id === targetId);
-		if (!target || documentKind(target.content) !== 'note') return [];
+		if (!target || documentKindForFile(target) !== 'note') return [];
 		if (!this.backlinksIndex) this.buildBacklinksIndex();
 		const idx = this.backlinksIndex!;
 		const targetNameLower = stripMdExtension(target.name).toLowerCase();
@@ -229,7 +229,7 @@ export class MetaIndex {
 	wikiLinkCandidates(target: string): FileItem[] {
 		const t = target.trim();
 		if (!t) return [];
-		const files = this.getFiles().filter((file) => documentKind(file.content) === 'note');
+		const files = this.getFiles().filter((file) => documentKindForFile(file) === 'note');
 		// Match by exact id first.
 		const byId = files.find((f) => f.id === t);
 		if (byId) return [byId];

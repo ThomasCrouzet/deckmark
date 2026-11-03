@@ -9,6 +9,12 @@ export interface FileItem {
 	createdAt: number;
 	updatedAt: number;
 	dirty: boolean;
+	/** Explicit document type. Missing means derive it from the name and content. */
+	kind?: 'note' | 'presentation' | 'code' | 'image';
+	/** MIME type for binary image documents. */
+	mime?: string;
+	/** Data URL for binary image documents. Content stays empty. */
+	data?: string;
 	/** How the document first entered the library. */
 	origin?: 'created' | 'imported' | 'template';
 	linkedToDisk?: boolean;

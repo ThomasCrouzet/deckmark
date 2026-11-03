@@ -7,7 +7,7 @@ import {
 	rewriteProjectDestinations
 } from './project-links';
 import { rewriteWikiLinkTargets } from './wiki-links';
-import { documentKind } from './document-kind';
+import { documentKindForFile } from './document-kind';
 import type { ProjectAssetRow } from './db';
 type JSZipObject = import('jszip').JSZipObject;
 
@@ -16,6 +16,9 @@ export interface ProjectDocumentInput {
 	id?: string;
 	relativePath: string;
 	content: string;
+	kind?: 'note' | 'presentation' | 'code' | 'image';
+	/** Data URL for an image document. */
+	data?: string;
 }
 export interface ProjectAssetInput {
 	path: string;
@@ -234,8 +237,20 @@ export async function buildProjectZip(
 		const documentKey = pathKey(documentPath);
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
+		if (document.kind === 'image' && document.data) {
+			const payload = document.data.slice(document.data.indexOf(',') + 1);
+			occupied.add(documentKey);
+			exportedDocuments.push({
+				...(document.id ? { id: document.id } : {}),
+				relativePath: documentPath,
+				content: '',
+				kind: 'image'
+			});
+			zip.file(documentPath, payload, { base64: true });
+			continue;
+		}
 		const portableContent =
-			documentKind(document.content) === 'presentation'
+			documentKindForFile(document) !== 'note'
 				? document.content
 				: rewriteWikiLinkTargets(document.content, (target) => {
 						const id = target.split('#', 1)[0]!;

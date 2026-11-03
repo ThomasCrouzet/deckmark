@@ -35,7 +35,12 @@ export function uniqueName(existing: string[], base: string): string {
 
 export function normalizeRename(raw: string): string {
 	const clean = raw.trim() || untitledFilename();
-	return /\.(md|markdown|mdx|txt)$/i.test(clean) ? clean : `${clean}.md`;
+	return /\.[a-z0-9]{1,10}$/i.test(clean) ? clean : `${clean}.md`;
+}
+
+/** Removes the final extension for display purposes. */
+export function stripFileExtension(name: string): string {
+	return name.replace(/\.[a-z0-9]{1,10}$/i, '');
 }
 
 export function stripMdExtension(name: string): string {

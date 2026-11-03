@@ -55,6 +55,7 @@
 		Settings,
 		SunMoon,
 		FileText,
+		Image as ImageIcon,
 		Clipboard,
 		ClipboardCopy,
 		FolderOpen,
@@ -73,7 +74,11 @@
 		run: () => void;
 	}
 
-	import { documentKind, type DocumentKind } from '#lib/document-kind.js';
+	import {
+		documentKindForFile,
+		documentKindLabelKey,
+		type DocumentKind
+	} from '#lib/document-kind.js';
 	interface Props {
 		kind: DocumentKind;
 		mode: EditMode;
@@ -155,7 +160,7 @@
 	let inputEl: HTMLInputElement | null = $state(null);
 
 	function stripExt(name: string) {
-		return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
+		return name.replace(/\.[a-z0-9]{1,10}$/i, '');
 	}
 
 	function runCommand(command: Command | undefined): void {
@@ -238,8 +243,15 @@
 			id: `reopen-${file.id}`,
 			label: t('palette.reopenFile', { name: file.name }),
 			keywords: filesStore.documentTitle(file.id),
-			hint: t(documentKind(file.content) === 'note' ? 'documents.note' : 'documents.presentation'),
-			icon: documentKind(file.content) === 'note' ? FileText : Presentation,
+			hint: t(documentKindLabelKey(documentKindForFile(file))),
+			icon:
+				documentKindForFile(file) === 'note'
+					? FileText
+					: documentKindForFile(file) === 'presentation'
+						? Presentation
+						: documentKindForFile(file) === 'code'
+							? Code2
+							: ImageIcon,
 			run: () => {
 				filesStore.reopen(file.id);
 			}
@@ -623,8 +635,15 @@
 			id: `file-${f.id}`,
 			label: stripExt(f.name),
 			keywords: filesStore.documentTitle(f.id),
-			hint: t(documentKind(f.content) === 'note' ? 'documents.note' : 'documents.presentation'),
-			icon: documentKind(f.content) === 'note' ? FileText : Presentation,
+			hint: t(documentKindLabelKey(documentKindForFile(f))),
+			icon:
+				documentKindForFile(f) === 'note'
+					? FileText
+					: documentKindForFile(f) === 'presentation'
+						? Presentation
+						: documentKindForFile(f) === 'code'
+							? Code2
+							: ImageIcon,
 			run: () => filesStore.setActive(f.id)
 		}))
 	);

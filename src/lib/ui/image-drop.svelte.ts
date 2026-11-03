@@ -10,7 +10,7 @@ import { t } from '#lib/i18n/index.js';
 import { notify } from '#lib/notify.svelte.js';
 import { reportWarning } from '#lib/report.js';
 import { MAX_IMAGE_BYTES } from '#lib/config.js';
-import { documentKind } from '#lib/document-kind.js';
+import { documentKindForFile } from '#lib/document-kind.js';
 
 // §B5.1 - Guard limit for dropped images: beyond it, we skip the file
 // (with a console warn). A 2 MB image in base64 makes ~2.7 MB of
@@ -58,7 +58,7 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 	}
 	const active = store.active;
 	if (!active) return;
-	if (documentKind(active.content) === 'presentation') {
+	if (documentKindForFile(active) !== 'note') {
 		notify.error(t('imageDrop.unreadable', { n: images.length }));
 		return;
 	}
@@ -143,7 +143,7 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 	if (blocks.length === 0) return;
 
 	const current = store.active;
-	if (!current || current.id !== active.id || documentKind(current.content) === 'presentation') {
+	if (!current || current.id !== active.id || documentKindForFile(current) !== 'note') {
 		notify.error(t('imageDrop.unreadable', { n: blocks.length }));
 		return;
 	}

@@ -2,7 +2,7 @@
 	import { tick, onMount, untrack } from 'svelte';
 	import { browser } from '$app/env';
 	import { filesStore } from '#lib/files.svelte.js';
-	import { documentKind } from '#lib/document-kind.js';
+	import { documentKindForFile } from '#lib/document-kind.js';
 	import { t, type MessageKey } from '#lib/i18n/index.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { notify } from '#lib/notify.svelte.js';
@@ -40,7 +40,7 @@
 	let query = $state('');
 	let scope = $state<'library' | 'open'>('library');
 	const corpus = $derived(scope === 'library' ? filesStore.library : filesStore.files);
-	const kindsById = $derived(new Map(corpus.map((file) => [file.id, documentKind(file.content)])));
+	const kindsById = $derived(new Map(corpus.map((file) => [file.id, documentKindForFile(file)])));
 	// Debounced query (120 ms): avoids the split×lines of every file
 	// on each keystroke. Measurable gain from ~20 moderately-sized files.
 	let debouncedQuery = $state('');
@@ -157,7 +157,7 @@
 	});
 
 	function stripExt(name: string) {
-		return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
+		return name.replace(/\.[a-z0-9]{1,10}$/i, '');
 	}
 
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -312,7 +312,7 @@
 		try {
 			await filesStore.flushPendingAwait();
 			const slices = corpus
-				.filter((file) => documentKind(file.content) === 'note')
+				.filter((file) => documentKindForFile(file) === 'note')
 				.map((file) => ({
 					id: file.id,
 					name: file.name,

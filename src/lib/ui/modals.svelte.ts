@@ -16,7 +16,7 @@
 import type { EditMode } from '#lib/types.js';
 import { reportError } from '#lib/report.js';
 import { t, type MessageKey } from '#lib/i18n/index.js';
-import { documentKind } from '#lib/document-kind.js';
+import { documentKindForFile } from '#lib/document-kind.js';
 
 /**
  * Builds a memoized loader for a lazy modal. An import can fail offline or with
@@ -226,7 +226,8 @@ export function createModals(opts: ModalsOptions) {
 	function handleOpenHit(fileId: string, line: number, query: string) {
 		const changedFile = opts.getFilesStoreActive()?.id !== fileId;
 		opts.getFilesStoreSetActive()(fileId);
-		if (documentKind(opts.getFilesStoreActive()?.content ?? '') === 'presentation') {
+		const hitFile = opts.getFilesStoreActive();
+		if (!hitFile || documentKindForFile(hitFile) === 'image') {
 			opts.setPendingGoToHit(null);
 			return;
 		}

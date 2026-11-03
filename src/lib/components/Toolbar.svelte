@@ -92,7 +92,7 @@
 	}
 
 	function stripExt(name: string) {
-		return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
+		return name.replace(/\.[a-z0-9]{1,10}$/i, '');
 	}
 
 	function handleNameKey(e: KeyboardEvent) {
@@ -191,7 +191,15 @@
 				aria-label={t('toolbar.fileNameLabel')}
 			/>
 			<span data-testid="document-kind" class="type-badge"
-				>{t(kind === 'note' ? 'documents.note' : 'documents.presentation')}</span
+				>{t(
+					kind === 'note'
+						? 'documents.note'
+						: kind === 'presentation'
+							? 'documents.presentation'
+							: kind === 'code'
+								? 'documents.code'
+								: 'documents.image'
+				)}</span
 			>
 			<span class="title-save" role="status"
 				>{filesStore.saveErrorIds.includes(filesStore.active.id)
@@ -325,7 +333,7 @@
 	<!-- §B2.3 - `aria-keyshortcuts` announces the shortcuts to SRs (the `title=`
 	     is for the sighted eye). ARIA format: "Control+B Meta+B" - Meta
 	     covers macOS, Control the rest. -->
-	{#if kind === 'note'}<button
+	{#if kind !== 'presentation'}<button
 			class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 			onclick={onExport}
@@ -337,17 +345,20 @@
 			<Download size={16} />
 		</button>
 
-		<button
-			class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
+		{#if kind === 'note'}
+			<button
+				class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-			onclick={onExportPDF}
-			disabled={!filesStore.active}
-			title={`${t('toolbar.exportPdf')} (${keyboardStore.label('export-pdf') ?? ''})`}
-			aria-label={t('toolbar.exportPdf')}
-			aria-keyshortcuts={keyboardStore.aria('export-pdf')}
-		>
-			<Printer size={16} />
-		</button>{/if}
+				onclick={onExportPDF}
+				disabled={!filesStore.active}
+				title={`${t('toolbar.exportPdf')} (${keyboardStore.label('export-pdf') ?? ''})`}
+				aria-label={t('toolbar.exportPdf')}
+				aria-keyshortcuts={keyboardStore.aria('export-pdf')}
+			>
+				<Printer size={16} />
+			</button>
+		{/if}
+	{/if}
 
 	{#if onOpenActions}
 		<button

@@ -1,11 +1,19 @@
-import { ImportSession, type ImportOptions, type ImportReport } from './import-limits';
+import { ImportSession, readDataUrl, type ImportOptions, type ImportReport } from './import-limits';
 import { readPreference, writePreference } from './preferences';
 import { IMPORT_LIMITS } from './config';
 import { browser } from '$app/env';
 import { db, newId } from './db';
 import type { DraftRow } from './db';
 import type { FileItem, TrashedFile } from './types';
-import { documentKind, type DocumentKind } from './document-kind';
+import {
+	documentKind,
+	documentKindForFile,
+	imageMimeForName,
+	isCodeExtension,
+	isImageExtension,
+	isMarkdownExtension,
+	type DocumentKind
+} from './document-kind';
 import { isFSASupported, listDiskLinks, pickDirectoryFiles } from './fsa';
 import { isDesktop } from './desktop';
 import type { NativeDiskGrant } from './disk-tauri';
@@ -28,7 +36,7 @@ import {
 	refreshBrokenLinks as diskRefreshBrokenLinks
 } from './disk-sync';
 
-import { isMarkdownFile, normalizeRename, uniqueName, stripMdExtension } from './file-utils';
+import { normalizeRename, uniqueName, stripMdExtension } from './file-utils';
 
 import {
 	exportMarkdown as exportMarkdownOp,
@@ -62,6 +70,9 @@ function toDraftRow(file: FileItem, order: number, open = true): DraftRow {
 		content: file.content,
 		...(file.projectId ? { projectId: file.projectId, relativePath: file.relativePath } : {}),
 		...(file.origin ? { origin: file.origin } : {}),
+		...(file.kind ? { kind: file.kind } : {}),
+		...(file.mime ? { mime: file.mime } : {}),
+		...(file.data ? { data: file.data } : {}),
 		createdAt: file.createdAt,
 		updatedAt: file.updatedAt,
 		order,
@@ -358,6 +369,9 @@ class FilesStore {
 				content: r.content,
 				...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
 				...(r.origin ? { origin: r.origin } : {}),
+				...(r.kind ? { kind: r.kind } : {}),
+				...(r.mime ? { mime: r.mime } : {}),
+				...(r.data ? { data: r.data } : {}),
 				createdAt: r.createdAt,
 				updatedAt: r.updatedAt,
 				dirty: false,
@@ -495,8 +509,15 @@ class FilesStore {
 	createNew(
 		name = t('files.untitledFilename'),
 		content = '',
-		options: { focusEditor?: boolean; origin?: FileItem['origin'] } = {}
+		options: {
+			focusEditor?: boolean;
+			origin?: FileItem['origin'];
+			kind?: DocumentKind;
+			mime?: string;
+			data?: string;
+		} = {}
 	): FileItem {
+		const kind = options.kind ?? documentKindForFile({ name, content });
 		const file: FileItem = {
 			id: newId(),
 			name: uniqueName(
@@ -504,10 +525,13 @@ class FilesStore {
 				name
 			),
 			content,
-			origin: options.origin ?? (content.length > 0 ? 'imported' : 'created'),
+			kind,
+			...(options.mime ? { mime: options.mime } : {}),
+			...(options.data ? { data: options.data } : {}),
+			origin: options.origin ?? (content.length > 0 || options.data ? 'imported' : 'created'),
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
-			dirty: content.length > 0
+			dirty: content.length > 0 || !!options.data
 		};
 		this.files.push(file);
 		this.activeId = file.id;
@@ -523,13 +547,15 @@ class FilesStore {
 			this.dispatchEditorFlush();
 			return this.createNew(t('files.untitledFilename'), '', {
 				focusEditor: true,
-				origin: 'created'
+				origin: 'created',
+				kind: 'note'
 			});
 		}
 		const { createDeck, serializePresentation } = await import('./presentation/model');
 		this.dispatchEditorFlush();
 		return this.createNew(t('slides.newPresentationName'), serializePresentation(createDeck()), {
-			origin: 'created'
+			origin: 'created',
+			kind: 'presentation'
 		});
 	}
 
@@ -566,8 +592,34 @@ class FilesStore {
 		try {
 			for (const file of Array.from(fileList)) {
 				if (!(await session.pause())) break;
-				if (!isMarkdownFile(file)) {
+				const image = isImageExtension(file.name);
+				const markdown = isMarkdownExtension(file.name);
+				const code = isCodeExtension(file.name);
+				if (!image && !markdown && !code) {
 					session.skip();
+					continue;
+				}
+				if (image) {
+					try {
+						session.reserve(file.size);
+						const data = await readDataUrl(
+							file,
+							IMPORT_LIMITS.maxFileBytes,
+							session.options.signal
+						);
+						const mime = file.type || imageMimeForName(file.name);
+						created.push(
+							this.createNew(file.name, '', {
+								origin: 'imported',
+								kind: 'image',
+								mime,
+								data
+							})
+						);
+						session.accept();
+					} catch {
+						if (!session.cancelled) session.fail(file.name, 'read');
+					}
 					continue;
 				}
 				const content = await session.read(file);
@@ -583,8 +635,12 @@ class FilesStore {
 					session.accept();
 					continue;
 				}
-				const name = /\.(md|markdown)$/i.test(file.name) ? file.name : `${file.name}.md`;
-				created.push(this.createNew(name, content, { origin: 'imported' }));
+				created.push(
+					this.createNew(file.name, content, {
+						origin: 'imported',
+						kind: code ? 'code' : documentKind(content)
+					})
+				);
 				session.accept();
 			}
 			return {
@@ -1081,7 +1137,7 @@ class FilesStore {
 						)
 					: content;
 			const changes =
-				documentKind(file.content) === 'note' &&
+				documentKindForFile(file) === 'note' &&
 				this.metaIndex.wikiLinkCandidates(oldTarget).length === 1
 					? this.library.flatMap((entry) =>
 							rewrite(entry.content) === entry.content
@@ -1413,7 +1469,7 @@ class FilesStore {
 		scope: 'library' | 'open' = 'library'
 	): Promise<{ files: number; occurrences: number; regexError: string | null }> {
 		const slices = (scope === 'library' ? this.library : this.files)
-			.filter((file) => documentKind(file.content) === 'note')
+			.filter((file) => documentKindForFile(file) === 'note')
 			.map((f) => ({
 				id: f.id,
 				name: f.name,
@@ -1491,11 +1547,11 @@ class FilesStore {
 	/** Files that contain a wiki-link pointing to `targetId`. */
 	backlinks(targetId: string): FileItem[] {
 		const targetFile = this.library.find((file) => file.id === targetId);
-		if (!targetFile || documentKind(targetFile.content) !== 'note') return [];
+		if (!targetFile || documentKindForFile(targetFile) !== 'note') return [];
 		return this.library.filter(
 			(file) =>
 				file.id !== targetId &&
-				documentKind(file.content) === 'note' &&
+				documentKindForFile(file) === 'note' &&
 				this.metaIndex
 					.wikiLinkTargets(file.id)
 					.some((target) => this.resolveWikiLink(target, file.id) === targetId)
@@ -1504,12 +1560,12 @@ class FilesStore {
 	/** Resolves a wiki-link → file id, or `null` if not found. */
 	resolveWikiLink(target: string, sourceId?: string): string | null {
 		const source = this.library.find((file) => file.id === sourceId);
-		if (source && documentKind(source.content) !== 'note') return null;
+		if (source && documentKindForFile(source) !== 'note') return null;
 		if (source?.projectId) {
 			const candidates = projectWikiCandidates(
 				source,
 				target,
-				this.library.filter((file) => documentKind(file.content) === 'note')
+				this.library.filter((file) => documentKindForFile(file) === 'note')
 			);
 			return candidates.length === 1 ? candidates[0]!.id : null;
 		}
@@ -1521,12 +1577,12 @@ class FilesStore {
 	 */
 	openWikiLink(target: string, sourceId?: string): string | null {
 		const source = this.library.find((file) => file.id === sourceId);
-		if (source && documentKind(source.content) !== 'note') return null;
+		if (source && documentKindForFile(source) !== 'note') return null;
 		if (source?.projectId) {
 			const matches = projectWikiCandidates(
 				source,
 				target,
-				this.library.filter((file) => documentKind(file.content) === 'note')
+				this.library.filter((file) => documentKindForFile(file) === 'note')
 			);
 			if (matches.length !== 1) {
 				notify.info(

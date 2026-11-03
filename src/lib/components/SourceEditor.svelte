@@ -12,6 +12,8 @@
 		content: string;
 		readonly?: boolean;
 		fillContainer?: boolean;
+		/** Code and plain-text documents skip the Markdown parser and guard. */
+		plainText?: boolean;
 		onChange: (markdown: string) => void;
 		onCursorLine?: (line: number) => void;
 		onViewportLine?: (line: number) => void;
@@ -22,6 +24,7 @@
 		content,
 		readonly = false,
 		fillContainer = false,
+		plainText = false,
 		onChange,
 		onCursorLine,
 		onViewportLine
@@ -368,7 +371,7 @@
 			cm.lineNumbers(),
 			cm.highlightActiveLine(),
 			cm.history(),
-			cm.markdown(),
+			...(plainText ? [] : [cm.markdown()]),
 			cm.syntaxHighlighting(cm.defaultHighlightStyle, { fallback: true }),
 			// `search()` adds the state fields + the panel widget. The
 			// keymap is merged into the `keymap.of()` below (mod-f ->
@@ -386,6 +389,7 @@
 			cm.EditorState.readOnly.of(readonly),
 			cm.EditorState.changeFilter.of((transaction) => {
 				if (
+					plainText ||
 					!transaction.docChanged ||
 					applyingExternal ||
 					documentKind(sourceChanges(transaction)) === 'note'

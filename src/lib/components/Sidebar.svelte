@@ -2,12 +2,14 @@
 	import { tick, onMount } from 'svelte';
 	import { browser } from '$app/env';
 	import { filesStore } from '#lib/files.svelte.js';
-	import { documentKind } from '#lib/document-kind.js';
+	import { documentKindForFile, documentKindLabelKey } from '#lib/document-kind.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import {
 		FilePlus,
 		FileText,
 		Presentation,
+		Code2,
+		Image,
 		Upload,
 		X,
 		Circle,
@@ -80,7 +82,7 @@
 		if (
 			activeTag &&
 			(!tags.includes(activeTag) ||
-				(filesStore.active && documentKind(filesStore.active.content) === 'presentation'))
+				(filesStore.active && documentKindForFile(filesStore.active) === 'presentation'))
 		) {
 			activeTag = null;
 		}
@@ -514,9 +516,16 @@
 					{@const dirtyHint = file.dirty ? t('sidebar.unexportedChangesHint') : ''}
 					{@const label = filesStore.displayTitle(file.id)}
 					{@const isSelected = filesStore.selectedIds.has(file.id)}
-					{@const kind = documentKind(file.content)}
-					{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
-					{@const TypeIcon = kind === 'note' ? FileText : Presentation}
+					{@const kind = documentKindForFile(file)}
+					{@const typeLabel = t(documentKindLabelKey(kind))}
+					{@const TypeIcon =
+						kind === 'note'
+							? FileText
+							: kind === 'presentation'
+								? Presentation
+								: kind === 'code'
+									? Code2
+									: Image}
 					<li
 						style:height={`${rowHeights[visibleStart + fileIndex]}px`}
 						aria-posinset={visibleStart + fileIndex + 1}
@@ -631,9 +640,16 @@
 				>{t('sidebar.closedFiles')} ({filesStore.closedFiles.length})</summary
 			>
 			{#each filesStore.closedFiles as file (file.id)}
-				{@const kind = documentKind(file.content)}
-				{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
-				{@const TypeIcon = kind === 'note' ? FileText : Presentation}
+				{@const kind = documentKindForFile(file)}
+				{@const typeLabel = t(documentKindLabelKey(kind))}
+				{@const TypeIcon =
+					kind === 'note'
+						? FileText
+						: kind === 'presentation'
+							? Presentation
+							: kind === 'code'
+								? Code2
+								: Image}
 				<button
 					class="flex w-full items-center gap-2 py-2 text-left"
 					aria-label={file.name}

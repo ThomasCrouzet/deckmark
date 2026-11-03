@@ -10,6 +10,9 @@ export interface DraftRow {
 	createdAt: number;
 	updatedAt: number;
 	order: number;
+	kind?: 'note' | 'presentation' | 'code' | 'image';
+	mime?: string;
+	data?: string;
 	origin?: 'created' | 'imported' | 'template';
 	/** Whether the document is currently shown as an open tab. Missing means open for v4 data. */
 	open?: boolean;
