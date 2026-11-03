@@ -7,9 +7,11 @@ import { projectFr } from './project-fr';
 import { diffFr } from './diff-fr';
 import { backupProjectFr } from './backup-project-fr';
 import { slidesFr } from './slides-fr';
+import { snippetsFr } from './snippets-fr';
 
 export const fr: Record<MessageKey, string> = {
 	...slidesFr,
+	...snippetsFr,
 	...splitFr,
 	...projectFr,
 	...diffFr,
@@ -768,7 +770,7 @@ export const fr: Record<MessageKey, string> = {
 	'settings.close': 'Fermer',
 	'settings.data': 'Données',
 	'settings.dataDescription':
-		'Les sauvegardes incluent les brouillons, espaces et modèles. La corbeille, l’historique des versions et les permissions disque ne sont pas portables et sont exclus.',
+		'Les sauvegardes incluent les brouillons, espaces, modèles et extraits. La corbeille, l’historique des versions et les permissions disque ne sont pas portables et sont exclus.',
 	'settings.storageHealth': 'État du stockage',
 	'settings.storagePersistent': 'Stockage navigateur persistant',
 	'settings.storageBestEffort': 'Stockage navigateur en mode best-effort',

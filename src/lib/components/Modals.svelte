@@ -42,6 +42,9 @@
 		onAdvancedSource: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenDocsCheckIssue: (fileId: string, line: number) => void;
+		onOpenSnippets: () => void;
+		onSaveSnippetSelection: () => void;
+		onSaveSnippetFile: () => void;
 	}
 
 	let {
@@ -70,7 +73,10 @@
 		onPresent,
 		onAdvancedSource,
 		onOpenDocsCheck,
-		onOpenDocsCheckIssue
+		onOpenDocsCheckIssue,
+		onOpenSnippets,
+		onSaveSnippetSelection,
+		onSaveSnippetFile
 	}: Props = $props();
 </script>
 
@@ -121,6 +127,9 @@
 			onOpenGraph={modals.openGraph}
 			onOpenAi={modals.openAi}
 			{onOpenDocsCheck}
+			{onOpenSnippets}
+			{onSaveSnippetSelection}
+			{onSaveSnippetFile}
 			{onPresent}
 			{onAdvancedSource}
 		/>
@@ -206,6 +215,19 @@
 			initialProjectId={modals.docsCheckProjectId}
 			onClose={() => (modals.docsCheckOpen = false)}
 			onOpenIssue={onOpenDocsCheckIssue}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.snippetsOpen}
+	{#await modals.loadSnippetsPanel() then SnippetsPanel}
+		<SnippetsPanel
+			open={modals.snippetsOpen}
+			capture={modals.snippetsOptions.capture ?? null}
+			context={modals.snippetsOptions.context ?? {}}
+			onClose={() => (modals.snippetsOpen = false)}
 		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->

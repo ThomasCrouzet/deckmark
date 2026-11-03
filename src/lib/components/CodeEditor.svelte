@@ -21,12 +21,21 @@
 		fileId: string;
 		name: string;
 		content: string;
+		readonly?: boolean;
 		onChange: (text: string) => void;
 		onFlush?: (fileId: string, text: string) => void;
 		onCursorLine?: (line: number) => void;
 	}
 
-	let { fileId, name, content, onChange, onFlush, onCursorLine }: Props = $props();
+	let {
+		fileId,
+		name,
+		content,
+		readonly = false,
+		onChange,
+		onFlush,
+		onCursorLine
+	}: Props = $props();
 
 	const language = $derived(codeLanguageForName(name));
 	let host = $state<HTMLDivElement>();
@@ -185,6 +194,7 @@
 					optionCompartments.invisibles.of([]),
 					syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 					languageSupport,
+					...(readonly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
 					EditorView.updateListener.of((update) => {
 						if (!update.selectionSet && !update.docChanged) return;
 						onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
@@ -316,6 +326,13 @@
 		const position = view.state.doc.line(target).from;
 		view.dispatch({ selection: { anchor: position }, scrollIntoView: true });
 		view.focus();
+	}
+
+	/** Returns the selected text. The CodeMirror state keeps it after blur. */
+	export function getSelectionText(): string {
+		if (!view) return '';
+		const { from, to } = view.state.selection.main;
+		return from === to ? '' : view.state.sliceDoc(from, to);
 	}
 </script>
 

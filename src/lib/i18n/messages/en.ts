@@ -11,9 +11,11 @@ import { projectEn } from './project-en';
 import { diffEn } from './diff-en';
 import { backupProjectEn } from './backup-project-en';
 import { slidesEn } from './slides-en';
+import { snippetsEn } from './snippets-en';
 
 export const en = {
 	...slidesEn,
+	...snippetsEn,
 	...splitEn,
 	...projectEn,
 	...diffEn,
@@ -755,7 +757,7 @@ export const en = {
 	'settings.close': 'Close',
 	'settings.data': 'Data',
 	'settings.dataDescription':
-		'Backups include drafts, workspaces, and templates. Trash, version history, and disk permissions are not portable and are excluded.',
+		'Backups include drafts, workspaces, templates, and snippets. Trash, version history, and disk permissions are not portable and are excluded.',
 	'settings.storageHealth': 'Storage health',
 	'settings.storagePersistent': 'Persistent browser storage',
 	'settings.storageBestEffort': 'Best-effort browser storage',
