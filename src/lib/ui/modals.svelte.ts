@@ -80,6 +80,8 @@ export function createModals(opts: ModalsOptions) {
 	let historyOpen = $state(false);
 	let graphOpen = $state(false);
 	let aiOpen = $state(false);
+	let docsCheckOpen = $state(false);
+	let docsCheckProjectId = $state<string | null>(null);
 	let presenting = $state(false);
 	let newDocumentOpen = $state(false);
 
@@ -93,6 +95,7 @@ export function createModals(opts: ModalsOptions) {
 		historyOpen = false;
 		graphOpen = false;
 		aiOpen = false;
+		docsCheckOpen = false;
 		newDocumentOpen = false;
 	}
 
@@ -163,6 +166,13 @@ export function createModals(opts: ModalsOptions) {
 		},
 		'modals.labelAi'
 	);
+	const loadDocsCheckPanel = makeLazyLoader(
+		() => import('#lib/components/DocsCheckPanel.svelte'),
+		() => {
+			docsCheckOpen = false;
+		},
+		'modals.labelDocsCheck'
+	);
 	const loadNewDocument = makeLazyLoader(
 		() => import('#lib/components/NewDocumentDialog.svelte'),
 		() => {
@@ -228,6 +238,12 @@ export function createModals(opts: ModalsOptions) {
 		aiOpen = true;
 	}
 
+	function openDocsCheck(projectId: string | null = null) {
+		closeAll();
+		docsCheckProjectId = projectId;
+		docsCheckOpen = true;
+	}
+
 	function openNewDocument() {
 		closeAll();
 		newDocumentOpen = true;
@@ -278,6 +294,7 @@ export function createModals(opts: ModalsOptions) {
 				historyOpen ||
 				graphOpen ||
 				aiOpen ||
+				docsCheckOpen ||
 				newDocumentOpen ||
 				presenting
 			);
@@ -332,6 +349,16 @@ export function createModals(opts: ModalsOptions) {
 			if (v) openGraph();
 			else graphOpen = false;
 		},
+		get docsCheckOpen() {
+			return docsCheckOpen;
+		},
+		set docsCheckOpen(v: boolean) {
+			if (v) openDocsCheck();
+			else docsCheckOpen = false;
+		},
+		get docsCheckProjectId() {
+			return docsCheckProjectId;
+		},
 		get presenting() {
 			return presenting;
 		},
@@ -364,6 +391,7 @@ export function createModals(opts: ModalsOptions) {
 		loadSettingsPanel,
 		loadHistoryPanel,
 		loadGraphPanel,
+		loadDocsCheckPanel,
 		loadToc,
 		// Actions
 		openPalette,
@@ -373,6 +401,7 @@ export function createModals(opts: ModalsOptions) {
 		openSettings,
 		openHistory,
 		openGraph,
+		openDocsCheck,
 		handleOpenHit
 	};
 }

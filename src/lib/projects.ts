@@ -139,16 +139,29 @@ export async function exportProject(projectId: string): Promise<boolean> {
 	return triggerDownload(blob, sanitizeFilename(`${snapshot.project.name}.zip`));
 }
 
-export async function checkProjectLinks(projectId: string) {
+/** Reads the durable project snapshot without changing document content. */
+export async function projectDocumentSources(projectId: string): Promise<{
+	documents: Array<{ id: string; relativePath: string; content: string }>;
+	assets: string[];
+}> {
 	await filesStore.flushPendingAwait();
 	const [documents, assets] = await Promise.all([
 		db.drafts.where('projectId').equals(projectId).toArray(),
 		db.projectAssets.where('projectId').equals(projectId).toArray()
 	]);
-	return projectLinkReport(
-		documents.map((doc) => ({ id: doc.id, relativePath: doc.relativePath!, content: doc.content })),
-		assets.map((asset) => asset.path)
-	);
+	return {
+		documents: documents.map((doc) => ({
+			id: doc.id,
+			relativePath: doc.relativePath!,
+			content: doc.content
+		})),
+		assets: assets.map((asset) => asset.path)
+	};
+}
+
+export async function checkProjectLinks(projectId: string) {
+	const { documents, assets } = await projectDocumentSources(projectId);
+	return projectLinkReport(documents, assets);
 }
 
 let renameQueue: Promise<unknown> = Promise.resolve();

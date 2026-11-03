@@ -90,6 +90,23 @@ export function extractWikiLinkTargets(md: string): string[] {
 	return [...seen];
 }
 
+export interface WikiLinkOccurrence {
+	target: string;
+	start: number;
+	end: number;
+}
+
+/** Lists wiki links with their source offsets, excluding code and front matter. */
+export function wikiLinkOccurrences(md: string): WikiLinkOccurrence[] {
+	const occurrences: WikiLinkOccurrence[] = [];
+	mapWikiLinks(md, (target, _alias, match, start) => {
+		if (target.trim())
+			occurrences.push({ target: target.trim(), start, end: start + match.length });
+		return match;
+	});
+	return occurrences;
+}
+
 /** Rewrites targets while preserving aliases, whitespace, YAML, and code examples. */
 export function rewriteWikiLinkTargets(md: string, resolve: (target: string) => string): string {
 	return mapWikiLinks(md, (raw, alias, match) => {
@@ -155,10 +172,12 @@ function indentedCodeOffsets(md: string): Set<number> {
 /** Rendering, indexing, and rename use the same code-region boundaries. */
 function mapWikiLinks(
 	md: string,
-	transform: (target: string, alias: string | undefined, match: string) => string
+	transform: (target: string, alias: string | undefined, match: string, start: number) => string,
+	offset = 0
 ): string {
 	const prefix = /^\uFEFF+/.exec(md)?.[0] ?? '';
-	if (prefix) return prefix + mapWikiLinks(md.slice(prefix.length), transform);
+	if (prefix)
+		return prefix + mapWikiLinks(md.slice(prefix.length), transform, offset + prefix.length);
 	const indentedCode = indentedCodeOffsets(md);
 	const scanner =
 		/^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)|^(?: {4}|\t)[^\n]*(?:\n|$)|`+|\[\[([^[\]|\n]+)(\|[^[\]\n]*)?\]\]/gm;
@@ -202,7 +221,7 @@ function mapWikiLinks(
 		let escapes = 0;
 		for (let index = match.index - 1; index >= 0 && md[index] === '\\'; index--) escapes++;
 		if (escapes % 2) continue;
-		const next = transform(raw, match[3]?.slice(1), match[0]);
+		const next = transform(raw, match[3]?.slice(1), match[0], match.index + offset);
 		if (next === match[0]) continue;
 		output += md.slice(copied, match.index) + next;
 		copied = scanner.lastIndex;

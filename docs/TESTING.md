@@ -355,6 +355,29 @@ Keep the HTML and JSON reports, fixtures, downloads, screenshots, and failure
 traces with the command and source identity. Development-server results establish
 the correction only. Run the complete production suite before release.
 
+## Documentation check risks
+
+The documentation check must not change files or start requests. A broad scan can
+also block the editor or report a malformed example as a real link. The browser
+workflow imports a project archive, runs the check twice, opens one issue, and
+compares two downloaded JSON reports. It records the stored documents before and
+after the check and rejects every external request. Keep the archive, both JSON
+reports, the summary artifact, and the browser trace with the command and source
+revision.
+
+The focused source fixtures cover code fences, anchors, duplicate headings,
+missing images and alt text, traversal, invalid front matter, ambiguous wiki
+targets, and presentation image resources. These cases compare exact issue codes
+and source positions. The browser suite cannot show every parser boundary without
+a large fixture. The E2E case confirms the report order, navigation, and stable
+bytes. A remote image is a warning because the checker never downloads it.
+Presentation overflow stays under "Not checked" because text layout needs a
+renderer and the model clamps element bounds.
+
+```sh
+npx playwright test e2e/docs-check.spec.ts --project=chromium --workers=1 --reporter=line
+```
+
 Project link reports follow database traversal order. Random document IDs can
 change the order between documents. The project link performance test sorts a
 copy by document path before comparison. It checks complete issue objects, their
