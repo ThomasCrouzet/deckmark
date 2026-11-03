@@ -523,7 +523,7 @@
 	}
 	@media (max-width: 240px) {
 		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels.
-		   A wrapped toolbar would consume the whole height, so keep one
+		   A wrapped toolbar consumes the whole height, so keep one
 		   horizontally scrollable row instead. */
 		#app-toolbar {
 			flex-wrap: nowrap;

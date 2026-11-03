@@ -260,7 +260,7 @@ test('migrates an exact IndexedDB version 5 database before importing a project'
 				};
 			})
 	);
-	expect(beforeProject.version).toBe(70);
+	expect(beforeProject.version).toBe(80);
 	expect(beforeProject.drafts).toEqual(
 		expect.arrayContaining([fixture.openDraft, fixture.closedDraft])
 	);

@@ -16,14 +16,11 @@ test('builds, searches and clears a local index without network access', async (
 	page
 }, info: TestInfo) => {
 	let external = 0;
+	// The preview port changes between environments: compare host names only.
 	page.on('request', (request) => {
-		const url = request.url();
-		if (
-			!url.startsWith('http://127.0.0.1:4174') &&
-			!url.startsWith('data:') &&
-			!url.startsWith('blob:')
-		)
-			external++;
+		const url = new URL(request.url());
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+		if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) external++;
 	});
 	await resetAppState(page);
 	await seedFiles(page, [

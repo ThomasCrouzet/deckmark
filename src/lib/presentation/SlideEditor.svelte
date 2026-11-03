@@ -1934,6 +1934,13 @@
 			padding: 8px;
 		}
 	}
+	/* A keyboard-shrunk viewport must let the canvas absorb the loss, otherwise
+	   the notes overflow their column and the footer overlaps them. */
+	@media (max-height: 520px) {
+		.slide-viewport {
+			min-height: 0;
+		}
+	}
 	@container (max-width: 800px) {
 		.presentation-header {
 			padding: 6px 8px;
@@ -1961,11 +1968,6 @@
 		.presentation-workspace {
 			flex-direction: column;
 			min-height: 360px;
-		}
-		/* Let the canvas absorb a short viewport so the notes and footer never
-		   overflow their column. */
-		.slide-viewport {
-			min-height: 0;
 		}
 		.slide-filmstrip {
 			width: 100%;

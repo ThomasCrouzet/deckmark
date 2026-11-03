@@ -110,8 +110,11 @@ test('edits and presents a deck with touch input on a mobile viewport', async ({
 	const aligned = await Promise.all([rectangle.boundingBox(), ellipse.boundingBox()]);
 	expect(Math.abs(aligned[0]!.x - aligned[1]!.x)).toBeLessThanOrEqual(1);
 	await editor.getByTestId('slide-group').tap();
-	await editor.getByTestId('slide-properties').scrollIntoViewIfNeeded();
-	await editor.getByTestId('slide-properties').tap();
+	// The inspector overlays the toolbar on a phone. Close it through its own control.
+	await editor
+		.getByTestId('slide-inspector')
+		.getByRole('button', { name: 'Close', exact: true })
+		.tap();
 	await settleLayout(page);
 	const groupedBefore = await Promise.all([rectangle.boundingBox(), ellipse.boundingBox()]);
 	await touchDrag(page, rectangle, 34, 24);

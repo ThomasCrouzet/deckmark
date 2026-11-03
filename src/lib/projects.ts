@@ -111,7 +111,12 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 }
 
 export async function exportProject(projectId: string): Promise<boolean> {
-	await filesStore.flushPendingAwait();
+	// A blocked save retry must not block the archive forever: the snapshot below
+	// reads the durable rows, and a slow flush still lands before the ZIP is built.
+	await Promise.race([
+		filesStore.flushPendingAwait().catch(() => undefined),
+		new Promise<void>((resolve) => setTimeout(resolve, 5000))
+	]);
 	const snapshot = await db.transaction(
 		'r',
 		db.projects,
