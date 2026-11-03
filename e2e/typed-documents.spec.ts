@@ -41,13 +41,19 @@ test('imports typed files and preserves their type and bytes', async ({ page }, 
 	await setFiles(page);
 	await expect(page.getByTestId('document-kind')).toHaveText('Image');
 	await expect(page.getByTestId('image-document')).toBeVisible();
-	await expect(page.locator('[data-testid="image-document"] img')).toHaveAttribute(
-		'src',
-		/^data:image\/png;base64,/
-	);
+	// The image document renders through a canvas so it can be annotated.
+	await expect(page.getByTestId('image-canvas')).toBeVisible();
+	await expect
+		.poll(() =>
+			page.getByTestId('image-canvas').evaluate((element) => (element as HTMLCanvasElement).width)
+		)
+		.toBeGreaterThan(0);
 
 	const downloadPromise = page.waitForEvent('download');
-	await page.getByTestId('image-document').getByRole('button', { name: 'Exporter' }).click();
+	await page
+		.getByTestId('image-document')
+		.getByRole('button', { name: 'Exporter', exact: true })
+		.click();
 	const download = await downloadPromise;
 	expect(download.suggestedFilename()).toBe('pixel.png');
 	const exported = await readFile((await download.path())!);

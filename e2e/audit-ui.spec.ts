@@ -55,6 +55,8 @@ test('keeps the small-screen drawer inert and restores touch focus', async ({ pa
 	await expect(page.locator('#files-panel button[aria-label="Fermer le panneau"]')).toBeFocused();
 	await page.keyboard.press('Escape');
 	await expect(menu).toBeFocused();
+	// Focus mode is offered only while Read is selected.
+	await page.locator('button[data-mode="read"]').click();
 	await openPalette(page);
 	await page.getByRole('combobox').fill('focus');
 	await page.getByRole('option').first().click();

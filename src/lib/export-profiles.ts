@@ -107,9 +107,15 @@ export function saveProfiles(profiles: readonly ExportProfile[]): void {
 	localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles.filter(validProfile)));
 }
 
-export function activeProfile(profiles = readProfiles()): ExportProfile {
+/**
+ * Returns the profile the user selected, or null. Exports keep their built-in
+ * layout until a profile is chosen, so existing PDF and print output does not
+ * change by default.
+ */
+export function activeProfile(profiles = readProfiles()): ExportProfile | null {
 	const id = localStorage.getItem(ACTIVE_PROFILE_KEY);
-	return profiles.find((profile) => profile.id === id) ?? profiles[0] ?? DEFAULT_PROFILES[0]!;
+	if (!id) return null;
+	return profiles.find((profile) => profile.id === id) ?? null;
 }
 
 export function setActiveProfile(id: string): void {

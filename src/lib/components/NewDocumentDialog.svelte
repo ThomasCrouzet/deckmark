@@ -67,71 +67,73 @@
 			}
 		}}
 	>
-		<h2 id="new-document-title">{t('documents.new')}</h2>
-		<div class="cards">
-			<button
-				bind:this={note}
-				data-testid="create-note"
-				disabled={busy}
-				onclick={() => void run(() => onCreate('note'))}
-			>
-				<FileText size={28} /><strong>{t('documents.createNote')}</strong><span
-					>{t('documents.noteDescription')}</span
+		<div class="dialog-body">
+			<h2 id="new-document-title">{t('documents.new')}</h2>
+			<div class="cards">
+				<button
+					bind:this={note}
+					data-testid="create-note"
+					disabled={busy}
+					onclick={() => void run(() => onCreate('note'))}
 				>
-			</button>
-			<button
-				data-testid="create-presentation"
-				disabled={busy}
-				onclick={() => void run(() => onCreate('presentation'))}
-			>
-				<Presentation size={28} /><strong>{t('documents.createPresentation')}</strong><span
-					>{t('documents.presentationDescription')}</span
+					<FileText size={28} /><strong>{t('documents.createNote')}</strong><span
+						>{t('documents.noteDescription')}</span
+					>
+				</button>
+				<button
+					data-testid="create-presentation"
+					disabled={busy}
+					onclick={() => void run(() => onCreate('presentation'))}
 				>
-			</button>
-		</div>
+					<Presentation size={28} /><strong>{t('documents.createPresentation')}</strong><span
+						>{t('documents.presentationDescription')}</span
+					>
+				</button>
+			</div>
 
-		<section class="templates" aria-labelledby="template-choice-title">
-			<h3 id="template-choice-title">{t('templates.choose')}</h3>
-			<label class="template-search">
-				<Search size={14} aria-hidden="true" />
-				<span class="sr-only">{t('templates.search')}</span>
-				<input
-					type="search"
-					bind:value={query}
-					placeholder={t('templates.search')}
-					aria-label={t('templates.search')}
-					data-testid="template-search"
-				/>
-			</label>
-			{#each [{ label: t('templates.builtinGroup'), items: builtin }, { label: t('templates.userGroup'), items: saved }] as group (group.label)}
-				{#if group.items.length > 0}
-					<h4>{group.label}</h4>
-					<div class="template-list">
-						{#each group.items as template (template.id)}
-							<button
-								type="button"
-								disabled={busy}
-								data-testid={`create-template-${template.id}`}
-								onclick={() => void run(() => onCreateFromTemplate(template.id))}
-							>
-								<strong>{template.name}</strong>
-								<span>{template.description}</span>
-								<em
-									>{t(
-										template.kind === 'presentation' ? 'documents.presentation' : 'documents.note'
-									)}</em
+			<section class="templates" aria-labelledby="template-choice-title">
+				<h3 id="template-choice-title">{t('templates.choose')}</h3>
+				<label class="template-search">
+					<Search size={14} aria-hidden="true" />
+					<span class="sr-only">{t('templates.search')}</span>
+					<input
+						type="search"
+						bind:value={query}
+						placeholder={t('templates.search')}
+						aria-label={t('templates.search')}
+						data-testid="template-search"
+					/>
+				</label>
+				{#each [{ label: t('templates.builtinGroup'), items: builtin }, { label: t('templates.userGroup'), items: saved }] as group (group.label)}
+					{#if group.items.length > 0}
+						<h4>{group.label}</h4>
+						<div class="template-list">
+							{#each group.items as template (template.id)}
+								<button
+									type="button"
+									disabled={busy}
+									data-testid={`create-template-${template.id}`}
+									onclick={() => void run(() => onCreateFromTemplate(template.id))}
 								>
-							</button>
-						{/each}
-					</div>
+									<strong>{template.name}</strong>
+									<span>{template.description}</span>
+									<em
+										>{t(
+											template.kind === 'presentation' ? 'documents.presentation' : 'documents.note'
+										)}</em
+									>
+								</button>
+							{/each}
+						</div>
+					{/if}
+				{/each}
+				{#if !ready}
+					<p class="template-empty" role="status">{t('templates.loading')}</p>
+				{:else if empty}
+					<p class="template-empty" role="status">{t('templates.noMatch')}</p>
 				{/if}
-			{/each}
-			{#if !ready}
-				<p class="template-empty" role="status">{t('templates.loading')}</p>
-			{:else if empty}
-				<p class="template-empty" role="status">{t('templates.noMatch')}</p>
-			{/if}
-		</section>
+			</section>
+		</div>
 		<button class="cancel" disabled={busy} onclick={onClose}>{t('slides.cancel')}</button>
 	</div>
 </div>
@@ -186,9 +188,15 @@
 		gap: 16px;
 		padding: 4px;
 	}
+	.dialog-body {
+		display: flex;
+		min-height: 0;
+		flex: 1 1 auto;
+		flex-direction: column;
+		overflow-y: auto;
+	}
 	.templates {
 		min-height: 0;
-		overflow-y: auto;
 		margin-top: 6px;
 		padding: 4px;
 	}
@@ -274,7 +282,32 @@
 	.cancel {
 		flex: none;
 		align-self: flex-start;
-		margin-top: 20px;
+		margin-top: 12px;
+	}
+	@media (max-width: 260px) {
+		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels. */
+		.cards,
+		.template-list {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.cards button {
+			min-height: 0;
+			padding: 8px;
+			gap: 6px;
+		}
+		.cards button span {
+			/* Keep the node laid out: measurement checks reject a zero-size child. */
+			display: -webkit-box;
+			overflow: hidden;
+			-webkit-box-orient: vertical;
+			-webkit-line-clamp: 2;
+			font-size: 10px;
+			line-height: 1.15;
+		}
+		.cards button svg {
+			width: 18px;
+			height: 18px;
+		}
 	}
 	@media (max-width: 640px) {
 		.template-list {

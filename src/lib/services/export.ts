@@ -267,7 +267,8 @@ export async function exportHTML(
 		i18n.locale,
 		options.signal
 	);
-	const html = applyExportProfile(builtHtml, activeProfile(), docTitle);
+	const profile = activeProfile();
+	const html = profile ? applyExportProfile(builtHtml, profile, docTitle) : builtHtml;
 	checkAborted(options.signal);
 	options.onDialog?.();
 	const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
@@ -323,17 +324,17 @@ export async function exportPDF(
 		signal: options.signal
 	});
 	const docTitle = title || fallback;
-	const html = applyExportProfile(
-		buildPrintDocument({
-			title: docTitle,
-			bodyHtml,
-			source: file.content,
-			lang: i18n.locale
-		}),
-		activeProfile(),
-		docTitle
+	const builtPrint = buildPrintDocument({
+		title: docTitle,
+		bodyHtml,
+		source: file.content,
+		lang: i18n.locale
+	});
+	const profile = activeProfile();
+	return printInIframe(
+		profile ? applyExportProfile(builtPrint, profile, docTitle) : builtPrint,
+		options
 	);
-	return printInIframe(html, options);
 }
 
 /**

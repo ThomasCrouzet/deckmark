@@ -522,8 +522,27 @@
 		}
 	}
 	@media (max-width: 240px) {
+		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels.
+		   A wrapped toolbar would consume the whole height, so keep one
+		   horizontally scrollable row instead. */
+		#app-toolbar {
+			flex-wrap: nowrap;
+			overflow-x: auto;
+		}
+		#app-toolbar .document-title {
+			order: 0;
+			flex: 0 0 7rem;
+			min-width: 7rem;
+			flex-wrap: nowrap;
+			/* Keep the title visible while the action row scrolls. */
+			position: sticky;
+			left: 0;
+			z-index: 2;
+			background: var(--color-bg);
+			padding-right: 4px;
+		}
 		#app-toolbar .mdsh-mode-switch {
-			flex-wrap: wrap;
+			flex-wrap: nowrap;
 		}
 	}
 	@media (max-width: 639px), (pointer: coarse) {

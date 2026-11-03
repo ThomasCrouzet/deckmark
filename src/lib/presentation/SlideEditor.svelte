@@ -2008,6 +2008,8 @@
 			padding: 5px;
 		}
 		.selection-tools {
+			flex-wrap: wrap;
+			overflow: visible;
 			padding: 2px 5px;
 		}
 		.snap-control {

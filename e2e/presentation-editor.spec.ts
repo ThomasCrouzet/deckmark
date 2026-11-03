@@ -400,6 +400,8 @@ test('manages slides and keeps deck settings after a file switch and reload', as
 		.click();
 	await page.getByTestId('create-note').click();
 	await expect(editor).toHaveCount(0);
+	// New notes open in Edit mode; select Source for the CodeMirror check.
+	await page.locator('button[data-mode="source"]').click();
 	await expect(page.locator('.cm-content')).toBeVisible();
 
 	await page

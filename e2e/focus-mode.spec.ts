@@ -5,6 +5,9 @@ test.describe('Focus mode', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page);
 		await createFirstFile(page);
+		// Focus mode is offered only while Read is selected.
+		await page.locator('button[data-mode="read"]').click();
+		await expect(page.locator('.mdsh-preview')).toBeVisible({ timeout: 20_000 });
 	});
 
 	test('enables and disables focus mode from the command palette', async ({ page }) => {

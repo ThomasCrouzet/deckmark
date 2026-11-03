@@ -27,7 +27,7 @@
 
 	function load() {
 		profiles = readProfiles();
-		activeId = activeProfile(profiles).id;
+		activeId = activeProfile(profiles)?.id ?? '';
 		selectedId = activeId;
 	}
 

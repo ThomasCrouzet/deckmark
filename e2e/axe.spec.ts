@@ -60,6 +60,8 @@ test.describe('Axe accessibility scan', () => {
 			);
 			await page.reload();
 			await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+			// New notes open in Edit mode; select Source for the CodeMirror scan.
+			await page.locator('button[data-mode="source"]').click();
 			await expect(page.locator('.cm-content')).toHaveAttribute('aria-label');
 			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('#main'));
 			await openPalette(page);
@@ -108,6 +110,7 @@ test.describe('Axe accessibility scan', () => {
 			await expectNoBlockingViolations(page, new AxeBuilder({ page }));
 			await page.locator('main [data-testid="welcome-new"]').click();
 			await page.getByTestId('create-note').click();
+			await page.locator('button[data-mode="source"]').click();
 			await expect(page.locator('.cm-content')).toBeVisible();
 			await expect(page.locator('.cm-content')).toHaveAttribute('aria-label');
 			await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('#main'));
@@ -149,6 +152,7 @@ test('secondary panels pass accessibility checks in both themes', async ({ page 
 			new AxeBuilder({ page }).include('[data-testid="presentation-editor"]')
 		);
 		await page.keyboard.press('ControlOrMeta+w');
+		await page.locator('button[data-mode="source"]').click();
 		await expect(page.locator('.cm-content')).toBeVisible();
 	}
 });

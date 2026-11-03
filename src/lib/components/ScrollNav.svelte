@@ -140,7 +140,8 @@
 <style>
 	.mdsh-scroll-nav {
 		position: absolute;
-		right: max(0.5rem, env(safe-area-inset-right));
+		/* Clear the native scrollbar gutter so the thumb stays draggable. */
+		right: max(3rem, env(safe-area-inset-right));
 		bottom: max(0.5rem, env(safe-area-inset-bottom));
 		z-index: 15;
 		display: flex;

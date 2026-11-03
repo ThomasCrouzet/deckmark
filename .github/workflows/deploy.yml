@@ -109,9 +109,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     # Each shard retains one worker and the complete browser project selection.
-    timeout-minutes: 35
+    # Four shards keep the growing suite inside the job timeout.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -166,7 +167,7 @@ jobs:
       # (see CONTRIBUTING.md). Baselines stay versioned for local comparison;
       # do not remove --ignore-snapshots without regenerating on CI.
       - name: E2E tests (without visual snapshots)
-        run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/2"
+        run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/4"
         env:
           SHARD: ${{ matrix.shard }}
 
