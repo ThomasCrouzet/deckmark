@@ -1,8 +1,23 @@
 # User guide
 
+## Editions
+
+DeckMark has two editions: **Web Light** and **Desktop Complete (Beta)**.
+Web Light is the complete browser edition. It is free and it is not a trial.
+Desktop Complete uses the same editor and adds native file access,
+file associations, native menus, and the macOS print panel.
+The [edition matrix](EDITIONS.md) lists shared capabilities, Desktop-only
+capabilities, system requirements, and support boundaries.
+
+Open the [web app](https://www.deckmark.dev/) to use Web Light. If the custom
+domain is not available, open the
+[GitHub Pages fallback](https://thomascrouzet.github.io/deckmark/).
+Desktop installers are separate `desktop-v<version>` prereleases on
+[GitHub Releases](https://github.com/ThomasCrouzet/deckmark/releases).
+
 ## Start writing
 
-Open the [web app](https://www.deckmark.dev/) and select **New file**. In the
+Select **New file**. In the
 **Create a document** dialog, choose **Note** or **Presentation**. A note opens in
 its last Edit, Source, or Read mode. A presentation opens in the inline slide
 editor. The app does not convert notes to presentations.
@@ -41,7 +56,12 @@ The current browser session keeps editor positions for up to 32 recently used dr
 
 ## Install the PWA
 
-Use the browser install action from the web app. Wait for offline preparation to finish before you disconnect the network. The cache contains the note and presentation editors, Markdown rendering, formulas, diagrams, fonts, and export modules. You can then create, edit, search, and export documents offline.
+Use the browser install action from the web app. Wait for **Ready offline** before you disconnect the network. The cache contains the note and presentation editors, Markdown rendering, formulas, diagrams, fonts, and export modules. You can then create, edit, search, and export documents offline.
+
+The service worker caches the application for the current address and base path.
+The scope is `/` on a custom domain and `/deckmark/` on the GitHub Pages fallback.
+A deep-link refresh opens the cached application shell.
+A PWA installed on one origin stays on that origin after a domain change.
 
 A new version waits for IndexedDB writes before it reloads the app. If a local save fails, the document stays visible. The update does not force a reload.
 
@@ -117,6 +137,11 @@ History and disk conflicts also show line comparisons. Large comparisons identif
 
 Wiki links reopen closed targets without making a copy. A rename updates incoming name-based links, including links in closed documents. Code examples and displayed aliases stay intact. A backup merge updates identifier-based links to the imported IDs. If several documents have the same target name, select the correct document in the library.
 
+In Web Light, linked disk files need the File System Access API. Chromium
+provides this API. Firefox and Safari use a download fallback. A browser link
+covers only the file that you select and does not give the app unrestricted
+filesystem access.
+
 Before saving a linked file, the app compares its content with the last saved reference. If the check fails, it stops the save.
 An older link without a reference requires an explicit decision before the first write. Use a new target if you cannot verify the file.
 
@@ -143,11 +168,29 @@ Mermaid diagrams reject images and network styles. Put images directly in the Ma
 Diagrams use the Dagre layout online and offline. Document settings cannot select
 the ELK layout. The app keeps these settings in the Markdown source without applying them.
 
+## AI and network access
+
+DeckMark has no AI feature in this release. It has no model, prompt, AI network
+request, or API key setting. The Web client has no secure API key vault. Do not
+store provider secrets in browser storage or in a Web build.
+
+The app has no account, backend, cloud storage, telemetry, or runtime CDN. It
+contacts its host to load and update application files. It does not upload
+documents. Remote images stay blocked until you approve a fetch for the current
+document. That fetch contacts the image host and reveals your IP address, without
+cookies or a referrer.
+
+A later AI feature would need a separate privacy design, explicit consent, and a
+documented network boundary. It is not part of this release.
+
 <a id="backups-and-storage-health"></a>
 
 ## Backups and storage health
 
-Settings shows whether the browser granted persistent storage. It also shows the estimated quota and the date of the latest successful external backup. Export a backup regularly. Always make one before you clear browser data or change profiles.
+Settings shows whether the browser granted persistent storage. It also shows the estimated quota and the date of the latest successful external backup. Export a backup regularly. Always make one before you clear browser data or change profiles. Clearing site data, using private browsing, or evicting site storage can remove all local drafts, history, and assets.
+
+Web Light and Desktop Complete use the same backup format. Cross-edition
+round-trip tests are planned, not a current guarantee.
 
 The status bar identifies local draft saves. A linked disk file requires the explicit **Save to disk** action. The backup reminder opens Settings. You can dismiss the reminder for a week.
 
@@ -277,12 +320,30 @@ In the visual editor, type `/h1` through `/h6`, or `/t1` through `/t6`, to selec
 a heading level. Press Enter to apply it. The full translated command names also
 remain available.
 
-## Desktop Beta app
+<a id="desktop-beta-app"></a>
+<a id="desktop-complete-app"></a>
 
-Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the Desktop prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The workflow also creates a GitHub build provenance attestation.
+## Desktop Complete app (Beta)
 
-Choose `deckmark_<version>_macOS_Apple-Silicon.dmg` for a Mac with an Apple M-series chip.
+Desktop Complete is the Desktop edition. It uses the same editor, storage model,
+and document formats as Web Light. It adds native in-place file editing, native
+folder access, file associations, native menus, and the macOS print panel.
+See the [edition matrix](EDITIONS.md) for the full comparison.
+
+Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the `desktop-v<version>` prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The workflow also creates a GitHub build provenance attestation.
+
+| Platform | Artifact | Requirement |
+| --- | --- | --- |
+| macOS | `deckmark_<version>_macOS_Apple-Silicon.dmg` | macOS 14 or later on an Apple Silicon Mac. |
+| Windows x64 | `deckmark_<version>_x64-setup.exe` or `.msi` | WebView2. The installer can add WebView2 if it is absent. |
+| Linux x64 | `.AppImage`, `.deb`, or `.rpm` | WebKitGTK 4.1 and the packaged native libraries. |
 
 Earlier releases use the previous `mdsh_` filename prefix.
+Desktop Complete has no automatic update channel. Install a new release to update,
+and keep your JSON backups and exported files.
 
-The macOS version requires macOS 14 or later. Windows uses the Tauri installation mode to install WebView2 if it is absent. Linux packages use WebKitGTK. Native selections and file associations authorize each Markdown path. The app restores that access after restart, so `Cmd+Shift+S` or `Ctrl+Shift+S` saves the restored draft directly. Removing a disk link revokes access. Files first selected in an older version need one new native selection to enter the access registry.
+Native selections and file associations authorize each Markdown path. The app restores that access after restart, so `Cmd+Shift+S` or `Ctrl+Shift+S` saves the restored draft directly. Removing a disk link revokes access. Files first selected in an older version need one new native selection to enter the access registry.
+
+The native boundary does not provide unrestricted filesystem access. JavaScript
+cannot add a path to the native access registry. Background disk scanning and a
+general file browser are not available.
