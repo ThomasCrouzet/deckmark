@@ -28,7 +28,8 @@
 	],
 	"type": "module",
 	"bin": {
-		"deckmark": "bin/deckmark.mjs"
+		"deckmark": "bin/deckmark.mjs",
+		"deckmark-mcp": "bin/deckmark-mcp.mjs"
 	},
 	"engines": {
 		"node": ">=22"
@@ -37,6 +38,7 @@
 		"patch:milkdown": "node scripts/patch-milkdown-images.mjs --write",
 		"patch:milkdown:check": "node scripts/patch-milkdown-images.mjs --check",
 		"cli": "node bin/deckmark.mjs",
+		"mcp": "node bin/deckmark-mcp.mjs",
 		"cli:build": "node scripts/build-cli.mjs",
 		"dev": "node scripts/patch-milkdown-images.mjs --write && vite dev",
 		"build": "node scripts/build-edition.mjs web",
