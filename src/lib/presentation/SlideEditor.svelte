@@ -1773,6 +1773,9 @@
 		z-index: 9;
 	}
 	.notes {
+		/* A label is inline by default: its block textarea would overflow the box and
+		   let the footer overlap it on short viewports. */
+		display: block;
 		border-top: 1px solid var(--color-border);
 		padding: 8px 14px;
 		background: var(--color-bg-1);
@@ -1923,7 +1926,9 @@
 			flex: none;
 		}
 		.presentation-editor:not(.presenting) .stage-column {
-			min-height: 280px;
+			/* Keep the canvas usable without forcing overflow into the footer on a
+			   keyboard-shrunk viewport. */
+			min-height: min(280px, 45dvh);
 		}
 		.source-panel textarea {
 			padding: 8px;
@@ -1956,6 +1961,11 @@
 		.presentation-workspace {
 			flex-direction: column;
 			min-height: 360px;
+		}
+		/* Let the canvas absorb a short viewport so the notes and footer never
+		   overflow their column. */
+		.slide-viewport {
+			min-height: 0;
 		}
 		.slide-filmstrip {
 			width: 100%;

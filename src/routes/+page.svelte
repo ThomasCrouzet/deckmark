@@ -753,9 +753,17 @@
 <svelte:window
 	bind:innerWidth={viewportWidth}
 	onkeydown={handleWindowKeydown}
-	ondrop={(event) => handleWindowDrag(event, handleDrop)}
+	ondrop={(event) => {
+		// A child drop handler may call preventDefault before the event reaches the
+		// window. Clear the overlay anyway so it never stays after a drop.
+		dragOver = false;
+		handleWindowDrag(event, handleDrop);
+	}}
 	ondragover={(event) => handleWindowDrag(event, handleDragOver)}
-	ondragleave={(event) => handleWindowDrag(event, handleDragLeave)}
+	ondragleave={(event) => {
+		if (event.relatedTarget === null) dragOver = false;
+		handleWindowDrag(event, handleDragLeave);
+	}}
 />
 
 <!-- §J1 - Blocking banner if IndexedDB is inaccessible at startup (private mode,

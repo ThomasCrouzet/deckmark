@@ -28,7 +28,8 @@
 	function load() {
 		profiles = readProfiles();
 		activeId = activeProfile(profiles)?.id ?? '';
-		selectedId = activeId;
+		// Always offer a profile for editing. Only `activeId` controls exports.
+		selectedId = activeId || (profiles[0]?.id ?? '');
 	}
 
 	function update(patch: Partial<ExportProfile>) {

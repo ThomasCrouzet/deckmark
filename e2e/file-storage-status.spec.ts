@@ -42,6 +42,9 @@ test('labels an imported copy as temporary and persists that state', async ({
 		buffer: Buffer.from('# Imported')
 	});
 	await expect(page.locator('.cm-content').first()).toContainText('Imported');
+	// The badge mounts with the active toolbar. Wait for the element itself so a
+	// mount race does not fail the attribute check.
+	await expect(toolbarStatus(page)).toHaveCount(1);
 	await expect(toolbarStatus(page)).toHaveAttribute('data-origin', 'temporary');
 	await expect(toolbarStatus(page)).toHaveAttribute('aria-label', /Copie temporaire/);
 
