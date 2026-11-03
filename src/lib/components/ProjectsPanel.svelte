@@ -2,7 +2,10 @@
 	import { onMount, tick } from 'svelte';
 	import { db, type ProjectRow } from '#lib/db.js';
 	import { filesStore } from '#lib/files.svelte.js';
-	import { t } from '#lib/i18n/index.js';
+	import { t, i18n } from '#lib/i18n/index.js';
+	import { interpolate, type Locale } from '#lib/i18n/locale.js';
+	import { docsSiteEn, type DocsSiteMessageKey } from '#lib/i18n/messages/docs-site-en.js';
+	import { docsSiteFr } from '#lib/i18n/messages/docs-site-fr.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
@@ -31,8 +34,13 @@
 
 	let {
 		onClose,
-		onOpenDocsCheck
-	}: { onClose: () => void; onOpenDocsCheck?: (projectId: string) => void } = $props();
+		onOpenDocsCheck,
+		onOpenDocsSite
+	}: {
+		onClose: () => void;
+		onOpenDocsCheck?: (projectId: string) => void;
+		onOpenDocsSite?: (projectId: string) => void;
+	} = $props();
 	let projects = $state<ProjectRow[]>([]);
 	let selected = $state<string | null>(filesStore.active?.projectId ?? null);
 	let busy = $state(false);
@@ -49,6 +57,14 @@
 	);
 	const selectedProject = $derived(projects.find((project) => project.id === selected) ?? null);
 	const nativeAvailable = nativeProjectsAvailable();
+	const DOCS_SITE_MESSAGES: Record<Locale, Record<DocsSiteMessageKey, string>> = {
+		en: docsSiteEn,
+		fr: docsSiteFr
+	};
+	function td(key: DocsSiteMessageKey, params?: Record<string, string | number>): string {
+		const dictionary = DOCS_SITE_MESSAGES[i18n.locale] ?? docsSiteEn;
+		return interpolate(dictionary[key] ?? docsSiteEn[key] ?? key, params);
+	}
 
 	async function load() {
 		projects = await db.projects.orderBy('updatedAt').reverse().toArray();
@@ -293,6 +309,16 @@
 								onOpenDocsCheck(selected);
 								onClose();
 							}}>{t('docsCheck.command')}</button
+						>
+					{/if}
+					{#if onOpenDocsSite}
+						<button
+							disabled={busy || !selected}
+							onclick={() => {
+								if (!selected) return;
+								onOpenDocsSite(selected);
+								onClose();
+							}}>{td('docsSite.command')}</button
 						>
 					{/if}
 					{#if nativeAvailable && selectedProject?.nativeRootId}

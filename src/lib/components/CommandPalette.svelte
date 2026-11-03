@@ -3,7 +3,10 @@
 	import LoadError from './LoadError.svelte';
 	import { reportPersistenceError } from '#lib/storage.js';
 	import { browser } from '$app/env';
-	import { t } from '#lib/i18n/index.js';
+	import { t, i18n } from '#lib/i18n/index.js';
+	import { interpolate, type Locale } from '#lib/i18n/locale.js';
+	import { docsSiteEn, type DocsSiteMessageKey } from '#lib/i18n/messages/docs-site-en.js';
+	import { docsSiteFr } from '#lib/i18n/messages/docs-site-fr.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { workspaceStore } from '#lib/workspaces.svelte.js';
 	import { templatesStore } from '#lib/templates.svelte.js';
@@ -121,6 +124,7 @@
 		onOpenGraph: () => void;
 		onOpenAi: () => void;
 		onOpenDocsCheck: () => void;
+		onOpenDocsSite: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
 	}
@@ -164,6 +168,7 @@
 		onOpenGraph,
 		onOpenAi,
 		onOpenDocsCheck,
+		onOpenDocsSite,
 		onPresent,
 		onAdvancedSource
 	}: Props = $props();
@@ -173,6 +178,15 @@
 	let closeButton: HTMLButtonElement | null = $state(null);
 	let selected = $state(0);
 	let inputEl: HTMLInputElement | null = $state(null);
+
+	const DOCS_SITE_MESSAGES: Record<Locale, Record<DocsSiteMessageKey, string>> = {
+		en: docsSiteEn,
+		fr: docsSiteFr
+	};
+	function td(key: DocsSiteMessageKey, params?: Record<string, string | number>): string {
+		const dictionary = DOCS_SITE_MESSAGES[i18n.locale] ?? docsSiteEn;
+		return interpolate(dictionary[key] ?? docsSiteEn[key] ?? key, params);
+	}
 
 	function stripExt(name: string) {
 		return name.replace(/\.[a-z0-9]{1,10}$/i, '');
@@ -594,6 +608,13 @@
 			hint: t('docsCheck.commandHint'),
 			icon: FileText,
 			run: onOpenDocsCheck
+		},
+		{
+			id: 'docs-site',
+			label: td('docsSite.command'),
+			hint: td('docsSite.commandHint'),
+			icon: FileOutput,
+			run: onOpenDocsSite
 		},
 		{
 			id: 'presentation',

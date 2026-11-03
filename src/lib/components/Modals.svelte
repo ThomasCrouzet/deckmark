@@ -41,6 +41,7 @@
 		onPresent: () => void;
 		onAdvancedSource: () => void;
 		onOpenDocsCheck: () => void;
+		onOpenDocsSite: () => void;
 		onOpenDocsCheckIssue: (fileId: string, line: number) => void;
 	}
 
@@ -70,6 +71,7 @@
 		onPresent,
 		onAdvancedSource,
 		onOpenDocsCheck,
+		onOpenDocsSite,
 		onOpenDocsCheckIssue
 	}: Props = $props();
 </script>
@@ -121,6 +123,7 @@
 			onOpenGraph={modals.openGraph}
 			onOpenAi={modals.openAi}
 			{onOpenDocsCheck}
+			{onOpenDocsSite}
 			{onPresent}
 			{onAdvancedSource}
 		/>
@@ -206,6 +209,17 @@
 			initialProjectId={modals.docsCheckProjectId}
 			onClose={() => (modals.docsCheckOpen = false)}
 			onOpenIssue={onOpenDocsCheckIssue}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.docsSiteOpen}
+	{#await modals.loadDocsSitePanel() then DocsSitePanel}
+		<DocsSitePanel
+			initialProjectId={modals.docsSiteProjectId}
+			onClose={() => (modals.docsSiteOpen = false)}
 		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->

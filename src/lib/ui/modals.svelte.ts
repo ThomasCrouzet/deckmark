@@ -82,6 +82,8 @@ export function createModals(opts: ModalsOptions) {
 	let aiOpen = $state(false);
 	let docsCheckOpen = $state(false);
 	let docsCheckProjectId = $state<string | null>(null);
+	let docsSiteOpen = $state(false);
+	let docsSiteProjectId = $state<string | null>(null);
 	let presenting = $state(false);
 	let newDocumentOpen = $state(false);
 
@@ -96,6 +98,7 @@ export function createModals(opts: ModalsOptions) {
 		graphOpen = false;
 		aiOpen = false;
 		docsCheckOpen = false;
+		docsSiteOpen = false;
 		newDocumentOpen = false;
 	}
 
@@ -173,6 +176,13 @@ export function createModals(opts: ModalsOptions) {
 		},
 		'modals.labelDocsCheck'
 	);
+	const loadDocsSitePanel = makeLazyLoader(
+		() => import('#lib/components/DocsSiteExportPanel.svelte'),
+		() => {
+			docsSiteOpen = false;
+		},
+		'projects.export'
+	);
 	const loadNewDocument = makeLazyLoader(
 		() => import('#lib/components/NewDocumentDialog.svelte'),
 		() => {
@@ -244,6 +254,12 @@ export function createModals(opts: ModalsOptions) {
 		docsCheckOpen = true;
 	}
 
+	function openDocsSite(projectId: string | null = null) {
+		closeAll();
+		docsSiteProjectId = projectId;
+		docsSiteOpen = true;
+	}
+
 	function openNewDocument() {
 		closeAll();
 		newDocumentOpen = true;
@@ -295,6 +311,7 @@ export function createModals(opts: ModalsOptions) {
 				graphOpen ||
 				aiOpen ||
 				docsCheckOpen ||
+				docsSiteOpen ||
 				newDocumentOpen ||
 				presenting
 			);
@@ -359,6 +376,16 @@ export function createModals(opts: ModalsOptions) {
 		get docsCheckProjectId() {
 			return docsCheckProjectId;
 		},
+		get docsSiteOpen() {
+			return docsSiteOpen;
+		},
+		set docsSiteOpen(v: boolean) {
+			if (v) openDocsSite();
+			else docsSiteOpen = false;
+		},
+		get docsSiteProjectId() {
+			return docsSiteProjectId;
+		},
 		get presenting() {
 			return presenting;
 		},
@@ -392,6 +419,7 @@ export function createModals(opts: ModalsOptions) {
 		loadHistoryPanel,
 		loadGraphPanel,
 		loadDocsCheckPanel,
+		loadDocsSitePanel,
 		loadToc,
 		// Actions
 		openPalette,
@@ -402,6 +430,7 @@ export function createModals(opts: ModalsOptions) {
 		openHistory,
 		openGraph,
 		openDocsCheck,
+		openDocsSite,
 		handleOpenHit
 	};
 }

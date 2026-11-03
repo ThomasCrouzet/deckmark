@@ -164,6 +164,48 @@ export async function checkProjectLinks(projectId: string) {
 	return projectLinkReport(documents, assets);
 }
 
+export interface ProjectSiteSnapshot {
+	project: ProjectRow;
+	documents: Array<{
+		id: string;
+		relativePath: string;
+		content: string;
+		kind?: 'note' | 'presentation' | 'code' | 'image';
+		data?: string;
+		mime?: string;
+	}>;
+	assets: ProjectAssetRow[];
+}
+
+/** Reads a durable project snapshot for an offline export. It does not write. */
+export async function projectSiteSnapshot(projectId: string): Promise<ProjectSiteSnapshot> {
+	await filesStore.flushPendingAwait();
+	const snapshot = await db.transaction(
+		'r',
+		db.projects,
+		db.drafts,
+		db.projectAssets,
+		async () => ({
+			project: await db.projects.get(projectId),
+			documents: await db.drafts.where('projectId').equals(projectId).toArray(),
+			assets: await db.projectAssets.where('projectId').equals(projectId).toArray()
+		})
+	);
+	if (!snapshot.project) throw new Error('Project no longer exists');
+	return {
+		project: snapshot.project,
+		documents: snapshot.documents.map((document) => ({
+			id: document.id,
+			relativePath: document.relativePath!,
+			content: document.content,
+			...(document.kind ? { kind: document.kind } : {}),
+			...(document.data ? { data: document.data } : {}),
+			...(document.mime ? { mime: document.mime } : {})
+		})),
+		assets: snapshot.assets
+	};
+}
+
 let renameQueue: Promise<unknown> = Promise.resolve();
 
 export function renameProjectDocument(id: string, requested: string): Promise<boolean> {
