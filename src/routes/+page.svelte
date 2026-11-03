@@ -918,6 +918,8 @@
 	{mode}
 	onCreate={handleCreate}
 	onCreateFromTemplate={handleCreateFromTemplate}
+	onOpenProperties={modals.openProperties}
+	onOpenComments={modals.openComments}
 	onOpenOutline={openOutline}
 	{modals}
 	{editorWidth}

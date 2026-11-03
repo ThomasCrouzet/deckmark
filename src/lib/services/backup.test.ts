@@ -177,6 +177,30 @@ describe('collectBackup', () => {
 		expect(b.templates).toHaveLength(1);
 	});
 
+	it('keeps editorial comments outside the draft content', async () => {
+		const draftRow = draft({ name: 'review.md', content: 'Anchored text' });
+		await db.drafts.put(draftRow);
+		const now = Date.now();
+		await db.comments.put({
+			id: 'comment-1',
+			draftId: draftRow.id,
+			quote: 'Anchored',
+			from: 0,
+			to: 8,
+			body: 'Check this',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: now,
+			updatedAt: now
+		});
+		const backup = await collectBackup(1234);
+		expect(backup.comments).toHaveLength(1);
+		expect(backup.drafts[0]?.content).toBe('Anchored text');
+		const parsed = parseBackup(serializeBackup(backup));
+		expect(parsed.comments?.[0]).toMatchObject({ body: 'Check this', quote: 'Anchored' });
+		await db.comments.clear();
+	});
+
 	it('keeps typed text and binary image drafts across a backup round trip', async () => {
 		await db.drafts.bulkPut([
 			draft({ name: 'script.py', content: 'print("ok")\n', kind: 'code' }),

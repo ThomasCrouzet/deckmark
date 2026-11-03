@@ -40,6 +40,8 @@
 		onOpenInFileSearch: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
+		onOpenProperties: () => void;
+		onOpenComments: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenDocsCheckIssue: (fileId: string, line: number) => void;
 	}
@@ -69,6 +71,8 @@
 		onOpenInFileSearch,
 		onPresent,
 		onAdvancedSource,
+		onOpenProperties,
+		onOpenComments,
 		onOpenDocsCheck,
 		onOpenDocsCheckIssue
 	}: Props = $props();
@@ -120,6 +124,8 @@
 			onOpenHistory={modals.openHistory}
 			onOpenGraph={modals.openGraph}
 			onOpenAi={modals.openAi}
+			{onOpenProperties}
+			{onOpenComments}
 			{onOpenDocsCheck}
 			{onPresent}
 			{onAdvancedSource}
@@ -195,6 +201,22 @@
 {#if modals.aiOpen}
 	{#await modals.loadAiPanel() then AiPanel}
 		<AiPanel open={modals.aiOpen} onClose={() => (modals.aiOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.propertiesOpen}
+	{#await modals.loadPropertiesPanel() then PropertiesPanel}
+		<PropertiesPanel open={modals.propertiesOpen} onClose={() => (modals.propertiesOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.commentsOpen}
+	{#await modals.loadCommentsPanel() then CommentsPanel}
+		<CommentsPanel open={modals.commentsOpen} onClose={() => (modals.commentsOpen = false)} />
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}

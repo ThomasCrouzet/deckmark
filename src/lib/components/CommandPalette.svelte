@@ -56,6 +56,7 @@
 		Settings,
 		SunMoon,
 		Sparkles,
+		MessageSquare,
 		FileText,
 		Image as ImageIcon,
 		Clipboard,
@@ -120,6 +121,8 @@
 		onOpenHistory: () => void;
 		onOpenGraph: () => void;
 		onOpenAi: () => void;
+		onOpenProperties: () => void;
+		onOpenComments: () => void;
 		onOpenDocsCheck: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
@@ -163,6 +166,8 @@
 		onOpenHistory,
 		onOpenGraph,
 		onOpenAi,
+		onOpenProperties,
+		onOpenComments,
 		onOpenDocsCheck,
 		onPresent,
 		onAdvancedSource
@@ -608,6 +613,22 @@
 			label: t('slides.source'),
 			icon: Code2,
 			run: onAdvancedSource
+		},
+		{
+			id: 'comments',
+			label: t('palette.comments'),
+			hint: t('palette.commentsHint'),
+			icon: MessageSquare,
+			enabled: () => kind === 'note' && filesStore.active !== null,
+			run: onOpenComments
+		},
+		{
+			id: 'properties',
+			label: t('palette.editProperties'),
+			hint: t('palette.editPropertiesHint'),
+			icon: Settings,
+			enabled: () => kind === 'note' && filesStore.active !== null,
+			run: onOpenProperties
 		},
 		{
 			id: 'ai',

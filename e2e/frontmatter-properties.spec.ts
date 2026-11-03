@@ -1,0 +1,76 @@
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+
+test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+
+async function source(page: Page): Promise<string> {
+	return page
+		.locator('.cm-content .cm-line')
+		.evaluateAll((lines) => lines.map((line) => line.textContent).join('\n'));
+}
+
+async function openProperties(page: Page) {
+	await openPalette(page);
+	await page
+		.getByRole('dialog', { name: 'Palette de commandes' })
+		.getByRole('option', { name: /propriétés du document/i })
+		.click();
+	await expect(page.getByTestId('frontmatter-panel')).toBeVisible();
+}
+
+test('edits typed front matter and preserves unrelated bytes', async ({ page }, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial =
+		'---\ntitle: "First"\n# keep this comment\ntags: [alpha, beta]\ndraft: true\ncount: 2\n---\n\n# Body\n\nUnchanged.\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-title')).toBeVisible();
+
+	await page.getByTestId('frontmatter-title').locator('input').fill('Second');
+	await page.getByTestId('frontmatter-tags').locator('input').fill('gamma, delta');
+	await page.getByTestId('frontmatter-draft').locator('input').uncheck();
+	await page.getByTestId('frontmatter-new-key').fill('author');
+	await page.getByTestId('frontmatter-new-value').fill('Thomas');
+	await page.getByTestId('frontmatter-add').click();
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+
+	const updated = await source(page);
+	expect(updated).toContain('title: Second');
+	expect(updated).toContain('# keep this comment');
+	expect(updated).toContain('tags: [gamma, delta]');
+	expect(updated).toContain('draft: false');
+	expect(updated).toContain('count: 2');
+	expect(updated).toContain('author: Thomas');
+	expect(updated).toContain('# Body\n\nUnchanged.\n');
+
+	await openProperties(page);
+	await page.getByTestId('frontmatter-remove-count').click();
+	await page.getByTestId('frontmatter-save').click();
+	const removed = await source(page);
+	expect(removed).not.toContain('count:');
+	expect(removed).toContain('# keep this comment');
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await expect(page.locator('.cm-content')).toContainText('Unchanged.');
+	await info.attach('frontmatter-properties.json', {
+		body: JSON.stringify({ initial, updated, removed }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('reports malformed YAML and refuses to edit it', async ({ page }, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, '---\ntitle: [unclosed\n---\n\n# Body\n');
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-error')).toContainText('invalide');
+	await expect(page.getByTestId('frontmatter-save')).toHaveCount(0);
+	await expect(page.locator('.cm-content')).toContainText('[unclosed');
+	await info.attach('frontmatter-invalid.json', {
+		body: JSON.stringify({ rejected: true }),
+		contentType: 'application/json'
+	});
+});

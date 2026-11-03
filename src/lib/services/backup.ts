@@ -26,7 +26,8 @@ import {
 	type ProjectAssetRow,
 	type ProjectRow,
 	type WorkspaceRow,
-	type TemplateRow
+	type TemplateRow,
+	type CommentRow
 } from '../db';
 import { encryptString, decryptString, isEncryptedEnvelope } from '../crypto';
 import { t } from '#lib/i18n/index.js';
@@ -60,6 +61,8 @@ export interface BackupFile {
 	projects?: BackupProject[];
 	/** Schema 2 assets use bounded base64 instead of IndexedDB binary values. */
 	projectAssets?: BackupProjectAsset[];
+	/** Editorial comments. Older backups omit this collection. */
+	comments?: CommentRow[];
 }
 
 export type BackupProject = Omit<ProjectRow, 'nativeRootId'>;
@@ -152,6 +155,7 @@ export interface RestoreCounts {
 	templates: number;
 	projects: number;
 	projectAssets: number;
+	comments?: number;
 	unchanged: {
 		drafts: number;
 		workspaces: number;
@@ -174,6 +178,7 @@ export interface BackupSkipped {
 	templates: number;
 	projects: number;
 	projectAssets: number;
+	comments?: number;
 }
 
 /** Result of `parseBackup`: the valid backup + the count of rejected rows. */
@@ -194,12 +199,13 @@ export class BackupParseError extends Error {
 
 /** Reads the persisted state and builds the backup object (draft order preserved). */
 export async function collectBackup(now = Date.now()): Promise<BackupFile> {
-	const [draftRows, workspaces, templates, projectRows, assetRows] = await Promise.all([
+	const [draftRows, workspaces, templates, projectRows, assetRows, comments] = await Promise.all([
 		db.drafts.orderBy('order').toArray(),
 		db.workspaces.orderBy('updatedAt').toArray(),
 		db.templates.orderBy('updatedAt').toArray(),
 		db.projects.orderBy('updatedAt').toArray(),
-		db.projectAssets.toArray()
+		db.projectAssets.toArray(),
+		db.comments.orderBy('createdAt').toArray()
 	]);
 	const drafts = draftRows.map(normalizeDraft);
 	const projects = projectRows.map(normalizeProject);
@@ -218,7 +224,8 @@ export async function collectBackup(now = Date.now()): Promise<BackupFile> {
 		workspaces,
 		templates,
 		projects,
-		projectAssets
+		projectAssets,
+		comments
 	};
 }
 
@@ -315,6 +322,26 @@ function validDraft(v: unknown): v is DraftRow {
 		(v.mime === undefined || typeof v.mime === 'string') &&
 		(v.data === undefined || typeof v.data === 'string') &&
 		(v.projectId === undefined) === (v.relativePath === undefined)
+	);
+}
+
+function validComment(v: unknown): v is CommentRow {
+	if (!isObject(v)) return false;
+	return (
+		typeof v.id === 'string' &&
+		v.id.length > 0 &&
+		typeof v.draftId === 'string' &&
+		v.draftId.length > 0 &&
+		typeof v.quote === 'string' &&
+		typeof v.body === 'string' &&
+		typeof v.author === 'string' &&
+		(v.status === 'open' || v.status === 'resolved') &&
+		typeof v.from === 'number' &&
+		Number.isFinite(v.from) &&
+		typeof v.to === 'number' &&
+		Number.isFinite(v.to) &&
+		validTimestamp(v.createdAt) &&
+		validTimestamp(v.updatedAt)
 	);
 }
 
@@ -429,20 +456,30 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 	const projectRows = schemaVersion >= 2 ? (raw.projects as unknown[]).filter(validProject) : [];
 	const assetRows =
 		schemaVersion >= 2 ? (raw.projectAssets as unknown[]).filter(validProjectAsset) : [];
+	const commentRows =
+		raw.comments === undefined
+			? []
+			: Array.isArray(raw.comments)
+				? raw.comments.filter(validComment)
+				: null;
+	if (commentRows === null) throw new BackupParseError(t('backup.notMdshBackup'));
 	const skipped = {
 		drafts: raw.drafts.length - draftRows.length,
 		workspaces: raw.workspaces.length - workspaceRows.length,
 		templates: raw.templates.length - templateRows.length,
 		projects: schemaVersion >= 2 ? (raw.projects as unknown[]).length - projectRows.length : 0,
 		projectAssets:
-			schemaVersion >= 2 ? (raw.projectAssets as unknown[]).length - assetRows.length : 0
+			schemaVersion >= 2 ? (raw.projectAssets as unknown[]).length - assetRows.length : 0,
+		comments:
+			raw.comments === undefined ? 0 : (raw.comments as unknown[]).length - commentRows.length
 	};
 	if (
 		skipped.drafts +
 			skipped.workspaces +
 			skipped.templates +
 			skipped.projects +
-			skipped.projectAssets >
+			skipped.projectAssets +
+			(skipped.comments ?? 0) >
 		0
 	) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
@@ -490,7 +527,7 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 			throw new BackupParseError(t('backup.notMdshBackup'));
 		}
 	}
-	for (const rows of [drafts, workspaces, templates]) {
+	for (const rows of [drafts, workspaces, templates, commentRows]) {
 		if (new Set(rows.map((row) => row.id)).size !== rows.length) {
 			throw new BackupParseError(t('backup.notMdshBackup'));
 		}
@@ -551,7 +588,8 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 			workspaces,
 			templates,
 			projects,
-			projectAssets
+			projectAssets,
+			comments: commentRows
 		},
 		skipped
 	};
@@ -724,7 +762,8 @@ export async function applyBackup(
 			db.trashed,
 			db.metadata,
 			db.projects,
-			db.projectAssets
+			db.projectAssets,
+			db.comments
 		],
 		async () => {
 			if (mode === 'replace') {
@@ -825,7 +864,8 @@ export async function applyBackup(
 					db.workspaces.clear(),
 					db.templates.clear(),
 					db.projects.clear(),
-					db.projectAssets.clear()
+					db.projectAssets.clear(),
+					db.comments.clear()
 				]);
 				await db.metadata.where('key').startsWith(PROJECT_NATIVE_BASELINE_PREFIX).delete();
 				await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: newId() });
@@ -834,13 +874,15 @@ export async function applyBackup(
 					db.workspaces.bulkPut(backup.workspaces),
 					db.templates.bulkPut(backup.templates),
 					db.projects.bulkPut([...projects, ...recoveryProjects]),
-					db.projectAssets.bulkPut([...projectAssets, ...recoveryAssets])
+					db.projectAssets.bulkPut([...projectAssets, ...recoveryAssets]),
+					db.comments.bulkPut(backup.comments ?? [])
 				]);
 				counts.drafts = backup.drafts.length;
 				counts.workspaces = backup.workspaces.length;
 				counts.templates = backup.templates.length;
 				counts.projects = projects.length;
 				counts.projectAssets = projectAssets.length;
+				counts.comments = backup.comments?.length ?? 0;
 				return;
 			}
 			// merge
@@ -900,18 +942,36 @@ export async function applyBackup(
 				if (identical) return [];
 				return [{ ...template, id: templateIds.has(template.id) ? newId() : template.id }];
 			});
+			const existingComments = await db.comments.toArray();
+			const commentIds = new Set(existingComments.map((row) => row.id));
+			const commentsToPut = (backup.comments ?? []).flatMap((comment) => {
+				const mappedDraftId = importedIdMap.get(comment.draftId);
+				if (!mappedDraftId) return [];
+				const mapped = { ...comment, draftId: mappedDraftId };
+				const identical = existingComments.some(
+					(row) =>
+						row.id === mapped.id &&
+						row.body === mapped.body &&
+						row.status === mapped.status &&
+						row.updatedAt === mapped.updatedAt
+				);
+				if (identical) return [];
+				return [{ ...mapped, id: commentIds.has(mapped.id) ? newId() : mapped.id }];
+			});
 			await Promise.all([
 				db.drafts.bulkPut(draftsToPut.filter((row): row is DraftRow => row !== null)),
 				db.workspaces.bulkPut(workspacesToPut),
 				db.templates.bulkPut(templatesToPut),
 				db.projects.bulkPut(projectPlan.projectsToPut),
-				db.projectAssets.bulkPut(projectPlan.assetsToPut)
+				db.projectAssets.bulkPut(projectPlan.assetsToPut),
+				db.comments.bulkPut(commentsToPut)
 			]);
 			counts.drafts = draftsToPut.filter((row) => row !== null).length;
 			counts.workspaces = workspacesToPut.length;
 			counts.templates = templatesToPut.length;
 			counts.projects = projectPlan.projectsToPut.length;
 			counts.projectAssets = projectPlan.assetsToPut.length;
+			counts.comments = commentsToPut.length;
 			counts.unchanged = {
 				drafts: backup.drafts.length - counts.drafts,
 				workspaces: backup.workspaces.length - counts.workspaces,

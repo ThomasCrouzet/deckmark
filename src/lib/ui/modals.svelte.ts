@@ -80,6 +80,8 @@ export function createModals(opts: ModalsOptions) {
 	let historyOpen = $state(false);
 	let graphOpen = $state(false);
 	let aiOpen = $state(false);
+	let propertiesOpen = $state(false);
+	let commentsOpen = $state(false);
 	let docsCheckOpen = $state(false);
 	let docsCheckProjectId = $state<string | null>(null);
 	let presenting = $state(false);
@@ -95,6 +97,8 @@ export function createModals(opts: ModalsOptions) {
 		historyOpen = false;
 		graphOpen = false;
 		aiOpen = false;
+		propertiesOpen = false;
+		commentsOpen = false;
 		docsCheckOpen = false;
 		newDocumentOpen = false;
 	}
@@ -165,6 +169,20 @@ export function createModals(opts: ModalsOptions) {
 			aiOpen = false;
 		},
 		'modals.labelAi'
+	);
+	const loadPropertiesPanel = makeLazyLoader(
+		() => import('#lib/components/FrontmatterPanel.svelte'),
+		() => {
+			propertiesOpen = false;
+		},
+		'modals.labelProperties'
+	);
+	const loadCommentsPanel = makeLazyLoader(
+		() => import('#lib/components/CommentsPanel.svelte'),
+		() => {
+			commentsOpen = false;
+		},
+		'modals.labelComments'
 	);
 	const loadDocsCheckPanel = makeLazyLoader(
 		() => import('#lib/components/DocsCheckPanel.svelte'),
@@ -238,6 +256,16 @@ export function createModals(opts: ModalsOptions) {
 		aiOpen = true;
 	}
 
+	function openProperties() {
+		closeAll();
+		propertiesOpen = true;
+	}
+
+	function openComments() {
+		closeAll();
+		commentsOpen = true;
+	}
+
 	function openDocsCheck(projectId: string | null = null) {
 		closeAll();
 		docsCheckProjectId = projectId;
@@ -294,6 +322,8 @@ export function createModals(opts: ModalsOptions) {
 				historyOpen ||
 				graphOpen ||
 				aiOpen ||
+				propertiesOpen ||
+				commentsOpen ||
 				docsCheckOpen ||
 				newDocumentOpen ||
 				presenting
@@ -349,6 +379,20 @@ export function createModals(opts: ModalsOptions) {
 			if (v) openGraph();
 			else graphOpen = false;
 		},
+		get propertiesOpen() {
+			return propertiesOpen;
+		},
+		set propertiesOpen(value: boolean) {
+			if (value) openProperties();
+			else propertiesOpen = false;
+		},
+		get commentsOpen() {
+			return commentsOpen;
+		},
+		set commentsOpen(value: boolean) {
+			if (value) openComments();
+			else commentsOpen = false;
+		},
 		get docsCheckOpen() {
 			return docsCheckOpen;
 		},
@@ -381,7 +425,11 @@ export function createModals(opts: ModalsOptions) {
 		},
 		loadNewDocument,
 		loadAiPanel,
+		loadPropertiesPanel,
+		loadCommentsPanel,
 		openAi,
+		openProperties,
+		openComments,
 		openNewDocument,
 		// Loaders
 		loadCommandPalette,

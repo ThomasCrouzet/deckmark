@@ -81,6 +81,19 @@ export interface TemplateRow {
 	updatedAt: number;
 }
 
+export interface CommentRow {
+	id: string;
+	draftId: string;
+	quote: string;
+	from: number;
+	to: number;
+	body: string;
+	author: string;
+	status: 'open' | 'resolved';
+	createdAt: number;
+	updatedAt: number;
+}
+
 export interface MetadataRow {
 	key: string;
 	value: string;
@@ -115,6 +128,7 @@ class MdshDB extends Dexie {
 	metadata!: Table<MetadataRow, string>;
 	projects!: Table<ProjectRow, string>;
 	projectAssets!: Table<ProjectAssetRow, string>;
+	comments!: Table<CommentRow, string>;
 
 	constructor() {
 		super('mdsh');
@@ -161,6 +175,10 @@ class MdshDB extends Dexie {
 			drafts: 'id, updatedAt, order, projectId, &[projectId+relativePath]',
 			projects: 'id, updatedAt',
 			projectAssets: 'id, projectId, &[projectId+path]'
+		});
+		// v7: editorial comments stay outside the Markdown source.
+		this.version(7).stores({
+			comments: 'id, draftId, status, createdAt'
 		});
 	}
 }
