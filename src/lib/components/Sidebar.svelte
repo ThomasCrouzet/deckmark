@@ -26,7 +26,13 @@
 	import BrandLogo from './BrandLogo.svelte';
 	import FileStatusBadge from './FileStatusBadge.svelte';
 	import TrashPanel from './TrashPanel.svelte';
-	import { ArrowUp, ArrowDown } from '@lucide/svelte';
+	import ProjectTree from './ProjectTree.svelte';
+	import { projectExplorer, folderKey, rootKey } from '#lib/project-explorer.svelte.js';
+	import { createProject } from '#lib/projects.js';
+	import { PROJECT_DRAG_TYPE } from '#lib/project-transfer.js';
+	import { ArrowUp, ArrowDown, FolderPlus } from '@lucide/svelte';
+	import { notify } from '#lib/notify.svelte.js';
+	import { reportError } from '#lib/report.js';
 
 	interface Props {
 		open: boolean;
@@ -90,11 +96,30 @@
 
 	// Filtered file list: if a tag is active, keep only the
 	// files that contain it. Otherwise, all files.
+	const libraryFiles = $derived(filesStore.files.filter((file) => !file.projectId));
 	const filteredFiles = $derived(
 		activeTag === null
-			? filesStore.files
-			: filesStore.files.filter((f) => filesStore.getTags(f.id).includes(activeTag!))
+			? libraryFiles
+			: libraryFiles.filter((f) => filesStore.getTags(f.id).includes(activeTag!))
 	);
+	const projectDocuments = $derived(
+		filesStore.library.filter(
+			(file) =>
+				!!file.projectId && (activeTag === null || filesStore.getTags(file.id).includes(activeTag))
+		)
+	);
+	const projectRoots = $derived.by(() => {
+		const roots = projectExplorer.projects.map((project) => ({
+			id: project.id,
+			name: project.name
+		}));
+		for (const document of filesStore.library) {
+			if (document.projectId && !roots.some((root) => root.id === document.projectId))
+				roots.push({ id: document.projectId, name: document.projectId });
+		}
+		return roots;
+	});
+	const hasExplorer = $derived(projectRoots.length > 0);
 
 	const rowHeights = $derived(
 		filteredFiles.map((file) => (coarsePointer || file.relativePath ? 52 : 36))
@@ -130,6 +155,20 @@
 	const bottomSpacerHeight = $derived(
 		useVirtualization ? rowOffsets[rowOffsets.length - 1]! - rowOffsets[visibleEnd]! : 0
 	);
+
+	onMount(() => {
+		void projectExplorer.load().then(() => {
+			projectExplorer.revealInitial(filesStore.active?.projectId, filesStore.active?.relativePath);
+		});
+	});
+
+	let revealedActiveId: string | null = null;
+	$effect(() => {
+		const active = filesStore.active;
+		if (!projectExplorer.loaded || !active?.projectId || active.id === revealedActiveId) return;
+		revealedActiveId = active.id;
+		projectExplorer.revealActive(active.projectId, active.relativePath);
+	});
 
 	onMount(() => {
 		if (!browser || typeof window.matchMedia !== 'function') return;
@@ -218,8 +257,16 @@
 	function onDragStart(e: DragEvent, id: string) {
 		draggingId = id;
 		if (e.dataTransfer) {
-			e.dataTransfer.effectAllowed = 'move';
+			const file = filesStore.library.find((entry) => entry.id === id);
+			e.dataTransfer.effectAllowed = 'copyMove';
 			e.dataTransfer.setData('text/plain', id);
+			e.dataTransfer.setData(
+				PROJECT_DRAG_TYPE,
+				JSON.stringify({
+					...(file?.projectId ? { projectId: file.projectId } : {}),
+					documentIds: [id]
+				})
+			);
 		}
 	}
 
@@ -276,6 +323,41 @@
 
 	function selectTag(tag: string | null) {
 		activeTag = tag;
+	}
+
+	async function handleProjectChanged(target: {
+		projectId: string;
+		folder?: string;
+	}): Promise<void> {
+		await projectExplorer.load();
+		const keys = [rootKey(target.projectId)];
+		if (target.folder) {
+			const parts = target.folder.split('/');
+			let current = '';
+			for (const part of parts) {
+				current = current ? `${current}/${part}` : part;
+				keys.push(folderKey(target.projectId, current));
+			}
+		}
+		projectExplorer.expand(keys);
+		await tick();
+	}
+
+	async function createProjectFromSidebar(): Promise<void> {
+		const name = await promptStore.prompt({
+			title: t('projects.name'),
+			confirmLabel: t('projects.newProject')
+		});
+		if (!name?.trim()) return;
+		try {
+			const project = await createProject(name.trim());
+			await projectExplorer.load();
+			projectExplorer.expand([rootKey(project.id)]);
+			await tick();
+		} catch (error) {
+			reportError('project create', error);
+			notify.error(t('projects.operationFailed'));
+		}
 	}
 
 	// §B1.11 - Sidebar in mobile drawer mode: focus-trap when open on a
@@ -400,7 +482,7 @@
 			onclick={() => {
 				if (isMobile) onClose();
 				onOpenProjects?.();
-			}}>{t('projects.open')}</button
+			}}>{t('projects.manage')}</button
 		>
 		<button
 			bind:this={libraryButton}
@@ -497,15 +579,54 @@
 
 	<!-- File list -->
 	<div bind:this={scrollContainer} class="flex-1 overflow-y-auto py-1" onscroll={handleListScroll}>
-		{#if filesStore.files.length === 0}
+		{#if hasExplorer}
+			<section
+				class="mb-1 border-b border-border pb-1"
+				data-sidebar-projects
+				aria-label={t('projects.explorer')}
+			>
+				<div class="flex items-center gap-1 px-2 py-1">
+					<span class="flex-1 text-[11px] uppercase tracking-wide text-fg-dim"
+						>{t('projects.explorer')}</span
+					>
+					<button
+						type="button"
+						class="rounded p-1 text-fg-dim hover:bg-bg-2 hover:text-fg"
+						data-testid="sidebar-new-project"
+						aria-label={t('projects.newProject')}
+						title={t('projects.newProject')}
+						onclick={() => void createProjectFromSidebar()}
+					>
+						<FolderPlus size={12} aria-hidden="true" />
+					</button>
+				</div>
+				<ProjectTree
+					documents={projectDocuments}
+					projects={projectRoots}
+					expanded={projectExplorer.expanded}
+					onToggle={(key, open) => projectExplorer.setExpanded(key, open)}
+					onOpen={selectFile}
+					actions
+					rowLabels
+					onManageProjects={() => {
+						if (isMobile) onClose();
+						onOpenProjects?.();
+					}}
+					onChanged={(target) => void handleProjectChanged(target)}
+				/>
+			</section>
+		{/if}
+		{#if filesStore.files.length === 0 && !hasExplorer}
 			<div class="px-4 py-8 text-center text-xs text-fg-subtle">
 				{t('sidebar.noFileOpen')}<br />
 				<span class="text-fg-dim">{t('sidebar.createOrImportHint')}</span>
 			</div>
 		{:else if filteredFiles.length === 0}
-			<div class="px-4 py-8 text-center text-xs text-fg-subtle">
-				{t('sidebar.noFileWithTag')} <span class="font-mono">{activeTag}</span>.
-			</div>
+			{#if libraryFiles.length > 0}
+				<div class="px-4 py-8 text-center text-xs text-fg-subtle">
+					{t('sidebar.noFileWithTag')} <span class="font-mono">{activeTag}</span>.
+				</div>
+			{/if}
 		{:else}
 			{#if topSpacerHeight > 0}
 				<div style:height={`${topSpacerHeight}px`} aria-hidden="true"></div>

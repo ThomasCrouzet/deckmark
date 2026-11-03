@@ -638,6 +638,7 @@
 	}
 
 	function handleWindowDrag(event: DragEvent, handler: (event: DragEvent) => void | Promise<void>) {
+		if (event.defaultPrevented) return;
 		if (
 			!canInteract ||
 			modals.anyOpen ||
