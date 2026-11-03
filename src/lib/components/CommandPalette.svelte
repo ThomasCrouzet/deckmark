@@ -28,6 +28,7 @@
 	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '#lib/render/print-geometry.js';
 	import { coreCommands, normalizeCommandSearch } from '#lib/ui/commands.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { formatKbd } from '#lib/platform.js';
 	import {
@@ -54,6 +55,7 @@
 		AlignVerticalJustifyCenter,
 		Settings,
 		SunMoon,
+		Sparkles,
 		FileText,
 		Image as ImageIcon,
 		Clipboard,
@@ -112,6 +114,7 @@
 		onOpenSettings: () => void;
 		onOpenHistory: () => void;
 		onOpenGraph: () => void;
+		onOpenAi: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
 	}
@@ -149,6 +152,7 @@
 		onOpenSettings,
 		onOpenHistory,
 		onOpenGraph,
+		onOpenAi,
 		onPresent,
 		onAdvancedSource
 	}: Props = $props();
@@ -540,6 +544,14 @@
 			label: t('slides.source'),
 			icon: Code2,
 			run: onAdvancedSource
+		},
+		{
+			id: 'ai',
+			label: t('palette.aiAssistant'),
+			hint: t('palette.aiAssistantHint'),
+			icon: Sparkles,
+			enabled: () => aiStore.settings.enabled,
+			run: onOpenAi
 		},
 		{
 			id: 'template-save',

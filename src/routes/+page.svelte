@@ -21,6 +21,7 @@
 	import { createModals } from '#lib/ui/modals.svelte.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { templatesStore } from '#lib/templates.svelte.js';
+	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { requestPersistentStorage, checkStoragePressure } from '#lib/storage.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 	import { isDesktop } from '#lib/desktop.js';
@@ -238,6 +239,7 @@
 			// §2.1 - Theme applied early (before loading files) to limit the flash
 			// on light/system preferences.
 			themeStore.load();
+			aiStore.load();
 			// Locale applied on mount (after hydration: the prerendered render and
 			// the first client render are in English by default, no mismatch).
 			i18n.load();

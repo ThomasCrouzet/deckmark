@@ -79,6 +79,7 @@ export function createModals(opts: ModalsOptions) {
 	let settingsOpen = $state(false);
 	let historyOpen = $state(false);
 	let graphOpen = $state(false);
+	let aiOpen = $state(false);
 	let presenting = $state(false);
 	let newDocumentOpen = $state(false);
 
@@ -91,6 +92,7 @@ export function createModals(opts: ModalsOptions) {
 		settingsOpen = false;
 		historyOpen = false;
 		graphOpen = false;
+		aiOpen = false;
 		newDocumentOpen = false;
 	}
 
@@ -154,6 +156,13 @@ export function createModals(opts: ModalsOptions) {
 		},
 		'modals.labelGraph'
 	);
+	const loadAiPanel = makeLazyLoader(
+		() => import('#lib/components/AiPanel.svelte'),
+		() => {
+			aiOpen = false;
+		},
+		'modals.labelAi'
+	);
 	const loadNewDocument = makeLazyLoader(
 		() => import('#lib/components/NewDocumentDialog.svelte'),
 		() => {
@@ -214,6 +223,11 @@ export function createModals(opts: ModalsOptions) {
 		graphOpen = true;
 	}
 
+	function openAi() {
+		closeAll();
+		aiOpen = true;
+	}
+
 	function openNewDocument() {
 		closeAll();
 		newDocumentOpen = true;
@@ -263,6 +277,7 @@ export function createModals(opts: ModalsOptions) {
 				settingsOpen ||
 				historyOpen ||
 				graphOpen ||
+				aiOpen ||
 				newDocumentOpen ||
 				presenting
 			);
@@ -323,6 +338,13 @@ export function createModals(opts: ModalsOptions) {
 		set presenting(v: boolean) {
 			presenting = v;
 		},
+		get aiOpen() {
+			return aiOpen;
+		},
+		set aiOpen(value: boolean) {
+			if (value) openAi();
+			else aiOpen = false;
+		},
 		get newDocumentOpen() {
 			return newDocumentOpen;
 		},
@@ -331,6 +353,8 @@ export function createModals(opts: ModalsOptions) {
 			else newDocumentOpen = false;
 		},
 		loadNewDocument,
+		loadAiPanel,
+		openAi,
 		openNewDocument,
 		// Loaders
 		loadCommandPalette,

@@ -103,6 +103,7 @@
 			onOpenSettings={modals.openSettings}
 			onOpenHistory={modals.openHistory}
 			onOpenGraph={modals.openGraph}
+			onOpenAi={modals.openAi}
 			{onPresent}
 			{onAdvancedSource}
 		/>
@@ -169,6 +170,14 @@
 {#if modals.graphOpen}
 	{#await modals.loadGraphPanel() then GraphPanel}
 		<GraphPanel open={modals.graphOpen} onClose={() => (modals.graphOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.aiOpen}
+	{#await modals.loadAiPanel() then AiPanel}
+		<AiPanel open={modals.aiOpen} onClose={() => (modals.aiOpen = false)} />
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}

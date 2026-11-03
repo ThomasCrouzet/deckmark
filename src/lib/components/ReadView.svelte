@@ -8,13 +8,13 @@
 	import '../render/preview.css';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { decodeWikiTarget } from '#lib/wiki-links.js';
-	import { t } from '#lib/i18n/index.js';
+	import { t, type MessageKey } from '#lib/i18n/index.js';
 	import { mermaidThemeFromDataTheme } from '#lib/theme.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache } from '#lib/editor-state.js';
-	import { onDestroy, tick } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 
 	interface Props {
 		fileId: string;
@@ -29,6 +29,180 @@
 	let articleEl: HTMLElement | null = $state(null);
 	let readScroller: HTMLDivElement | null = $state(null);
 	let positionFileId: string | null = null;
+
+	interface InkPoint {
+		x: number;
+		y: number;
+	}
+	interface InkStroke {
+		tool: 'pen' | 'highlighter' | 'eraser';
+		color: string;
+		size: number;
+		points: InkPoint[];
+	}
+	let annotate = $state(false);
+	let tool = $state<'pen' | 'highlighter' | 'eraser'>('pen');
+	let color = $state('#f5c542');
+	let inkSize = $state(3);
+	let canvas = $state<HTMLCanvasElement | null>(null);
+	let strokes: InkStroke[] = [];
+	let current: InkStroke | null = null;
+	let drawing = false;
+	let cleanupInk: (() => void) | null = null;
+	const ANNOTATION_COLORS = ['#f5c542', '#ff6b6b', '#4dabf7', '#51cf66'];
+	const ANNOTATION_LABELS: MessageKey[] = [
+		'annotations.colorYellow',
+		'annotations.colorRed',
+		'annotations.colorBlue',
+		'annotations.colorGreen'
+	];
+
+	function redrawInk() {
+		const element = canvas;
+		if (!element) return;
+		const context = element.getContext('2d');
+		if (!context) return;
+		const ratio = window.devicePixelRatio || 1;
+		context.setTransform(ratio, 0, 0, ratio, 0, 0);
+		context.clearRect(0, 0, element.width / ratio, element.height / ratio);
+		for (const stroke of strokes) {
+			drawStroke(context, stroke);
+		}
+	}
+
+	function drawStroke(context: CanvasRenderingContext2D, stroke: InkStroke) {
+		if (stroke.points.length === 0) return;
+		context.save();
+		context.lineCap = 'round';
+		context.lineJoin = 'round';
+		context.lineWidth =
+			stroke.tool === 'highlighter'
+				? stroke.size * 4
+				: stroke.tool === 'eraser'
+					? stroke.size * 5
+					: stroke.size;
+		context.strokeStyle = stroke.color;
+		context.globalAlpha = stroke.tool === 'highlighter' ? 0.35 : 1;
+		context.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
+		context.beginPath();
+		const [first, ...rest] = stroke.points;
+		context.moveTo(first!.x, first!.y);
+		for (const point of rest) context.lineTo(point.x, point.y);
+		if (stroke.points.length === 1) context.lineTo(first!.x + 0.1, first!.y + 0.1);
+		context.stroke();
+		context.restore();
+	}
+
+	function pointFrom(event: PointerEvent): InkPoint {
+		const rect = canvas!.getBoundingClientRect();
+		return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+	}
+
+	function startInk(event: PointerEvent) {
+		if (!annotate || !canvas) return;
+		event.preventDefault();
+		canvas.setPointerCapture(event.pointerId);
+		drawing = true;
+		current = {
+			tool,
+			color,
+			size: inkSize,
+			points: [pointFrom(event)]
+		};
+		const context = canvas.getContext('2d');
+		if (context) drawStroke(context, current);
+	}
+
+	function moveInk(event: PointerEvent) {
+		if (!drawing || !current || !canvas) return;
+		event.preventDefault();
+		const point = pointFrom(event);
+		const previous = current.points[current.points.length - 1]!;
+		current.points.push(point);
+		const context = canvas.getContext('2d');
+		if (!context) return;
+		const ratio = window.devicePixelRatio || 1;
+		context.setTransform(ratio, 0, 0, ratio, 0, 0);
+		context.save();
+		context.lineCap = 'round';
+		context.lineJoin = 'round';
+		context.lineWidth =
+			current.tool === 'highlighter'
+				? current.size * 4
+				: current.tool === 'eraser'
+					? current.size * 5
+					: current.size;
+		context.strokeStyle = current.color;
+		context.globalAlpha = current.tool === 'highlighter' ? 0.35 : 1;
+		context.globalCompositeOperation =
+			current.tool === 'eraser' ? 'destination-out' : 'source-over';
+		context.beginPath();
+		context.moveTo(previous.x, previous.y);
+		context.lineTo(point.x, point.y);
+		context.stroke();
+		context.restore();
+	}
+
+	function endInk(event: PointerEvent) {
+		if (!drawing) return;
+		drawing = false;
+		if (current) strokes.push(current);
+		current = null;
+		canvas?.releasePointerCapture(event.pointerId);
+	}
+
+	function clearInk() {
+		strokes = [];
+		current = null;
+		redrawInk();
+	}
+
+	function fitInkCanvas() {
+		const element = canvas;
+		const scroller = readScroller;
+		if (!element || !scroller) return;
+		const ratio = window.devicePixelRatio || 1;
+		const width = Math.max(scroller.scrollWidth, scroller.clientWidth);
+		const height = Math.max(scroller.scrollHeight, scroller.clientHeight);
+		if (
+			element.width !== Math.round(width * ratio) ||
+			element.height !== Math.round(height * ratio)
+		) {
+			element.width = Math.round(width * ratio);
+			element.height = Math.round(height * ratio);
+			element.style.width = `${width}px`;
+			element.style.height = `${height}px`;
+			redrawInk();
+		}
+	}
+
+	onMount(() => {
+		const resize = new ResizeObserver(() => fitInkCanvas());
+		if (readScroller) resize.observe(readScroller);
+		const observer = new MutationObserver(() => fitInkCanvas());
+		if (readScroller) observer.observe(readScroller, { childList: true, subtree: true });
+		window.addEventListener('resize', fitInkCanvas);
+		cleanupInk = () => {
+			resize.disconnect();
+			observer.disconnect();
+			window.removeEventListener('resize', fitInkCanvas);
+		};
+		return () => {
+			cleanupInk?.();
+			cleanupInk = null;
+		};
+	});
+
+	$effect(() => {
+		void fileId;
+		strokes = [];
+		current = null;
+		redrawInk();
+	});
+
+	$effect(() => {
+		if (readScroller && canvas) tick().then(fitInkCanvas);
+	});
 
 	function saveReadPosition(id: string): void {
 		if (!readScroller) return;
@@ -300,6 +474,66 @@
 				<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 				{@html html}
 			</article>
+			<canvas
+				bind:this={canvas}
+				class="annotation-canvas"
+				class:drawing={annotate}
+				aria-hidden="true"
+				data-testid="annotation-canvas"
+				onpointerdown={startInk}
+				onpointermove={moveInk}
+				onpointerup={endInk}
+				onpointercancel={endInk}
+			></canvas>
+		{/if}
+	</div>
+	<div class="annotation-bar" role="toolbar" aria-label={t('annotations.toolbar')}>
+		<button
+			type="button"
+			aria-pressed={annotate}
+			onclick={() => {
+				annotate = !annotate;
+				if (annotate) tick().then(fitInkCanvas);
+			}}
+			data-testid="annotation-toggle">{t('annotations.toggle')}</button
+		>
+		{#if annotate}
+			<button
+				type="button"
+				aria-pressed={tool === 'pen'}
+				onclick={() => (tool = 'pen')}
+				data-testid="annotation-pen">{t('annotations.pen')}</button
+			>
+			<button
+				type="button"
+				aria-pressed={tool === 'highlighter'}
+				onclick={() => (tool = 'highlighter')}
+				data-testid="annotation-highlighter">{t('annotations.highlighter')}</button
+			>
+			<button
+				type="button"
+				aria-pressed={tool === 'eraser'}
+				onclick={() => (tool = 'eraser')}
+				data-testid="annotation-eraser">{t('annotations.eraser')}</button
+			>
+			{#each ANNOTATION_COLORS as swatch, index (swatch)}
+				<button
+					type="button"
+					class="annotation-color"
+					class:active={color === swatch}
+					style:background={swatch}
+					aria-label={t(ANNOTATION_LABELS[index]!)}
+					onclick={() => (color = swatch)}
+					data-testid={`annotation-color-${index}`}
+				></button>
+			{/each}
+			<label class="annotation-size">
+				<span>{t('annotations.size')}</span>
+				<input type="range" min="1" max="10" bind:value={inkSize} />
+			</label>
+			<button type="button" onclick={clearInk} data-testid="annotation-clear"
+				>{t('annotations.clear')}</button
+			>
 		{/if}
 	</div>
 	{#if loading && !err}
@@ -314,9 +548,76 @@
 		width: 100%;
 	}
 	.mdsh-read {
+		position: relative;
 		height: 100%;
 		width: 100%;
 		overflow-y: auto;
+	}
+	.annotation-canvas {
+		position: absolute;
+		top: 0;
+		left: 0;
+		z-index: 5;
+		pointer-events: none;
+	}
+	.annotation-canvas.drawing {
+		pointer-events: auto;
+		touch-action: none;
+		cursor: crosshair;
+	}
+	.annotation-bar {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.75rem;
+		z-index: 6;
+		display: flex;
+		flex-wrap: wrap;
+		max-width: min(92vw, 520px);
+		align-items: center;
+		gap: 4px;
+		padding: 4px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: color-mix(in oklab, var(--color-bg-1) 92%, transparent);
+		box-shadow: var(--shadow-lg);
+	}
+	.annotation-bar button {
+		min-height: 30px;
+		padding: 2px 7px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-xs);
+		background: var(--color-bg-2);
+		color: var(--color-fg);
+		font-size: 11px;
+	}
+	.annotation-bar button[aria-pressed='true'] {
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+	.annotation-color {
+		width: 24px;
+		padding: 0;
+		border-color: var(--color-border-strong);
+	}
+	.annotation-color.active {
+		outline: 2px solid var(--color-fg);
+		outline-offset: 1px;
+	}
+	.annotation-size {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		font-size: 10px;
+		color: var(--color-fg-muted);
+	}
+	.annotation-size input {
+		width: 60px;
+	}
+	@media print {
+		.annotation-bar,
+		.annotation-canvas {
+			display: none !important;
+		}
 	}
 	.mdsh-read:focus-visible {
 		outline: 2px solid var(--color-accent);
