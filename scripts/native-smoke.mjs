@@ -471,12 +471,14 @@ async function saveLinkedFile(label) {
 	);
 	assert.ok(draft, `${label}: linked draft exists`);
 	const saveStartedAt = performance.now();
-	if (process.platform === 'darwin') await nativeShortcut('s', true);
+	// Save is Cmd/Ctrl+S (in place). Cmd/Ctrl+Shift+S is Save As, which opens a
+	// dialog that this smoke run never answers.
+	if (process.platform === 'darwin') await nativeShortcut('s');
 	else
 		await execute(`
 		window.dispatchEvent(new KeyboardEvent('keydown', {
-			key: 'S', code: 'KeyS', metaKey: ${process.platform === 'darwin'},
-			ctrlKey: ${process.platform !== 'darwin'}, shiftKey: true, bubbles: true, cancelable: true
+			key: 's', code: 'KeyS', metaKey: false,
+			ctrlKey: true, shiftKey: false, bubbles: true, cancelable: true
 		}));
 	`);
 	// No dialog is answered. Only a direct native write can complete this check.
@@ -681,6 +683,12 @@ try {
 	passed(`native theme toggle changes the theme (${themeBefore || 'default'} to ${themeAfter})`);
 
 	const focusStartedAt = performance.now();
+	// Focus mode is offered only while Read is selected.
+	await click('button[data-mode="read"]');
+	await until(
+		() => execute('return !!document.querySelector(".mdsh-preview");'),
+		'native read mode before focus'
+	);
 	await click('[data-testid="focus-toggle"]');
 	await until(
 		() => execute('return document.body.classList.contains("focus-mode");'),
@@ -692,6 +700,11 @@ try {
 	await until(
 		() => execute('return !document.body.classList.contains("focus-mode");'),
 		'native focus mode off'
+	);
+	await click('button[data-mode="source"]');
+	await until(
+		() => execute('return !!document.querySelector(".cm-content");'),
+		'native source mode after focus'
 	);
 	passed('native focus mode toggles without a restart');
 

@@ -180,6 +180,12 @@ class FilesStore {
 	// receiving a message from another tab, between reloading (safe) and notifying
 	// a conflict (local editing in progress, do not overwrite).
 	private crossTab = createCrossTab((msg) => this.handleCrossTabMessage(msg));
+	/**
+	 * Most recently active documents, newest last. Closing a tab returns to what
+	 * the user was viewing before that tab, which matches browser behavior and
+	 * keeps the positional neighbor only as a fallback.
+	 */
+	private activeHistory: string[] = [];
 	private saveQueue = new SaveQueue({
 		onPendingChange: (pending) => {
 			this.hasPendingSave = pending;
@@ -541,6 +547,7 @@ class FilesStore {
 			updatedAt: Date.now(),
 			dirty: content.length > 0 || !!options.data
 		};
+		this.rememberActive();
 		this.files.push(file);
 		this.activeId = file.id;
 		if (options.focusEditor) this.newDocumentFocusId = file.id;
@@ -665,8 +672,26 @@ class FilesStore {
 
 	setActive(id: string): void {
 		this.dispatchEditorFlush();
+		this.rememberActive();
 		this.activeId = id;
 		this.persistActiveId();
+	}
+
+	/** Records the document that is about to lose the active state. */
+	private rememberActive(): void {
+		const current = this.activeId;
+		if (!current) return;
+		this.activeHistory = [...this.activeHistory.filter((id) => id !== current), current].slice(-20);
+	}
+
+	/** Returns the most recent active document that is still open. */
+	private previousActive(exclude: string): string | null {
+		for (let index = this.activeHistory.length - 1; index >= 0; index--) {
+			const candidate = this.activeHistory[index]!;
+			if (candidate !== exclude && this.files.some((file) => file.id === candidate))
+				return candidate;
+		}
+		return null;
 	}
 
 	/**
@@ -696,7 +721,8 @@ class FilesStore {
 		const file = knownFile ?? this.files[idx]!;
 		this.files.splice(idx, 1);
 		if (this.activeId === id) {
-			this.activeId = this.files[Math.min(idx, this.files.length - 1)]?.id ?? null;
+			this.activeId =
+				this.previousActive(id) ?? this.files[Math.min(idx, this.files.length - 1)]?.id ?? null;
 			this.persistActiveId();
 		}
 		if (this.selectedIds.has(id)) {
@@ -861,6 +887,7 @@ class FilesStore {
 		const idx = this.closedFiles.findIndex((file) => file.id === id);
 		if (idx === -1) return null;
 		const file = this.closedFiles.splice(idx, 1)[0]!;
+		this.rememberActive();
 		this.files.push(file);
 		this.activeId = file.id;
 		this.persistActiveId();
@@ -999,6 +1026,7 @@ class FilesStore {
 				}
 			: entry.file;
 		const insertAt = Math.min(entry.order, this.files.length);
+		this.rememberActive();
 		this.files.splice(insertAt, 0, restored);
 		this.activeId = restored.id;
 		this.persistActiveId();

@@ -310,7 +310,9 @@
 				{/each}
 			</ul>
 		{/if}
-		{#if busy}<p role="status" class="p-3 text-sm text-fg-muted">{t('projects.busy')}</p>{/if}
+		{#if busy}<p role="status" data-testid="projects-busy" class="p-3 text-sm text-fg-muted">
+				{t('projects.busy')}
+			</p>{/if}
 		<div class="min-h-0 flex-1 overflow-auto p-3">
 			{#if projects.length}
 				<label class="flex items-center gap-2 text-sm"

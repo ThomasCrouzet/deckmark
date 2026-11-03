@@ -56,7 +56,10 @@ export function normalizeImportedProject(input: ProjectInput): MigrationResult {
 		...input.assets.map((entry) => entry.path)
 	];
 	const kind = detectVaultKind(allPaths);
-	const root = commonRoot(allPaths.filter((path) => !OBSIDIAN_INTERNAL.test(path)));
+	const root =
+		kind === 'generic'
+			? null
+			: commonRoot(allPaths.filter((path) => !OBSIDIAN_INTERNAL.test(path)));
 	const report: MigrationReport = {
 		kind,
 		documents: 0,

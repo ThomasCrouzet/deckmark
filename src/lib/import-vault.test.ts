@@ -44,6 +44,16 @@ describe('normalizeImportedProject', () => {
 		expect(result.report.renamed).toHaveLength(2);
 	});
 
+	it('keeps the original folders of a generic archive', () => {
+		const result = normalizeImportedProject({
+			...base,
+			documents: [{ relativePath: 'notes/guide.md', content: '# Guide' }],
+			assets: []
+		});
+		expect(result.report.kind).toBe('generic');
+		expect(result.input.documents[0]?.relativePath).toBe('notes/guide.md');
+	});
+
 	it('keeps unsupported files as assets and reports them', () => {
 		const result = normalizeImportedProject({
 			...base,

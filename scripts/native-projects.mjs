@@ -116,7 +116,7 @@ export async function nativeProjects({
 			() =>
 				execute(`const panel = document.querySelector('[role="dialog"][aria-labelledby="projects-title"]');
 					const close = panel?.querySelector('header button');
-					if (!panel || panel.closest('[inert]') || panel.querySelector('[role="status"]') ||
+					if (!panel || panel.closest('[inert]') || panel.querySelector('[data-testid="projects-busy"]') ||
 						!close || close.disabled || !close.getClientRects().length) return false;
 					return { failure: panel.querySelector('[role="alert"]')?.textContent?.trim() ?? null };`),
 			'Projects panel is available',
@@ -128,7 +128,7 @@ export async function nativeProjects({
 		await until(
 			() =>
 				execute(
-					`return [...document.querySelectorAll('[data-project-document]')].some(node => node.getAttribute('data-project-document') === arguments[0]);`,
+					`return [...document.querySelectorAll('[role="dialog"] [data-project-document]')].some(node => node.getAttribute('data-project-document') === arguments[0]);`,
 					[relativePath]
 				),
 			`project document ${relativePath}`,
@@ -140,7 +140,7 @@ export async function nativeProjects({
 		await until(
 			() =>
 				execute(
-					`const row = [...document.querySelectorAll('[data-project-document]')].find(node => node.getAttribute('data-project-document') === arguments[0]);
+					`const row = [...document.querySelectorAll('[role="dialog"] [data-project-document]')].find(node => node.getAttribute('data-project-document') === arguments[0]);
 					const button = row?.querySelector('button');
 					if (!button || button.disabled || !button.getClientRects().length) return false;
 					button.click(); return true;`,
