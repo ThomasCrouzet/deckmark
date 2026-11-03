@@ -27,12 +27,17 @@
 		"note-taking"
 	],
 	"type": "module",
+	"bin": {
+		"deckmark": "bin/deckmark.mjs"
+	},
 	"engines": {
 		"node": ">=22"
 	},
 	"scripts": {
 		"patch:milkdown": "node scripts/patch-milkdown-images.mjs --write",
 		"patch:milkdown:check": "node scripts/patch-milkdown-images.mjs --check",
+		"cli": "node bin/deckmark.mjs",
+		"cli:build": "node scripts/build-cli.mjs",
 		"dev": "node scripts/patch-milkdown-images.mjs --write && vite dev",
 		"build": "node scripts/patch-milkdown-images.mjs --write && vite build && node scripts/generate-service-worker.mjs",
 		"preview": "vite preview --outDir build",

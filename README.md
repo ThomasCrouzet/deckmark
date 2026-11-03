@@ -147,6 +147,17 @@ Optional backup encryption uses AES-GCM and PBKDF2 through WebCrypto. Keep the
 passphrase: an encrypted backup cannot be recovered without it. See
 [backups and storage health](docs/USER_GUIDE.md#backups-and-storage-health).
 
+Scripts and CI pipelines can use the local Node CLI without the GUI:
+
+```sh
+npm run cli -- check docs --json
+npm run cli -- export . --format zip --out project.zip
+```
+
+The CLI reuses the documentation checker, project archive, search matcher, and
+link rules. It does not start a server or a GUI. Commands, exit codes, JSON
+schemas, and the known renderer differences are in [docs/CLI.md](docs/CLI.md).
+
 <!-- readme:section compatibility -->
 ## Browser and Desktop support
 
@@ -290,6 +301,7 @@ and native libraries specified in [CONTRIBUTING.md](CONTRIBUTING.md).
 | [Editions and support](docs/EDITIONS.md) | Web Light and Desktop Complete matrix, requirements, storage, hosting, and support limits. |
 | [User guide](docs/USER_GUIDE.md) | Editing, imports, images, disk links, backups, and shortcuts. |
 | [Presentation editor](docs/presentation-editor.md) · [File format](docs/presentation-format.md) | Create, present, and export Markdown slide decks. |
+| [Command-line interface](docs/CLI.md) | Local commands, exit codes, JSON output, and renderer differences. |
 | [Contributing](CONTRIBUTING.md) · [Development](docs/DEVELOPMENT.md) | Setup, code rules, and module reference. |
 | [Architecture](ARCHITECTURE.md) | Storage, offline resources, rendering, and native file access. |
 | [Testing](docs/TESTING.md) | Failure risks, browser commands, and repeatable report artifacts. |

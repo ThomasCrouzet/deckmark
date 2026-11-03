@@ -1,0 +1,274 @@
+import { constants } from 'node:fs';
+import {
+	access,
+	mkdir,
+	open,
+	opendir,
+	readFile,
+	realpath,
+	rename,
+	stat,
+	unlink
+} from 'node:fs/promises';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { CliError, EXIT } from './exit';
+
+export const MAX_FILE_BYTES = 16 * 1024 * 1024;
+export const MAX_ENTRIES = 5000;
+
+const IGNORED_DIRECTORIES = new Set([
+	'.git',
+	'.mdsh',
+	'.svelte-kit',
+	'build',
+	'coverage',
+	'dist',
+	'node_modules',
+	'playwright-report',
+	'target',
+	'test-results'
+]);
+
+export async function requireFile(path: string): Promise<string> {
+	try {
+		const info = await stat(path);
+		if (!info.isFile()) throw new Error('not a file');
+		return await realpath(path);
+	} catch {
+		throw new CliError(EXIT.INPUT, 'input-not-found', `Cannot read file: ${path}`);
+	}
+}
+
+export async function requireDirectory(path: string): Promise<string> {
+	try {
+		const info = await stat(path);
+		if (!info.isDirectory()) throw new Error('not a directory');
+		return await realpath(path);
+	} catch {
+		throw new CliError(EXIT.INPUT, 'input-not-found', `Cannot read directory: ${path}`);
+	}
+}
+
+/** Converts platform separators to the slash form used by project paths. */
+export function toProjectPath(path: string): string {
+	return path.split(sep).join('/');
+}
+
+export function displayPath(path: string): string {
+	const absolute = resolve(path);
+	const fromCwd = relative(process.cwd(), absolute);
+	if (!fromCwd) return '.';
+	return !fromCwd.startsWith('..') && !isAbsolute(fromCwd)
+		? toProjectPath(fromCwd)
+		: toProjectPath(absolute);
+}
+
+export interface WalkOptions {
+	maxEntries?: number;
+	/** Include only files that match this predicate. */
+	accept?: (relativePath: string) => boolean;
+}
+
+/** Lists regular files in stable path order. Symbolic links are not followed. */
+export async function walkFiles(root: string, options: WalkOptions = {}): Promise<string[]> {
+	const limit = options.maxEntries ?? MAX_ENTRIES;
+	const found: string[] = [];
+	async function visit(directory: string): Promise<void> {
+		let entries;
+		try {
+			entries = await opendir(directory);
+		} catch {
+			throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read directory: ${directory}`);
+		}
+		const names: Array<{ name: string; directory: boolean }> = [];
+		for await (const entry of entries) {
+			if (entry.isSymbolicLink()) continue;
+			if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
+			if (entry.isDirectory()) names.push({ name: entry.name, directory: true });
+			else if (entry.isFile()) names.push({ name: entry.name, directory: false });
+		}
+		names.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+		for (const entry of names) {
+			const absolute = resolve(directory, entry.name);
+			if (entry.directory) {
+				await visit(absolute);
+				continue;
+			}
+			const path = toProjectPath(relative(root, absolute));
+			if (options.accept && !options.accept(path)) continue;
+			found.push(path);
+			if (found.length > limit)
+				throw new CliError(EXIT.INPUT, 'entry-limit', `Directory has more than ${limit} files`);
+		}
+	}
+	await visit(root);
+	return found.sort();
+}
+
+export async function readText(root: string, relativePath: string): Promise<string> {
+	const absolute = resolve(root, relativePath);
+	let info;
+	try {
+		info = await stat(absolute);
+	} catch {
+		throw new CliError(EXIT.INPUT, 'input-not-found', `Cannot read file: ${relativePath}`);
+	}
+	if (!info.isFile())
+		throw new CliError(EXIT.INPUT, 'input-not-readable', `Not a file: ${relativePath}`);
+	if (info.size > MAX_FILE_BYTES)
+		throw new CliError(
+			EXIT.INPUT,
+			'file-too-large',
+			`File is larger than ${MAX_FILE_BYTES} bytes: ${relativePath}`
+		);
+	let bytes: Uint8Array;
+	try {
+		bytes = await readFile(absolute);
+	} catch {
+		throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read file: ${relativePath}`);
+	}
+	try {
+		return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+	} catch {
+		throw new CliError(EXIT.INPUT, 'input-not-text', `File is not UTF-8 text: ${relativePath}`);
+	}
+}
+
+export async function readBytes(root: string, relativePath: string): Promise<Uint8Array> {
+	const absolute = resolve(root, relativePath);
+	try {
+		const info = await stat(absolute);
+		if (!info.isFile()) throw new Error('not a file');
+		if (info.size > MAX_FILE_BYTES) throw new Error('too large');
+		return new Uint8Array(await readFile(absolute));
+	} catch {
+		throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read file: ${relativePath}`);
+	}
+}
+
+export type OutputFormat = 'html' | 'md' | 'zip';
+
+const OUTPUT_EXTENSIONS: Record<OutputFormat, readonly string[]> = {
+	html: ['.html', '.htm'],
+	md: ['.md', '.markdown', '.txt'],
+	zip: ['.zip']
+};
+
+function hasTraversal(path: string): boolean {
+	return path.split(/[\\/]+/).some((part) => part === '..') || path.includes('\0');
+}
+
+/**
+ * Resolves an output target and rejects traversal, unsupported extensions,
+ * and directories. A relative target must stay below the current directory.
+ */
+export async function resolveOutput(path: string, format: OutputFormat): Promise<string> {
+	if (!path.trim() || hasTraversal(path))
+		throw new CliError(EXIT.UNSAFE_PATH, 'unsafe-output', `Unsafe output path: ${path}`);
+	const target = resolve(process.cwd(), path);
+	const extension = target.slice(target.lastIndexOf('.')).toLowerCase();
+	if (!OUTPUT_EXTENSIONS[format].includes(extension))
+		throw new CliError(
+			EXIT.USAGE,
+			'unsupported-output',
+			`Output for ${format} needs one of these extensions: ${OUTPUT_EXTENSIONS[format].join(', ')}`
+		);
+	if (isAbsolute(path)) {
+		// An explicit absolute path is a user decision. Reject directories below.
+	} else {
+		const cwd = await realpath(process.cwd());
+		const parent = await nearestExistingParent(dirname(target));
+		const realParent = await realpath(parent);
+		if (realParent !== cwd && !realParent.startsWith(`${cwd}${sep}`))
+			throw new CliError(EXIT.UNSAFE_PATH, 'unsafe-output', `Unsafe output path: ${path}`);
+	}
+	try {
+		const info = await stat(target);
+		if (info.isDirectory())
+			throw new CliError(EXIT.USAGE, 'unsupported-output', `Output is a directory: ${path}`);
+	} catch (error) {
+		if (error instanceof CliError) throw error;
+	}
+	return target;
+}
+
+async function nearestExistingParent(directory: string): Promise<string> {
+	let current = directory;
+	while (true) {
+		try {
+			await access(current, constants.F_OK);
+			return current;
+		} catch {
+			const parent = dirname(current);
+			if (parent === current) return current;
+			current = parent;
+		}
+	}
+}
+
+/** Writes through a temporary file in the target directory, then renames. */
+export async function writeOutput(target: string, data: string | Uint8Array): Promise<void> {
+	const directory = dirname(target);
+	try {
+		await mkdir(directory, { recursive: true });
+	} catch {
+		throw new CliError(
+			EXIT.OUTPUT,
+			'output-failed',
+			`Cannot create output directory: ${directory}`
+		);
+	}
+	const temporary = resolve(
+		directory,
+		`.${basename(target)}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
+	);
+	let handle;
+	try {
+		handle = await open(temporary, 'wx', 0o644);
+		await handle.writeFile(data);
+		await handle.close();
+		handle = undefined;
+		await rename(temporary, target);
+	} catch {
+		if (handle) await handle.close().catch(() => {});
+		await unlink(temporary).catch(() => {});
+		throw new CliError(EXIT.OUTPUT, 'output-failed', `Cannot write output: ${target}`);
+	}
+}
+
+export class Deadline {
+	private readonly expires: number | null;
+
+	constructor(timeoutMs: number) {
+		this.expires = timeoutMs > 0 ? Date.now() + timeoutMs : null;
+	}
+
+	check(): void {
+		if (this.expires !== null && Date.now() > this.expires)
+			throw new CliError(EXIT.ABORTED, 'timeout', 'Operation timed out');
+	}
+}
+
+/** Runs tasks with a fixed concurrency and keeps the result order. */
+export async function mapPool<T, R>(
+	items: readonly T[],
+	concurrency: number,
+	deadline: Deadline,
+	task: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+	const results = new Array<R>(items.length);
+	let next = 0;
+	async function worker(): Promise<void> {
+		while (true) {
+			const index = next++;
+			if (index >= items.length) return;
+			deadline.check();
+			results[index] = await task(items[index]!, index);
+		}
+	}
+	const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, () =>
+		worker()
+	);
+	await Promise.all(workers);
+	return results;
+}

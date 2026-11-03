@@ -6,6 +6,7 @@
 - [User guide](USER_GUIDE.md): editing, images, disk links, backups, exports, and shortcuts.
 - [Presentation editor](presentation-editor.md): build, present, and export a slide deck.
 - [Presentation format](presentation-format.md): the Markdown file contract and failure limits.
+- [Command-line interface](CLI.md): local check, search, render, export, and inspect commands.
 - [Support](../SUPPORT.md): report a problem or request help.
 - [Security policy](../SECURITY.md): privacy boundaries and private reports.
 

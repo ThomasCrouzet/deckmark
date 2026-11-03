@@ -5,7 +5,7 @@
 // The module stays pure (zero store dependency, zero DOM) to remain lazy-load
 // friendly and easily testable.
 
-import { escapeHTML } from './file-utils';
+import { escapeHTML } from './html-escape';
 
 /**
  * Creates an ASCII slug: lowercases text, removes diacritics, and replaces

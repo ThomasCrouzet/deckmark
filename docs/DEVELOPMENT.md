@@ -134,6 +134,7 @@ Generate brand assets with [BRANDING.md](BRANDING.md). Do not use a separate ico
 | `src/lib/render/print.ts`, `print-desktop.ts` | Print documents, asset preparation, and platform dispatch. |
 | `src-tauri/src/printing.rs` | Native macOS print panel, pagination, and completion callback. |
 | `src/lib/services/clipboard.ts` | Markdown and rich HTML clipboard formats. |
+| `cli/`, `bin/deckmark.mjs`, `scripts/build-cli.mjs` | Separate Node CLI bundle for check, search, render, export, and inspect. |
 | `static/print/print.css`, `static/katex/` | Local print styles and math fonts. |
 
 ### Shared interface and workers

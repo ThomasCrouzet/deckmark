@@ -344,6 +344,39 @@ The performance jobs record budgets but do not fail on a budget difference. A
 shared runner is too noisy for that gate. A harness failure, a missing result or
 a functional native check failure does fail the job.
 
+## Command-line interface checks
+
+The CLI is a Node process. A browser suite cannot start it and cannot inspect its
+exit codes or filesystem refusals. Keep the isolated CLI suite for these failure
+risks:
+
+- An output path can escape the working directory through `..`.
+- An unsupported format or output extension can create a misleading file.
+- A failed check can return a success code in a pipeline.
+- Non-deterministic archive dates or path order can break golden files.
+- A renderer change can alter the standalone HTML contract.
+- A CLI import can enter the Web bundle or the PWA precache.
+
+Run the suite:
+
+```sh
+npx vitest run cli/cli.test.ts
+```
+
+The suite uses temporary project directories, golden JSON and HTML files in
+`cli/test/golden`, and a fixed project archive digest. It records these results:
+
+- The check report and exit code `5`.
+- The filtered check exit code `0`.
+- Search order and the `deckmark-search/1` schema.
+- The inspect report for a note and a presentation.
+- The golden render HTML.
+- HTML, Markdown, and reproducible ZIP export results.
+- Path traversal exit code `4`, usage exit code `2`, and input exit code `3`.
+
+Keep the command, source revision, Node version, fixture paths, and results with
+the run. The CLI does not start the GUI, the Tauri shell, or a network service.
+
 ## Repeat the browser suite
 
 ### Whole-application review
