@@ -596,6 +596,16 @@ class FilesStore {
 		this.persistActiveId();
 	}
 
+	/**
+	 * Shows the start view without closing a tab or clearing the library. The
+	 * open files stay available, and pending edits flush first.
+	 */
+	showHome(): void {
+		this.dispatchEditorFlush();
+		this.activeId = null;
+		this.persistActiveId();
+	}
+
 	navigateFile(direction: 1 | -1): void {
 		if (this.files.length < 2) return;
 		const index = this.files.findIndex((file) => file.id === this.activeId);

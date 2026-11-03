@@ -13,6 +13,7 @@
 	// Load optional editor views when the selected mode needs them.
 	import SourceEditor from '#lib/components/SourceEditor.svelte';
 	import Welcome from '#lib/components/Welcome.svelte';
+	import ScrollNav from '#lib/components/ScrollNav.svelte';
 	import { Upload } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import type { EditMode, FileItem } from '#lib/types.js';
@@ -219,6 +220,10 @@
 				onLibrary={modals.openLibrary}
 				documentCount={libraryCount}
 			/>
+		{/if}
+
+		{#if activeFile && kind === 'note'}
+			<ScrollNav {contentRoot} {mode} activeId={activeFile.id} />
 		{/if}
 
 		{#if dragOver}

@@ -578,7 +578,7 @@
 		onOpenInFileSearch: openInFileSearch,
 		onOpenSettings: modals.openSettings,
 		onToggleFocus: () => {
-			if (kind === 'note') prefs.toggleFocusMode();
+			if (kind === 'note' && mode === 'read') prefs.toggleFocusMode();
 		},
 		onPresent: () => presentationAction('present'),
 		getActiveId: () => filesStore.activeId,
@@ -663,6 +663,7 @@
 			onImport={handleImport}
 			onOpenLibrary={modals.openLibrary}
 			onOpenProjects={() => (projectsOpen = true)}
+			onHome={() => filesStore.showHome()}
 		/>
 	</div>
 
@@ -682,6 +683,8 @@
 				onOpenPalette={modals.openPalette}
 				onOpenActions={modals.openActions}
 				onSaveToDisk={handleSaveToDisk}
+				focusMode={prefs.focusMode}
+				onToggleFocus={prefs.toggleFocusMode}
 			/>
 		</div>
 
@@ -823,6 +826,7 @@
      Lazy-load is preserved: no modal bytes are pulled before the 1st opening. -->
 <Modals
 	{kind}
+	{mode}
 	onCreate={handleCreate}
 	onOpenOutline={openOutline}
 	{modals}

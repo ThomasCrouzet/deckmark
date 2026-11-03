@@ -125,6 +125,7 @@
 				codeBlockConfig: codeBlockConfigCtx,
 				wikiLinkPlugins,
 				installTableBreaks,
+				installTableParagraph,
 				installTableClipboard,
 				configureTableTextSelection,
 				replaceAll,
@@ -350,6 +351,7 @@
 		});
 		instance.editor.use(wikiLinkPlugins);
 		installTableBreaks(instance.editor);
+		installTableParagraph(instance.editor);
 		installTableClipboard(instance.editor);
 		await configureTableTextSelection(instance.editor);
 		instance.editor.use(imageTitlePlugin);

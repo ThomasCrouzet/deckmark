@@ -10,12 +10,15 @@
 		Ellipsis,
 		HardDrive,
 		HardDriveDownload,
-		Printer
+		Printer,
+		Moon,
+		Sun
 	} from '@lucide/svelte';
 	import type { EditMode } from '#lib/types.js';
 	import type { DocumentKind } from '#lib/document-kind.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
 
@@ -30,6 +33,8 @@
 		onOpenPalette: () => void;
 		onSaveToDisk: () => void;
 		onOpenActions?: () => void;
+		focusMode?: boolean;
+		onToggleFocus?: () => void;
 	}
 
 	let {
@@ -42,7 +47,9 @@
 		onExportPDF,
 		onOpenPalette,
 		onSaveToDisk,
-		onOpenActions
+		onOpenActions,
+		focusMode = false,
+		onToggleFocus
 	}: Props = $props();
 
 	let nameInput = $state<HTMLInputElement | null>(null);
@@ -274,6 +281,41 @@
 				<Eye size={14} /><span class="ml-1">{t('toolbar.modeRead')}</span>
 			</button>
 		</div>{/if}
+
+	<!-- Focus is a reading action: the control exists only while Read is active. -->
+	{#if kind === 'note' && mode === 'read' && onToggleFocus}
+		<button
+			class="mdsh-icon-button flex items-center justify-center rounded p-2"
+			class:text-accent={focusMode}
+			class:text-fg-muted={!focusMode}
+			onclick={onToggleFocus}
+			title={focusMode ? t('palette.disableFocusMode') : t('palette.enableFocusMode')}
+			aria-label={focusMode ? t('palette.disableFocusMode') : t('palette.enableFocusMode')}
+			aria-pressed={focusMode}
+			data-testid="focus-toggle"
+		>
+			<Eye size={16} /><span class="ml-1 hidden text-xs sm:inline">{t('toolbar.focus')}</span>
+		</button>
+	{/if}
+
+	<!-- Direct theme action. Settings keeps the full system/light/dark choice;
+	     this button stores an explicit light or dark override. -->
+	<button
+		class="mdsh-icon-button flex items-center justify-center rounded p-2 text-fg-muted
+		       hover:bg-bg-2 hover:text-fg"
+		onclick={() => themeStore.set(themeStore.effective === 'dark' ? 'light' : 'dark')}
+		title={themeStore.effective === 'dark' ? t('toolbar.switchToLight') : t('toolbar.switchToDark')}
+		aria-label={themeStore.effective === 'dark'
+			? t('toolbar.switchToLight')
+			: t('toolbar.switchToDark')}
+		data-testid="theme-toggle"
+	>
+		{#if themeStore.effective === 'dark'}
+			<Sun size={16} />
+		{:else}
+			<Moon size={16} />
+		{/if}
+	</button>
 
 	<span class="mdsh-local-indicator" role="status"
 		>{t(

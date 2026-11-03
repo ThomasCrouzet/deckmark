@@ -57,6 +57,9 @@ export const fr: Record<MessageKey, string> = {
 	'settings.backupDownloadHint':
 		'Conservez le fichier exporté hors de ce navigateur. Vérifiez-le ici avant de devoir le restaurer. Le téléchargement doit être terminé pour que la copie soit disponible.',
 	'settings.about': 'À propos de deckmark',
+	'settings.authorCredit': 'Créé par Thomas CROUZET',
+	'sidebar.homeLabel': 'Ouvrir la page d’accueil',
+	'settings.githubProfile': 'Profil GitHub',
 	'settings.userGuide': 'Guide utilisateur (nouvel onglet)',
 	'actions.title': 'Actions',
 	'actions.commands': 'Commandes et raccourcis',
@@ -710,6 +713,11 @@ export const fr: Record<MessageKey, string> = {
 	'statusBar.chars': '{n} car.',
 	'statusBar.lines': '{n} lignes',
 	'statusBar.readMinutes': '~{n} min lecture',
+	'statusBar.selection': 'Sélection',
+	'scroll.navigation': 'Actions de défilement du document',
+	'table.addParagraph': 'Continuer sous le tableau',
+	'scroll.toTop': 'Défiler en haut',
+	'scroll.toBottom': 'Défiler en bas',
 	'statusBar.saving': 'enregistrement…',
 	'statusBar.words': '{n} mots',
 
@@ -742,6 +750,9 @@ export const fr: Record<MessageKey, string> = {
 
 	// toolbar
 	'toolbar.commandPalette': 'Palette de commandes',
+	'toolbar.switchToLight': 'Passer au thème clair',
+	'toolbar.switchToDark': 'Passer au thème sombre',
+	'toolbar.focus': 'Focus',
 	'toolbar.editMode': "Mode d'édition",
 	'toolbar.export': 'Exporter',
 	'toolbar.exportPdf': 'Exporter en PDF',

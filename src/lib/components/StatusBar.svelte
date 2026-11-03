@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { filesStore } from '#lib/files.svelte.js';
-	import { computeStats, formatSaveAge } from '#lib/stats.js';
+	import { computeSelectionStats, computeStats, formatSaveAge } from '#lib/stats.js';
 	import { t } from '#lib/i18n/index.js';
 	import { onMount } from 'svelte';
 	import {
@@ -25,11 +25,44 @@
 	}
 
 	let now = $state(Date.now());
+	// Plain text of a nonempty selection inside the active editor or reader.
+	// The selection never leaves this component.
+	let selectedText = $state('');
+	let selectedFileId = $state<string | null>(null);
+
+	$effect(() => {
+		const id = filesStore.activeId;
+		if (id !== selectedFileId) {
+			selectedFileId = id;
+			selectedText = '';
+		}
+	});
 
 	onMount(() => {
 		void getStorageHealth().then((health) => (backupDue = health.backupReminderDue));
 		const id = setInterval(() => (now = Date.now()), 10_000);
-		return () => clearInterval(id);
+		// Edit, Source and Read use different DOM roots. One listener covers
+		// them and rejects selections that start in application chrome.
+		const rootOf = (node: Node | null): Element | null => {
+			const element =
+				node?.nodeType === Node.ELEMENT_NODE ? (node as Element) : node?.parentElement;
+			return element?.closest('.ProseMirror, .cm-content, .mdsh-preview') ?? null;
+		};
+		const onSelectionChange = () => {
+			const selection = document.getSelection();
+			if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+				selectedText = '';
+				return;
+			}
+			const start = rootOf(selection.anchorNode);
+			const end = rootOf(selection.focusNode);
+			selectedText = start && start === end ? selection.toString() : '';
+		};
+		document.addEventListener('selectionchange', onSelectionChange);
+		return () => {
+			clearInterval(id);
+			document.removeEventListener('selectionchange', onSelectionChange);
+		};
 	});
 
 	// §A2.4 - `computeStats` runs 6 regexes over the full doc; called on every
@@ -72,6 +105,9 @@
 	});
 
 	let stats = $derived(computeStats(debouncedContent));
+	let selectionStats = $derived(
+		selectedText.length > 0 ? computeSelectionStats(selectedText) : null
+	);
 	let saveLabel = $derived.by(() => {
 		if (!filesStore.active) return '';
 		// Restored drafts are durable before this session records a save time.
@@ -87,14 +123,25 @@
 		class="flex min-h-6 flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border
 		       bg-bg px-3 font-mono text-[11px] text-fg-muted"
 	>
-		{#if kind === 'note'}<div class="flex items-center gap-3">
-				<span>{t('statusBar.words', { n: stats.words })}</span>
-				<span class="text-fg-dim/60">·</span>
-				<span>{t('statusBar.chars', { n: stats.chars })}</span>
-				<span class="hidden sm:inline text-fg-dim/60">·</span>
-				<span class="hidden sm:inline">{t('statusBar.lines', { n: stats.lines })}</span>
-				<span class="hidden md:inline text-fg-dim/60">·</span>
-				<span class="hidden md:inline">{t('statusBar.readMinutes', { n: stats.readMinutes })}</span>
+		{#if kind === 'note'}<div class="flex items-center gap-3" data-testid="document-stats">
+				{#if selectionStats}
+					<span class="text-accent" data-testid="selection-stats">{t('statusBar.selection')}</span>
+					<span>{t('statusBar.words', { n: selectionStats.words })}</span>
+					<span class="text-fg-dim/60">·</span>
+					<span>{t('statusBar.chars', { n: selectionStats.chars })}</span>
+					<span class="hidden sm:inline text-fg-dim/60">·</span>
+					<span class="hidden sm:inline">{t('statusBar.lines', { n: selectionStats.lines })}</span>
+				{:else}
+					<span>{t('statusBar.words', { n: stats.words })}</span>
+					<span class="text-fg-dim/60">·</span>
+					<span>{t('statusBar.chars', { n: stats.chars })}</span>
+					<span class="hidden sm:inline text-fg-dim/60">·</span>
+					<span class="hidden sm:inline">{t('statusBar.lines', { n: stats.lines })}</span>
+					<span class="hidden md:inline text-fg-dim/60">·</span>
+					<span class="hidden md:inline"
+						>{t('statusBar.readMinutes', { n: stats.readMinutes })}</span
+					>
+				{/if}
 			</div>{/if}
 		<!-- §B3.2 - Ephemeral "saving" state during the debounce + IDB write.
 		     Without this, the "saved Xs ago" label only moves every 10 s

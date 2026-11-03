@@ -16,6 +16,7 @@
 
 	interface Props {
 		kind: DocumentKind;
+		mode: EditMode;
 		onCreate: (kind: DocumentKind) => Promise<void>;
 		onOpenOutline: () => void;
 		modals: ReturnType<typeof createModals>;
@@ -38,6 +39,7 @@
 
 	let {
 		kind,
+		mode,
 		onCreate,
 		onOpenOutline,
 		modals,
@@ -68,6 +70,7 @@
 	{#await modals.loadCommandPalette() then CommandPalette}
 		<CommandPalette
 			{kind}
+			{mode}
 			{onCreate}
 			{onOpenOutline}
 			initialView={modals.paletteView}

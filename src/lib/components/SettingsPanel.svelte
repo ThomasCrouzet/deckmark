@@ -886,6 +886,14 @@
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
 					<p>{t('brand.name')} {version} · {isDesktop() ? 'Desktop Beta' : 'PWA'}</p>
+					<p class="mt-1" data-testid="about-author">{t('settings.authorCredit')}</p>
+					<a
+						class="mt-1 inline-block underline"
+						href="https://github.com/ThomasCrouzet"
+						target="_blank"
+						rel="noopener noreferrer"
+						data-testid="about-github">{t('settings.githubProfile')}</a
+					>
 					<p class="mt-1" role="status">
 						{t(
 							offlineState.status === 'ready'

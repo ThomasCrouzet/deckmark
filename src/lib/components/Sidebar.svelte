@@ -34,6 +34,7 @@
 		onImport: () => Promise<void> | void;
 		onOpenLibrary?: () => void;
 		onOpenProjects?: () => void;
+		onHome?: () => void;
 	}
 
 	let {
@@ -43,7 +44,8 @@
 		onNew,
 		onImport,
 		onOpenLibrary,
-		onOpenProjects
+		onOpenProjects,
+		onHome
 	}: Props = $props();
 
 	let draggingId = $state<string | null>(null);
@@ -365,10 +367,20 @@
 	<div
 		class="mdsh-sidebar-head flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-4"
 	>
-		<div class="mdsh-sidebar-brand">
+		<button
+			type="button"
+			class="mdsh-sidebar-brand min-h-10 rounded text-left"
+			onclick={() => {
+				if (isMobile) onClose();
+				onHome?.();
+			}}
+			aria-label={t('sidebar.homeLabel')}
+			title={t('sidebar.homeLabel')}
+			data-testid="home-logo"
+		>
 			<BrandLogo />
 			<span class="mdsh-sidebar-label">{t('brand.localWorkspace')}</span>
-		</div>
+		</button>
 		<button
 			bind:this={closeButton}
 			class="shrink-0 text-fg-subtle hover:text-fg md:hidden"
@@ -748,6 +760,11 @@
 		width: 9rem;
 		flex-direction: column;
 		gap: 0.125rem;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
 	}
 	.mdsh-sidebar-label {
 		font-family: var(--font-mono);

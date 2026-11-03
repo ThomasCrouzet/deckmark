@@ -61,6 +61,9 @@ export const en = {
 	'settings.backupDownloadHint':
 		'Keep the exported file outside this browser. Check it here before you need to restore it. A browser download must finish before the file is safe.',
 	'settings.about': 'About DeckMark',
+	'settings.authorCredit': 'Created by Thomas CROUZET',
+	'sidebar.homeLabel': 'Go to the start page',
+	'settings.githubProfile': 'GitHub profile',
 	'settings.userGuide': 'User guide (opens in a new tab)',
 	'actions.title': 'Actions',
 	'actions.commands': 'Commands and shortcuts',
@@ -701,6 +704,11 @@ export const en = {
 	'statusBar.chars': '{n} char.',
 	'statusBar.lines': '{n} lines',
 	'statusBar.readMinutes': '~{n} min read',
+	'statusBar.selection': 'Selection',
+	'scroll.navigation': 'Document scroll actions',
+	'table.addParagraph': 'Continue below the table',
+	'scroll.toTop': 'Scroll to the top',
+	'scroll.toBottom': 'Scroll to the bottom',
 	'statusBar.saving': 'saving...',
 	'statusBar.words': '{n} words',
 
@@ -732,6 +740,9 @@ export const en = {
 
 	// toolbar
 	'toolbar.commandPalette': 'Command palette',
+	'toolbar.switchToLight': 'Switch to light theme',
+	'toolbar.switchToDark': 'Switch to dark theme',
+	'toolbar.focus': 'Focus',
 	'toolbar.editMode': 'Edit mode',
 	'toolbar.export': 'Export',
 	'toolbar.exportPdf': 'Export to PDF',

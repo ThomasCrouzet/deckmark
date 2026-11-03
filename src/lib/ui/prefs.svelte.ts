@@ -58,17 +58,28 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 	// trigger the mount/unmount of `<aside class="mdsh-toc-col">` when the
 	// mode changes; without them, inert is not re-applied to the new aside
 	// when switching to read mode while focus mode is active.
+	// Focus is a reading action. Leaving Read exits Focus and restores the
+	// surrounding chrome, including when a persisted preference is loaded in a
+	// different mode.
+	$effect(() => {
+		if (!browser || !opts.getHydrated()) return;
+		if (focusMode && opts.getMode() !== 'read') {
+			focusMode = false;
+			writePreference('mdsh:focus', '0');
+		}
+	});
+
 	$effect(() => {
 		if (!browser || !opts.getHydrated()) return;
 		// Explicit tracking: the effect must re-run on these signals to
 		// re-apply `inert` to the newly mounted header/aside/footer.
 		// `activeId` (and not `active`) to avoid re-triggering on every
 		// keystroke (which mutates the file object but not its id).
-		void opts.getMode();
+		const readMode = opts.getMode() === 'read';
 		void opts.getTocVisible();
 		void opts.getTocEmpty();
 		void opts.getActiveId();
-		const active = focusMode && (opts.getNoteActive?.() ?? true);
+		const active = focusMode && readMode && (opts.getNoteActive?.() ?? true);
 		document.body.classList.toggle('focus-mode', active);
 		writePreference('mdsh:focus', focusMode ? '1' : '0');
 		const periph = document.querySelectorAll<HTMLElement>(
@@ -105,7 +116,8 @@ export function createUiPrefs(opts: UiPrefsOptions) {
 	// Load from localStorage (to call in onMount, before hydrated = true).
 	function loadPersistedPrefs() {
 		if (!browser) return;
-		focusMode = readPreference('mdsh:focus') === '1';
+		// Focus is session-only and starts in Read. Ignore a stale preference.
+		focusMode = false;
 		typewriterMode = readPreference('mdsh:typewriter') === '1';
 		tocVisible = readPreference('mdsh:toc') !== '0';
 	}

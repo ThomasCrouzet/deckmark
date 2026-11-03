@@ -76,6 +76,7 @@
 	import { documentKind, type DocumentKind } from '#lib/document-kind.js';
 	interface Props {
 		kind: DocumentKind;
+		mode: EditMode;
 		onCreate: (kind: DocumentKind) => Promise<void>;
 		onOpenOutline?: () => void;
 		initialView?: 'commands' | 'actions';
@@ -112,6 +113,7 @@
 
 	let {
 		kind,
+		mode,
 		onCreate,
 		onOpenOutline,
 		initialView = 'commands',
@@ -660,6 +662,7 @@
 		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands]
 			.filter((command) => {
 				if (command.id === 'advanced-source') return kind === 'presentation';
+				if (command.id === 'focus') return kind === 'note' && mode === 'read';
 				if (kind === 'note') return true;
 				return (
 					![
