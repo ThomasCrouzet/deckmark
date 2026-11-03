@@ -44,6 +44,7 @@
 		onOpenComments: () => void;
 		onOpenExportProfiles: () => void;
 		onOpenLinkedBlocks: () => void;
+		onOpenSemantic: () => void;
 		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenDocsSite: () => void;
@@ -82,6 +83,7 @@
 		onOpenComments,
 		onOpenExportProfiles,
 		onOpenLinkedBlocks,
+		onOpenSemantic,
 		onOpenCollection,
 		onOpenDocsCheck,
 		onOpenDocsCheckIssue,
@@ -142,6 +144,7 @@
 			{onOpenComments}
 			{onOpenExportProfiles}
 			{onOpenLinkedBlocks}
+			{onOpenSemantic}
 			{onOpenCollection}
 			{onOpenDocsCheck}
 			{onOpenSnippets}
@@ -259,6 +262,18 @@
 		<LinkedBlocksPanel
 			open={modals.linkedBlocksOpen}
 			onClose={() => (modals.linkedBlocksOpen = false)}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.semanticOpen}
+	{#await modals.loadSemanticPanel() then SemanticPanel}
+		<SemanticPanel
+			open={modals.semanticOpen}
+			onClose={() => (modals.semanticOpen = false)}
+			onOpenHit={(draftId, line) => modals.handleOpenHit(draftId, line, '')}
 		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->

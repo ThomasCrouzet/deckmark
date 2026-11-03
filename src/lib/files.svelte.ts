@@ -237,7 +237,8 @@ class FilesStore {
 	}
 
 	get library(): FileItem[] {
-		return [...this.files, ...this.closedFiles];
+		// Avoid an O(n) copy for the common case: all documents are open tabs.
+		return this.closedFiles.length === 0 ? this.files : [...this.files, ...this.closedFiles];
 	}
 
 	openDocument(id: string): void {

@@ -14,6 +14,7 @@
 		Settings2
 	} from '@lucide/svelte';
 	import FileStatusBadge from './FileStatusBadge.svelte';
+	import { PROJECT_SCALE_LIMITS } from '#lib/project-limits.js';
 	import ProjectMoveDialog from './ProjectMoveDialog.svelte';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
@@ -72,7 +73,7 @@
 		files: FileItem[];
 	}
 
-	const FILE_LIMIT = 150;
+	const FILE_LIMIT = PROJECT_SCALE_LIMITS.boundedFolderRows;
 	let localCollapsed = new SvelteSet<string>();
 	let showAll = new SvelteSet<string>();
 	let dropKey = $state<string | null>(null);

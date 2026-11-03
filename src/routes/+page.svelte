@@ -965,6 +965,7 @@
 	onOpenComments={modals.openComments}
 	onOpenExportProfiles={modals.openExportProfiles}
 	onOpenLinkedBlocks={modals.openLinkedBlocks}
+	onOpenSemantic={modals.openSemantic}
 	onOpenCollection={modals.openCollection}
 	onOpenOutline={openOutline}
 	{modals}

@@ -85,6 +85,7 @@ export function createModals(opts: ModalsOptions) {
 	let commentsOpen = $state(false);
 	let exportProfilesOpen = $state(false);
 	let linkedBlocksOpen = $state(false);
+	let semanticOpen = $state(false);
 	let collectionOpen = $state(false);
 	let docsCheckOpen = $state(false);
 	let docsCheckProjectId = $state<string | null>(null);
@@ -109,6 +110,7 @@ export function createModals(opts: ModalsOptions) {
 		commentsOpen = false;
 		exportProfilesOpen = false;
 		linkedBlocksOpen = false;
+		semanticOpen = false;
 		collectionOpen = false;
 		docsCheckOpen = false;
 		snippetsOpen = false;
@@ -210,6 +212,13 @@ export function createModals(opts: ModalsOptions) {
 			linkedBlocksOpen = false;
 		},
 		'blocks.title'
+	);
+	const loadSemanticPanel = makeLazyLoader(
+		() => import('#lib/components/SemanticSearchPanel.svelte'),
+		() => {
+			semanticOpen = false;
+		},
+		'semantic.title'
 	);
 	const loadCollectionPanel = makeLazyLoader(
 		() => import('#lib/components/CollectionPanel.svelte'),
@@ -319,6 +328,11 @@ export function createModals(opts: ModalsOptions) {
 		exportProfilesOpen = true;
 	}
 
+	function openSemantic() {
+		closeAll();
+		semanticOpen = true;
+	}
+
 	function openLinkedBlocks() {
 		closeAll();
 		linkedBlocksOpen = true;
@@ -401,6 +415,7 @@ export function createModals(opts: ModalsOptions) {
 				commentsOpen ||
 				exportProfilesOpen ||
 				linkedBlocksOpen ||
+				semanticOpen ||
 				collectionOpen ||
 				docsCheckOpen ||
 				snippetsOpen ||
@@ -480,6 +495,13 @@ export function createModals(opts: ModalsOptions) {
 			if (value) openExportProfiles();
 			else exportProfilesOpen = false;
 		},
+		get semanticOpen() {
+			return semanticOpen;
+		},
+		set semanticOpen(value: boolean) {
+			if (value) openSemantic();
+			else semanticOpen = false;
+		},
 		get linkedBlocksOpen() {
 			return linkedBlocksOpen;
 		},
@@ -551,9 +573,11 @@ export function createModals(opts: ModalsOptions) {
 		loadCollectionPanel,
 		loadExportProfilesPanel,
 		loadLinkedBlocksPanel,
+		loadSemanticPanel,
 		openAi,
 		openExportProfiles,
 		openLinkedBlocks,
+		openSemantic,
 		openProperties,
 		openComments,
 		openCollection,

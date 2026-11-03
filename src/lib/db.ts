@@ -113,6 +113,17 @@ export interface SnippetRow {
 	updatedAt: number;
 }
 
+export interface SemanticIndexRow {
+	id: string;
+	projectId: string | null;
+	draftId: string;
+	path: string;
+	contentHash: string;
+	vector: number[];
+	chunks: Array<{ line: number; text: string }>;
+	updatedAt: number;
+}
+
 export interface MetadataRow {
 	key: string;
 	value: string;
@@ -149,6 +160,7 @@ class MdshDB extends Dexie {
 	projects!: Table<ProjectRow, string>;
 	projectAssets!: Table<ProjectAssetRow, string>;
 	comments!: Table<CommentRow, string>;
+	semanticIndex!: Table<SemanticIndexRow, string>;
 
 	constructor() {
 		super('mdsh');
@@ -201,6 +213,10 @@ class MdshDB extends Dexie {
 		this.version(7).stores({
 			comments: 'id, draftId, status, createdAt',
 			snippets: 'id, updatedAt, favorite, projectId, folder, language'
+		});
+		// v8: optional local semantic index. Nothing is indexed until the user opts in.
+		this.version(8).stores({
+			semanticIndex: 'id, projectId, draftId'
 		});
 	}
 }

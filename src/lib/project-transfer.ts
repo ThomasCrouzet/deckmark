@@ -9,6 +9,7 @@ import {
 } from './document-kind';
 import { validateMarkdownContent } from './import-limits';
 import { PROJECT_LIMITS } from './project-archive';
+import { projectDocumentLimit } from './project-limits';
 import {
 	pathKey,
 	projectPath,
@@ -819,7 +820,7 @@ export async function importProjectEntries(
 		const existingDocuments = await db.drafts.where('projectId').equals(projectId).toArray();
 		const existingAssets = await db.projectAssets.where('projectId').equals(projectId).toArray();
 		if (
-			existingDocuments.length + drafts.length > IMPORT_LIMITS.maxFiles ||
+			existingDocuments.length + drafts.length > projectDocumentLimit() ||
 			existingDocuments.length + drafts.length + existingAssets.length + assets.length >=
 				PROJECT_LIMITS.maxEntries - 3
 		)

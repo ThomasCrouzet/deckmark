@@ -129,6 +129,7 @@
 		onOpenComments: () => void;
 		onOpenExportProfiles: () => void;
 		onOpenLinkedBlocks: () => void;
+		onOpenSemantic: () => void;
 		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenSnippets: () => void;
@@ -181,6 +182,7 @@
 		onOpenComments,
 		onOpenExportProfiles,
 		onOpenLinkedBlocks,
+		onOpenSemantic,
 		onOpenCollection,
 		onOpenDocsCheck,
 		onOpenSnippets,
@@ -673,6 +675,13 @@
 			label: t('slides.source'),
 			icon: Code2,
 			run: onAdvancedSource
+		},
+		{
+			id: 'semantic-search',
+			label: t('palette.semantic'),
+			hint: t('palette.semanticHint'),
+			icon: Search,
+			run: onOpenSemantic
 		},
 		{
 			id: 'linked-blocks',

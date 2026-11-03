@@ -13,7 +13,7 @@ import {
 } from './project-paths';
 import { renameProjectLinks, projectLinkReport } from './project-links';
 import { buildProjectZip, PROJECT_LIMITS, type ProjectInput } from './project-archive';
-import { IMPORT_LIMITS } from './config';
+import { projectDocumentLimit } from './project-limits';
 import { normalizeRename } from './file-utils';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { notify } from './notify.svelte';
@@ -93,7 +93,7 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 		const documents = await db.drafts.where('projectId').equals(projectId).toArray();
 		const assets = await db.projectAssets.where('projectId').equals(projectId).toArray();
 		if (
-			documents.length >= IMPORT_LIMITS.maxFiles ||
+			documents.length >= projectDocumentLimit() ||
 			documents.length + assets.length >= PROJECT_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project entry limit');

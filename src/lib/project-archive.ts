@@ -11,7 +11,9 @@ import { documentKindForFile } from './document-kind';
 import type { ProjectAssetRow } from './db';
 type JSZipObject = import('jszip').JSZipObject;
 
-export const PROJECT_LIMITS = { maxEntries: 1300, maxBytes: 64 * 1024 * 1024 } as const;
+import { PROJECT_SCALE_LIMITS, projectDocumentLimit } from './project-limits';
+
+export const PROJECT_LIMITS = PROJECT_SCALE_LIMITS;
 export interface ProjectDocumentInput {
 	id?: string;
 	relativePath: string;
@@ -133,7 +135,7 @@ function appendEntry(input: ProjectInput, path: string, data: Uint8Array): void 
 	}
 	if (pathKey(path).startsWith('.mdsh/')) throw new Error('Reserved project path');
 	if (/\.(md|markdown|mdx|txt)$/i.test(path)) {
-		if (input.documents.length >= IMPORT_LIMITS.maxFiles) throw new Error('Project document limit');
+		if (input.documents.length >= projectDocumentLimit()) throw new Error('Project document limit');
 		const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
 		validateMarkdownContent(content);
 		input.documents.push({ relativePath: path, content });
@@ -208,7 +210,7 @@ export async function buildProjectZip(
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const entryOptions = options.date ? { date: options.date } : undefined;
-	if (documents.length > IMPORT_LIMITS.maxFiles) throw new Error('Project document limit');
+	if (documents.length > projectDocumentLimit()) throw new Error('Project document limit');
 	const occupied = new Set<string>();
 	const exportedAssets = new Map<string, Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>>();
 	for (const asset of assets) {
