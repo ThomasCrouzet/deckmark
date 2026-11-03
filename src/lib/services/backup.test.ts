@@ -153,6 +153,7 @@ function template(p: Partial<TemplateRow> = {}): TemplateRow {
 		name: p.name ?? 'T',
 		content: p.content ?? '# x',
 		builtin: p.builtin ?? false,
+		...(p.kind ? { kind: p.kind } : {}),
 		createdAt: p.createdAt ?? now,
 		updatedAt: p.updatedAt ?? now
 	};
@@ -171,6 +172,14 @@ describe('collectBackup', () => {
 		expect(b.drafts.map((d) => d.name)).toEqual(['a', 'b']); // ordre par `order`
 		expect(b.workspaces).toHaveLength(1);
 		expect(b.templates).toHaveLength(1);
+	});
+
+	it('keeps the presentation kind of a template', async () => {
+		await db.templates.put(template({ name: 'Deck', kind: 'presentation' }));
+		const b = await collectBackup(1234);
+		expect(b.templates[0]).toMatchObject({ name: 'Deck', kind: 'presentation' });
+		const parsed = parseBackup(serializeBackup(b));
+		expect(parsed.templates[0]).toMatchObject({ name: 'Deck', kind: 'presentation' });
 	});
 });
 

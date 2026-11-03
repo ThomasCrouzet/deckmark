@@ -355,6 +355,7 @@ function validTemplate(v: unknown): v is TemplateRow {
 		typeof v.name === 'string' &&
 		typeof v.content === 'string' &&
 		typeof v.builtin === 'boolean' &&
+		(v.kind === undefined || v.kind === 'note' || v.kind === 'presentation') &&
 		validTimestamp(v.createdAt) &&
 		validTimestamp(v.updatedAt)
 	);
@@ -445,6 +446,7 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 		name: template.name,
 		content: template.content,
 		builtin: template.builtin,
+		...(template.kind ? { kind: template.kind } : {}),
 		createdAt: template.createdAt,
 		updatedAt: template.updatedAt
 	}));
@@ -876,6 +878,7 @@ export async function applyBackup(
 						row.name === template.name &&
 						row.content === template.content &&
 						row.builtin === template.builtin &&
+						(row.kind ?? 'note') === (template.kind ?? 'note') &&
 						row.createdAt === template.createdAt &&
 						row.updatedAt === template.updatedAt
 				);

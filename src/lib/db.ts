@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import type { DocumentKind } from './document-kind';
 
 export interface DraftRow {
 	id: string;
@@ -68,6 +69,8 @@ export interface TemplateRow {
 	name: string;
 	content: string;
 	builtin: boolean;
+	/** Intended document type. Absent in older backups; treat as a note. */
+	kind?: DocumentKind;
 	createdAt: number;
 	updatedAt: number;
 }

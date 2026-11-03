@@ -545,7 +545,7 @@
 							defaultValue,
 							placeholder: t('palette.templateNamePlaceholder')
 						}),
-					save: (name, content) => templatesStore.save(name, content),
+					save: (name, content) => templatesStore.save(name, content, kind),
 					notifySuccess: (message) => notify.success(message),
 					stripExt,
 					t
@@ -672,7 +672,6 @@
 						'typewriter',
 						'toc',
 						'focus',
-						'template-save',
 						'copy-html'
 					].includes(command.id) &&
 					!command.id.startsWith('mode-') &&

@@ -18,6 +18,7 @@
 		kind: DocumentKind;
 		mode: EditMode;
 		onCreate: (kind: DocumentKind) => Promise<void>;
+		onCreateFromTemplate: (templateId: string) => Promise<void>;
 		onOpenOutline: () => void;
 		modals: ReturnType<typeof createModals>;
 		editorWidth: ReturnType<typeof createEditorWidth>;
@@ -41,6 +42,7 @@
 		kind,
 		mode,
 		onCreate,
+		onCreateFromTemplate,
 		onOpenOutline,
 		modals,
 		editorWidth,
@@ -174,7 +176,11 @@
 
 {#if modals.newDocumentOpen}
 	{#await modals.loadNewDocument() then NewDocumentDialog}
-		<NewDocumentDialog {onCreate} onClose={() => (modals.newDocumentOpen = false)} />
+		<NewDocumentDialog
+			{onCreate}
+			{onCreateFromTemplate}
+			onClose={() => (modals.newDocumentOpen = false)}
+		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}

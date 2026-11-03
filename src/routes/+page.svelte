@@ -20,6 +20,7 @@
 	import { reportError } from '#lib/report.js';
 	import { createModals } from '#lib/ui/modals.svelte.js';
 	import { filesStore } from '#lib/files.svelte.js';
+	import { templatesStore } from '#lib/templates.svelte.js';
 	import { requestPersistentStorage, checkStoragePressure } from '#lib/storage.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 	import { isDesktop } from '#lib/desktop.js';
@@ -339,6 +340,24 @@
 		mode = 'wysiwyg';
 		requestEditorFocus(id);
 	});
+
+	async function handleCreateFromTemplate(templateId: string): Promise<void> {
+		const document = templatesStore.resolve(templateId);
+		if (!document) return;
+		// Keep the last keystroke of the outgoing document before the new one
+		// replaces the active tab.
+		filesStore.flushPending();
+		filesStore.createNew(document.name, document.content, {
+			focusEditor: document.kind === 'note'
+		});
+		modals.newDocumentOpen = false;
+		if (window.innerWidth < 768) sidebarOpen = false;
+		announceContext(
+			t('documents.created', {
+				type: t(document.kind === 'presentation' ? 'documents.presentation' : 'documents.note')
+			})
+		);
+	}
 
 	function handleDemo() {
 		if (!canInteract) return;
@@ -828,6 +847,7 @@
 	{kind}
 	{mode}
 	onCreate={handleCreate}
+	onCreateFromTemplate={handleCreateFromTemplate}
 	onOpenOutline={openOutline}
 	{modals}
 	{editorWidth}

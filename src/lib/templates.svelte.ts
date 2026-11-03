@@ -7,6 +7,7 @@
 
 import { browser } from '$app/env';
 import { db, newId, type TemplateRow } from './db';
+import { documentKind, type DocumentKind } from './document-kind';
 import { reportPersistenceError } from './storage';
 import { t } from '#lib/i18n/index.js';
 import {
@@ -21,6 +22,7 @@ export interface TemplateChoice {
 	name: string;
 	description: string;
 	builtin: boolean;
+	kind: DocumentKind;
 }
 
 class TemplatesStore {
@@ -32,27 +34,17 @@ class TemplatesStore {
 	get choices(): TemplateChoice[] {
 		const builtin = BUILTIN_TEMPLATES.map((template) => ({
 			id: template.id,
-			name: t(
-				template.id === 'builtin:meeting'
-					? 'templates.meeting'
-					: template.id === 'builtin:journal'
-						? 'templates.journal'
-						: 'templates.todo'
-			),
-			description: t(
-				template.id === 'builtin:meeting'
-					? 'templates.meetingDescription'
-					: template.id === 'builtin:journal'
-						? 'templates.journalDescription'
-						: 'templates.todoDescription'
-			),
-			builtin: true
+			name: template.nameKey ? t(template.nameKey) : template.name,
+			description: template.descriptionKey ? t(template.descriptionKey) : template.description,
+			builtin: true,
+			kind: template.kind ?? 'note'
 		}));
 		const user = this.userTemplates.map((tpl) => ({
 			id: tpl.id,
 			name: tpl.name,
 			description: t('templates.userDescription'),
-			builtin: false
+			builtin: false,
+			kind: tpl.kind ?? documentKind(tpl.content)
 		}));
 		return [...builtin, ...user];
 	}
@@ -70,19 +62,24 @@ class TemplatesStore {
 	}
 
 	/** Resolves a template (builtin or user) into `{ name, content }` ready to create. */
-	resolve(id: string, now: Date = new Date()): { name: string; content: string } | null {
+	resolve(
+		id: string,
+		now: Date = new Date()
+	): { name: string; content: string; kind: DocumentKind } | null {
 		const builtin: TemplateDef | undefined = BUILTIN_TEMPLATES.find((t) => t.id === id);
 		if (builtin) {
 			return {
 				name: templateFileName(builtin, now),
-				content: applyTemplateVars(builtin.content, now)
+				content: applyTemplateVars(builtin.content, now),
+				kind: builtin.kind ?? 'note'
 			};
 		}
 		const user = this.userTemplates.find((t) => t.id === id);
 		if (user) {
 			return {
 				name: `${user.name}.md`,
-				content: applyTemplateVars(user.content, now)
+				content: applyTemplateVars(user.content, now),
+				kind: user.kind ?? documentKind(user.content)
 			};
 		}
 		return null;
@@ -95,13 +92,18 @@ class TemplatesStore {
 	 * fails (full quota…), the error is notified and the list stays intact - no
 	 * phantom template that would disappear on reload. Returns `null` on failure.
 	 */
-	async save(name: string, content: string): Promise<TemplateRow | null> {
+	async save(
+		name: string,
+		content: string,
+		kind: DocumentKind = documentKind(content)
+	): Promise<TemplateRow | null> {
 		const now = Date.now();
 		const row: TemplateRow = {
 			id: newId(),
 			name: name.trim() || t('templates.defaultName'),
 			content,
 			builtin: false,
+			kind,
 			createdAt: now,
 			updatedAt: now
 		};
