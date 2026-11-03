@@ -482,7 +482,8 @@ async function measureProjectTree(page, runs) {
 		await domClick(page, '[data-testid="projects-open"]');
 		await panel.waitFor({ state: 'visible', timeout: 30_000 });
 		await page.waitForFunction(
-			(expected) => document.querySelectorAll('[data-project-document]').length === expected,
+			(expected) =>
+				document.querySelectorAll('[role="dialog"] [data-project-document]').length === expected,
 			projectFixture.documents.length,
 			{ timeout: 60_000 }
 		);
