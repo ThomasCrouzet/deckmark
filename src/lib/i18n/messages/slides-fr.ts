@@ -10,6 +10,11 @@ export const slidesFr: Record<SlidesMessageKey, string> = {
 	'documents.presentation': 'Présentation',
 	'documents.code': 'Code',
 	'documents.image': 'Image',
+	'documents.pdf': 'PDF',
+	'documents.openPdf': 'Ouvrir le PDF',
+	'documents.pdfUnavailable': 'Les données PDF sont indisponibles.',
+	'documents.pdfFallback':
+		'La visionneuse intégrée est indisponible. Utilisez Ouvrir le PDF ou Télécharger.',
 	'documents.imageUnavailable': 'Les données de l’image sont indisponibles.',
 	'documents.noteDescription': 'Écrivez et lisez en Markdown.',
 	'documents.presentationDescription': 'Composez et présentez vos diapositives.',

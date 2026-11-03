@@ -201,7 +201,9 @@
 							? Presentation
 							: kind === 'code'
 								? Code2
-								: Image}
+								: kind === 'image'
+									? Image
+									: FileText}
 				<li class="flex items-center border-b border-border px-2" data-document-id={file.id}>
 					<label class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
 						<input

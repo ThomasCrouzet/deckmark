@@ -16,7 +16,7 @@ import {
 import { projectDestinations } from '../project-links';
 import { slugify, wikiLinkOccurrences } from '../wiki-links';
 
-export type DocsSiteDocumentKind = 'note' | 'presentation' | 'code' | 'image';
+export type DocsSiteDocumentKind = 'note' | 'presentation' | 'code' | 'image' | 'pdf';
 
 export interface DocsSiteDocumentInput {
 	id: string;

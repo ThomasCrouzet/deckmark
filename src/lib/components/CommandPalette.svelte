@@ -325,7 +325,9 @@
 						? Presentation
 						: documentKindForFile(file) === 'code'
 							? Code2
-							: ImageIcon,
+							: documentKindForFile(file) === 'image'
+								? ImageIcon
+								: FileText,
 			run: () => {
 				filesStore.reopen(file.id);
 			}

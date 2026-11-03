@@ -223,7 +223,9 @@
 							? 'documents.presentation'
 							: kind === 'code'
 								? 'documents.code'
-								: 'documents.image'
+								: kind === 'image'
+									? 'documents.image'
+									: 'documents.pdf'
 				)}</span
 			>
 			<span class="title-save" role="status"

@@ -28,6 +28,7 @@ describe('documentKindForFile', () => {
 			expect(documentKindForFile({ name, content: '' })).toBe('code');
 		for (const name of ['pixel.png', 'photo.JPEG', 'image.webp'])
 			expect(documentKindForFile({ name, content: '' })).toBe('image');
+		expect(documentKindForFile({ name: 'plan.pdf', content: '' })).toBe('pdf');
 	});
 
 	it('keeps non-Markdown content as code even with a presentation marker', () => {
@@ -51,6 +52,11 @@ describe('document capabilities', () => {
 			edit: false,
 			annotate: true,
 			read: true
+		});
+		expect(documentCapabilities('pdf')).toMatchObject({
+			edit: false,
+			read: true,
+			annotate: false
 		});
 	});
 

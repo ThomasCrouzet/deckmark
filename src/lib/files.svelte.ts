@@ -12,6 +12,7 @@ import {
 	isCodeExtension,
 	isImageExtension,
 	isMarkdownExtension,
+	isPdfExtension,
 	type DocumentKind
 } from './document-kind';
 import { isFSASupported, listDiskLinks, pickDirectoryFiles } from './fsa';
@@ -599,13 +600,14 @@ class FilesStore {
 			for (const file of Array.from(fileList)) {
 				if (!(await session.pause())) break;
 				const image = isImageExtension(file.name);
+				const pdf = isPdfExtension(file.name);
 				const markdown = isMarkdownExtension(file.name);
 				const code = isCodeExtension(file.name);
-				if (!image && !markdown && !code) {
+				if (!image && !pdf && !markdown && !code) {
 					session.skip();
 					continue;
 				}
-				if (image) {
+				if (image || pdf) {
 					try {
 						session.reserve(file.size);
 						const data = await readDataUrl(
@@ -613,11 +615,11 @@ class FilesStore {
 							IMPORT_LIMITS.maxFileBytes,
 							session.options.signal
 						);
-						const mime = file.type || imageMimeForName(file.name);
+						const mime = pdf ? 'application/pdf' : file.type || imageMimeForName(file.name);
 						created.push(
 							this.createNew(file.name, '', {
 								origin: 'imported',
-								kind: 'image',
+								kind: pdf ? 'pdf' : 'image',
 								mime,
 								data
 							})

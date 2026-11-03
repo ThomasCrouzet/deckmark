@@ -333,7 +333,8 @@ function validDraft(v: unknown): v is DraftRow {
 			v.kind === 'note' ||
 			v.kind === 'presentation' ||
 			v.kind === 'code' ||
-			v.kind === 'image') &&
+			v.kind === 'image' ||
+			v.kind === 'pdf') &&
 		(v.mime === undefined || typeof v.mime === 'string') &&
 		(v.data === undefined || typeof v.data === 'string') &&
 		(v.projectId === undefined) === (v.relativePath === undefined)

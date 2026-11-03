@@ -202,7 +202,7 @@ export async function exportMarkdown(file: FileItem): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
 	const kind = documentKindForFile(file);
 	const blob =
-		kind === 'image'
+		kind === 'image' || kind === 'pdf'
 			? dataUrlBlob(file.data ?? '')
 			: kind === 'code'
 				? new Blob([file.content], {

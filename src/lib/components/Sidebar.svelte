@@ -649,7 +649,9 @@
 								? Presentation
 								: kind === 'code'
 									? Code2
-									: Image}
+									: kind === 'image'
+										? Image
+										: FileText}
 					<li
 						style:height={`${rowHeights[visibleStart + fileIndex]}px`}
 						aria-posinset={visibleStart + fileIndex + 1}
@@ -793,7 +795,9 @@
 							? Presentation
 							: kind === 'code'
 								? Code2
-								: Image}
+								: kind === 'image'
+									? Image
+									: FileText}
 				<button
 					class="flex w-full items-center gap-2 py-2 text-left"
 					aria-label={file.name}

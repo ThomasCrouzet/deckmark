@@ -1,6 +1,6 @@
 import { isPresentation } from './presentation/detect.js';
 
-export type DocumentKind = 'note' | 'presentation' | 'code' | 'image';
+export type DocumentKind = 'note' | 'presentation' | 'code' | 'image' | 'pdf';
 
 export interface DocumentTypeInfo {
 	name?: string | undefined;
@@ -74,6 +74,7 @@ const CODE_EXTENSIONS = new Set([
 ]);
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'bmp', 'ico']);
+const PDF_EXTENSIONS = new Set(['pdf']);
 
 const IMAGE_MIME: Record<string, string> = {
 	png: 'image/png',
@@ -103,6 +104,10 @@ export function isImageExtension(name: string): boolean {
 	return IMAGE_EXTENSIONS.has(fileNameExtension(name));
 }
 
+export function isPdfExtension(name: string): boolean {
+	return PDF_EXTENSIONS.has(fileNameExtension(name));
+}
+
 export function imageMimeForName(name: string): string {
 	return IMAGE_MIME[fileNameExtension(name)] ?? 'application/octet-stream';
 }
@@ -119,6 +124,7 @@ export function documentKind(content: string): DocumentKind {
 export function documentKindForFile(file: DocumentTypeInfo): DocumentKind {
 	if (file.kind) return file.kind;
 	const extension = fileNameExtension(file.name ?? '');
+	if (PDF_EXTENSIONS.has(extension)) return 'pdf';
 	if (IMAGE_EXTENSIONS.has(extension)) return 'image';
 	if (CODE_EXTENSIONS.has(extension)) return 'code';
 	return documentKind(file.content ?? '');
@@ -143,10 +149,16 @@ export function isBinaryDocument(file: DocumentTypeInfo): boolean {
 
 export function documentKindLabelKey(
 	kind: DocumentKind
-): 'documents.note' | 'documents.presentation' | 'documents.code' | 'documents.image' {
+):
+	| 'documents.note'
+	| 'documents.presentation'
+	| 'documents.code'
+	| 'documents.image'
+	| 'documents.pdf' {
 	if (kind === 'presentation') return 'documents.presentation';
 	if (kind === 'code') return 'documents.code';
 	if (kind === 'image') return 'documents.image';
+	if (kind === 'pdf') return 'documents.pdf';
 	return 'documents.note';
 }
 
@@ -187,6 +199,15 @@ export function documentCapabilities(kind: DocumentKind): DocumentCapabilities {
 				present: false,
 				format: false,
 				annotate: true
+			};
+		case 'pdf':
+			return {
+				edit: false,
+				source: false,
+				read: true,
+				present: false,
+				format: false,
+				annotate: false
 			};
 		default:
 			return {

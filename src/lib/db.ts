@@ -10,7 +10,7 @@ export interface DraftRow {
 	createdAt: number;
 	updatedAt: number;
 	order: number;
-	kind?: 'note' | 'presentation' | 'code' | 'image';
+	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
 	mime?: string;
 	data?: string;
 	origin?: 'created' | 'imported' | 'template';

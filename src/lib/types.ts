@@ -10,7 +10,7 @@ export interface FileItem {
 	updatedAt: number;
 	dirty: boolean;
 	/** Explicit document type. Missing means derive it from the name and content. */
-	kind?: 'note' | 'presentation' | 'code' | 'image';
+	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
 	/** MIME type for binary image documents. */
 	mime?: string;
 	/** Data URL for binary image documents. Content stays empty. */

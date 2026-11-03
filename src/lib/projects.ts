@@ -180,7 +180,7 @@ export interface ProjectSiteSnapshot {
 		id: string;
 		relativePath: string;
 		content: string;
-		kind?: 'note' | 'presentation' | 'code' | 'image';
+		kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
 		data?: string;
 		mime?: string;
 	}>;

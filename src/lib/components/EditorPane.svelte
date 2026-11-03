@@ -147,6 +147,14 @@
 				{/key}
 			{:else if kind === 'image'}
 				<ImageDocument file={activeFile} />
+			{:else if kind === 'pdf'}
+				{#key activeFile.id}
+					{#await import('./PdfDocument.svelte') then module}
+						<module.default file={activeFile} />
+					{:catch}<p role="alert" class="p-4 text-danger">
+							{t('documents.pdfUnavailable')}
+						</p>{/await}
+				{/key}
 			{:else if kind === 'code'}
 				{#key activeFile.id}
 					{#await import('./CodeEditor.svelte') then module}
