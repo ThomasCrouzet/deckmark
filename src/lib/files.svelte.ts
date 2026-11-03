@@ -82,6 +82,8 @@ class FilesStore {
 	/** Durable documents that are not currently shown as tabs. */
 	closedFiles = $state<FileItem[]>([]);
 	activeId = $state<string | null>(null);
+	/** Set when a user-created note must open in Edit with a ready caret. */
+	newDocumentFocusId = $state<string | null>(null);
 	projectAnchor = $state<{ id: string; fragment: string } | null>(null);
 	importProgress = $state<ImportReport | null>(null);
 	lastImportReport = $state<ImportReport | null>(null);
@@ -488,7 +490,11 @@ class FilesStore {
 		return toDraftRow(file, openIndex >= 0 ? openIndex : this.files.length, openIndex >= 0);
 	}
 
-	createNew(name = t('files.untitledFilename'), content = ''): FileItem {
+	createNew(
+		name = t('files.untitledFilename'),
+		content = '',
+		options: { focusEditor?: boolean } = {}
+	): FileItem {
 		const file: FileItem = {
 			id: newId(),
 			name: uniqueName(
@@ -502,6 +508,7 @@ class FilesStore {
 		};
 		this.files.push(file);
 		this.activeId = file.id;
+		if (options.focusEditor) this.newDocumentFocusId = file.id;
 		this.persistActiveId();
 		if (content.length > 0) this.metaIndex.invalidateBacklinksIndex();
 		this.scheduleSave(file.id);
@@ -511,7 +518,7 @@ class FilesStore {
 	async createDocument(kind: DocumentKind): Promise<FileItem> {
 		if (kind === 'note') {
 			this.dispatchEditorFlush();
-			return this.createNew();
+			return this.createNew(t('files.untitledFilename'), '', { focusEditor: true });
 		}
 		const { createDeck, serializePresentation } = await import('./presentation/model');
 		this.dispatchEditorFlush();

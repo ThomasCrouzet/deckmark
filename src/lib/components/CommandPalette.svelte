@@ -651,7 +651,7 @@
 			icon: FileText,
 			run: () => {
 				const doc = templatesStore.resolve(tpl.id);
-				if (doc) filesStore.createNew(doc.name, doc.content);
+				if (doc) filesStore.createNew(doc.name, doc.content, { focusEditor: true });
 			}
 		}))
 	);

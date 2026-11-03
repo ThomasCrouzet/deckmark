@@ -29,6 +29,7 @@
 	import { buildKeydownHandler } from '#lib/ui/shortcuts.svelte.js';
 	import { createUiPrefs } from '#lib/ui/prefs.svelte.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
+	import { requestEditorFocus } from '#lib/ui/editor-focus.js';
 	import { registerPwaUpdates } from '#lib/ui/pwa-update.js';
 	import { buildDropHandlers } from '#lib/ui/image-drop.svelte.js';
 	import { schedulePrefetch } from '#lib/ui/prefetch.svelte.js';
@@ -325,6 +326,19 @@
 			reportError('create document', error, { notifyUser: t('page.saveToDiskError') });
 		}
 	}
+
+	// A user-created note opens in Edit with a ready caret, whatever the prior
+	// mode. Existing notes keep the selected mode. The request is keyed by file
+	// id because the visual editor mounts only after its lazy import.
+	$effect(() => {
+		const id = filesStore.newDocumentFocusId;
+		if (!id) return;
+		filesStore.newDocumentFocusId = null;
+		if (kind !== 'note' || !filesStore.files.some((file) => file.id === id)) return;
+		documentTool = null;
+		mode = 'wysiwyg';
+		requestEditorFocus(id);
+	});
 
 	function handleDemo() {
 		if (!canInteract) return;

@@ -23,6 +23,7 @@
 	import { stripFrontmatter } from '#lib/frontmatter.js';
 	import { SourceFidelity } from '#lib/source-fidelity.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
+	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
 
 	interface Props {
@@ -113,6 +114,7 @@
 				serializerCtx,
 				commandsCtx,
 				Plugin,
+				TextSelection,
 				Decoration,
 				DecorationSet,
 				prosePlugin,
@@ -654,6 +656,14 @@
 		applyImageAlternatives();
 		mountedFileId = idForMount;
 		await restoreEditorPosition(instance, idForMount, token);
+		// A new note waits for the lazy editor before it can take the caret.
+		// The request survives the modal close and the asynchronous mount.
+		if (token === mountToken && consumeEditorFocus(idForMount)) {
+			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
+			const selection = TextSelection.atEnd(editorView.state.doc);
+			editorView.dispatch(editorView.state.tr.setSelection(selection).scrollIntoView());
+			editorView.focus();
+		}
 		const flushCurrentContent = () => {
 			if (token !== mountToken) return;
 			saveMountedPosition?.();
