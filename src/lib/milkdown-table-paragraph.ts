@@ -16,6 +16,7 @@ function trailingTableState(doc: ProseNode): 'table' | 'paragraph' | null {
 	const last = doc.lastChild;
 	if (last?.type.name === 'table') return 'table';
 	if (last?.type.name !== 'paragraph' || last.content.size !== 0) return null;
+	if (doc.childCount < 2) return null;
 	return doc.child(doc.childCount - 2)?.type.name === 'table' ? 'paragraph' : null;
 }
 

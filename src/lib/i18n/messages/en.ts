@@ -76,6 +76,9 @@ export const en = {
 	'settings.backupValid': 'Backup checked. Your library has not changed.',
 	'settings.backupDownloadHint':
 		'Keep the exported file outside this browser. Check it here before you need to restore it. A browser download must finish before the file is safe.',
+	'settings.editionWeb': 'Web Light',
+	'settings.editionDesktop': 'Desktop Complete',
+	'settings.editionCapabilities': 'Included capabilities: {features}',
 	'settings.ai': 'AI connection (optional)',
 	'settings.aiHelp':
 		'Connect an OpenAI-compatible provider. AI stays disabled by default and the core editor works without it.',

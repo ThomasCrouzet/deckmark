@@ -72,6 +72,9 @@ export const fr: Record<MessageKey, string> = {
 	'settings.backupValid': 'Sauvegarde vérifiée. Votre bibliothèque est inchangée.',
 	'settings.backupDownloadHint':
 		'Conservez le fichier exporté hors de ce navigateur. Vérifiez-le ici avant de devoir le restaurer. Le téléchargement doit être terminé pour que la copie soit disponible.',
+	'settings.editionWeb': 'Web Light',
+	'settings.editionDesktop': 'Desktop Complete',
+	'settings.editionCapabilities': 'Capacités incluses : {features}',
 	'settings.ai': 'Connexion IA (facultative)',
 	'settings.aiHelp':
 		'Connectez un fournisseur compatible OpenAI. L’IA reste désactivée par défaut et l’éditeur fonctionne sans elle.',

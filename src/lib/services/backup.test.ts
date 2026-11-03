@@ -132,7 +132,10 @@ function draft(p: Partial<DraftRow> = {}): DraftRow {
 		content: p.content ?? 'hello',
 		createdAt: p.createdAt ?? now,
 		updatedAt: p.updatedAt ?? now,
-		order: p.order ?? 0
+		order: p.order ?? 0,
+		...(p.kind ? { kind: p.kind } : {}),
+		...(p.mime ? { mime: p.mime } : {}),
+		...(p.data ? { data: p.data } : {})
 	};
 }
 function workspace(p: Partial<WorkspaceRow> = {}): WorkspaceRow {
@@ -172,6 +175,31 @@ describe('collectBackup', () => {
 		expect(b.drafts.map((d) => d.name)).toEqual(['a', 'b']); // ordre par `order`
 		expect(b.workspaces).toHaveLength(1);
 		expect(b.templates).toHaveLength(1);
+	});
+
+	it('keeps typed text and binary image drafts across a backup round trip', async () => {
+		await db.drafts.bulkPut([
+			draft({ name: 'script.py', content: 'print("ok")\n', kind: 'code' }),
+			draft({
+				name: 'plan.png',
+				content: '',
+				kind: 'image',
+				mime: 'image/png',
+				data: 'data:image/png;base64,iVBORw0KGgo='
+			})
+		]);
+		const backup = await collectBackup(1234);
+		const parsed = parseBackup(serializeBackup(backup));
+		expect(parsed.drafts.find((row) => row.name === 'script.py')).toMatchObject({
+			kind: 'code',
+			content: 'print("ok")\n'
+		});
+		expect(parsed.drafts.find((row) => row.name === 'plan.png')).toMatchObject({
+			kind: 'image',
+			mime: 'image/png',
+			data: 'data:image/png;base64,iVBORw0KGgo=',
+			content: ''
+		});
 	});
 
 	it('keeps the presentation kind of a template', async () => {

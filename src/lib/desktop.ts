@@ -1,4 +1,5 @@
 import { browser } from '$app/env';
+import { IS_WEB_EDITION } from './edition';
 
 /**
  * Desktop shell detection (Tauri 2).
@@ -11,7 +12,10 @@ import { browser } from '$app/env';
  * Desktop-only call sites must load native APIs with dynamic `import()`.
  */
 export function isDesktop(): boolean {
-	if (!browser) return false;
+	// Unit tests simulate the desktop bridge in a Web-edition build. Production
+	// Web Light must never reach the native branch.
+	const webOnly = IS_WEB_EDITION && import.meta.env.MODE !== 'test';
+	if (webOnly || !browser) return false;
 	// Vite / Tauri inject this for both dev and production desktop builds.
 	const platform = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
 		?.TAURI_ENV_PLATFORM;

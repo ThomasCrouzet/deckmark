@@ -20,6 +20,22 @@ GitHub Pages publishes Web Light. The separate Desktop release channel publishes
 Desktop Complete. No other Web host, proxy, or application server is part of the
 production path.
 
+## Build each edition
+
+Both editions come from the same source tree. The edition is a build input, not a
+runtime preference.
+
+```sh
+npm run build:web       # Web Light, then verify the native boundary
+npm run build:desktop   # Desktop Complete assets for Tauri
+npm run check:edition   # Recheck the current build manifest and boundary
+```
+
+The Web build replaces the Tauri packages with a stub. `scripts/check-edition-boundaries.mjs`
+fails the build if a native bridge string remains in the Web output. `build/edition.json`
+records the edition, version, base path, features, and excluded capabilities.
+`npm run desktop:build` uses `build:desktop` through Tauri.
+
 ## Feature matrix
 
 | Capability | Web Light | Desktop Complete (Beta) |
@@ -44,7 +60,11 @@ production path.
 | Native menus and window state restore | No | Yes |
 | In-place disk editing with revision checks | Limited to supported browser file links | Yes, with native path capabilities and revision checks |
 | Service worker application update | Yes | No. Install a new Desktop release. |
-| AI assistant or model access | Unavailable. Not implemented. | Unavailable. Not implemented. |
+| First-class code and JSON files | Yes | Yes |
+| Ephemeral Read-mode ink annotations | Yes | Yes |
+| Image annotation canvas and flattened PNG export | Yes | Yes |
+| Optional OpenAI-compatible AI connection | Yes, disabled by default, with a session-only browser key and explicit consent | Yes, disabled by default |
+| Secure native API key vault | No. A browser-resident key is not a protected secret. | Not available in this release. |
 | Secure browser API key vault | Unavailable | Unavailable |
 | Unrestricted filesystem access | Unavailable | Unavailable. Access is limited to selected paths. |
 | Cloud sync, shared editing, accounts, and plugins | Unavailable | Unavailable |

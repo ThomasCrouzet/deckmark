@@ -13,7 +13,9 @@ npm run dev
 npm run check
 npm run lint
 npm test
-npm run build
+npm run build           # Web Light plus the native-boundary check
+npm run build:desktop   # Desktop Complete assets for Tauri
+npm run check:edition   # Verify build/edition.json and the Web boundary
 npm run size
 npm run preview
 npm run preview:pages

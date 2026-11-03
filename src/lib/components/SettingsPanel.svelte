@@ -33,6 +33,7 @@
 		serializeBackup
 	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
+	import { editionManifest } from '#lib/edition.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
 	import type { TemplateRow } from '#lib/db.js';
 	import { reportError } from '#lib/report.js';
@@ -1093,7 +1094,18 @@
 				</section>
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
-					<p>{t('brand.name')} {version} · {isDesktop() ? 'Desktop Beta' : 'PWA'}</p>
+					<p>
+						{t('brand.name')}
+						{version} ·
+						{editionManifest().edition === 'desktop'
+							? t('settings.editionDesktop')
+							: t('settings.editionWeb')}
+					</p>
+					<p class="mt-1 text-xs text-fg-muted" data-testid="edition-capabilities">
+						{t('settings.editionCapabilities', {
+							features: editionManifest().features.slice(0, 6).join(', ')
+						})}
+					</p>
 					<p class="mt-1" data-testid="about-author">{t('settings.authorCredit')}</p>
 					<a
 						class="mt-1 inline-block underline"
