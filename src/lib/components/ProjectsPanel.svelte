@@ -12,6 +12,7 @@
 	import { reportError } from '#lib/report.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import { readProjectFolder, readProjectZip } from '#lib/project-archive.js';
+	import { normalizeImportedProject, type MigrationReport } from '#lib/import-vault.js';
 	import ProjectTree from './ProjectTree.svelte';
 	import {
 		importProject,
@@ -48,6 +49,7 @@
 	let error = $state(false);
 	let issues = $state<ProjectLinkIssue[] | null>(null);
 	let nativeFailures = $state<NativeProjectFailure[]>([]);
+	let migration = $state<MigrationReport | null>(null);
 	let zipInput: HTMLInputElement;
 	let folderInput: HTMLInputElement;
 	let closeButton: HTMLButtonElement;
@@ -139,7 +141,9 @@
 		const file = input.files?.[0];
 		if (file)
 			await run(async () => {
-				selected = (await importProject(await readProjectZip(file))).id;
+				const migrated = normalizeImportedProject(await readProjectZip(file));
+				migration = migrated.report;
+				selected = (await importProject(migrated.input)).id;
 			});
 		input.value = '';
 	}
@@ -149,7 +153,9 @@
 		const files = Array.from(input.files ?? []);
 		if (files.length)
 			await run(async () => {
-				selected = (await importProject(await readProjectFolder(files))).id;
+				const migrated = normalizeImportedProject(await readProjectFolder(files));
+				migration = migrated.report;
+				selected = (await importProject(migrated.input)).id;
 			});
 		input.value = '';
 	}
@@ -259,6 +265,41 @@
 				aria-label={t('projects.importFolder')}
 			/>
 		</div>
+		{#if migration}
+			<section
+				class="migration-report"
+				aria-label={t('vault.report')}
+				data-testid="migration-report"
+			>
+				<strong>{t('vault.report')}</strong>
+				<p>
+					{t('vault.summary', {
+						kind: migration.kind,
+						documents: migration.documents,
+						assets: migration.assets
+					})}
+				</p>
+				{#if migration.renamed.length > 0}
+					<p>{t('vault.renamed', { n: migration.renamed.length })}</p>
+				{/if}
+				{#if migration.skipped.length > 0}
+					<details>
+						<summary>{t('vault.skipped', { n: migration.skipped.length })}</summary>
+						<ul>
+							{#each migration.skipped.slice(0, 50) as path (path)}<li>{path}</li>{/each}
+						</ul>
+					</details>
+				{/if}
+				{#if migration.unsupported.length > 0}
+					<details>
+						<summary>{t('vault.unsupported', { n: migration.unsupported.length })}</summary>
+						<ul>
+							{#each migration.unsupported.slice(0, 50) as path (path)}<li>{path}</li>{/each}
+						</ul>
+					</details>
+				{/if}
+			</section>
+		{/if}
 		{#if error}<p role="alert" class="p-3 text-sm text-danger">
 				{t('projects.operationFailed')}
 			</p>{/if}
