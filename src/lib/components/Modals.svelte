@@ -43,6 +43,7 @@
 		onOpenProperties: () => void;
 		onOpenComments: () => void;
 		onOpenExportProfiles: () => void;
+		onOpenLinkedBlocks: () => void;
 		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenDocsSite: () => void;
@@ -80,6 +81,7 @@
 		onOpenProperties,
 		onOpenComments,
 		onOpenExportProfiles,
+		onOpenLinkedBlocks,
 		onOpenCollection,
 		onOpenDocsCheck,
 		onOpenDocsCheckIssue,
@@ -139,6 +141,7 @@
 			{onOpenProperties}
 			{onOpenComments}
 			{onOpenExportProfiles}
+			{onOpenLinkedBlocks}
 			{onOpenCollection}
 			{onOpenDocsCheck}
 			{onOpenSnippets}
@@ -245,6 +248,17 @@
 		<ExportProfilesPanel
 			open={modals.exportProfilesOpen}
 			onClose={() => (modals.exportProfilesOpen = false)}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.linkedBlocksOpen}
+	{#await modals.loadLinkedBlocksPanel() then LinkedBlocksPanel}
+		<LinkedBlocksPanel
+			open={modals.linkedBlocksOpen}
+			onClose={() => (modals.linkedBlocksOpen = false)}
 		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->

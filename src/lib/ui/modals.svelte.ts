@@ -84,6 +84,7 @@ export function createModals(opts: ModalsOptions) {
 	let propertiesOpen = $state(false);
 	let commentsOpen = $state(false);
 	let exportProfilesOpen = $state(false);
+	let linkedBlocksOpen = $state(false);
 	let collectionOpen = $state(false);
 	let docsCheckOpen = $state(false);
 	let docsCheckProjectId = $state<string | null>(null);
@@ -107,6 +108,7 @@ export function createModals(opts: ModalsOptions) {
 		propertiesOpen = false;
 		commentsOpen = false;
 		exportProfilesOpen = false;
+		linkedBlocksOpen = false;
 		collectionOpen = false;
 		docsCheckOpen = false;
 		snippetsOpen = false;
@@ -201,6 +203,13 @@ export function createModals(opts: ModalsOptions) {
 			exportProfilesOpen = false;
 		},
 		'exportProfiles.title'
+	);
+	const loadLinkedBlocksPanel = makeLazyLoader(
+		() => import('#lib/components/LinkedBlocksPanel.svelte'),
+		() => {
+			linkedBlocksOpen = false;
+		},
+		'blocks.title'
 	);
 	const loadCollectionPanel = makeLazyLoader(
 		() => import('#lib/components/CollectionPanel.svelte'),
@@ -310,6 +319,11 @@ export function createModals(opts: ModalsOptions) {
 		exportProfilesOpen = true;
 	}
 
+	function openLinkedBlocks() {
+		closeAll();
+		linkedBlocksOpen = true;
+	}
+
 	function openCollection() {
 		closeAll();
 		collectionOpen = true;
@@ -386,6 +400,7 @@ export function createModals(opts: ModalsOptions) {
 				propertiesOpen ||
 				commentsOpen ||
 				exportProfilesOpen ||
+				linkedBlocksOpen ||
 				collectionOpen ||
 				docsCheckOpen ||
 				snippetsOpen ||
@@ -465,6 +480,13 @@ export function createModals(opts: ModalsOptions) {
 			if (value) openExportProfiles();
 			else exportProfilesOpen = false;
 		},
+		get linkedBlocksOpen() {
+			return linkedBlocksOpen;
+		},
+		set linkedBlocksOpen(value: boolean) {
+			if (value) openLinkedBlocks();
+			else linkedBlocksOpen = false;
+		},
 		get collectionOpen() {
 			return collectionOpen;
 		},
@@ -528,8 +550,10 @@ export function createModals(opts: ModalsOptions) {
 		loadCommentsPanel,
 		loadCollectionPanel,
 		loadExportProfilesPanel,
+		loadLinkedBlocksPanel,
 		openAi,
 		openExportProfiles,
+		openLinkedBlocks,
 		openProperties,
 		openComments,
 		openCollection,

@@ -128,6 +128,7 @@
 		onOpenProperties: () => void;
 		onOpenComments: () => void;
 		onOpenExportProfiles: () => void;
+		onOpenLinkedBlocks: () => void;
 		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenSnippets: () => void;
@@ -179,6 +180,7 @@
 		onOpenProperties,
 		onOpenComments,
 		onOpenExportProfiles,
+		onOpenLinkedBlocks,
 		onOpenCollection,
 		onOpenDocsCheck,
 		onOpenSnippets,
@@ -669,6 +671,13 @@
 			label: t('slides.source'),
 			icon: Code2,
 			run: onAdvancedSource
+		},
+		{
+			id: 'linked-blocks',
+			label: t('blocks.command'),
+			hint: t('blocks.commandHint'),
+			icon: Link2,
+			run: onOpenLinkedBlocks
 		},
 		{
 			id: 'export-profiles',
