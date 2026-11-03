@@ -1,0 +1,44 @@
+{
+	"version": 1,
+	"description": "Synthetic benchmark fixtures. All bytes are generated locally and contain no personal data.",
+	"fixtures": [
+		{
+			"id": "note-small",
+			"kind": "note",
+			"path": "note-small.md",
+			"description": "Short note with front matter, a heading, a list, a table, a code block, inline math, and a Mermaid diagram.",
+			"targets": ["web", "native"]
+		},
+		{
+			"id": "presentation",
+			"kind": "presentation",
+			"path": "presentation.md",
+			"description": "Three-slide presentation with text, shapes, a line, an arrow, speaker notes, and one image. The bytes match the retained presentation browser fixture.",
+			"targets": ["web", "native"]
+		},
+		{
+			"id": "note-large",
+			"kind": "generated-note",
+			"generator": "largeNote",
+			"generatorArgs": { "bytes": 240000 },
+			"description": "Deterministic note of about 240 KB with headings, links, tables, code blocks, and math. Used for large-document open, typing, and scroll tests.",
+			"targets": ["web", "native"]
+		},
+		{
+			"id": "library",
+			"kind": "generated-corpus",
+			"generator": "libraryRows",
+			"generatorArgs": { "documents": 300, "bytesPerDocument": 16000 },
+			"description": "300 draft rows of about 16 KB with tags and wiki links. Used for library load and document switching.",
+			"targets": ["web", "native"]
+		},
+		{
+			"id": "project-tree",
+			"kind": "generated-corpus",
+			"generator": "projectRows",
+			"generatorArgs": { "documents": 600, "folders": 30 },
+			"description": "One project with 600 documents in 30 nested folders. Used for project tree rendering.",
+			"targets": ["web", "native"]
+		}
+	]
+}
