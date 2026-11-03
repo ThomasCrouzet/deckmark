@@ -335,6 +335,19 @@ export async function pickSaveTarget(suggestedName: string): Promise<FileSystemF
 	}
 }
 
+/** True when two handles point to the same file entry. */
+export async function isSameFileHandle(
+	first: FileSystemFileHandle,
+	second: FileSystemFileHandle
+): Promise<boolean> {
+	try {
+		if (typeof first.isSameEntry === 'function') return await first.isSameEntry(second);
+	} catch {
+		return false;
+	}
+	return first === second;
+}
+
 export async function writeHandle(handle: FileSystemFileHandle, content: string): Promise<void> {
 	if (!handle.createWritable) throw new Error('createWritable not supported');
 	const writable = await handle.createWritable();

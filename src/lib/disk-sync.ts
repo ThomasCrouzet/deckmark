@@ -31,6 +31,7 @@ import {
 	getPathLink,
 	getPathLinkWithEpoch,
 	isFSASupported,
+	isSameFileHandle,
 	pickAndOpen,
 	pickSaveTarget,
 	requestPermission,
@@ -51,6 +52,7 @@ import {
 	tauriPickSaveTarget,
 	tauriReadMeta,
 	tauriReadPath,
+	tauriSaveExportText,
 	tauriWritePath,
 	type NativeDiskGrant
 } from './disk-tauri';
@@ -335,7 +337,10 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 	let reviewedRevision: string | null = null;
 	if (handle && existingLink) {
 		const ok = await requestPermission(handle, 'readwrite');
-		if (!ok) return false;
+		if (!ok) {
+			notify.error(t('disk.permissionDenied', { name }));
+			return false;
+		}
 		let onDiskRevision: string;
 		let onDiskFile: File;
 		try {
@@ -594,6 +599,60 @@ function reportDesktopWriteFailure(file: FileItem, err: unknown): false {
 	notify.error(t('disk.saveFailed', { name: file.name }));
 	reportError('saveToDisk', err);
 	return false;
+}
+
+/**
+ * Writes the current content to a new target. The existing disk link, its
+ * revision, and the source file stay unchanged. A target that resolves to the
+ * linked source is refused so Save As cannot overwrite the original.
+ */
+export async function saveAsToDisk(id: string, deps: DiskSyncDeps): Promise<boolean> {
+	if (!browser || !isDiskLinkingAvailable()) return false;
+	const file = deps.getFile(id);
+	if (!file) return false;
+	try {
+		return isDesktop() ? await saveAsDesktop(id, file) : await saveAsFsa(id, file);
+	} catch (error) {
+		reportError('disk save as', error, { notifyUser: t('disk.saveAsFailed', { name: file.name }) });
+		return false;
+	}
+}
+
+async function saveAsFsa(id: string, file: FileItem): Promise<boolean> {
+	if (!isFSASupported()) return false;
+	const existing = await getFsaLink(id);
+	const picked = await pickSaveTarget(file.name);
+	if (!picked) {
+		notify.info(t('disk.saveAsCancelled', { name: file.name }));
+		return false;
+	}
+	if (existing && (await isSameFileHandle(existing.handle, picked))) {
+		notify.error(t('disk.saveAsSameFile', { name: file.name }));
+		return false;
+	}
+	await writeHandle(picked, file.content);
+	notify.success(t('disk.savedAs', { name: picked.name || file.name }));
+	return true;
+}
+
+async function saveAsDesktop(id: string, file: FileItem): Promise<boolean> {
+	const existing = await getPathLink(id);
+	let savedPath: string | null;
+	try {
+		savedPath = await tauriSaveExportText(file.content, file.name, existing?.path);
+	} catch (error) {
+		if (error instanceof Error && error.message.includes('save as source')) {
+			notify.error(t('disk.saveAsSameFile', { name: file.name }));
+			return false;
+		}
+		throw error;
+	}
+	if (!savedPath) {
+		notify.info(t('disk.saveAsCancelled', { name: file.name }));
+		return false;
+	}
+	notify.success(t('disk.savedAs', { name: pathBasename(savedPath) }));
+	return true;
 }
 
 async function checkpointDiskBranch(id: string, name: string, content: string): Promise<boolean> {

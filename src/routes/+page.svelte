@@ -287,6 +287,8 @@
 					edit: t('desktopMenu.edit'),
 					newFile: t('desktopMenu.new'),
 					open: t('desktopMenu.open'),
+					save: t('desktopMenu.save'),
+					saveAs: t('desktopMenu.saveAs'),
 					saveToDisk: t('desktopMenu.saveToDisk'),
 					exportMarkdown: t('desktopMenu.exportMarkdown'),
 					exportPdf: t('desktopMenu.exportPdf'),
@@ -424,7 +426,7 @@
 			return;
 		if (
 			kind === 'presentation' &&
-			['export-md', 'export-html', 'export-pdf', 'save-disk'].includes(action)
+			['export-md', 'export-html', 'export-pdf', 'save', 'save-as', 'save-disk'].includes(action)
 		) {
 			window.dispatchEvent(new CustomEvent('mdsh:presentation-action', { detail: action }));
 			return;
@@ -438,6 +440,12 @@
 				break;
 			case 'open':
 				await handleImport();
+				break;
+			case 'save':
+				await handleSave();
+				break;
+			case 'save-as':
+				await handleSaveAs();
 				break;
 			case 'save-disk':
 				await handleSaveToDisk();
@@ -558,6 +566,45 @@
 		}
 	}
 
+	async function handleSave() {
+		if (busyDisk) return;
+		busyDisk = true;
+		try {
+			await filesStore.saveActive();
+		} catch (err) {
+			reportError('save document', err, { notifyUser: t('page.saveToDiskError') });
+		} finally {
+			busyDisk = false;
+		}
+	}
+
+	async function handleSaveAs() {
+		if (busyDisk) return;
+		busyDisk = true;
+		try {
+			await filesStore.saveActiveAs();
+		} catch (err) {
+			reportError('save document as', err, { notifyUser: t('page.saveToDiskError') });
+		} finally {
+			busyDisk = false;
+		}
+	}
+
+	function handleEditCopy() {
+		const active = filesStore.active;
+		if (active) filesStore.editCopy(active.id);
+	}
+
+	async function handleEditOriginal() {
+		const active = filesStore.active;
+		if (!active) return;
+		try {
+			await filesStore.editOriginal(active.id);
+		} catch (err) {
+			reportError('edit original', err, { notifyUser: t('page.openFromDiskError') });
+		}
+	}
+
 	// Honors the pendingGoToHit as soon as SourceEditor is mounted in source mode.
 	$effect(() => {
 		if (mode !== 'source' || !pendingGoToHit) return;
@@ -597,7 +644,8 @@
 		onImport: handleImport,
 		onExport: handleExport,
 		onExportPDF: handleExportPDF,
-		onSaveToDisk: handleSaveToDisk,
+		onSave: handleSave,
+		onSaveAs: handleSaveAs,
 		onNavigateFile: (direction) => filesStore.navigateFile(direction),
 		getMode: () => mode,
 		setMode: (m) => void requestMode(m),
@@ -711,6 +759,10 @@
 				onExportPDF={handleExportPDF}
 				onOpenPalette={modals.openPalette}
 				onOpenActions={modals.openActions}
+				onSave={handleSave}
+				onSaveAs={handleSaveAs}
+				onEditCopy={handleEditCopy}
+				onEditOriginal={handleEditOriginal}
 				onSaveToDisk={handleSaveToDisk}
 				focusMode={prefs.focusMode}
 				onToggleFocus={prefs.toggleFocusMode}
@@ -868,6 +920,10 @@
 	onExportHTML={handleExportHTML}
 	onExportPDF={handleExportPDF}
 	onExportAll={handleExportAll}
+	onSave={handleSave}
+	onSaveAs={handleSaveAs}
+	onEditCopy={handleEditCopy}
+	onEditOriginal={handleEditOriginal}
 	onSaveToDisk={handleSaveToDisk}
 	onToggleSidebar={toggleSidebar}
 	onSetMode={(m) => void requestMode(m)}

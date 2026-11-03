@@ -14,6 +14,10 @@ function defaultProps(mode: EditMode = 'wysiwyg') {
 		onExport: vi.fn(),
 		onExportPDF: vi.fn(),
 		onOpenPalette: vi.fn(),
+		onSave: vi.fn(),
+		onSaveAs: vi.fn(),
+		onEditCopy: vi.fn(),
+		onEditOriginal: vi.fn(),
 		onSaveToDisk: vi.fn()
 	};
 }

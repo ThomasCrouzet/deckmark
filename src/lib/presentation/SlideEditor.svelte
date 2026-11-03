@@ -254,10 +254,17 @@
 			else if (action === 'export-md') void exportFile('md');
 			else if (action === 'export-html') void exportFile('html');
 			else if (action === 'export-pdf') void exportFile('pdf');
-			else if (action === 'save-disk') {
+			else if (action === 'save' || action === 'save-disk') {
 				finishText();
-				void filesStore.saveActiveToDisk().catch((error) =>
-					reportError('save presentation to disk', error, {
+				void filesStore.saveActive().catch((error) =>
+					reportError('save presentation', error, {
+						notifyUser: t('page.saveToDiskError')
+					})
+				);
+			} else if (action === 'save-as') {
+				finishText();
+				void filesStore.saveActiveAs().catch((error) =>
+					reportError('save presentation as', error, {
 						notifyUser: t('page.saveToDiskError')
 					})
 				);

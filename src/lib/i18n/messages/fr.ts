@@ -295,6 +295,18 @@ export const fr: Record<MessageKey, string> = {
 	'palette.settingsKeywords': 'parametres reglages preferences options settings',
 	'palette.exportMarkdownKeywords': 'enregistrer sauvegarder telecharger markdown',
 	'palette.exportPdfKeywords': 'imprimer impression imprimante pdf print',
+	'palette.download': 'Télécharger',
+	'palette.downloadKeywords': 'exporter telecharger enregistrer copie markdown',
+	'palette.editCopy': 'Modifier une copie',
+	'palette.editCopyKeywords': 'copie dupliquer détacher disque original',
+	'palette.editOriginal': "Modifier l'original",
+	'palette.editOriginalKeywords': 'original source disque lien sur place',
+	'palette.openLocalFile': 'Ouvrir un fichier local',
+	'palette.openLocalFileKeywords': 'ouvrir fichier local disque import importer',
+	'palette.save': 'Enregistrer',
+	'palette.saveKeywords': 'enregistrer écrire disque brouillon',
+	'palette.saveAs': 'Enregistrer sous',
+	'palette.saveAsKeywords': 'enregistrer sous copie nouveau fichier export',
 	'palette.saveToDisk': 'Enregistrer sur le disque',
 	'palette.saveToDiskKeywords': 'sauvegarder enregistrer disque fichier backup',
 	'palette.renameFile': 'Renommer le document',
@@ -340,9 +352,20 @@ export const fr: Record<MessageKey, string> = {
 	'disk.overwriteMessage':
 		"« {name} » a été modifié hors de deckmark depuis son ouverture. Écraser quand même la version disque par celle de l'éditeur ?",
 	'disk.overwriteTitle': 'Le fichier disque a changé',
+	'disk.downloadedCopy':
+		'Copie de « {name} » téléchargée. La source sur le disque reste inchangée.',
+	'disk.permissionDenied':
+		'Autorisation refusée pour « {name} ». Le fichier disque reste inchangé. Utilise Enregistrer sous pour garder une copie.',
+	'disk.saveAsCancelled':
+		'Enregistrer sous pour « {name} » annulé. La source et le brouillon restent inchangés.',
+	'disk.saveAsFailed':
+		"Impossible d'enregistrer une copie de « {name} ». La source reste inchangée.",
+	'disk.saveAsSameFile':
+		'Enregistrer sous ne peut pas choisir la source liée « {name} ». Choisis un autre nom. La source reste inchangée.',
 	'disk.saveCancelled': 'Enregistrement de « {name} » annulé (fichier disque modifié).',
 	'disk.saveFailed': "Échec de l'enregistrement sur le disque de « {name} ».",
 	'disk.saved': '« {name} » enregistré sur le disque.',
+	'disk.savedAs': 'Copie enregistrée sous « {name} ». La source liée reste inchangée.',
 
 	// desktopMenu
 	'desktopMenu.edit': 'Édition',
@@ -356,6 +379,8 @@ export const fr: Record<MessageKey, string> = {
 	'desktopMenu.file': 'Fichier',
 	'desktopMenu.new': 'Nouveau',
 	'desktopMenu.open': 'Ouvrir...',
+	'desktopMenu.save': 'Enregistrer',
+	'desktopMenu.saveAs': 'Enregistrer sous...',
 	'desktopMenu.saveToDisk': 'Enregistrer sur le disque',
 	'desktopMenu.settings': 'Réglages',
 
@@ -363,7 +388,7 @@ export const fr: Record<MessageKey, string> = {
 	'diskLinks.close': 'Fermer',
 	'diskLinks.count': '{n} lien(s)',
 	'diskLinks.empty':
-		'Aucun fichier lié au disque. Ouvre un fichier via "Sauver sur disque" ({shortcut}) pour créer un lien.',
+		'Aucun fichier lié au disque. Ouvre un fichier local ou utilise Enregistrer ({shortcut}) pour créer un lien.',
 	'diskLinks.legendBroken': 'cassé',
 	'diskLinks.legendOk': 'ok',
 	'diskLinks.legendPermission': 'permission',
@@ -416,7 +441,13 @@ export const fr: Record<MessageKey, string> = {
 	'files.deletedInOtherTab': '« {name} » a été supprimé dans un autre onglet.',
 	'files.loadError':
 		'Impossible d’accéder au stockage local. Tes notes sont peut-être inaccessibles (navigation privée ? stockage désactivé ?). Réessaie dans une fenêtre normale.',
+	'files.alreadyOriginal': '« {name} » est déjà l’original lié.',
+	'files.copyCreated': '« {name} » créé. Cette copie n’a aucun lien disque.',
+	'files.copySuffix': 'copie',
+	'files.editOriginalUnavailable':
+		'Ce navigateur ne peut pas sélectionner le fichier original. Ouvre un fichier local pour modifier sur place.',
 	'files.modifiedInOtherTab': '« {name} » a été modifié dans un autre onglet.',
+	'files.originalOpened': 'Original lié « {name} » ouvert.',
 	'files.otherTabChanges': 'Des modifications ont été faites dans un autre onglet.',
 	'files.reloadFromStorage': 'Recharger depuis le stockage',
 	'files.untitledFilename': 'Sans titre.md',
@@ -767,6 +798,12 @@ export const fr: Record<MessageKey, string> = {
 	'statusBar.saving': 'enregistrement…',
 	'statusBar.words': '{n} mots',
 
+	// editing
+	'editing.copy': 'Modification d’une copie',
+	'editing.draft': 'Modification d’un brouillon local',
+	'editing.original': 'Modification de l’original lié',
+	'editing.status': 'Mode d’édition disque',
+
 	// storage
 	'storage.genericFailed': 'Une opération de stockage local a échoué.',
 	'storage.loadFailed': 'Échec de lecture du stockage local - réessaie.',
@@ -811,6 +848,8 @@ export const fr: Record<MessageKey, string> = {
 	'toolbar.panel': 'Panneau',
 	'toolbar.reading': 'Lecture',
 	'toolbar.readingMode': 'Mode lecture',
+	'toolbar.save': 'Enregistrer',
+	'toolbar.saveAs': 'Enregistrer sous',
 	'toolbar.saveToDisk': 'Enregistrer sur le disque',
 	'toolbar.sourceMarkdown': 'Source markdown',
 	'toolbar.sourceMode': 'Mode source',

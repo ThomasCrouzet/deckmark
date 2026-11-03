@@ -17,6 +17,8 @@ export interface FileItem {
 	data?: string;
 	/** How the document first entered the library. */
 	origin?: 'created' | 'imported' | 'template';
+	/** Id of the linked original when this document is an explicit copy. */
+	sourceFileId?: string;
 	linkedToDisk?: boolean;
 	// "Broken disk link" flag - true if an FSA handle was associated but is no
 	// longer resolvable (file deleted/moved, IDB purged…). Managed by

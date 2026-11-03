@@ -294,6 +294,18 @@ export const en = {
 	'palette.settingsKeywords': 'settings preferences options',
 	'palette.exportMarkdownKeywords': 'save download markdown',
 	'palette.exportPdfKeywords': 'print printer pdf',
+	'palette.download': 'Download',
+	'palette.downloadKeywords': 'export download save copy markdown',
+	'palette.editCopy': 'Edit a copy',
+	'palette.editCopyKeywords': 'copy duplicate detach disk original',
+	'palette.editOriginal': 'Edit the original',
+	'palette.editOriginalKeywords': 'original source disk link in place',
+	'palette.openLocalFile': 'Open local file',
+	'palette.openLocalFileKeywords': 'open local file disk picker import',
+	'palette.save': 'Save',
+	'palette.saveKeywords': 'save write disk draft',
+	'palette.saveAs': 'Save As',
+	'palette.saveAsKeywords': 'save as copy new file export',
 	'palette.saveToDisk': 'Save to disk',
 	'palette.saveToDiskKeywords': 'save disk file backup',
 	'palette.renameFile': 'Rename document',
@@ -335,9 +347,17 @@ export const en = {
 	'disk.overwriteMessage':
 		'"{name}" was modified outside DeckMark since it was opened. Overwrite the disk version with the editor\'s anyway?',
 	'disk.overwriteTitle': 'The disk file has changed',
+	'disk.downloadedCopy': 'Downloaded a copy of "{name}". The disk source was not changed.',
+	'disk.permissionDenied':
+		'Permission denied for "{name}". The disk file was not changed. Use Save As to keep a copy.',
+	'disk.saveAsCancelled': 'Save As for "{name}" cancelled. The source and draft were not changed.',
+	'disk.saveAsFailed': 'Failed to save a copy of "{name}". The source was not changed.',
+	'disk.saveAsSameFile':
+		'Save As cannot select the linked source "{name}". Choose another name. The source was not changed.',
 	'disk.saveCancelled': 'Saving "{name}" cancelled (disk file modified).',
 	'disk.saveFailed': 'Failed to save "{name}" to disk.',
 	'disk.saved': '"{name}" saved to disk.',
+	'disk.savedAs': 'Saved a copy as "{name}". The linked source was not changed.',
 
 	// desktopMenu
 	'desktopMenu.edit': 'Edit',
@@ -351,6 +371,8 @@ export const en = {
 	'desktopMenu.file': 'File',
 	'desktopMenu.new': 'New',
 	'desktopMenu.open': 'Open...',
+	'desktopMenu.save': 'Save',
+	'desktopMenu.saveAs': 'Save As...',
 	'desktopMenu.saveToDisk': 'Save to disk',
 	'desktopMenu.settings': 'Settings',
 
@@ -358,7 +380,7 @@ export const en = {
 	'diskLinks.close': 'Close',
 	'diskLinks.count': '{n} link(s)',
 	'diskLinks.empty':
-		'No file linked to disk. Open a file via "Save to disk" ({shortcut}) to create a link.',
+		'No file linked to disk. Open a local file or use Save ({shortcut}) to create a link.',
 	'diskLinks.legendBroken': 'broken',
 	'diskLinks.legendOk': 'ok',
 	'diskLinks.legendPermission': 'permission',
@@ -410,7 +432,13 @@ export const en = {
 	'files.deletedInOtherTab': '"{name}" was deleted in another tab.',
 	'files.loadError':
 		'Cannot access local storage. Your notes may be unavailable (private browsing? storage disabled?). Try again in a normal window.',
+	'files.alreadyOriginal': '"{name}" is already the linked original.',
+	'files.copyCreated': 'Created "{name}". This copy has no disk link.',
+	'files.copySuffix': 'copy',
+	'files.editOriginalUnavailable':
+		'This browser cannot select the original file. Open a local file to edit in place.',
 	'files.modifiedInOtherTab': '"{name}" was modified in another tab.',
+	'files.originalOpened': 'Opened the linked original "{name}".',
 	'files.otherTabChanges': 'Changes were made in another tab.',
 	'files.reloadFromStorage': 'Reload from storage',
 	'files.untitledFilename': 'Untitled.md',
@@ -758,6 +786,12 @@ export const en = {
 	'statusBar.saving': 'saving...',
 	'statusBar.words': '{n} words',
 
+	// editing
+	'editing.copy': 'Editing a copy',
+	'editing.draft': 'Editing a local draft',
+	'editing.original': 'Editing the linked original',
+	'editing.status': 'Disk edit mode',
+
 	// storage
 	'storage.genericFailed': 'A local storage operation failed.',
 	'storage.loadFailed': 'Failed to read local storage - try again.',
@@ -801,6 +835,8 @@ export const en = {
 	'toolbar.panel': 'Panel',
 	'toolbar.reading': 'Reading',
 	'toolbar.readingMode': 'Reading mode',
+	'toolbar.save': 'Save',
+	'toolbar.saveAs': 'Save As',
 	'toolbar.saveToDisk': 'Save to disk',
 	'toolbar.sourceMarkdown': 'Source markdown',
 	'toolbar.sourceMode': 'Source mode',

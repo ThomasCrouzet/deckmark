@@ -31,6 +31,8 @@ import {
 	openPathsFromDesktop as diskOpenPathsFromDesktop,
 	openDirectoryFromDisk as diskOpenDirectoryFromDisk,
 	saveToDisk as diskSaveToDisk,
+	saveAsToDisk as diskSaveAsToDisk,
+	isDiskLinkingAvailable,
 	renameOnDisk,
 	unlinkFromDisk as diskUnlinkFromDisk,
 	refreshBrokenLinks as diskRefreshBrokenLinks
@@ -70,6 +72,7 @@ function toDraftRow(file: FileItem, order: number, open = true): DraftRow {
 		content: file.content,
 		...(file.projectId ? { projectId: file.projectId, relativePath: file.relativePath } : {}),
 		...(file.origin ? { origin: file.origin } : {}),
+		...(file.sourceFileId ? { sourceFileId: file.sourceFileId } : {}),
 		...(file.kind ? { kind: file.kind } : {}),
 		...(file.mime ? { mime: file.mime } : {}),
 		...(file.data ? { data: file.data } : {}),
@@ -369,6 +372,7 @@ class FilesStore {
 				content: r.content,
 				...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
 				...(r.origin ? { origin: r.origin } : {}),
+				...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
 				...(r.kind ? { kind: r.kind } : {}),
 				...(r.mime ? { mime: r.mime } : {}),
 				...(r.data ? { data: r.data } : {}),
@@ -515,6 +519,7 @@ class FilesStore {
 			kind?: DocumentKind;
 			mime?: string;
 			data?: string;
+			sourceFileId?: string;
 		} = {}
 	): FileItem {
 		const kind = options.kind ?? documentKindForFile({ name, content });
@@ -528,6 +533,7 @@ class FilesStore {
 			kind,
 			...(options.mime ? { mime: options.mime } : {}),
 			...(options.data ? { data: options.data } : {}),
+			...(options.sourceFileId ? { sourceFileId: options.sourceFileId } : {}),
 			origin: options.origin ?? (content.length > 0 || options.data ? 'imported' : 'created'),
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
@@ -892,6 +898,11 @@ class FilesStore {
 							name: r.name,
 							content: r.content,
 							...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
+							...(r.origin ? { origin: r.origin } : {}),
+							...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
+							...(r.kind ? { kind: r.kind } : {}),
+							...(r.mime ? { mime: r.mime } : {}),
+							...(r.data ? { data: r.data } : {}),
 							createdAt: r.createdAt,
 							updatedAt: r.updatedAt,
 							dirty: false,
@@ -1512,6 +1523,20 @@ class FilesStore {
 		this.updateContent(id, content);
 		return true;
 	}
+	/**
+	 * Saves the active document. A linked original receives the content through
+	 * its granted disk link. Every other document is downloaded as a copy. The
+	 * action never claims a disk write for an unlinked document.
+	 */
+	async saveActive(): Promise<boolean> {
+		if (!browser || !this.active) return false;
+		const active = this.active;
+		if (active.linkedToDisk && isDiskLinkingAvailable()) return this.saveToDisk(active.id);
+		this.dispatchEditorFlush();
+		await exportMarkdownOp(active.id, this.exportDeps);
+		return true;
+	}
+
 	async saveActiveToDisk(): Promise<boolean> {
 		if (!browser || !this.active) return false;
 		return this.saveToDisk(this.active.id);
@@ -1519,6 +1544,71 @@ class FilesStore {
 	async saveToDisk(id: string): Promise<boolean> {
 		this.dispatchEditorFlush();
 		return this.queueDiskOperation(id, () => diskSaveToDisk(id, this.diskDeps));
+	}
+
+	/**
+	 * Saves a copy to a new target. The source link and its revision stay
+	 * unchanged. Without a disk backend, the copy becomes a download.
+	 */
+	async saveAs(id: string): Promise<boolean> {
+		const file = this.library.find((entry) => entry.id === id);
+		if (!browser || !file) return false;
+		this.dispatchEditorFlush();
+		if (!isDiskLinkingAvailable()) {
+			await exportMarkdownOp(id, this.exportDeps);
+			notify.info(t('disk.downloadedCopy', { name: file.name }));
+			return true;
+		}
+		return this.queueDiskOperation(id, () => diskSaveAsToDisk(id, this.diskDeps));
+	}
+	async saveActiveAs(): Promise<boolean> {
+		if (!browser || !this.active) return false;
+		return this.saveAs(this.active.id);
+	}
+
+	/** Creates a detached copy of `id`. The copy has no disk link. */
+	editCopy(id: string): FileItem | null {
+		const source = this.library.find((entry) => entry.id === id);
+		if (!source) return null;
+		this.dispatchEditorFlush();
+		const extension = source.name.match(/\.[a-z0-9]{1,10}$/i)?.[0] ?? '';
+		const base = stripMdExtension(source.name);
+		const copy = this.createNew(`${base} ${t('files.copySuffix')}${extension}`, source.content, {
+			origin: 'imported',
+			...(source.kind ? { kind: source.kind } : {}),
+			...(source.mime ? { mime: source.mime } : {}),
+			...(source.data ? { data: source.data } : {}),
+			sourceFileId: source.id
+		});
+		notify.info(t('files.copyCreated', { name: copy.name }));
+		return copy;
+	}
+
+	/**
+	 * Opens the linked original of a copy. Without a stored original, the user
+	 * can pick the file again when a disk backend is available.
+	 */
+	async editOriginal(id: string): Promise<boolean> {
+		const file = this.library.find((entry) => entry.id === id);
+		if (!browser || !file) return false;
+		if (file.linkedToDisk) {
+			notify.info(t('files.alreadyOriginal', { name: file.name }));
+			return true;
+		}
+		const original = file.sourceFileId
+			? this.library.find((entry) => entry.id === file.sourceFileId)
+			: undefined;
+		if (original) {
+			this.openDocument(original.id);
+			notify.info(t('files.originalOpened', { name: original.name }));
+			return true;
+		}
+		if (!isDiskLinkingAvailable()) {
+			notify.info(t('files.editOriginalUnavailable'));
+			return false;
+		}
+		const opened = await this.openFromDisk();
+		return opened.length > 0;
 	}
 	async unlinkFromDisk(id: string): Promise<void> {
 		return this.queueDiskOperation(id, () => diskUnlinkFromDisk(id, this.diskDeps));

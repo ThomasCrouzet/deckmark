@@ -219,7 +219,7 @@
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">{t('diskLinks.loading')}</p>
 				{:else if entries.length === 0}
 					<p class="px-4 py-6 text-center text-xs text-fg-dim">
-						{t('diskLinks.empty', { shortcut: keyboardStore.label('save-disk') ?? '' })}
+						{t('diskLinks.empty', { shortcut: keyboardStore.label('save') ?? '' })}
 					</p>
 				{:else}
 					<ul class="divide-y divide-border" aria-label={t('diskLinks.listLabel')}>

@@ -13,19 +13,27 @@ export const coreCommands = [
 		document: false
 	},
 	{
-		id: 'export-md',
-		label: 'palette.exportMarkdown',
+		id: 'save',
+		label: 'palette.save',
 		key: 's',
 		shift: false,
 		shortcut: '⌘S',
 		document: true
 	},
 	{
-		id: 'save-disk',
-		label: 'palette.saveToDisk',
+		id: 'save-as',
+		label: 'palette.saveAs',
 		key: 's',
 		shift: true,
 		shortcut: '⌘⇧S',
+		document: true
+	},
+	{
+		id: 'export-md',
+		label: 'palette.download',
+		key: 'e',
+		shift: true,
+		shortcut: '⌘⇧E',
 		document: true
 	},
 	{

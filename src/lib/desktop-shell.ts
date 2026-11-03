@@ -15,6 +15,8 @@ import { keyboardStore } from './ui/keyboard.svelte';
 export type DesktopMenuAction =
 	| 'new'
 	| 'open'
+	| 'save'
+	| 'save-as'
 	| 'save-disk'
 	| 'export-md'
 	| 'export-pdf'
@@ -28,6 +30,8 @@ export interface DesktopMenuLabels {
 	edit: string;
 	newFile: string;
 	open: string;
+	save: string;
+	saveAs: string;
 	saveToDisk: string;
 	exportMarkdown: string;
 	exportPdf: string;
@@ -211,7 +215,8 @@ async function installAppMenu(
 		items: [
 			await item('new', labels.newFile),
 			await item('open', labels.open),
-			await item('save-disk', labels.saveToDisk),
+			await item('save', labels.save),
+			await item('save-as', labels.saveAs),
 			await PredefinedMenuItem.new({ item: 'Separator' }),
 			await item('export-md', labels.exportMarkdown),
 			await item('export-pdf', labels.exportPdf),

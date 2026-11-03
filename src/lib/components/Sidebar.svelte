@@ -17,9 +17,12 @@
 		CornerDownLeft,
 		Tag,
 		Archive,
-		CircleX
+		CircleX,
+		Copy,
+		Link2
 	} from '@lucide/svelte';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 	import { spinnerStore } from '#lib/spinner.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
@@ -627,6 +630,26 @@
 					onclick={() => moveFile(filesStore.activeId!, 1)}
 					aria-label={t('sidebar.moveDown')}><ArrowDown size={16} /></button
 				>
+				<button
+					class="rounded border border-border p-2"
+					onclick={() => filesStore.editCopy(filesStore.activeId!)}
+					aria-label={t('palette.editCopy')}
+					title={t('palette.editCopy')}
+					data-testid="sidebar-edit-copy"
+				>
+					<Copy size={16} />
+				</button>
+				{#if isDiskLinkingAvailable() || filesStore.active.sourceFileId}
+					<button
+						class="rounded border border-border p-2"
+						onclick={() => void filesStore.editOriginal(filesStore.activeId!)}
+						aria-label={t('palette.editOriginal')}
+						title={t('palette.editOriginal')}
+						data-testid="sidebar-edit-original"
+					>
+						<Link2 size={16} />
+					</button>
+				{/if}
 				<button
 					class="rounded border border-border p-2 text-danger"
 					onclick={() => void deleteFile(filesStore.activeId!)}>{t('palette.deleteFile')}</button
