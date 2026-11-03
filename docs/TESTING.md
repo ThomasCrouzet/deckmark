@@ -114,6 +114,157 @@ Remove an isolated case when a reliable E2E test covers the same risk. Keep the
 reason for each remaining case clear in its test name. `npm run test:coverage`
 still reports coverage for diagnosis. No percentage target requires extra tests.
 
+## Performance benchmarks and native WebView coverage
+
+Use `scripts/benchmark-local.mjs` for repeatable performance evidence. It is one
+command with two separate targets. A web run and a native run never share a
+result, because a browser process and a native WebView have different renderers,
+process models and startup paths.
+
+```sh
+npm run build
+npm run benchmark:local
+node scripts/benchmark-local.mjs --output /tmp/benchmark/web-chromium.json
+node scripts/benchmark-local.mjs --browser firefox --runs 5 --output /tmp/benchmark/web-firefox.json
+node scripts/benchmark-local.mjs --browser webkit --runs 5 --output /tmp/benchmark/web-webkit.json
+```
+
+A native run needs the isolated test binary first:
+
+```sh
+npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+node scripts/benchmark-local.mjs --target native --build-mode debug --output /tmp/benchmark/native.json
+```
+
+The command reads local files and writes one raw JSON report. It sends no
+telemetry. Its only network request is to the local static server that serves
+`build/`.
+
+The report holds the schema version, target, build mode, source revision,
+runtime identity, fixture identity, method text, p50 and p95 summaries, raw
+samples, a budget comparison and explicit limits. Runtime identity includes the
+Node version, OS name and version, CPU model and count, total memory, browser
+name and version or WebDriver WebView capabilities, and the CI runner name.
+Each fixture records its description, byte count and SHA-256. Generated fixtures
+record their generator name and arguments.
+
+### Measured stages
+
+| Metric | Web target | Native target |
+| --- | --- | --- |
+| Startup | Cold navigation to the ready shell, service worker restart, first contentful paint, DOM content loaded. | Process spawn to the WebDriver ready endpoint, shell ready, close, then warm restart. |
+| Typing | In-page insert to the next animation frame, synchronous insert cost, and WebDriver text insertion. Source and visual editor. | The same probes through the embedded WebDriver. |
+| Document work | Library reload, document switch, large note open, read mode and visual mode switch. | The same stages in the native editor. |
+| Scroll | Scroll to position plus two animation frames in read mode. | The same probe in the native WebView. |
+| Project tree | Projects panel open to the expected row count. | The same probe with the native project panel. |
+| Presentation | Editor load, slide switch and present mode toggle. | The same stages with native slide rendering. |
+| Export | HTML export from the command palette to the browser download event. | Export preparation to the print document. macOS writes the real PDF. Linux and Windows stop before the OS print dialog. |
+| Memory | Chromium JS heap from CDP; other engines report `performance.memory` when present. | Resident bytes or working set for the application process tree, including WebView helper processes when the platform reports them. |
+
+The input probe dispatches one `execCommand` insert, then waits one animation
+frame. It excludes driver round trip. The sample includes any product work that
+the input triggers, such as save scheduling and index updates. WebDriver text
+insertion is recorded separately because it includes driver IPC. Do not compare
+an engine that handles one insert with an engine that processes each key.
+
+### Fixture corpus and budgets
+
+`scripts/benchmark-fixtures/manifest.json` describes the corpus. The repository
+keeps `note-small.md`, `presentation.md`, and deterministic generators in
+`scripts/benchmark-fixtures/corpus.mjs`:
+
+- `note-large` creates about 240 KB of Markdown.
+- `library` creates 300 notes of about 16 KB each.
+- `project-tree` creates one project with 600 documents in 30 nested folders.
+
+`scripts/benchmark-budgets.json` holds one baseline set for each platform key:
+`web-chromium`, `web-firefox`, `web-webkit`,
+`native-linux-webkitgtk`, `native-windows-webview2` and
+`native-macos-wkwebview`. A baseline is a recorded p95 for one platform. It is
+not a claim that two platforms have equal timings. The default tolerance is
+1.0, so a measurement can be twice the recorded baseline before it reports
+`over-budget`. The report always includes the comparison. Pass
+`--enforce-budgets` only for a dedicated regression run with a stable machine.
+
+The recorded Chromium baseline near 2.5 s for a document switch uses the
+900-document fixture library. This value reproduces the reported desktop
+responsiveness problem and is not an acceptance target. Diagnose the stage
+before you tighten or raise the value. Keep the matching artifact with any
+budget change.
+
+Do not compare these results across platforms, build modes, machines or corpus
+counts. A debug native build is slower than a release build. A hosted CI runner
+has unequal hardware and a shared CPU.
+
+### Retained benchmark and native risks
+
+- A headless browser does not prove a native WebView result. Keep web and native
+  artifacts separate.
+- Headless animation frames can be throttled. A large frame delay can include
+  engine scheduling and is not always editor work.
+- The native benchmark uses a test binary with the embedded WebDriver feature.
+  Packaged installers have no test driver. Native timing evidence does not prove
+  release performance. Record `buildMode` and compare equal modes only.
+- The native matrix uses hosted runners with unequal hardware. A failed platform
+  job must keep `results.json`, screenshots, `application.log` and the source
+  snapshots.
+- Linux native tests use WebKitGTK under Xvfb with the DMA-BUF renderer disabled.
+  This does not prove compositor behavior on a physical display.
+- The benchmark seeds IndexedDB directly. It does not cover the import dialog,
+  file picker, disk latency or network conditions.
+- A change to a fixture count or generator invalidates a comparison. Compare the
+  recorded fixture hashes and corpus counts first.
+- A document switch sample includes the pending save flush. A switch on a small
+  library is not comparable.
+- Small sample counts are explicit in the report. An expensive stage uses five
+  samples by default. Treat its p95 as an indication, not a precise percentile.
+- Native export evidence stops before the OS print dialog on Linux and Windows.
+  Only the macOS run writes the product PDF.
+
+### Native WebView workflow coverage
+
+`scripts/native-smoke.mjs` runs against the built Tauri binary on its real
+WebView. The suite now also records:
+
+- Source and visual note editing, undo, redo and save.
+- The project tree row count after a native project import.
+- Linked disk save, rename, restart, revocation and stale-write races.
+- Focus mode and theme toggles.
+- Built-in template creation and the return to the linked note.
+- Presentation editing and separate menu and shortcut PDF exports.
+- Process memory for the application process tree, startup, reload, save, close
+  and template timings, and platform identity from the driver capabilities.
+- A failure screenshot, the page state and the last driver response.
+
+The suite does not claim coverage for features that do not exist. The
+`features` block in `results.json` records that the product has no AI feature,
+no annotation workflow and no reusable snippet feature. Do not add a check for
+an absent feature. Add one only when the product provides an observable
+workflow and the browser suite has a matching case.
+
+The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
+browser pass is not a native desktop pass, and a headless WebKit pass is not a
+WebKitGTK pass.
+
+### Benchmark and native CI artifacts
+
+`.github/workflows/desktop.yml` runs these jobs for a Desktop change:
+
+- `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. Artifact:
+  `web-benchmark-<browser>`.
+- `native-smoke` on Ubuntu, Windows and macOS with the built test binary.
+  Artifact: `native-smoke-<platform>`.
+- `native-benchmark` on Ubuntu, Windows and macOS with the same built test
+  binary. Artifact: `native-benchmark-<platform>`, which contains the raw JSON,
+  screenshots and the application log. The macOS jobs assert an ARM64 runner
+  before they run.
+- `desktop-validation` requires every job above to succeed. A reused validation
+  run must contain one successful job for each browser and each platform.
+
+The performance jobs record budgets but do not fail on a budget difference. A
+shared runner is too noisy for that gate. A harness failure, a missing result or
+a functional native check failure does fail the job.
+
 ## Repeat the browser suite
 
 ### Whole-application review
@@ -227,16 +378,19 @@ OFFLINE_REVIEW_PHASE=final npx playwright test --config e2e/offline-review.confi
 
 The Desktop reuse validator must reject missing, repeated, failed, skipped, or
 incomplete platform jobs. It must reject a different source SHA, workflow, or run
-event. A valid run has one validation job and one native smoke job for each of
-Ubuntu, Windows, and macOS, plus one successful aggregate gate. The workflow
-trigger must reach the same path classifier for frontend and native changes.
+event. A valid run has one validation job, one native smoke job and one native
+benchmark job for each of Ubuntu, Windows, and macOS, one web benchmark job for
+each of Chromium, Firefox, and WebKit, plus one successful aggregate gate. The
+workflow trigger must reach the same path classifier for frontend and native
+changes.
 
 Browser tests cannot observe GitHub job records. The release-review artifact
 retains a 75-case runner that executes the workflow's JavaScript with recorded job
 fixtures. It includes the pre-fix and corrected results, commands, and hashes.
 
 The native smoke workflow checks presentation creation, editing, source Apply and
-Cancel, file restoration, and separate menu and shortcut exports on each platform.
+Cancel, file restoration, note editing, the project tree, disk access, focus and
+theme, built-in templates, and separate menu and shortcut exports on each platform.
 Keep both exports under `native-test-results/presentation-pdf/menu/` and
 `native-test-results/presentation-pdf/shortcut/`. Inspect the menu result before
 the shortcut export starts. macOS checks the native print operation and its PDF
