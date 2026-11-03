@@ -9,6 +9,61 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Edition and hosting checks
+
+GitHub Pages is the only production Web publisher. Check Web Light and Desktop
+Complete as different editions. A browser result does not replace a native
+Desktop check, and a native result does not replace a browser result.
+
+The deployment workflow builds two base paths. The production path comes from the
+current Pages configuration. The other path is a check. Both must produce a usable
+PWA with the correct service worker scope.
+
+Build and serve the project-site path:
+
+```sh
+npm run preview:pages
+```
+
+Build and serve the root path:
+
+```sh
+BASE_PATH='' npm run build
+npm run preview -- --host 127.0.0.1 --port 4893 --strictPort
+```
+
+Run these checks in a fresh browser profile for each base path:
+
+1. Open the served URL and wait for **Ready offline**.
+2. Disable the network, reload a deep link, and create a note from the cached shell.
+3. Reload the note and confirm that its content remains in IndexedDB.
+4. Deploy a new build, save a draft, and apply the update. Confirm that the draft
+   reaches IndexedDB before the page reloads.
+5. Confirm that application assets and the service worker use the same base path.
+6. Confirm that no Desktop-only native module appears in the Web build or precache.
+
+For a custom domain, also confirm HTTPS and the redirect from the project URL.
+Do not test DNS changes in CI. Record the domain state as a manual result. A
+project-site service worker keeps its old origin after a domain change. Install
+the PWA again from the custom domain and repeat the offline checks.
+
+Keep the command, source revision, browser version, base path, domain state, and
+results in the run artifact. The browser suite still produces the standard
+`playwright-report/index.html` and `test-results/results.json` files.
+
+The retained failure risks are:
+
+- A wrong base path can produce a blank offline shell or an empty precache.
+- A service worker with the wrong scope can lose deep-link refresh and offline
+  first use.
+- A stale project-site worker can keep an old origin after a domain change.
+- An absolute asset URL can work on one host and fail on the other.
+- A Desktop-only module can enter the Web bundle or precache.
+- An update can reload before a draft reaches IndexedDB.
+
+See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the hosting contract and
+[DEVELOPMENT.md](DEVELOPMENT.md#web-publishing) for the maintainer steps.
+
 ## Version 2.0 project risks
 
 At native 200% browser zoom in a 320 by 844 viewport, save-status text can wrap

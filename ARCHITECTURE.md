@@ -3,6 +3,38 @@
 This document explains the main design decisions in DeckMark. For a module reference,
 see the map in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
+## Two editions share one client
+
+DeckMark has two editions. **Web Light** is a static PWA that GitHub Pages
+publishes. **Desktop Complete (Beta)** packages the same client in Tauri and adds
+native operating-system capabilities. Both editions use the same note and
+presentation formats, IndexedDB model, project ZIP format, and backup format.
+There is no forked document logic.
+
+Web Light runs in the browser sandbox. A disk link uses the browser File System
+Access API when the browser provides it. Firefox and Safari use a download
+fallback. Web Light has no native path capability, native print panel, native
+menu, or native file association. A PWA can use browser file handlers where the
+browser supports them.
+
+Desktop Complete keeps native authority in Rust. The WebView receives an opaque
+session token for an approved path, not a general filesystem handle. The native
+access registry is separate from IndexedDB. The Desktop build serves assets from
+the package and does not register the service worker.
+
+The current release uses runtime boundaries and lazy imports to keep native
+modules out of the Web startup graph. A compile-time edition manifest is planned.
+The Web build and its precache must not contain Desktop-only native modules.
+
+GitHub Pages is the only production Web publisher. The deployment workflow reads
+the Pages base path before the build. A custom domain uses the root and a project
+site uses `/deckmark/`. The service worker scope and navigation fallback follow
+that base path. The workflow does not configure DNS or a custom domain.
+
+Neither edition has an AI feature, a browser API key vault, or unrestricted
+filesystem access. See [docs/EDITIONS.md](docs/EDITIONS.md) for the feature
+matrix and support boundaries.
+
 ## Offline-first without a backend
 
 DeckMark has no server. Dexie stores drafts in IndexedDB. The File System Access API
@@ -196,7 +228,7 @@ lists committed content, conflict copies, and revisions available in history.
 
 ## Native file access uses session capabilities
 
-The Desktop Beta does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. Rust stores approved Markdown paths in `disk-access.json` in the application data directory. It issues new tokens after restart. IndexedDB records cannot add paths to this registry. Removing a disk link revokes its native permission.
+Desktop Complete does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. Rust stores approved Markdown paths in `disk-access.json` in the application data directory. It issues new tokens after restart. IndexedDB records cannot add paths to this registry. Removing a disk link revokes its native permission.
 
 The disk-link record keeps the last written content revision across restarts. A restored draft can save through a renewed native token without another picker. External edits still require an overwrite decision. A rename accepts only a filename in the approved directory. It refuses an existing target and keeps file content and permissions. The store serializes rename, save, and unlink operations for each document.
 

@@ -15,6 +15,7 @@
   <a href="https://www.deckmark.dev/"><strong>Open the web app</strong></a> ·
   <a href="#get-started">Get started</a> ·
   <a href="#browser-and-desktop-support">Desktop and browsers</a> ·
+  <a href="docs/EDITIONS.md">Editions</a> ·
   <a href="#documentation">Docs</a> ·
   <a href="#status">Status</a>
 </p>
@@ -22,13 +23,17 @@
 <!-- readme:section positioning -->
 ## Why DeckMark?
 
-DeckMark is a Markdown workspace with two document types: notes and presentations.
+DeckMark is a Markdown workspace with two editions: **Web Light** and
+**Desktop Complete (Beta)**. Both editions create notes and presentations.
 Write and link notes, or create a presentation and arrange its slides.
 The web app stores drafts on your device and works offline after its
-offline resources are ready. An optional Desktop Beta adds native file access.
+offline resources are ready. Desktop Complete adds native file access and
+native operating-system integration.
 
+Web Light is a complete browser product. It is free and it is not a trial.
 Use it for a personal document library that you can export as plain files.
-Cloud sync, shared editing, and plugins are outside the project scope.
+Cloud sync, shared editing, AI, and plugins are outside the current product.
+See the [edition matrix](docs/EDITIONS.md) for the complete comparison.
 
 <a id="privacy-and-limits"></a>
 <!-- readme:section privacy -->
@@ -38,7 +43,11 @@ Cloud sync, shared editing, and plugins are outside the project scope.
 
 **Telemetry:** The app sends no telemetry or crash reports. Errors go to the local console and in-app notifications.
 
+**AI:** No AI feature is implemented. The app sends no AI request and stores no AI API key. The Web client has no secure API key vault. Do not put provider secrets in browser storage or in a Web build.
+
 **Data:** Drafts, projects, assets, history, workspaces, and templates use IndexedDB on your device. Interface preferences use localStorage. The web app contacts its host to load and update app files; it does not upload documents. Remote images are blocked until you choose to load them. That action contacts the image host and reveals your IP address, without cookies or a referrer.
+
+**Files:** A browser disk link uses the browser file API and an explicit action. Desktop accepts only paths that you select. Neither edition gives the application unrestricted filesystem access.
 
 There is no required backend, cloud storage, or runtime CDN. Rendering sanitizes
 document HTML. See the [security policy](SECURITY.md) for data flows and controls.
@@ -141,25 +150,33 @@ passphrase: an encrypted backup cannot be recovered without it. See
 <!-- readme:section compatibility -->
 ## Browser and Desktop support
 
-The web app needs no installation. Disk access depends on the browser:
+Web Light needs no installation. Disk access depends on the browser:
 
-| Platform | Test scope | Save back to a disk file |
-| --- | --- | --- |
-| Chromium | Full desktop suite and mobile workflows | File System Access API where available |
-| Firefox | Selected core workflows | Download fallback |
-| Safari / WebKit | Selected desktop and mobile workflows | Download fallback |
-| Desktop Beta | Tauri app with native WebView tests | Native file access on macOS, Windows, and Linux |
+| Edition | Platform | Test scope | Save back to a disk file |
+| --- | --- | --- | --- |
+| Web Light | Chromium | Full desktop suite and mobile workflows | File System Access API where available |
+| Web Light | Firefox | Selected core workflows | Download fallback |
+| Web Light | Safari / WebKit | Selected desktop and mobile workflows | Download fallback |
+| Desktop Complete (Beta) | macOS, Windows, and Linux | Tauri app with native WebView tests | Native in-place editing on selected paths |
 
-[Desktop Beta downloads](https://github.com/ThomasCrouzet/deckmark/releases) are
-separate prereleases. Installers are unsigned and can trigger an operating-system
-warning. Older releases can use the previous mdsh name. The Desktop release
-workflow includes checksums and build provenance.
-See the [Desktop guide](docs/USER_GUIDE.md#desktop-beta-app) for requirements.
+[Desktop Complete downloads](https://github.com/ThomasCrouzet/deckmark/releases)
+are separate `desktop-v<version>` prereleases. Installers are unsigned and can
+trigger an operating-system warning. Older releases can use the previous mdsh
+name. The Desktop release workflow includes checksums and build provenance.
+See the [Desktop guide](docs/USER_GUIDE.md#desktop-complete-app) for
+requirements and supported architectures.
+
+Desktop Complete does not provide unrestricted filesystem access. A native
+picker approves each path, and a session capability limits later operations to
+that path. Web Light uses the browser sandbox and any file link that the browser
+supports.
 
 The interface supports keyboard navigation and reduced motion. Browser tests
 check focus behavior and accessibility rules. These checks do not replace a human
 accessibility audit. The test scope above describes the configured suites, not a
-claim that every test passes on every device.
+claim that every test passes on every device. The
+[edition matrix](docs/EDITIONS.md) lists the shared capabilities and the
+Desktop-only capabilities.
 
 <a id="start-writing"></a>
 <!-- readme:section get-started -->
@@ -167,11 +184,13 @@ claim that every test passes on every device.
 
 ### Write and export your first note
 
-**Requirements:** A browser with JavaScript and IndexedDB, and a connection for
-the first load. No credentials or configuration are required.
+**Requirements:** Web Light needs a browser with JavaScript and IndexedDB, and a
+connection for the first load. No credentials or configuration are required.
 
-1. Open the [web app](https://www.deckmark.dev/) and select
+1. Open the [web app](https://www.deckmark.dev/), then select
    **New file**, then **Note**. You can also import Markdown or open the built-in demo.
+   If the custom domain is not available, open the
+   [GitHub Pages fallback](https://thomascrouzet.github.io/deckmark/).
 2. Select **Source** and enter this Markdown:
 
    ```markdown
@@ -204,7 +223,8 @@ the first load. No credentials or configuration are required.
 
 Use the browser install action to add the PWA. Wait until **Ready offline**
 appears before you disconnect. Editing, rendering, search, and export then work
-without a connection. Remote images must first be embedded or imported to remain
+without a connection. The service worker caches the application for the current
+address and base path. Remote images must first be embedded or imported to remain
 available offline. See [PWA installation](docs/USER_GUIDE.md#install-the-pwa).
 
 ### Useful shortcuts
@@ -267,6 +287,7 @@ and native libraries specified in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | Guide | Contents |
 | --- | --- |
+| [Editions and support](docs/EDITIONS.md) | Web Light and Desktop Complete matrix, requirements, storage, hosting, and support limits. |
 | [User guide](docs/USER_GUIDE.md) | Editing, imports, images, disk links, backups, and shortcuts. |
 | [Presentation editor](docs/presentation-editor.md) · [File format](docs/presentation-format.md) | Create, present, and export Markdown slide decks. |
 | [Contributing](CONTRIBUTING.md) · [Development](docs/DEVELOPMENT.md) | Setup, code rules, and module reference. |
@@ -280,12 +301,19 @@ and native libraries specified in [CONTRIBUTING.md](CONTRIBUTING.md).
 <!-- readme:section status -->
 ## Status
 
-DeckMark provides a static web PWA and an optional **Desktop Beta**. Editing,
-linked documents, portable projects, backups, and Markdown presentations are
-implemented. See the [changelog](CHANGELOG.md) for release history.
+DeckMark provides **Web Light** and **Desktop Complete (Beta)**. Web Light is
+the primary free edition and it is not a trial. Editing, linked documents,
+portable projects, backups, and Markdown presentations are implemented in both
+editions. See the [edition matrix](docs/EDITIONS.md) for the exact differences.
 
 Current limits:
 
+- **Unavailable capabilities:** no AI feature, cloud sync, shared editing,
+  account, plugin system, browser API key vault, or unrestricted filesystem
+  access.
+- **Cross-edition tests:** both editions use the same Markdown, project ZIP, and
+  backup formats. Round-trip tests across editions are planned, not a current
+  guarantee.
 - **Library size:** the working target is about **200 to 300 documents**.
 - **Imports:** a file selection accepts up to 300 files and 64 MiB in total,
   with a 16 MiB limit per document. Projects have additional asset and archive
