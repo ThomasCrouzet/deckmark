@@ -1,0 +1,29 @@
+{
+  "schema": "deckmark-search/1",
+  "query": "needle",
+  "root": ".",
+  "options": {
+    "caseSensitive": false,
+    "wholeWord": false,
+    "regex": false,
+    "maxResults": 200
+  },
+  "total": 2,
+  "truncated": false,
+  "matches": [
+    {
+      "path": "notes/valid.md",
+      "line": 11,
+      "column": 10,
+      "endColumn": 16,
+      "snippet": "The word needle appears here."
+    },
+    {
+      "path": "notes/valid.md",
+      "line": 15,
+      "column": 10,
+      "endColumn": 16,
+      "snippet": "The word needle appears again."
+    }
+  ]
+}

@@ -1,4 +1,8 @@
 import { t } from '#lib/i18n/index.js';
+import { stripMdExtension } from './file-names';
+
+export { escapeHTML } from './html-escape';
+export { stripFileExtension, stripMdExtension } from './file-names';
 
 export function isMarkdownFile(f: { name: string; type?: string }): boolean {
 	const name = f.name.toLowerCase();
@@ -36,22 +40,4 @@ export function uniqueName(existing: string[], base: string): string {
 export function normalizeRename(raw: string): string {
 	const clean = raw.trim() || untitledFilename();
 	return /\.[a-z0-9]{1,10}$/i.test(clean) ? clean : `${clean}.md`;
-}
-
-/** Removes the final extension for display purposes. */
-export function stripFileExtension(name: string): string {
-	return name.replace(/\.[a-z0-9]{1,10}$/i, '');
-}
-
-export function stripMdExtension(name: string): string {
-	return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
-}
-
-export function escapeHTML(s: string): string {
-	return s
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#39;');
 }

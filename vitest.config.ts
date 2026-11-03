@@ -12,7 +12,7 @@ export default defineConfig({
 		// Give jsdom a non-opaque URL. The default `about:blank` makes `localStorage` unavailable.
 		// Theme, locale, editor width, and UI preference stores need it in tests.
 		environmentOptions: { jsdom: { url: 'http://localhost:5173/' } },
-		include: ['src/**/*.{test,spec}.ts'],
+		include: ['src/**/*.{test,spec}.ts', 'cli/**/*.test.ts'],
 		exclude: ['**/*.svelte.{test,spec}.ts'],
 		setupFiles: ['src/lib/test-setup.ts'],
 		globals: true,

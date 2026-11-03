@@ -194,13 +194,20 @@ export async function readProjectFolder(files: readonly File[]): Promise<Project
 	return input;
 }
 
+export interface ProjectZipOptions {
+	/** Fixed entry date for a reproducible archive. */
+	date?: Date;
+}
+
 export async function buildProjectZip(
 	name: string,
 	documents: readonly ProjectDocumentInput[],
-	assets: readonly Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>[]
+	assets: readonly Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>[],
+	options: ProjectZipOptions = {}
 ): Promise<Blob> {
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
+	const entryOptions = options.date ? { date: options.date } : undefined;
 	if (documents.length > IMPORT_LIMITS.maxFiles) throw new Error('Project document limit');
 	const occupied = new Set<string>();
 	const exportedAssets = new Map<string, Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>>();
@@ -246,7 +253,7 @@ export async function buildProjectZip(
 				content: '',
 				kind: 'image'
 			});
-			zip.file(documentPath, payload, { base64: true });
+			zip.file(documentPath, payload, { base64: true, ...entryOptions });
 			continue;
 		}
 		const portableContent =
@@ -313,12 +320,14 @@ export async function buildProjectZip(
 			relativePath: documentPath,
 			content
 		});
-		zip.file(documentPath, content);
+		zip.file(documentPath, content, entryOptions);
 	}
-	for (const asset of exportedAssets.values()) zip.file(projectPath(asset.path), asset.data);
+	for (const asset of exportedAssets.values())
+		zip.file(projectPath(asset.path), asset.data, entryOptions);
 	zip.file(
 		'.mdsh/project.json',
-		JSON.stringify({ format: 'mdsh-project', schemaVersion: 1, name }, null, 2)
+		JSON.stringify({ format: 'mdsh-project', schemaVersion: 1, name }, null, 2),
+		entryOptions
 	);
 	zip.file(
 		'.mdsh/link-report.json',
@@ -326,8 +335,14 @@ export async function buildProjectZip(
 			{ issues: projectLinkReport(exportedDocuments, [...exportedAssets.keys()]) },
 			null,
 			2
-		)
+		),
+		entryOptions
 	);
+	if (options.date) {
+		// JSZip adds directory entries with the current time. A fixed date on
+		// every entry keeps the archive reproducible.
+		for (const entry of Object.values(zip.files)) entry.date = options.date;
+	}
 	const output = await zip.generateAsync({
 		type: 'blob',
 		compression: 'DEFLATE',
