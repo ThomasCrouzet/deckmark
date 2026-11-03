@@ -488,6 +488,18 @@ async function measureProjectTree(page, runs) {
 			{ timeout: 60_000 }
 		);
 		values.push(performance.now() - startedAt);
+		// The close control stays disabled while the panel is busy. Wait for the
+		// idle state before the close click, otherwise slower engines drop it.
+		await page.waitForFunction(
+			() => {
+				const button = document.querySelector(
+					'[role="dialog"][aria-labelledby="projects-title"] header button'
+				);
+				return !!button && !(/** @type {HTMLButtonElement} */ (button).disabled);
+			},
+			null,
+			{ timeout: 60_000 }
+		);
 		await domClick(page, '[role="dialog"][aria-labelledby="projects-title"] header button');
 		await panel.waitFor({ state: 'hidden', timeout: 30_000 });
 	}

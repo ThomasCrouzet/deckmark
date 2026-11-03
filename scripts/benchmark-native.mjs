@@ -180,19 +180,29 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	async function closeApp() {
 		if (!app) return null;
 		const startedAt = performance.now();
-		const exited = new Promise((resolvePromise) => app?.once('exit', resolvePromise));
+		// Capture the process: the fallback timer below must never act on a later
+		// launch that reuses the shared `app` variable.
+		const target = app;
+		const exited = new Promise((resolvePromise) => target.once('exit', resolvePromise));
 		const invoked = await executeAsync(
 			`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_request_close').then(() => done(true), error => done({ error: String(error) }));`
 		).catch(() => null);
-		if (!invoked || invoked.error) app.kill();
+		if (!invoked || invoked.error) target.kill();
 		await Promise.race([
 			exited,
 			delay(20_000).then(() => {
-				app?.kill();
+				target.kill();
 				return undefined;
 			})
 		]);
 		const elapsed = performance.now() - startedAt;
+		if (app && app.exitCode === null && app.signalCode === null) {
+			app.kill('SIGKILL');
+			await Promise.race([
+				new Promise((resolvePromise) => app?.once('exit', resolvePromise)),
+				delay(5_000)
+			]);
+		}
 		app = undefined;
 		session = '';
 		return round(elapsed);
@@ -212,8 +222,32 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	}
 
 	async function seedDatabase() {
+		const rows = [
+			{
+				id: 'bench-presentation',
+				name: 'bench-presentation.md',
+				content: presentationText,
+				createdAt: 1_700_000_000_000,
+				updatedAt: 1_700_000_000_000,
+				order: -2,
+				open: true
+			},
+			{
+				id: 'bench-large',
+				name: 'bench-large.md',
+				content: largeFixture,
+				createdAt: 1_700_000_000_000,
+				updatedAt: 1_700_000_000_000,
+				order: -1,
+				open: true
+			},
+			...libraryFixture,
+			...projectFixture.documents
+		];
+		// The WebDriver server rejects oversized request bodies, so the corpus is
+		// written in bounded batches instead of one multi-megabyte call.
 		await executeAsync(
-			`const [rows, project] = arguments; const done = arguments[arguments.length - 1];
+			`const [project] = arguments; const done = arguments[arguments.length - 1];
 			const request = indexedDB.open('mdsh');
 			request.onerror = () => done({ error: String(request.error) });
 			request.onsuccess = () => {
@@ -221,9 +255,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 				const names = [...database.objectStoreNames];
 				const stores = ['drafts', ...(names.includes('projects') ? ['projects'] : [])];
 				const transaction = database.transaction(stores, 'readwrite');
-				const drafts = transaction.objectStore('drafts');
-				drafts.clear();
-				for (const row of rows) drafts.put(row);
+				transaction.objectStore('drafts').clear();
 				if (names.includes('projects')) {
 					const projects = transaction.objectStore('projects');
 					projects.clear();
@@ -232,32 +264,25 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 				transaction.oncomplete = () => { database.close(); done(true); };
 				transaction.onerror = () => { database.close(); done({ error: String(transaction.error) }); };
 			};`,
-			[
-				[
-					{
-						id: 'bench-presentation',
-						name: 'bench-presentation.md',
-						content: presentationText,
-						createdAt: 1_700_000_000_000,
-						updatedAt: 1_700_000_000_000,
-						order: -2,
-						open: true
-					},
-					{
-						id: 'bench-large',
-						name: 'bench-large.md',
-						content: largeFixture,
-						createdAt: 1_700_000_000_000,
-						updatedAt: 1_700_000_000_000,
-						order: -1,
-						open: true
-					},
-					...libraryFixture,
-					...projectFixture.documents
-				],
-				projectFixture.project
-			]
+			[projectFixture.project]
 		);
+		const batchSize = 20;
+		for (let offset = 0; offset < rows.length; offset += batchSize) {
+			await executeAsync(
+				`const [rows] = arguments; const done = arguments[arguments.length - 1];
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => done({ error: String(request.error) });
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts', 'readwrite');
+					const drafts = transaction.objectStore('drafts');
+					for (const row of rows) drafts.put(row);
+					transaction.oncomplete = () => { database.close(); done(true); };
+					transaction.onerror = () => { database.close(); done({ error: String(transaction.error) }); };
+				};`,
+				[rows.slice(offset, offset + batchSize)]
+			);
+		}
 		await execute(
 			`localStorage.setItem('mdsh:activeId', 'bench-000'); localStorage.setItem('mdsh:mode', 'source'); localStorage.setItem('mdsh:locale', 'en');`
 		);
@@ -498,11 +523,17 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 				45_000
 			);
 			await waitForContent(
-				`document.querySelectorAll('[data-project-document]').length === ${projectFixture.documents.length}`,
+				`document.querySelectorAll('[role="dialog"] [data-project-document]').length === ${projectFixture.documents.length}`,
 				'project tree rows',
 				90_000
 			);
 			values.push(performance.now() - startedAt);
+			// The close control is disabled while the panel is busy.
+			await waitForContent(
+				`!document.querySelector('[role="dialog"][aria-labelledby="projects-title"] header button')?.disabled`,
+				'Projects panel idle',
+				60_000
+			);
 			await click('[role="dialog"][aria-labelledby="projects-title"] header button');
 			await until(
 				() => execute('return !document.getElementById("projects-title")'),
@@ -674,9 +705,10 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		runMemory('startup');
 		result.stage = 'library-reload';
 		await seedDatabase();
-		await installInputProbe();
 		const reloadStartedAt = performance.now();
 		await refresh();
+		// A reload replaces the window, so the probe must be installed after it.
+		await installInputProbe();
 		await waitForContent(
 			`document.querySelector('header input')?.value === 'bench-000'`,
 			'library reload editor',
