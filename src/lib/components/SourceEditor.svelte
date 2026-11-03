@@ -6,6 +6,7 @@
 	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
+	import { applySourceChanges } from '#lib/code/text-changes.js';
 
 	interface Props {
 		fileId: string;
@@ -39,29 +40,7 @@
 	let applyingExternal = false;
 
 	function sourceChanges(update: Pick<ViewUpdate, 'startState' | 'changes'>): string {
-		const source = lastEmitted;
-		const lineStarts = [0];
-		for (const match of source.matchAll(/\r\n?|\n/g))
-			lineStarts.push(match.index + match[0].length);
-		const offset = (position: number) => {
-			const line = update.startState.doc.lineAt(position);
-			return lineStarts[line.number - 1]! + position - line.from;
-		};
-		const parts: string[] = [];
-		let cursor = 0;
-		update.changes.iterChanges((from, to, _newFrom, _newTo, inserted) => {
-			const rawFrom = offset(from);
-			const rawTo = offset(to);
-			const separator =
-				/\r\n?|\n/.exec(source.slice(rawFrom))?.[0] ?? /\r\n?|\n/.exec(source)?.[0] ?? '\n';
-			parts.push(
-				source.slice(cursor, rawFrom),
-				inserted.sliceString(0, inserted.length, separator)
-			);
-			cursor = rawTo;
-		});
-		parts.push(source.slice(cursor));
-		return parts.join('');
+		return applySourceChanges(lastEmitted, update.startState, update.changes);
 	}
 	// Failure state of the CodeMirror lazy-load (chunk unavailable: first
 	// offline opening, or stale PWA cache after deployment). Shows an in-place

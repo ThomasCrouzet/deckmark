@@ -15,6 +15,7 @@
 	import Welcome from '#lib/components/Welcome.svelte';
 	import ScrollNav from '#lib/components/ScrollNav.svelte';
 	import ImageDocument from '#lib/components/ImageDocument.svelte';
+	import CodeEditor from '#lib/components/CodeEditor.svelte';
 	import { Upload } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import type { EditMode, FileItem } from '#lib/types.js';
@@ -143,11 +144,12 @@
 				<ImageDocument file={activeFile} />
 			{:else if kind === 'code'}
 				{#key activeFile.id}
-					<SourceEditor
+					<CodeEditor
 						fileId={activeFile.id}
+						name={activeFile.name}
 						content={activeFile.content}
-						plainText
 						onChange={onEditorChange}
+						onFlush={onEditorFlush}
 						onCursorLine={(line) => (sourceLine = line)}
 					/>
 				{/key}
