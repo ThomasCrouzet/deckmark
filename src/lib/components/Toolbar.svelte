@@ -8,7 +8,6 @@
 		Code2,
 		Keyboard,
 		Ellipsis,
-		HardDrive,
 		HardDriveDownload,
 		Printer,
 		Moon,
@@ -21,6 +20,7 @@
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
+	import FileStatusBadge from './FileStatusBadge.svelte';
 
 	interface Props {
 		kind?: DocumentKind;
@@ -200,26 +200,7 @@
 						? t('statusBar.saving')
 						: t('stats.saved')}</span
 			>
-			{#if filesStore.active.linkedToDisk}
-				<span
-					class="flex items-center gap-1 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5
-					       text-[10px] font-medium text-accent"
-					title={t('toolbar.linkedToDisk')}
-				>
-					<HardDrive size={10} />
-					<span class="hidden sm:inline">{t('toolbar.linked')}</span>
-				</span>
-			{/if}
-			{#if filesStore.active.dirty}
-				<span
-					class="hidden text-[10px] text-fg-dim sm:inline"
-					title={t('toolbar.notExported')}
-					aria-label={t('toolbar.unexportedChanges')}
-					role="status"
-				>
-					<span aria-hidden="true">●</span>
-				</span>
-			{/if}
+			<FileStatusBadge file={filesStore.active} showLabel />
 		{:else}
 			<span class="hidden px-2 text-sm text-fg-dim sm:inline">{t('toolbar.noFileOpen')}</span>
 		{/if}

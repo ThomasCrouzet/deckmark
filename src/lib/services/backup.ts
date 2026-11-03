@@ -244,6 +244,7 @@ function normalizeDraft(draft: DraftRow): DraftRow {
 		content: draft.content,
 		...(draft.projectId === undefined ? {} : { projectId: draft.projectId }),
 		...(draft.relativePath === undefined ? {} : { relativePath: draft.relativePath }),
+		...(draft.origin === undefined ? {} : { origin: draft.origin }),
 		createdAt: draft.createdAt,
 		updatedAt: draft.updatedAt,
 		order: draft.order,
@@ -299,6 +300,10 @@ function validDraft(v: unknown): v is DraftRow {
 		(v.projectId === undefined || (typeof v.projectId === 'string' && v.projectId.length > 0)) &&
 		(v.relativePath === undefined ||
 			(typeof v.relativePath === 'string' && v.relativePath.length > 0)) &&
+		(v.origin === undefined ||
+			v.origin === 'created' ||
+			v.origin === 'imported' ||
+			v.origin === 'template') &&
 		(v.projectId === undefined) === (v.relativePath === undefined)
 	);
 }

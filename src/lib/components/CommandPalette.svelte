@@ -653,7 +653,11 @@
 			icon: FileText,
 			run: () => {
 				const doc = templatesStore.resolve(tpl.id);
-				if (doc) filesStore.createNew(doc.name, doc.content, { focusEditor: true });
+				if (doc)
+					filesStore.createNew(doc.name, doc.content, {
+						focusEditor: doc.kind === 'note',
+						origin: 'template'
+					});
 			}
 		}))
 	);

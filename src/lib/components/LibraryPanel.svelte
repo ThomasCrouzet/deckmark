@@ -8,6 +8,7 @@
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { X, Search, Trash2, FileText, Presentation } from '@lucide/svelte';
 	import Toasts from './Toasts.svelte';
+	import FileStatusBadge from './FileStatusBadge.svelte';
 	let { onClose }: { onClose: () => void } = $props();
 	let input: HTMLInputElement | undefined = $state();
 	let query = $state('');
@@ -219,6 +220,7 @@
 						<span class="flex max-w-full items-center gap-2 text-sm font-medium">
 							<TypeIcon size={14} class="shrink-0" aria-hidden="true" />
 							<span class="truncate">{file.name}</span>
+							<FileStatusBadge {file} />
 						</span>
 						<span id={`library-type-${file.id}`} class="text-xs text-fg-muted">{typeLabel}</span>
 						{#if file.relativePath}<span class="max-w-full truncate text-xs text-fg-muted"

@@ -15,14 +15,14 @@
 		CornerDownLeft,
 		Tag,
 		Archive,
-		CircleX,
-		AlertTriangle
+		CircleX
 	} from '@lucide/svelte';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { spinnerStore } from '#lib/spinner.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import BrandLogo from './BrandLogo.svelte';
+	import FileStatusBadge from './FileStatusBadge.svelte';
 	import TrashPanel from './TrashPanel.svelte';
 	import { ArrowUp, ArrowDown } from '@lucide/svelte';
 
@@ -577,18 +577,7 @@
 										>{file.relativePath}</span
 									>{/if}
 							</span>
-							{#if file.brokenLink}
-								<!-- §6.9 - "Broken disk link" badge: visually warns that the
-								     FSA handle no longer resolves. Relinking action via DiskLinksPanel
-								     or ⌘⇧S (which sets a new handle). -->
-								<span
-									class="flex-shrink-0 text-warning"
-									title={t('sidebar.brokenDiskLinkHint')}
-									aria-label={t('sidebar.brokenDiskLink')}
-								>
-									<AlertTriangle size={10} />
-								</span>
-							{/if}
+							<FileStatusBadge {file} />
 							{#if file.dirty}
 								<span class="sr-only">{t('sidebar.notExported')}</span>
 							{/if}

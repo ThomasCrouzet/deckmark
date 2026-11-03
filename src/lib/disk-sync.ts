@@ -357,6 +357,7 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 				return false;
 			}
 			const resolution = await diskConflictStore.resolve({
+				fileId: id,
 				name,
 				localContent: content,
 				diskContent
@@ -491,6 +492,7 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 			try {
 				const external = await tauriReadPath(pathRec.path);
 				const resolution = await diskConflictStore.resolve({
+					fileId: id,
 					name,
 					localContent: content,
 					diskContent: external.content

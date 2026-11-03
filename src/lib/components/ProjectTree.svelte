@@ -2,6 +2,7 @@
 	import type { FileItem } from '#lib/types.js';
 	import { t } from '#lib/i18n/index.js';
 	import { Folder, FileText } from '@lucide/svelte';
+	import FileStatusBadge from './FileStatusBadge.svelte';
 
 	let {
 		documents,
@@ -67,7 +68,8 @@
 					class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-bg-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
 				>
 					<FileText size={15} class="shrink-0 text-fg-dim" aria-hidden="true" />
-					<span class="break-all font-mono">{file.name}</span>
+					<span class="min-w-0 flex-1 break-all font-mono">{file.name}</span>
+					<FileStatusBadge {file} />
 				</button>
 			</li>
 		{/each}

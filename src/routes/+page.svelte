@@ -348,7 +348,8 @@
 		// replaces the active tab.
 		filesStore.flushPending();
 		filesStore.createNew(document.name, document.content, {
-			focusEditor: document.kind === 'note'
+			focusEditor: document.kind === 'note',
+			origin: 'template'
 		});
 		modals.newDocumentOpen = false;
 		if (window.innerWidth < 768) sidebarOpen = false;

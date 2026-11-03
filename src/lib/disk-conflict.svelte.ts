@@ -1,6 +1,8 @@
 export type DiskConflictResolution = 'overwrite' | 'reload' | 'cancel';
 
 export interface DiskConflictRequest {
+	/** Draft that triggered the conflict, when known. */
+	fileId?: string | undefined;
 	name: string;
 	localContent: string;
 	diskContent: string;
@@ -24,6 +26,7 @@ class DiskConflictStore {
 	resolve(input: DiskConflictRequest): Promise<DiskConflictResolution> {
 		const request = Object.freeze({
 			id: ++this.nextId,
+			fileId: input.fileId,
 			name: String(input.name),
 			localContent: String(input.localContent),
 			diskContent: String(input.diskContent)

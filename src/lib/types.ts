@@ -9,6 +9,8 @@ export interface FileItem {
 	createdAt: number;
 	updatedAt: number;
 	dirty: boolean;
+	/** How the document first entered the library. */
+	origin?: 'created' | 'imported' | 'template';
 	linkedToDisk?: boolean;
 	// "Broken disk link" flag - true if an FSA handle was associated but is no
 	// longer resolvable (file deleted/moved, IDB purged…). Managed by

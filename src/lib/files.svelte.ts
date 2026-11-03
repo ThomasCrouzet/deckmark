@@ -61,6 +61,7 @@ function toDraftRow(file: FileItem, order: number, open = true): DraftRow {
 		name: file.name,
 		content: file.content,
 		...(file.projectId ? { projectId: file.projectId, relativePath: file.relativePath } : {}),
+		...(file.origin ? { origin: file.origin } : {}),
 		createdAt: file.createdAt,
 		updatedAt: file.updatedAt,
 		order,
@@ -356,6 +357,7 @@ class FilesStore {
 				name: r.name,
 				content: r.content,
 				...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
+				...(r.origin ? { origin: r.origin } : {}),
 				createdAt: r.createdAt,
 				updatedAt: r.updatedAt,
 				dirty: false,
@@ -493,7 +495,7 @@ class FilesStore {
 	createNew(
 		name = t('files.untitledFilename'),
 		content = '',
-		options: { focusEditor?: boolean } = {}
+		options: { focusEditor?: boolean; origin?: FileItem['origin'] } = {}
 	): FileItem {
 		const file: FileItem = {
 			id: newId(),
@@ -502,6 +504,7 @@ class FilesStore {
 				name
 			),
 			content,
+			origin: options.origin ?? (content.length > 0 ? 'imported' : 'created'),
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
 			dirty: content.length > 0
@@ -518,11 +521,16 @@ class FilesStore {
 	async createDocument(kind: DocumentKind): Promise<FileItem> {
 		if (kind === 'note') {
 			this.dispatchEditorFlush();
-			return this.createNew(t('files.untitledFilename'), '', { focusEditor: true });
+			return this.createNew(t('files.untitledFilename'), '', {
+				focusEditor: true,
+				origin: 'created'
+			});
 		}
 		const { createDeck, serializePresentation } = await import('./presentation/model');
 		this.dispatchEditorFlush();
-		return this.createNew(t('slides.newPresentationName'), serializePresentation(createDeck()));
+		return this.createNew(t('slides.newPresentationName'), serializePresentation(createDeck()), {
+			origin: 'created'
+		});
 	}
 
 	async openProjectLink(sourceId: string, destination: string): Promise<void> {
@@ -576,7 +584,7 @@ class FilesStore {
 					continue;
 				}
 				const name = /\.(md|markdown)$/i.test(file.name) ? file.name : `${file.name}.md`;
-				created.push(this.createNew(name, content));
+				created.push(this.createNew(name, content, { origin: 'imported' }));
 				session.accept();
 			}
 			return {
@@ -1296,7 +1304,8 @@ class FilesStore {
 				if (this.closedFiles.some((file) => file.id === id)) this.reopen(id);
 				else this.setActive(id);
 			},
-			onCreate: (name: string, content: string) => this.createNew(name, content),
+			onCreate: (name: string, content: string) =>
+				this.createNew(name, content, { origin: 'imported' }),
 			onSyncName: (id: string, name: string) => this.syncDiskName(id, name),
 			onUpdateContent: (id: string, content: string) => this.updateContent(id, content),
 			scheduleSave: (id: string) => this.scheduleSave(id),
@@ -1345,7 +1354,7 @@ class FilesStore {
 		const configured = this.beginImport(options);
 		try {
 			const { files, truncated, report } = await pickDirectoryFiles(configured);
-			for (const file of files) this.createNew(file.name, file.content);
+			for (const file of files) this.createNew(file.name, file.content, { origin: 'imported' });
 			this.finishImport(report, configured.signal);
 			return { count: files.length, truncated, report };
 		} finally {
@@ -1384,7 +1393,9 @@ class FilesStore {
 	 * called automatically - only from the explicit Welcome-screen button.
 	 */
 	loadDemo(): FileItem[] {
-		const created = DEMO_DOCS.map((doc) => this.createNew(doc.name, doc.content));
+		const created = DEMO_DOCS.map((doc) =>
+			this.createNew(doc.name, doc.content, { origin: 'created' })
+		);
 		// invariant: DEMO_DOCS is a non-empty const array, `created` has the same length.
 		this.setActive(created[0]!.id);
 		return created;
