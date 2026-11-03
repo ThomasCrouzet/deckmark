@@ -54,6 +54,11 @@ export interface RenderOptions {
 	wikiLinks?: boolean;
 	/** Allows network-backed images after an explicit action in the reading view. */
 	allowRemoteImages?: boolean;
+	/**
+	 * Keeps relative image paths without media preparation. Static site export
+	 * bundles these paths as local files and reports or blocks remote sources.
+	 */
+	preserveLocalImages?: boolean;
 }
 
 export interface RenderResult {
@@ -278,16 +283,19 @@ async function renderMermaidDiagram(
  * Use `dompurify` directly, not `isomorphic-dompurify`. The app runs only in browsers.
  * It does not need the jsdom wrapper, which adds about 150 KB of raw code.
  */
-async function sanitize(html: string, allowRemoteImages: boolean): Promise<string> {
+async function sanitize(
+	html: string,
+	allowRemoteImages: boolean,
+	preserveLocalImages: boolean
+): Promise<string> {
 	// Shared hook (sanitize-html): external links get noopener, remote style
 	// url() beacons are stripped. Same hook as the WYSIWYG Mermaid preview.
 	// Live blob URLs are embedded before DOMPurify sees them. This recovers
 	// documents created by older builds while the original blob is still alive.
-	const prepared = await prepareHtmlMedia(html, { allowNetwork: false });
-	return applyRemoteImagePolicy(
-		await sanitizeHtml(prepared.html, MARKDOWN_PURIFY),
-		allowRemoteImages
-	);
+	const prepared = preserveLocalImages
+		? html
+		: (await prepareHtmlMedia(html, { allowNetwork: false })).html;
+	return applyRemoteImagePolicy(await sanitizeHtml(prepared, MARKDOWN_PURIFY), allowRemoteImages);
 }
 
 /**
@@ -419,7 +427,10 @@ async function renderMarkdownCore(
 			opts.projectContext ?? (opts.fileId ? await projectContextFor(opts.fileId) : undefined);
 		if (context) html = await resolveProjectHtmlImages(html, context);
 	}
-	return { html: await sanitize(html, opts.allowRemoteImages === true), fm };
+	return {
+		html: await sanitize(html, opts.allowRemoteImages === true, opts.preserveLocalImages === true),
+		fm
+	};
 }
 
 export async function renderMarkdown(md: string, opts: RenderOptions = {}): Promise<string> {

@@ -44,6 +44,7 @@
 		onOpenComments: () => void;
 		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
+		onOpenDocsSite: () => void;
 		onOpenDocsCheckIssue: (fileId: string, line: number) => void;
 		onOpenSnippets: () => void;
 		onSaveSnippetSelection: () => void;
@@ -82,7 +83,8 @@
 		onOpenDocsCheckIssue,
 		onOpenSnippets,
 		onSaveSnippetSelection,
-		onSaveSnippetFile
+		onSaveSnippetFile,
+		onOpenDocsSite
 	}: Props = $props();
 </script>
 
@@ -139,6 +141,7 @@
 			{onOpenSnippets}
 			{onSaveSnippetSelection}
 			{onSaveSnippetFile}
+			{onOpenDocsSite}
 			{onPresent}
 			{onAdvancedSource}
 		/>
@@ -261,6 +264,17 @@
 			capture={modals.snippetsOptions.capture ?? null}
 			context={modals.snippetsOptions.context ?? {}}
 			onClose={() => (modals.snippetsOpen = false)}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.docsSiteOpen}
+	{#await modals.loadDocsSitePanel() then DocsSitePanel}
+		<DocsSitePanel
+			initialProjectId={modals.docsSiteProjectId}
+			onClose={() => (modals.docsSiteOpen = false)}
 		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->

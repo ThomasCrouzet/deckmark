@@ -896,6 +896,7 @@
 				);
 			}}
 			onOpenDocsCheck={(projectId) => modals.openDocsCheck(projectId)}
+			onOpenDocsSite={(projectId) => modals.openDocsSite(projectId)}
 		/>
 	{:catch _error}
 		<div role="alert" class="fixed inset-0 z-50 bg-bg p-6 text-fg">
@@ -982,6 +983,7 @@
 	onSetMode={(m) => void requestMode(m)}
 	onOpenInFileSearch={openInFileSearch}
 	onOpenDocsCheck={() => modals.openDocsCheck(filesStore.active?.projectId ?? null)}
+	onOpenDocsSite={() => modals.openDocsSite(filesStore.active?.projectId ?? null)}
 	onOpenDocsCheckIssue={openDocsCheckIssue}
 	onOpenSnippets={() => openSnippetPanel()}
 	onSaveSnippetSelection={() => {

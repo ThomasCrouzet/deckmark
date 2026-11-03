@@ -475,6 +475,30 @@ downloads in the artifacts. To check repeated imports without retries, run:
 npm run test:e2e -- project-link-performance.spec.ts --project=chromium --workers=1 --retries=0 --repeat-each=8
 ```
 
+## Documentation site export risks
+
+The site export must not change source Markdown, start requests, or write a
+partial ZIP. The browser workflow imports a nested project, exports the site,
+reads the ZIP in Node, and resolves every local link and asset from each HTML
+page. It compares the stored documents before and after the export. It also opens
+the extracted site from a `file://` URL with the network disabled, follows one
+navigation link, and rejects every external request.
+
+Keep the source archive, the site ZIP, the report JSON, the summary artifact, and
+the browser trace with the command and source revision. Run:
+
+```sh
+E2E_PORT=4178 npx playwright test e2e/docs-site-export.spec.ts --project=chromium --workers=1 --reporter=line
+```
+
+The isolated fixtures cover nested links, anchors, missing local images, external
+images, generated HTML escaping, wiki targets, and deterministic file order. The
+browser suite cannot inspect every path boundary without a large archive. A remote
+image is a warning and the export removes its source. A missing local image is an
+error and the export stops before ZIP creation. The exporter and the Markdown
+renderer stay in lazy chunks. Run `npm run size` after a change to the export
+entry points.
+
 The visual note guard sets a collapsed DOM range at the paragraph end and waits
 for browser selection events before paste. This fixture does not test native End-key
 navigation. Keep `before-paste-caret.json`, `after-rejection-caret.json`, and

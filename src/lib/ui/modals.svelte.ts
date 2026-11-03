@@ -88,6 +88,8 @@ export function createModals(opts: ModalsOptions) {
 	let docsCheckProjectId = $state<string | null>(null);
 	let snippetsOpen = $state(false);
 	let snippetsOptions = $state<SnippetsOpenOptions>({});
+	let docsSiteOpen = $state(false);
+	let docsSiteProjectId = $state<string | null>(null);
 	let presenting = $state(false);
 	let newDocumentOpen = $state(false);
 
@@ -106,6 +108,7 @@ export function createModals(opts: ModalsOptions) {
 		collectionOpen = false;
 		docsCheckOpen = false;
 		snippetsOpen = false;
+		docsSiteOpen = false;
 		newDocumentOpen = false;
 	}
 
@@ -211,6 +214,13 @@ export function createModals(opts: ModalsOptions) {
 		},
 		'snippets.title'
 	);
+	const loadDocsSitePanel = makeLazyLoader(
+		() => import('#lib/components/DocsSiteExportPanel.svelte'),
+		() => {
+			docsSiteOpen = false;
+		},
+		'projects.export'
+	);
 	const loadNewDocument = makeLazyLoader(
 		() => import('#lib/components/NewDocumentDialog.svelte'),
 		() => {
@@ -303,6 +313,12 @@ export function createModals(opts: ModalsOptions) {
 		snippetsOpen = true;
 	}
 
+	function openDocsSite(projectId: string | null = null) {
+		closeAll();
+		docsSiteProjectId = projectId;
+		docsSiteOpen = true;
+	}
+
 	function openNewDocument() {
 		closeAll();
 		newDocumentOpen = true;
@@ -358,6 +374,7 @@ export function createModals(opts: ModalsOptions) {
 				collectionOpen ||
 				docsCheckOpen ||
 				snippetsOpen ||
+				docsSiteOpen ||
 				newDocumentOpen ||
 				presenting
 			);
@@ -453,6 +470,16 @@ export function createModals(opts: ModalsOptions) {
 		get snippetsOptions() {
 			return snippetsOptions;
 		},
+		get docsSiteOpen() {
+			return docsSiteOpen;
+		},
+		set docsSiteOpen(v: boolean) {
+			if (v) openDocsSite();
+			else docsSiteOpen = false;
+		},
+		get docsSiteProjectId() {
+			return docsSiteProjectId;
+		},
 		get presenting() {
 			return presenting;
 		},
@@ -493,9 +520,11 @@ export function createModals(opts: ModalsOptions) {
 		loadGraphPanel,
 		loadDocsCheckPanel,
 		loadSnippetsPanel,
+		loadDocsSitePanel,
 		loadToc,
 		// Actions
 		openSnippets,
+		openDocsSite,
 		openPalette,
 		openSearch,
 		openDiskLinks,
