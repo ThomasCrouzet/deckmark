@@ -10,6 +10,12 @@
 		detectLineEnding
 	} from '#lib/code/text-changes.js';
 	import { codeLanguageForName, loadCodeLanguage } from '#lib/code/languages.js';
+	import {
+		analyzeJson,
+		prepareJsonAction,
+		validateJsonAgainstSchema,
+		type JsonAnalysis
+	} from '#lib/code/json-tools.js';
 
 	interface Props {
 		fileId: string;
@@ -43,6 +49,9 @@
 	let indentUnitRef: typeof import('@codemirror/language').indentUnit | null = null;
 	let invisiblesRef: import('@codemirror/state').Extension = [];
 	let removeTabListener: (() => void) | null = null;
+	let jsonCheck = $state<JsonAnalysis | null>(null);
+	let jsonError = $state('');
+	let jsonSchemaIssues = $state<string[]>([]);
 
 	function indentUnitValue() {
 		return indentStyle === 'tab' ? '\t' : ' '.repeat(indentSize);
@@ -66,6 +75,41 @@
 		void indentSize;
 		applyOptions();
 	});
+
+	$effect(() => {
+		if (language.id !== 'json') return;
+		const text = content;
+		const timer = setTimeout(() => {
+			jsonCheck = analyzeJson(text);
+			jsonError = '';
+			jsonSchemaIssues = jsonCheck.valid ? validateJsonAgainstSchema(text) : [];
+		}, 150);
+		return () => clearTimeout(timer);
+	});
+
+	function applyWholeDocument(text: string) {
+		if (!view) return;
+		const selection = Math.min(view.state.selection.main.head, text.length);
+		view.dispatch({
+			changes: { from: 0, to: view.state.doc.length, insert: text },
+			selection: { anchor: selection },
+			scrollIntoView: true
+		});
+		view.focus();
+	}
+
+	function runJsonAction(action: 'format' | 'minify') {
+		const result = prepareJsonAction(view ? lastEmitted : content, action, {
+			indent: ' '.repeat(indentSize),
+			eol
+		});
+		if (!result.ok) {
+			jsonError = result.reason;
+			return;
+		}
+		jsonError = '';
+		applyWholeDocument(result.text);
+	}
 
 	$effect(() => {
 		const incoming = content;
@@ -320,6 +364,50 @@
 					<option value={8}>8</option>
 				</select>
 			</label>
+			{#if language.id === 'json'}
+				<span class="json-separator" aria-hidden="true"></span>
+				{#if jsonCheck}
+					<span
+						class="json-status"
+						class:valid={jsonCheck.valid}
+						class:invalid={!jsonCheck.valid}
+						role="status"
+						data-testid="json-status"
+					>
+						{jsonCheck.valid
+							? t('json.valid')
+							: t('json.invalid', {
+									line: jsonCheck.line ?? 1,
+									column: jsonCheck.column ?? 1
+								})}
+					</span>
+					{#if jsonCheck.duplicateKeys.length > 0}
+						<span class="json-warning" data-testid="json-duplicates">
+							{t('json.duplicates', { keys: jsonCheck.duplicateKeys.join(', ') })}
+						</span>
+					{/if}
+					{#if jsonSchemaIssues.length > 0}
+						<span class="json-warning" data-testid="json-schema">
+							{t('json.schemaIssues', { n: jsonSchemaIssues.length })}
+						</span>
+					{/if}
+				{/if}
+				<button
+					type="button"
+					disabled={!jsonCheck?.valid}
+					onclick={() => runJsonAction('format')}
+					data-testid="json-format">{t('json.format')}</button
+				>
+				<button
+					type="button"
+					disabled={!jsonCheck?.valid}
+					onclick={() => runJsonAction('minify')}
+					data-testid="json-minify">{t('json.minify')}</button
+				>
+				{#if jsonError}
+					<span class="json-error" role="alert" data-testid="json-action-error">{jsonError}</span>
+				{/if}
+			{/if}
 		</div>
 		<div bind:this={host} class="code-host" data-testid="code-editor"></div>
 	</div>
@@ -346,6 +434,24 @@
 	.code-language {
 		font-weight: 600;
 		color: var(--color-fg);
+	}
+	.json-separator {
+		width: 1px;
+		align-self: stretch;
+		background: var(--color-border);
+	}
+	.json-status {
+		font-family: var(--font-mono);
+	}
+	.json-status.valid {
+		color: var(--color-accent);
+	}
+	.json-status.invalid,
+	.json-error {
+		color: var(--color-danger);
+	}
+	.json-warning {
+		color: var(--color-warning, #d19a66);
 	}
 	.code-eol {
 		padding: 1px 5px;
