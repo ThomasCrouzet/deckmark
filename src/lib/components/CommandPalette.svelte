@@ -127,6 +127,7 @@
 		onOpenAi: () => void;
 		onOpenProperties: () => void;
 		onOpenComments: () => void;
+		onOpenExportProfiles: () => void;
 		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenSnippets: () => void;
@@ -177,6 +178,7 @@
 		onOpenAi,
 		onOpenProperties,
 		onOpenComments,
+		onOpenExportProfiles,
 		onOpenCollection,
 		onOpenDocsCheck,
 		onOpenSnippets,
@@ -667,6 +669,13 @@
 			label: t('slides.source'),
 			icon: Code2,
 			run: onAdvancedSource
+		},
+		{
+			id: 'export-profiles',
+			label: t('exportProfiles.command'),
+			hint: t('exportProfiles.commandHint'),
+			icon: Download,
+			run: onOpenExportProfiles
 		},
 		{
 			id: 'collection',

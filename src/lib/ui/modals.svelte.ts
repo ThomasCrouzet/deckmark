@@ -83,6 +83,7 @@ export function createModals(opts: ModalsOptions) {
 	let aiOpen = $state(false);
 	let propertiesOpen = $state(false);
 	let commentsOpen = $state(false);
+	let exportProfilesOpen = $state(false);
 	let collectionOpen = $state(false);
 	let docsCheckOpen = $state(false);
 	let docsCheckProjectId = $state<string | null>(null);
@@ -105,6 +106,7 @@ export function createModals(opts: ModalsOptions) {
 		aiOpen = false;
 		propertiesOpen = false;
 		commentsOpen = false;
+		exportProfilesOpen = false;
 		collectionOpen = false;
 		docsCheckOpen = false;
 		snippetsOpen = false;
@@ -192,6 +194,13 @@ export function createModals(opts: ModalsOptions) {
 			commentsOpen = false;
 		},
 		'modals.labelComments'
+	);
+	const loadExportProfilesPanel = makeLazyLoader(
+		() => import('#lib/components/ExportProfilesPanel.svelte'),
+		() => {
+			exportProfilesOpen = false;
+		},
+		'exportProfiles.title'
 	);
 	const loadCollectionPanel = makeLazyLoader(
 		() => import('#lib/components/CollectionPanel.svelte'),
@@ -296,6 +305,11 @@ export function createModals(opts: ModalsOptions) {
 		commentsOpen = true;
 	}
 
+	function openExportProfiles() {
+		closeAll();
+		exportProfilesOpen = true;
+	}
+
 	function openCollection() {
 		closeAll();
 		collectionOpen = true;
@@ -371,6 +385,7 @@ export function createModals(opts: ModalsOptions) {
 				aiOpen ||
 				propertiesOpen ||
 				commentsOpen ||
+				exportProfilesOpen ||
 				collectionOpen ||
 				docsCheckOpen ||
 				snippetsOpen ||
@@ -443,6 +458,13 @@ export function createModals(opts: ModalsOptions) {
 			if (value) openComments();
 			else commentsOpen = false;
 		},
+		get exportProfilesOpen() {
+			return exportProfilesOpen;
+		},
+		set exportProfilesOpen(value: boolean) {
+			if (value) openExportProfiles();
+			else exportProfilesOpen = false;
+		},
 		get collectionOpen() {
 			return collectionOpen;
 		},
@@ -505,7 +527,9 @@ export function createModals(opts: ModalsOptions) {
 		loadPropertiesPanel,
 		loadCommentsPanel,
 		loadCollectionPanel,
+		loadExportProfilesPanel,
 		openAi,
+		openExportProfiles,
 		openProperties,
 		openComments,
 		openCollection,

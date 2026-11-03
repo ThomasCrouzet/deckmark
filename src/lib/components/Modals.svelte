@@ -42,6 +42,7 @@
 		onAdvancedSource: () => void;
 		onOpenProperties: () => void;
 		onOpenComments: () => void;
+		onOpenExportProfiles: () => void;
 		onOpenCollection: () => void;
 		onOpenDocsCheck: () => void;
 		onOpenDocsSite: () => void;
@@ -78,6 +79,7 @@
 		onAdvancedSource,
 		onOpenProperties,
 		onOpenComments,
+		onOpenExportProfiles,
 		onOpenCollection,
 		onOpenDocsCheck,
 		onOpenDocsCheckIssue,
@@ -136,6 +138,7 @@
 			onOpenAi={modals.openAi}
 			{onOpenProperties}
 			{onOpenComments}
+			{onOpenExportProfiles}
 			{onOpenCollection}
 			{onOpenDocsCheck}
 			{onOpenSnippets}
@@ -232,6 +235,17 @@
 {#if modals.commentsOpen}
 	{#await modals.loadCommentsPanel() then CommentsPanel}
 		<CommentsPanel open={modals.commentsOpen} onClose={() => (modals.commentsOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.exportProfilesOpen}
+	{#await modals.loadExportProfilesPanel() then ExportProfilesPanel}
+		<ExportProfilesPanel
+			open={modals.exportProfilesOpen}
+			onClose={() => (modals.exportProfilesOpen = false)}
+		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}

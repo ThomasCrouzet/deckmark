@@ -21,6 +21,7 @@ import { abortable, checkAborted } from '../abort';
 import { IMPORT_LIMITS } from '../config';
 import { isPresentation } from '../presentation/detect';
 import { documentKindForFile } from '../document-kind';
+import { activeProfile, applyExportProfile } from '../export-profiles';
 
 export interface MediaExportOptions {
 	allowNetworkImages?: boolean;
@@ -259,13 +260,14 @@ export async function exportHTML(
 		signal: options.signal
 	});
 	const docTitle = title || fallback;
-	const html = await buildStandaloneHtmlDocument(
+	const builtHtml = await buildStandaloneHtmlDocument(
 		docTitle,
 		bodyHtml,
 		file.content,
 		i18n.locale,
 		options.signal
 	);
+	const html = applyExportProfile(builtHtml, activeProfile(), docTitle);
 	checkAborted(options.signal);
 	options.onDialog?.();
 	const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
@@ -321,12 +323,16 @@ export async function exportPDF(
 		signal: options.signal
 	});
 	const docTitle = title || fallback;
-	const html = buildPrintDocument({
-		title: docTitle,
-		bodyHtml,
-		source: file.content,
-		lang: i18n.locale
-	});
+	const html = applyExportProfile(
+		buildPrintDocument({
+			title: docTitle,
+			bodyHtml,
+			source: file.content,
+			lang: i18n.locale
+		}),
+		activeProfile(),
+		docTitle
+	);
 	return printInIframe(html, options);
 }
 

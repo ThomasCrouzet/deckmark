@@ -963,6 +963,7 @@
 	onCreateFromTemplate={handleCreateFromTemplate}
 	onOpenProperties={modals.openProperties}
 	onOpenComments={modals.openComments}
+	onOpenExportProfiles={modals.openExportProfiles}
 	onOpenCollection={modals.openCollection}
 	onOpenOutline={openOutline}
 	{modals}
