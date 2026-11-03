@@ -58,6 +58,8 @@ const labels: DesktopMenuLabels = {
 	edit: 'Edit',
 	newFile: 'New',
 	open: 'Open',
+	save: 'Save',
+	saveAs: 'Save As',
 	saveToDisk: 'Save to disk',
 	exportMarkdown: 'Export Markdown',
 	exportPdf: 'Export PDF',

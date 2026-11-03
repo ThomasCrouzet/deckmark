@@ -195,7 +195,7 @@ describe('saveToDisk', () => {
 		deps = { getFile: () => file, onCreate: () => file, scheduleSave };
 	});
 
-	it('returns false without a toast when handle permission is denied', async () => {
+	it('reports denied handle permission without a write', async () => {
 		vi.mocked(fsa.getFsaLink).mockResolvedValue({
 			handle,
 			revision: 'sha256:disk',
@@ -203,7 +203,8 @@ describe('saveToDisk', () => {
 		});
 		vi.mocked(fsa.requestPermission).mockResolvedValue(false);
 		expect(await saveToDisk('a', deps)).toBe(false);
-		expect(notify.toasts).toHaveLength(0);
+		expect(notify.toasts).toHaveLength(1);
+		expect(notify.toasts[0]?.level).toBe('error');
 		expect(fsa.writeHandle).not.toHaveBeenCalled();
 	});
 

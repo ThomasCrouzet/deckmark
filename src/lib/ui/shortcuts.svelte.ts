@@ -6,7 +6,6 @@
 //
 // Logic extracted from `+page.svelte` (L630-695).
 
-import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 import { keyboardStore } from './keyboard.svelte';
 import type { EditMode } from '#lib/types.js';
 import { isMac } from '#lib/platform.js';
@@ -18,7 +17,8 @@ export interface ShortcutCallbacks {
 	onImport: () => Promise<void> | void;
 	onExport: () => void;
 	onExportPDF: () => void;
-	onSaveToDisk: () => Promise<void> | void;
+	onSave: () => Promise<void> | void;
+	onSaveAs: () => Promise<void> | void;
 	// Navigation / modes
 	getMode: () => EditMode;
 	setMode: (m: EditMode) => void;
@@ -75,7 +75,6 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 		const activeId = cb.getActiveId();
 		if (command.document && !activeId) return;
 		if ((command.id === 'sidebar' || command.id === 'close-file') && editable) return;
-		if (command.id === 'save-disk' && !isDiskLinkingAvailable()) return;
 		e.preventDefault();
 		switch (command.id) {
 			case 'new':
@@ -87,8 +86,11 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 			case 'export-md':
 				cb.onExport();
 				break;
-			case 'save-disk':
-				void cb.onSaveToDisk();
+			case 'save':
+				void cb.onSave();
+				break;
+			case 'save-as':
+				void cb.onSaveAs();
 				break;
 			case 'export-pdf':
 				cb.onExportPDF();

@@ -30,6 +30,10 @@
 		onExportHTML: () => void;
 		onExportPDF: () => void;
 		onExportAll: () => void;
+		onSave: () => void;
+		onSaveAs: () => void;
+		onEditCopy: () => void;
+		onEditOriginal: () => void;
 		onSaveToDisk: () => void;
 		onToggleSidebar: () => void;
 		onSetMode: (m: EditMode) => void;
@@ -55,6 +59,10 @@
 		onExportHTML,
 		onExportPDF,
 		onExportAll,
+		onSave,
+		onSaveAs,
+		onEditCopy,
+		onEditOriginal,
 		onSaveToDisk,
 		onToggleSidebar,
 		onSetMode,
@@ -89,6 +97,10 @@
 			onExportHtml={onExportHTML}
 			onExportPdf={onExportPDF}
 			{onExportAll}
+			{onSave}
+			{onSaveAs}
+			{onEditCopy}
+			{onEditOriginal}
 			{onSaveToDisk}
 			{onToggleSidebar}
 			{onSetMode}

@@ -14,6 +14,8 @@ export interface DraftRow {
 	mime?: string;
 	data?: string;
 	origin?: 'created' | 'imported' | 'template';
+	/** Linked original id for an explicit edit copy. */
+	sourceFileId?: string;
 	/** Whether the document is currently shown as an open tab. Missing means open for v4 data. */
 	open?: boolean;
 }

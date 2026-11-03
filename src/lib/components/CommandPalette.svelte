@@ -62,7 +62,8 @@
 		ClipboardCopy,
 		FolderOpen,
 		History,
-		Workflow
+		Workflow,
+		Copy
 	} from '@lucide/svelte';
 
 	interface Command {
@@ -96,6 +97,10 @@
 		onExportHtml: () => void;
 		onExportPdf: () => void;
 		onExportAll: () => void;
+		onSave: () => void;
+		onSaveAs: () => void;
+		onEditCopy: () => void;
+		onEditOriginal: () => void;
 		onSaveToDisk: () => void;
 		onToggleSidebar: () => void;
 		onSetMode: (m: EditMode) => void;
@@ -135,6 +140,10 @@
 		onExportHtml,
 		onExportPdf,
 		onExportAll,
+		onSave,
+		onSaveAs,
+		onEditCopy,
+		onEditOriginal,
 		onSaveToDisk,
 		onToggleSidebar,
 		onSetMode,
@@ -192,7 +201,10 @@
 			'rename-file',
 			'close-file',
 			'delete-file',
-			'save-disk'
+			'save',
+			'save-as',
+			'edit-copy',
+			'edit-original'
 		].includes(command.id);
 		if (command.id === 'export-all' && filesStore.library.length === 0) return false;
 		if (command.id.startsWith('export-') && spinnerStore.visible) return false;
@@ -317,6 +329,31 @@
 			icon: Upload,
 			run: onImport
 		},
+		{
+			id: 'open-local',
+			label: t('palette.openLocalFile'),
+			keywords: t('palette.openLocalFileKeywords'),
+			icon: FolderOpen,
+			run: onImport
+		},
+		{
+			id: 'edit-original',
+			label: t('palette.editOriginal'),
+			keywords: t('palette.editOriginalKeywords'),
+			icon: Link2,
+			enabled: () =>
+				filesStore.active !== null &&
+				(isDiskLinkingAvailable() || !!filesStore.active.sourceFileId),
+			run: onEditOriginal
+		},
+		{
+			id: 'edit-copy',
+			label: t('palette.editCopy'),
+			keywords: t('palette.editCopyKeywords'),
+			icon: Copy,
+			enabled: () => filesStore.active !== null,
+			run: onEditCopy
+		},
 		...(isDesktop() || isDirectoryPickerSupported()
 			? [
 					{
@@ -329,10 +366,28 @@
 				]
 			: []),
 		{
-			id: 'export-md',
-			label: t('palette.exportMarkdown'),
-			keywords: t('palette.exportMarkdownKeywords'),
+			id: 'save',
+			label: t('palette.save'),
+			keywords: t('palette.saveKeywords'),
 			kbd: formatKbd('⌘S'),
+			icon: Download,
+			enabled: () => filesStore.active !== null,
+			run: onSave
+		},
+		{
+			id: 'save-as',
+			label: t('palette.saveAs'),
+			keywords: t('palette.saveAsKeywords'),
+			kbd: formatKbd('⌘⇧S'),
+			icon: Download,
+			enabled: () => filesStore.active !== null,
+			run: onSaveAs
+		},
+		{
+			id: 'export-md',
+			label: t('palette.download'),
+			keywords: t('palette.downloadKeywords'),
+			kbd: formatKbd('⌘⇧E'),
 			icon: Download,
 			enabled: () => filesStore.active !== null,
 			run: onExportMd
@@ -343,7 +398,7 @@
 						id: 'save-disk',
 						label: t('palette.saveToDisk'),
 						keywords: t('palette.saveToDiskKeywords'),
-						kbd: formatKbd('⌘⇧S'),
+						kbd: keyboardStore.label('save-as') ?? formatKbd('⌘⇧S'),
 						icon: Download,
 						enabled: () => filesStore.active !== null,
 						run: onSaveToDisk
@@ -738,11 +793,31 @@
 		[
 			{
 				label: t('actions.documents'),
-				ids: ['new', 'import', 'library', 'search', 'search-in-file', 'outline', 'history']
+				ids: [
+					'new',
+					'import',
+					'open-local',
+					'edit-original',
+					'edit-copy',
+					'library',
+					'search',
+					'search-in-file',
+					'outline',
+					'history'
+				]
 			},
 			{
 				label: t('actions.export'),
-				ids: ['save-disk', 'export-md', 'export-pdf', 'export-html', 'export-all', 'backup']
+				ids: [
+					'save',
+					'save-as',
+					'save-disk',
+					'export-md',
+					'export-pdf',
+					'export-html',
+					'export-all',
+					'backup'
+				]
 			},
 			{
 				label: t('actions.workspace'),

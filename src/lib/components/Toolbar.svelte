@@ -11,7 +11,10 @@
 		HardDriveDownload,
 		Printer,
 		Moon,
-		Sun
+		Sun,
+		Save,
+		Copy,
+		Link2
 	} from '@lucide/svelte';
 	import type { EditMode } from '#lib/types.js';
 	import type { DocumentKind } from '#lib/document-kind.js';
@@ -31,6 +34,10 @@
 		onExport: () => void;
 		onExportPDF: () => void;
 		onOpenPalette: () => void;
+		onSave: () => void;
+		onSaveAs: () => void;
+		onEditCopy: () => void;
+		onEditOriginal: () => void;
 		onSaveToDisk: () => void;
 		onOpenActions?: () => void;
 		focusMode?: boolean;
@@ -46,6 +53,10 @@
 		onExport,
 		onExportPDF,
 		onOpenPalette,
+		onSave,
+		onSaveAs,
+		onEditCopy,
+		onEditOriginal,
 		onSaveToDisk,
 		onOpenActions,
 		focusMode = false,
@@ -55,6 +66,20 @@
 	let nameInput = $state<HTMLInputElement | null>(null);
 	let modeGroup = $state<HTMLDivElement | null>(null);
 	const diskLinkingAvailable = isDiskLinkingAvailable();
+	const editModeKey = $derived(
+		filesStore.active?.linkedToDisk
+			? 'editing.original'
+			: filesStore.active?.origin === 'imported'
+				? 'editing.copy'
+				: 'editing.draft'
+	);
+	const editModeValue = $derived(
+		filesStore.active?.linkedToDisk
+			? 'in-place'
+			: filesStore.active?.origin === 'imported'
+				? 'copy'
+				: 'draft'
+	);
 
 	// §B1.7 / B1.8 / B3.5 - Rename input:
 	//   - `renameDraft` allows canceling with Esc by reverting to the pre-edit state.
@@ -208,7 +233,38 @@
 						? t('statusBar.saving')
 						: t('stats.saved')}</span
 			>
+			<span
+				class="edit-mode-label"
+				data-testid="disk-edit-mode"
+				data-mode={editModeValue}
+				title={t(editModeKey)}
+				aria-label={`${t('editing.status')}: ${t(editModeKey)}`}>{t(editModeKey)}</span
+			>
 			<FileStatusBadge file={filesStore.active} showLabel />
+			<button
+				class="mdsh-icon-button flex items-center justify-center rounded p-2 text-fg-muted
+				       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+				onclick={onEditCopy}
+				disabled={!filesStore.active}
+				title={t('palette.editCopy')}
+				aria-label={t('palette.editCopy')}
+				data-testid="edit-copy"
+			>
+				<Copy size={16} />
+			</button>
+			{#if diskLinkingAvailable || filesStore.active.sourceFileId}
+				<button
+					class="mdsh-icon-button flex items-center justify-center rounded p-2 text-fg-muted
+					       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+					onclick={onEditOriginal}
+					disabled={!filesStore.active}
+					title={t('palette.editOriginal')}
+					aria-label={t('palette.editOriginal')}
+					data-testid="edit-original"
+				>
+					<Link2 size={16} />
+				</button>
+			{/if}
 		{:else}
 			<span class="hidden px-2 text-sm text-fg-dim sm:inline">{t('toolbar.noFileOpen')}</span>
 		{/if}
@@ -316,15 +372,41 @@
 		)}</span
 	>
 
+	<button
+		class="mdsh-icon-button ml-1 hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
+		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+		onclick={onSave}
+		disabled={!filesStore.active}
+		title={`${t('toolbar.save')} (${keyboardStore.label('save') ?? ''})`}
+		aria-label={t('toolbar.save')}
+		aria-keyshortcuts={keyboardStore.aria('save')}
+		data-testid="save-document"
+	>
+		<Save size={16} />
+	</button>
+
+	<button
+		class="mdsh-icon-button hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
+		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+		onclick={onSaveAs}
+		disabled={!filesStore.active}
+		title={`${t('toolbar.saveAs')} (${keyboardStore.label('save-as') ?? ''})`}
+		aria-label={t('toolbar.saveAs')}
+		aria-keyshortcuts={keyboardStore.aria('save-as')}
+		data-testid="save-as"
+	>
+		<Download size={16} />
+	</button>
+
 	{#if diskLinkingAvailable}
 		<button
-			class="mdsh-icon-button ml-1 hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
+			class="mdsh-icon-button hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
 			       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 			onclick={onSaveToDisk}
 			disabled={!filesStore.active}
-			title={`${t('toolbar.saveToDisk')} (${keyboardStore.label('save-disk') ?? ''})`}
+			title={t('toolbar.saveToDisk')}
 			aria-label={t('toolbar.saveToDisk')}
-			aria-keyshortcuts={keyboardStore.aria('save-disk')}
+			data-testid="save-to-disk"
 		>
 			<HardDriveDownload size={16} />
 		</button>
@@ -419,6 +501,11 @@
 		color: var(--color-fg-muted);
 	}
 	.title-save {
+		flex: none;
+		font-size: 10px;
+		color: var(--color-fg-muted);
+	}
+	.edit-mode-label {
 		flex: none;
 		font-size: 10px;
 		color: var(--color-fg-muted);

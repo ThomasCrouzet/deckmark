@@ -297,6 +297,25 @@ export async function tauriSaveExportBlob(blob: Blob, suggestedName: string): Pr
 	return true;
 }
 
+/**
+ * Saves text through an export grant. This never reuses a linked path, so the
+ * caller can write a copy while the original keeps its link and revision.
+ */
+export async function tauriSaveExportText(
+	content: string,
+	suggestedName: string,
+	refusePath?: string
+): Promise<string | null> {
+	const currentIo = await getIo();
+	const grant = await currentIo.saveExportGrant(suggestedName);
+	if (!grant) return null;
+	if (refusePath && grant.path === refusePath) throw new Error('save as source');
+	registerGrants([grant]);
+	const expectedRevision = grant.stat?.revision ?? null;
+	await currentIo.writeText(grant.token, content, expectedRevision, false);
+	return grant.path;
+}
+
 export async function tauriReadMeta(path: string): Promise<DiskFileMeta | null> {
 	const currentIo = await getIo();
 	return currentIo.stat((await grantForPath(path)).token);

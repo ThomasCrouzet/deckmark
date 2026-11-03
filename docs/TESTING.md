@@ -109,6 +109,30 @@ The browser filesystem workflow uses an OPFS file selected by its fixture.
 It verifies cancellation, stale comparison rejection, reload, and a retained local checkpoint.
 Browser file APIs cannot make the final revision check and write atomic against another application.
 
+## Local file and copy workflows
+
+`disk-workflows.spec.ts` checks the visible disk and copy behavior. The cases are:
+
+- A browser without the File System Access API downloads a copy. The status stays
+  `draft`, and the original source is not touched.
+- A linked file saves in place through the granted handle. An external change
+  shows the conflict dialog. Cancel keeps the disk bytes and the local draft.
+- Save As writes a new file and leaves the linked source unchanged. A target that
+  is the linked source is refused.
+- A denied permission shows an error and does not write. The status stays
+  `pending`.
+- A cancelled save dialog keeps the original and the draft.
+
+The spec attaches a JSON report and a screenshot for each case. Run it with:
+
+```sh
+npx playwright test e2e/disk-workflows.spec.ts --project=chromium --workers=1
+```
+
+The test replaces the native pickers with OPFS handles. This checks the browser
+code path only. A native Tauri save, permission revocation, and conflict flow
+needs a manual smoke test on Windows, Linux, and macOS.
+
 The portable project scenario verifies cached rendering after network loss.
 Wait for the saved-state indicator before reloading a reopened document.
 Service worker readiness does not confirm that the open tab state reached IndexedDB.
