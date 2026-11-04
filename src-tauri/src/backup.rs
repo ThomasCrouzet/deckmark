@@ -423,7 +423,11 @@ mod tests {
     fn temp_directory() -> PathBuf {
         let directory = std::env::temp_dir().join(format!("mdsh-backup-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).expect("fixture directory");
+        // macOS resolves /var to /private/var, so the root must match the
+        // canonical parent compared by the read confinement.
         directory
+            .canonicalize()
+            .expect("canonical fixture directory")
     }
 
     fn write_fixture(root: &Path, name: &str, contents: &str) {
