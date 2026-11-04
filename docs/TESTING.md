@@ -352,17 +352,21 @@ WebView. The suite now also records:
 - Built-in template creation and the return to the linked note.
 - Presentation editing and separate menu and shortcut PDF exports.
 - The opt-in quick capture window: command-based opening, a library note, a
-  durable IndexedDB row, a reused window, and a cancel path with no new row.
-  The artifact is `native-capture.json`.
+  project note, a code snippet, a built-in template, a durable IndexedDB row, a
+  reused window, and a cancel path with no new row. The session switches
+  windows instead of opening a second WebDriver session. The artifact is
+  `native-capture.json`.
 - Process memory for the application process tree, startup, reload, save, close
   and template timings, and platform identity from the driver capabilities.
 - A failure screenshot, the page state and the last driver response.
 
 The suite does not claim coverage for features that do not exist. The
-`features` block in `results.json` records that the product has no AI feature,
-no annotation workflow and no reusable snippet feature. Do not add a check for
-an absent feature. Add one only when the product provides an observable
-workflow and the browser suite has a matching case.
+`features` block in `results.json` records edition capabilities. Do not add a
+check for an absent feature. Add one only when the product provides an
+observable workflow and the browser suite has a matching case. Desktop AI and
+Git have Rust coverage but no interactive WebView capture, because they depend
+on credentials or on a repository. Backup snapshots and signed update checks
+have native command coverage in `native-desktop-tools.mjs`.
 
 The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
 browser pass is not a native desktop pass, and a headless WebKit pass is not a
