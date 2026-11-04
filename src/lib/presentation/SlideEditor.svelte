@@ -2038,7 +2038,9 @@
 		}
 	}
 	@container (max-width: 260px) {
-		.header-actions {
+		.header-actions,
+		.presentation-tools,
+		.selection-tools {
 			flex-wrap: wrap;
 		}
 	}

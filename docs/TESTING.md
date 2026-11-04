@@ -567,6 +567,8 @@ screenshots, browser errors, fixture content, and source hashes.
 The resize case checks browser error events while the viewport changes from
 320 to 1280 pixels. Canvas scale updates must run after resize delivery to
 prevent a ResizeObserver notification loop.
+At widths below 260 CSS pixels, presentation controls can wrap. The native
+200 percent zoom checks verify keyboard access before and after a draft save.
 
 ### Code editor focus after delayed loading
 
