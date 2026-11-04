@@ -78,8 +78,9 @@ fn create_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .skip_taskbar(true)
         .decorations(false)
         .resizable(false);
-    // The smoke profile must share IndexedDB with the main window on Windows.
-    #[cfg(feature = "native-smoke")]
+    // WebView2 needs the same data store as the main window. WebKit creates a
+    // separate store for this identifier, so macOS keeps the shared default.
+    #[cfg(all(feature = "native-smoke", windows))]
     let builder = builder.data_store_identifier(crate::smoke_data_store_identifier());
     builder.build().map_err(|error| error.to_string())
 }

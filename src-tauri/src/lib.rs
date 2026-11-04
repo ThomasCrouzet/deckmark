@@ -180,10 +180,15 @@ pub fn run() {
     #[cfg(feature = "native-smoke")]
     let context = {
         let mut context = context;
-        let identifier = smoke_data_store_identifier();
-        for window in &mut context.config_mut().app.windows {
-            if window.label == "main" {
-                window.data_store_identifier = Some(identifier);
+        // Only WebView2 needs an explicit data store identifier. WebKit honors
+        // the value by creating a separate store, so macOS keeps the default
+        // store shared by every window. The temporary HOME isolates it there.
+        if cfg!(windows) {
+            let identifier = smoke_data_store_identifier();
+            for window in &mut context.config_mut().app.windows {
+                if window.label == "main" {
+                    window.data_store_identifier = Some(identifier);
+                }
             }
         }
         context

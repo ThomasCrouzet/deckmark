@@ -201,7 +201,7 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 			)
 			.catch((cause) => ({ error: String(cause) }));
 		throw new Error(
-			`${String(error)}; captureState=${JSON.stringify(state)}; mainMatches=${JSON.stringify(rows.filter?.((row) => String(row.content ?? '').includes('Quick capture body')) ?? rows)}; captureMatches=${JSON.stringify(captureRows)}`,
+			`${String(error)}; captureState=${JSON.stringify(state)}; mainMatches=${JSON.stringify(rows.filter?.((row) => String(row.content ?? '').includes('Quick capture body')) ?? rows)}`,
 			{ cause: error }
 		);
 	}
