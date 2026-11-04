@@ -1258,11 +1258,6 @@
 							<p class="text-xs text-fg-muted">{t('settings.desktopBackupLoading')}</p>
 						{/if}
 					</section>
-					{#await import('./UpdatePanel.svelte') then module}
-						<module.default />
-					{:catch _error}
-						<!-- A load failure keeps the settings panel usable. -->
-					{/await}
 				{/if}
 
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">

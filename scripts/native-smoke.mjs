@@ -1336,6 +1336,29 @@ try {
 	const purgedScreenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
 	writeFileSync(join(output, 'trash-purged.png'), Buffer.from(purgedScreenshot, 'base64'));
 	passed('native purge stays revoked after restart without opening the fixture');
+	// Update delivery is on standby. The settings dialog must not mount it.
+	await execute(`
+		window.dispatchEvent(new KeyboardEvent('keydown', {
+			key: ',', code: 'Comma', metaKey: ${process.platform === 'darwin'},
+			ctrlKey: ${process.platform !== 'darwin'}, bubbles: true, cancelable: true
+		}));
+	`);
+	await until(
+		() => execute('return !!document.getElementById("settings-title")'),
+		'native settings for the update standby check'
+	);
+	assert.equal(
+		await execute('return !!document.querySelector(`[data-testid="update-panel"]`)'),
+		false,
+		'Update delivery must stay on standby'
+	);
+	await click('[role="dialog"][aria-labelledby="settings-title"] button[aria-label="Fermer"]');
+	await until(
+		() => execute('return !document.getElementById("settings-title")'),
+		'native settings closed after the standby check'
+	);
+	passed('native settings keeps update delivery on standby');
+
 	results.desktopTools = await checkDesktopTools({ executeAsync, passed, output });
 	passed('native desktop backup and update boundaries');
 	sampleMemory('final');

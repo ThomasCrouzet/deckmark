@@ -69,7 +69,7 @@ records the edition, version, base path, features, and excluded capabilities.
 | Optional OpenAI-compatible AI connection | Yes, disabled by default, with a session-only browser key and explicit consent | Yes, disabled by default, through the native request boundary |
 | Secure native API key vault | No. A browser-resident key is not a protected secret. | Yes, through the operating-system credential store |
 | Secure browser API key vault | Unavailable | Unavailable |
-| Signed update checks | No | Gated: disabled until a signing key is configured, and the user installs the signed package manually |
+| Signed update checks | No | No. Update delivery is on standby. Install a new release manually. |
 | Local command-line interface and MCP server | No | Yes, from a source checkout |
 | Unrestricted filesystem access | Unavailable | Unavailable. Access is limited to selected paths. |
 | Cloud sync, shared editing, accounts, and plugins | Unavailable | Unavailable |
@@ -110,13 +110,13 @@ release. The installers are unsigned beta artifacts. macOS can show a Gatekeeper
 warning, and Windows can show a SmartScreen warning. Compare each file with
 `SHA256SUMS` and check the GitHub build provenance attestation before you install.
 
-Desktop Complete installers are unsigned, so update checks stay disabled until a
-release signing key is configured. When it is, the application verifies an
-ed25519 signature over the manifest, rejects tampered, crossed-platform, or
-older manifests, and opens the release page. The application never installs an
-update by itself: download and install the signed package, and keep your JSON
-backups and exported files when you change versions. See
-[Desktop updates](UPDATES.md).
+Desktop Complete installers are unsigned. Update delivery is on standby: the
+application does not check for updates, does not contact an update server, and
+never installs an update by itself. Download and install a new release
+manually, and keep your JSON backups and exported files when you change
+versions. The native verification boundary stays in the code with its tests for
+a future signed release. See [Desktop updates](UPDATES.md) and the
+[standby decision](decisions/desktop-updates-standby.md).
 
 ## Data retention and offline behavior
 
@@ -200,8 +200,8 @@ file browser.
   cannot instruct a tool action.
 - The app has no product account, backend, cloud storage, telemetry, or runtime
   CDN.
-- The app contacts its host to load application files. Update checks are manual
-  and gated. The app does not upload documents.
+- The app contacts its host to load application files. Desktop update delivery
+  is on standby, so no update check runs. The app does not upload documents.
 - Remote images are blocked by default. A user action can fetch an approved
   remote image. That action contacts the image host and reveals the client IP
   address. The request sends no cookies or referrer and rejects redirects.
@@ -263,8 +263,8 @@ does not publish Desktop installers.
   extension, input method, or network condition.
 - Desktop installers are unsigned. The project cannot claim a warning-free
   installation.
-- Desktop Complete has no automatic update installation. Update checks are
-  manual, signed, and disabled until the release signing key is configured.
+- Desktop Complete has no update check. Update delivery is on standby, and the
+  user installs every new release manually.
 - A browser or operating-system kill can lose text inside the 400 ms save delay.
 - Browser file APIs cannot make the final revision check and write atomic. Avoid
   simultaneous writes to a linked file.
@@ -273,7 +273,8 @@ does not publish Desktop installers.
   field can still need a newer release.
 - Cloud sync, shared editing, accounts, plugins, a browser API key vault, and
   unrestricted filesystem access are unavailable. AI, Git, the native vault,
-  quick capture, and signed update checks are Desktop Complete features.
+  and quick capture are Desktop Complete features. Signed update delivery is
+  implemented but dormant while it is on standby.
 
 ## Release note checklist
 

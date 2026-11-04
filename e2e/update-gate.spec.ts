@@ -3,7 +3,9 @@ import { resetAppState } from './helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
-test('Web Light exposes no native update panel or update runtime', async ({ page }, info) => {
+test('Update delivery stays on standby and Web Light exposes no runtime', async ({
+	page
+}, info) => {
 	const external: string[] = [];
 	page.on('request', (request) => {
 		const url = new URL(request.url());
@@ -16,14 +18,20 @@ test('Web Light exposes no native update panel or update runtime', async ({ page
 	await expect(settings).toBeVisible();
 	await expect(page.getByTestId('update-panel')).toHaveCount(0);
 	await expect(page.getByTestId('update-blocked')).toHaveCount(0);
+	await expect(page.getByTestId('update-check')).toHaveCount(0);
 	await page.keyboard.press('Escape');
 
 	// The desktop commands must not be reachable from the Web build.
 	expect(await page.evaluate(() => '__TAURI_INTERNALS__' in window)).toBe(false);
 	expect(external).toEqual([]);
 
-	await info.attach('update-panel-absent.json', {
-		body: JSON.stringify({ edition: 'web', updatePanel: 0, externalRequests: external }),
+	await info.attach('update-standby.json', {
+		body: JSON.stringify({
+			edition: 'web',
+			standby: true,
+			updatePanel: 0,
+			externalRequests: external
+		}),
 		contentType: 'application/json'
 	});
 });
