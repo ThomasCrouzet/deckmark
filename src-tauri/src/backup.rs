@@ -575,6 +575,7 @@ mod tests {
         assert!(super::read_snapshot(&authorized, &format!("../{}", written.file_name)).is_err());
         fs::write(&registry, "invalid registry").unwrap();
         assert!(restarted.resolve(&grant.root_id).is_err());
+        drop(authorized);
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(private).unwrap();
     }
@@ -746,6 +747,7 @@ mod tests {
         let unrelated = first.join("notes.json");
         fs::write(&unrelated, "keep").unwrap();
         assert!(read_snapshot(&approved, "notes.json").is_err());
+        drop(approved);
         fs::remove_dir_all(first).unwrap();
         fs::remove_dir_all(second).unwrap();
     }

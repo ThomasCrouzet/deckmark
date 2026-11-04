@@ -71,6 +71,8 @@ overdue startup, opt-in, concurrent disable, and retry behavior. Its JSON report
 records the command, revision, source diff, environment, fixtures, and results in
 `test-results/backup-scheduler.json`. The native smoke checks picker grants
 and denied renderer paths through real IPC.
+Close fixture directory handles before cleanup. Windows refuses to remove a
+directory while these handles remain open.
 An enabled schedule without a previous successful snapshot must run at startup.
 Otherwise, repeated sessions shorter than the interval can prevent its first backup.
 
