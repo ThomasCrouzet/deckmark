@@ -7,6 +7,7 @@
 
 use crate::projects::ProjectStore;
 use serde::Serialize;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -226,25 +227,36 @@ fn run_git(cwd: &Path, args: &[String]) -> Result<GitRun, String> {
             "^filter\\..*\\.(clean|smudge|process)$".to_string(),
         ],
     )?;
+    let mut guarded_args = Vec::new();
     match config.status.code() {
         Some(0) => {
             let text = utf8_output(config.stdout)?;
+            let mut filters = BTreeSet::new();
             for entry in text.split_terminator('\0') {
-                let (_, value) = entry
+                let (key, value) = entry
                     .split_once('\n')
                     .ok_or("Invalid Git filter configuration")?;
                 if !value.is_empty() {
-                    return Err(
-                        "Git operations are not available when executable filters are configured"
-                            .to_string(),
-                    );
+                    let (filter, _) = key
+                        .rsplit_once('.')
+                        .ok_or("Invalid Git filter configuration")?;
+                    filters.insert(filter);
+                }
+            }
+            // Git resolves attributes for the actual paths, including index fallback.
+            // Require failure on conversion instead of silently storing raw content.
+            for filter in filters {
+                for setting in ["clean=", "smudge=", "process=", "required=true"] {
+                    guarded_args.push("-c".to_string());
+                    guarded_args.push(format!("{filter}.{setting}"));
                 }
             }
         }
         Some(1) => {}
         _ => return Err(git_error(&config)),
     }
-    run_git_process(cwd, args)
+    guarded_args.extend_from_slice(args);
+    run_git_process(cwd, &guarded_args)
 }
 
 fn git_error(run: &GitRun) -> String {
@@ -1108,9 +1120,191 @@ mod tests {
         assert!(commit_for_root(&child, "Message").is_err());
     }
 
+    #[test]
+    fn unused_executable_filters_allow_native_git_workflow() {
+        let repository = init_repository();
+        write(
+            &repository.path,
+            ".git/runner-filters.conf",
+            "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n\tsmudge = git-lfs smudge -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n",
+        );
+        git(
+            &repository.path,
+            &["config", "include.path", "runner-filters.conf"],
+        );
+        write(&repository.path, "note.md", "before\n");
+        stage_for_root(&repository.path, &["note.md".to_string()])
+            .expect("stage without LFS attributes");
+        commit_for_root(&repository.path, "Initial commit").expect("commit without LFS attributes");
+        assert!(
+            status_for_root(&repository.path)
+                .expect("clean status")
+                .clean
+        );
+        write(&repository.path, "note.md", "after\n");
+        assert!(diff_for_root(&repository.path, Some("note.md"), false)
+            .expect("worktree diff")
+            .contains("+after"));
+        stage_for_root(&repository.path, &["note.md".to_string()]).expect("stage edit");
+        assert!(diff_for_root(&repository.path, Some("note.md"), true)
+            .expect("index diff")
+            .contains("+after"));
+        unstage_for_root(&repository.path, &["note.md".to_string()]).expect("unstage edit");
+        assert_eq!(
+            file(
+                &status_for_root(&repository.path).expect("status"),
+                "note.md"
+            )
+            .index,
+            '.'
+        );
+        assert_eq!(
+            log_for_root(&repository.path, 5).expect("log")[0].subject,
+            "Initial commit"
+        );
+        assert_eq!(
+            fs::read(repository.path.join("note.md")).expect("disk bytes"),
+            b"after\n"
+        );
+    }
+
+    #[test]
+    fn filter_denial_uses_effective_attributes_and_literal_paths() {
+        for source in ["worktree", "index", "nested", "info", "global", "macro"] {
+            let repository = init_repository();
+            write(&repository.path, "folder/note[1].md", "plain before\n");
+            write(&repository.path, "folder/note1.md", "filtered before\n");
+            commit_all(&repository.path, "Initial commit");
+            match source {
+                "worktree" | "index" => {
+                    write(
+                        &repository.path,
+                        ".gitattributes",
+                        "folder/note1.md filter=review\n",
+                    );
+                    if source == "index" {
+                        git(&repository.path, &["add", ".gitattributes"]);
+                        fs::remove_file(repository.path.join(".gitattributes"))
+                            .expect("remove worktree attributes");
+                    }
+                }
+                "nested" => write(
+                    &repository.path,
+                    "folder/.gitattributes",
+                    "note1.md filter=review\n",
+                ),
+                "info" => write(
+                    &repository.path,
+                    ".git/info/attributes",
+                    "folder/note1.md filter=review\n",
+                ),
+                "global" => {
+                    write(
+                        &repository.path,
+                        ".git/global-attributes",
+                        "folder/note1.md filter=review\n",
+                    );
+                    git(
+                        &repository.path,
+                        &["config", "core.attributesFile", ".git/global-attributes"],
+                    );
+                }
+                "macro" => write(
+                    &repository.path,
+                    ".gitattributes",
+                    "[attr]protected filter=review\nfolder/note1.md protected\n",
+                ),
+                _ => unreachable!(),
+            }
+            write(
+                &repository.path,
+                ".git/filters.conf",
+                "[filter \"review\"]\n\tclean = echo executed > filter-executed; exit 1\n",
+            );
+            git(
+                &repository.path,
+                &["config", "includeIf.onbranch:main.path", "filters.conf"],
+            );
+            write(&repository.path, "folder/note[1].md", "plain after\n");
+            write(&repository.path, "folder/note1.md", "filtered after\n");
+
+            let diff = diff_for_root(&repository.path, Some("folder/note[1].md"), false)
+                .expect("selected literal path has no filter");
+            assert!(diff.contains("+plain after"));
+            assert!(!diff.contains("filtered after"));
+            stage_for_root(&repository.path, &["folder/note[1].md".to_string()])
+                .expect("stage only the literal unfiltered path");
+            // Equal byte lengths force status to compare file content.
+            write(&repository.path, "folder/note1.md", "filtered update\n");
+            let index = fs::read(repository.path.join(".git/index")).expect("index before denial");
+            for path in ["folder/note1.md", "folder"] {
+                let error = stage_for_root(&repository.path, &[path.to_string()])
+                    .expect_err("deny the selected filtered file or directory");
+                assert!(
+                    error.contains("filter 'review' failed"),
+                    "{source}: {error}"
+                );
+                assert_eq!(
+                    fs::read(repository.path.join(".git/index")).expect("index after denial"),
+                    index
+                );
+            }
+            assert!(status_for_root(&repository.path).is_err(), "{source}");
+            assert!(
+                diff_for_root(&repository.path, Some("folder/note1.md"), false).is_err(),
+                "{source}"
+            );
+            assert!(
+                !repository.path.join("filter-executed").exists(),
+                "{source}"
+            );
+            assert_eq!(
+                fs::read(repository.path.join("folder/note1.md")).expect("disk bytes"),
+                b"filtered update\n"
+            );
+        }
+    }
+
+    #[test]
+    fn parent_diff_does_not_convert_filtered_files_outside_the_project() {
+        let repository = init_repository();
+        write(&repository.path, "docs/note.md", "project before\n");
+        write(&repository.path, "outside.md", "outside before\n");
+        commit_all(&repository.path, "Initial commit");
+        write(
+            &repository.path,
+            ".gitattributes",
+            "outside.md filter=review\n",
+        );
+        git(
+            &repository.path,
+            &[
+                "config",
+                "filter.review.clean",
+                "echo executed > filter-executed; exit 1",
+            ],
+        );
+        write(&repository.path, "docs/note.md", "project after\n");
+        write(&repository.path, "outside.md", "outside update\n");
+        let child = repository.path.join("docs");
+        let diff = diff_for_root(&child, None, false).expect("diff only the authorized project");
+        assert!(diff.contains("+project after"));
+        assert!(!diff.contains("outside"));
+        assert_eq!(
+            log_for_root(&child, 5).expect("project log")[0].subject,
+            "Initial commit"
+        );
+        assert!(
+            status_for_root(&child).is_err(),
+            "status scans the whole repository"
+        );
+        assert!(stage_for_root(&child, &["note.md".to_string()]).is_err());
+        assert!(!repository.path.join("filter-executed").exists());
+    }
+
     #[cfg(unix)]
     #[test]
-    fn executable_filters_are_rejected_before_any_git_operation() {
+    fn executable_filters_are_rejected_when_git_converts_content() {
         for driver in ["clean", "process", "smudge"] {
             let repository = init_repository();
             write(&repository.path, ".gitattributes", "*.md filter=review\n");
@@ -1118,7 +1312,7 @@ mod tests {
             commit_all(&repository.path, "Initial commit");
             write(&repository.path, "note.md", "staged\n");
             git(&repository.path, &["add", "note.md"]);
-            write(&repository.path, "note.md", "disk changes\n");
+            write(&repository.path, "note.md", "edited\n");
             let marker = repository.path.join("filter-executed");
             let config = repository.path.join(".git").join("filters.conf");
             fs::write(
@@ -1137,12 +1331,11 @@ mod tests {
                     config.to_str().expect("UTF-8 path"),
                 ],
             );
-            for operation in ["stage", "status", "diff", "log", "unstage", "commit"] {
+            for operation in ["stage", "status", "diff", "unstage", "commit"] {
                 let result = match operation {
                     "stage" => stage_for_root(&repository.path, &["note.md".to_string()]),
                     "status" => status_for_root(&repository.path).map(|_| ()),
                     "diff" => diff_for_root(&repository.path, Some("note.md"), false).map(|_| ()),
-                    "log" => log_for_root(&repository.path, 5).map(|_| ()),
                     "unstage" => unstage_for_root(&repository.path, &["note.md".to_string()]),
                     "commit" => commit_for_root(&repository.path, "Blocked commit").map(|_| ()),
                     _ => unreachable!(),
@@ -1150,6 +1343,17 @@ mod tests {
                 assert!(!marker.exists(), "{operation} executed the {driver} filter");
                 assert!(result.is_err(), "{operation} accepted the {driver} filter");
             }
+            assert_eq!(
+                log_for_root(&repository.path, 5).expect("log does not convert content")[0].subject,
+                "Initial commit"
+            );
+            assert!(diff_for_root(&repository.path, Some("note.md"), true)
+                .expect("cached diff does not convert content")
+                .contains("+staged"));
+            assert!(
+                !marker.exists(),
+                "read-only index operations executed the {driver} filter"
+            );
             let staged = Command::new("git")
                 .arg("-C")
                 .arg(&repository.path)

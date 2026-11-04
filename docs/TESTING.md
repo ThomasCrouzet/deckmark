@@ -46,6 +46,14 @@ unstage before the first commit. Check unchanged index and working-tree bytes.
 A browser cannot inspect native subprocesses or the Git index. Run
 `cargo test --manifest-path src-tauri/Cargo.toml git::tests`. The shell marker case
 runs on Unix. Keep the command, source hash, environment, fixtures, and Cargo output.
+Unused global and system LFS settings must permit ordinary Git workflows.
+Each child command disables executable drivers and requires conversion success.
+Git must reject a conversion that needs a disabled driver. Log and cached diff
+can read stored objects without conversion. Check conditional includes, attribute
+macros, index fallback, info attributes, global attributes, and directory paths.
+Compare index and disk bytes after rejected staging. Use separate child
+environments for global and system LFS settings. Do not change environment
+variables inside parallel tests. Evidence is in `/tmp/opencode/git-ci-fix/`.
 
 Native AI tests bind keys to canonical endpoints, reject caller-selected key IDs,
 and check that pending HTTP requests yield. They use an in-memory secret store
@@ -511,6 +519,11 @@ Keep the command, source revision, Node version, fixture paths, and results with
 the run. The CLI does not start the GUI, the Tauri shell, or a network service.
 
 ## Repeat the browser suite
+
+Browser profiles, downloads, and traces need free temporary storage. If `/tmp`
+uses a small memory filesystem, set `TMPDIR` to an empty directory on disk before
+the run. Keep any `ENOSPC` failure report and repeat the affected cases after the
+storage problem is corrected. Do not treat a failed trace write as an application result.
 
 ### Whole-application review
 
