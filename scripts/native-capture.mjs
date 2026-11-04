@@ -3,6 +3,10 @@
 // The workflow uses the command API, not an operating-system hotkey. It opens
 // the capture window, saves notes into the library and a project, checks the
 // durable rows, reopens the window, cancels, and checks that no row was added.
+//
+// The WebDriver session switches to the capture window instead of creating a
+// second session. A second session hangs on WebView2, and one session keeps
+// the main and capture checks on the same connection.
 
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
@@ -14,9 +18,6 @@ window.__TAURI__.core.invoke(arguments[0], arguments[1]).then(
   value => done({ value }),
   error => done({ rejection: String(error) })
 );`;
-const captureSessionOptions = {
-	capabilities: { alwaysMatch: { 'wdio:tauriServiceOptions': { windowLabel: 'capture' } } }
-};
 
 /**
  * Exercises the capture window through the native WebDriver.
@@ -24,16 +25,34 @@ const captureSessionOptions = {
  *   request: (path: string, body?: unknown, method?: string) => Promise<any>,
  *   executeAsync: (script: string, args?: unknown[]) => Promise<any>,
  *   until: (check: () => Promise<unknown>, label: string, timeout?: number) => Promise<any>,
- *   output: string
+ *   output: string,
+ *   session: string
  * }} context
  */
-export async function nativeCapture({ request, executeAsync, until, output }) {
+export async function nativeCapture({ request, executeAsync, until, output, session }) {
 	const invoke = (command, args = {}) => executeAsync(invokeScript, [command, args]);
 	const evidence = [];
 	const record = (scenario, result) => {
 		evidence.push({ scenario, result });
 		return result;
 	};
+	const executeIn = (script, args = []) =>
+		request(`/session/${session}/execute/sync`, { script, args });
+	const switchWindow = (label) =>
+		until(
+			async () => {
+				try {
+					const handles = await request(`/session/${session}/window/handles`, undefined, 'GET');
+					if (!Array.isArray(handles) || !handles.includes(label)) return false;
+					await request(`/session/${session}/window`, { handle: label });
+					return true;
+				} catch {
+					return false;
+				}
+			},
+			`switch to the ${label} window`,
+			30_000
+		);
 	const readDrafts = () =>
 		executeAsync(`const done = arguments[arguments.length - 1];
 			const request = indexedDB.open('mdsh');
@@ -44,38 +63,15 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 				query.onerror = () => { database.close(); done({ error: String(query.error) }); };
 				query.onsuccess = () => { database.close(); done(query.result); };
 			};`);
-	const openCaptureSession = async () => {
-		// The window reports its label before the webview finishes the first load.
-		// A script sent during that navigation can lose its reply and wait for the
-		// client timeout. Let the page settle before the first evaluate call.
-		await delay(1_500);
-		const created = await request('/session', captureSessionOptions);
-		const session = created.sessionId;
-		await delay(800);
-		const executeCapture = (script, args = []) =>
-			request(`/session/${session}/execute/sync`, { script, args });
-		try {
-			await until(
-				() => executeCapture('return !!document.querySelector("[data-testid=quick-capture]")'),
-				'quick capture window ready',
-				60_000
-			);
-		} catch (error) {
-			const state = await executeCapture(`return {
-				url: location.href,
-				ready: document.readyState,
-				title: document.title,
-				shell: !!document.querySelector('.mdsh-shell'),
-				capture: !!document.querySelector('[data-testid=quick-capture]'),
-				alert: document.querySelector('[role="alert"]')?.textContent?.trim() ?? null,
-				text: document.body?.innerText?.slice(0, 600) ?? null,
-				html: document.body?.innerHTML?.slice(0, 600) ?? null
-			};`).catch((cause) => ({ error: String(cause) }));
-			throw new Error(`${String(error)}; captureState=${JSON.stringify(state)}`, { cause: error });
-		}
-		return { session, executeCapture };
+	const openCapture = async () => {
+		await switchWindow('capture');
+		await until(
+			() => executeIn('return !!document.querySelector("[data-testid=quick-capture]")'),
+			'quick capture window ready',
+			45_000
+		);
+		return executeIn;
 	};
-	const closeCaptureSession = (session) => request(`/session/${session}`, undefined, 'DELETE');
 
 	const initialStatus = record('status before enable', await invoke('desktop_capture_status'));
 	assert.equal(initialStatus.rejection, undefined, initialStatus.rejection);
@@ -111,10 +107,10 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 	const shown = record('show command opens the window', await invoke('desktop_capture_show'));
 	assert.equal(shown.rejection, undefined, shown.rejection);
 
-	const first = await openCaptureSession();
+	const capture = await openCapture();
 	const surface = record(
 		'capture window has no full shell',
-		await first.executeCapture(`return {
+		await capture(`return {
 			shell: !!document.querySelector('.mdsh-shell'),
 			sidebar: !!document.querySelector('aside'),
 			editor: !!document.querySelector('.cm-content, .ProseMirror'),
@@ -132,7 +128,7 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 
 	await until(
 		() =>
-			first.executeCapture(
+			capture(
 				`const [title, body] = arguments;
 				const titleInput = document.querySelector('[data-testid=capture-title]');
 				const bodyInput = document.querySelector('[data-testid=capture-content]');
@@ -148,7 +144,7 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 	);
 	await until(
 		() =>
-			first.executeCapture(
+			capture(
 				`const button = document.querySelector('[data-testid=capture-save]');
 				if (!button || button.disabled) return false;
 				button.click();
@@ -156,55 +152,18 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 			),
 		'quick capture save'
 	);
-	let saved;
-	try {
-		saved = await until(
-			async () => {
-				const rows = await readDrafts();
-				if (!Array.isArray(rows)) return false;
-				return rows.find(
-					(row) => row.name === `${title}.md` && row.content === content && !row.projectId
-				);
-			},
-			'capture note reaches IndexedDB',
-			30_000
-		);
-	} catch (error) {
-		const state = await first
-			.executeCapture(
-				`return {
-				alert: document.querySelector('[role="alert"]')?.textContent?.trim() ?? null,
-				status: document.querySelector('[data-testid=capture-status]')?.textContent?.trim() ?? null,
-				saveDisabled: document.querySelector('[data-testid=capture-save]')?.disabled ?? null,
-				title: document.querySelector('[data-testid=capture-title]')?.value ?? null,
-				body: document.querySelector('[data-testid=capture-content]')?.value ?? null,
-				url: location.href
-			};`
-			)
-			.catch((cause) => ({ error: String(cause) }));
-		const rows = await readDrafts().catch((cause) => ({ error: String(cause) }));
-		const captureRows = await first
-			.executeCapture(
-				`const done = arguments[arguments.length - 1];
-				const request = indexedDB.open('mdsh');
-				request.onerror = () => done({ error: String(request.error) });
-				request.onsuccess = () => {
-					const database = request.result;
-					const query = database.transaction('drafts').objectStore('drafts').getAll();
-					query.onerror = () => { database.close(); done({ error: String(query.error) }); };
-					query.onsuccess = () => {
-						const result = query.result.filter(row => String(row.content ?? '').includes('Quick capture body')).map(row => ({ name: row.name, projectId: row.projectId ?? null, content: row.content }));
-						database.close();
-						done(result);
-					};
-				};`
-			)
-			.catch((cause) => ({ error: String(cause) }));
-		throw new Error(
-			`${String(error)}; captureState=${JSON.stringify(state)}; mainMatches=${JSON.stringify(rows.filter?.((row) => String(row.content ?? '').includes('Quick capture body')) ?? rows)}`,
-			{ cause: error }
-		);
-	}
+	await switchWindow('main');
+	const saved = await until(
+		async () => {
+			const rows = await readDrafts();
+			if (!Array.isArray(rows)) return false;
+			return rows.find(
+				(row) => row.name === `${title}.md` && row.content === content && !row.projectId
+			);
+		},
+		'capture note reaches IndexedDB',
+		30_000
+	);
 	record('saved library note', {
 		id: saved.id,
 		name: saved.name,
@@ -213,16 +172,15 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 		open: saved.open ?? null
 	});
 	record('hide command after save', await invoke('desktop_capture_hide'));
-	await closeCaptureSession(first.session);
 
 	const beforeCancel = await readDrafts();
 	assert.ok(Array.isArray(beforeCancel));
 	const reopened = record('show command reopens the window', await invoke('desktop_capture_show'));
 	assert.equal(reopened.rejection, undefined, reopened.rejection);
-	const second = await openCaptureSession();
+	await openCapture();
 	await until(
 		() =>
-			second.executeCapture(
+			executeIn(
 				`const titleInput = document.querySelector('[data-testid=capture-title]');
 				const bodyInput = document.querySelector('[data-testid=capture-content]');
 				return !!titleInput && !!bodyInput && titleInput.value === '' && bodyInput.value === '';`
@@ -230,7 +188,7 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 		'quick capture window resets after reuse',
 		15_000
 	);
-	await second.executeCapture(
+	await executeIn(
 		`const [title, body] = arguments;
 		const titleInput = document.querySelector('[data-testid=capture-title]');
 		const bodyInput = document.querySelector('[data-testid=capture-content]');
@@ -243,8 +201,8 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 		return true;`,
 		[`${title} cancelled`, `${content}Cancelled body.\n`]
 	);
+	await switchWindow('main');
 	record('hide command after cancel', await invoke('desktop_capture_hide'));
-	await closeCaptureSession(second.session);
 	await delay(750);
 	const afterCancel = await readDrafts();
 	assert.ok(Array.isArray(afterCancel));
@@ -273,10 +231,10 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 		const projectTitle = `Native capture project ${Date.now()}`;
 		const projectContent = `# ${projectTitle}\n\nProject capture body.\n`;
 		record('show command for a project note', await invoke('desktop_capture_show'));
-		const third = await openCaptureSession();
+		await openCapture();
 		await until(
 			() =>
-				third.executeCapture(
+				executeIn(
 					`const select = document.querySelector('[data-testid=capture-project]');
 					return !!select && select.value === '';`
 				),
@@ -285,7 +243,7 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 		);
 		await until(
 			() =>
-				third.executeCapture(
+				executeIn(
 					`return [...document.querySelectorAll('[data-testid=capture-project] option')]
 						.some((option) => option.value === arguments[0]);`,
 					[project.id]
@@ -295,7 +253,7 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 		);
 		await until(
 			() =>
-				third.executeCapture(
+				executeIn(
 					`const [projectId, title, body] = arguments;
 					const select = document.querySelector('[data-testid=capture-project]');
 					const titleInput = document.querySelector('[data-testid=capture-title]');
@@ -314,7 +272,7 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 		);
 		await until(
 			() =>
-				third.executeCapture(
+				executeIn(
 					`const button = document.querySelector('[data-testid=capture-save]');
 					if (!button || button.disabled) return false;
 					button.click();
@@ -322,6 +280,7 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 				),
 			'quick capture project save'
 		);
+		await switchWindow('main');
 		const projectRow = await until(
 			async () => {
 				const rows = await readDrafts();
@@ -339,7 +298,6 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 			content: projectRow.content
 		});
 		record('hide command after project save', await invoke('desktop_capture_hide'));
-		await closeCaptureSession(third.session);
 	} else {
 		record('saved project note', { skipped: true, reason: 'No project row is available.' });
 	}

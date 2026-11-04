@@ -1166,6 +1166,7 @@ try {
 	passed(`native project tree shows ${treeRows} project documents`);
 
 	results.nativeCapture = await nativeCapture({
+		session,
 		request,
 		executeAsync,
 		until,
