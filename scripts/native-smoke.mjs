@@ -20,6 +20,7 @@ import { testSource } from './test-source.mjs';
 import { nativeDiskRaces } from './native-disk-races.mjs';
 import { nativeExportCancellation } from './native-export-cancellation.mjs';
 import { nativePresentationPdf } from './native-presentation.mjs';
+import { checkDesktopTools } from './native-desktop-tools.mjs';
 import { nativeProjects } from './native-projects.mjs';
 import { processTreeMemory } from './native-process-memory.mjs';
 
@@ -1304,6 +1305,8 @@ try {
 	const purgedScreenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
 	writeFileSync(join(output, 'trash-purged.png'), Buffer.from(purgedScreenshot, 'base64'));
 	passed('native purge stays revoked after restart without opening the fixture');
+	results.desktopTools = await checkDesktopTools({ executeAsync, passed, output });
+	passed('native desktop backup and update boundaries');
 	sampleMemory('final');
 	results.passed = true;
 } catch (error) {

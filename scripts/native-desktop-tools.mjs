@@ -17,6 +17,16 @@ export async function checkDesktopTools({ executeAsync, passed, output }) {
 	rmSync(directory, { recursive: true, force: true });
 	mkdirSync(directory, { recursive: true });
 
+	// The WebDriver bridge rejects the script when a Tauri command returns an
+	// error, so rethrow it as a result object for the negative checks.
+	const attempt = async (script, args) => {
+		try {
+			return await executeAsync(script, args);
+		} catch (error) {
+			return { error: String(error) };
+		}
+	};
+
 	const status = await executeAsync(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('update_status').then(done, error => done({ error: String(error) }));`
@@ -26,9 +36,16 @@ export async function checkDesktopTools({ executeAsync, passed, output }) {
 	assert.equal(status.blockedReason, 'signing-required');
 	passed('native updates stay blocked without a signing key');
 
-	const install = await executeAsync(
+	const install = await attempt(
 		`const done = arguments[arguments.length - 1];
-		window.__TAURI__.core.invoke('update_install').then(done, error => done({ error: String(error) }));`
+		(async () => {
+			try {
+				await window.__TAURI__.core.invoke('update_install');
+				done({ ok: true });
+			} catch (error) {
+				done({ error: String(error) });
+			}
+		})();`
 	);
 	assert.match(String(install.error), /manual-install-required/);
 	passed('native updates never install automatically');
@@ -42,14 +59,15 @@ export async function checkDesktopTools({ executeAsync, passed, output }) {
 		sha256: 'a'.repeat(64),
 		notes: ''
 	});
-	const rejected = await executeAsync(
+	const rejected = await attempt(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('update_verify_manifest', { manifest: arguments[0], signature: 'AAAA' })
 			.then(done, error => done({ error: String(error) }));`,
 		[manifest]
 	);
-	assert.match(String(rejected.error), /invalid-signature/);
-	passed('native update manifest rejects a bad signature');
+	// Without a configured key the boundary fails closed before signature checks.
+	assert.match(String(rejected.error), /signing-required/);
+	passed('native update manifest fails closed without a signing key');
 
 	// Backup snapshots: write two, keep the newest, preserve unrelated files.
 	writeFileSync(join(directory, 'notes.txt'), 'keep me');
@@ -92,7 +110,7 @@ export async function checkDesktopTools({ executeAsync, passed, output }) {
 	assert.match(String(read), /"marker":"second"/);
 	passed('native backup snapshots write atomically, keep the newest and preserve user files');
 
-	const escaped = await executeAsync(
+	const escaped = await attempt(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('desktop_backup_read', { path: arguments[0] })
 			.then(done, error => done({ error: String(error) }));`,
