@@ -37,7 +37,8 @@ export function uniqueName(existing: string[], base: string): string {
 	return `${stem} (${n})${ext}`;
 }
 
-export function normalizeRename(raw: string): string {
-	const clean = raw.trim() || untitledFilename();
-	return /\.[a-z0-9]{1,10}$/i.test(clean) ? clean : `${clean}.md`;
+export function normalizeRename(raw: string, previousName = untitledFilename()): string {
+	const extension = previousName.match(/\.[a-z0-9]{1,10}$/i)?.[0] ?? '.md';
+	const clean = raw.trim() || untitledBasename();
+	return /\.[a-z0-9]{1,10}$/i.test(clean) ? clean : `${clean}${extension}`;
 }

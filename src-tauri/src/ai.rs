@@ -4,11 +4,12 @@
 //! and returns only the reply text. Error values are stable codes. They never
 //! contain the key or the request body.
 
-use crate::vault::{valid_provider_name, SecretStore, VaultState};
+use crate::vault::{SecretStore, VaultState};
 use reqwest::blocking::Client;
 use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Once;
@@ -28,14 +29,13 @@ const MAX_TOKENS_LIMIT: u32 = 32_768;
 
 /// Configuration for one native chat request. The key is not a field.
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AiNativeConfig {
     pub enabled: bool,
     pub base_url: String,
     pub model: String,
     pub temperature: f64,
     pub max_tokens: u32,
-    pub provider: String,
 }
 
 impl fmt::Debug for AiNativeConfig {
@@ -49,7 +49,6 @@ impl fmt::Debug for AiNativeConfig {
             .field("model", &self.model)
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
-            .field("provider", &self.provider)
             .finish()
     }
 }
@@ -151,6 +150,15 @@ pub fn endpoint_for(base_url: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+/// Uses the full validated endpoint as the credential identity.
+pub(crate) fn credential_provider_for(base_url: &str) -> Result<String, String> {
+    let endpoint = endpoint_for(base_url)?;
+    Ok(Sha256::digest(endpoint.as_str().as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
 fn request_body(config: &AiNativeConfig, messages: &[AiMessage]) -> Value {
     serde_json::to_value(ChatBody {
         model: &config.model,
@@ -175,8 +183,7 @@ fn validate_config(config: &AiNativeConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// Reads the key from the vault and builds the request. An invalid provider or
-/// a missing key fails closed with `missing-key`.
+/// Reads only the key bound to this endpoint. A missing key stops the request.
 pub fn prepare_request(
     store: &dyn SecretStore,
     config: &AiNativeConfig,
@@ -184,10 +191,8 @@ pub fn prepare_request(
 ) -> Result<PreparedRequest, String> {
     validate_config(config)?;
     let url = endpoint_for(&config.base_url)?;
-    if !valid_provider_name(&config.provider) {
-        return Err(ERROR_MISSING_KEY.to_string());
-    }
-    let secret = match store.get_secret(&config.provider) {
+    let provider = credential_provider_for(&config.base_url)?;
+    let secret = match store.get_secret(&provider) {
         Ok(Some(secret)) if !secret.is_empty() => secret,
         _ => return Err(ERROR_MISSING_KEY.to_string()),
     };
@@ -248,14 +253,26 @@ pub fn execute(client: &Client, prepared: PreparedRequest) -> Result<String, Str
 }
 
 #[tauri::command]
-pub fn ai_chat(
+pub async fn ai_chat(
     state: tauri::State<'_, VaultState>,
     config: AiNativeConfig,
     messages: Vec<AiMessage>,
 ) -> Result<String, String> {
-    let prepared = prepare_request(state.store(), &config, &messages)?;
-    let client = build_client()?;
-    execute(&client, prepared)
+    chat(state.inner().clone(), config, messages).await
+}
+
+async fn chat(
+    state: VaultState,
+    config: AiNativeConfig,
+    messages: Vec<AiMessage>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let prepared = prepare_request(state.store(), &config, &messages)?;
+        let client = build_client()?;
+        execute(&client, prepared)
+    })
+    .await
+    .map_err(|_| ERROR_NETWORK.to_string())?
 }
 
 #[cfg(test)]
@@ -274,7 +291,6 @@ mod tests {
             model: "test-model".to_string(),
             temperature: 0.2,
             max_tokens: 128,
-            provider: "openai".to_string(),
         }
     }
 
@@ -285,10 +301,125 @@ mod tests {
         }]
     }
 
-    fn store_with_secret(secret: &str) -> MemoryStore {
+    fn store_with_secret(base_url: &str, secret: &str) -> MemoryStore {
         let store = MemoryStore::default();
-        store.set_secret("openai", secret).unwrap();
         store
+            .set_secret(&credential_provider_for(base_url).unwrap(), secret)
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn endpoint_cannot_read_a_key_stored_under_an_unrelated_provider() {
+        let store = MemoryStore::default();
+        store.set_secret("openai", "sk-private").unwrap();
+        assert_eq!(
+            prepare_request(&store, &config("https://attacker.example/v1"), &messages())
+                .unwrap_err(),
+            ERROR_MISSING_KEY
+        );
+    }
+
+    #[test]
+    fn separate_provider_field_is_rejected() {
+        let value = json!({
+            "enabled": true,
+            "baseUrl": "https://attacker.example/v1",
+            "model": "test-model",
+            "temperature": 0.2,
+            "maxTokens": 128,
+            "provider": "api.openai.com"
+        });
+        assert!(serde_json::from_value::<AiNativeConfig>(value).is_err());
+    }
+
+    #[test]
+    fn endpoint_keys_do_not_cross_hosts_ports_paths_schemes_or_queries() {
+        let long_label = "a".repeat(63);
+        let long_first = format!("https://{long_label}.first.example/v1");
+        let long_second = format!("https://{long_label}.second.example/v1");
+        for (saved, other) in [
+            ("https://api.example.com/v1", "https://attacker.example/v1"),
+            (
+                "https://api.example.com/v1",
+                "https://api.example.com:8443/v1",
+            ),
+            (
+                "https://api.example.com/v1",
+                "https://api.example.com/other",
+            ),
+            ("http://localhost:8080/v1", "https://localhost:8080/v1"),
+            ("http://[::1]:8080/v1", "http://[::1]:8081/v1"),
+            (
+                "https://api.example.com/v1?tenant=a",
+                "https://api.example.com/v1?tenant=b",
+            ),
+            (long_first.as_str(), long_second.as_str()),
+        ] {
+            let store = store_with_secret(saved, "sk-bound-secret");
+            assert_eq!(
+                prepare_request(&store, &config(saved), &messages())
+                    .unwrap()
+                    .secret,
+                "sk-bound-secret"
+            );
+            assert_eq!(
+                prepare_request(&store, &config(other), &messages()).unwrap_err(),
+                ERROR_MISSING_KEY,
+                "{saved} must not share a key with {other}"
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_endpoint_variants_share_the_saved_key() {
+        let store = store_with_secret("https://api.example.com/v1", "sk-canonical");
+        for variant in [
+            "https://API.EXAMPLE.COM:443/v1/",
+            " https://api.example.com/v1/// ",
+            "https://api.example.com/old/../v1",
+        ] {
+            assert_eq!(
+                prepare_request(&store, &config(variant), &messages())
+                    .unwrap()
+                    .secret,
+                "sk-canonical"
+            );
+        }
+    }
+
+    #[test]
+    fn old_hostname_keys_are_not_used_without_an_endpoint_binding() {
+        let store = MemoryStore::default();
+        store.set_secret("api.example.com", "sk-old-key").unwrap();
+        assert_eq!(
+            prepare_request(&store, &config("https://api.example.com/v1"), &messages())
+                .unwrap_err(),
+            ERROR_MISSING_KEY
+        );
+    }
+
+    #[test]
+    fn endpoint_bound_key_can_be_replaced_and_deleted() {
+        let base_url = "https://api.example.com/v1";
+        let provider = credential_provider_for(base_url).unwrap();
+        let vault = VaultState::with_store(Arc::new(MemoryStore::default()));
+        assert!(!vault.status(&provider).unwrap());
+        vault.set(&provider, "sk-first").unwrap();
+        assert!(vault.status(&provider).unwrap());
+        vault.set(&provider, "sk-second").unwrap();
+        assert_eq!(
+            prepare_request(vault.store(), &config(base_url), &messages())
+                .unwrap()
+                .secret,
+            "sk-second"
+        );
+        vault.clear(&provider).unwrap();
+        assert!(!vault.status(&provider).unwrap());
+        assert_eq!(
+            prepare_request(vault.store(), &config(base_url), &messages()).unwrap_err(),
+            ERROR_MISSING_KEY
+        );
     }
 
     #[test]
@@ -347,7 +478,7 @@ mod tests {
 
     #[test]
     fn request_body_uses_the_openai_compatible_shape() {
-        let store = store_with_secret("sk-test");
+        let store = store_with_secret("https://api.example.com/v1", "sk-test");
         let mut settings = config("https://api.example.com/v1");
         settings.temperature = 0.7;
         settings.max_tokens = 256;
@@ -377,24 +508,17 @@ mod tests {
             ERROR_MISSING_KEY
         );
 
-        let store = store_with_secret("");
+        let store = store_with_secret("https://api.example.com/v1", "");
         assert_eq!(
             prepare_request(&store, &config("https://api.example.com/v1"), &messages())
                 .unwrap_err(),
-            ERROR_MISSING_KEY
-        );
-
-        let mut invalid_provider = config("https://api.example.com/v1");
-        invalid_provider.provider = "Bad Provider".to_string();
-        assert_eq!(
-            prepare_request(&store, &invalid_provider, &messages()).unwrap_err(),
             ERROR_MISSING_KEY
         );
     }
 
     #[test]
     fn disabled_configuration_sends_nothing() {
-        let store = store_with_secret("sk-test");
+        let store = store_with_secret("https://api.example.com/v1", "sk-test");
         let mut settings = config("https://api.example.com/v1");
         settings.enabled = false;
         assert_eq!(
@@ -414,6 +538,14 @@ mod tests {
     }
 
     fn response_server(status: u16, body: &'static str) -> String {
+        response_server_with_gate(status, body, None)
+    }
+
+    fn response_server_with_gate(
+        status: u16,
+        body: &'static str,
+        gate: Option<std::sync::mpsc::Receiver<()>>,
+    ) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         std::thread::spawn(move || {
@@ -425,6 +557,9 @@ mod tests {
                         Ok(0) | Err(_) => break,
                         Ok(read) => received.extend_from_slice(&buffer[..read]),
                     }
+                }
+                if let Some(gate) = gate {
+                    gate.recv_timeout(Duration::from_secs(5)).unwrap();
                 }
                 let response = format!(
                     "HTTP/1.1 {status} Test\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -439,8 +574,8 @@ mod tests {
     #[test]
     fn a_failed_response_does_not_include_the_secret_or_the_body() {
         let secret = "sk-redaction-test-secret";
-        let store = store_with_secret(secret);
         let base_url = response_server(500, "{\"error\":\"upstream detail\"}");
+        let store = store_with_secret(&base_url, secret);
         let prepared = prepare_request(&store, &config(&base_url), &messages()).unwrap();
         assert!(!format!("{prepared:?}").contains(secret));
         assert!(!format!("{prepared:?}").contains("Hello"));
@@ -452,11 +587,11 @@ mod tests {
 
     #[test]
     fn a_successful_response_returns_only_the_reply_text() {
-        let store = store_with_secret("sk-test-secret");
         let base_url = response_server(
             200,
             "{\"choices\":[{\"message\":{\"content\":\"native reply\"}}]}",
         );
+        let store = store_with_secret(&base_url, "sk-test-secret");
         let prepared = prepare_request(&store, &config(&base_url), &messages()).unwrap();
         let reply = execute(&build_client().unwrap(), prepared).unwrap();
         assert_eq!(reply, "native reply");
@@ -464,8 +599,8 @@ mod tests {
 
     #[test]
     fn auth_failure_returns_the_auth_code_without_the_secret() {
-        let store = store_with_secret("sk-auth-secret");
         let base_url = response_server(401, "{\"error\":\"invalid key sk-auth-secret\"}");
+        let store = store_with_secret(&base_url, "sk-auth-secret");
         let prepared = prepare_request(&store, &config(&base_url), &messages()).unwrap();
         let error = execute(&build_client().unwrap(), prepared).unwrap_err();
         assert_eq!(error, ERROR_AUTH);
@@ -474,8 +609,7 @@ mod tests {
 
     #[test]
     fn config_debug_output_redacts_credentials_in_the_url() {
-        let mut settings = config("https://user:sk-url-secret@api.example.com/v1?token=sk-query");
-        settings.provider = "openai".to_string();
+        let settings = config("https://user:sk-url-secret@api.example.com/v1?token=sk-query");
         let debug = format!("{settings:?}");
         assert!(!debug.contains("sk-url-secret"));
         assert!(!debug.contains("sk-query"));
@@ -484,12 +618,49 @@ mod tests {
 
     #[test]
     fn vault_state_is_shared_with_the_ai_boundary() {
-        let vault = VaultState::with_store(Arc::new(store_with_secret("sk-shared")));
+        let vault = VaultState::with_store(Arc::new(store_with_secret(
+            "https://api.example.com/v1",
+            "sk-shared",
+        )));
         let prepared = prepare_request(
             vault.store(),
             &config("https://api.example.com/v1"),
             &messages(),
         );
         assert!(prepared.is_ok());
+    }
+
+    #[test]
+    fn async_chat_yields_while_http_waits_and_returns_the_reply() {
+        use std::future::{poll_fn, Future};
+        use std::task::Poll;
+
+        let (release, gate) = std::sync::mpsc::channel();
+        let base_url = response_server_with_gate(
+            200,
+            "{\"choices\":[{\"message\":{\"content\":\"async reply\"}}]}",
+            Some(gate),
+        );
+        let vault = VaultState::with_store(Arc::new(store_with_secret(&base_url, "sk-async")));
+        tauri::async_runtime::block_on(async move {
+            let mut request = std::pin::pin!(chat(vault, config(&base_url), messages()));
+            poll_fn(|context| {
+                assert!(request.as_mut().poll(context).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            release.send(()).unwrap();
+            assert_eq!(request.await.unwrap(), "async reply");
+        });
+    }
+
+    #[test]
+    fn async_chat_keeps_http_errors_redacted() {
+        let base_url = response_server(401, "{\"error\":\"sk-async-secret\"}");
+        let vault =
+            VaultState::with_store(Arc::new(store_with_secret(&base_url, "sk-async-secret")));
+        let error =
+            tauri::async_runtime::block_on(chat(vault, config(&base_url), messages())).unwrap_err();
+        assert_eq!(error, ERROR_AUTH);
     }
 }

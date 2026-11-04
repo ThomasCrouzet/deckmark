@@ -171,6 +171,7 @@ class FilesStore {
 	 */
 	private pendingTrashMoves = new Map<string, Promise<boolean>>();
 	private pendingRestores = new Map<string, Promise<void>>();
+	private pendingCrossTabSyncs = new Map<string, symbol>();
 	private diskOperations = new Map<string, Promise<unknown>>();
 	private renameTail: Promise<void> | null = null;
 	private metaIndex = new MetaIndex(() => this.library);
@@ -298,6 +299,10 @@ class FilesStore {
 	 */
 	private handleCrossTabMessage(msg: CrossTabMessage): void {
 		if (!browser) return;
+		// Invalidate reads even when the policy ignores an unloaded ID.
+		if (msg.type === 'draft-written' || msg.type === 'removed')
+			this.pendingCrossTabSyncs.delete(msg.id);
+		else this.pendingCrossTabSyncs.clear();
 		// Capture editor changes before the policy checks pending saves.
 		this.dispatchEditorFlush();
 		handleCrossTabPolicy(msg, {
@@ -351,25 +356,45 @@ class FilesStore {
 		});
 	}
 
-	/** §M3 - Reloads a specific draft from Dexie after it was written by another tab. */
+	/** Adds or refreshes a durable draft without replacing local edits. */
 	private async syncDraftFromOtherTab(id: string): Promise<void> {
 		const file = [...this.files, ...this.closedFiles].find((f) => f.id === id);
-		if (!file) return; // not loaded here → nothing to resynchronize
-		// Local editing pending on this file: real conflict. We do NOT reload (we
-		// would lose the local keystroke) - we signal the conflict to the user.
 		if (this.trashBusy || this.saveQueue.has(id)) {
-			this.notifyCrossTabConflict(t('files.modifiedInOtherTab', { name: file.name }));
+			this.notifyCrossTabConflict(t('files.modifiedInOtherTab', { name: file?.name ?? id }));
 			return;
 		}
+		const token = Symbol();
+		this.pendingCrossTabSyncs.set(id, token);
 		try {
 			const row = await db.drafts.get(id);
-			if (!row) return;
+			if (this.pendingCrossTabSyncs.get(id) !== token || !row) return;
+			const linked =
+				!file && (isFSASupported() || isDesktop())
+					? (await listDiskLinks()).some((link) => link.id === id)
+					: false;
+			if (this.pendingCrossTabSyncs.get(id) !== token) return;
 			// Capture input that arrived while the database read was pending.
 			this.dispatchEditorFlush();
-			if (![...this.files, ...this.closedFiles].some((entry) => entry === file)) return;
 			if (this.trashBusy || this.saveQueue.has(id)) return;
+			if (!file) {
+				if (this.library.some((entry) => entry.id === id)) return;
+				const incoming: FileItem = { ...row, dirty: false, linkedToDisk: linked };
+				if (row.open === false) this.closedFiles.push(incoming);
+				else this.files.push(incoming);
+				this.saveQueue.trackPersisted(row);
+				this.metaIndex.invalidateMeta(id);
+				void this.refreshBrokenLinks();
+				return;
+			}
+			if (![...this.files, ...this.closedFiles].some((entry) => entry === file)) return;
 			file.name = row.name;
 			file.content = row.content;
+			if (row.kind) file.kind = row.kind;
+			else delete file.kind;
+			if (row.mime) file.mime = row.mime;
+			else delete file.mime;
+			if (row.data) file.data = row.data;
+			else delete file.data;
 			if (row.projectId) file.projectId = row.projectId;
 			else delete file.projectId;
 			if (row.relativePath) file.relativePath = row.relativePath;
@@ -386,6 +411,8 @@ class FilesStore {
 			this.metaIndex.invalidateMeta(id);
 		} catch (err) {
 			reportError('cross-tab resync', err);
+		} finally {
+			if (this.pendingCrossTabSyncs.get(id) === token) this.pendingCrossTabSyncs.delete(id);
 		}
 	}
 
@@ -453,7 +480,9 @@ class FilesStore {
 	 */
 	async reload(broadcast = true): Promise<void> {
 		if (!browser) return;
+		this.pendingCrossTabSyncs.clear();
 		await this.pendingTrashBatch;
+		this.pendingCrossTabSyncs.clear();
 		// A quiet reload keeps this tab's view if the document is still open.
 		const preferredActiveId = broadcast ? null : this.activeId;
 		// invalidateAll (not discardAll): skip in-flight puts without deleting
@@ -1180,7 +1209,7 @@ class FilesStore {
 				renameProjectDocument(id, name)
 			);
 		}
-		const normalized = normalizeRename(name);
+		const normalized = normalizeRename(name, file.name);
 		if (/[\r\n[\]|]/.test(normalized)) {
 			notify.error(t('files.invalidLinkName'));
 			return Promise.resolve(false);
@@ -1200,16 +1229,14 @@ class FilesStore {
 			const oldTarget = stripMdExtension(file.name).toLowerCase();
 			const nextTarget = stripMdExtension(normalized);
 			const rewrite = (content: string) =>
-				documentKind(content) === 'note'
-					? rewriteWikiLinkTargets(content, (target) =>
-							target.toLowerCase() === oldTarget ? nextTarget : target
-						)
-					: content;
+				rewriteWikiLinkTargets(content, (target) =>
+					target.toLowerCase() === oldTarget ? nextTarget : target
+				);
 			const changes =
 				documentKindForFile(file) === 'note' &&
 				this.metaIndex.wikiLinkCandidates(oldTarget).length === 1
 					? this.library.flatMap((entry) =>
-							rewrite(entry.content) === entry.content
+							documentKindForFile(entry) !== 'note' || rewrite(entry.content) === entry.content
 								? []
 								: [{ file: entry, before: entry.content }]
 						)

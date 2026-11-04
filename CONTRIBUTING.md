@@ -60,8 +60,10 @@ If a system needs isolated tests, first record its failure risks. Keep each isol
 test only when it detects a concrete failure absent from the E2E suite. Coverage
 percentages are diagnostic, not a release gate.
 
-Each browser run writes an HTML report and a JSON result file. Keep test reports in local storage.
-CI does not upload test reports to GitHub. See [docs/TESTING.md](docs/TESTING.md) for commands and artifact paths.
+Each standard browser run writes an HTML report, a JSON result file, and run
+metadata. Keep the command, source revision, environment, fixtures, and results
+with the artifact. Desktop CI uploads native workflow and benchmark evidence.
+See [docs/TESTING.md](docs/TESTING.md) for commands and artifact paths.
 
 ## Visual tests (snapshots)
 

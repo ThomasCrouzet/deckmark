@@ -4,8 +4,8 @@
 
 DeckMark has two editions: **Web Light** and **Desktop Complete (Beta)**.
 Web Light is the complete browser edition. It is free and it is not a trial.
-Desktop Complete uses the same editor and adds native file access,
-file associations, native menus, and the macOS print panel.
+Desktop Complete uses the same editor and adds native file access, local Git
+tools, scheduled backups, global quick capture, and a native API key vault.
 The [edition matrix](EDITIONS.md) lists shared capabilities, Desktop-only
 capabilities, system requirements, and support boundaries.
 
@@ -67,7 +67,7 @@ A new version waits for IndexedDB writes before it reloads the app. If a local s
 
 ## Import documents
 
-A selection or folder can contain up to 300 files and 64 MiB. Each file can contain up to 16 MiB. The app rejects binary files, prohibited control characters, and text that is not UTF-8. It shows a result for each rejection. If you cancel an import, the app keeps imported documents and reports how many it added.
+A selection or folder can contain up to 300 files and 64 MiB. Each file can contain up to 16 MiB. Supported text files must be UTF-8 without prohibited control characters. Images and PDFs use separate binary import paths. The app shows a result for each rejection. If you cancel an import, the app keeps imported documents and reports how many it added.
 
 A note with at least 262,144 characters opens first in source mode. You must confirm before you change to visual rendering because parsing can take more time.
 
@@ -76,6 +76,24 @@ in the file determines its type. A malformed presentation stays in that editor
 with a source error so you can repair it.
 
 On supported systems, opening a file with the installed PWA uses the same import limits.
+
+## Code, images, and PDFs
+
+Import a supported code or text file to open the code editor. Use its controls
+for indentation, line endings, word wrap, and visible whitespace. JSON files
+have syntax checks, duplicate-key reports, **Format**, and **Minify** actions.
+The editor does not execute imported code.
+
+Import an image to open the annotation canvas. Use the pen, highlighter, eraser,
+zoom, and undo controls. Export a flattened PNG to keep the annotations.
+Strokes are temporary and do not change the original image. The **Annotate**
+control in a note's Read mode also creates temporary ink, not saved document content.
+
+Import a PDF to keep it in the library. **Open PDF** opens it in a separate
+browser viewer. **Export** downloads the PDF. Inline viewing depends on browser
+support and the security policy. The production Web policy permits local blob frames.
+Use the open or download action if the document area is blank. DeckMark has
+no PDF text extraction, OCR, annotation, or editing tools.
 
 ## Portable projects
 
@@ -104,6 +122,21 @@ If that support is unavailable, the operation fails without replacing an existin
 Disconnecting keeps local documents and assets. Backups do not contain directory permissions.
 
 Library ZIP exports accept at most 300 documents and 64 MiB of source and asset data.
+
+## Check and export documentation
+
+Open **Check documentation** from Commands. Select a project, then **Run check**.
+The checker reports link, anchor, heading, front matter, code fence, image, and
+presentation metadata problems. Select a result to open its source line.
+Use **Export JSON** to keep the report. Checks run locally and do not fetch
+remote resources. The report lists checks that were skipped.
+
+Open **Export documentation site** from Commands. Select a project and choose
+whether to include the local search index. **Export site** creates a ZIP with
+HTML pages, navigation, local assets, and a resource report. Extract the ZIP to
+read the site or publish its files on a static host. DeckMark does not upload it.
+The export does not change source documents or download remote images. Resolve
+reported resource errors before you retry a blocked export.
 
 ## Source and preview
 
@@ -153,6 +186,44 @@ In Desktop, change the name in the toolbar and press Enter or leave the field to
 
 Importing an exact copy of one linked document, with the same name and content, opens its existing tab. A different content version remains a separate draft.
 
+## Local search index
+
+Open **Local search index** from Commands and enable it. Select the library or
+current project, choose a model, then select **Build or refresh index**. Search
+results show the source path and line. Refresh the index after document changes.
+
+The feature-hash model matches word and character features. The local
+co-occurrence model uses terms that occur together in the selected documents.
+Both run on this device without a model download or provider request. The index
+contains note and code text in IndexedDB. **Clear index** removes the stored index.
+Disabling search alone does not delete it.
+
+## Snippets and content blocks
+
+Use **Save selection as snippet...** or **Save file as snippet...** from Commands.
+Open **Code snippets** to edit, copy, or export snippets. Search uses titles,
+tags, folders, and language names. It does not search the code body.
+Favorites and project filters limit the results.
+
+Copy can resolve `${PROJECT_NAME}`, `${FILE_NAME}`, `${DOCUMENT_TITLE}`,
+`${DATE}`, and `${TIME}`. Check the resolved preview before you copy.
+Use `\${NAME}` to keep a placeholder as text. A snippet JSON export keeps the
+stored code and metadata. Full library backups also include snippets.
+
+To define a reusable content block, add these markers in a note's Source mode:
+
+```markdown
+<!-- mdsh-block id="support" -->
+Contact the support team before you change the configuration.
+<!-- /mdsh-block -->
+```
+
+Open the destination note, then **Linked content blocks** from Commands. Select
+the source block and insert it. The destination keeps a readable Markdown
+snapshot. **Update** copies a changed source block. **Freeze** keeps the current
+snapshot, and **Detach** removes its link while retaining the text. Source
+changes do not update destination notes automatically.
+
 ## Local and remote images
 
 The app embeds images that you add with the picker, clipboard, or drag and drop. Embedded images remain available after a reload and appear in PDF and standalone HTML exports. Older versions created temporary links that cannot be recovered after expiration. Import the image again from its original file.
@@ -170,18 +241,32 @@ the ELK layout. The app keeps these settings in the Markdown source without appl
 
 ## AI and network access
 
-DeckMark has no AI feature in this release. It has no model, prompt, AI network
-request, or API key setting. The Web client has no secure API key vault. Do not
-store provider secrets in browser storage or in a Web build.
+AI is optional and disabled by default in both editions. In Settings, configure
+an OpenAI-compatible API base URL, a model identifier, and a provider key.
+Enable AI features to use the assistant. A connection test contacts the provider
+with a test prompt, without document content.
 
-The app has no account, backend, cloud storage, telemetry, or runtime CDN. It
-contacts its host to load and update application files. It does not upload
-documents. Remote images stay blocked until you approve a fetch for the current
-document. That fetch contacts the image host and reveals your IP address, without
-cookies or a referrer.
+Web Light requires consent to use a browser-resident key. It keeps the key in
+memory and tab session storage. That storage is accessible to page scripts and
+is not a secure vault. **Forget key** removes it. Provider CORS rules and the
+app's connection policy can prevent browser requests.
 
-A later AI feature would need a separate privacy design, explicit consent, and a
-documented network boundary. It is not part of this release.
+Desktop stores the key in the operating-system credential store. The key passes
+from the entry field to the vault. Stored keys are not returned to the WebView.
+Rust reads the key for provider requests. **Delete key** removes it from the vault.
+Each key belongs to a full endpoint, including its port and path. If you used an
+older host-only key entry, enter the key again for the configured endpoint.
+
+Open **AI assistant** from Commands. Choose a selection, document, file list, or
+project as context. Review the included paths and text before you send a prompt.
+That action sends the prompt and context to the configured provider. Review
+proposed changes before applying them. A reply does not run commands or apply
+edits automatically.
+
+No local inference engine is bundled. A separately installed compatible provider
+can use a local endpoint where the edition's network policy permits it.
+The app requires no backend or cloud storage and sends no telemetry or crash
+reports. Remote images still require a separate fetch action.
 
 <a id="backups-and-storage-health"></a>
 
@@ -189,8 +274,8 @@ documented network boundary. It is not part of this release.
 
 Settings shows whether the browser granted persistent storage. It also shows the estimated quota and the date of the latest successful external backup. Export a backup regularly. Always make one before you clear browser data or change profiles. Clearing site data, using private browsing, or evicting site storage can remove all local drafts, history, and assets.
 
-Web Light and Desktop Complete use the same backup format. Cross-edition
-round-trip tests are planned, not a current guarantee.
+Web Light and Desktop Complete use the same backup format. New metadata can
+require a newer release. Check a backup before you restore it in another version.
 
 The status bar identifies local draft saves. A linked disk file requires the explicit **Save to disk** action. The backup reminder opens Settings. You can dismiss the reminder for a week.
 
@@ -207,8 +292,8 @@ Trash also retains documents for 30 days. Closing tabs does not free this space.
 
 Select **Check a backup** to validate a JSON file or decrypt and validate an encrypted backup without changing your library. A restore first shows the backup date and document counts, then asks whether to merge or replace. In a browser, wait for the download to finish before you rely on an exported file.
 
-A backup contains open and closed documents, projects, assets, workspaces, and custom templates.
-It excludes trash, version history, browser file handles, and Desktop path permissions.
+A backup contains open and closed documents, projects, assets, workspaces, custom templates, snippets, and comments.
+It excludes trash, version history, the search index, API keys, browser file handles, and Desktop path permissions.
 Version 2 backups use schema 2. The app also accepts schema 1 backups from version 1.9.
 The format accepts up to 3,000 documents, 300 workspaces, 16 MiB per document, and 64 MiB in total.
 The app checks these limits before it reports a successful download. You cannot recover an encrypted backup without its passphrase.
@@ -216,6 +301,17 @@ The app checks these limits before it reports a successful download. You cannot 
 Replace mode keeps old documents in the trash and preserves variants that share an identifier. Merge mode assigns new identifiers to added drafts and updates workspace references.
 
 Replace mode also disconnects disk links. Imported content cannot reuse an old file permission. Merge mode keeps links for existing local drafts.
+
+On Desktop, open **Automatic local backups** in Settings. Choose a folder, set
+the interval and retention count, then enable scheduled backups. The schedule
+runs while the app is open. It is not an operating-system background service.
+An overdue schedule runs at startup. A schedule without a previous snapshot
+starts its first backup when enabled. Older path-only settings require you to
+select the folder again.
+**Back up now** creates a snapshot immediately. **Preview** shows the snapshot
+counts before restore. Older DeckMark snapshots are removed according to the
+retention count. Scheduled snapshots are unencrypted JSON. Use manual encrypted
+export when you need a passphrase-protected backup.
 
 ## Export
 
@@ -339,11 +435,30 @@ Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warn
 | Linux x64 | `.AppImage`, `.deb`, or `.rpm` | WebKitGTK 4.1 and the packaged native libraries. |
 
 Earlier releases use the previous `mdsh_` filename prefix.
-Desktop Complete has no automatic update channel. Install a new release to update,
-and keep your JSON backups and exported files.
+Desktop update delivery is on standby. The app does not check for or install
+updates. Download and install a new release manually, and keep your JSON backups
+and exported files. See [Desktop updates](UPDATES.md).
 
 Native selections and file associations authorize each Markdown path. The app restores that access after restart, so `Cmd+Shift+S` or `Ctrl+Shift+S` saves the restored draft directly. Removing a disk link revokes access. Files first selected in an older version need one new native selection to enter the access registry.
 
 The native boundary does not provide unrestricted filesystem access. JavaScript
 cannot add a path to the native access registry. Background disk scanning and a
 general file browser are not available.
+
+## Desktop tools
+
+For Git, open a disk folder that contains an existing repository. Save draft
+changes to disk before you open **Git changes**. The panel reads disk state,
+shows diffs and recent commits, and lets you stage, unstage, and commit changes.
+Stage and commit are disabled when the project is inside a parent repository.
+The panel does not provide clone, fetch, push, or pull actions.
+
+Enable global quick capture in Settings to register its shortcut. The default
+is `Cmd+Shift+Space` on macOS and `Ctrl+Shift+Space` on Windows and Linux.
+The capture window saves a note or snippet without opening the main editor.
+The shortcut is disabled by default and can be changed in Settings.
+
+The [CLI](CLI.md) and [local MCP server](MCP.md) run as separate Node processes
+from a source checkout. The MCP server accepts explicit roots and provides
+read, search, check, and patch-proposal tools. It starts no network listener and
+does not write files. The MCP client controls any later use of returned content.

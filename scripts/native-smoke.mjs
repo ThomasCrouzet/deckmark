@@ -279,6 +279,7 @@ function launch(openFile = true) {
 			MDSH_SMOKE_DISK_GATE: diskGate,
 			MDSH_NATIVE_PROJECT_ROOT: nativeProjectRoot,
 			MDSH_NATIVE_PROJECT_REGISTRY: nativeProjectRegistry,
+			MDSH_NATIVE_BACKUP_ROOT: join(output, 'desktop-tools'),
 			MDSH_SMOKE_PRINT_PANEL: panelMarker
 		}
 	});

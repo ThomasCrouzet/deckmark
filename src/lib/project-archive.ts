@@ -7,7 +7,7 @@ import {
 	rewriteProjectDestinations
 } from './project-links';
 import { rewriteWikiLinkTargets } from './wiki-links';
-import { documentKindForFile } from './document-kind';
+import { documentKindForFile, isBinaryDocument } from './document-kind';
 import type { ProjectAssetRow } from './db';
 type JSZipObject = import('jszip').JSZipObject;
 
@@ -19,7 +19,7 @@ export interface ProjectDocumentInput {
 	relativePath: string;
 	content: string;
 	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
-	/** Data URL for an image document. */
+	/** Base64 data URL for an image or PDF document. */
 	data?: string;
 }
 export interface ProjectAssetInput {
@@ -246,16 +246,22 @@ export async function buildProjectZip(
 		const documentKey = pathKey(documentPath);
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
-		if (document.kind === 'image' && document.data) {
-			const payload = document.data.slice(document.data.indexOf(',') + 1);
+		const typeInfo = { ...document, name: documentPath };
+		if (isBinaryDocument(typeInfo)) {
+			const data = document.data ?? '';
+			const bytes = Uint8Array.from(atob(data.slice(data.indexOf(',') + 1)), (character) =>
+				character.charCodeAt(0)
+			);
+			if (bytes.byteLength > IMPORT_LIMITS.maxFileBytes)
+				throw new Error('Project document size limit');
 			occupied.add(documentKey);
 			exportedDocuments.push({
 				...(document.id ? { id: document.id } : {}),
 				relativePath: documentPath,
 				content: '',
-				kind: 'image'
+				kind: documentKindForFile(typeInfo)
 			});
-			zip.file(documentPath, payload, { base64: true, ...entryOptions });
+			zip.file(documentPath, bytes, entryOptions);
 			continue;
 		}
 		const portableContent =

@@ -9,6 +9,100 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Release review regressions
+
+`e2e/review-regressions.spec.ts` checks these failures through the application:
+
+- A rename can replace a code or image extension with `.md`. Compare downloaded
+  bytes and the filename after reload.
+- A note rename can rewrite wiki-like text inside a code file. Compare its export.
+- A delayed editor mount can take focus from the filename input. Continue typing
+  after the editor loads and check the complete name.
+- A new document in another window can remain absent from the library. Check its
+  content without a reload and keep the current document selected until the user
+  opens the new one.
+
+Run `npx playwright test e2e/review-regressions.spec.ts --project=chromium --workers=1`.
+The standard report records the source revision, working diff, environment, and
+command. The cases attach exports and screenshots as repeatable evidence.
+
+`cli/mcp.test.ts` starts the real Node server with temporary filesystem roots.
+It checks sensitive symlink targets, ambiguous paths across roots, malformed
+JSON-RPC recovery, and notifications. A browser cannot exercise this process or
+its filesystem boundary. Run `npx vitest run cli/mcp.test.ts --maxWorkers=1`.
+The review evidence in `/tmp/opencode/mcp-review-evidence.json` records the command,
+revision, environment, fixture source, hashes, and before-and-after results.
+
+`e2e/binary-review.spec.ts` compares image and PDF bytes after disk copy actions,
+library ZIP export, and project ZIP export. Binary copies must stay unlinked.
+An oversized restored PDF must produce an export error. `e2e/pdf-viewer.spec.ts`
+checks the native browser viewer under the production CSP. Retain fixture PDFs,
+downloads, ZIP files, screenshots, and JSON reports. Run both specs with
+`npx playwright test e2e/binary-review.spec.ts e2e/pdf-viewer.spec.ts --project=chromium --workers=1`.
+
+The native Git tests use real repositories. They check executable filters,
+included configuration, parent-repository confinement, literal diff paths, and
+unstage before the first commit. Check unchanged index and working-tree bytes.
+A browser cannot inspect native subprocesses or the Git index. Run
+`cargo test --manifest-path src-tauri/Cargo.toml git::tests`. The shell marker case
+runs on Unix. Keep the command, source hash, environment, fixtures, and Cargo output.
+Unused global and system LFS settings must permit ordinary Git workflows.
+Each child command disables executable drivers and requires conversion success.
+Git must reject a conversion that needs a disabled driver. Log and cached diff
+can read stored objects without conversion. Check conditional includes, attribute
+macros, index fallback, info attributes, global attributes, and directory paths.
+Compare index and disk bytes after rejected staging. Use separate child
+environments for global and system LFS settings. Do not change environment
+variables inside parallel tests. Evidence is in `/tmp/opencode/git-ci-fix/`.
+
+Native AI tests bind keys to canonical endpoints, reject caller-selected key IDs,
+and check that pending HTTP requests yield. They use an in-memory secret store
+and loopback servers with synthetic keys. Browser tests cannot execute this Rust
+boundary. Run `cargo test --manifest-path src-tauri/Cargo.toml ai::tests` and
+`cargo test --manifest-path src-tauri/Cargo.toml vault::tests`. Keep the report in
+`/tmp/opencode/ai-review-cargo-final-evidence.json`. The operating-system keyring
+still needs a desktop session. Old host-only entries require key re-entry.
+
+Backup boundary tests check forged grants, persisted grants, replaced roots,
+symlink confinement, and retention. Browser tests cannot inspect native directory
+handles. Run `cargo test --manifest-path src-tauri/Cargo.toml backup::tests --lib`.
+Run `node scripts/verify-desktop-backup-scheduler.mjs` for remaining delays,
+overdue startup, opt-in, concurrent disable, and retry behavior. Its JSON report
+records the command, revision, source diff, environment, fixtures, and results in
+`test-results/backup-scheduler.json`. The native smoke checks picker grants
+and denied renderer paths through real IPC.
+Close fixture directory handles before cleanup. Windows refuses to remove a
+directory while these handles remain open.
+An enabled schedule without a previous successful snapshot must run at startup.
+Otherwise, repeated sessions shorter than the interval can prevent its first backup.
+
+`e2e/capture-snippets-review.spec.ts` checks snippet updates across windows.
+Desktop-edition cases also check first-mount templates, duplicate and concurrent
+saves, and failed writes that retain capture input. Set `CAPTURE_REVIEW_DESKTOP=1`
+with a Desktop server for those cases. The native-command fixture does not prove
+the operating-system shortcut or native window lifecycle. Native smoke covers
+those paths. Each browser case retains source metadata, fixtures, and screenshots.
+The PDF viewer case uses full Chromium headless mode because the headless shell
+does not include the PDF viewer.
+
+The PDF case checks the native viewer, page count, rendered thumbnail pixels, and
+exact fixture text before and after reload. It also compares the downloaded bytes.
+Keep `frame-src blob:` and `object-src 'none'` in the production CSP.
+A blob URL alone does not prove that the PDF rendered. If Chromium changes its
+viewer API, inspect a rendered PDF before changing the assertions.
+
+`e2e/cross-window-review.spec.ts` checks two overlapping draft changes. A later
+write must replace an earlier read that waits for disk-link lookup. A removal must
+invalidate that read, even when the draft is not yet in the receiving window.
+The fixture holds a real transaction on `mdsh-fs.handles`. A second window commits
+the changes in `mdsh` and sends BroadcastChannel notifications. The cases compare
+visible content, the active document, and the persisted row after transaction release.
+Run `npx playwright test e2e/cross-window-review.spec.ts --project=chromium --workers=1`.
+Keep `sync-evidence.json`, the screenshot, trace, and source metadata with the report.
+Both cases failed before the correction and passed in the development check.
+The reports are in `/tmp/opencode/cross-window-review-red/` and
+`/tmp/opencode/cross-window-review-green/`. The production suite checks them again.
+
 ## Edition and hosting checks
 
 GitHub Pages is the only production Web publisher. Check Web Light and Desktop
@@ -428,6 +522,11 @@ the run. The CLI does not start the GUI, the Tauri shell, or a network service.
 
 ## Repeat the browser suite
 
+Browser profiles, downloads, and traces need free temporary storage. If `/tmp`
+uses a small memory filesystem, set `TMPDIR` to an empty directory on disk before
+the run. Keep any `ENOSPC` failure report and repeat the affected cases after the
+storage problem is corrected. Do not treat a failed trace write as an application result.
+
 ### Whole-application review
 
 The presentation-file review found failures in shared workflows. These retained
@@ -536,6 +635,9 @@ Select motion targets and read their styles in one browser task. Require the
 filename input and Present button in both samples. Reject non-finite durations
 and keep the 0.001-second reduced-motion limit. Retain every viewport cell and
 its exact Markdown export comparison.
+On a failed pointer hit test, report the covering element, editor bounds, scroll
+position, and focused control. A boolean result alone cannot identify a covered
+button in a CI-only failure.
 
 Repeat the editor, modal, and responsive workflows with one worker:
 

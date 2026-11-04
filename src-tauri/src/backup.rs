@@ -4,13 +4,16 @@
 //! selects with the native folder dialog. Each snapshot uses an atomic write.
 //! Retention removes only files that match the snapshot name pattern.
 
-use serde::Serialize;
-use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::ambient_authority;
+use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
+use serde::{Deserialize, Serialize};
+use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 const SNAPSHOT_PREFIX: &str = "deckmark-backup-";
@@ -20,29 +23,149 @@ const MAX_PAYLOAD_BYTES: usize = 256 * 1024 * 1024;
 const MIN_KEEP: u32 = 1;
 const MAX_KEEP: u32 = 50;
 const MAX_NAME_ATTEMPTS: u32 = 120;
+const MAX_REGISTRY_BYTES: u64 = 64 * 1024;
 
-/// Approved backup folders for this session.
-///
-/// A folder enters this set after `desktop_backup_write` or
-/// `desktop_backup_list`. `desktop_backup_read` accepts only a direct child of
-/// one of these folders.
+/// Only the native picker can replace the persistent backup grant.
 #[derive(Default)]
-pub struct BackupRoots(Mutex<HashSet<PathBuf>>);
+pub struct BackupRoots(Mutex<Option<PathBuf>>);
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RootGrant {
+    root_id: String,
+    path: PathBuf,
+    identity: [u64; 2],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupRoot {
+    root_id: String,
+    path: String,
+}
+
+struct BackupDirectory {
+    path: PathBuf,
+    handle: Dir,
+}
+
+impl BackupDirectory {
+    fn open(path: &Path) -> Result<Self, String> {
+        let path = resolve_root(&path.to_string_lossy())?;
+        let handle =
+            Dir::open_ambient_dir(&path, ambient_authority()).map_err(|error| error.to_string())?;
+        Ok(Self { path, handle })
+    }
+
+    fn identity(&self) -> Result<[u64; 2], String> {
+        let file = self
+            .handle
+            .try_clone()
+            .map_err(|error| error.to_string())?
+            .into_std_file();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = file.metadata().map_err(|error| error.to_string())?;
+            Ok([metadata.dev(), metadata.ino()])
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::Storage::FileSystem::{
+                GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+            };
+            let mut information = BY_HANDLE_FILE_INFORMATION::default();
+            if unsafe { GetFileInformationByHandle(file.as_raw_handle().cast(), &mut information) }
+                == 0
+            {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+            Ok([
+                u64::from(information.dwVolumeSerialNumber),
+                (u64::from(information.nFileIndexHigh) << 32)
+                    | u64::from(information.nFileIndexLow),
+            ])
+        }
+    }
+}
 
 impl BackupRoots {
-    fn allow(&self, root: &Path) -> Result<(), String> {
-        self.0
-            .lock()
-            .map_err(|_| "backup root store unavailable")?
-            .insert(root.to_path_buf());
+    pub fn set_registry(&self, path: PathBuf) -> Result<(), String> {
+        *self.0.lock().map_err(|_| "backup root store unavailable")? = Some(path);
         Ok(())
     }
 
-    fn contains(&self, root: &Path) -> bool {
-        self.0
-            .lock()
-            .map(|roots| roots.contains(root))
-            .unwrap_or(false)
+    fn selected_root(&self, path: PathBuf) -> Result<BackupRoot, String> {
+        let root = BackupDirectory::open(&path)?;
+        let grant = RootGrant {
+            root_id: Uuid::new_v4().to_string(),
+            path: root.path.clone(),
+            identity: root.identity()?,
+        };
+        let state = self.0.lock().map_err(|_| "backup root store unavailable")?;
+        let registry = state.as_ref().ok_or("backup registry is not configured")?;
+        let parent = registry.parent().ok_or("backup registry has no parent")?;
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        let temp = parent.join(format!(".backup-root-{}.tmp", Uuid::new_v4()));
+        let result = (|| {
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&temp).map_err(|error| error.to_string())?;
+            let bytes = serde_json::to_vec(&grant).map_err(|error| error.to_string())?;
+            file.write_all(&bytes).map_err(|error| error.to_string())?;
+            file.sync_all().map_err(|error| error.to_string())?;
+            drop(file);
+            fs::rename(&temp, registry).map_err(|error| error.to_string())
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(temp);
+        }
+        result?;
+        Ok(BackupRoot {
+            root_id: grant.root_id,
+            path: grant.path.to_string_lossy().into_owned(),
+        })
+    }
+
+    fn resolve(&self, root_id: &str) -> Result<BackupDirectory, String> {
+        if Uuid::parse_str(root_id).is_err() {
+            return Err("unknown or revoked backup root".to_string());
+        }
+        let state = self.0.lock().map_err(|_| "backup root store unavailable")?;
+        let registry = state.as_ref().ok_or("backup registry is not configured")?;
+        let parent = registry.parent().ok_or("backup registry has no parent")?;
+        let directory = Dir::open_ambient_dir(parent, ambient_authority())
+            .map_err(|error| error.to_string())?;
+        let mut options = CapOpenOptions::new();
+        options.read(true).follow(FollowSymlinks::No);
+        let file = directory
+            .open_with(
+                registry
+                    .file_name()
+                    .ok_or("backup registry has no file name")?,
+                &options,
+            )
+            .map_err(|error| error.to_string())?;
+        let metadata = file.metadata().map_err(|error| error.to_string())?;
+        if !metadata.is_file() || metadata.len() > MAX_REGISTRY_BYTES {
+            return Err("backup registry is invalid".to_string());
+        }
+        let grant: RootGrant = serde_json::from_reader(file.take(MAX_REGISTRY_BYTES + 1))
+            .map_err(|_| "backup registry is invalid".to_string())?;
+        if grant.root_id != root_id {
+            return Err("unknown or revoked backup root".to_string());
+        }
+        let root = BackupDirectory::open(&grant.path)?;
+        if root.path != grant.path || root.identity()? != grant.identity {
+            return Err("backup folder changed; select it again".to_string());
+        }
+        Ok(root)
     }
 }
 
@@ -186,7 +309,7 @@ fn parse_snapshot_seconds(name: &str) -> Option<u64> {
     )
 }
 
-fn next_timestamp(root: &Path, now: u64) -> Result<u64, String> {
+fn next_timestamp(root: &BackupDirectory, now: u64) -> Result<u64, String> {
     let newest = snapshot_entries(root)?
         .iter()
         .filter_map(|entry| parse_snapshot_seconds(&entry.file_name))
@@ -194,49 +317,48 @@ fn next_timestamp(root: &Path, now: u64) -> Result<u64, String> {
     Ok(newest.map_or(now, |value| now.max(value.saturating_add(1))))
 }
 
-fn metadata_ms(metadata: &fs::Metadata) -> f64 {
+fn metadata_ms(metadata: &cap_std::fs::Metadata) -> f64 {
     metadata
         .modified()
         .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|time| time.into_std().duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_secs_f64() * 1000.0)
         .unwrap_or(0.0)
 }
 
 fn write_atomic_snapshot(
-    root: &Path,
+    root: &BackupDirectory,
     name: &str,
     payload: &[u8],
 ) -> Result<PathBuf, AtomicWriteError> {
-    let target = root.join(name);
-    let temp = root.join(format!(".{name}.{}.tmp", Uuid::new_v4()));
+    let temp = format!(".{name}.{}.tmp", Uuid::new_v4());
     let result = (|| {
-        let mut options = OpenOptions::new();
+        let mut options = CapOpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::OpenOptionsExt;
+            use cap_std::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&temp)?;
+        let mut file = root.handle.open_with(&temp, &options)?;
         file.write_all(payload)?;
         file.sync_all()?;
         drop(file);
         // A hard link creates the target only when the name is free.
-        fs::hard_link(&temp, &target)?;
-        let _ = fs::remove_file(&temp);
+        root.handle.hard_link(&temp, &root.handle, name)?;
+        let _ = root.handle.remove_file(&temp);
         #[cfg(unix)]
         {
-            if let Ok(directory) = File::open(root) {
-                let _ = directory.sync_all();
+            if let Ok(directory) = root.handle.try_clone() {
+                let _ = directory.into_std_file().sync_all();
             }
         }
         Ok::<(), std::io::Error>(())
     })();
     match result {
-        Ok(()) => Ok(target),
+        Ok(()) => Ok(root.path.join(name)),
         Err(error) => {
-            let _ = fs::remove_file(&temp);
+            let _ = root.handle.remove_file(&temp);
             if error.kind() == ErrorKind::AlreadyExists {
                 Err(AtomicWriteError::Exists)
             } else {
@@ -246,9 +368,9 @@ fn write_atomic_snapshot(
     }
 }
 
-fn snapshot_entries(root: &Path) -> Result<Vec<BackupEntry>, String> {
+fn snapshot_entries(root: &BackupDirectory) -> Result<Vec<BackupEntry>, String> {
     let mut entries = Vec::new();
-    for entry in fs::read_dir(root).map_err(|error| error.to_string())? {
+    for entry in root.handle.entries().map_err(|error| error.to_string())? {
         let entry = entry.map_err(|error| error.to_string())?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if !is_snapshot_name(&name) {
@@ -260,7 +382,7 @@ fn snapshot_entries(root: &Path) -> Result<Vec<BackupEntry>, String> {
         }
         let metadata = entry.metadata().map_err(|error| error.to_string())?;
         entries.push(BackupEntry {
-            path: entry.path().to_string_lossy().into_owned(),
+            path: root.path.join(&name).to_string_lossy().into_owned(),
             file_name: name,
             size: metadata.len(),
             modified_ms: metadata_ms(&metadata),
@@ -270,12 +392,12 @@ fn snapshot_entries(root: &Path) -> Result<Vec<BackupEntry>, String> {
     Ok(entries)
 }
 
-fn apply_retention(root: &Path, keep: u32) -> Result<usize, String> {
+fn apply_retention(root: &BackupDirectory, keep: u32) -> Result<usize, String> {
     let keep = keep.clamp(MIN_KEEP, MAX_KEEP) as usize;
     let entries = snapshot_entries(root)?;
     let mut removed = 0;
     for entry in entries.into_iter().skip(keep) {
-        match fs::remove_file(&entry.path) {
+        match root.handle.remove_file(&entry.file_name) {
             Ok(()) => removed += 1,
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => return Err(error.to_string()),
@@ -284,7 +406,11 @@ fn apply_retention(root: &Path, keep: u32) -> Result<usize, String> {
     Ok(removed)
 }
 
-fn write_snapshot(root: &Path, payload: &[u8], keep: u32) -> Result<BackupWrite, String> {
+fn write_snapshot(
+    root: &BackupDirectory,
+    payload: &[u8],
+    keep: u32,
+) -> Result<BackupWrite, String> {
     ensure_payload_size(payload.len())?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -293,14 +419,12 @@ fn write_snapshot(root: &Path, payload: &[u8], keep: u32) -> Result<BackupWrite,
     let mut seconds = next_timestamp(root, now)?;
     for _ in 0..MAX_NAME_ATTEMPTS {
         let name = snapshot_name(seconds);
-        let target = root.join(&name);
-        if target.exists() {
-            seconds = seconds.saturating_add(1);
-            continue;
-        }
         match write_atomic_snapshot(root, &name, payload) {
             Ok(path) => {
-                let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+                let metadata = root
+                    .handle
+                    .symlink_metadata(&name)
+                    .map_err(|error| error.to_string())?;
                 let removed = apply_retention(root, keep)?;
                 return Ok(BackupWrite {
                     path: path.to_string_lossy().into_owned(),
@@ -319,24 +443,13 @@ fn write_snapshot(root: &Path, payload: &[u8], keep: u32) -> Result<BackupWrite,
     Err("could not allocate a unique backup file name".to_string())
 }
 
-fn validate_snapshot_path(path: &Path, root: Option<&Path>) -> Result<(), String> {
-    if !path.is_absolute() {
-        return Err("backup path must be an absolute path".to_string());
-    }
-    if path
-        .components()
-        .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err("backup path must not contain '..'".to_string());
-    }
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "backup path has no file name".to_string())?;
+fn read_snapshot(root: &BackupDirectory, name: &str) -> Result<String, String> {
     if !is_snapshot_name(name) {
-        return Err("backup path is not a DeckMark snapshot".to_string());
+        return Err("backup name is not a DeckMark snapshot".to_string());
     }
-    let metadata = fs::symlink_metadata(path)
+    let metadata = root
+        .handle
+        .symlink_metadata(name)
         .map_err(|_| "backup file is missing or not accessible".to_string())?;
     if metadata.file_type().is_symlink() {
         return Err("symbolic-link snapshots are not accepted".to_string());
@@ -344,26 +457,16 @@ fn validate_snapshot_path(path: &Path, root: Option<&Path>) -> Result<(), String
     if !metadata.is_file() {
         return Err("backup path is not a regular file".to_string());
     }
-    let parent = path
-        .parent()
-        .ok_or_else(|| "backup path has no parent".to_string())?;
-    let canonical_parent = parent.canonicalize().map_err(|error| error.to_string())?;
-    if let Some(root) = root {
-        if canonical_parent != root {
-            return Err("backup path is outside the approved folder".to_string());
-        }
-    }
-    let canonical = path.canonicalize().map_err(|error| error.to_string())?;
-    if canonical.parent() != Some(canonical_parent.as_path()) {
-        return Err("backup path is outside the approved folder".to_string());
-    }
-    Ok(())
-}
-
-fn read_snapshot(path: &Path, root: Option<&Path>) -> Result<String, String> {
-    validate_snapshot_path(path, root)?;
-    let file = File::open(path).map_err(|error| error.to_string())?;
+    let mut options = CapOpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let file = root
+        .handle
+        .open_with(name, &options)
+        .map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("backup path is not a regular file".to_string());
+    }
     if metadata.len() > MAX_PAYLOAD_BYTES as u64 {
         return Err("backup file exceeds the 256 MiB limit".to_string());
     }
@@ -378,47 +481,61 @@ fn read_snapshot(path: &Path, root: Option<&Path>) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn desktop_backup_pick_root(
+    app: tauri::AppHandle,
+    roots: tauri::State<'_, BackupRoots>,
+    title: String,
+) -> Result<Option<BackupRoot>, String> {
+    #[cfg(feature = "native-smoke")]
+    if let Some(path) =
+        std::env::var_os("MDSH_NATIVE_BACKUP_ROOT").filter(|value| !value.is_empty())
+    {
+        return roots.selected_root(PathBuf::from(path)).map(Some);
+    }
+    let selected = app.dialog().file().set_title(title).blocking_pick_folder();
+    selected
+        .map(|path| roots.selected_root(path.into_path().map_err(|error| error.to_string())?))
+        .transpose()
+}
+
+#[tauri::command]
 pub fn desktop_backup_write(
     roots: tauri::State<'_, BackupRoots>,
-    root: String,
+    root_id: String,
     payload: String,
     keep: u32,
 ) -> Result<BackupWrite, String> {
-    let root = resolve_root(&root)?;
-    roots.allow(&root)?;
-    write_snapshot(&root, payload.as_bytes(), keep)
+    write_snapshot(&roots.resolve(&root_id)?, payload.as_bytes(), keep)
 }
 
 #[tauri::command]
 pub fn desktop_backup_list(
     roots: tauri::State<'_, BackupRoots>,
-    root: String,
+    root_id: String,
 ) -> Result<Vec<BackupEntry>, String> {
-    let root = resolve_root(&root)?;
-    roots.allow(&root)?;
-    snapshot_entries(&root)
+    snapshot_entries(&roots.resolve(&root_id)?)
 }
 
 #[tauri::command]
 pub fn desktop_backup_read(
     roots: tauri::State<'_, BackupRoots>,
-    path: String,
+    root_id: String,
+    file_name: String,
 ) -> Result<String, String> {
-    let path = PathBuf::from(path);
-    let parent = path
-        .parent()
-        .ok_or_else(|| "backup path has no parent".to_string())?
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
-    if !roots.contains(&parent) {
-        return Err("backup path is outside the approved folder".to_string());
-    }
-    read_snapshot(&path, Some(&parent))
+    read_snapshot(&roots.resolve(&root_id)?, &file_name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_snapshot(root: &Path, payload: &[u8], keep: u32) -> Result<BackupWrite, String> {
+        super::write_snapshot(&BackupDirectory::open(root)?, payload, keep)
+    }
+
+    fn snapshot_entries(root: &Path) -> Result<Vec<BackupEntry>, String> {
+        super::snapshot_entries(&BackupDirectory::open(root)?)
+    }
 
     fn temp_directory() -> PathBuf {
         let directory = std::env::temp_dir().join(format!("mdsh-backup-{}", Uuid::new_v4()));
@@ -432,6 +549,89 @@ mod tests {
 
     fn write_fixture(root: &Path, name: &str, contents: &str) {
         fs::write(root.join(name), contents).expect("fixture file");
+    }
+
+    #[test]
+    fn only_picker_grants_authorize_roots_and_survive_restart() {
+        let root = temp_directory();
+        let private = temp_directory();
+        let registry = private.join("backup-root.json");
+        let roots = BackupRoots::default();
+        roots.set_registry(registry.clone()).unwrap();
+        assert!(roots.resolve(&root.to_string_lossy()).is_err());
+        assert!(roots.resolve(&Uuid::new_v4().to_string()).is_err());
+        assert!(!registry.exists());
+        let grant = roots.selected_root(root.clone()).unwrap();
+        assert_ne!(grant.root_id, root.to_string_lossy());
+        let restarted = BackupRoots::default();
+        restarted.set_registry(registry.clone()).unwrap();
+        let authorized = restarted.resolve(&grant.root_id).unwrap();
+        let written = super::write_snapshot(&authorized, b"approved", 1).unwrap();
+        assert_eq!(
+            super::read_snapshot(&authorized, &written.file_name).unwrap(),
+            "approved"
+        );
+        assert!(super::read_snapshot(&authorized, &written.path).is_err());
+        assert!(super::read_snapshot(&authorized, &format!("../{}", written.file_name)).is_err());
+        fs::write(&registry, "invalid registry").unwrap();
+        assert!(restarted.resolve(&grant.root_id).is_err());
+        drop(authorized);
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(private).unwrap();
+    }
+
+    #[test]
+    fn selecting_another_folder_revokes_the_previous_identity() {
+        let first = temp_directory();
+        let second = temp_directory();
+        let private = temp_directory();
+        let roots = BackupRoots::default();
+        roots
+            .set_registry(private.join("backup-root.json"))
+            .unwrap();
+        let old = roots.selected_root(first.clone()).unwrap();
+        let new = roots.selected_root(second.clone()).unwrap();
+        assert!(roots.resolve(&old.root_id).is_err());
+        assert!(roots.resolve(&new.root_id).is_ok());
+        let moved = second.with_extension("moved");
+        fs::rename(&second, &moved).unwrap();
+        fs::create_dir(&second).unwrap();
+        assert!(roots.resolve(&new.root_id).is_err());
+        fs::remove_dir_all(first).unwrap();
+        fs::remove_dir_all(second).unwrap();
+        fs::remove_dir_all(moved).unwrap();
+        fs::remove_dir_all(private).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn granted_handles_reject_symlinks_and_stay_in_the_selected_directory() {
+        use std::os::unix::fs::symlink;
+        let root = temp_directory();
+        let outside = temp_directory();
+        let private = temp_directory();
+        let roots = BackupRoots::default();
+        roots
+            .set_registry(private.join("backup-root.json"))
+            .unwrap();
+        let grant = roots.selected_root(root.clone()).unwrap();
+        let authorized = roots.resolve(&grant.root_id).unwrap();
+        let name = "deckmark-backup-20260101T000000Z.json";
+        write_fixture(&outside, name, "outside");
+        symlink(outside.join(name), root.join(name)).unwrap();
+        assert!(super::read_snapshot(&authorized, name).is_err());
+        assert!(super::snapshot_entries(&authorized).unwrap().is_empty());
+        let moved = root.with_extension("moved");
+        fs::rename(&root, &moved).unwrap();
+        symlink(&outside, &root).unwrap();
+        assert!(roots.resolve(&grant.root_id).is_err());
+        super::write_snapshot(&authorized, b"inside", 1).unwrap();
+        assert_eq!(fs::read_to_string(outside.join(name)).unwrap(), "outside");
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
+        fs::remove_file(root).unwrap();
+        fs::remove_dir_all(moved).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+        fs::remove_dir_all(private).unwrap();
     }
 
     #[test]
@@ -537,23 +737,17 @@ mod tests {
         let second = temp_directory();
         let snapshot = write_snapshot(&first, b"first", 1).unwrap();
         let outside = write_snapshot(&second, b"second", 1).unwrap();
+        let approved = BackupDirectory::open(&first).unwrap();
         assert_eq!(
-            read_snapshot(Path::new(&snapshot.path), Some(&first)).unwrap(),
+            read_snapshot(&approved, &snapshot.file_name).unwrap(),
             "first"
         );
-        assert!(read_snapshot(Path::new(&outside.path), Some(&first)).is_err());
-        assert!(read_snapshot(Path::new(&outside.path), None).is_ok());
-        let traversal = first.join("..").join(
-            Path::new(&outside.path)
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .as_ref(),
-        );
-        assert!(read_snapshot(&traversal, Some(&first)).is_err());
+        assert!(read_snapshot(&approved, &outside.path).is_err());
+        assert!(read_snapshot(&approved, &format!("../{}", outside.file_name)).is_err());
         let unrelated = first.join("notes.json");
         fs::write(&unrelated, "keep").unwrap();
-        assert!(read_snapshot(&unrelated, Some(&first)).is_err());
+        assert!(read_snapshot(&approved, "notes.json").is_err());
+        drop(approved);
         fs::remove_dir_all(first).unwrap();
         fs::remove_dir_all(second).unwrap();
     }

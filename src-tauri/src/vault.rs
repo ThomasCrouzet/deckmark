@@ -107,6 +107,7 @@ impl SecretStore for MemoryStore {
 }
 
 /// Application state for the vault commands.
+#[derive(Clone)]
 pub struct VaultState {
     store: Arc<dyn SecretStore>,
 }
@@ -163,20 +164,20 @@ impl VaultState {
 #[tauri::command]
 pub fn vault_set(
     state: tauri::State<'_, VaultState>,
-    provider: String,
+    base_url: String,
     secret: String,
 ) -> Result<(), String> {
-    state.set(&provider, &secret)
+    state.set(&crate::ai::credential_provider_for(&base_url)?, &secret)
 }
 
 #[tauri::command]
-pub fn vault_status(state: tauri::State<'_, VaultState>, provider: String) -> Result<bool, String> {
-    state.status(&provider)
+pub fn vault_status(state: tauri::State<'_, VaultState>, base_url: String) -> Result<bool, String> {
+    state.status(&crate::ai::credential_provider_for(&base_url)?)
 }
 
 #[tauri::command]
-pub fn vault_delete(state: tauri::State<'_, VaultState>, provider: String) -> Result<(), String> {
-    state.clear(&provider)
+pub fn vault_delete(state: tauri::State<'_, VaultState>, base_url: String) -> Result<(), String> {
+    state.clear(&crate::ai::credential_provider_for(&base_url)?)
 }
 
 #[cfg(test)]

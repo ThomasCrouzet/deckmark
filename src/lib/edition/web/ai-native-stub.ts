@@ -7,15 +7,15 @@ function unavailable(): Error {
 	return new Error('The native AI boundary is not available in Web Light.');
 }
 
-export async function vaultSet(_provider: string, _secret: string): Promise<void> {
+export async function vaultSet(_baseUrl: string, _secret: string): Promise<void> {
 	throw unavailable();
 }
 
-export async function vaultStatus(_provider: string): Promise<boolean> {
+export async function vaultStatus(_baseUrl: string): Promise<boolean> {
 	throw unavailable();
 }
 
-export async function vaultDelete(_provider: string): Promise<void> {
+export async function vaultDelete(_baseUrl: string): Promise<void> {
 	throw unavailable();
 }
 

@@ -144,7 +144,8 @@ export function isTextDocument(file: DocumentTypeInfo): boolean {
 }
 
 export function isBinaryDocument(file: DocumentTypeInfo): boolean {
-	return documentKindForFile(file) === 'image';
+	const kind = documentKindForFile(file);
+	return kind === 'image' || kind === 'pdf';
 }
 
 export function documentKindLabelKey(

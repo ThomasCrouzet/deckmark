@@ -660,7 +660,14 @@
 		await restoreEditorPosition(instance, idForMount, token);
 		// A new note waits for the lazy editor before it can take the caret.
 		// The request survives the modal close and the asynchronous mount.
-		if (token === mountToken && consumeEditorFocus(idForMount)) {
+		const focusedControl = document.activeElement;
+		if (
+			token === mountToken &&
+			consumeEditorFocus(idForMount) &&
+			(!focusedControl ||
+				container.contains(focusedControl) ||
+				!focusedControl.closest('input, textarea, [contenteditable="true"], [role="dialog"]'))
+		) {
 			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
 			const selection = TextSelection.atEnd(editorView.state.doc);
 			editorView.dispatch(editorView.state.tr.setSelection(selection).scrollIntoView());

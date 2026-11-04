@@ -20,7 +20,7 @@ import { stripMdExtension, untitledBasename, untitledFilename } from '#lib/file-
 import { abortable, checkAborted } from '../abort';
 import { IMPORT_LIMITS } from '../config';
 import { isPresentation } from '../presentation/detect';
-import { documentKindForFile } from '../document-kind';
+import { documentKindForFile, isBinaryDocument } from '../document-kind';
 import { activeProfile, applyExportProfile } from '../export-profiles';
 
 export interface MediaExportOptions {
@@ -178,10 +178,6 @@ export async function triggerDownload(blob: Blob, filename: string): Promise<boo
 	return true;
 }
 
-/**
- * Downloads the raw markdown under the file's name (`<name>.md`).
- * @returns `false` if the desktop save dialog was cancelled.
- */
 function dataUrlBlob(data: string): Blob {
 	const comma = data.indexOf(',');
 	if (comma < 0) return new Blob([]);
@@ -195,20 +191,19 @@ function dataUrlBlob(data: string): Blob {
 
 /**
  * Downloads a document without conversion. Notes and presentations download
- * Markdown, code downloads its original text, and images download their
+ * Markdown, code downloads its original text, and binary documents download their
  * original binary bytes.
  */
 export async function exportMarkdown(file: FileItem): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
 	const kind = documentKindForFile(file);
-	const blob =
-		kind === 'image' || kind === 'pdf'
-			? dataUrlBlob(file.data ?? '')
-			: kind === 'code'
-				? new Blob([file.content], {
-						type: file.mime || 'text/plain;charset=utf-8'
-					})
-				: new Blob([file.content], { type: 'text/markdown;charset=utf-8' });
+	const blob = isBinaryDocument(file)
+		? dataUrlBlob(file.data ?? '')
+		: kind === 'code'
+			? new Blob([file.content], {
+					type: file.mime || 'text/plain;charset=utf-8'
+				})
+			: new Blob([file.content], { type: 'text/markdown;charset=utf-8' });
 	// Sanitization at export time only: a name containing `/`, `:`, etc. would
 	// break the `download` attribute or create a sub-tree.
 	return triggerDownload(blob, sanitizeFilename(file.name));
@@ -228,7 +223,7 @@ export async function exportHTML(
 ): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
 	const kind = documentKindForFile(file);
-	if (kind === 'image' || kind === 'code') return false;
+	if (isBinaryDocument(file) || kind === 'code') return false;
 	if (isPresentation(file.content)) return exportPresentationHTML(file, options);
 	const [
 		{ renderMarkdownDetailed },
@@ -291,7 +286,7 @@ export async function exportPDF(
 ): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
 	const kind = documentKindForFile(file);
-	if (kind === 'image' || kind === 'code') return false;
+	if (isBinaryDocument(file) || kind === 'code') return false;
 	if (isPresentation(file.content)) return exportPresentationPDF(file, options);
 	const [
 		{ renderMarkdownDetailed },
@@ -364,10 +359,9 @@ export async function exportZip(
 	let inputBytes = 0;
 	let entries = files.length;
 	for (const file of files) {
-		const size =
-			documentKindForFile(file) === 'image'
-				? Math.ceil(((file.data?.length ?? 0) * 3) / 4)
-				: encoder.encode(file.content).byteLength;
+		const size = isBinaryDocument(file)
+			? dataUrlBlob(file.data ?? '').size
+			: encoder.encode(file.content).byteLength;
 		inputBytes += size;
 		if (size > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
 			throw new Error('Library export size limit');
@@ -411,10 +405,10 @@ export async function exportZip(
 		return name;
 	}
 	for (const file of files.filter((file) => !file.projectId)) {
-		if (documentKindForFile(file) === 'image') {
-			const payload = (file.data ?? '').slice((file.data ?? '').indexOf(',') + 1);
-			archiveBytes += Math.ceil((payload.length * 3) / 4);
-			zip.file(archiveName(file.name), payload, { base64: true });
+		if (isBinaryDocument(file)) {
+			const blob = dataUrlBlob(file.data ?? '');
+			archiveBytes += blob.size;
+			zip.file(archiveName(file.name), await blob.arrayBuffer());
 		} else {
 			archiveBytes += encoder.encode(file.content).byteLength;
 			zip.file(archiveName(file.name), file.content);

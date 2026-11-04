@@ -190,9 +190,9 @@ file browser.
 - Web Light keeps the provider key in the tab session only. Browser storage is
   not a protected secret store, so do not reuse a provider key elsewhere.
 - Desktop Complete writes the provider key to the operating-system credential
-  store. The WebView never receives the key value. Rust reads it for each
-  request, and the request goes to the provider endpoint through the native
-  boundary.
+  store after entry in Settings. Stored keys are not returned to the WebView.
+  Rust binds each key to the full canonical endpoint and reads it for each
+  request. Old host-only entries require key re-entry.
 - The native AI boundary allows `https` endpoints and `http` only for loopback.
   It rejects user information, fragments, and redirects, and it returns stable
   error codes without the key or the response body.
@@ -201,7 +201,8 @@ file browser.
 - The app has no product account, backend, cloud storage, telemetry, or runtime
   CDN.
 - The app contacts its host to load application files. Desktop update delivery
-  is on standby, so no update check runs. The app does not upload documents.
+  is on standby, so no update check runs. Documents stay local unless you send
+  selected context to an AI provider.
 - Remote images are blocked by default. A user action can fetch an approved
   remote image. That action contacts the image host and reveals the client IP
   address. The request sends no cookies or referrer and rejects redirects.
@@ -272,8 +273,8 @@ does not publish Desktop installers.
   portable project tests cover the round trip, but an unknown future metadata
   field can still need a newer release.
 - Cloud sync, shared editing, accounts, plugins, a browser API key vault, and
-  unrestricted filesystem access are unavailable. AI, Git, the native vault,
-  and quick capture are Desktop Complete features. Signed update delivery is
+  unrestricted filesystem access are unavailable. AI is optional in both editions.
+  Git, the native vault, and quick capture are Desktop Complete features. Signed update delivery is
   implemented but dormant while it is on standby.
 
 ## Release note checklist

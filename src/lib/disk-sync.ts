@@ -65,6 +65,7 @@ import { reportPersistenceError } from './storage';
 import type { FileItem } from './types';
 import { getDiskLinkEpoch } from './db';
 import { pathBasename } from './disk-link';
+import { isBinaryDocument } from './document-kind';
 
 /** Dependencies injected by FilesStore - zero Svelte imports here. */
 export interface DiskSyncDeps {
@@ -306,11 +307,16 @@ async function ingestDesktopOpens(
  *   or reports the failure (§J3) - the error is no longer propagated to the caller.
  */
 export async function saveToDisk(id: string, deps: DiskSyncDeps): Promise<boolean> {
-	if (!browser || !isDiskLinkingAvailable()) return false;
+	if (!browser) return false;
 	const file = deps.getFile(id);
 	if (!file) return false;
 
 	try {
+		if (isBinaryDocument(file)) {
+			const { exportMarkdown } = await import('./services/export');
+			return await exportMarkdown(file);
+		}
+		if (!isDiskLinkingAvailable()) return false;
 		if (isDesktop()) return await saveToDiskDesktop(id, file, deps);
 		return await saveToDiskFsa(id, file, deps);
 	} catch (error) {
@@ -607,10 +613,15 @@ function reportDesktopWriteFailure(file: FileItem, err: unknown): false {
  * linked source is refused so Save As cannot overwrite the original.
  */
 export async function saveAsToDisk(id: string, deps: DiskSyncDeps): Promise<boolean> {
-	if (!browser || !isDiskLinkingAvailable()) return false;
+	if (!browser) return false;
 	const file = deps.getFile(id);
 	if (!file) return false;
 	try {
+		if (isBinaryDocument(file)) {
+			const { exportMarkdown } = await import('./services/export');
+			return await exportMarkdown(file);
+		}
+		if (!isDiskLinkingAvailable()) return false;
 		return isDesktop() ? await saveAsDesktop(id, file) : await saveAsFsa(id, file);
 	} catch (error) {
 		reportError('disk save as', error, { notifyUser: t('disk.saveAsFailed', { name: file.name }) });
