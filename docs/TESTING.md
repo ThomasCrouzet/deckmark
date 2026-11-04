@@ -128,6 +128,12 @@ Record these risks before changes to the deployment workflow or production check
 - A daily check can report repair too early after it starts a deployment.
   Keep the detection run failed. A separate post-deployment check confirms repair.
 - A metadata check alone cannot prove startup, saved edits, or offline use.
+- Cloudflare can inject Web Analytics outside the EU even when Pages project
+  analytics are disabled. The HTML digest check must detect this change.
+  `static/_headers` prevents proxy transformations with `no-transform`.
+- A first public install fetches hundreds of precache files in sequence. Allow
+  90 seconds for **Ready offline**. A download still in progress at 45 seconds
+  is not proof of an offline failure. Keep network traces when this check fails.
 
 ### Local hosting checks
 
