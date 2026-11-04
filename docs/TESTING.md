@@ -572,6 +572,9 @@ At widths below 260 CSS pixels, presentation controls can wrap. The native
 Native PDF checks use the command palette because the direct toolbar action
 can be hidden at the default window width. The native export benchmark opens
 the palette before it starts the export timer.
+The offline status keeps a fixed width. `e2e/toolbar-stability.spec.ts` holds
+service worker registration, then checks that the mode button stays under the
+pointer when offline preparation completes. Long status text uses an ellipsis.
 
 ### Code editor focus after delayed loading
 

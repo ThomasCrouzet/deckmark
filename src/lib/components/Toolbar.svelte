@@ -372,15 +372,17 @@
 			{/if}
 		</button>
 
-		<span class="mdsh-local-indicator" role="status"
-			>{t(
-				offlineState.status === 'ready'
-					? 'pwa.ready'
-					: offlineState.status === 'preparing'
-						? 'pwa.preparing'
-						: 'pwa.unavailable'
-			)}</span
-		>
+		<span class="mdsh-local-indicator" role="status">
+			<span class="offline-label"
+				>{t(
+					offlineState.status === 'ready'
+						? 'pwa.ready'
+						: offlineState.status === 'preparing'
+							? 'pwa.preparing'
+							: 'pwa.unavailable'
+				)}</span
+			>
+		</span>
 
 		<button
 			class="save-action mdsh-icon-button ml-1 hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
@@ -556,7 +558,8 @@
 	}
 	.mdsh-local-indicator {
 		display: none;
-		flex: none;
+		flex: 0 0 7.5rem;
+		min-width: 0;
 		align-items: center;
 		gap: 6px;
 		color: var(--color-fg-dim);
@@ -565,6 +568,10 @@
 		font-size: 10px;
 		letter-spacing: 0;
 		white-space: nowrap;
+	}
+	.offline-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	@container (min-width: 1000px) {
 		.mdsh-local-indicator {
