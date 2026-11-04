@@ -68,7 +68,9 @@ fn configured_key() -> Option<VerifyingKey> {
 }
 
 fn decode_public_key(value: &str) -> Option<VerifyingKey> {
-    let bytes = base64::engine::general_purpose::STANDARD.decode(value.trim()).ok()?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(value.trim())
+        .ok()?;
     let array: [u8; 32] = bytes.as_slice().try_into().ok()?;
     VerifyingKey::from_bytes(&array).ok()
 }
@@ -91,7 +93,9 @@ fn valid_version(value: &str) -> bool {
         return false;
     }
     parts.iter().all(|part| {
-        !part.is_empty() && part.len() <= 6 && part.chars().all(|character| character.is_ascii_digit())
+        !part.is_empty()
+            && part.len() <= 6
+            && part.chars().all(|character| character.is_ascii_digit())
     })
 }
 
@@ -142,7 +146,10 @@ fn valid_sha256(value: &str) -> bool {
 
 fn parse_manifest(bytes: &str) -> Result<UpdateManifest, UpdateError> {
     if bytes.len() > MAX_MANIFEST_BYTES {
-        return Err(UpdateError::code("invalid-manifest", "manifest is too large"));
+        return Err(UpdateError::code(
+            "invalid-manifest",
+            "manifest is too large",
+        ));
     }
     let manifest: UpdateManifest = serde_json::from_str(bytes)
         .map_err(|error| UpdateError::code("invalid-manifest", error.to_string()))?;
@@ -159,10 +166,7 @@ fn parse_manifest(bytes: &str) -> Result<UpdateManifest, UpdateError> {
         return Err(UpdateError::code("invalid-manifest", "invalid channel"));
     }
     if !valid_url(&manifest.url) {
-        return Err(UpdateError::code(
-            "invalid-manifest",
-            "invalid package URL",
-        ));
+        return Err(UpdateError::code("invalid-manifest", "invalid package URL"));
     }
     if !valid_sha256(&manifest.sha256) {
         return Err(UpdateError::code("invalid-manifest", "invalid checksum"));
@@ -178,7 +182,10 @@ fn parse_manifest(bytes: &str) -> Result<UpdateManifest, UpdateError> {
 
 fn decode_signature(value: &str) -> Result<Signature, UpdateError> {
     if value.len() > MAX_SIGNATURE_BYTES {
-        return Err(UpdateError::code("invalid-signature", "signature is too large"));
+        return Err(UpdateError::code(
+            "invalid-signature",
+            "signature is too large",
+        ));
     }
     let raw = value.trim();
     let bytes = base64::engine::general_purpose::STANDARD
@@ -254,8 +261,7 @@ fn fetch(url: &str) -> Result<String, UpdateError> {
     }
     // Reuse the AI boundary client: it installs the rustls provider once and
     // disables redirects.
-    let client = crate::ai::build_client()
-        .map_err(|error| UpdateError::code("network", error))?;
+    let client = crate::ai::build_client().map_err(|error| UpdateError::code("network", error))?;
     let response = client
         .get(url)
         .header("accept", "application/json, text/plain")
@@ -271,7 +277,10 @@ fn fetch(url: &str) -> Result<String, UpdateError> {
         .bytes()
         .map_err(|error| UpdateError::code("network", error.to_string()))?;
     if bytes.len() > MAX_MANIFEST_BYTES {
-        return Err(UpdateError::code("invalid-manifest", "manifest is too large"));
+        return Err(UpdateError::code(
+            "invalid-manifest",
+            "manifest is too large",
+        ));
     }
     String::from_utf8(bytes.to_vec())
         .map_err(|_| UpdateError::code("invalid-manifest", "manifest is not UTF-8"))
@@ -333,8 +342,8 @@ pub fn update_check() -> Result<VerifiedUpdate, String> {
             status.blocked_reason.unwrap_or_default()
         ));
     }
-    let (manifest_url, signature_url) =
-        check_urls().ok_or_else(|| "no-update-source: configure DECKMARK_UPDATE_BASE_URL".to_string())?;
+    let (manifest_url, signature_url) = check_urls()
+        .ok_or_else(|| "no-update-source: configure DECKMARK_UPDATE_BASE_URL".to_string())?;
     let manifest = fetch(&manifest_url).map_err(|error| error.to_string())?;
     let signature = fetch(&signature_url).map_err(|error| error.to_string())?;
     verify(&manifest, &signature).map_err(|error| error.to_string())
@@ -343,8 +352,10 @@ pub fn update_check() -> Result<VerifiedUpdate, String> {
 /// Automatic installation stays disabled. The user installs a signed package.
 #[tauri::command]
 pub fn update_install() -> Result<(), String> {
-    Err("manual-install-required: download and install the signed package from the release page"
-        .to_string())
+    Err(
+        "manual-install-required: download and install the signed package from the release page"
+            .to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -401,12 +412,23 @@ mod tests {
         let payload = manifest("2.4.0", "linux-x86_64");
         let signature = sign(&payload);
         let tampered = payload.replace("2.4.0", "9.9.9");
-        let unsigned = verify_with_key(&payload, "AAAA", &key().verifying_key(), "linux-x86_64", "2.3.0")
-            .unwrap_err();
+        let unsigned = verify_with_key(
+            &payload,
+            "AAAA",
+            &key().verifying_key(),
+            "linux-x86_64",
+            "2.3.0",
+        )
+        .unwrap_err();
         assert_eq!(unsigned.0, "invalid-signature");
-        let changed =
-            verify_with_key(&tampered, &signature, &key().verifying_key(), "linux-x86_64", "2.3.0")
-                .unwrap_err();
+        let changed = verify_with_key(
+            &tampered,
+            &signature,
+            &key().verifying_key(),
+            "linux-x86_64",
+            "2.3.0",
+        )
+        .unwrap_err();
         assert_eq!(changed.0, "invalid-signature");
     }
 
@@ -446,8 +468,10 @@ mod tests {
     fn rejects_invalid_manifest_fields() {
         for payload in [
             manifest("2.4.0", "linux-x86_64").replace("\"schemaVersion\":1", "\"schemaVersion\":2"),
-            manifest("2.4.0", "linux-x86_64")
-                .replace("https://example.test/deckmark.AppImage", "file:///etc/passwd"),
+            manifest("2.4.0", "linux-x86_64").replace(
+                "https://example.test/deckmark.AppImage",
+                "file:///etc/passwd",
+            ),
             manifest("2.4.0", "linux-x86_64").replace(&"a".repeat(64), "not-a-checksum"),
             manifest("bad", "linux-x86_64"),
         ] {
