@@ -34,6 +34,8 @@ dev-dist
 # Playwright test reports and traces (*.png snapshots stay versioned)
 /test-results
 /playwright-report
+/production-report
+/production-results
 /playwright/.cache
 
 # Vitest coverage reports (npm run test:coverage)

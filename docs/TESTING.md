@@ -105,13 +105,40 @@ The reports are in `/tmp/opencode/cross-window-review-red/` and
 
 ## Edition and hosting checks
 
-GitHub Pages is the only production Web publisher. Check Web Light and Desktop
-Complete as different editions. A browser result does not replace a native
-Desktop check, and a native result does not replace a browser result.
+### Retained hosting failure risks
 
-The deployment workflow builds two base paths. The production path comes from the
-current Pages configuration. The other path is a check. Both must produce a usable
-PWA with the correct service worker scope.
+Record these risks before changes to the deployment workflow or production checks:
+
+- Removal of a publisher can leave a public origin on an old build while the
+  other origin continues to update.
+- A missing or stale `edition.json` can hide the deployed source revision.
+  A matching version alone cannot identify the source commit.
+- A successful upload or a recorded SHA can hide stale public HTML and assets.
+  Verify the normal public URLs after deployment.
+- A GitHub Pages custom domain can redirect the fallback to the mirror and remove
+  its independence.
+- Missing Cloudflare credentials can silently skip the mirror deployment unless
+  the deployment fails explicitly.
+- A wrong base path can produce a blank offline shell or an empty precache.
+- A service worker with the wrong scope can lose deep-link refresh and offline
+  first use. An old worker can also keep stale application assets.
+- An absolute asset URL can work on one host and fail on the other.
+- A Desktop-only module can enter the Web bundle or precache.
+- An update can reload before a draft reaches IndexedDB.
+- A daily check can report repair too early after it starts a deployment.
+  Keep the detection run failed. A separate post-deployment check confirms repair.
+- A metadata check alone cannot prove startup, saved edits, or offline use.
+
+### Local hosting checks
+
+Cloudflare Pages and GitHub Pages publish Web Light as independent sites. Check
+Web Light and Desktop Complete as different editions. A browser result does not
+replace a native Desktop check, and a native result does not replace a browser result.
+
+The deployment workflow builds the root path for Cloudflare Pages and
+`/deckmark` for GitHub Pages. Both must produce a usable PWA with the correct
+service worker scope. Both deployments require the build, E2E, and Lighthouse
+checks to pass.
 
 Build and serve the project-site path:
 
@@ -136,24 +163,63 @@ Run these checks in a fresh browser profile for each base path:
 5. Confirm that application assets and the service worker use the same base path.
 6. Confirm that no Desktop-only native module appears in the Web build or precache.
 
-For a custom domain, also confirm HTTPS and the redirect from the project URL.
-Do not test DNS changes in CI. Record the domain state as a manual result. A
-project-site service worker keeps its old origin after a domain change. Install
-the PWA again from the custom domain and repeat the offline checks.
+Confirm HTTPS and an independent app at each origin. The GitHub Pages URL must
+not redirect to the Cloudflare site. Keep the existing DNS setup and leave the
+GitHub Pages custom domain empty. Each origin has separate browser storage and
+a separate service worker. A local preview cannot establish a production result.
 
 Keep the command, source revision, browser version, base path, domain state, and
 results in the run artifact. The browser suite still produces the standard
 `playwright-report/index.html` and `test-results/results.json` files.
 
-The retained failure risks are:
+### Public production checks
 
-- A wrong base path can produce a blank offline shell or an empty precache.
-- A service worker with the wrong scope can lose deep-link refresh and offline
-  first use.
-- A stale project-site worker can keep an old origin after a domain change.
-- An absolute asset URL can work on one host and fail on the other.
-- A Desktop-only module can enter the Web bundle or precache.
-- An update can reload before a draft reaches IndexedDB.
+Run the standalone production suite from the checkout of the expected deployment:
+
+```sh
+EXPECTED_SHA=$(git rev-parse HEAD) npx playwright test --config=playwright.production.config.ts
+```
+
+This configuration checks live sites without a local build or preview server:
+
+| Playwright project | Normal public URL | Expected base path |
+| --- | --- | --- |
+| `github-pages` | `https://thomascrouzet.github.io/deckmark/` | `/deckmark` |
+| `cloudflare-pages` | `https://www.deckmark.dev/` | Empty string for the root |
+
+For each project, verify these observable results:
+
+1. The normal public URL opens the app on the expected origin and path.
+2. `edition.json` reports Web Light, `sourceSha` equal to `EXPECTED_SHA`, the
+   checkout's package version, and the expected base path.
+   The served HTML must match the manifest's `htmlSha256` digest.
+3. The app starts in a fresh browser context and accepts a note edit.
+4. The edit remains after the save completes and the page reloads.
+5. After **Ready offline**, the app reloads without the network and retains the edit.
+
+Missing metadata, an old source SHA, or a wrong version or base path fails the
+check. Check normal public URLs, not only a deployment preview or a URL with a
+cache-bypass query. A metadata match alone does not prove that the app works.
+
+Keep `production-report/` and `production-results/` for each run, including failed
+runs. Retain the command, expected and observed source revisions, environment,
+browser version, public URLs, fixture content, results, and browser evidence.
+These artifacts must permit another maintainer to repeat the same checks.
+
+### Daily drift detection and repair
+
+The daily check compares both public origins with the expected source revision.
+A missing or stale deployment starts `.github/workflows/deploy.yml` through a
+workflow dispatch. The repair uses the same build, E2E, and Lighthouse gates as
+a normal deployment. Cloudflare Pages project `deckmark` receives the tested
+root artifact. Missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN` fails the
+deployment instead of skipping the mirror.
+
+The detection run remains failed and reports that it requested repair. Keep the
+observed public metadata and the repair message with that run. A successful
+dispatch, an upload, or a saved SHA record is not proof of repair. Only the
+post-deployment production browser checks can confirm that both public sites
+serve the expected source and pass the startup, edit, and offline checks.
 
 See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the hosting contract and
 [DEVELOPMENT.md](DEVELOPMENT.md#web-publishing) for the maintainer steps.

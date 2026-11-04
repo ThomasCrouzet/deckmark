@@ -127,6 +127,8 @@ export default [
 			'build/',
 			'coverage/',
 			'playwright-report/',
+			'production-report/',
+			'production-results/',
 			'test-results/',
 			'native-test-results/',
 			'.svelte-kit/',
