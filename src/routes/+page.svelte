@@ -296,6 +296,13 @@
 			fileIntents.handleShareTarget();
 			hydrated = true;
 
+			// Desktop Complete: restore the saved local backup schedule.
+			if (import.meta.env.VITE_EDITION === 'desktop') {
+				void import('#lib/desktop-backup.js').then((module) =>
+					module.startDesktopBackupScheduler()
+				);
+			}
+
 			// §J1 - Preemptive warning if the quota is nearly reached (reading
 			// `estimate`, after the load to reflect real usage). The persistent
 			// bucket has already been requested at the top of onMount. Best-effort.
