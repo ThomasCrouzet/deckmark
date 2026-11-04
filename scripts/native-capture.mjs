@@ -183,8 +183,25 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 			)
 			.catch((cause) => ({ error: String(cause) }));
 		const rows = await readDrafts().catch((cause) => ({ error: String(cause) }));
+		const captureRows = await first
+			.executeCapture(
+				`const done = arguments[arguments.length - 1];
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => done({ error: String(request.error) });
+				request.onsuccess = () => {
+					const database = request.result;
+					const query = database.transaction('drafts').objectStore('drafts').getAll();
+					query.onerror = () => { database.close(); done({ error: String(query.error) }); };
+					query.onsuccess = () => {
+						const result = query.result.filter(row => String(row.content ?? '').includes('Quick capture body')).map(row => ({ name: row.name, projectId: row.projectId ?? null, content: row.content }));
+						database.close();
+						done(result);
+					};
+				};`
+			)
+			.catch((cause) => ({ error: String(cause) }));
 		throw new Error(
-			`${String(error)}; captureState=${JSON.stringify(state)}; drafts=${JSON.stringify(rows).slice(0, 400)}`,
+			`${String(error)}; captureState=${JSON.stringify(state)}; mainMatches=${JSON.stringify(rows.filter?.((row) => String(row.content ?? '').includes('Quick capture body')) ?? rows)}; captureMatches=${JSON.stringify(captureRows)}`,
 			{ cause: error }
 		);
 	}
