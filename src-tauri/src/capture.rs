@@ -106,12 +106,12 @@ pub fn unregister_on_exit(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub fn desktop_capture_show(app: AppHandle) -> Result<(), String> {
+pub async fn desktop_capture_show(app: AppHandle) -> Result<(), String> {
     show(&app)
 }
 
 #[tauri::command]
-pub fn desktop_capture_hide(app: AppHandle) -> Result<(), String> {
+pub async fn desktop_capture_hide(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_LABEL) {
         window.hide().map_err(|error| error.to_string())?;
     }
