@@ -56,13 +56,17 @@ function readSessionKey(): string {
 
 /** Stable vault identifier for one provider endpoint. */
 export function providerIdFor(baseUrl: string): string {
-	const parsed = URL.parse(baseUrl);
-	if (!parsed) return DEFAULT_PROVIDER;
-	const id = parsed.hostname
-		.toLowerCase()
-		.replace(/[^a-z0-9._-]/g, '-')
-		.slice(0, MAX_PROVIDER_LENGTH);
-	return id || DEFAULT_PROVIDER;
+	try {
+		return (
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- one-shot URL read, never state
+			new URL(baseUrl).hostname
+				.toLowerCase()
+				.replace(/[^a-z0-9._-]/g, '-')
+				.slice(0, MAX_PROVIDER_LENGTH) || DEFAULT_PROVIDER
+		);
+	} catch {
+		return DEFAULT_PROVIDER;
+	}
 }
 
 /** Loads the native bridge only when a desktop action needs it. */
