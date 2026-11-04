@@ -30,7 +30,7 @@ const MAX_REGISTRY_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FileIdentity {
+pub(crate) struct FileIdentity {
     first: u64,
     second: u64,
 }
@@ -44,9 +44,9 @@ struct RootGrant {
 }
 
 #[derive(Clone)]
-struct ProjectSession {
+pub(crate) struct ProjectSession {
     root_id: String,
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     identity: FileIdentity,
 }
 
@@ -155,6 +155,23 @@ impl ProjectStore {
             .ok_or("invalid or expired native project token")?;
         validate_root(&session.path, &session.identity)?;
         Ok(session)
+    }
+
+    /// Resolve a persistent grant identifier without creating a session token.
+    /// Every Git call uses this path so each call revalidates the root.
+    pub(crate) fn authorize(&self, root_id: &str) -> Result<ProjectSession, String> {
+        let state = self.0.lock().map_err(|_| "project store unavailable")?;
+        let grants = load_registry(&state)?;
+        let grant = grants
+            .into_iter()
+            .find(|grant| grant.root_id == root_id)
+            .ok_or("unknown or revoked native project root")?;
+        validate_root(&grant.path, &grant.identity)?;
+        Ok(ProjectSession {
+            root_id: grant.root_id,
+            path: grant.path,
+            identity: grant.identity,
+        })
     }
 
     fn revoke(&self, token: &str) -> Result<(), String> {

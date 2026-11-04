@@ -210,7 +210,13 @@ tests cover these additional risks:
 | Markdown, search, and media | Hostile CSS and SVG, parser time limits, code and YAML boundaries, Unicode matching, unsafe regexes, invalid images, and resource limits. |
 | UI coordination | Competing prompts, rejected lazy imports, stale search results, worker timeouts, failed preference writes, and keyboard composition. |
 | Release scripts and budgets | Incorrect checksums, missing installers, source identity, SBOM patch provenance, changelog boundaries, and shared-chunk accounting. |
-| Native Rust code | Symlink substitution, persisted grants, file replacement, close ordering, and the GLib iterator security regression. |
+| Native Rust code | Symlink substitution, persisted grants, file replacement, close ordering, the GLib iterator security regression, vault lifecycle, endpoint validation, and error redaction. |
+
+The native AI boundary tests use an in-memory secret store. A headless Linux
+machine can lack a Secret Service. Use a desktop session to test the operating
+system credential store. The tests cover endpoint rejection, a missing key that
+stops the request, stable error codes, redaction, request body building, and
+command return types.
 
 The presentation round-trip test keeps one byte-identity case that a browser workflow
 cannot observe directly. The browser suite checks the visible import, edit, and save
@@ -329,6 +335,10 @@ has unequal hardware and a shared CPU.
   samples by default. Treat its p95 as an indication, not a precise percentile.
 - Native export evidence stops before the OS print dialog on Linux and Windows.
   Only the macOS run writes the product PDF.
+- The native capture workflow uses the command API. A successful browser or
+  command result does not prove that an operating-system hotkey is available.
+  Hotkey registration on macOS and Windows is recorded only by the CI runners,
+  and the system can refuse a shortcut that another application owns.
 
 ### Native WebView workflow coverage
 
@@ -341,6 +351,9 @@ WebView. The suite now also records:
 - Focus mode and theme toggles.
 - Built-in template creation and the return to the linked note.
 - Presentation editing and separate menu and shortcut PDF exports.
+- The opt-in quick capture window: command-based opening, a library note, a
+  durable IndexedDB row, a reused window, and a cancel path with no new row.
+  The artifact is `native-capture.json`.
 - Process memory for the application process tree, startup, reload, save, close
   and template timings, and platform identity from the driver capabilities.
 - A failure screenshot, the page state and the last driver response.

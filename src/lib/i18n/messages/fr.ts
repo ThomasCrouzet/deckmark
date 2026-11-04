@@ -6,16 +6,20 @@ import { splitFr } from './split-fr';
 import { projectFr } from './project-fr';
 import { diffFr } from './diff-fr';
 import { backupProjectFr } from './backup-project-fr';
+import { desktopBackupFr } from './desktop-backup-fr';
 import { slidesFr } from './slides-fr';
 import { snippetsFr } from './snippets-fr';
+import { captureFr } from './capture-fr';
 
 export const fr: Record<MessageKey, string> = {
 	...slidesFr,
 	...snippetsFr,
+	...captureFr,
 	...splitFr,
 	...projectFr,
 	...diffFr,
 	...backupProjectFr,
+	...desktopBackupFr,
 	'docsCheck.command': 'Vérifier la documentation',
 	'docsCheck.commandHint': 'Lance un audit hors ligne du projet sélectionné.',
 	'brand.name': 'DeckMark',
@@ -96,6 +100,14 @@ export const fr: Record<MessageKey, string> = {
 	'settings.ai': 'Connexion IA (facultative)',
 	'settings.aiHelp':
 		'Connectez un fournisseur compatible OpenAI. L’IA reste désactivée par défaut et l’éditeur fonctionne sans elle.',
+	'settings.aiNativeBoundary':
+		'Desktop Complete conserve la clé API dans le magasin d’identifiants du système. La clé n’entre jamais dans cette page.',
+	'settings.aiBrowserNoVault':
+		'Web Light n’a pas de magasin d’identifiants natif. La clé API reste dans la session de cet onglet.',
+	'settings.aiNativeKeyNote':
+		'La clé est envoyée au coffre natif à l’enregistrement. Cette page ne peut plus la lire.',
+	'settings.aiModelsDesktopUnavailable':
+		'La découverte des modèles nécessite la clé du navigateur. Saisissez l’identifiant du modèle dans Desktop Complete.',
 	'settings.aiEnabled': 'Activer les fonctions IA',
 	'settings.aiPrivacy': 'Mode de confidentialité IA',
 	'settings.aiDirect': 'Clé navigateur directe',
@@ -117,6 +129,12 @@ export const fr: Record<MessageKey, string> = {
 	'settings.aiKeySave': 'Utiliser la clé',
 	'settings.aiKeyClear': 'Oublier la clé',
 	'settings.aiKeyConfigured': 'Clé configurée pour cette session',
+	'settings.aiKeyPlaceholderNative':
+		'Collez une clé à conserver dans le magasin d’identifiants du système',
+	'settings.aiKeyHintNative':
+		'La clé va dans le magasin d’identifiants du système. Cette page ne peut pas la lire et elle n’est pas écrite dans IndexedDB, les sauvegardes ou les exports.',
+	'settings.aiKeyClearNative': 'Supprimer la clé',
+	'settings.aiKeyConfiguredNative': 'Clé conservée dans le magasin d’identifiants du système',
 	'settings.aiTemperature': 'Température',
 	'settings.aiMaxTokens': 'Jetons max.',
 	'settings.aiTest': 'Tester la connexion',
@@ -125,6 +143,19 @@ export const fr: Record<MessageKey, string> = {
 	'settings.aiDestination':
 		'Les requêtes vont vers {host}. Vérifiez les fichiers inclus avant l’envoi.',
 	'settings.aiDisabledHint': 'L’IA est désactivée. Aucune requête ne quitte cet appareil.',
+	'updates.title': 'Mises à jour signées',
+	'updates.channel': 'Canal : {channel}',
+	'updates.configured': 'Clé de signature configurée ({fingerprint}). Vérification manuelle.',
+	'updates.blocked': 'Mises à jour désactivées : aucune clé de signature configurée.',
+	'updates.blockedHelp':
+		'Les installeurs Desktop ne sont pas signés. Configurez une clé publique ed25519 et un manifeste de version signé avant d’activer la vérification.',
+	'updates.check': 'Vérifier les mises à jour',
+	'updates.available': 'Mise à jour {version} vérifiée.',
+	'updates.verified': 'Version signée {version}',
+	'updates.copyLink': 'Copier le lien de téléchargement',
+	'updates.copied': 'Lien de téléchargement copié.',
+	'updates.manualInstall':
+		'Installez le paquet signé manuellement. L’application n’installe jamais une mise à jour elle-même.',
 	'settings.about': 'À propos de deckmark',
 	'settings.authorCredit': 'Créé par Thomas CROUZET',
 	'sidebar.homeLabel': 'Ouvrir la page d’accueil',
@@ -694,6 +725,18 @@ export const fr: Record<MessageKey, string> = {
 	'ai.reason_ignored': 'ignoré',
 	'ai.reason_budget': 'budget',
 	'ai.destination': 'Les requêtes vont vers {host}. Seul le contenu listé est envoyé.',
+	'ai.nativeBoundary':
+		'Desktop Complete envoie cette requête depuis la couche native. La clé API reste dans le magasin d’identifiants du système.',
+	'ai.errorAuth': 'Le fournisseur a refusé la clé enregistrée. Remplacez-la dans les réglages.',
+	'ai.errorRateLimit': 'La limite de débit du fournisseur est atteinte. Réessayez plus tard.',
+	'ai.errorServer': 'Le fournisseur a renvoyé une erreur. Réessayez plus tard.',
+	'ai.errorNetwork': 'La requête native a échoué. Vérifiez le réseau et l’URL de base.',
+	'ai.errorInvalidEndpoint':
+		'Cette adresse n’est pas autorisée. Utilisez https, ou une adresse http locale sur 127.0.0.1, localhost ou [::1].',
+	'ai.errorMissingKey':
+		'Aucune clé enregistrée ne correspond à ce fournisseur. Ajoutez-la dans les réglages.',
+	'ai.errorDisabled': 'L’IA est désactivée. Activez-la dans les réglages.',
+	'ai.errorCancelled': 'Requête annulée',
 	'ai.actions': 'Actions',
 	'ai.explain': 'Expliquer',
 	'ai.fix': 'Corriger',

@@ -20,7 +20,9 @@ import { testSource } from './test-source.mjs';
 import { nativeDiskRaces } from './native-disk-races.mjs';
 import { nativeExportCancellation } from './native-export-cancellation.mjs';
 import { nativePresentationPdf } from './native-presentation.mjs';
+import { checkDesktopTools } from './native-desktop-tools.mjs';
 import { nativeProjects } from './native-projects.mjs';
+import { nativeCapture } from './native-capture.mjs';
 import { processTreeMemory } from './native-process-memory.mjs';
 
 const binary = resolve(
@@ -1163,6 +1165,15 @@ try {
 	sampleMemory('project-tree');
 	passed(`native project tree shows ${treeRows} project documents`);
 
+	results.nativeCapture = await nativeCapture({
+		session,
+		request,
+		executeAsync,
+		until,
+		output
+	});
+	passed('native quick capture saves library and project notes and cancel creates none');
+
 	const diskBeforePurge = readFileSync(fixture);
 	const linkedDraft = (await drafts()).find(
 		(/** @type {{name: string}} */ item) => item.name === basename(fixture)
@@ -1293,6 +1304,25 @@ try {
 	await connect(false);
 	const grantsAfterRestart = await nativeGrantPaths();
 	const restartedState = await purgeState();
+	const captureSaved = results.nativeCapture.find(
+		(entry) => entry.scenario === 'saved library note'
+	)?.result;
+	assert.ok(captureSaved, 'The capture evidence has the saved note');
+	assert.ok(
+		restartedState.draftIds.includes(captureSaved.id),
+		'The captured note must survive the application restart'
+	);
+	results.nativeCaptureRestart = { id: captureSaved.id, survives: true };
+	const captureProject = results.nativeCapture.find(
+		(entry) => entry.scenario === 'saved project note'
+	)?.result;
+	if (captureProject && !captureProject.skipped) {
+		assert.ok(
+			restartedState.draftIds.includes(captureProject.id),
+			'The captured project note must survive the application restart'
+		);
+		results.nativeCaptureRestart.projectId = captureProject.id;
+	}
 	results.trashPurge = { ...results.trashPurge, grantsAfterRestart, restartedState };
 	assert.equal(
 		grantsAfterRestart.includes(link.path),
@@ -1304,6 +1334,8 @@ try {
 	const purgedScreenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
 	writeFileSync(join(output, 'trash-purged.png'), Buffer.from(purgedScreenshot, 'base64'));
 	passed('native purge stays revoked after restart without opening the fixture');
+	results.desktopTools = await checkDesktopTools({ executeAsync, passed, output });
+	passed('native desktop backup and update boundaries');
 	sampleMemory('final');
 	results.passed = true;
 } catch (error) {

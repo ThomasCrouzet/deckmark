@@ -1,9 +1,15 @@
+mod ai;
+mod backup;
+mod capture;
 mod disk;
 #[cfg(feature = "native-smoke")]
 mod disk_gate;
+mod git;
 mod printing;
 mod projects;
 mod shell;
+mod update;
+mod vault;
 
 use disk::{collect_argv_paths, collect_paths_from_directory, CapabilityStore, PendingOpenPaths};
 use tauri::{Emitter, Manager};
@@ -16,23 +22,6 @@ fn smoke_startup_phase(started: std::time::Instant, phase: &str) {
         started.elapsed().as_millis(),
         phase
     );
-}
-
-#[cfg(feature = "native-smoke")]
-fn smoke_data_store_identifier() -> [u8; 16] {
-    let value = std::env::var("MDSH_SMOKE_DATA_STORE_ID")
-        .expect("MDSH_SMOKE_DATA_STORE_ID is required for isolated native smoke data");
-    assert_eq!(
-        value.len(),
-        32,
-        "MDSH_SMOKE_DATA_STORE_ID must contain 32 hexadecimal characters"
-    );
-    let mut identifier = [0_u8; 16];
-    for (index, byte) in identifier.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
-            .expect("MDSH_SMOKE_DATA_STORE_ID must contain hexadecimal characters");
-    }
-    identifier
 }
 
 fn queue_open_paths(app: &tauri::AppHandle, paths: Vec<String>) {
@@ -79,9 +68,13 @@ pub fn run() {
         .manage(pending)
         .manage(CapabilityStore::default())
         .manage(projects::ProjectStore::default())
+        .manage(backup::BackupRoots::default())
         .manage(shell::CloseState::default())
+        .manage(vault::VaultState::default())
+        .manage(capture::CaptureStore::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(
             tauri::plugin::Builder::<_, ()>::new("navigation-policy")
                 .on_navigation(|_, url| shell::allowed_navigation(url, cfg!(debug_assertions)))
@@ -89,6 +82,9 @@ pub fn run() {
         )
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
+            backup::desktop_backup_write,
+            backup::desktop_backup_list,
+            backup::desktop_backup_read,
             disk::disk_read,
             disk::disk_write,
             disk::disk_write_bytes,
@@ -109,6 +105,12 @@ pub fn run() {
             projects::project_write_asset,
             projects::project_rename,
             projects::project_revoke,
+            git::git_status,
+            git::git_diff,
+            git::git_log,
+            git::git_stage,
+            git::git_unstage,
+            git::git_commit,
             shell::desktop_open_external,
             shell::desktop_arm_close_guard,
             shell::desktop_ack_close_request,
@@ -117,6 +119,19 @@ pub fn run() {
             printing::desktop_print,
             shell::desktop_smoke_key,
             shell::desktop_smoke_cancel_dialog,
+            update::update_status,
+            update::update_check,
+            update::update_verify_manifest,
+            update::update_install,
+            vault::vault_set,
+            vault::vault_status,
+            vault::vault_delete,
+            ai::ai_chat,
+            capture::desktop_capture_show,
+            capture::desktop_capture_hide,
+            capture::desktop_capture_register,
+            capture::desktop_capture_unregister,
+            capture::desktop_capture_status,
         ])
         .setup(move |app| {
             app.state::<CapabilityStore>()
@@ -145,17 +160,6 @@ pub fn run() {
     #[cfg(feature = "native-smoke")]
     smoke_startup_phase(started, "before-build");
     let context = tauri::generate_context!();
-    #[cfg(feature = "native-smoke")]
-    let context = {
-        let mut context = context;
-        let identifier = smoke_data_store_identifier();
-        for window in &mut context.config_mut().app.windows {
-            if window.label == "main" {
-                window.data_store_identifier = Some(identifier);
-            }
-        }
-        context
-    };
     let app = builder
         .build(context)
         .expect("error while building tauri application");
@@ -176,9 +180,14 @@ pub fn run() {
                     api.prevent_close();
                 }
             }
-            tauri::RunEvent::ExitRequested { api, .. } if shell::request_close(app_handle) => {
-                api.prevent_exit();
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if shell::request_close(app_handle) {
+                    api.prevent_exit();
+                } else {
+                    capture::unregister_on_exit(app_handle);
+                }
             }
+            tauri::RunEvent::Exit => capture::unregister_on_exit(app_handle),
             _ => {}
         }
         #[cfg(any(target_os = "macos", target_os = "ios"))]

@@ -10,16 +10,20 @@ import { splitEn } from './split-en';
 import { projectEn } from './project-en';
 import { diffEn } from './diff-en';
 import { backupProjectEn } from './backup-project-en';
+import { desktopBackupEn } from './desktop-backup-en';
 import { slidesEn } from './slides-en';
 import { snippetsEn } from './snippets-en';
+import { captureEn } from './capture-en';
 
 export const en = {
 	...slidesEn,
 	...snippetsEn,
+	...captureEn,
 	...splitEn,
 	...projectEn,
 	...diffEn,
 	...backupProjectEn,
+	...desktopBackupEn,
 	'docsCheck.command': 'Check documentation',
 	'docsCheck.commandHint': 'Run an offline audit of the selected project.',
 	'brand.name': 'DeckMark',
@@ -100,6 +104,14 @@ export const en = {
 	'settings.ai': 'AI connection (optional)',
 	'settings.aiHelp':
 		'Connect an OpenAI-compatible provider. AI stays disabled by default and the core editor works without it.',
+	'settings.aiNativeBoundary':
+		'Desktop Complete keeps the API key in the operating system credential store. The key never enters this page.',
+	'settings.aiBrowserNoVault':
+		'Web Light has no native credential store. The API key stays in this tab session only.',
+	'settings.aiNativeKeyNote':
+		'The key is sent to the native vault when you save it. This page cannot read it again.',
+	'settings.aiModelsDesktopUnavailable':
+		'Model discovery needs the browser key path. Type the model identifier in Desktop Complete.',
 	'settings.aiEnabled': 'Enable AI features',
 	'settings.aiPrivacy': 'AI privacy mode',
 	'settings.aiDirect': 'Direct browser key',
@@ -121,6 +133,11 @@ export const en = {
 	'settings.aiKeySave': 'Use key',
 	'settings.aiKeyClear': 'Forget key',
 	'settings.aiKeyConfigured': 'Key configured for this session',
+	'settings.aiKeyPlaceholderNative': 'Paste a key to store in the system credential store',
+	'settings.aiKeyHintNative':
+		'The key goes to the operating system credential store. This page cannot read it, and it is not written to IndexedDB, backups or exports.',
+	'settings.aiKeyClearNative': 'Delete key',
+	'settings.aiKeyConfiguredNative': 'Key stored in the system credential store',
 	'settings.aiTemperature': 'Temperature',
 	'settings.aiMaxTokens': 'Max tokens',
 	'settings.aiTest': 'Test connection',
@@ -128,6 +145,19 @@ export const en = {
 	'settings.aiTestOk': 'Connection works. Reply: {reply}',
 	'settings.aiDestination': 'Requests go to {host}. Review the included files before you send.',
 	'settings.aiDisabledHint': 'AI is disabled. No request leaves this device.',
+	'updates.title': 'Signed updates',
+	'updates.channel': 'Channel: {channel}',
+	'updates.configured': 'Signing key configured ({fingerprint}). Checks are manual.',
+	'updates.blocked': 'Updates are disabled: no signing key is configured.',
+	'updates.blockedHelp':
+		'Desktop installers are unsigned. Configure an ed25519 public key and a signed release manifest before enabling update checks.',
+	'updates.check': 'Check for updates',
+	'updates.available': 'Update {version} verified.',
+	'updates.verified': 'Signed version {version}',
+	'updates.copyLink': 'Copy download link',
+	'updates.copied': 'Download link copied.',
+	'updates.manualInstall':
+		'Install the signed package manually. The application never installs an update by itself.',
 	'settings.about': 'About DeckMark',
 	'settings.authorCredit': 'Created by Thomas CROUZET',
 	'sidebar.homeLabel': 'Go to the start page',
@@ -682,6 +712,17 @@ export const en = {
 	'ai.reason_ignored': 'ignored',
 	'ai.reason_budget': 'budget',
 	'ai.destination': 'Requests go to {host}. Only the listed content is sent.',
+	'ai.nativeBoundary':
+		'Desktop Complete sends this request from the native layer. The API key stays in the system credential store.',
+	'ai.errorAuth': 'The provider rejected the saved key. Replace it in Settings.',
+	'ai.errorRateLimit': 'The provider rate limit is reached. Try again later.',
+	'ai.errorServer': 'The provider returned an error. Try again later.',
+	'ai.errorNetwork': 'The native request failed. Check the network and the base URL.',
+	'ai.errorInvalidEndpoint':
+		'This endpoint is not allowed. Use https, or a local http address on 127.0.0.1, localhost or [::1].',
+	'ai.errorMissingKey': 'No saved key matches this provider. Add it in Settings.',
+	'ai.errorDisabled': 'AI is disabled. Enable it in Settings.',
+	'ai.errorCancelled': 'Request cancelled',
 	'ai.actions': 'Actions',
 	'ai.explain': 'Explain',
 	'ai.fix': 'Fix',

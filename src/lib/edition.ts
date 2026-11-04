@@ -18,6 +18,7 @@ export const WEB_EXCLUDED_FEATURES = [
 	'native-disk',
 	'native-projects',
 	'native-vault',
+	'native-ai',
 	'git',
 	'cli',
 	'mcp',
@@ -36,7 +37,11 @@ export function editionManifest(): EditionManifest {
 					'projects',
 					'pwa-offline',
 					'native-disk',
-					'native-projects'
+					'native-projects',
+					'git',
+					'native-vault',
+					'native-ai',
+					'global-capture'
 				],
 				excluded: []
 			}

@@ -9,9 +9,11 @@
 	// (runes factories from the parent). Backup directly calls the `backup`
 	// service + reloads the stores - pattern identical to the other panels.
 
-	import { tick } from 'svelte';
+	import { tick, onMount } from 'svelte';
+	import type { Component } from 'svelte';
 	import { browser } from '$app/env';
 	import { t, i18n, LOCALES, LOCALE_LABELS } from '#lib/i18n/index.js';
+	import { IS_DESKTOP_EDITION } from '#lib/edition.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { coreCommands } from '#lib/ui/commands.js';
 	import { keyboardStore, type ShortcutError } from '#lib/ui/keyboard.svelte.js';
@@ -35,6 +37,7 @@
 	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
 	import { editionManifest } from '#lib/edition.js';
+	import { captureSettings } from '#lib/capture-settings.svelte.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
 	import type { TemplateRow } from '#lib/db.js';
 	import { reportError } from '#lib/report.js';
@@ -104,6 +107,17 @@
 	}
 	let storageHealth: StorageHealth | null = $state(null);
 	let backupBusy = $state(false);
+	type DesktopBackupPanelComponent = Component<{
+		onRestore: (text: string) => Promise<void>;
+	}>;
+	let DesktopBackupPanel = $state<DesktopBackupPanelComponent | null>(null);
+
+	onMount(() => {
+		if (import.meta.env.VITE_EDITION !== 'desktop') return;
+		void import('#lib/components/DesktopBackupPanel.svelte').then((module) => {
+			DesktopBackupPanel = module.default as DesktopBackupPanelComponent;
+		});
+	});
 	let verifyOnly = false;
 	let editingTemplate = $state<string | null>(null);
 	let templateName = $state('');
@@ -195,14 +209,47 @@
 	}
 
 	function saveAiKey() {
-		aiStore.setApiKey(aiKeyDraft);
-		aiKeyDraft = '';
-		aiStatus = aiStore.keyConfigured ? t('settings.aiKeyConfigured') : '';
+		void (async () => {
+			aiBusy = true;
+			try {
+				await aiStore.setApiKey(aiKeyDraft);
+				aiKeyDraft = '';
+				aiStatus = aiStore.keyConfigured
+					? t(
+							aiStore.usesNativeVault
+								? 'settings.aiKeyConfiguredNative'
+								: 'settings.aiKeyConfigured'
+						)
+					: '';
+			} catch (error) {
+				aiStatus = aiErrorMessage(error);
+			} finally {
+				aiBusy = false;
+			}
+		})();
+	}
+
+	function clearAiKey() {
+		void (async () => {
+			aiBusy = true;
+			try {
+				await aiStore.clearApiKey();
+				aiStatus = '';
+			} catch (error) {
+				aiStatus = aiErrorMessage(error);
+			} finally {
+				aiBusy = false;
+			}
+		})();
 	}
 
 	$effect(() => {
 		if (!open || !browser) return;
 		aiStore.load();
+		if (IS_DESKTOP_EDITION) {
+			if (!captureSettings.loaded) captureSettings.load();
+			void captureSettings.refreshStatus();
+		}
 		tick().then(() => closeButton?.focus());
 		void refreshStorageHealth();
 		void templatesStore
@@ -232,6 +279,14 @@
 			width: PRINT_TEXT_WIDTH_MM,
 			margin: PRINT_PAGE.marginInlineMm
 		})
+	);
+
+	const captureStatusText = $derived(
+		captureSettings.status.registered
+			? t('settings.captureRegistered', {
+					shortcut: captureSettings.status.shortcut ?? captureSettings.shortcut
+				})
+			: t('settings.captureNotRegistered')
 	);
 
 	const writingShortcuts = $derived([
@@ -488,6 +543,10 @@
 			return;
 		}
 
+		await restoreBackupText(text, verifyOnly);
+	}
+
+	async function restoreBackupText(text: string, verifyOnly = false): Promise<void> {
 		// §2.8 - Encrypted backup: ask for the passphrase first.
 		let passphrase: string | undefined;
 		if (isEncryptedBackup(text)) {
@@ -682,6 +741,15 @@
 				<details class="mb-5 rounded border border-border p-3 text-sm" data-testid="ai-settings">
 					<summary class="cursor-pointer">{t('settings.ai')}</summary>
 					<p class="mt-2 text-xs text-fg-muted">{t('settings.aiHelp')}</p>
+					{#if aiStore.usesNativeVault}
+						<p class="mt-1 text-xs text-fg-muted" data-testid="ai-native-boundary">
+							{t('settings.aiNativeBoundary')}
+						</p>
+					{:else}
+						<p class="mt-1 text-xs text-fg-muted" data-testid="ai-browser-boundary">
+							{t('settings.aiBrowserNoVault')}
+						</p>
+					{/if}
 					<label class="mt-3 flex items-center justify-between gap-3">
 						<span>{t('settings.aiEnabled')}</span>
 						<input
@@ -718,19 +786,25 @@
 							{t('settings.aiLocalUnavailable')}
 						</p>
 					{:else}
-						<label class="mt-3 flex items-center justify-between gap-3">
-							<span class="text-xs text-fg-muted">{t('settings.aiAllowKey')}</span>
-							<input
-								type="checkbox"
-								checked={aiStore.settings.allowBrowserKey}
-								onchange={(event) =>
-									aiStore.update({ allowBrowserKey: event.currentTarget.checked })}
-								data-testid="ai-allow-key"
-							/>
-						</label>
-						<p class="mt-1 text-xs text-warning" role="note">
-							{t('settings.aiAllowKeyWarning')}
-						</p>
+						{#if aiStore.usesNativeVault}
+							<p class="mt-3 text-xs text-fg-muted" role="note">
+								{t('settings.aiNativeKeyNote')}
+							</p>
+						{:else}
+							<label class="mt-3 flex items-center justify-between gap-3">
+								<span class="text-xs text-fg-muted">{t('settings.aiAllowKey')}</span>
+								<input
+									type="checkbox"
+									checked={aiStore.settings.allowBrowserKey}
+									onchange={(event) =>
+										aiStore.update({ allowBrowserKey: event.currentTarget.checked })}
+									data-testid="ai-allow-key"
+								/>
+							</label>
+							<p class="mt-1 text-xs text-warning" role="note">
+								{t('settings.aiAllowKeyWarning')}
+							</p>
+						{/if}
 					{/if}
 					<label class="mt-3 block text-xs text-fg-muted">
 						<span>{t('settings.aiBaseUrl')}</span>
@@ -761,7 +835,7 @@
 						<button
 							type="button"
 							class="rounded border border-border px-2.5 py-1 text-xs"
-							disabled={aiBusy}
+							disabled={aiBusy || aiStore.usesNativeVault}
 							onclick={() => void loadAiModels()}
 							data-testid="ai-load-models">{t('settings.aiLoadModels')}</button
 						>
@@ -782,28 +856,45 @@
 								class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
 								bind:value={aiKeyDraft}
 								placeholder={aiStore.keyConfigured
-									? t('settings.aiKeyConfigured')
-									: t('settings.aiKeyPlaceholder')}
+									? t(
+											aiStore.usesNativeVault
+												? 'settings.aiKeyConfiguredNative'
+												: 'settings.aiKeyConfigured'
+										)
+									: t(
+											aiStore.usesNativeVault
+												? 'settings.aiKeyPlaceholderNative'
+												: 'settings.aiKeyPlaceholder'
+										)}
 								data-testid="ai-key"
 							/>
 						</label>
 						<button
 							type="button"
 							class="rounded border border-border px-2.5 py-1 text-xs"
+							disabled={aiBusy}
 							onclick={saveAiKey}
 							data-testid="ai-key-save">{t('settings.aiKeySave')}</button
 						>
 						<button
 							type="button"
 							class="rounded border border-border px-2.5 py-1 text-xs"
-							onclick={() => {
-								aiStore.clearApiKey();
-								aiStatus = '';
-							}}
-							data-testid="ai-key-clear">{t('settings.aiKeyClear')}</button
+							disabled={aiBusy}
+							onclick={clearAiKey}
+							data-testid="ai-key-clear"
+							>{aiStore.usesNativeVault
+								? t('settings.aiKeyClearNative')
+								: t('settings.aiKeyClear')}</button
 						>
 					</div>
-					<p class="mt-1 text-xs text-fg-muted">{t('settings.aiKeyHint')}</p>
+					<p class="mt-1 text-xs text-fg-muted">
+						{aiStore.usesNativeVault ? t('settings.aiKeyHintNative') : t('settings.aiKeyHint')}
+					</p>
+					{#if aiStore.usesNativeVault}
+						<p class="mt-1 text-xs text-fg-muted">
+							{t('settings.aiModelsDesktopUnavailable')}
+						</p>
+					{/if}
 					<div class="mt-2 grid grid-cols-2 gap-2 text-xs text-fg-muted">
 						<label>
 							<span>{t('settings.aiTemperature')}</span>
@@ -844,6 +935,64 @@
 						</p>
 					{/if}
 				</details>
+
+				<!-- Quick capture: opt-in global shortcut (Desktop Complete only) -->
+				{#if IS_DESKTOP_EDITION}
+					<details
+						class="mb-5 rounded border border-border p-3 text-sm"
+						data-testid="capture-settings"
+					>
+						<summary class="cursor-pointer">{t('settings.capture')}</summary>
+						<p class="mt-2 text-xs text-fg-muted">{t('settings.captureHelp')}</p>
+						<label class="mt-3 flex items-center justify-between gap-3">
+							<span>{t('settings.captureEnable')}</span>
+							<input
+								type="checkbox"
+								checked={captureSettings.enabled}
+								disabled={captureSettings.busy}
+								onchange={(event) => void captureSettings.setEnabled(event.currentTarget.checked)}
+								data-testid="capture-enabled"
+							/>
+						</label>
+						<label class="mt-2 block text-xs text-fg-muted">
+							<span>{t('settings.captureShortcut')}</span>
+							<input
+								type="text"
+								class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
+								value={captureSettings.shortcut}
+								disabled={captureSettings.busy}
+								aria-describedby="capture-shortcut-help"
+								onchange={(event) => void captureSettings.setShortcut(event.currentTarget.value)}
+								data-testid="capture-shortcut"
+							/>
+						</label>
+						<p id="capture-shortcut-help" class="mt-1 text-xs text-fg-muted">
+							{t('settings.captureShortcutHelp')}
+						</p>
+						<button
+							type="button"
+							class="mt-2 rounded border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-bg-2"
+							disabled={captureSettings.busy}
+							onclick={() => void captureSettings.openWindow()}
+							data-testid="capture-open"
+						>
+							{t('settings.captureOpen')}
+						</button>
+						<p
+							class="mt-2 text-xs"
+							class:text-accent={captureSettings.status.registered}
+							role="status"
+							data-testid="capture-settings-status"
+						>
+							{captureStatusText}
+						</p>
+						{#if captureSettings.error}
+							<p class="mt-1 text-xs text-danger" role="alert" data-testid="capture-settings-error">
+								{captureSettings.error}
+							</p>
+						{/if}
+					</details>
+				{/if}
 
 				<!-- Editor: width -->
 				<section class="mb-5">
@@ -1101,6 +1250,21 @@
 					</div>
 					<p class="mt-2 text-xs text-fg-muted">{t('settings.backupDownloadHint')}</p>
 				</section>
+				{#if IS_DESKTOP_EDITION}
+					<section class="mt-5 border-t border-border pt-3" data-testid="desktop-backup-section">
+						{#if DesktopBackupPanel}
+							<DesktopBackupPanel onRestore={restoreBackupText} />
+						{:else}
+							<p class="text-xs text-fg-muted">{t('settings.desktopBackupLoading')}</p>
+						{/if}
+					</section>
+					{#await import('./UpdatePanel.svelte') then module}
+						<module.default />
+					{:catch _error}
+						<!-- A load failure keeps the settings panel usable. -->
+					{/await}
+				{/if}
+
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
 					<p>

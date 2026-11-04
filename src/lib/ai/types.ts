@@ -27,6 +27,16 @@ export interface AiChatRequest {
 	signal?: AbortSignal;
 }
 
+/** Configuration for the native chat command. It has no key field. */
+export interface NativeAiConfig {
+	enabled: boolean;
+	baseUrl: string;
+	model: string;
+	temperature: number;
+	maxTokens: number;
+	provider: string;
+}
+
 export interface AiProviderCapabilities {
 	streaming: boolean;
 	modelDiscovery: boolean;
@@ -41,6 +51,7 @@ export type AiErrorCode =
 	| 'auth'
 	| 'rate-limit'
 	| 'server'
+	| 'invalid-endpoint'
 	| 'invalid-response'
 	| 'cancelled';
 

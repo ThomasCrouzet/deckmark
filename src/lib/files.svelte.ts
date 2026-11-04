@@ -186,6 +186,13 @@ class FilesStore {
 	 * keeps the positional neighbor only as a fallback.
 	 */
 	private activeHistory: string[] = [];
+	private libraryCache: {
+		files: FileItem[];
+		closed: FileItem[];
+		filesLength: number;
+		closedLength: number;
+		value: FileItem[];
+	} | null = null;
 	private saveQueue = new SaveQueue({
 		onPendingChange: (pending) => {
 			this.hasPendingSave = pending;
@@ -243,8 +250,28 @@ class FilesStore {
 	}
 
 	get library(): FileItem[] {
-		// Avoid an O(n) copy for the common case: all documents are open tabs.
-		return this.closedFiles.length === 0 ? this.files : [...this.files, ...this.closedFiles];
+		// Reuse the previous array while the open and closed lists keep the same
+		// identity and length. Document switching recomputes many derived values
+		// over the library, so a fresh copy on every read costs real time with
+		// hundreds of documents.
+		const cached = this.libraryCache;
+		if (
+			cached &&
+			cached.files === this.files &&
+			cached.closed === this.closedFiles &&
+			cached.filesLength === this.files.length &&
+			cached.closedLength === this.closedFiles.length
+		)
+			return cached.value;
+		const value = this.closedFiles.length === 0 ? this.files : [...this.files, ...this.closedFiles];
+		this.libraryCache = {
+			files: this.files,
+			closed: this.closedFiles,
+			filesLength: this.files.length,
+			closedLength: this.closedFiles.length,
+			value
+		};
+		return value;
 	}
 
 	openDocument(id: string): void {

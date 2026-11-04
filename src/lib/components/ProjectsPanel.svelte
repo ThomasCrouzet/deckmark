@@ -33,6 +33,7 @@
 		saveNativeProject,
 		type NativeProjectFailure
 	} from '#lib/projects-native.js';
+	import { gitActionLabel, loadGitPanel } from '#lib/git-panel.js';
 
 	let {
 		onClose,
@@ -50,6 +51,7 @@
 	let issues = $state<ProjectLinkIssue[] | null>(null);
 	let nativeFailures = $state<NativeProjectFailure[]>([]);
 	let migration = $state<MigrationReport | null>(null);
+	let gitOpen = $state(false);
 	let zipInput: HTMLInputElement;
 	let folderInput: HTMLInputElement;
 	let closeButton: HTMLButtonElement;
@@ -59,6 +61,7 @@
 			.toSorted((a, b) => (a.relativePath ?? '').localeCompare(b.relativePath ?? ''))
 	);
 	const selectedProject = $derived(projects.find((project) => project.id === selected) ?? null);
+	const gitRootId = $derived(selectedProject?.nativeRootId ?? null);
 	const nativeAvailable = nativeProjectsAvailable();
 	const DOCS_SITE_MESSAGES: Record<Locale, Record<DocsSiteMessageKey, string>> = {
 		en: docsSiteEn,
@@ -220,8 +223,8 @@
 		aria-modal="true"
 		aria-labelledby="projects-title"
 		tabindex="-1"
-		use:focusTrap
-		inert={promptStore.open || !!diskConflictStore.pending}
+		use:focusTrap={{ active: !gitOpen }}
+		inert={gitOpen || promptStore.open || !!diskConflictStore.pending}
 		onkeydown={(event) => {
 			if (event.key === 'Escape' && !promptStore.open && !diskConflictStore.pending && !busy) {
 				event.stopPropagation();
@@ -319,7 +322,10 @@
 					>{t('projects.name')}
 					<select
 						bind:value={selected}
-						onchange={() => (issues = null)}
+						onchange={() => {
+							issues = null;
+							gitOpen = false;
+						}}
 						disabled={busy}
 						class="min-w-0 rounded border border-border bg-bg px-2 py-2"
 					>
@@ -366,9 +372,12 @@
 							}}>{td('docsSite.command')}</button
 						>
 					{/if}
-					{#if nativeAvailable && selectedProject?.nativeRootId}
+					{#if nativeAvailable && selectedProject?.nativeRootId && gitActionLabel()}
 						<button disabled={busy} onclick={refreshNative}>{t('projects.refresh')}</button>
 						<button disabled={busy} onclick={saveNative}>{t('projects.save')}</button>
+						<button disabled={busy} onclick={() => (gitOpen = true)} data-testid="project-git"
+							>{gitActionLabel()}</button
+						>
 						<button disabled={busy} onclick={unlinkNative}>{t('projects.unlink')}</button>
 					{/if}
 				</div>
@@ -400,6 +409,20 @@
 			<p>{t('projects.limits')}</p>
 		</footer>
 	</div>
+	{#if gitOpen && gitRootId}
+		{#await loadGitPanel() then GitPanel}
+			<GitPanel
+				rootId={gitRootId}
+				projectName={selectedProject?.name ?? ''}
+				onClose={() => (gitOpen = false)}
+			/>
+		{:catch _error}
+			<div role="alert" class="fixed inset-0 z-[60] bg-bg p-6 text-fg">
+				{t('projects.operationFailed')}
+				<button onclick={() => (gitOpen = false)}>{t('projects.close')}</button>
+			</div>
+		{/await}
+	{/if}
 </div>
 
 <style>
