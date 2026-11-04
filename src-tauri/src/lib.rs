@@ -1,3 +1,4 @@
+mod backup;
 mod disk;
 #[cfg(feature = "native-smoke")]
 mod disk_gate;
@@ -79,6 +80,7 @@ pub fn run() {
         .manage(pending)
         .manage(CapabilityStore::default())
         .manage(projects::ProjectStore::default())
+        .manage(backup::BackupRoots::default())
         .manage(shell::CloseState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -89,6 +91,9 @@ pub fn run() {
         )
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
+            backup::desktop_backup_write,
+            backup::desktop_backup_list,
+            backup::desktop_backup_read,
             disk::disk_read,
             disk::disk_write,
             disk::disk_write_bytes,
