@@ -2,6 +2,7 @@
 // in-memory list changes. A failed write keeps the visible list valid.
 
 import { browser } from '$app/env';
+import { liveQuery, type Subscription } from 'dexie';
 import { db, newId, type SnippetRow } from './db';
 import { reportPersistenceError } from './storage';
 import { t } from '#lib/i18n/index.js';
@@ -34,14 +35,41 @@ function cleanOptional(value: string | undefined): string | undefined {
 class SnippetsStore {
 	rows = $state<SnippetRow[]>([]);
 	loaded = $state(false);
+	private subscription: Subscription | undefined;
+	private loading: Promise<void> | undefined;
 
 	async load(): Promise<void> {
-		if (!browser || this.loaded) return;
-		this.rows = await db.snippets.orderBy('updatedAt').reverse().toArray();
-		this.loaded = true;
+		if (!browser || typeof indexedDB === 'undefined') return;
+		if (this.loading) return this.loading;
+		if (this.loaded) return;
+		this.loading = new Promise<void>((resolve, reject) => {
+			this.subscription = liveQuery(() =>
+				db.snippets.orderBy('updatedAt').reverse().toArray()
+			).subscribe({
+				next: (rows) => {
+					this.rows = rows;
+					this.loaded = true;
+					resolve();
+				},
+				error: (error: unknown) => {
+					if (this.loaded) reportPersistenceError(error, 'load');
+					this.loaded = false;
+					this.subscription = undefined;
+					reject(error);
+				}
+			});
+		});
+		try {
+			await this.loading;
+		} finally {
+			this.loading = undefined;
+		}
 	}
 
 	async reload(): Promise<void> {
+		if (this.loading) await this.loading;
+		this.subscription?.unsubscribe();
+		this.subscription = undefined;
 		this.loaded = false;
 		await this.load();
 	}
@@ -49,34 +77,38 @@ class SnippetsStore {
 	async save(input: SnippetInput, existingId: string | null = null): Promise<SnippetSaveResult> {
 		const language = snippetLanguage(input.language);
 		const code = input.code;
-		const duplicate = findDuplicateSnippet(this.rows, code, language, existingId);
-		if (duplicate) return { ok: false, duplicate };
-		const now = Date.now();
-		const current = existingId ? (this.rows.find((row) => row.id === existingId) ?? null) : null;
-		const row: SnippetRow = {
-			id: current?.id ?? newId(),
-			title: input.title.trim() || t('snippets.untitled'),
-			code,
-			language,
-			tags: [...input.tags],
-			...(cleanOptional(input.folder) ? { folder: cleanOptional(input.folder)! } : {}),
-			...(cleanOptional(input.projectId) ? { projectId: cleanOptional(input.projectId)! } : {}),
-			favorite: input.favorite ?? current?.favorite ?? false,
-			createdAt: current?.createdAt ?? now,
-			updatedAt: now
-		};
+		let result: SnippetSaveResult;
 		try {
-			await db.snippets.put($state.snapshot(row));
+			result = await db.transaction('rw', db.snippets, async (): Promise<SnippetSaveResult> => {
+				const rows = await db.snippets.toArray();
+				const duplicate = findDuplicateSnippet(rows, code, language, existingId);
+				if (duplicate) return { ok: false, duplicate };
+				const now = Date.now();
+				const current = existingId ? (rows.find((row) => row.id === existingId) ?? null) : null;
+				const row: SnippetRow = {
+					id: current?.id ?? newId(),
+					title: input.title.trim() || t('snippets.untitled'),
+					code,
+					language,
+					tags: [...input.tags],
+					...(cleanOptional(input.folder) ? { folder: cleanOptional(input.folder)! } : {}),
+					...(cleanOptional(input.projectId) ? { projectId: cleanOptional(input.projectId)! } : {}),
+					favorite: input.favorite ?? current?.favorite ?? false,
+					createdAt: current?.createdAt ?? now,
+					updatedAt: now
+				};
+				await db.snippets.put($state.snapshot(row));
+				return { ok: true, row, updated: current !== null };
+			});
 		} catch (error) {
 			reportPersistenceError(error, 'save');
 			throw error;
 		}
-		if (current) {
-			this.rows = this.rows.map((entry) => (entry.id === row.id ? row : entry));
-		} else {
-			this.rows = [row, ...this.rows];
+		if (result.ok) {
+			const { row } = result;
+			this.rows = [row, ...this.rows.filter((entry) => entry.id !== row.id)];
 		}
-		return { ok: true, row, updated: current !== null };
+		return result;
 	}
 
 	async capture(input: SnippetCapture, title?: string): Promise<SnippetSaveResult> {

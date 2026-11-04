@@ -185,6 +185,7 @@
 		themeStore.load();
 		i18n.load();
 		void loadProjects();
+		void loadTemplates();
 		void Promise.resolve().then(() => textarea?.focus());
 		void onCaptureReset(reset)
 			.then((dispose) => (unlisten = dispose))

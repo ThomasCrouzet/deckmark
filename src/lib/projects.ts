@@ -233,7 +233,7 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 				await filesStore.flushPendingAwait();
 				const document = filesStore.library.find((file) => file.id === id);
 				if (!document?.projectId || !document.relativePath) return false;
-				const name = normalizeRename(requested);
+				const name = normalizeRename(requested, document.name);
 				if (name.includes('/') || name.includes('\\')) throw new Error('Use a filename');
 				const oldPath = document.relativePath;
 				const newPath = projectPath([...oldPath.split('/').slice(0, -1), name].join('/'));
@@ -243,9 +243,11 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					.map((file) => ({ ...file }));
 				const rewrite = (content: string, fileId: string) => {
 					const file = snapshot.find((entry) => entry.id === fileId)!;
+					const kind = documentKindForFile(file);
+					if (kind !== 'note' && kind !== 'presentation') return content;
 					const from = file.relativePath!;
 					const linked = renameProjectLinks(content, from, oldPath, newPath);
-					if (documentKindForFile(file) !== 'note') return linked;
+					if (kind !== 'note') return linked;
 					return rewriteWikiLinkTargets(linked, (target) => {
 						const candidates = projectWikiCandidates(file, target, snapshot);
 						if (candidates.length !== 1 || candidates[0]!.id !== id || target === id) return target;

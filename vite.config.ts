@@ -97,9 +97,8 @@ export default defineConfig(({ mode }) => {
 						'worker-src': ['self', 'blob:'],
 						'base-uri': ['self'],
 						'form-action': ['none'],
-						// Block iframes. The app does not need them.
-						// Mermaid uses its own sandbox with `securityLevel: strict`, independently of CSP.
-						'frame-src': ['none'],
+						// Permit local PDF previews. Keep network frames blocked.
+						'frame-src': ['blob:'],
 						// Prevent third-party sites from embedding mdsh (clickjacking).
 						'frame-ancestors': ['none'],
 						// Block `<object>`, `<embed>`, and `<applet>`. The app does not need them.

@@ -1,10 +1,3 @@
-// §M3 - Cross-tab dirty / conflict POLICY (pure, testable).
-//
-// `cross-tab.ts` is the fail-soft BroadcastChannel wrapper. This module
-// decides what a receiving tab should do: reload a clean draft, close a
-// remotely removed tab, or notify a dirty conflict. `files.svelte.ts`
-// supplies the `$state` / Dexie / toast side-effects via callbacks.
-
 import type { CrossTabMessage } from './cross-tab';
 import type { MessageKey } from './i18n';
 
@@ -37,7 +30,6 @@ export interface CrossTabPolicyHost extends CrossTabPolicyContext {
 
 export function decideCrossTab(msg: CrossTabMessage, ctx: CrossTabPolicyContext): CrossTabDecision {
 	if (msg.type === 'draft-written') {
-		if (!ctx.isLoaded(msg.id)) return { kind: 'ignore' };
 		if (ctx.isPending(msg.id)) return { kind: 'conflict-draft', id: msg.id };
 		return { kind: 'sync-draft', id: msg.id };
 	}
@@ -56,7 +48,6 @@ export function decideCrossTab(msg: CrossTabMessage, ctx: CrossTabPolicyContext)
 	return { kind: 'reload-and-siblings' };
 }
 
-/** Applies a decision through host callbacks (store / toasts / Dexie). */
 export function applyCrossTabDecision(decision: CrossTabDecision, host: CrossTabPolicyHost): void {
 	switch (decision.kind) {
 		case 'ignore':

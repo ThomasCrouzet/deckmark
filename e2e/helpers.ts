@@ -160,8 +160,8 @@ export interface SeedFile {
  * supports Dexie schema migrations. The last file stays active.
  */
 export async function seedFiles(page: Page, files: SeedFile[]) {
-	if (files.length === 0) return;
 	const [first, ...rest] = files;
+	if (!first) return;
 	// Create the first file from the Welcome screen.
 	await page
 		.locator('main')
