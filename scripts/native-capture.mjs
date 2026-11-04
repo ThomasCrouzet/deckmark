@@ -156,17 +156,38 @@ export async function nativeCapture({ request, executeAsync, until, output }) {
 			),
 		'quick capture save'
 	);
-	const saved = await until(
-		async () => {
-			const rows = await readDrafts();
-			if (!Array.isArray(rows)) return false;
-			return rows.find(
-				(row) => row.name === `${title}.md` && row.content === content && !row.projectId
-			);
-		},
-		'capture note reaches IndexedDB',
-		30_000
-	);
+	let saved;
+	try {
+		saved = await until(
+			async () => {
+				const rows = await readDrafts();
+				if (!Array.isArray(rows)) return false;
+				return rows.find(
+					(row) => row.name === `${title}.md` && row.content === content && !row.projectId
+				);
+			},
+			'capture note reaches IndexedDB',
+			30_000
+		);
+	} catch (error) {
+		const state = await first
+			.executeCapture(
+				`return {
+				alert: document.querySelector('[role="alert"]')?.textContent?.trim() ?? null,
+				status: document.querySelector('[data-testid=capture-status]')?.textContent?.trim() ?? null,
+				saveDisabled: document.querySelector('[data-testid=capture-save]')?.disabled ?? null,
+				title: document.querySelector('[data-testid=capture-title]')?.value ?? null,
+				body: document.querySelector('[data-testid=capture-content]')?.value ?? null,
+				url: location.href
+			};`
+			)
+			.catch((cause) => ({ error: String(cause) }));
+		const rows = await readDrafts().catch((cause) => ({ error: String(cause) }));
+		throw new Error(
+			`${String(error)}; captureState=${JSON.stringify(state)}; drafts=${JSON.stringify(rows).slice(0, 400)}`,
+			{ cause: error }
+		);
+	}
 	record('saved library note', {
 		id: saved.id,
 		name: saved.name,
