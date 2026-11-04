@@ -417,6 +417,14 @@ has unequal hardware and a shared CPU.
 - The native matrix uses hosted runners with unequal hardware. A failed platform
   job must keep `results.json`, screenshots, `application.log` and the source
   snapshots.
+  The configured output path must receive a report on failure. Record partial
+  samples, the read-mode iteration, process state, and diagnostic errors.
+  A failed screenshot must not replace the first benchmark error.
+- Read mode must not allocate a full-document annotation canvas before the user
+  enables annotations. `read-annotations.spec.ts` switches the full native
+  benchmark note between Source and Read five times. Keep the canvas dimensions,
+  fixture hash, screenshot, and source snapshot. Existing ink must remain visible
+  when the user closes the tools. Reload and Clear must remove the ink.
 - Linux native tests use WebKitGTK under Xvfb with the DMA-BUF renderer disabled.
   This does not prove compositor behavior on a physical display.
 - The benchmark seeds IndexedDB directly. It does not cover the import dialog,
@@ -580,6 +588,22 @@ character through the browser, exports the file, and compares the exact bytes.
 Firefox can use most of the default 30-second limit for typing alone. This
 timeout permits the export check to finish; it is not a performance budget.
 
+### Blank lines in Markdown downloads
+
+`e2e/markdown-blank-lines.spec.ts` types two paragraphs with an empty paragraph
+between them. The downloaded file must contain blank Markdown lines, without an
+HTML placeholder. Check the exact bytes after a mode change, a second edit, and
+a reload. Wait for the committed draft before reload.
+
+Shift+Enter must use a Markdown hard break. Preserve HTML that the source
+already contains, including a separate `<br />`, code, and table cell breaks.
+Markdown parsers do not retain empty paragraph nodes. Source fidelity must keep
+the blank lines when the editor mounts again and changes nearby text.
+
+Run `npx playwright test markdown-blank-lines.spec.ts table-editing.spec.ts source-fidelity.spec.ts --workers=2 --retries=0`.
+Keep the report, traces, downloaded bytes, source revision, command, browser,
+environment, and fixture text. The blank-line spec attaches each download.
+
 ### Code editor focus after delayed loading
 
 `e2e/code-focus-review.spec.ts` delays the code editor while the user types a
@@ -727,7 +751,7 @@ failure after manual dismissal, and recovery of only one failed draft. Trash
 rollback must restore an open tab's active ID when no other tab is active. It must
 not replace a tab that the user selected while the operation was pending.
 
-For imported presentation reload checks, wait for the saved indicator and the
+For imported document reload checks, wait for the saved indicator and the
 exact committed fixture before reload. Record the same draft ID and content after
 reload. An import report confirms parsing, not completion of the 400 ms save.
 Use the same barrier before a second tab loads an imported malformed presentation.

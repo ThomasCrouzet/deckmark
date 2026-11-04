@@ -2,7 +2,8 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { largeNote } from '../scripts/benchmark-fixtures/corpus.mjs';
 import { testSource } from '../scripts/test-source.mjs';
-import { createFirstFile, resetAppState, seedFiles, writeSourceContent } from './helpers';
+import { createFirstFile, resetAppState, writeSourceContent } from './helpers';
+import { importSource } from './source-fidelity-harness';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -22,7 +23,7 @@ test('does not allocate a full-document canvas for inactive annotations', async 
 	}[] = [];
 	try {
 		await resetAppState(page);
-		await seedFiles(page, [{ name: 'large-note.md', content }]);
+		await importSource(page, content, 'large-note');
 		for (let cycle = 1; cycle <= 5; cycle++) {
 			await page.locator('[data-mode="read"]').click();
 			await expect(page.locator('.mdsh-preview')).toBeVisible({ timeout: 30_000 });
