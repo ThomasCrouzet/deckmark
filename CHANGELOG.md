@@ -5,6 +5,66 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.4.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.3.0...v2.4.0) (2026-11-04)
+
+
+### Features
+
+* add reading focus, theme, home, selection and scroll controls ([1276c26](https://github.com/ThomasCrouzet/deckmark/commit/1276c2621c9923061c20132c738541ed2df8e958))
+* **ai:** add optional providers, context review, patches and ink annotations ([8c60007](https://github.com/ThomasCrouzet/deckmark/commit/8c60007eb2598ea7cb4423311595b2263a260aaa))
+* **ai:** use the native boundary in the desktop edition ([168c7d3](https://github.com/ThomasCrouzet/deckmark/commit/168c7d398b9c789ba8b02efcda1e314408e96b2d))
+* **cli:** add local command-line interface ([df9e79a](https://github.com/ThomasCrouzet/deckmark/commit/df9e79ad54af80a1667aa6826af4766d4cc146f9))
+* **code:** add a lightweight multilingual code editor ([4ca14ef](https://github.com/ThomasCrouzet/deckmark/commit/4ca14efb44635e6d0ad7bba77bc7bb5208e14b68))
+* **content:** add linked reusable content blocks ([fa27f7e](https://github.com/ThomasCrouzet/deckmark/commit/fa27f7e428e21a6bf79940aeae97448f3c0dcc14))
+* **desktop:** add an opt-in local MCP server ([b74372e](https://github.com/ThomasCrouzet/deckmark/commit/b74372e0135e460a93b8bdd131e762219008775a))
+* **desktop:** add an optional global quick capture window ([2e6ecaa](https://github.com/ThomasCrouzet/deckmark/commit/2e6ecaa0a12b8d742b85ecc61efa6ddf9c5e655b)), closes [#234](https://github.com/ThomasCrouzet/deckmark/issues/234)
+* **desktop:** add lightweight Git status and commits ([8f0e7de](https://github.com/ThomasCrouzet/deckmark/commit/8f0e7def07a3f1b78bdb69418e4a53589b806421))
+* **desktop:** add local backup snapshots with retention ([6a00c7c](https://github.com/ThomasCrouzet/deckmark/commit/6a00c7c05d58a1c1be30fae03bad6f3415f96b2e))
+* **docs:** add offline documentation quality check ([77b742a](https://github.com/ThomasCrouzet/deckmark/commit/77b742ad2b5c1aeb59785cf7e84b58ec01457ac1))
+* **export:** add reusable HTML and PDF profiles ([9eea195](https://github.com/ThomasCrouzet/deckmark/commit/9eea195f97db7b09dbdecf7f46aa772a92d7a62d))
+* **export:** publish projects as offline documentation sites ([134a012](https://github.com/ThomasCrouzet/deckmark/commit/134a012834d5a02347ee11bd98b7e9920d4e7ffd))
+* **files:** add typed code and image documents ([4e30433](https://github.com/ThomasCrouzet/deckmark/commit/4e30433f5d81b2163763bb8f901406b31a267174))
+* **files:** separate save, Save As, and copy actions ([6345055](https://github.com/ThomasCrouzet/deckmark/commit/6345055d195bbd6949e8676331ee288a51e25a01))
+* **files:** show storage origin and sync state ([24aa42e](https://github.com/ThomasCrouzet/deckmark/commit/24aa42e1d1ff6ffdc2b9dce186c237eafc96c194))
+* **import:** normalize Obsidian and Notion project imports ([11b2f43](https://github.com/ThomasCrouzet/deckmark/commit/11b2f43d4c43e2f8feab02ee0aadec997de6aa04))
+* **json:** validate, format and minify JSON losslessly ([9a87358](https://github.com/ThomasCrouzet/deckmark/commit/9a8735871edf1d0d667b74df1b4958b7cec52391))
+* **metadata:** add lazy table and board views ([5ed4c99](https://github.com/ThomasCrouzet/deckmark/commit/5ed4c99f7780938a0d67e29c2905d1d5ca8f9177))
+* **metadata:** add YAML property editor and editorial comments ([1e605c7](https://github.com/ThomasCrouzet/deckmark/commit/1e605c7f88e39b03ec3e77bbec8d7eb970c6ea46))
+* **native:** add the credential vault and AI request boundary ([29c0aae](https://github.com/ThomasCrouzet/deckmark/commit/29c0aaee3888654cabed4125716e218173da41d6))
+* **projects:** add a persistent explorer and safe project drops ([b3f0e88](https://github.com/ThomasCrouzet/deckmark/commit/b3f0e88bb598591e78e9449212d73ec9507a5c3a)), closes [#211](https://github.com/ThomasCrouzet/deckmark/issues/211) [#212](https://github.com/ThomasCrouzet/deckmark/issues/212)
+* **projects:** scale project limits and add a local search index ([36370f2](https://github.com/ThomasCrouzet/deckmark/commit/36370f2cb0b23f9c2e928284fa2fba9784865ac1))
+* **search:** add selectable local search models and scale checks ([b7bf3d6](https://github.com/ThomasCrouzet/deckmark/commit/b7bf3d630a8aca4fe74602ebb4be9362e54b1f62))
+* **settings:** add desktop backup schedule and restore ([33201b0](https://github.com/ThomasCrouzet/deckmark/commit/33201b057551dad3dd21be8adb519f1848d2b78d))
+* **snippets:** add searchable snippet library ([34cda10](https://github.com/ThomasCrouzet/deckmark/commit/34cda1076e512da08129c997d7d432b05e7c06c0))
+* **templates:** add typed starters and New File template choice ([d50adbb](https://github.com/ThomasCrouzet/deckmark/commit/d50adbb9fe18c76680fc6cb31ed21ba62bd9e60a))
+* **viewer:** add a lazy local PDF document viewer ([3a167c8](https://github.com/ThomasCrouzet/deckmark/commit/3a167c8b9cd93b9e4fb40d7e59df0e5e77f75816))
+
+
+### Bug Fixes
+
+* **ai:** fail closed when the native vault is absent ([cec2e40](https://github.com/ThomasCrouzet/deckmark/commit/cec2e4097c021ff1c49dfcaa989e1c7a717d0f85))
+* **ai:** keep the vault id parser compatible with older WebViews ([c3bd525](https://github.com/ThomasCrouzet/deckmark/commit/c3bd5258d4152111017d0cfc817365f660168796))
+* **benchmark:** batch native seeding and wait for idle project panels ([d80b650](https://github.com/ThomasCrouzet/deckmark/commit/d80b6508467118a5a6f4d09a82cd3d39c8092faa))
+* compact toolbars, preserve focus, and refresh release media ([#256](https://github.com/ThomasCrouzet/deckmark/issues/256)) ([094c8c6](https://github.com/ThomasCrouzet/deckmark/commit/094c8c6d4fb0cf4279b01c93544973005dd8ae2f))
+* complete project review and release hardening ([#255](https://github.com/ThomasCrouzet/deckmark/issues/255)) ([3411882](https://github.com/ThomasCrouzet/deckmark/commit/341188234ed94a2d5ba4975d30b2da909560b0bc))
+* defer annotation canvases and retain failure evidence ([be526fd](https://github.com/ThomasCrouzet/deckmark/commit/be526fde57d0758f682de8e146df7d31b5686a94))
+* **editor:** open new notes in Edit with a ready caret ([c92dacc](https://github.com/ThomasCrouzet/deckmark/commit/c92dacc21937ee63d23e6b5cfa4703efcb58109f))
+* **git:** allow unused filters without executing conversions ([a965cc7](https://github.com/ThomasCrouzet/deckmark/commit/a965cc7c32a8ddd17d74c5a00faf8cc3d74da6e9))
+* keep document and presentation toolbars compact ([817945b](https://github.com/ThomasCrouzet/deckmark/commit/817945bcbc6052b0fb7636b41bccb3f6b98416bd))
+* keep empty paragraphs as Markdown blank lines ([54844d7](https://github.com/ThomasCrouzet/deckmark/commit/54844d7953fc6a91c9553f37c256f9e10a8c85b5))
+* keep slide controls visible at extreme browser zoom ([c389fae](https://github.com/ThomasCrouzet/deckmark/commit/c389faef9250ad01aae8e7c49647638be6a9f1ec))
+* keep toolbar controls stable during offline setup ([7a45669](https://github.com/ThomasCrouzet/deckmark/commit/7a4566999a1b2c45e83ba9a25b6654cff55772b8))
+* **native:** align the native smoke with the current shortcuts and editor ([ff84860](https://github.com/ThomasCrouzet/deckmark/commit/ff84860753b4aa5d49e152d54eb9931057e0aba1))
+* **presentation:** reserve space for wrapped toolbars on narrow layouts ([d01b335](https://github.com/ThomasCrouzet/deckmark/commit/d01b3351045e27d45170e3432a5baa1b91542184))
+* preserve binary files and synchronize changes across windows ([207065c](https://github.com/ThomasCrouzet/deckmark/commit/207065c7a6a6770d0a70b6f8bcf49d393cb0e7ef))
+* preserve palette input and refresh release media ([0387c96](https://github.com/ThomasCrouzet/deckmark/commit/0387c96768e18934500fcfb8244d201075bd0abf))
+* preserve paragraph spacing during visual edits ([a3113b3](https://github.com/ThomasCrouzet/deckmark/commit/a3113b38e273fd84253cd7cb12a0b126be96510c))
+* **security:** bind native access to approved endpoints and roots ([742bd43](https://github.com/ThomasCrouzet/deckmark/commit/742bd4323fa82b57d523b7018e24122e21bf88d8))
+* **ui:** keep presentation notes and drop overlays stable on narrow viewports ([4feac1a](https://github.com/ThomasCrouzet/deckmark/commit/4feac1aa28cfc658b0535baef34771e8920af9e3))
+* **ui:** keep the layout usable at 200 percent browser zoom ([5cbdcd3](https://github.com/ThomasCrouzet/deckmark/commit/5cbdcd397ddd854ff23738c4dbb0881ba5239ccb))
+* **ui:** stop toasts from blocking dialogs and bound project export ([f0db2c5](https://github.com/ThomasCrouzet/deckmark/commit/f0db2c52c21b97d50f40aaae8b193e878cc38782))
+* use visible PDF commands in native checks ([3ad63c1](https://github.com/ThomasCrouzet/deckmark/commit/3ad63c1528e6067696fc9851e3973baf90823f18))
+
 ## [2.3.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.2.2...v2.3.0) (2026-11-02)
 
 
