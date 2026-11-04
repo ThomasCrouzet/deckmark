@@ -5,19 +5,19 @@
 
 import type { AiChatMessage, NativeAiConfig } from './types';
 
-export async function vaultSet(provider: string, secret: string): Promise<void> {
+export async function vaultSet(baseUrl: string, secret: string): Promise<void> {
 	const { invoke } = await import('@tauri-apps/api/core');
-	await invoke('vault_set', { provider, secret });
+	await invoke('vault_set', { baseUrl, secret });
 }
 
-export async function vaultStatus(provider: string): Promise<boolean> {
+export async function vaultStatus(baseUrl: string): Promise<boolean> {
 	const { invoke } = await import('@tauri-apps/api/core');
-	return invoke<boolean>('vault_status', { provider });
+	return invoke<boolean>('vault_status', { baseUrl });
 }
 
-export async function vaultDelete(provider: string): Promise<void> {
+export async function vaultDelete(baseUrl: string): Promise<void> {
 	const { invoke } = await import('@tauri-apps/api/core');
-	await invoke('vault_delete', { provider });
+	await invoke('vault_delete', { baseUrl });
 }
 
 export async function aiChat(config: NativeAiConfig, messages: AiChatMessage[]): Promise<string> {

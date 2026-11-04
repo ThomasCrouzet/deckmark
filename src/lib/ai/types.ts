@@ -34,7 +34,6 @@ export interface NativeAiConfig {
 	model: string;
 	temperature: number;
 	maxTokens: number;
-	provider: string;
 }
 
 export interface AiProviderCapabilities {

@@ -21,6 +21,7 @@ const HOUR_MS = 3_600_000;
 export interface DesktopBackupPreferences {
 	enabled: boolean;
 	root: string | null;
+	rootId: string | null;
 	intervalHours: number;
 	retention: number;
 	lastSuccessAt: number | null;
@@ -48,16 +49,23 @@ export interface BackupWrite {
 
 type Listener = () => void;
 
-let timer: ReturnType<typeof setInterval> | null = null;
+interface BackupRoot {
+	rootId: string;
+	path: string;
+}
+
+let timer: ReturnType<typeof setTimeout> | null = null;
 let nextRunAt: number | null = null;
 let lastError: string | null = null;
 let running = false;
+let schedulerActive = false;
 const listeners = new Set<Listener>();
 
 function defaults(): DesktopBackupPreferences {
 	return {
 		enabled: false,
 		root: null,
+		rootId: null,
 		intervalHours: DEFAULT_INTERVAL_HOURS,
 		retention: DEFAULT_RETENTION,
 		lastSuccessAt: null
@@ -78,18 +86,34 @@ function loadPreferences(): DesktopBackupPreferences {
 	const raw = readPreference(STORAGE_KEY);
 	if (!raw) return defaults();
 	try {
-		const value = JSON.parse(raw) as Partial<DesktopBackupPreferences>;
+		const value: unknown = JSON.parse(raw);
+		if (typeof value !== 'object' || value === null || Array.isArray(value)) return defaults();
+		const rootId =
+			'rootId' in value && typeof value.rootId === 'string' && value.rootId.length > 0
+				? value.rootId
+				: null;
 		return {
-			enabled: value.enabled === true,
-			root: typeof value.root === 'string' && value.root.length > 0 ? value.root : null,
+			enabled: rootId !== null && 'enabled' in value && value.enabled === true,
+			root:
+				rootId && 'root' in value && typeof value.root === 'string' && value.root.length > 0
+					? value.root
+					: null,
+			rootId,
 			intervalHours: clampIntervalHours(
-				typeof value.intervalHours === 'number' ? value.intervalHours : DEFAULT_INTERVAL_HOURS
+				'intervalHours' in value && typeof value.intervalHours === 'number'
+					? value.intervalHours
+					: DEFAULT_INTERVAL_HOURS
 			),
 			retention: clampRetention(
-				typeof value.retention === 'number' ? value.retention : DEFAULT_RETENTION
+				'retention' in value && typeof value.retention === 'number'
+					? value.retention
+					: DEFAULT_RETENTION
 			),
 			lastSuccessAt:
-				typeof value.lastSuccessAt === 'number' && Number.isFinite(value.lastSuccessAt)
+				'lastSuccessAt' in value &&
+				typeof value.lastSuccessAt === 'number' &&
+				Number.isFinite(value.lastSuccessAt) &&
+				value.lastSuccessAt >= 0
 					? value.lastSuccessAt
 					: null
 		};
@@ -146,21 +170,15 @@ async function buildSnapshot(): Promise<string> {
 export async function chooseBackupFolder(title: string): Promise<string | null> {
 	requireDesktop();
 	if (!browser) return null;
-	const { open } = await import('@tauri-apps/plugin-dialog');
-	const selected = await open({ directory: true, multiple: false, title });
-	if (typeof selected !== 'string' || selected.length === 0) return null;
+	const selected = await invokeDesktop<BackupRoot | null>('desktop_backup_pick_root', { title });
+	if (!selected) return null;
 	const preferences = loadPreferences();
-	preferences.root = selected;
+	preferences.root = selected.path;
+	preferences.rootId = selected.rootId;
+	preferences.lastSuccessAt = null;
 	savePreferences(preferences);
 	restartScheduler(preferences);
-	return selected;
-}
-
-export function setBackupFolder(root: string): void {
-	const preferences = loadPreferences();
-	preferences.root = root;
-	savePreferences(preferences);
-	restartScheduler(preferences);
+	return selected.path;
 }
 
 export function setBackupIntervalHours(hours: number): void {
@@ -178,7 +196,7 @@ export function setBackupRetention(count: number): void {
 
 export function enableDesktopBackup(): void {
 	const preferences = loadPreferences();
-	if (!preferences.root) throw new Error('Choose a backup folder first.');
+	if (!preferences.rootId) throw new Error('Choose a backup folder first.');
 	preferences.enabled = true;
 	savePreferences(preferences);
 	restartScheduler(preferences);
@@ -188,6 +206,7 @@ export function disableDesktopBackup(): void {
 	const preferences = loadPreferences();
 	preferences.enabled = false;
 	savePreferences(preferences);
+	schedulerActive = false;
 	stopTimer();
 	notify();
 }
@@ -195,77 +214,89 @@ export function disableDesktopBackup(): void {
 export async function writeBackupNow(): Promise<BackupWrite> {
 	requireDesktop();
 	const preferences = loadPreferences();
-	if (!preferences.root) throw new Error('Choose a backup folder first.');
+	if (!preferences.rootId) throw new Error('Choose a backup folder first.');
 	const payload = await buildSnapshot();
 	const result = await invokeDesktop<BackupWrite>('desktop_backup_write', {
-		root: preferences.root,
+		rootId: preferences.rootId,
 		payload,
 		keep: clampRetention(preferences.retention)
 	});
-	preferences.lastSuccessAt = Date.now();
-	savePreferences(preferences);
-	lastError = null;
+	const current = loadPreferences();
+	if (current.rootId === preferences.rootId) {
+		current.lastSuccessAt = Date.now();
+		lastError = null;
+		savePreferences(current);
+		if (schedulerActive) restartScheduler(current);
+	}
 	notify();
 	return result;
 }
 
 export async function listBackupSnapshots(): Promise<BackupEntry[]> {
 	const preferences = loadPreferences();
-	if (!preferences.root) return [];
+	if (!preferences.rootId) return [];
 	const entries = await invokeDesktop<BackupEntry[]>('desktop_backup_list', {
-		root: preferences.root
+		rootId: preferences.rootId
 	});
 	return entries;
 }
 
-export async function readBackupSnapshot(path: string): Promise<string> {
-	return invokeDesktop<string>('desktop_backup_read', { path });
+export async function readBackupSnapshot(fileName: string): Promise<string> {
+	const preferences = loadPreferences();
+	if (!preferences.rootId) throw new Error('Choose a backup folder first.');
+	return invokeDesktop<string>('desktop_backup_read', { rootId: preferences.rootId, fileName });
 }
 
 function stopTimer(): void {
 	if (timer !== null) {
-		clearInterval(timer);
+		clearTimeout(timer);
 		timer = null;
 	}
 	nextRunAt = null;
 }
 
 function restartScheduler(preferences: DesktopBackupPreferences): void {
-	if (preferences.enabled && preferences.root) startScheduler(preferences);
+	schedulerActive = preferences.enabled && preferences.rootId !== null;
+	if (schedulerActive) startScheduler(preferences);
 	else {
 		stopTimer();
 		notify();
 	}
 }
 
-function startScheduler(preferences: DesktopBackupPreferences): void {
+function startScheduler(preferences: DesktopBackupPreferences, retry = false): void {
 	stopTimer();
 	const intervalMs = clampIntervalHours(preferences.intervalHours) * HOUR_MS;
-	nextRunAt = Date.now() + intervalMs;
-	timer = setInterval(() => {
+	const now = Date.now();
+	const lastRun = retry ? now : Math.min(preferences.lastSuccessAt ?? 0, now);
+	nextRunAt = Math.max(now, lastRun + intervalMs);
+	timer = setTimeout(() => {
+		timer = null;
 		void runScheduledBackup();
-	}, intervalMs);
+	}, nextRunAt - now);
 	notify();
 }
 
 async function runScheduledBackup(): Promise<void> {
 	if (running) return;
 	const preferences = loadPreferences();
-	if (!preferences.enabled || !preferences.root) {
+	if (!schedulerActive || !preferences.enabled || !preferences.rootId) {
 		stopTimer();
 		notify();
 		return;
 	}
 	running = true;
+	let failed = false;
 	try {
 		await writeBackupNow();
 	} catch (error) {
+		failed = true;
 		lastError = error instanceof Error ? error.message : String(error);
 	} finally {
 		running = false;
 		const current = loadPreferences();
-		if (current.enabled && current.root) {
-			nextRunAt = Date.now() + clampIntervalHours(current.intervalHours) * HOUR_MS;
+		if (schedulerActive && current.enabled && current.rootId) {
+			startScheduler(current, failed);
 		} else {
 			stopTimer();
 		}
@@ -279,15 +310,11 @@ async function runScheduledBackup(): Promise<void> {
  */
 export function startDesktopBackupScheduler(): void {
 	if (!IS_DESKTOP_EDITION || !browser) return;
-	const preferences = loadPreferences();
-	if (preferences.enabled && preferences.root) startScheduler(preferences);
-	else {
-		stopTimer();
-		notify();
-	}
+	restartScheduler(loadPreferences());
 }
 
 export function stopDesktopBackupScheduler(): void {
+	schedulerActive = false;
 	stopTimer();
 	notify();
 }

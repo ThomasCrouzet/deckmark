@@ -133,7 +133,7 @@
 		busy = true;
 		errorText = '';
 		try {
-			const text = await readBackupSnapshot(entry.path);
+			const text = await readBackupSnapshot(entry.fileName);
 			const { backup } = parseBackupWithReport(text);
 			preview = { path: entry.path, fileName: entry.fileName, text, backup };
 		} catch (error) {

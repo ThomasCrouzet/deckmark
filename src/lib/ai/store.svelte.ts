@@ -12,8 +12,6 @@ import {
 
 const STORAGE_KEY = 'mdsh:ai';
 const SECRETS_SESSION_KEY = 'mdsh:ai-key';
-const DEFAULT_PROVIDER = 'default';
-const MAX_PROVIDER_LENGTH = 64;
 
 function readSettings(): AiSettings {
 	if (!browser) return { ...AI_DEFAULT_SETTINGS };
@@ -51,21 +49,6 @@ function readSessionKey(): string {
 		return sessionStorage.getItem(SECRETS_SESSION_KEY) ?? '';
 	} catch {
 		return '';
-	}
-}
-
-/** Stable vault identifier for one provider endpoint. */
-export function providerIdFor(baseUrl: string): string {
-	try {
-		return (
-			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- one-shot URL read, never state
-			new URL(baseUrl).hostname
-				.toLowerCase()
-				.replace(/[^a-z0-9._-]/g, '-')
-				.slice(0, MAX_PROVIDER_LENGTH) || DEFAULT_PROVIDER
-		);
-	} catch {
-		return DEFAULT_PROVIDER;
 	}
 }
 
@@ -128,10 +111,6 @@ class AiStore {
 		}
 	}
 
-	get providerId(): string {
-		return providerIdFor(this.settings.baseUrl);
-	}
-
 	get canUseBrowserKey(): boolean {
 		return this.settings.privacyMode === 'direct' && this.settings.allowBrowserKey;
 	}
@@ -142,11 +121,14 @@ class AiStore {
 			this.vaultKeyPresent = false;
 			return;
 		}
+		const baseUrl = this.settings.baseUrl;
+		this.vaultKeyPresent = false;
 		try {
 			const { vaultStatus } = await nativeBridge();
-			this.vaultKeyPresent = await vaultStatus(this.providerId);
+			const present = await vaultStatus(baseUrl);
+			if (this.settings.baseUrl === baseUrl) this.vaultKeyPresent = present;
 		} catch {
-			this.vaultKeyPresent = false;
+			if (this.settings.baseUrl === baseUrl) this.vaultKeyPresent = false;
 		}
 	}
 
@@ -183,8 +165,9 @@ class AiStore {
 				await this.clearApiKey();
 				return;
 			}
+			const baseUrl = this.settings.baseUrl;
 			const { vaultSet } = await nativeBridge();
-			await vaultSet(this.providerId, secret);
+			await vaultSet(baseUrl, secret);
 			await this.refreshKeyStatus();
 			return;
 		}
@@ -200,9 +183,10 @@ class AiStore {
 
 	async clearApiKey(): Promise<void> {
 		if (this.usesNativeVault) {
+			const baseUrl = this.settings.baseUrl;
 			const { vaultDelete } = await nativeBridge();
-			await vaultDelete(this.providerId);
-			this.vaultKeyPresent = false;
+			await vaultDelete(baseUrl);
+			if (this.settings.baseUrl === baseUrl) this.vaultKeyPresent = false;
 			return;
 		}
 		this.browserKey = '';
@@ -259,8 +243,7 @@ class AiStore {
 			baseUrl: this.settings.baseUrl,
 			model: this.settings.model,
 			temperature: request.temperature ?? this.settings.temperature,
-			maxTokens: request.maxTokens ?? this.settings.maxTokens,
-			provider: this.providerId
+			maxTokens: request.maxTokens ?? this.settings.maxTokens
 		};
 		let reply: string;
 		try {

@@ -54,25 +54,27 @@ function parseRoots(argv) {
 
 const roots = parseRoots(process.argv.slice(2));
 
-function safePath(requested, mode = 'read') {
+function safePath(requested) {
 	if (typeof requested !== 'string' || requested.length === 0) fail('Path is required');
 	if (isAbsolute(requested) || requested.split(/[\\/]/).includes('..'))
 		fail('Path traversal rejected', 'unsafe-path');
 	if (SENSITIVE.test(requested)) fail('Sensitive files are excluded', 'sensitive');
-	const matches = [];
+	const matches = new Set();
 	for (const root of roots) {
 		const candidate = resolve(root, requested);
+		let real;
 		try {
-			const real =
-				mode === 'write'
-					? resolve(realpathSync(resolve(candidate, '..')), candidate.split(/[\\/]/).pop())
-					: realpathSync(candidate);
-			if (real === root || real.startsWith(root + sep)) matches.push(real);
+			real = realpathSync(candidate);
 		} catch {
-			// The path may not exist yet for a proposal.
+			continue;
 		}
+		if (real !== root && !real.startsWith(root + sep)) continue;
+		if (SENSITIVE.test(relative(root, real).split(sep).join('/')))
+			fail('Sensitive files are excluded', 'sensitive');
+		matches.add(real);
 	}
-	const real = matches[0];
+	if (matches.size > 1) fail('Path matches multiple approved roots', 'ambiguous-path');
+	const [real] = matches;
 	if (!real) fail('Path is outside the approved roots or does not exist', 'outside-root');
 	return real;
 }
@@ -316,6 +318,22 @@ input.on('line', (line) => {
 		send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
 		return;
 	}
+	if (
+		request === null ||
+		typeof request !== 'object' ||
+		Array.isArray(request) ||
+		request.jsonrpc !== '2.0' ||
+		typeof request.method !== 'string' ||
+		('id' in request &&
+			request.id !== null &&
+			typeof request.id !== 'string' &&
+			!(typeof request.id === 'number' && Number.isFinite(request.id))) ||
+		('params' in request && (request.params === null || typeof request.params !== 'object'))
+	) {
+		send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } });
+		return;
+	}
+	if (!('id' in request)) return;
 	try {
 		if (request.method === 'initialize') {
 			send({
@@ -329,7 +347,6 @@ input.on('line', (line) => {
 			});
 			return;
 		}
-		if (request.method === 'notifications/initialized') return;
 		if (request.method === 'ping') {
 			send({ jsonrpc: '2.0', id: request.id, result: {} });
 			return;

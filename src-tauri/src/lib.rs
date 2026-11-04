@@ -82,6 +82,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
+            backup::desktop_backup_pick_root,
             backup::desktop_backup_write,
             backup::desktop_backup_list,
             backup::desktop_backup_read,
@@ -136,6 +137,8 @@ pub fn run() {
         .setup(move |app| {
             app.state::<CapabilityStore>()
                 .set_registry(app.path().app_data_dir()?.join("disk-access.json"))?;
+            app.state::<backup::BackupRoots>()
+                .set_registry(app.path().app_data_dir()?.join("backup-root.json"))?;
             #[cfg(feature = "native-smoke")]
             let project_registry = std::env::var_os("MDSH_NATIVE_PROJECT_REGISTRY")
                 .map(std::path::PathBuf::from)

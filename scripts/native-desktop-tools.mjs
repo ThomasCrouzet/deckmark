@@ -71,13 +71,31 @@ export async function checkDesktopTools({ executeAsync, passed, output }) {
 
 	// Backup snapshots: write two, keep the newest, preserve unrelated files.
 	writeFileSync(join(directory, 'notes.txt'), 'keep me');
+	for (const command of ['desktop_backup_list', 'desktop_backup_write', 'desktop_backup_read']) {
+		const denied = await attempt(
+			`const done = arguments[arguments.length - 1];
+			window.__TAURI__.core.invoke(arguments[0], {
+				root: arguments[1], rootId: arguments[1], payload: 'unapproved', keep: 1,
+				fileName: 'deckmark-backup-20260101T000000Z.json'
+			}).then(done, error => done({ error: String(error) }));`,
+			[command, directory]
+		);
+		assert.ok(denied.error, `${command} must reject a renderer path as a grant`);
+	}
+	const grant = await executeAsync(
+		`const done = arguments[arguments.length - 1];
+		window.__TAURI__.core.invoke('desktop_backup_pick_root', { title: 'Backup smoke folder' })
+			.then(done, error => done({ error: String(error) }));`
+	);
+	assert.ok(grant.rootId, 'native picker must return an opaque root ID');
+	assert.notEqual(grant.rootId, directory);
 	const write = (payload, keep) =>
 		executeAsync(
 			`const done = arguments[arguments.length - 1];
 			window.__TAURI__.core.invoke('desktop_backup_write', {
-				root: arguments[0], payload: arguments[1], keep: arguments[2]
+				rootId: arguments[0], payload: arguments[1], keep: arguments[2]
 			}).then(done, error => done({ error: String(error) }));`,
-			[directory, payload, keep]
+			[grant.rootId, payload, keep]
 		);
 	const first = await write('{"format":"mdsh-backup","schemaVersion":2,"marker":"first"}', 1);
 	assert.equal(first.error, undefined, 'first backup write must succeed');
@@ -89,9 +107,9 @@ export async function checkDesktopTools({ executeAsync, passed, output }) {
 
 	const listed = await executeAsync(
 		`const done = arguments[arguments.length - 1];
-		window.__TAURI__.core.invoke('desktop_backup_list', { root: arguments[0] })
+		window.__TAURI__.core.invoke('desktop_backup_list', { rootId: arguments[0] })
 			.then(done, error => done({ error: String(error) }));`,
-		[directory]
+		[grant.rootId]
 	);
 	assert.equal(listed.error, undefined);
 	assert.equal(listed.length, 1, 'retention keeps exactly one snapshot');
@@ -103,18 +121,18 @@ export async function checkDesktopTools({ executeAsync, passed, output }) {
 
 	const read = await executeAsync(
 		`const done = arguments[arguments.length - 1];
-		window.__TAURI__.core.invoke('desktop_backup_read', { path: arguments[0] })
+		window.__TAURI__.core.invoke('desktop_backup_read', { rootId: arguments[0], fileName: arguments[1] })
 			.then(done, error => done({ error: String(error) }));`,
-		[second.path]
+		[grant.rootId, second.fileName]
 	);
 	assert.match(String(read), /"marker":"second"/);
 	passed('native backup snapshots write atomically, keep the newest and preserve user files');
 
 	const escaped = await attempt(
 		`const done = arguments[arguments.length - 1];
-		window.__TAURI__.core.invoke('desktop_backup_read', { path: arguments[0] })
+		window.__TAURI__.core.invoke('desktop_backup_read', { rootId: arguments[0], fileName: arguments[1] })
 			.then(done, error => done({ error: String(error) }));`,
-		[join(directory, '..', 'outside.json')]
+		[grant.rootId, join(directory, '..', 'outside.json')]
 	);
 	assert.ok(escaped.error, 'reads outside a registered root must fail');
 	passed('native backup reads stay confined to the approved folder');
