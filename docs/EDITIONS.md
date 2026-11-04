@@ -200,8 +200,8 @@ file browser.
   cannot instruct a tool action.
 - The app has no product account, backend, cloud storage, telemetry, or runtime
   CDN.
-- The app contacts its host to load application files. Update checks are manual
-  and gated. The app does not upload documents.
+- The app contacts its host to load application files. Desktop update delivery
+  is on standby, so no update check runs. The app does not upload documents.
 - Remote images are blocked by default. A user action can fetch an approved
   remote image. That action contacts the image host and reveals the client IP
   address. The request sends no cookies or referrer and rejects redirects.
@@ -273,7 +273,8 @@ does not publish Desktop installers.
   field can still need a newer release.
 - Cloud sync, shared editing, accounts, plugins, a browser API key vault, and
   unrestricted filesystem access are unavailable. AI, Git, the native vault,
-  quick capture, and signed update checks are Desktop Complete features.
+  and quick capture are Desktop Complete features. Signed update delivery is
+  implemented but dormant while it is on standby.
 
 ## Release note checklist
 
