@@ -7,18 +7,52 @@
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { db, type ProjectRow } from '#lib/db.js';
 	import { normalizeRename } from '#lib/file-utils.js';
+	import { CODE_LANGUAGES } from '#lib/code/languages.js';
 	import { captureErrorMessage, hideCaptureWindow, onCaptureReset } from '#lib/capture.js';
+
+	type CaptureKind = 'note' | 'snippet';
 
 	let title = $state('');
 	let body = $state('');
+	let kind = $state<CaptureKind>('note');
+	let language = $state(CODE_LANGUAGES[0]!.id);
 	let projectId = $state('');
 	let projects = $state<ProjectRow[]>([]);
+	let templates = $state<Array<{ id: string; name: string }>>([]);
+	let templateId = $state('');
 	let busy = $state(false);
 	let error = $state('');
 	let status = $state('');
 	let textarea = $state<HTMLTextAreaElement | null>(null);
 	let titleInput = $state<HTMLInputElement | null>(null);
 	let unlisten: (() => void) | undefined;
+
+	async function loadTemplates(): Promise<void> {
+		if (!browser || typeof indexedDB === 'undefined') return;
+		try {
+			const { templatesStore } = await import('#lib/templates.svelte.js');
+			await templatesStore.load();
+			templates = templatesStore.choices
+				.filter((template) => template.kind === 'note')
+				.map((template) => ({ id: template.id, name: template.name }));
+		} catch {
+			templates = [];
+		}
+	}
+
+	async function applyTemplate(): Promise<void> {
+		if (!templateId || body.trim()) return;
+		try {
+			const { templatesStore } = await import('#lib/templates.svelte.js');
+			const resolved = templatesStore.resolve(templateId);
+			if (!resolved) return;
+			if (!title.trim()) title = resolved.name.replace(/\.md$/i, '');
+			body = resolved.content;
+			textarea?.focus();
+		} catch {
+			error = t('capture.loadFailed');
+		}
+	}
 
 	async function loadProjects(): Promise<void> {
 		if (!browser || typeof indexedDB === 'undefined') return;
@@ -35,8 +69,12 @@
 		body = '';
 		error = '';
 		status = '';
+		kind = 'note';
+		language = CODE_LANGUAGES[0]!.id;
 		projectId = '';
+		templateId = '';
 		void loadProjects();
+		void loadTemplates();
 		void Promise.resolve().then(() => textarea?.focus());
 	}
 
@@ -53,6 +91,16 @@
 			.trim()
 			.slice(0, 120);
 		return normalizeRename(safe);
+	}
+
+	/** Snippets keep a plain title: the file extension belongs to notes only. */
+	function snippetTitle(): string {
+		const firstLine = body
+			.trim()
+			.split('\n')
+			.map((line) => line.trim())
+			.find((line) => line.length > 0);
+		return (title.trim() || firstLine || '').slice(0, 200);
 	}
 
 	async function pasteFromClipboard(): Promise<void> {
@@ -80,17 +128,29 @@
 		error = '';
 		status = '';
 		try {
-			const { filesStore } = await import('#lib/files.svelte.js');
-			const name = fileName();
-			if (projectId) {
-				const { createProjectDocument } = await import('#lib/projects.js');
-				const id = await createProjectDocument(projectId, name);
-				filesStore.updateContent(id, body);
+			if (kind === 'snippet') {
+				const { snippetsStore } = await import('#lib/snippets.svelte.js');
+				const result = await snippetsStore.save({
+					title: snippetTitle(),
+					code: body,
+					language,
+					tags: [],
+					...(projectId ? { projectId } : {})
+				});
+				if (!result.ok) throw new Error(t('capture.duplicateSnippet'));
 			} else {
-				filesStore.createNew(name, body, { origin: 'created', kind: 'note' });
+				const { filesStore } = await import('#lib/files.svelte.js');
+				const name = fileName();
+				if (projectId) {
+					const { createProjectDocument } = await import('#lib/projects.js');
+					const id = await createProjectDocument(projectId, name);
+					filesStore.updateContent(id, body);
+				} else {
+					filesStore.createNew(name, body, { origin: 'created', kind: 'note' });
+				}
+				await filesStore.flushPendingAwait();
 			}
-			await filesStore.flushPendingAwait();
-			status = t('capture.saved');
+			status = t(kind === 'snippet' ? 'capture.snippetSaved' : 'capture.saved');
 			await new Promise((resolve) => setTimeout(resolve, 350));
 			await hideCaptureWindow();
 		} catch (cause) {
@@ -175,6 +235,54 @@
 			/>
 		</label>
 
+		<div class="flex flex-wrap gap-3">
+			<label class="block min-w-32 flex-1 text-xs text-fg-muted">
+				<span>{t('capture.kind')}</span>
+				<select
+					bind:value={kind}
+					class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1.5 text-sm text-fg"
+					disabled={busy}
+					data-testid="capture-kind"
+				>
+					<option value="note">{t('capture.kindNote')}</option>
+					<option value="snippet">{t('capture.kindSnippet')}</option>
+				</select>
+			</label>
+			{#if kind === 'snippet'}
+				<label class="block min-w-32 flex-1 text-xs text-fg-muted">
+					<span>{t('capture.language')}</span>
+					<select
+						bind:value={language}
+						class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1.5 text-sm text-fg"
+						disabled={busy}
+						data-testid="capture-language"
+					>
+						{#each CODE_LANGUAGES as entry (entry.id)}
+							<option value={entry.id}>{entry.label}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
+		</div>
+
+		{#if kind === 'note' && templates.length > 0}
+			<label class="block text-xs text-fg-muted">
+				<span>{t('capture.template')}</span>
+				<select
+					bind:value={templateId}
+					onchange={() => void applyTemplate()}
+					class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1.5 text-sm text-fg"
+					disabled={busy || !!body.trim()}
+					data-testid="capture-template"
+				>
+					<option value="">{t('capture.blankTemplate')}</option>
+					{#each templates as template (template.id)}
+						<option value={template.id}>{template.name}</option>
+					{/each}
+				</select>
+			</label>
+		{/if}
+
 		<label class="block text-xs text-fg-muted">
 			<span>{t('capture.project')}</span>
 			<select
@@ -196,7 +304,9 @@
 				bind:this={textarea}
 				bind:value={body}
 				class="mt-1 min-h-32 flex-1 resize-none rounded border border-border bg-bg-2 px-2 py-1.5 font-mono text-sm text-fg"
-				placeholder={t('capture.contentPlaceholder')}
+				placeholder={kind === 'snippet'
+					? t('capture.codePlaceholder')
+					: t('capture.contentPlaceholder')}
 				disabled={busy}
 				data-testid="capture-content"></textarea>
 		</label>
@@ -240,7 +350,7 @@
 			disabled={busy || !body.trim()}
 			data-testid="capture-save"
 		>
-			{t('capture.save')}
+			{kind === 'snippet' ? t('capture.saveSnippet') : t('capture.save')}
 		</button>
 	</footer>
 </main>

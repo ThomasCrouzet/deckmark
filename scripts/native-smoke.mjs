@@ -1172,7 +1172,9 @@ try {
 		until,
 		output
 	});
-	passed('native quick capture saves library and project notes and cancel creates none');
+	passed(
+		'native quick capture saves library notes, project notes and snippets, and cancel creates none'
+	);
 
 	const diskBeforePurge = readFileSync(fixture);
 	const linkedDraft = (await drafts()).find(

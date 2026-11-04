@@ -53,6 +53,16 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 			`switch to the ${label} window`,
 			30_000
 		);
+	const readSnippets = () =>
+		executeAsync(`const done = arguments[arguments.length - 1];
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => done({ error: String(request.error) });
+			request.onsuccess = () => {
+				const database = request.result;
+				const query = database.transaction('snippets').objectStore('snippets').getAll();
+				query.onerror = () => { database.close(); done({ error: String(query.error) }); };
+				query.onsuccess = () => { database.close(); done(query.result); };
+			};`);
 	const readDrafts = () =>
 		executeAsync(`const done = arguments[arguments.length - 1];
 			const request = indexedDB.open('mdsh');
@@ -301,6 +311,98 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 	} else {
 		record('saved project note', { skipped: true, reason: 'No project row is available.' });
 	}
+
+	const snippetTitle = `Native snippet ${Date.now()}`;
+	const snippetCode = 'const quickCapture = true;\n';
+	record('show command for a snippet', await invoke('desktop_capture_show'));
+	await openCapture();
+	await until(
+		() =>
+			executeIn(
+				`const select = document.querySelector('[data-testid=capture-kind]');
+				if (!select || select.value !== 'note') return false;
+				select.value = 'snippet';
+				select.dispatchEvent(new Event('change', { bubbles: true }));
+				return select.value === 'snippet';`
+			),
+		'quick capture kind switches to a snippet',
+		15_000
+	);
+	await until(
+		() =>
+			executeIn(
+				`const [title, code] = arguments;
+				const titleInput = document.querySelector('[data-testid=capture-title]');
+				const bodyInput = document.querySelector('[data-testid=capture-content]');
+				const languageSelect = document.querySelector('[data-testid=capture-language]');
+				if (!titleInput || !bodyInput || !languageSelect) return false;
+				languageSelect.value = 'typescript';
+				languageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+				titleInput.value = title;
+				titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+				bodyInput.value = code;
+				bodyInput.dispatchEvent(new Event('input', { bubbles: true }));
+				return titleInput.value === title && bodyInput.value === code;`,
+				[snippetTitle, snippetCode]
+			),
+		'quick capture snippet fields accept input'
+	);
+	await until(
+		() =>
+			executeIn(
+				`const button = document.querySelector('[data-testid=capture-save]');
+				if (!button || button.disabled) return false;
+				button.click();
+				return true;`
+			),
+		'quick capture snippet save'
+	);
+	await switchWindow('main');
+	const snippetRow = await until(
+		async () => {
+			const rows = await readSnippets();
+			if (!Array.isArray(rows)) return false;
+			return rows.find((row) => row.title === snippetTitle && row.code === snippetCode);
+		},
+		'capture snippet reaches IndexedDB',
+		30_000
+	);
+	record('saved snippet', {
+		id: snippetRow.id,
+		title: snippetRow.title,
+		language: snippetRow.language,
+		code: snippetRow.code
+	});
+	record('hide command after snippet save', await invoke('desktop_capture_hide'));
+
+	record('show command for a template note', await invoke('desktop_capture_show'));
+	await openCapture();
+	const templateApplied = await until(
+		() =>
+			executeIn(
+				`const select = document.querySelector('[data-testid=capture-template]');
+				if (!select || select.options.length < 2) return false;
+				select.value = select.options[1].value;
+				select.dispatchEvent(new Event('change', { bubbles: true }));
+				return true;`
+			),
+		'quick capture template selector is available',
+		15_000
+	);
+	assert.equal(templateApplied, true);
+	const templateBody = await until(
+		() =>
+			executeIn(
+				`const body = document.querySelector('[data-testid=capture-content]')?.value ?? '';
+				return body.trim().length > 0 ? body : false;`
+			),
+		'quick capture template fills the note body',
+		15_000
+	);
+	record('template applied', { bodyPreview: String(templateBody).slice(0, 60) });
+	await executeIn(`document.querySelector('[data-testid=capture-cancel]').click(); return true;`);
+	await switchWindow('main');
+	record('hide command after template cancel', await invoke('desktop_capture_hide'));
 
 	writeFileSync(
 		join(output, 'native-capture.json'),

@@ -48,6 +48,8 @@ records the edition, version, base path, features, and excluded capabilities.
 | Version history, trash, workspaces, and templates | Yes | Yes |
 | Markdown, HTML, PDF, library ZIP, and project ZIP export | Yes | Yes |
 | JSON backup, restore, merge, and optional encryption | Yes | Yes |
+| Scheduled local backup snapshots with count retention and a restore preview | No | Yes, into a folder that you approve |
+| Git status, diff, log, stage, and commit for a local project | No | Yes, inside an approved project root |
 | Offline use after the offline resources are ready | Yes, through the service worker | Yes, from packaged application files |
 | English and French interface | Yes | Yes |
 | Themes, keyboard navigation, and reduced motion | Yes | Yes |
@@ -58,15 +60,17 @@ records the edition, version, base path, features, and excluded capabilities.
 | Native macOS print panel | No. Use the browser print dialog. | Yes on macOS |
 | File associations and operating-system open events | PWA file handlers where the browser supports them | Yes |
 | Native menus and window state restore | No | Yes |
-| Global quick capture window with an opt-in shortcut | No | Yes, disabled by default with a configurable shortcut |
+| Global quick capture window for notes and snippets with an opt-in shortcut | No | Yes, disabled by default with a configurable shortcut |
 | In-place disk editing with revision checks | Limited to supported browser file links | Yes, with native path capabilities and revision checks |
 | Service worker application update | Yes | No. Install a new Desktop release. |
 | First-class code and JSON files | Yes | Yes |
 | Ephemeral Read-mode ink annotations | Yes | Yes |
 | Image annotation canvas and flattened PNG export | Yes | Yes |
-| Optional OpenAI-compatible AI connection | Yes, disabled by default, with a session-only browser key and explicit consent | Yes, disabled by default |
-| Secure native API key vault | No. A browser-resident key is not a protected secret. | Not available in this release. |
+| Optional OpenAI-compatible AI connection | Yes, disabled by default, with a session-only browser key and explicit consent | Yes, disabled by default, through the native request boundary |
+| Secure native API key vault | No. A browser-resident key is not a protected secret. | Yes, through the operating-system credential store |
 | Secure browser API key vault | Unavailable | Unavailable |
+| Signed update checks | No | Gated: disabled until a signing key is configured, and the user installs the signed package manually |
+| Local command-line interface and MCP server | No | Yes, from a source checkout |
 | Unrestricted filesystem access | Unavailable | Unavailable. Access is limited to selected paths. |
 | Cloud sync, shared editing, accounts, and plugins | Unavailable | Unavailable |
 | Telemetry and crash reports | None | None |
@@ -106,9 +110,13 @@ release. The installers are unsigned beta artifacts. macOS can show a Gatekeeper
 warning, and Windows can show a SmartScreen warning. Compare each file with
 `SHA256SUMS` and check the GitHub build provenance attestation before you install.
 
-Desktop Complete has no automatic update channel. Download and install a new
-release to update. Keep your JSON backups and exported files when you change
-versions.
+Desktop Complete installers are unsigned, so update checks stay disabled until a
+release signing key is configured. When it is, the application verifies an
+ed25519 signature over the manifest, rejects tampered, crossed-platform, or
+older manifests, and opens the release page. The application never installs an
+update by itself: download and install the signed package, and keep your JSON
+backups and exported files when you change versions. See
+[Desktop updates](UPDATES.md).
 
 ## Data retention and offline behavior
 
@@ -178,20 +186,25 @@ file browser.
 
 ## AI and network privacy
 
-- DeckMark has no AI feature in this release. It has no model, prompt, AI
-  network request, or AI settings.
-- The Web client has no secure API key vault. Do not put provider secrets or
-  other credentials in browser storage or in a Web build.
+- AI is optional and disabled by default in both editions.
+- Web Light keeps the provider key in the tab session only. Browser storage is
+  not a protected secret store, so do not reuse a provider key elsewhere.
+- Desktop Complete writes the provider key to the operating-system credential
+  store. The WebView never receives the key value. Rust reads it for each
+  request, and the request goes to the provider endpoint through the native
+  boundary.
+- The native AI boundary allows `https` endpoints and `http` only for loopback.
+  It rejects user information, fragments, and redirects, and it returns stable
+  error codes without the key or the response body.
+- Sending local content always needs an explicit selection. Remote content
+  cannot instruct a tool action.
 - The app has no product account, backend, cloud storage, telemetry, or runtime
   CDN.
-- The app contacts its host to load and update application files. It does not
-  upload documents.
+- The app contacts its host to load application files. Update checks are manual
+  and gated. The app does not upload documents.
 - Remote images are blocked by default. A user action can fetch an approved
   remote image. That action contacts the image host and reveals the client IP
   address. The request sends no cookies or referrer and rejects redirects.
-- If a later release adds an AI feature, it needs a separate privacy design,
-  explicit user consent, and a documented network boundary. It is not part of
-  the current product.
 
 ## Hosting and downloads
 
@@ -250,15 +263,17 @@ does not publish Desktop installers.
   extension, input method, or network condition.
 - Desktop installers are unsigned. The project cannot claim a warning-free
   installation.
-- Desktop Complete has no auto-update channel.
+- Desktop Complete has no automatic update installation. Update checks are
+  manual, signed, and disabled until the release signing key is configured.
 - A browser or operating-system kill can lose text inside the 400 ms save delay.
 - Browser file APIs cannot make the final revision check and write atomic. Avoid
   simultaneous writes to a linked file.
-- Both editions use the same Markdown, project ZIP, and backup formats.
-  Cross-edition round-trip tests are planned. Do not treat them as a current
-  guarantee.
-- AI, cloud sync, shared editing, accounts, plugins, a browser API key vault, and
-  unrestricted filesystem access are unavailable.
+- Both editions use the same Markdown, project ZIP, and backup formats. The
+  portable project tests cover the round trip, but an unknown future metadata
+  field can still need a newer release.
+- Cloud sync, shared editing, accounts, plugins, a browser API key vault, and
+  unrestricted filesystem access are unavailable. AI, Git, the native vault,
+  quick capture, and signed update checks are Desktop Complete features.
 
 ## Release note checklist
 
