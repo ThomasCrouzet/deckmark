@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codeLanguageForExtension, codeLanguageForName } from './languages';
+import { codeLanguageForExtension, codeLanguageForName, loadCodeLanguage } from './languages';
 import { applySourceChanges, convertLineEndings, detectLineEnding } from './text-changes';
 import { EditorState } from '@codemirror/state';
 
@@ -17,6 +17,23 @@ describe('code language dispatch', () => {
 		expect(codeLanguageForExtension('TSX').id).toBe('tsx');
 		expect(codeLanguageForName('archive.tar.gz').id).toBe('plain');
 		expect(codeLanguageForName('Makefile').id).toBe('plain');
+	});
+
+	it('keeps C#, PowerShell and JSON with comments on their own language', () => {
+		expect(codeLanguageForName('Program.cs').id).toBe('csharp');
+		expect(codeLanguageForName('deploy.ps1').id).toBe('powershell');
+		expect(codeLanguageForName('settings.json').id).toBe('json');
+		expect(codeLanguageForName('settings.jsonc').id).toBe('jsonc');
+		expect(codeLanguageForName('main.cpp').id).toBe('cpp');
+		expect(codeLanguageForName('run.sh').id).toBe('shell');
+	});
+
+	it('loads a grammar for every supported language', async () => {
+		for (const id of ['csharp', 'powershell', 'jsonc'] as const) {
+			const extension = await loadCodeLanguage(id);
+			expect(extension).toBeTruthy();
+			if (Array.isArray(extension)) expect(extension.length).toBeGreaterThan(0);
+		}
 	});
 });
 
