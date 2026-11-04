@@ -1,7 +1,91 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { createFirstFile, resetAppState, writeSourceContent } from './helpers';
+import { createHash } from 'node:crypto';
+import { largeNote } from '../scripts/benchmark-fixtures/corpus.mjs';
+import { testSource } from '../scripts/test-source.mjs';
+import { createFirstFile, resetAppState, seedFiles, writeSourceContent } from './helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+
+test('does not allocate a full-document canvas for inactive annotations', async ({
+	page,
+	browser
+}, info) => {
+	test.setTimeout(120_000);
+	const content = largeNote();
+	const source = testSource(info.outputPath('source'));
+	const samples: {
+		cycle: number;
+		devicePixelRatio: number;
+		scrollHeight: number;
+		clientHeight: number;
+		canvases: { width: number; height: number }[];
+	}[] = [];
+	try {
+		await resetAppState(page);
+		await seedFiles(page, [{ name: 'large-note.md', content }]);
+		for (let cycle = 1; cycle <= 5; cycle++) {
+			await page.locator('[data-mode="read"]').click();
+			await expect(page.locator('.mdsh-preview')).toBeVisible({ timeout: 30_000 });
+			await expect(page.getByTestId('annotation-toggle')).toHaveAttribute('aria-pressed', 'false');
+			await page.evaluate(
+				() =>
+					new Promise<void>((resolve) =>
+						requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+					)
+			);
+			const dimensions = await page.locator('.mdsh-read').evaluate((scroller) => ({
+				devicePixelRatio: window.devicePixelRatio,
+				scrollHeight: scroller.scrollHeight,
+				clientHeight: scroller.clientHeight,
+				canvases: Array.from(scroller.querySelectorAll('canvas.annotation-canvas'), (canvas) => {
+					if (!(canvas instanceof HTMLCanvasElement))
+						throw new Error('Expected an annotation canvas');
+					return { width: canvas.width, height: canvas.height };
+				})
+			}));
+			samples.push({ cycle, ...dimensions });
+			expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+			expect
+				.soft(
+					dimensions.canvases.filter(
+						(canvas) =>
+							canvas.width > 0 &&
+							canvas.height >= Math.round(dimensions.scrollHeight * dimensions.devicePixelRatio)
+					),
+					`Cycle ${cycle} must not allocate a full-document annotation canvas`
+				)
+				.toHaveLength(0);
+			if (cycle === 5) {
+				await info.attach('inactive-annotations.png', {
+					body: await page.screenshot(),
+					contentType: 'image/png'
+				});
+			}
+			await page.locator('[data-mode="source"]').click();
+			await expect(page.locator('.cm-content').first()).toBeVisible();
+		}
+	} finally {
+		await info.attach('inactive-annotations.json', {
+			body: JSON.stringify(
+				{
+					...source,
+					baseURL: info.project.use.baseURL,
+					browser: { project: info.project.name, version: browser.version() },
+					fixture: {
+						generator: 'scripts/benchmark-fixtures/corpus.mjs#largeNote()',
+						bytes: Buffer.byteLength(content),
+						sha256: createHash('sha256').update(content).digest('hex')
+					},
+					samples,
+					failures: info.errors.map((error) => error.message)
+				},
+				null,
+				2
+			),
+			contentType: 'application/json'
+		});
+	}
+});
 
 async function readMode(page: Page, content = 'Annotated paragraph. '.repeat(120)) {
 	await resetAppState(page);
@@ -49,6 +133,11 @@ test('draws ephemeral ink without changing the document and clears on reload', a
 	await drawOnCanvas(page);
 	await page.getByTestId('annotation-eraser').click();
 	await expect(page.getByTestId('annotation-eraser')).toHaveAttribute('aria-pressed', 'true');
+	await page.getByTestId('annotation-toggle').click();
+	await expect(page.getByTestId('annotation-toggle')).toHaveAttribute('aria-pressed', 'false');
+	await expect(page.getByTestId('annotation-pen')).toHaveCount(0);
+	await expect(page.getByTestId('annotation-canvas')).toBeVisible();
+	expect(await inkPixels(page)).toBeGreaterThan(100);
 
 	const canvasBefore = await page.getByTestId('annotation-canvas').boundingBox();
 	await page.locator('.mdsh-read').evaluate((element) => (element.scrollTop = 160));
@@ -62,10 +151,14 @@ test('draws ephemeral ink without changing the document and clears on reload', a
 	await page.emulateMedia({ media: 'print' });
 	await expect(page.getByTestId('annotation-canvas')).toBeHidden();
 	await page.emulateMedia({ media: 'screen' });
+	const pixelsBeforeReload = await inkPixels(page);
 
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
 	await page.locator('[data-mode="read"]').click();
+	await expect(page.locator('.mdsh-preview')).toBeVisible();
+	await expect(page.getByTestId('annotation-canvas')).toHaveCount(0);
+	await page.getByTestId('annotation-toggle').click();
 	await expect(page.getByTestId('annotation-canvas')).toBeVisible();
 	expect(await inkPixels(page)).toBe(0);
 	expect(await page.locator('.mdsh-preview').innerText()).toContain('Annotated paragraph.');
@@ -73,7 +166,7 @@ test('draws ephemeral ink without changing the document and clears on reload', a
 	await info.attach('annotations.json', {
 		body: JSON.stringify({
 			documentUnchanged: true,
-			pixelsBeforeReload: await inkPixels(page),
+			pixelsBeforeReload,
 			printHidden: true,
 			clearedOnReload: true
 		}),
@@ -94,6 +187,7 @@ test('clears all ink and exposes tools to the keyboard', async ({ page }) => {
 	await page.keyboard.press('Space');
 	await expect(page.getByTestId('annotation-toggle')).toHaveAttribute('aria-pressed', 'false');
 	await expect(page.getByTestId('annotation-pen')).toHaveCount(0);
+	await expect(page.getByTestId('annotation-canvas')).toHaveCount(0);
 	await page.setViewportSize({ width: 390, height: 700 });
 	await page.getByTestId('annotation-toggle').click();
 	await expect(page.getByTestId('annotation-pen')).toBeVisible();
