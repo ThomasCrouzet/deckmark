@@ -745,8 +745,12 @@ async function saveNativeProjectInternal(projectId: string): Promise<NativeProje
 	return report;
 }
 
-export function saveNativeProject(projectId: string): Promise<NativeProjectReport> {
-	return runProjectOperation(projectId, () => saveNativeProjectInternal(projectId));
+export async function saveNativeProject(projectId: string): Promise<NativeProjectReport> {
+	const report = await runProjectOperation(projectId, () => saveNativeProjectInternal(projectId));
+	if (typeof window !== 'undefined') {
+		window.dispatchEvent(new Event('mdsh:native-project-saved'));
+	}
+	return report;
 }
 
 async function disconnectNativeProjectInternal(projectId: string): Promise<void> {

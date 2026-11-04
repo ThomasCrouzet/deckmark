@@ -42,6 +42,9 @@ export default defineConfig(({ mode }) => {
 							'@tauri-apps/api/menu': nativeStub,
 							'#lib/desktop-shell.js': fileURLToPath(
 								new URL('./src/lib/desktop-shell.web.ts', import.meta.url)
+							),
+							'#lib/git-panel.js': fileURLToPath(
+								new URL('./src/lib/edition/web/git-panel.ts', import.meta.url)
 							)
 						}
 					: {}

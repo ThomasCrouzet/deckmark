@@ -15,7 +15,13 @@ const forbidden = [
 	'tauri-plugin-',
 	'desktop_open_external',
 	'desktop_arm_close_guard',
-	'take_pending_open_paths'
+	'take_pending_open_paths',
+	'git_status',
+	'git_diff',
+	'git_log',
+	'git_stage',
+	'git_unstage',
+	'git_commit'
 ];
 
 function files(directory) {
