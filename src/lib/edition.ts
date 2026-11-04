@@ -36,7 +36,8 @@ export function editionManifest(): EditionManifest {
 					'projects',
 					'pwa-offline',
 					'native-disk',
-					'native-projects'
+					'native-projects',
+					'git'
 				],
 				excluded: []
 			}

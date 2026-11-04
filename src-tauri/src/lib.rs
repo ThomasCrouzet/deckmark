@@ -2,6 +2,7 @@ mod backup;
 mod disk;
 #[cfg(feature = "native-smoke")]
 mod disk_gate;
+mod git;
 mod printing;
 mod projects;
 mod shell;
@@ -115,6 +116,12 @@ pub fn run() {
             projects::project_write_asset,
             projects::project_rename,
             projects::project_revoke,
+            git::git_status,
+            git::git_diff,
+            git::git_log,
+            git::git_stage,
+            git::git_unstage,
+            git::git_commit,
             shell::desktop_open_external,
             shell::desktop_arm_close_guard,
             shell::desktop_ack_close_request,
