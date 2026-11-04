@@ -16,9 +16,9 @@ It has no time limit, feature paywall, account, or server component.
 - GitHub Pages fallback: [https://thomascrouzet.github.io/deckmark/](https://thomascrouzet.github.io/deckmark/)
 - Desktop installers: [GitHub Releases](https://github.com/ThomasCrouzet/deckmark/releases)
 
-GitHub Pages publishes Web Light. The separate Desktop release channel publishes
-Desktop Complete. No other Web host, proxy, or application server is part of the
-production path.
+Cloudflare Pages and GitHub Pages publish Web Light as independent sites. The
+separate Desktop release channel publishes Desktop Complete. Web Light needs no
+application server.
 
 ## Build each edition
 
@@ -33,7 +33,8 @@ npm run check:edition   # Recheck the current build manifest and boundary
 
 The Web build replaces the Tauri packages with a stub. `scripts/check-edition-boundaries.mjs`
 fails the build if a native bridge string remains in the Web output. `build/edition.json`
-records the edition, version, base path, features, and excluded capabilities.
+records the edition, version, source commit as `sourceSha`, base path, features,
+and excluded capabilities.
 `npm run desktop:build` uses `build:desktop` through Tauri.
 
 ## Feature matrix
@@ -145,14 +146,14 @@ a future signed release. See [Desktop updates](UPDATES.md) and the
   GitHub Pages project URL.
 - Unknown deep links open the app shell from the cache. A refresh of a deep link
   does not need a server route.
-- The workflow builds the base path that GitHub Pages reports. A custom domain
-  uses the root. A project site uses `/deckmark/`.
+- The workflow builds the root for Cloudflare Pages and `/deckmark` for the
+  independent GitHub Pages fallback.
 - An application update waits for pending IndexedDB writes before it reloads.
   The update does not discard a draft that is not durable.
 - Remote images are not part of the precache. Embed or import an image before
   you go offline.
-- A PWA installed on the project URL keeps that origin. Install the app again
-  from the custom domain after a domain change.
+- Each host has separate browser storage and a separate PWA installation. To move
+  drafts between hosts, export a backup and restore it on the other host.
 
 ### Export and backup
 
@@ -211,39 +212,33 @@ file browser.
 
 ### Web Light
 
-GitHub Pages is the only production publisher. The deployment workflow does not
-use Cloudflare, Workers, a proxy, or an application server. It does not need
-Cloudflare credentials, API tokens, or a Cloudflare Pages account.
+Web Light has two independent production sites:
 
-The workflow keeps two build checks:
+| Site | Publisher | Build base path |
+| --- | --- | --- |
+| `https://www.deckmark.dev/` | Cloudflare Pages project `deckmark` | Root |
+| `https://thomascrouzet.github.io/deckmark/` | GitHub Pages fallback | `/deckmark` |
 
-1. The production base path that GitHub Pages reports.
-2. The other supported base path, either the root or `/deckmark/`.
+Both sites publish the same source commit after the build, E2E, and Lighthouse
+checks pass. Cloudflare Pages receives the tested root artifact. GitHub Pages
+receives the tested project-site artifact. Each site works without a redirect
+through the other host.
 
-The production build supplies the Pages artifact. The second build detects
-absolute path and cache errors in the other hosting mode.
+The existing Cloudflare custom domain and DNS records remain in place. GitHub
+Pages has no custom domain or `CNAME` file. The deployment needs the CI secrets
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Missing secrets cause a failure.
+The browser app needs no hosting credentials, backend, or telemetry.
 
-The official URL `https://www.deckmark.dev/` needs a custom domain. The workflow
-does not set that domain or change DNS. A maintainer must complete these steps:
+`edition.json` identifies the source commit, version, and base path at each site.
+Production browser checks verify these values, startup, saved edits, and offline
+use at both public URLs. A daily check detects stale sites and starts the same
+gated deployment workflow. The detection run fails with a repair message.
+Post-deployment checks must pass before the repair is confirmed.
 
-1. In the repository **Settings > Pages**, set the custom domain to
-   `www.deckmark.dev`.
-2. At the DNS provider, create or verify the record that GitHub Pages shows.
-   For a `www` host, this is usually a CNAME record to
-   `thomascrouzet.github.io`. Confirm the current value in the Pages settings.
-3. Wait for the DNS check to pass, then enable **Enforce HTTPS**.
-4. Run the **Deploy to GitHub Pages** workflow, or push a merge to `main`.
-5. After the first root deployment, update the required `build` checks in branch
-   protection if their names changed.
-
-After the domain check passes, the workflow reads the new base path and deploys
-the root build. GitHub Pages then redirects the project URL
-`https://thomascrouzet.github.io/deckmark/` to the custom domain. The redirect
-does not keep a separate native project-site origin.
-
-Until the custom domain is active, use the GitHub Pages fallback
-`https://thomascrouzet.github.io/deckmark/`. Do not claim that the custom domain
-works before GitHub Pages and DNS report success.
+The sites do not share drafts or PWA installations. Export a backup from one
+origin and restore it on the other to move local data. See
+[Web publishing](DEVELOPMENT.md#web-publishing) for maintainer steps and
+[hosting checks](TESTING.md#edition-and-hosting-checks) for verification.
 
 ### Desktop Complete
 

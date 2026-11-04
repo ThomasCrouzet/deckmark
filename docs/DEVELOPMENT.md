@@ -32,42 +32,52 @@ and `CARGO_BUILD_JOBS=2`. Run the heavy checks in sequence.
 
 ## Web publishing
 
-GitHub Pages is the only production publisher for Web Light.
-The deployment workflow must not use Cloudflare, Workers, a proxy, an application
-server, or a second Web host. The workflow needs no Cloudflare credentials, API
-tokens, or a Cloudflare Pages account.
+Publish Web Light to both independent hosts through `.github/workflows/deploy.yml`:
 
-`.github/workflows/deploy.yml` reads the current Pages base path before the build.
-A custom domain uses the root. A project site uses `/deckmark/`.
-The build job then builds the production path and the other supported path.
-The production build supplies the Pages artifact. The second build detects
-absolute path, cache, and service worker scope errors in the other hosting mode.
-A pull request does not read the Pages API. It builds the project-site path and
-the root check. A merge to `main` reads the configured Pages base path.
-Branch protection lists the matrix check names. A custom domain changes the
-production path from `/deckmark/` to the root, so the `build` check names change.
-Update the required checks after the first custom-domain run.
+- Cloudflare Pages project `deckmark` receives the root build for
+  `https://www.deckmark.dev/`.
+- GitHub Pages receives the `/deckmark` build for
+  `https://thomascrouzet.github.io/deckmark/`.
 
-The custom domain is not part of the repository. The workflow does not set DNS.
-A maintainer must complete these steps before the official URL can use Pages:
+Both artifacts use the same source commit. Both deployments require the build,
+E2E, and Lighthouse checks to pass. The Cloudflare deployment uses the tested root
+artifact. It does not rebuild the app after the checks.
 
-1. In **Settings > Pages**, set the custom domain to `www.deckmark.dev`.
-2. At the DNS provider, create or verify the record that GitHub Pages shows. For
-   a `www` host, this is usually a CNAME record to `thomascrouzet.github.io`.
-   Confirm the value in the Pages settings.
-3. Wait for the DNS check to pass, then enable **Enforce HTTPS**.
-4. Run the deployment workflow, or push a merge to `main`.
+To publish a change:
 
-After GitHub Pages reports the custom domain, the workflow reads the root base
-path. The GitHub Pages project URL then redirects to the custom domain. A
-service worker from the project URL stays on its old origin. Install the PWA
-again from the custom domain.
+1. Set the repository secrets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`
+   for the existing Cloudflare Pages project `deckmark`.
+2. Keep the existing Cloudflare domain and DNS setup for `www.deckmark.dev`.
+3. Keep **Settings > Pages > Custom domain** empty. Do not add a GitHub Pages
+   `CNAME` file or redirect the project URL to the mirror.
+4. Push the reviewed change to `main`, or run `.github/workflows/deploy.yml`
+   manually from `main`.
+5. Check both deployment results and the post-deployment browser report.
 
-Until the custom domain check passes, use
-`https://thomascrouzet.github.io/deckmark/`.
-Do not state that the custom domain works before GitHub Pages and DNS report
-success. See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the user view
-and [TESTING.md](TESTING.md#edition-and-hosting-checks) for the smoke checks.
+Missing Cloudflare secrets fail the deployment. A skipped mirror deployment is
+not a successful release. These credentials belong to CI, not the browser app.
+The workflow does not migrate DNS or add an application server.
+
+To verify the deployed source from its checkout, run:
+
+```sh
+EXPECTED_SHA=$(git rev-parse HEAD) npx playwright test --config=playwright.production.config.ts
+```
+
+The `github-pages` and `cloudflare-pages` projects check the normal public URLs.
+They compare `edition.json` source SHA, version, and base path, then check startup,
+saved edits, and offline use. Keep `production-report/` and `production-results/`
+with the command, source revision, environment, fixtures, and results.
+The `htmlSha256` field binds the served HTML to the expected build. A fresh
+metadata file cannot hide an old HTML response.
+
+The daily drift check reads both public origins. If either deployment is stale,
+it starts the same gated deployment workflow and fails with a repair message.
+The detection run remains failed. The post-deployment browser checks confirm
+repair. A dispatch result, upload result, or stored SHA alone cannot confirm it.
+
+See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the hosting contract and
+[TESTING.md](TESTING.md#edition-and-hosting-checks) for verification details.
 
 ## Desktop development
 

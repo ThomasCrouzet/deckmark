@@ -3,11 +3,14 @@
 // native Tauri packages to a stub and then verifies the output boundary.
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const edition = process.argv[2] === 'desktop' ? 'desktop' : 'web';
 const env = { ...process.env, VITE_EDITION: edition };
+const sourceSha =
+	spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null;
 
 function run(command, args) {
 	const result = spawnSync(command, args, {
@@ -62,6 +65,8 @@ writeFileSync(
 			schemaVersion: 1,
 			edition,
 			version: packageJson.version,
+			sourceSha,
+			htmlSha256: createHash('sha256').update(readFileSync('build/index.html')).digest('hex'),
 			basePath: process.env.BASE_PATH ?? '',
 			features,
 			excluded
