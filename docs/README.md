@@ -18,6 +18,7 @@
 - [Testing](TESTING.md): commands, failure risks, and repeatable evidence.
 - [GitHub settings](GITHUB_SETTINGS.md): repository controls and release checks.
 - [Desktop signing decision](decisions/desktop-signing.md): current state and revisit trigger.
+- [Desktop updates](UPDATES.md): signed manifest contract, gating, and rollback policy.
 - [Brand assets](BRANDING.md): icon generation, screenshots, and demo capture.
 - [Changelog](../CHANGELOG.md): released changes.
 
