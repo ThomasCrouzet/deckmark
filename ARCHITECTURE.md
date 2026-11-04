@@ -5,9 +5,9 @@ see the map in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Two editions share one client
 
-DeckMark has two editions. **Web Light** is a static PWA that GitHub Pages
-publishes. **Desktop Complete (Beta)** packages the same client in Tauri and adds
-native operating-system capabilities. Both editions use the same note and
+DeckMark has two editions. **Web Light** is a static PWA that GitHub Pages and
+Cloudflare Pages publish. **Desktop Complete (Beta)** packages the same client in
+Tauri and adds native operating-system capabilities. Both editions use the same note and
 presentation formats, IndexedDB model, project ZIP format, and backup format.
 There is no forked document logic.
 
@@ -28,10 +28,20 @@ bridges with Web stubs. `scripts/check-edition-boundaries.mjs` checks the output
 and precache for native bridge strings. Lazy imports keep optional features out
 of the startup graph. See [edition builds](docs/EDITIONS.md#build-each-edition).
 
-GitHub Pages is the only production Web publisher. The deployment workflow reads
-the Pages base path before the build. A custom domain uses the root and a project
-site uses `/deckmark/`. The service worker scope and navigation fallback follow
-that base path. The workflow does not configure DNS or a custom domain.
+Web Light has two independent production hosts. Cloudflare Pages project
+`deckmark` serves `https://www.deckmark.dev/` from the root build. GitHub Pages
+serves `https://thomascrouzet.github.io/deckmark/` from the `/deckmark` build as an
+independent fallback. Both builds use the same source commit and must pass the
+build, E2E, and Lighthouse checks before deployment. The service worker scope and
+navigation fallback follow each base path. The workflow keeps the existing DNS
+and Cloudflare domain setup. GitHub Pages has no custom domain or `CNAME` file.
+
+`edition.json` records `sourceSha` so public checks can identify the deployed
+commit. Post-deployment browser checks verify metadata, startup, saved edits, and
+offline use at both normal public URLs. A daily check detects stale deployments
+and starts the same gated deployment workflow. Detection remains a failed run
+with a repair message. Only the post-deployment checks confirm repair. Neither
+host adds an application backend, telemetry, or document sync.
 
 Both editions have an optional OpenAI-compatible AI connection, disabled by
 default. Neither has a secure browser API key vault or unrestricted filesystem

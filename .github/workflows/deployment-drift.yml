@@ -7,43 +7,49 @@ on:
 
 permissions:
   contents: read
-  deployments: read
-  actions: write
+
+concurrency:
+  group: deployment-drift
+  cancel-in-progress: false
 
 jobs:
-  pages-head:
+  main-head:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.main.outputs.sha }}
     steps:
-      - name: Verify that Pages includes main HEAD
+      - name: Resolve main
+        id: main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPOSITORY: ${{ github.repository }}
-          EXPECTED_SHA: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          deployed_sha() {
-            gh api "repos/$REPOSITORY/deployments?environment=github-pages&per_page=1" \
-              --jq '.[0].sha'
-          }
+          sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          test -n "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-          current="$(deployed_sha)"
-          if [ "$current" = "$EXPECTED_SHA" ]; then
-            echo "GitHub Pages is deployed from main HEAD: $EXPECTED_SHA."
-            exit 0
-          fi
+  verify-public:
+    needs: main-head
+    uses: ./.github/workflows/verify-deployment.yml
+    with:
+      source_sha: ${{ needs.main-head.outputs.sha }}
 
-          # A merge made with the workflow token does not start a push workflow.
-          # Dispatch the deployment workflow, then require convergence.
-          echo "GitHub Pages is stale: expected $EXPECTED_SHA, found ${current:-none}." >&2
-          gh workflow run deploy.yml --ref "$GITHUB_REF_NAME"
-
-          for attempt in $(seq 1 50); do
-            sleep 30
-            if [ "$(deployed_sha)" = "$EXPECTED_SHA" ]; then
-              echo "Deployment converged after $((attempt * 30)) seconds."
-              exit 0
-            fi
-          done
-
-          echo "Deployment did not converge within 25 minutes." >&2
+  repair:
+    needs: [main-head, verify-public]
+    if: >-
+      always() && github.ref == 'refs/heads/main' &&
+      needs.main-head.result == 'success' && needs.verify-public.result == 'failure'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Request a gated deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh workflow run deploy.yml --ref main
+          echo '::error::Public verification failed. A gated deployment was requested. Check its public verification result to confirm repair.'
           exit 1
