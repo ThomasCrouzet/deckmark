@@ -1942,6 +1942,13 @@
 		}
 	}
 	@container (max-width: 800px) {
+		/* Narrow layouts stack the filmstrip and the notes. Leave enough slack for
+		   the wrapped toolbar so the footer never covers the notes field. */
+		.slide-viewport {
+			min-height: 40px;
+		}
+	}
+	@container (max-width: 800px) {
 		.presentation-header {
 			padding: 6px 8px;
 			gap: 4px;
