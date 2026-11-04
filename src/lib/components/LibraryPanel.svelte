@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { filesStore } from '#lib/files.svelte.js';
-	import { documentKind } from '#lib/document-kind.js';
+	import { documentKindForFile, documentKindLabelKey } from '#lib/document-kind.js';
 	import { t, i18n } from '#lib/i18n/index.js';
 	import { normalizeCommandSearch } from '#lib/ui/commands.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
-	import { X, Search, Trash2, FileText, Presentation } from '@lucide/svelte';
+	import { X, Search, Trash2, FileText, Presentation, Code2, Image } from '@lucide/svelte';
 	import Toasts from './Toasts.svelte';
+	import FileStatusBadge from './FileStatusBadge.svelte';
 	let { onClose }: { onClose: () => void } = $props();
 	let input: HTMLInputElement | undefined = $state();
 	let query = $state('');
@@ -191,9 +192,18 @@
 		{/if}
 		<ul class="border-t border-border">
 			{#each matches as file (file.id)}
-				{@const kind = documentKind(file.content)}
-				{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
-				{@const TypeIcon = kind === 'note' ? FileText : Presentation}
+				{@const kind = documentKindForFile(file)}
+				{@const typeLabel = t(documentKindLabelKey(kind))}
+				{@const TypeIcon =
+					kind === 'note'
+						? FileText
+						: kind === 'presentation'
+							? Presentation
+							: kind === 'code'
+								? Code2
+								: kind === 'image'
+									? Image
+									: FileText}
 				<li class="flex items-center border-b border-border px-2" data-document-id={file.id}>
 					<label class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
 						<input
@@ -219,6 +229,7 @@
 						<span class="flex max-w-full items-center gap-2 text-sm font-medium">
 							<TypeIcon size={14} class="shrink-0" aria-hidden="true" />
 							<span class="truncate">{file.name}</span>
+							<FileStatusBadge {file} />
 						</span>
 						<span id={`library-type-${file.id}`} class="text-xs text-fg-muted">{typeLabel}</span>
 						{#if file.relativePath}<span class="max-w-full truncate text-xs text-fg-muted"

@@ -3,7 +3,10 @@
 	import LoadError from './LoadError.svelte';
 	import { reportPersistenceError } from '#lib/storage.js';
 	import { browser } from '$app/env';
-	import { t } from '#lib/i18n/index.js';
+	import { t, i18n } from '#lib/i18n/index.js';
+	import { interpolate, type Locale } from '#lib/i18n/locale.js';
+	import { docsSiteEn, type DocsSiteMessageKey } from '#lib/i18n/messages/docs-site-en.js';
+	import { docsSiteFr } from '#lib/i18n/messages/docs-site-fr.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { workspaceStore } from '#lib/workspaces.svelte.js';
 	import { templatesStore } from '#lib/templates.svelte.js';
@@ -28,6 +31,7 @@
 	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '#lib/render/print-geometry.js';
 	import { coreCommands, normalizeCommandSearch } from '#lib/ui/commands.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { formatKbd } from '#lib/platform.js';
 	import {
@@ -54,12 +58,17 @@
 		AlignVerticalJustifyCenter,
 		Settings,
 		SunMoon,
+		Sparkles,
+		MessageSquare,
+		Table,
 		FileText,
+		Image as ImageIcon,
 		Clipboard,
 		ClipboardCopy,
 		FolderOpen,
 		History,
-		Workflow
+		Workflow,
+		Copy
 	} from '@lucide/svelte';
 
 	interface Command {
@@ -73,9 +82,14 @@
 		run: () => void;
 	}
 
-	import { documentKind, type DocumentKind } from '#lib/document-kind.js';
+	import {
+		documentKindForFile,
+		documentKindLabelKey,
+		type DocumentKind
+	} from '#lib/document-kind.js';
 	interface Props {
 		kind: DocumentKind;
+		mode: EditMode;
 		onCreate: (kind: DocumentKind) => Promise<void>;
 		onOpenOutline?: () => void;
 		initialView?: 'commands' | 'actions';
@@ -88,6 +102,10 @@
 		onExportHtml: () => void;
 		onExportPdf: () => void;
 		onExportAll: () => void;
+		onSave: () => void;
+		onSaveAs: () => void;
+		onEditCopy: () => void;
+		onEditOriginal: () => void;
 		onSaveToDisk: () => void;
 		onToggleSidebar: () => void;
 		onSetMode: (m: EditMode) => void;
@@ -106,12 +124,25 @@
 		onOpenSettings: () => void;
 		onOpenHistory: () => void;
 		onOpenGraph: () => void;
+		onOpenAi: () => void;
+		onOpenProperties: () => void;
+		onOpenComments: () => void;
+		onOpenExportProfiles: () => void;
+		onOpenLinkedBlocks: () => void;
+		onOpenSemantic: () => void;
+		onOpenCollection: () => void;
+		onOpenDocsCheck: () => void;
+		onOpenSnippets: () => void;
+		onSaveSnippetSelection: () => void;
+		onSaveSnippetFile: () => void;
+		onOpenDocsSite: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
 	}
 
 	let {
 		kind,
+		mode,
 		onCreate,
 		onOpenOutline,
 		initialView = 'commands',
@@ -124,6 +155,10 @@
 		onExportHtml,
 		onExportPdf,
 		onExportAll,
+		onSave,
+		onSaveAs,
+		onEditCopy,
+		onEditOriginal,
 		onSaveToDisk,
 		onToggleSidebar,
 		onSetMode,
@@ -142,6 +177,18 @@
 		onOpenSettings,
 		onOpenHistory,
 		onOpenGraph,
+		onOpenAi,
+		onOpenProperties,
+		onOpenComments,
+		onOpenExportProfiles,
+		onOpenLinkedBlocks,
+		onOpenSemantic,
+		onOpenCollection,
+		onOpenDocsCheck,
+		onOpenSnippets,
+		onSaveSnippetSelection,
+		onSaveSnippetFile,
+		onOpenDocsSite,
 		onPresent,
 		onAdvancedSource
 	}: Props = $props();
@@ -152,8 +199,17 @@
 	let selected = $state(0);
 	let inputEl: HTMLInputElement | null = $state(null);
 
+	const DOCS_SITE_MESSAGES: Record<Locale, Record<DocsSiteMessageKey, string>> = {
+		en: docsSiteEn,
+		fr: docsSiteFr
+	};
+	function td(key: DocsSiteMessageKey, params?: Record<string, string | number>): string {
+		const dictionary = DOCS_SITE_MESSAGES[i18n.locale] ?? docsSiteEn;
+		return interpolate(dictionary[key] ?? docsSiteEn[key] ?? key, params);
+	}
+
 	function stripExt(name: string) {
-		return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
+		return name.replace(/\.[a-z0-9]{1,10}$/i, '');
 	}
 
 	function runCommand(command: Command | undefined): void {
@@ -179,7 +235,10 @@
 			'rename-file',
 			'close-file',
 			'delete-file',
-			'save-disk'
+			'save',
+			'save-as',
+			'edit-copy',
+			'edit-original'
 		].includes(command.id);
 		if (command.id === 'export-all' && filesStore.library.length === 0) return false;
 		if (command.id.startsWith('export-') && spinnerStore.visible) return false;
@@ -231,13 +290,46 @@
 			run: () => onOpenOutline?.()
 		},
 		{ id: 'library', label: t('library.title'), icon: Files, run: () => onOpenLibrary?.() },
+		{
+			id: 'snippets',
+			label: t('snippets.open'),
+			hint: t('snippets.openHint'),
+			keywords: t('snippets.search'),
+			icon: Code2,
+			run: onOpenSnippets
+		},
+		{
+			id: 'snippet-save-selection',
+			label: t('snippets.saveSelection'),
+			hint: t('snippets.saveSelectionHint'),
+			icon: Code2,
+			enabled: () => filesStore.active !== null && (kind === 'note' || kind === 'code'),
+			run: onSaveSnippetSelection
+		},
+		{
+			id: 'snippet-save-file',
+			label: t('snippets.saveFile'),
+			hint: t('snippets.saveFileHint'),
+			icon: Code2,
+			enabled: () => filesStore.active !== null && (kind === 'note' || kind === 'code'),
+			run: onSaveSnippetFile
+		},
 		{ id: 'backup', label: t('actions.backups'), icon: Download, run: onOpenSettings },
 		...filesStore.closedFiles.map((file) => ({
 			id: `reopen-${file.id}`,
 			label: t('palette.reopenFile', { name: file.name }),
 			keywords: filesStore.documentTitle(file.id),
-			hint: t(documentKind(file.content) === 'note' ? 'documents.note' : 'documents.presentation'),
-			icon: documentKind(file.content) === 'note' ? FileText : Presentation,
+			hint: t(documentKindLabelKey(documentKindForFile(file))),
+			icon:
+				documentKindForFile(file) === 'note'
+					? FileText
+					: documentKindForFile(file) === 'presentation'
+						? Presentation
+						: documentKindForFile(file) === 'code'
+							? Code2
+							: documentKindForFile(file) === 'image'
+								? ImageIcon
+								: FileText,
 			run: () => {
 				filesStore.reopen(file.id);
 			}
@@ -297,6 +389,31 @@
 			icon: Upload,
 			run: onImport
 		},
+		{
+			id: 'open-local',
+			label: t('palette.openLocalFile'),
+			keywords: t('palette.openLocalFileKeywords'),
+			icon: FolderOpen,
+			run: onImport
+		},
+		{
+			id: 'edit-original',
+			label: t('palette.editOriginal'),
+			keywords: t('palette.editOriginalKeywords'),
+			icon: Link2,
+			enabled: () =>
+				filesStore.active !== null &&
+				(isDiskLinkingAvailable() || !!filesStore.active.sourceFileId),
+			run: onEditOriginal
+		},
+		{
+			id: 'edit-copy',
+			label: t('palette.editCopy'),
+			keywords: t('palette.editCopyKeywords'),
+			icon: Copy,
+			enabled: () => filesStore.active !== null,
+			run: onEditCopy
+		},
 		...(isDesktop() || isDirectoryPickerSupported()
 			? [
 					{
@@ -309,10 +426,28 @@
 				]
 			: []),
 		{
-			id: 'export-md',
-			label: t('palette.exportMarkdown'),
-			keywords: t('palette.exportMarkdownKeywords'),
+			id: 'save',
+			label: t('palette.save'),
+			keywords: t('palette.saveKeywords'),
 			kbd: formatKbd('⌘S'),
+			icon: Download,
+			enabled: () => filesStore.active !== null,
+			run: onSave
+		},
+		{
+			id: 'save-as',
+			label: t('palette.saveAs'),
+			keywords: t('palette.saveAsKeywords'),
+			kbd: formatKbd('⌘⇧S'),
+			icon: Download,
+			enabled: () => filesStore.active !== null,
+			run: onSaveAs
+		},
+		{
+			id: 'export-md',
+			label: t('palette.download'),
+			keywords: t('palette.downloadKeywords'),
+			kbd: formatKbd('⌘⇧E'),
 			icon: Download,
 			enabled: () => filesStore.active !== null,
 			run: onExportMd
@@ -323,7 +458,7 @@
 						id: 'save-disk',
 						label: t('palette.saveToDisk'),
 						keywords: t('palette.saveToDiskKeywords'),
-						kbd: formatKbd('⌘⇧S'),
+						kbd: keyboardStore.label('save-as') ?? formatKbd('⌘⇧S'),
 						icon: Download,
 						enabled: () => filesStore.active !== null,
 						run: onSaveToDisk
@@ -514,6 +649,20 @@
 			run: onOpenGraph
 		},
 		{
+			id: 'docs-check',
+			label: t('docsCheck.command'),
+			hint: t('docsCheck.commandHint'),
+			icon: FileText,
+			run: onOpenDocsCheck
+		},
+		{
+			id: 'docs-site',
+			label: td('docsSite.command'),
+			hint: td('docsSite.commandHint'),
+			icon: FileOutput,
+			run: onOpenDocsSite
+		},
+		{
 			id: 'presentation',
 			label: t('slides.presentActive'),
 			hint: kind === 'note' ? t('slides.presentationRequired') : t('documents.presentation'),
@@ -526,6 +675,58 @@
 			label: t('slides.source'),
 			icon: Code2,
 			run: onAdvancedSource
+		},
+		{
+			id: 'semantic-search',
+			label: t('palette.semantic'),
+			hint: t('palette.semanticHint'),
+			icon: Search,
+			run: onOpenSemantic
+		},
+		{
+			id: 'linked-blocks',
+			label: t('blocks.command'),
+			hint: t('blocks.commandHint'),
+			icon: Link2,
+			run: onOpenLinkedBlocks
+		},
+		{
+			id: 'export-profiles',
+			label: t('exportProfiles.command'),
+			hint: t('exportProfiles.commandHint'),
+			icon: Download,
+			run: onOpenExportProfiles
+		},
+		{
+			id: 'collection',
+			label: t('palette.collection'),
+			hint: t('palette.collectionHint'),
+			icon: Table,
+			run: onOpenCollection
+		},
+		{
+			id: 'comments',
+			label: t('palette.comments'),
+			hint: t('palette.commentsHint'),
+			icon: MessageSquare,
+			enabled: () => kind === 'note' && filesStore.active !== null,
+			run: onOpenComments
+		},
+		{
+			id: 'properties',
+			label: t('palette.editProperties'),
+			hint: t('palette.editPropertiesHint'),
+			icon: Settings,
+			enabled: () => kind === 'note' && filesStore.active !== null,
+			run: onOpenProperties
+		},
+		{
+			id: 'ai',
+			label: t('palette.aiAssistant'),
+			hint: t('palette.aiAssistantHint'),
+			icon: Sparkles,
+			enabled: () => aiStore.settings.enabled,
+			run: onOpenAi
 		},
 		{
 			id: 'template-save',
@@ -543,7 +744,7 @@
 							defaultValue,
 							placeholder: t('palette.templateNamePlaceholder')
 						}),
-					save: (name, content) => templatesStore.save(name, content),
+					save: (name, content) => templatesStore.save(name, content, kind),
 					notifySuccess: (message) => notify.success(message),
 					stripExt,
 					t
@@ -621,8 +822,15 @@
 			id: `file-${f.id}`,
 			label: stripExt(f.name),
 			keywords: filesStore.documentTitle(f.id),
-			hint: t(documentKind(f.content) === 'note' ? 'documents.note' : 'documents.presentation'),
-			icon: documentKind(f.content) === 'note' ? FileText : Presentation,
+			hint: t(documentKindLabelKey(documentKindForFile(f))),
+			icon:
+				documentKindForFile(f) === 'note'
+					? FileText
+					: documentKindForFile(f) === 'presentation'
+						? Presentation
+						: documentKindForFile(f) === 'code'
+							? Code2
+							: ImageIcon,
 			run: () => filesStore.setActive(f.id)
 		}))
 	);
@@ -651,7 +859,11 @@
 			icon: FileText,
 			run: () => {
 				const doc = templatesStore.resolve(tpl.id);
-				if (doc) filesStore.createNew(doc.name, doc.content);
+				if (doc)
+					filesStore.createNew(doc.name, doc.content, {
+						focusEditor: doc.kind === 'note',
+						origin: 'template'
+					});
 			}
 		}))
 	);
@@ -660,6 +872,7 @@
 		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands]
 			.filter((command) => {
 				if (command.id === 'advanced-source') return kind === 'presentation';
+				if (command.id === 'focus') return kind === 'note' && mode === 'read';
 				if (kind === 'note') return true;
 				return (
 					![
@@ -669,7 +882,6 @@
 						'typewriter',
 						'toc',
 						'focus',
-						'template-save',
 						'copy-html'
 					].includes(command.id) &&
 					!command.id.startsWith('mode-') &&
@@ -692,11 +904,34 @@
 		[
 			{
 				label: t('actions.documents'),
-				ids: ['new', 'import', 'library', 'search', 'search-in-file', 'outline', 'history']
+				ids: [
+					'new',
+					'import',
+					'open-local',
+					'edit-original',
+					'edit-copy',
+					'library',
+					'snippets',
+					'snippet-save-selection',
+					'snippet-save-file',
+					'search',
+					'search-in-file',
+					'outline',
+					'history'
+				]
 			},
 			{
 				label: t('actions.export'),
-				ids: ['save-disk', 'export-md', 'export-pdf', 'export-html', 'export-all', 'backup']
+				ids: [
+					'save',
+					'save-as',
+					'save-disk',
+					'export-md',
+					'export-pdf',
+					'export-html',
+					'export-all',
+					'backup'
+				]
 			},
 			{
 				label: t('actions.workspace'),

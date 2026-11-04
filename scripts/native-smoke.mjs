@@ -13,7 +13,7 @@ import {
 	statSync,
 	writeFileSync
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { release as osRelease, tmpdir, version as osVersion } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { testSource } from './test-source.mjs';
@@ -21,6 +21,7 @@ import { nativeDiskRaces } from './native-disk-races.mjs';
 import { nativeExportCancellation } from './native-export-cancellation.mjs';
 import { nativePresentationPdf } from './native-presentation.mjs';
 import { nativeProjects } from './native-projects.mjs';
+import { processTreeMemory } from './native-process-memory.mjs';
 
 const binary = resolve(
 	process.env.NATIVE_BINARY ??
@@ -66,6 +67,7 @@ writeFileSync(
 	`# ${title}\n\nTexte Unicode été.\n\n![Image](${image})\n\n$e^{i\\pi}+1=0$\n\n\`\`\`mermaid\ngraph LR\nA --> B\n\`\`\`\n${pdfTail}`
 );
 const log = openSync(join(output, 'application.log'), 'w');
+const runStartedAt = performance.now();
 /** @type {import('node:child_process').ChildProcess | undefined} */
 let app;
 /** @type {import('node:child_process').ChildProcess | undefined} */
@@ -75,11 +77,42 @@ let session = '';
 let currentProcess;
 /** @type {NonNullable<typeof currentProcess>[]} */
 const processes = [];
+/** @type {{ label: string, atMs: number, bytes: number, mb: number, processes: number | null }[]} */
+const memorySamples = [];
+/** @type {Record<string, number | number[]>} */
+const timings = {};
+const features = {
+	ai: {
+		present: false,
+		reason:
+			'The product has no AI feature or AI setting. The suite does not claim AI-disabled coverage.'
+	},
+	annotations: {
+		present: false,
+		reason: 'The product has no annotation workflow. The suite does not claim annotation coverage.'
+	},
+	snippets: {
+		present: false,
+		reason:
+			'The product has no reusable snippet feature. The suite checks built-in templates instead.'
+	},
+	templates: {
+		present: true,
+		reason: 'Built-in templates create a new note from the New File dialog.'
+	}
+};
 /** @type {Record<string, unknown>} */
 const results = {
 	...testSource(join(output, 'source-runtime')),
 	platform: process.platform,
 	arch: process.arch,
+	runtimeIdentity: {
+		platform: process.platform,
+		release: osRelease(),
+		version: osVersion(),
+		arch: process.arch,
+		node: process.version
+	},
 	binary,
 	nativeProfile: nativeHome,
 	nativeDataStoreId,
@@ -87,6 +120,9 @@ const results = {
 	binarySha256,
 	source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
 	checks: [],
+	features,
+	timings,
+	memory: memorySamples,
 	fixture: { title, markdown: readFileSync(fixture, 'utf8') },
 	processes
 };
@@ -95,6 +131,22 @@ const passed = (name) => {
 	/** @type {string[]} */ (results.checks).push(name);
 	console.log(`OK ${name}`);
 };
+/** @param {string} label */
+function sampleMemory(label) {
+	if (!app?.pid) return null;
+	try {
+		const sample = {
+			label,
+			atMs: Number((performance.now() - runStartedAt).toFixed(1)),
+			...processTreeMemory(app.pid)
+		};
+		memorySamples.push(sample);
+		return sample;
+	} catch (error) {
+		results.memoryError = String(error);
+		return null;
+	}
+}
 
 function smokeEnvironment() {
 	return {
@@ -313,6 +365,14 @@ async function connect(expectDocument = true) {
 	});
 	session = created.sessionId;
 	results.runtime = created.capabilities;
+	results.runtimeIdentity = {
+		...results.runtimeIdentity,
+		webview: {
+			browserName: created.capabilities?.browserName ?? null,
+			browserVersion: created.capabilities?.browserVersion ?? null,
+			platformName: created.capabilities?.platformName ?? null
+		}
+	};
 	try {
 		await until(
 			() =>
@@ -410,16 +470,22 @@ async function saveLinkedFile(label) {
 		(/** @type {{name: string}} */ item) => item.name === basename(fixture)
 	);
 	assert.ok(draft, `${label}: linked draft exists`);
-	if (process.platform === 'darwin') await nativeShortcut('s', true);
+	const saveStartedAt = performance.now();
+	// Save is Cmd/Ctrl+S (in place). Cmd/Ctrl+Shift+S is Save As, which opens a
+	// dialog that this smoke run never answers.
+	if (process.platform === 'darwin') await nativeShortcut('s');
 	else
 		await execute(`
 		window.dispatchEvent(new KeyboardEvent('keydown', {
-			key: 'S', code: 'KeyS', metaKey: ${process.platform === 'darwin'},
-			ctrlKey: ${process.platform !== 'darwin'}, shiftKey: true, bubbles: true, cancelable: true
+			key: 's', code: 'KeyS', metaKey: false,
+			ctrlKey: true, shiftKey: false, bubbles: true, cancelable: true
 		}));
 	`);
 	// No dialog is answered. Only a direct native write can complete this check.
 	await until(async () => statSync(fixture, { bigint: true }).mtimeNs !== before, label);
+	const saveSamples = Array.isArray(timings.saveToDiskMs) ? timings.saveToDiskMs : [];
+	saveSamples.push(Number((performance.now() - saveStartedAt).toFixed(1)));
+	timings.saveToDiskMs = saveSamples;
 	const savedContent = readFileSync(fixture, 'utf8');
 	assert.ok(savedContent.includes(title));
 	// WYSIWYG serialization can update the draft before its debounce completes.
@@ -537,6 +603,8 @@ try {
 		`const done = arguments[arguments.length - 1]; window.__TAURI__.app.getIdentifier().then(done);`
 	);
 	assert.equal(identifier, 'io.github.thomascrouzet.deckmark.smoke');
+	timings.startupToShellMs = Number((performance.now() - runStartedAt).toFixed(1));
+	sampleMemory('startup');
 	passed('isolated native profile and cold file association');
 	if (process.platform === 'linux') {
 		assert.ok(process.env.DBUS_SESSION_BUS_ADDRESS, 'Shared D-Bus session is required');
@@ -580,7 +648,9 @@ try {
 	);
 	passed('dropping the same linked document does not create a duplicate');
 	await execute("localStorage.setItem('mdsh:locale', 'fr');");
+	const reloadStartedAt = performance.now();
 	await reload();
+	timings.reloadMs = Number((performance.now() - reloadStartedAt).toFixed(1));
 	await click('button[data-mode="source"]');
 	await until(
 		() =>
@@ -590,6 +660,84 @@ try {
 		'source text'
 	);
 	passed('native source editor');
+	const themeBefore = await execute('return document.documentElement.dataset.theme ?? "";');
+	const themeStartedAt = performance.now();
+	await click('[data-testid="theme-toggle"]');
+	await until(
+		() =>
+			execute('return (document.documentElement.dataset.theme ?? "") !== arguments[0];', [
+				themeBefore
+			]),
+		'native theme toggle'
+	);
+	timings.themeToggleMs = Number((performance.now() - themeStartedAt).toFixed(1));
+	const themeAfter = await execute('return document.documentElement.dataset.theme ?? "";');
+	await click('[data-testid="theme-toggle"]');
+	await until(
+		() =>
+			execute('return (document.documentElement.dataset.theme ?? "") !== arguments[0];', [
+				themeAfter
+			]),
+		'native theme restored'
+	);
+	passed(`native theme toggle changes the theme (${themeBefore || 'default'} to ${themeAfter})`);
+
+	const focusStartedAt = performance.now();
+	// Focus mode is offered only while Read is selected.
+	await click('button[data-mode="read"]');
+	await until(
+		() => execute('return !!document.querySelector(".mdsh-preview");'),
+		'native read mode before focus'
+	);
+	await click('[data-testid="focus-toggle"]');
+	await until(
+		() => execute('return document.body.classList.contains("focus-mode");'),
+		'native focus mode on'
+	);
+	timings.focusToggleMs = Number((performance.now() - focusStartedAt).toFixed(1));
+	// Focus mode adds a fixed exit control outside the inert header.
+	await clickText('button', 'Quitter le mode focus');
+	await until(
+		() => execute('return !document.body.classList.contains("focus-mode");'),
+		'native focus mode off'
+	);
+	await click('button[data-mode="source"]');
+	await until(
+		() => execute('return !!document.querySelector(".cm-content");'),
+		'native source mode after focus'
+	);
+	passed('native focus mode toggles without a restart');
+
+	const templateStartedAt = performance.now();
+	await clickText('aside button', 'Nouveau fichier', true);
+	await until(
+		() =>
+			execute('return !!document.querySelector(`[data-testid="create-template-builtin:todo"]`)'),
+		'native template choice'
+	);
+	await click('[data-testid="create-template-builtin:todo"]');
+	await until(
+		() => execute('return document.querySelector("header input")?.value === "To-do list";'),
+		'native template note created'
+	);
+	timings.templateCreateMs = Number((performance.now() - templateStartedAt).toFixed(1));
+	await sampleMemory('template');
+	const linkedId = (await drafts()).find(
+		(/** @type {{name: string}} */ item) => item.name === basename(fixture)
+	)?.id;
+	assert.ok(linkedId, 'The linked fixture draft is available after template creation');
+	const switchStartedAt = performance.now();
+	await click(`button[data-file-id=${JSON.stringify(linkedId)}]`);
+	await until(
+		() =>
+			execute('return document.querySelector("header input")?.value === arguments[0];', [
+				basename(fixture).replace(/\.md$/i, '')
+			]),
+		'native linked document restored after template creation'
+	);
+	timings.documentSwitchMs = Number((performance.now() - switchStartedAt).toFixed(1));
+	passed('native built-in template creates a note and the linked note reopens');
+	sampleMemory('source-editor');
 	if (process.platform === 'darwin') {
 		await execute(
 			`window.__historyEvents = []; document.addEventListener('beforeinput', event => { if (event.inputType.startsWith('history')) window.__historyEvents.push({ type: event.inputType, target: event.target.className, prevented: event.defaultPrevented }); });`
@@ -686,6 +834,7 @@ try {
 		/** @type {import('node:child_process').ChildProcess} */ (app),
 		'exit'
 	);
+	const diskCloseStartedAt = performance.now();
 	await executeAsync(
 		`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_request_close').then(() => done(true), error => done({ error: String(error) }));`
 	).catch(() => {});
@@ -695,6 +844,9 @@ try {
 			throw new Error('Native close before disk test blocked');
 		})
 	]);
+	const closeSamples = Array.isArray(timings.closeMs) ? timings.closeMs : [];
+	closeSamples.push(Number((performance.now() - diskCloseStartedAt).toFixed(1)));
+	timings.closeMs = closeSamples;
 	app = undefined;
 	session = '';
 	launch(false);
@@ -709,6 +861,7 @@ try {
 		45_000
 	);
 	passed('native WYSIWYG loads');
+	sampleMemory('wysiwyg');
 	if (process.platform === 'darwin') {
 		await click('.milkdown .ProseMirror');
 		await execute(
@@ -756,6 +909,7 @@ try {
 		45_000
 	);
 	passed('native read images math diagram');
+	sampleMemory('read-mode');
 	await until(() => diagramIsReadable(false), 'readable Mermaid labels and colours', 45_000);
 	passed('native Mermaid labels and node colours');
 	const screenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
@@ -888,6 +1042,7 @@ try {
 			})
 	});
 	passed('native presentation workflow retains and inspects menu and shortcut PDFs');
+	sampleMemory('presentation');
 	await until(
 		() =>
 			execute(
@@ -916,6 +1071,7 @@ try {
 	);
 
 	const closed = once(/** @type {import('node:child_process').ChildProcess} */ (app), 'exit');
+	const durableCloseStartedAt = performance.now();
 	// Close immediately, without waiting for the debounce. The product must wait for the save.
 	await executeAsync(
 		`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_request_close').then(() => done(true), error => done({ error: String(error) }));`
@@ -926,6 +1082,9 @@ try {
 			throw new Error('Native close blocked');
 		})
 	]);
+	const durableCloseSamples = Array.isArray(timings.closeMs) ? timings.closeMs : [];
+	durableCloseSamples.push(Number((performance.now() - durableCloseStartedAt).toFixed(1)));
+	timings.closeMs = durableCloseSamples;
 	app = undefined;
 	session = '';
 	launch();
@@ -976,6 +1135,34 @@ try {
 		}
 	});
 	passed('native project roots remain confined across refresh restart and revocation');
+	const treeStartedAt = performance.now();
+	await click('[data-testid="projects-open"]');
+	await until(
+		() => execute('return !!document.getElementById("projects-title")'),
+		'native project tree panel',
+		45_000
+	);
+	const treeRows = await until(
+		() => execute('return document.querySelectorAll("[data-project-document]").length'),
+		'native project tree rows',
+		45_000
+	);
+	timings.projectTreeMs = Number((performance.now() - treeStartedAt).toFixed(1));
+	results.projectTree = {
+		rows: treeRows,
+		openedInMs: timings.projectTreeMs,
+		checkedAt: new Date().toISOString()
+	};
+	const treeScreenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
+	writeFileSync(join(output, 'project-tree.png'), Buffer.from(treeScreenshot, 'base64'));
+	await click('[role="dialog"][aria-labelledby="projects-title"] header button');
+	await until(
+		() => execute('return !document.getElementById("projects-title")'),
+		'native project tree closed'
+	);
+	sampleMemory('project-tree');
+	passed(`native project tree shows ${treeRows} project documents`);
+
 	const diskBeforePurge = readFileSync(fixture);
 	const linkedDraft = (await drafts()).find(
 		(/** @type {{name: string}} */ item) => item.name === basename(fixture)
@@ -1087,6 +1274,7 @@ try {
 	passed('native Empty trash revokes the last shared path without changing the disk file');
 
 	const purgeClose = once(/** @type {import('node:child_process').ChildProcess} */ (app), 'exit');
+	const purgeCloseStartedAt = performance.now();
 	await executeAsync(
 		`const done = arguments[arguments.length - 1]; window.__TAURI__.core.invoke('desktop_smoke_request_close').then(() => done(true), error => done({ error: String(error) }));`
 	).catch(() => {});
@@ -1096,6 +1284,9 @@ try {
 			throw new Error('Native close after trash purge blocked');
 		})
 	]);
+	const purgeCloseSamples = Array.isArray(timings.closeMs) ? timings.closeMs : [];
+	purgeCloseSamples.push(Number((performance.now() - purgeCloseStartedAt).toFixed(1)));
+	timings.closeMs = purgeCloseSamples;
 	app = undefined;
 	session = '';
 	launch(false);
@@ -1113,6 +1304,7 @@ try {
 	const purgedScreenshot = await request(`/session/${session}/screenshot`, undefined, 'GET');
 	writeFileSync(join(output, 'trash-purged.png'), Buffer.from(purgedScreenshot, 'base64'));
 	passed('native purge stays revoked after restart without opening the fixture');
+	sampleMemory('final');
 	results.passed = true;
 } catch (error) {
 	results.error = String(error);
@@ -1127,7 +1319,16 @@ try {
 			 * The window can already be closed.
 			 */
 		}
+		try {
+			const failureShot = await request(`/session/${session}/screenshot`, undefined, 'GET');
+			writeFileSync(join(output, 'failure.png'), Buffer.from(failureShot, 'base64'));
+		} catch {
+			/**
+			 * The window can already be closed.
+			 */
+		}
 	}
+	sampleMemory('failure');
 	throw error;
 } finally {
 	try {

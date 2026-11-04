@@ -135,7 +135,7 @@ jobs:
             ], { encoding: 'utf8' })).jobs;
             // Keep these platforms equal to the two job matrices below.
             const platforms = ['ubuntu-24.04', 'windows-2022', 'macos-15'];
-            for (const group of ['validate-desktop', 'native-smoke']) {
+            for (const group of ['validate-desktop', 'native-smoke', 'native-benchmark']) {
               const expected = platforms.map((platform) => `${group} (${platform})`);
               const matching = jobs.filter((job) => job.name.startsWith(`${group} (`));
               if (matching.length !== expected.length || expected.some((name) => {
@@ -144,6 +144,17 @@ jobs:
               })) {
                 throw new Error(`Reused validation requires one successful completed ${group} job for each platform: ${platforms.join(', ')}`);
               }
+            }
+            const webBrowsers = ['chromium', 'firefox', 'webkit'];
+            const webJobs = jobs.filter((job) => job.name.startsWith('web-benchmark ('));
+            if (
+              webJobs.length !== webBrowsers.length ||
+              webBrowsers.some((browser) => {
+                const entries = webJobs.filter((job) => job.name === `web-benchmark (${browser})`);
+                return entries.length !== 1 || entries[0].status !== 'completed' || entries[0].conclusion !== 'success';
+              })
+            ) {
+              throw new Error(`Reused validation requires one successful web-benchmark job for each browser: ${webBrowsers.join(', ')}`);
             }
             const gates = jobs.filter((job) => job.name === 'desktop-validation');
             if (gates.length !== 1 || gates[0].status !== 'completed' || gates[0].conclusion !== 'success') {
@@ -209,6 +220,45 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo audit --file src-tauri/Cargo.lock --deny unsound
 
+  web-benchmark:
+    needs: [resolve-source, validate-desktop]
+    if: inputs.validated_sha == '' && needs.validate-desktop.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Install Playwright browser
+        timeout-minutes: 10
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Build production web app
+        run: npm run build
+        env:
+          BASE_PATH: ''
+      - name: Measure web benchmark
+        run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
+      - name: Retain web benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-benchmark-${{ matrix.browser }}
+          path: ${{ runner.temp }}/web-benchmark-${{ matrix.browser }}.json
+          if-no-files-found: warn
+
   native-smoke:
     needs: [resolve-source, validate-desktop]
     if: inputs.validated_sha == '' && needs.validate-desktop.result == 'success'
@@ -224,6 +274,9 @@ jobs:
         with:
           ref: ${{ needs.resolve-source.outputs.sha }}
           persist-credentials: false
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = 'arm64'
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -273,9 +326,80 @@ jobs:
           name: native-smoke-${{ matrix.platform }}
           path: native-test-results/
           if-no-files-found: warn
+
+  native-benchmark:
+    needs: [resolve-source, validate-desktop, native-smoke]
+    if: inputs.validated_sha == '' && needs.native-smoke.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-24.04, windows-2022, macos-15]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
+          persist-credentials: false
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = 'arm64'
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure Ubuntu APT
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/configure-ubuntu-apt.sh
+      - name: Install Linux WebView and virtual display
+        if: runner.os == 'Linux'
+        timeout-minutes: 8
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-daemon dbus-bin
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
+      - name: Rust cache
+        uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Build isolated native benchmark app
+        run: npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+        env:
+          BASE_PATH: ''
+      - name: Measure Linux WebKitGTK benchmark
+        if: runner.os == 'Linux'
+        shell: bash
+        run: dbus-run-session -- xvfb-run -a node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --output "$RUNNER_TEMP/native-benchmark.json"
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+      - name: Measure native WebView benchmark
+        if: runner.os != 'Linux'
+        shell: bash
+        run: node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --output "$RUNNER_TEMP/native-benchmark.json"
+      - name: Retain native benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-benchmark-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/native-benchmark.json
+            ${{ runner.temp }}/screenshots/
+            ${{ runner.temp }}/application.log
+            ${{ runner.temp }}/source-runtime/
+          if-no-files-found: warn
+
   desktop-validation:
     name: desktop-validation
-    needs: [changes, resolve-source, validate-desktop, native-smoke]
+    needs:
+      [changes, resolve-source, validate-desktop, web-benchmark, native-smoke, native-benchmark]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -287,6 +411,8 @@ jobs:
           RESOLVE_RESULT: ${{ needs.resolve-source.result }}
           VALIDATE_RESULT: ${{ needs.validate-desktop.result }}
           SMOKE_RESULT: ${{ needs.native-smoke.result }}
+          WEB_BENCHMARK_RESULT: ${{ needs.web-benchmark.result }}
+          NATIVE_BENCHMARK_RESULT: ${{ needs.native-benchmark.result }}
         run: |
           if [ "$CHANGES_RESULT" != 'success' ]; then
             echo 'Desktop change detection failed.' >&2
@@ -297,12 +423,16 @@ jobs:
           elif [ -n "$VALIDATED_SHA" ]; then
             test "$RESOLVE_RESULT" = 'success'
             test "$VALIDATE_RESULT" = 'skipped'
+            test "$WEB_BENCHMARK_RESULT" = 'skipped'
             test "$SMOKE_RESULT" = 'skipped'
+            test "$NATIVE_BENCHMARK_RESULT" = 'skipped'
             echo "Reused Desktop validation run $VALIDATION_RUN_ID for $VALIDATED_SHA."
           else
             test "$RESOLVE_RESULT" = 'success'
             test "$VALIDATE_RESULT" = 'success'
+            test "$WEB_BENCHMARK_RESULT" = 'success'
             test "$SMOKE_RESULT" = 'success'
+            test "$NATIVE_BENCHMARK_RESULT" = 'success'
           fi
 
   build-desktop:

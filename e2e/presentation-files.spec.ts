@@ -21,6 +21,7 @@ test('keeps note mode and imported bytes across file switches', async ({ page },
 	await page.getByTestId('welcome-new').click();
 	await page.getByTestId('create-note').click();
 	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await page.locator('button[data-mode="source"]').click();
 	await expect(page.locator('.cm-content')).toBeVisible();
 	const fixture = await readFile('e2e/fixtures/presentation-complete.md', 'utf8');
 	await importMarkdown(page, fixture, 'Existing deck.md');
@@ -103,6 +104,7 @@ test('offers direct creation and disables Present for notes', async ({ page }) =
 test('does not convert a note through the note source editor', async ({ page }) => {
 	await page.getByTestId('welcome-new').click();
 	await page.getByTestId('create-note').click();
+	await page.locator('button[data-mode="source"]').click();
 	const source = page.locator('.cm-content');
 	await source.fill(presentationFixture(['# Not a note']));
 	await expect(page.getByRole('alert')).toContainText('cannot become a presentation');

@@ -13,7 +13,9 @@ npm run dev
 npm run check
 npm run lint
 npm test
-npm run build
+npm run build           # Web Light plus the native-boundary check
+npm run build:desktop   # Desktop Complete assets for Tauri
+npm run check:edition   # Verify build/edition.json and the Web boundary
 npm run size
 npm run preview
 npm run preview:pages
@@ -21,11 +23,51 @@ npm run preview:pages
 
 `make dev` binds Vite to `127.0.0.1`.
 `make dev-tailnet` exposes the development server on a private network address and prints the URL.
-`npm run preview:pages` checks the `/deckmark/` base path.
+`npm run preview` serves the root build.
+`npm run preview:pages` builds with `BASE_PATH=/deckmark` and serves the project-site path.
 Run the browser and native commands from [TESTING.md](TESTING.md) for changed workflows.
 Do not run two builds in the same working directory at the same time.
 On a shared machine, use `npm test -- --maxWorkers=1`, Playwright `--workers=1`,
 and `CARGO_BUILD_JOBS=2`. Run the heavy checks in sequence.
+
+## Web publishing
+
+GitHub Pages is the only production publisher for Web Light.
+The deployment workflow must not use Cloudflare, Workers, a proxy, an application
+server, or a second Web host. The workflow needs no Cloudflare credentials, API
+tokens, or a Cloudflare Pages account.
+
+`.github/workflows/deploy.yml` reads the current Pages base path before the build.
+A custom domain uses the root. A project site uses `/deckmark/`.
+The build job then builds the production path and the other supported path.
+The production build supplies the Pages artifact. The second build detects
+absolute path, cache, and service worker scope errors in the other hosting mode.
+A pull request does not read the Pages API. It builds the project-site path and
+the root check. A merge to `main` reads the configured Pages base path.
+Branch protection lists the matrix check names. A custom domain changes the
+production path from `/deckmark/` to the root, so the `build` check names change.
+Update the required checks after the first custom-domain run.
+
+The custom domain is not part of the repository. The workflow does not set DNS.
+A maintainer must complete these steps before the official URL can use Pages:
+
+1. In **Settings > Pages**, set the custom domain to `www.deckmark.dev`.
+2. At the DNS provider, create or verify the record that GitHub Pages shows. For
+   a `www` host, this is usually a CNAME record to `thomascrouzet.github.io`.
+   Confirm the value in the Pages settings.
+3. Wait for the DNS check to pass, then enable **Enforce HTTPS**.
+4. Run the deployment workflow, or push a merge to `main`.
+
+After GitHub Pages reports the custom domain, the workflow reads the root base
+path. The GitHub Pages project URL then redirects to the custom domain. A
+service worker from the project URL stays on its old origin. Install the PWA
+again from the custom domain.
+
+Until the custom domain check passes, use
+`https://thomascrouzet.github.io/deckmark/`.
+Do not state that the custom domain works before GitHub Pages and DNS report
+success. See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the user view
+and [TESTING.md](TESTING.md#edition-and-hosting-checks) for the smoke checks.
 
 ## Desktop development
 
@@ -94,6 +136,7 @@ Generate brand assets with [BRANDING.md](BRANDING.md). Do not use a separate ico
 | `src/lib/render/print.ts`, `print-desktop.ts` | Print documents, asset preparation, and platform dispatch. |
 | `src-tauri/src/printing.rs` | Native macOS print panel, pagination, and completion callback. |
 | `src/lib/services/clipboard.ts` | Markdown and rich HTML clipboard formats. |
+| `cli/`, `bin/deckmark.mjs`, `scripts/build-cli.mjs` | Separate Node CLI bundle for check, search, render, export, and inspect. |
 | `static/print/print.css`, `static/katex/` | Local print styles and math fonts. |
 
 ### Shared interface and workers
@@ -157,6 +200,12 @@ Do not raise a budget to hide an unintended eager import.
 3. Review and merge the release-please version and changelog pull request.
 4. Verify the stable `v*` source release and its exact Pages deployment.
 5. Verify the separate `desktop-v*` prerelease, installers, checksums, and provenance.
+
+Each release note must identify the changed edition, the tested platforms, and
+the test limits. Link Web Light and the applicable `desktop-v<version>`
+prerelease. State the installer signing status and any format or schema
+migration. Describe Web Light as a complete free edition, not a trial. See the
+[release note checklist](EDITIONS.md#release-note-checklist).
 
 Desktop publishing does not generate or upload SBOMs. `npm run sbom:npm` generates
 an npm SBOM from the lockfile. `scripts/annotate-cargo-sbom.mjs` adds GLib backport

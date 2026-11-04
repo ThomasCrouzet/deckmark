@@ -4,7 +4,7 @@ import {
 	relativeDestination,
 	resolveProjectPath
 } from './project-paths';
-import { extractWikiLinkTargets } from './wiki-links';
+import { wikiLinkOccurrences } from './wiki-links';
 
 export interface ProjectDestination {
 	start: number;
@@ -222,11 +222,21 @@ export interface ProjectLinkIssue {
 	document: string;
 	destination: string;
 	reason: 'missing' | 'ambiguous' | 'outside-project' | 'remote';
+	/** Source offset of the link or image. Present when source positions are requested. */
+	start?: number;
+	/** True when the reported destination is an image. Present with source positions. */
+	image?: boolean;
+}
+
+export interface ProjectLinkReportOptions {
+	/** Adds source offsets and image flags. Exported link reports stay unchanged by default. */
+	withSource?: boolean;
 }
 
 export function projectLinkReport(
 	documents: { id?: string; relativePath: string; content: string }[],
-	assets: string[]
+	assets: string[],
+	options: ProjectLinkReportOptions = {}
 ): ProjectLinkIssue[] {
 	const paths = new Set([...documents.map((doc) => doc.relativePath), ...assets]);
 	const wikiDocuments = documents.map((document) => ({
@@ -234,8 +244,9 @@ export function projectLinkReport(
 		projectId: 'project',
 		relativePath: document.relativePath
 	}));
+	const position = (start: number, image: boolean) => (options.withSource ? { start, image } : {});
 	return documents.flatMap((doc) => [
-		...extractWikiLinkTargets(doc.content).flatMap((target): ProjectLinkIssue[] => {
+		...wikiLinkOccurrences(doc.content).flatMap(({ target, start }): ProjectLinkIssue[] => {
 			const candidates = projectWikiCandidates(
 				{ projectId: 'project', relativePath: doc.relativePath },
 				target,
@@ -246,23 +257,36 @@ export function projectLinkReport(
 				{
 					document: doc.relativePath,
 					destination: target,
-					reason: candidates.length ? 'ambiguous' : 'missing'
+					reason: candidates.length ? 'ambiguous' : 'missing',
+					...position(start, false)
 				}
 			];
 		}),
-		...projectDestinations(doc.content).flatMap(({ source, image }): ProjectLinkIssue[] => {
-			if (source.startsWith('#') || source.startsWith('data:')) return [];
-			if (isExternalDestination(source))
-				return image ? [{ document: doc.relativePath, destination: source, reason: 'remote' }] : [];
-			const target = resolveProjectPath(doc.relativePath, source);
-			if (target && paths.has(target)) return [];
-			return [
-				{
-					document: doc.relativePath,
-					destination: source,
-					reason: target ? 'missing' : 'outside-project'
-				}
-			];
-		})
+		...projectDestinations(doc.content).flatMap(
+			({ source: destination, image, start }): ProjectLinkIssue[] => {
+				if (destination.startsWith('#') || destination.startsWith('data:')) return [];
+				if (isExternalDestination(destination))
+					return image
+						? [
+								{
+									document: doc.relativePath,
+									destination,
+									reason: 'remote',
+									...position(start, image)
+								}
+							]
+						: [];
+				const target = resolveProjectPath(doc.relativePath, destination);
+				if (target && paths.has(target)) return [];
+				return [
+					{
+						document: doc.relativePath,
+						destination,
+						reason: target ? 'missing' : 'outside-project',
+						...position(start, image)
+					}
+				];
+			}
+		)
 	]);
 }

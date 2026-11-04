@@ -43,6 +43,7 @@ test('selects drafts with the keyboard and exposes selection state', async ({ pa
 	await page.locator('aside button[aria-label^="Nouveau fichier"]').click();
 	await page.getByTestId('create-note').click();
 	const drafts = page.locator('aside button[data-file-id]');
+	await expect(drafts).toHaveCount(2);
 	await drafts.nth(0).focus();
 	await page.keyboard.press('Space');
 	await expect(drafts.nth(0)).toHaveAttribute('aria-pressed', 'true');

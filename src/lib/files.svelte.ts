@@ -1,11 +1,20 @@
-import { ImportSession, type ImportOptions, type ImportReport } from './import-limits';
+import { ImportSession, readDataUrl, type ImportOptions, type ImportReport } from './import-limits';
 import { readPreference, writePreference } from './preferences';
 import { IMPORT_LIMITS } from './config';
 import { browser } from '$app/env';
 import { db, newId } from './db';
 import type { DraftRow } from './db';
 import type { FileItem, TrashedFile } from './types';
-import { documentKind, type DocumentKind } from './document-kind';
+import {
+	documentKind,
+	documentKindForFile,
+	imageMimeForName,
+	isCodeExtension,
+	isImageExtension,
+	isMarkdownExtension,
+	isPdfExtension,
+	type DocumentKind
+} from './document-kind';
 import { isFSASupported, listDiskLinks, pickDirectoryFiles } from './fsa';
 import { isDesktop } from './desktop';
 import type { NativeDiskGrant } from './disk-tauri';
@@ -23,12 +32,14 @@ import {
 	openPathsFromDesktop as diskOpenPathsFromDesktop,
 	openDirectoryFromDisk as diskOpenDirectoryFromDisk,
 	saveToDisk as diskSaveToDisk,
+	saveAsToDisk as diskSaveAsToDisk,
+	isDiskLinkingAvailable,
 	renameOnDisk,
 	unlinkFromDisk as diskUnlinkFromDisk,
 	refreshBrokenLinks as diskRefreshBrokenLinks
 } from './disk-sync';
 
-import { isMarkdownFile, normalizeRename, uniqueName, stripMdExtension } from './file-utils';
+import { normalizeRename, uniqueName, stripMdExtension } from './file-utils';
 
 import {
 	exportMarkdown as exportMarkdownOp,
@@ -61,6 +72,11 @@ function toDraftRow(file: FileItem, order: number, open = true): DraftRow {
 		name: file.name,
 		content: file.content,
 		...(file.projectId ? { projectId: file.projectId, relativePath: file.relativePath } : {}),
+		...(file.origin ? { origin: file.origin } : {}),
+		...(file.sourceFileId ? { sourceFileId: file.sourceFileId } : {}),
+		...(file.kind ? { kind: file.kind } : {}),
+		...(file.mime ? { mime: file.mime } : {}),
+		...(file.data ? { data: file.data } : {}),
 		createdAt: file.createdAt,
 		updatedAt: file.updatedAt,
 		order,
@@ -82,6 +98,8 @@ class FilesStore {
 	/** Durable documents that are not currently shown as tabs. */
 	closedFiles = $state<FileItem[]>([]);
 	activeId = $state<string | null>(null);
+	/** Set when a user-created note must open in Edit with a ready caret. */
+	newDocumentFocusId = $state<string | null>(null);
 	projectAnchor = $state<{ id: string; fragment: string } | null>(null);
 	importProgress = $state<ImportReport | null>(null);
 	lastImportReport = $state<ImportReport | null>(null);
@@ -162,6 +180,12 @@ class FilesStore {
 	// receiving a message from another tab, between reloading (safe) and notifying
 	// a conflict (local editing in progress, do not overwrite).
 	private crossTab = createCrossTab((msg) => this.handleCrossTabMessage(msg));
+	/**
+	 * Most recently active documents, newest last. Closing a tab returns to what
+	 * the user was viewing before that tab, which matches browser behavior and
+	 * keeps the positional neighbor only as a fallback.
+	 */
+	private activeHistory: string[] = [];
 	private saveQueue = new SaveQueue({
 		onPendingChange: (pending) => {
 			this.hasPendingSave = pending;
@@ -219,7 +243,8 @@ class FilesStore {
 	}
 
 	get library(): FileItem[] {
-		return [...this.files, ...this.closedFiles];
+		// Avoid an O(n) copy for the common case: all documents are open tabs.
+		return this.closedFiles.length === 0 ? this.files : [...this.files, ...this.closedFiles];
 	}
 
 	openDocument(id: string): void {
@@ -354,6 +379,11 @@ class FilesStore {
 				name: r.name,
 				content: r.content,
 				...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
+				...(r.origin ? { origin: r.origin } : {}),
+				...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
+				...(r.kind ? { kind: r.kind } : {}),
+				...(r.mime ? { mime: r.mime } : {}),
+				...(r.data ? { data: r.data } : {}),
 				createdAt: r.createdAt,
 				updatedAt: r.updatedAt,
 				dirty: false,
@@ -488,7 +518,19 @@ class FilesStore {
 		return toDraftRow(file, openIndex >= 0 ? openIndex : this.files.length, openIndex >= 0);
 	}
 
-	createNew(name = t('files.untitledFilename'), content = ''): FileItem {
+	createNew(
+		name = t('files.untitledFilename'),
+		content = '',
+		options: {
+			focusEditor?: boolean;
+			origin?: FileItem['origin'];
+			kind?: DocumentKind;
+			mime?: string;
+			data?: string;
+			sourceFileId?: string;
+		} = {}
+	): FileItem {
+		const kind = options.kind ?? documentKindForFile({ name, content });
 		const file: FileItem = {
 			id: newId(),
 			name: uniqueName(
@@ -496,12 +538,19 @@ class FilesStore {
 				name
 			),
 			content,
+			kind,
+			...(options.mime ? { mime: options.mime } : {}),
+			...(options.data ? { data: options.data } : {}),
+			...(options.sourceFileId ? { sourceFileId: options.sourceFileId } : {}),
+			origin: options.origin ?? (content.length > 0 || options.data ? 'imported' : 'created'),
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
-			dirty: content.length > 0
+			dirty: content.length > 0 || !!options.data
 		};
+		this.rememberActive();
 		this.files.push(file);
 		this.activeId = file.id;
+		if (options.focusEditor) this.newDocumentFocusId = file.id;
 		this.persistActiveId();
 		if (content.length > 0) this.metaIndex.invalidateBacklinksIndex();
 		this.scheduleSave(file.id);
@@ -511,11 +560,18 @@ class FilesStore {
 	async createDocument(kind: DocumentKind): Promise<FileItem> {
 		if (kind === 'note') {
 			this.dispatchEditorFlush();
-			return this.createNew();
+			return this.createNew(t('files.untitledFilename'), '', {
+				focusEditor: true,
+				origin: 'created',
+				kind: 'note'
+			});
 		}
 		const { createDeck, serializePresentation } = await import('./presentation/model');
 		this.dispatchEditorFlush();
-		return this.createNew(t('slides.newPresentationName'), serializePresentation(createDeck()));
+		return this.createNew(t('slides.newPresentationName'), serializePresentation(createDeck()), {
+			origin: 'created',
+			kind: 'presentation'
+		});
 	}
 
 	async openProjectLink(sourceId: string, destination: string): Promise<void> {
@@ -551,8 +607,35 @@ class FilesStore {
 		try {
 			for (const file of Array.from(fileList)) {
 				if (!(await session.pause())) break;
-				if (!isMarkdownFile(file)) {
+				const image = isImageExtension(file.name);
+				const pdf = isPdfExtension(file.name);
+				const markdown = isMarkdownExtension(file.name);
+				const code = isCodeExtension(file.name);
+				if (!image && !pdf && !markdown && !code) {
 					session.skip();
+					continue;
+				}
+				if (image || pdf) {
+					try {
+						session.reserve(file.size);
+						const data = await readDataUrl(
+							file,
+							IMPORT_LIMITS.maxFileBytes,
+							session.options.signal
+						);
+						const mime = pdf ? 'application/pdf' : file.type || imageMimeForName(file.name);
+						created.push(
+							this.createNew(file.name, '', {
+								origin: 'imported',
+								kind: pdf ? 'pdf' : 'image',
+								mime,
+								data
+							})
+						);
+						session.accept();
+					} catch {
+						if (!session.cancelled) session.fail(file.name, 'read');
+					}
 					continue;
 				}
 				const content = await session.read(file);
@@ -568,8 +651,12 @@ class FilesStore {
 					session.accept();
 					continue;
 				}
-				const name = /\.(md|markdown)$/i.test(file.name) ? file.name : `${file.name}.md`;
-				created.push(this.createNew(name, content));
+				created.push(
+					this.createNew(file.name, content, {
+						origin: 'imported',
+						kind: code ? 'code' : documentKind(content)
+					})
+				);
 				session.accept();
 			}
 			return {
@@ -585,7 +672,35 @@ class FilesStore {
 
 	setActive(id: string): void {
 		this.dispatchEditorFlush();
+		this.rememberActive();
 		this.activeId = id;
+		this.persistActiveId();
+	}
+
+	/** Records the document that is about to lose the active state. */
+	private rememberActive(): void {
+		const current = this.activeId;
+		if (!current) return;
+		this.activeHistory = [...this.activeHistory.filter((id) => id !== current), current].slice(-20);
+	}
+
+	/** Returns the most recent active document that is still open. */
+	private previousActive(exclude: string): string | null {
+		for (let index = this.activeHistory.length - 1; index >= 0; index--) {
+			const candidate = this.activeHistory[index]!;
+			if (candidate !== exclude && this.files.some((file) => file.id === candidate))
+				return candidate;
+		}
+		return null;
+	}
+
+	/**
+	 * Shows the start view without closing a tab or clearing the library. The
+	 * open files stay available, and pending edits flush first.
+	 */
+	showHome(): void {
+		this.dispatchEditorFlush();
+		this.activeId = null;
 		this.persistActiveId();
 	}
 
@@ -606,7 +721,8 @@ class FilesStore {
 		const file = knownFile ?? this.files[idx]!;
 		this.files.splice(idx, 1);
 		if (this.activeId === id) {
-			this.activeId = this.files[Math.min(idx, this.files.length - 1)]?.id ?? null;
+			this.activeId =
+				this.previousActive(id) ?? this.files[Math.min(idx, this.files.length - 1)]?.id ?? null;
 			this.persistActiveId();
 		}
 		if (this.selectedIds.has(id)) {
@@ -771,6 +887,7 @@ class FilesStore {
 		const idx = this.closedFiles.findIndex((file) => file.id === id);
 		if (idx === -1) return null;
 		const file = this.closedFiles.splice(idx, 1)[0]!;
+		this.rememberActive();
 		this.files.push(file);
 		this.activeId = file.id;
 		this.persistActiveId();
@@ -811,6 +928,11 @@ class FilesStore {
 							name: r.name,
 							content: r.content,
 							...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
+							...(r.origin ? { origin: r.origin } : {}),
+							...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
+							...(r.kind ? { kind: r.kind } : {}),
+							...(r.mime ? { mime: r.mime } : {}),
+							...(r.data ? { data: r.data } : {}),
 							createdAt: r.createdAt,
 							updatedAt: r.updatedAt,
 							dirty: false,
@@ -904,6 +1026,7 @@ class FilesStore {
 				}
 			: entry.file;
 		const insertAt = Math.min(entry.order, this.files.length);
+		this.rememberActive();
 		this.files.splice(insertAt, 0, restored);
 		this.activeId = restored.id;
 		this.persistActiveId();
@@ -1056,7 +1179,7 @@ class FilesStore {
 						)
 					: content;
 			const changes =
-				documentKind(file.content) === 'note' &&
+				documentKindForFile(file) === 'note' &&
 				this.metaIndex.wikiLinkCandidates(oldTarget).length === 1
 					? this.library.flatMap((entry) =>
 							rewrite(entry.content) === entry.content
@@ -1279,7 +1402,8 @@ class FilesStore {
 				if (this.closedFiles.some((file) => file.id === id)) this.reopen(id);
 				else this.setActive(id);
 			},
-			onCreate: (name: string, content: string) => this.createNew(name, content),
+			onCreate: (name: string, content: string) =>
+				this.createNew(name, content, { origin: 'imported' }),
 			onSyncName: (id: string, name: string) => this.syncDiskName(id, name),
 			onUpdateContent: (id: string, content: string) => this.updateContent(id, content),
 			scheduleSave: (id: string) => this.scheduleSave(id),
@@ -1328,7 +1452,7 @@ class FilesStore {
 		const configured = this.beginImport(options);
 		try {
 			const { files, truncated, report } = await pickDirectoryFiles(configured);
-			for (const file of files) this.createNew(file.name, file.content);
+			for (const file of files) this.createNew(file.name, file.content, { origin: 'imported' });
 			this.finishImport(report, configured.signal);
 			return { count: files.length, truncated, report };
 		} finally {
@@ -1367,7 +1491,9 @@ class FilesStore {
 	 * called automatically - only from the explicit Welcome-screen button.
 	 */
 	loadDemo(): FileItem[] {
-		const created = DEMO_DOCS.map((doc) => this.createNew(doc.name, doc.content));
+		const created = DEMO_DOCS.map((doc) =>
+			this.createNew(doc.name, doc.content, { origin: 'created' })
+		);
 		// invariant: DEMO_DOCS is a non-empty const array, `created` has the same length.
 		this.setActive(created[0]!.id);
 		return created;
@@ -1385,7 +1511,7 @@ class FilesStore {
 		scope: 'library' | 'open' = 'library'
 	): Promise<{ files: number; occurrences: number; regexError: string | null }> {
 		const slices = (scope === 'library' ? this.library : this.files)
-			.filter((file) => documentKind(file.content) === 'note')
+			.filter((file) => documentKindForFile(file) === 'note')
 			.map((f) => ({
 				id: f.id,
 				name: f.name,
@@ -1428,6 +1554,20 @@ class FilesStore {
 		this.updateContent(id, content);
 		return true;
 	}
+	/**
+	 * Saves the active document. A linked original receives the content through
+	 * its granted disk link. Every other document is downloaded as a copy. The
+	 * action never claims a disk write for an unlinked document.
+	 */
+	async saveActive(): Promise<boolean> {
+		if (!browser || !this.active) return false;
+		const active = this.active;
+		if (active.linkedToDisk && isDiskLinkingAvailable()) return this.saveToDisk(active.id);
+		this.dispatchEditorFlush();
+		await exportMarkdownOp(active.id, this.exportDeps);
+		return true;
+	}
+
 	async saveActiveToDisk(): Promise<boolean> {
 		if (!browser || !this.active) return false;
 		return this.saveToDisk(this.active.id);
@@ -1435,6 +1575,71 @@ class FilesStore {
 	async saveToDisk(id: string): Promise<boolean> {
 		this.dispatchEditorFlush();
 		return this.queueDiskOperation(id, () => diskSaveToDisk(id, this.diskDeps));
+	}
+
+	/**
+	 * Saves a copy to a new target. The source link and its revision stay
+	 * unchanged. Without a disk backend, the copy becomes a download.
+	 */
+	async saveAs(id: string): Promise<boolean> {
+		const file = this.library.find((entry) => entry.id === id);
+		if (!browser || !file) return false;
+		this.dispatchEditorFlush();
+		if (!isDiskLinkingAvailable()) {
+			await exportMarkdownOp(id, this.exportDeps);
+			notify.info(t('disk.downloadedCopy', { name: file.name }));
+			return true;
+		}
+		return this.queueDiskOperation(id, () => diskSaveAsToDisk(id, this.diskDeps));
+	}
+	async saveActiveAs(): Promise<boolean> {
+		if (!browser || !this.active) return false;
+		return this.saveAs(this.active.id);
+	}
+
+	/** Creates a detached copy of `id`. The copy has no disk link. */
+	editCopy(id: string): FileItem | null {
+		const source = this.library.find((entry) => entry.id === id);
+		if (!source) return null;
+		this.dispatchEditorFlush();
+		const extension = source.name.match(/\.[a-z0-9]{1,10}$/i)?.[0] ?? '';
+		const base = stripMdExtension(source.name);
+		const copy = this.createNew(`${base} ${t('files.copySuffix')}${extension}`, source.content, {
+			origin: 'imported',
+			...(source.kind ? { kind: source.kind } : {}),
+			...(source.mime ? { mime: source.mime } : {}),
+			...(source.data ? { data: source.data } : {}),
+			sourceFileId: source.id
+		});
+		notify.info(t('files.copyCreated', { name: copy.name }));
+		return copy;
+	}
+
+	/**
+	 * Opens the linked original of a copy. Without a stored original, the user
+	 * can pick the file again when a disk backend is available.
+	 */
+	async editOriginal(id: string): Promise<boolean> {
+		const file = this.library.find((entry) => entry.id === id);
+		if (!browser || !file) return false;
+		if (file.linkedToDisk) {
+			notify.info(t('files.alreadyOriginal', { name: file.name }));
+			return true;
+		}
+		const original = file.sourceFileId
+			? this.library.find((entry) => entry.id === file.sourceFileId)
+			: undefined;
+		if (original) {
+			this.openDocument(original.id);
+			notify.info(t('files.originalOpened', { name: original.name }));
+			return true;
+		}
+		if (!isDiskLinkingAvailable()) {
+			notify.info(t('files.editOriginalUnavailable'));
+			return false;
+		}
+		const opened = await this.openFromDisk();
+		return opened.length > 0;
 	}
 	async unlinkFromDisk(id: string): Promise<void> {
 		return this.queueDiskOperation(id, () => diskUnlinkFromDisk(id, this.diskDeps));
@@ -1463,11 +1668,11 @@ class FilesStore {
 	/** Files that contain a wiki-link pointing to `targetId`. */
 	backlinks(targetId: string): FileItem[] {
 		const targetFile = this.library.find((file) => file.id === targetId);
-		if (!targetFile || documentKind(targetFile.content) !== 'note') return [];
+		if (!targetFile || documentKindForFile(targetFile) !== 'note') return [];
 		return this.library.filter(
 			(file) =>
 				file.id !== targetId &&
-				documentKind(file.content) === 'note' &&
+				documentKindForFile(file) === 'note' &&
 				this.metaIndex
 					.wikiLinkTargets(file.id)
 					.some((target) => this.resolveWikiLink(target, file.id) === targetId)
@@ -1476,12 +1681,12 @@ class FilesStore {
 	/** Resolves a wiki-link → file id, or `null` if not found. */
 	resolveWikiLink(target: string, sourceId?: string): string | null {
 		const source = this.library.find((file) => file.id === sourceId);
-		if (source && documentKind(source.content) !== 'note') return null;
+		if (source && documentKindForFile(source) !== 'note') return null;
 		if (source?.projectId) {
 			const candidates = projectWikiCandidates(
 				source,
 				target,
-				this.library.filter((file) => documentKind(file.content) === 'note')
+				this.library.filter((file) => documentKindForFile(file) === 'note')
 			);
 			return candidates.length === 1 ? candidates[0]!.id : null;
 		}
@@ -1493,12 +1698,12 @@ class FilesStore {
 	 */
 	openWikiLink(target: string, sourceId?: string): string | null {
 		const source = this.library.find((file) => file.id === sourceId);
-		if (source && documentKind(source.content) !== 'note') return null;
+		if (source && documentKindForFile(source) !== 'note') return null;
 		if (source?.projectId) {
 			const matches = projectWikiCandidates(
 				source,
 				target,
-				this.library.filter((file) => documentKind(file.content) === 'note')
+				this.library.filter((file) => documentKindForFile(file) === 'note')
 			);
 			if (matches.length !== 1) {
 				notify.info(

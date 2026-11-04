@@ -8,16 +8,22 @@
 		Code2,
 		Keyboard,
 		Ellipsis,
-		HardDrive,
 		HardDriveDownload,
-		Printer
+		Printer,
+		Moon,
+		Sun,
+		Save,
+		Copy,
+		Link2
 	} from '@lucide/svelte';
 	import type { EditMode } from '#lib/types.js';
 	import type { DocumentKind } from '#lib/document-kind.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
+	import FileStatusBadge from './FileStatusBadge.svelte';
 
 	interface Props {
 		kind?: DocumentKind;
@@ -28,8 +34,14 @@
 		onExport: () => void;
 		onExportPDF: () => void;
 		onOpenPalette: () => void;
+		onSave: () => void;
+		onSaveAs: () => void;
+		onEditCopy: () => void;
+		onEditOriginal: () => void;
 		onSaveToDisk: () => void;
 		onOpenActions?: () => void;
+		focusMode?: boolean;
+		onToggleFocus?: () => void;
 	}
 
 	let {
@@ -41,13 +53,33 @@
 		onExport,
 		onExportPDF,
 		onOpenPalette,
+		onSave,
+		onSaveAs,
+		onEditCopy,
+		onEditOriginal,
 		onSaveToDisk,
-		onOpenActions
+		onOpenActions,
+		focusMode = false,
+		onToggleFocus
 	}: Props = $props();
 
 	let nameInput = $state<HTMLInputElement | null>(null);
 	let modeGroup = $state<HTMLDivElement | null>(null);
 	const diskLinkingAvailable = isDiskLinkingAvailable();
+	const editModeKey = $derived(
+		filesStore.active?.linkedToDisk
+			? 'editing.original'
+			: filesStore.active?.origin === 'imported'
+				? 'editing.copy'
+				: 'editing.draft'
+	);
+	const editModeValue = $derived(
+		filesStore.active?.linkedToDisk
+			? 'in-place'
+			: filesStore.active?.origin === 'imported'
+				? 'copy'
+				: 'draft'
+	);
 
 	// §B1.7 / B1.8 / B3.5 - Rename input:
 	//   - `renameDraft` allows canceling with Esc by reverting to the pre-edit state.
@@ -85,7 +117,7 @@
 	}
 
 	function stripExt(name: string) {
-		return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
+		return name.replace(/\.[a-z0-9]{1,10}$/i, '');
 	}
 
 	function handleNameKey(e: KeyboardEvent) {
@@ -184,7 +216,17 @@
 				aria-label={t('toolbar.fileNameLabel')}
 			/>
 			<span data-testid="document-kind" class="type-badge"
-				>{t(kind === 'note' ? 'documents.note' : 'documents.presentation')}</span
+				>{t(
+					kind === 'note'
+						? 'documents.note'
+						: kind === 'presentation'
+							? 'documents.presentation'
+							: kind === 'code'
+								? 'documents.code'
+								: kind === 'image'
+									? 'documents.image'
+									: 'documents.pdf'
+				)}</span
 			>
 			<span class="title-save" role="status"
 				>{filesStore.saveErrorIds.includes(filesStore.active.id)
@@ -193,25 +235,37 @@
 						? t('statusBar.saving')
 						: t('stats.saved')}</span
 			>
-			{#if filesStore.active.linkedToDisk}
-				<span
-					class="flex items-center gap-1 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5
-					       text-[10px] font-medium text-accent"
-					title={t('toolbar.linkedToDisk')}
+			<span
+				class="edit-mode-label"
+				data-testid="disk-edit-mode"
+				data-mode={editModeValue}
+				title={t(editModeKey)}
+				aria-label={`${t('editing.status')}: ${t(editModeKey)}`}>{t(editModeKey)}</span
+			>
+			<FileStatusBadge file={filesStore.active} showLabel />
+			<button
+				class="mdsh-icon-button flex items-center justify-center rounded p-2 text-fg-muted
+				       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+				onclick={onEditCopy}
+				disabled={!filesStore.active}
+				title={t('palette.editCopy')}
+				aria-label={t('palette.editCopy')}
+				data-testid="edit-copy"
+			>
+				<Copy size={16} />
+			</button>
+			{#if diskLinkingAvailable || filesStore.active.sourceFileId}
+				<button
+					class="mdsh-icon-button flex items-center justify-center rounded p-2 text-fg-muted
+					       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+					onclick={onEditOriginal}
+					disabled={!filesStore.active}
+					title={t('palette.editOriginal')}
+					aria-label={t('palette.editOriginal')}
+					data-testid="edit-original"
 				>
-					<HardDrive size={10} />
-					<span class="hidden sm:inline">{t('toolbar.linked')}</span>
-				</span>
-			{/if}
-			{#if filesStore.active.dirty}
-				<span
-					class="hidden text-[10px] text-fg-dim sm:inline"
-					title={t('toolbar.notExported')}
-					aria-label={t('toolbar.unexportedChanges')}
-					role="status"
-				>
-					<span aria-hidden="true">●</span>
-				</span>
+					<Link2 size={16} />
+				</button>
 			{/if}
 		{:else}
 			<span class="hidden px-2 text-sm text-fg-dim sm:inline">{t('toolbar.noFileOpen')}</span>
@@ -275,6 +329,41 @@
 			</button>
 		</div>{/if}
 
+	<!-- Focus is a reading action: the control exists only while Read is active. -->
+	{#if kind === 'note' && mode === 'read' && onToggleFocus}
+		<button
+			class="mdsh-icon-button flex items-center justify-center rounded p-2"
+			class:text-accent={focusMode}
+			class:text-fg-muted={!focusMode}
+			onclick={onToggleFocus}
+			title={focusMode ? t('palette.disableFocusMode') : t('palette.enableFocusMode')}
+			aria-label={focusMode ? t('palette.disableFocusMode') : t('palette.enableFocusMode')}
+			aria-pressed={focusMode}
+			data-testid="focus-toggle"
+		>
+			<Eye size={16} /><span class="ml-1 hidden text-xs sm:inline">{t('toolbar.focus')}</span>
+		</button>
+	{/if}
+
+	<!-- Direct theme action. Settings keeps the full system/light/dark choice;
+	     this button stores an explicit light or dark override. -->
+	<button
+		class="mdsh-icon-button flex items-center justify-center rounded p-2 text-fg-muted
+		       hover:bg-bg-2 hover:text-fg"
+		onclick={() => themeStore.set(themeStore.effective === 'dark' ? 'light' : 'dark')}
+		title={themeStore.effective === 'dark' ? t('toolbar.switchToLight') : t('toolbar.switchToDark')}
+		aria-label={themeStore.effective === 'dark'
+			? t('toolbar.switchToLight')
+			: t('toolbar.switchToDark')}
+		data-testid="theme-toggle"
+	>
+		{#if themeStore.effective === 'dark'}
+			<Sun size={16} />
+		{:else}
+			<Moon size={16} />
+		{/if}
+	</button>
+
 	<span class="mdsh-local-indicator" role="status"
 		>{t(
 			offlineState.status === 'ready'
@@ -285,15 +374,41 @@
 		)}</span
 	>
 
+	<button
+		class="mdsh-icon-button ml-1 hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
+		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+		onclick={onSave}
+		disabled={!filesStore.active}
+		title={`${t('toolbar.save')} (${keyboardStore.label('save') ?? ''})`}
+		aria-label={t('toolbar.save')}
+		aria-keyshortcuts={keyboardStore.aria('save')}
+		data-testid="save-document"
+	>
+		<Save size={16} />
+	</button>
+
+	<button
+		class="mdsh-icon-button hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
+		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
+		onclick={onSaveAs}
+		disabled={!filesStore.active}
+		title={`${t('toolbar.saveAs')} (${keyboardStore.label('save-as') ?? ''})`}
+		aria-label={t('toolbar.saveAs')}
+		aria-keyshortcuts={keyboardStore.aria('save-as')}
+		data-testid="save-as"
+	>
+		<Download size={16} />
+	</button>
+
 	{#if diskLinkingAvailable}
 		<button
-			class="mdsh-icon-button ml-1 hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
+			class="mdsh-icon-button hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
 			       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 			onclick={onSaveToDisk}
 			disabled={!filesStore.active}
-			title={`${t('toolbar.saveToDisk')} (${keyboardStore.label('save-disk') ?? ''})`}
+			title={t('toolbar.saveToDisk')}
 			aria-label={t('toolbar.saveToDisk')}
-			aria-keyshortcuts={keyboardStore.aria('save-disk')}
+			data-testid="save-to-disk"
 		>
 			<HardDriveDownload size={16} />
 		</button>
@@ -302,7 +417,7 @@
 	<!-- §B2.3 - `aria-keyshortcuts` announces the shortcuts to SRs (the `title=`
 	     is for the sighted eye). ARIA format: "Control+B Meta+B" - Meta
 	     covers macOS, Control the rest. -->
-	{#if kind === 'note'}<button
+	{#if kind !== 'presentation'}<button
 			class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
 			onclick={onExport}
@@ -314,17 +429,20 @@
 			<Download size={16} />
 		</button>
 
-		<button
-			class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
+		{#if kind === 'note'}
+			<button
+				class="mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
 		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-			onclick={onExportPDF}
-			disabled={!filesStore.active}
-			title={`${t('toolbar.exportPdf')} (${keyboardStore.label('export-pdf') ?? ''})`}
-			aria-label={t('toolbar.exportPdf')}
-			aria-keyshortcuts={keyboardStore.aria('export-pdf')}
-		>
-			<Printer size={16} />
-		</button>{/if}
+				onclick={onExportPDF}
+				disabled={!filesStore.active}
+				title={`${t('toolbar.exportPdf')} (${keyboardStore.label('export-pdf') ?? ''})`}
+				aria-label={t('toolbar.exportPdf')}
+				aria-keyshortcuts={keyboardStore.aria('export-pdf')}
+			>
+				<Printer size={16} />
+			</button>
+		{/if}
+	{/if}
 
 	{#if onOpenActions}
 		<button
@@ -389,6 +507,11 @@
 		font-size: 10px;
 		color: var(--color-fg-muted);
 	}
+	.edit-mode-label {
+		flex: none;
+		font-size: 10px;
+		color: var(--color-fg-muted);
+	}
 	@media (max-width: 639px) {
 		.document-title {
 			order: -1;
@@ -399,8 +522,27 @@
 		}
 	}
 	@media (max-width: 240px) {
+		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels.
+		   A wrapped toolbar consumes the whole height, so keep one
+		   horizontally scrollable row instead. */
+		#app-toolbar {
+			flex-wrap: nowrap;
+			overflow-x: auto;
+		}
+		#app-toolbar .document-title {
+			order: 0;
+			flex: 0 0 7rem;
+			min-width: 7rem;
+			flex-wrap: nowrap;
+			/* Keep the title visible while the action row scrolls. */
+			position: sticky;
+			left: 0;
+			z-index: 2;
+			background: var(--color-bg);
+			padding-right: 4px;
+		}
 		#app-toolbar .mdsh-mode-switch {
-			flex-wrap: wrap;
+			flex-wrap: nowrap;
 		}
 	}
 	@media (max-width: 639px), (pointer: coarse) {

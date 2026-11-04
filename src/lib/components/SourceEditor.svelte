@@ -6,12 +6,15 @@
 	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
+	import { applySourceChanges } from '#lib/code/text-changes.js';
 
 	interface Props {
 		fileId: string;
 		content: string;
 		readonly?: boolean;
 		fillContainer?: boolean;
+		/** Code and plain-text documents skip the Markdown parser and guard. */
+		plainText?: boolean;
 		onChange: (markdown: string) => void;
 		onCursorLine?: (line: number) => void;
 		onViewportLine?: (line: number) => void;
@@ -22,6 +25,7 @@
 		content,
 		readonly = false,
 		fillContainer = false,
+		plainText = false,
 		onChange,
 		onCursorLine,
 		onViewportLine
@@ -30,35 +34,20 @@
 		return fileId;
 	}
 
+	/** Returns the selected text. The CodeMirror state keeps it after blur. */
+	export function getSelectionText(): string {
+		if (!view) return '';
+		const { from, to } = view.state.selection.main;
+		return from === to ? '' : view.state.sliceDoc(from, to);
+	}
+
 	let host: HTMLDivElement;
 	let view: EditorView | null = null;
 	let lastEmitted = '';
 	let applyingExternal = false;
 
 	function sourceChanges(update: Pick<ViewUpdate, 'startState' | 'changes'>): string {
-		const source = lastEmitted;
-		const lineStarts = [0];
-		for (const match of source.matchAll(/\r\n?|\n/g))
-			lineStarts.push(match.index + match[0].length);
-		const offset = (position: number) => {
-			const line = update.startState.doc.lineAt(position);
-			return lineStarts[line.number - 1]! + position - line.from;
-		};
-		const parts: string[] = [];
-		let cursor = 0;
-		update.changes.iterChanges((from, to, _newFrom, _newTo, inserted) => {
-			const rawFrom = offset(from);
-			const rawTo = offset(to);
-			const separator =
-				/\r\n?|\n/.exec(source.slice(rawFrom))?.[0] ?? /\r\n?|\n/.exec(source)?.[0] ?? '\n';
-			parts.push(
-				source.slice(cursor, rawFrom),
-				inserted.sliceString(0, inserted.length, separator)
-			);
-			cursor = rawTo;
-		});
-		parts.push(source.slice(cursor));
-		return parts.join('');
+		return applySourceChanges(lastEmitted, update.startState, update.changes);
 	}
 	// Failure state of the CodeMirror lazy-load (chunk unavailable: first
 	// offline opening, or stale PWA cache after deployment). Shows an in-place
@@ -368,7 +357,7 @@
 			cm.lineNumbers(),
 			cm.highlightActiveLine(),
 			cm.history(),
-			cm.markdown(),
+			...(plainText ? [] : [cm.markdown()]),
 			cm.syntaxHighlighting(cm.defaultHighlightStyle, { fallback: true }),
 			// `search()` adds the state fields + the panel widget. The
 			// keymap is merged into the `keymap.of()` below (mod-f ->
@@ -386,6 +375,7 @@
 			cm.EditorState.readOnly.of(readonly),
 			cm.EditorState.changeFilter.of((transaction) => {
 				if (
+					plainText ||
 					!transaction.docChanged ||
 					applyingExternal ||
 					documentKind(sourceChanges(transaction)) === 'note'

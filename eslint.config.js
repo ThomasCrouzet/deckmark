@@ -107,7 +107,23 @@ export default [
 		}
 	},
 	{
+		// The CLI is a separate Node bundle. Static renderer imports do not
+		// enter the Web graph or the PWA precache.
+		files: ['cli/**/*.ts'],
+		rules: {
+			'no-restricted-imports': 'off'
+		}
+	},
+	{
+		// The executable wrapper writes diagnostics without the UI logger.
+		files: ['bin/**/*.mjs'],
+		rules: {
+			'no-console': 'off'
+		}
+	},
+	{
 		ignores: [
+			'.cli/',
 			'build/',
 			'coverage/',
 			'playwright-report/',

@@ -17,6 +17,7 @@
 	import { documentKind } from '#lib/document-kind.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { isFilesDrag } from '#lib/ui/image-drop.svelte.js';
+	import { templatesStore } from '#lib/templates.svelte.js';
 	import { PresentationEditor } from './editor.svelte';
 	import { createPresentationGestures } from './gestures.svelte';
 	import type { PresentationElementType } from './model';
@@ -253,10 +254,17 @@
 			else if (action === 'export-md') void exportFile('md');
 			else if (action === 'export-html') void exportFile('html');
 			else if (action === 'export-pdf') void exportFile('pdf');
-			else if (action === 'save-disk') {
+			else if (action === 'save' || action === 'save-disk') {
 				finishText();
-				void filesStore.saveActiveToDisk().catch((error) =>
-					reportError('save presentation to disk', error, {
+				void filesStore.saveActive().catch((error) =>
+					reportError('save presentation', error, {
+						notifyUser: t('page.saveToDiskError')
+					})
+				);
+			} else if (action === 'save-as') {
+				finishText();
+				void filesStore.saveActiveAs().catch((error) =>
+					reportError('save presentation as', error, {
 						notifyUser: t('page.saveToDiskError')
 					})
 				);
@@ -606,6 +614,26 @@
 		else if (text) editor.add('text', text);
 		else editor.paste();
 	}
+	async function saveAsTemplate() {
+		if (busy || editor.error || !filesStore.active) return;
+		advancedOpen = false;
+		finishText();
+		const name = await promptStore.prompt({
+			title: t('palette.templateNamePrompt'),
+			confirmLabel: t('templates.save'),
+			defaultValue: filesStore.active.name.replace(/\.(md|markdown)$/i, ''),
+			placeholder: t('palette.templateNamePlaceholder')
+		});
+		if (name === null) return;
+		busy = true;
+		try {
+			if (await templatesStore.save(name, editor.source, 'presentation'))
+				notify.success(t('palette.templateSaved'));
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function exportFile(kind: 'md' | 'html' | 'pdf') {
 		if (busy || editor.error) return;
 		exportOpen = false;
@@ -747,7 +775,15 @@
 			<div class="header-actions">
 				<details bind:open={advancedOpen}>
 					<summary data-testid="slide-advanced">{t('slides.advanced')}</summary>
-					<div class="action-menu">{@render action('source', 'slides.source', openSource)}</div>
+					<div class="action-menu">
+						{@render action('source', 'slides.source', openSource)}
+						{@render action(
+							'save-template',
+							'palette.saveAsTemplate',
+							() => void saveAsTemplate(),
+							busy || editor.error
+						)}
+					</div>
 				</details>
 				<details bind:open={exportOpen}>
 					<summary data-testid="slide-export">{t('slides.export')}</summary>
@@ -1737,6 +1773,9 @@
 		z-index: 9;
 	}
 	.notes {
+		/* A label is inline by default: its block textarea would overflow the box and
+		   let the footer overlap it on short viewports. */
+		display: block;
 		border-top: 1px solid var(--color-border);
 		padding: 8px 14px;
 		background: var(--color-bg-1);
@@ -1887,10 +1926,26 @@
 			flex: none;
 		}
 		.presentation-editor:not(.presenting) .stage-column {
-			min-height: 280px;
+			/* Keep the canvas usable without forcing overflow into the footer on a
+			   keyboard-shrunk viewport. */
+			min-height: min(280px, 45dvh);
 		}
 		.source-panel textarea {
 			padding: 8px;
+		}
+	}
+	/* A keyboard-shrunk viewport must let the canvas absorb the loss, otherwise
+	   the notes overflow their column and the footer overlaps them. */
+	@media (max-height: 520px) {
+		.slide-viewport {
+			min-height: 0;
+		}
+	}
+	@container (max-width: 800px) {
+		/* Narrow layouts stack the filmstrip and the notes. Leave enough slack for
+		   the wrapped toolbar so the footer never covers the notes field. */
+		.slide-viewport {
+			min-height: 40px;
 		}
 	}
 	@container (max-width: 800px) {
@@ -1972,6 +2027,8 @@
 			padding: 5px;
 		}
 		.selection-tools {
+			flex-wrap: wrap;
+			overflow: visible;
 			padding: 2px 5px;
 		}
 		.snap-control {

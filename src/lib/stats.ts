@@ -10,6 +10,24 @@ export interface DocStats {
 
 const WPM = READING.wpm;
 
+export interface SelectionStats {
+	chars: number;
+	words: number;
+	lines: number;
+}
+
+/**
+ * Counts selected plain text. Characters are Unicode code points, so a
+ * surrogate pair counts once. Lines follow LF, CRLF and CR breaks.
+ */
+export function computeSelectionStats(text: string): SelectionStats {
+	const chars = Array.from(text).length;
+	const trimmed = text.trim();
+	const words = trimmed.length === 0 ? 0 : trimmed.split(/\s+/u).length;
+	const lines = text.length === 0 ? 0 : text.split(/\r\n|\r|\n/u).length;
+	return { chars, words, lines };
+}
+
 export function computeStats(markdown: string): DocStats {
 	const stripped = markdown
 		.replace(/```[\s\S]*?```/g, ' ')

@@ -2,10 +2,16 @@ import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, loadEnv } from 'vite';
+import { fileURLToPath } from 'node:url';
 import { bundleGraphPlugin } from './scripts/bundle-graph.mjs';
 
 const dev = process.env.NODE_ENV !== 'production';
 const repoBase = (process.env.BASE_PATH ?? '') as '' | `/${string}`;
+const edition =
+	process.env.VITE_EDITION === 'desktop' || (dev && !process.env.VITE_EDITION) ? 'desktop' : 'web';
+const nativeStub = fileURLToPath(
+	new URL('./src/lib/edition/web/tauri-api-stub.ts', import.meta.url)
+);
 
 export default defineConfig(({ mode }) => {
 	// Vite does not load `.env.local` into `process.env` for this configuration.
@@ -27,7 +33,21 @@ export default defineConfig(({ mode }) => {
 			// Vite reads `server.*` only in development and preview, not production.
 			allowedHosts: ['.ts.net', ...extraAllowedHosts]
 		},
+		resolve: {
+			alias:
+				edition === 'web'
+					? {
+							'@tauri-apps/api/core': nativeStub,
+							'@tauri-apps/api/event': nativeStub,
+							'@tauri-apps/api/menu': nativeStub,
+							'#lib/desktop-shell.js': fileURLToPath(
+								new URL('./src/lib/desktop-shell.web.ts', import.meta.url)
+							)
+						}
+					: {}
+		},
 		define: {
+			'import.meta.env.VITE_EDITION': JSON.stringify(edition),
 			// Mermaid includes Vue (esm-bundler), which needs these tree-shaking flags.
 			// These flags prevent console warnings and improve dead-code removal.
 			__VUE_OPTIONS_API__: 'false',

@@ -100,8 +100,10 @@ async function downloadBytes(download: Download): Promise<Buffer> {
 async function exportProject(page: Page, testInfo: TestInfo, name: string) {
 	await page.getByTestId('projects-open').click();
 	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	const exportButton = panel.getByRole('button', { name: 'Exporter le projet', exact: true });
+	await expect(exportButton).toBeEnabled({ timeout: 20_000 });
 	const pending = page.waitForEvent('download');
-	await panel.getByRole('button', { name: 'Exporter le projet', exact: true }).click();
+	await exportButton.click();
 	const bytes = await downloadBytes(await pending);
 	await testInfo.attach(name, { body: bytes, contentType: 'application/zip' });
 	return (await import('jszip')).default.loadAsync(bytes);

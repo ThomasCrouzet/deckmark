@@ -1,0 +1,181 @@
+import { readFile } from 'node:fs/promises';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { resetAppState } from './helpers';
+
+test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+
+async function importCode(page: Page, name: string, content: string) {
+	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
+		name,
+		mimeType: 'text/plain',
+		buffer: Buffer.from(content)
+	});
+	await expect(page.getByTestId('code-editor')).toBeVisible({ timeout: 20_000 });
+}
+
+async function editorText(page: Page) {
+	return page.locator('.cm-content').evaluate((root) =>
+		Array.from(root.querySelectorAll('.cm-line'))
+			.map((line) => line.textContent?.replaceAll('¶', ''))
+			.join('\n')
+	);
+}
+
+async function savedContent(page: Page): Promise<string> {
+	return page.evaluate(
+		() =>
+			new Promise<string>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const rows = request.result.transaction('drafts').objectStore('drafts').getAll();
+					rows.onerror = () => reject(rows.error);
+					rows.onsuccess = () => {
+						request.result.close();
+						const active = rows.result.find((row) => row.open !== false);
+						resolve(active?.content ?? '');
+					};
+				};
+			})
+	);
+}
+
+test('highlights language syntax and edits code without Markdown', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await importCode(page, 'script.py', 'def main():\n    return 1\n');
+	await expect(page.getByTestId('code-language')).toHaveText('Python');
+	await expect(page.getByTestId('code-eol')).toHaveText('LF');
+	await expect(page.locator('.cm-lineNumbers')).toBeVisible();
+	expect(await page.locator('.cm-content .cm-line span').count()).toBeGreaterThan(0);
+
+	const editor = page.locator('.cm-content').first();
+	await editor.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText('\nvalue = ');
+	await page.keyboard.type('(');
+	await expect.poll(() => editorText(page)).toContain('value = ()');
+
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.insertText('const = "Markdown"\n');
+	await expect(page.locator('.ProseMirror')).toHaveCount(0);
+	await expect(page.getByTestId('document-kind')).toHaveText('Code');
+
+	await page.keyboard.press('ControlOrMeta+f');
+	await expect(page.locator('.cm-panels')).toBeVisible();
+	await page.keyboard.type('Markdown');
+	await expect(page.locator('.cm-searchMatch')).toHaveCount(1);
+	await page.keyboard.press('Escape');
+
+	await info.attach('code-editor.json', {
+		body: JSON.stringify({
+			language: await page.getByTestId('code-language').innerText(),
+			eol: await page.getByTestId('code-eol').innerText(),
+			text: await editorText(page)
+		}),
+		contentType: 'application/json'
+	});
+	await info.attach('code-editor.png', { body: await page.screenshot() });
+});
+
+test('toggles invisibles, wrapping and indentation', async ({ page }, info: TestInfo) => {
+	await resetAppState(page);
+	await importCode(page, 'main.rs', 'fn main() {}\n');
+	await expect(page.getByTestId('code-indent-style')).toHaveValue('space');
+	await expect(page.getByTestId('code-indent-size')).toHaveValue('2');
+
+	await page.getByTestId('code-invisibles').click();
+	await expect(page.getByTestId('code-invisibles')).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.locator('.cm-invisible-newline').first()).toBeVisible();
+
+	await page.getByTestId('code-wrap').click();
+	await expect(page.getByTestId('code-wrap')).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.locator('.cm-content')).toHaveClass(/cm-lineWrapping/);
+
+	await page.getByTestId('code-indent-style').selectOption('tab');
+	await page.getByTestId('code-editor').locator('.cm-content').click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.press('Enter');
+	await page.keyboard.press('Tab');
+	await expect.poll(() => savedContent(page)).toBe('fn main() {}\n\n\t');
+
+	await page.getByTestId('code-indent-style').selectOption('space');
+	await page.getByTestId('code-indent-size').selectOption('4');
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.press('Tab');
+	await expect.poll(() => savedContent(page)).toBe('fn main() {}\n\n\t    ');
+
+	await info.attach('code-options.json', {
+		body: JSON.stringify({
+			invisibles: true,
+			wrap: true,
+			indent: await page.getByTestId('code-indent-style').inputValue(),
+			size: await page.getByTestId('code-indent-size').inputValue()
+		}),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps cursor and undo history across code file switches', async ({ page }) => {
+	await resetAppState(page);
+	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles([
+		{ name: 'one.js', mimeType: 'text/javascript', buffer: Buffer.from('const one = 1;\n') },
+		{ name: 'two.js', mimeType: 'text/javascript', buffer: Buffer.from('const two = 2;\n') }
+	]);
+	await expect(page.getByTestId('code-language')).toHaveText('JavaScript');
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^one\.js/ })
+		.first()
+		.click();
+	await expect(page.getByTestId('code-editor')).toBeVisible();
+	await page.locator('.cm-content').first().click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText('// edited');
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^two\.js/ })
+		.first()
+		.click();
+	await expect(page.getByTestId('code-editor')).toBeVisible();
+	await expect(page.locator('.cm-content')).toContainText('const two');
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^one\.js/ })
+		.first()
+		.click();
+	await expect(page.locator('.cm-content')).toContainText('// edited');
+	await page.locator('.cm-content').first().click();
+	await page.keyboard.press('ControlOrMeta+z');
+	await expect(page.locator('.cm-content')).not.toContainText('// edited');
+});
+
+test('reports and converts line endings without changing the extension', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await importCode(page, 'crlf.py', 'print("a")\r\nprint("b")\r\n');
+	await expect(page.getByTestId('code-eol')).toHaveText('CRLF');
+	await page.getByTestId('code-eol-toggle').click();
+	await expect(page.getByTestId('code-eol')).toHaveText('LF');
+	await page.waitForTimeout(600);
+
+	const downloadPromise = page.waitForEvent('download');
+	await page.getByRole('button', { name: 'Exporter', exact: true }).click();
+	const download = await downloadPromise;
+	expect(download.suggestedFilename()).toBe('crlf.py');
+	const text = await readFile((await download.path())!, 'utf8');
+	expect(text).toBe('print("a")\nprint("b")\n');
+
+	await page.getByTestId('code-eol-toggle').click();
+	await expect(page.getByTestId('code-eol')).toHaveText('CRLF');
+	await info.attach('line-endings.txt', { body: text, contentType: 'text/plain' });
+});
+
+test('uses plain text for an unknown code language', async ({ page }) => {
+	await resetAppState(page);
+	await importCode(page, 'script.rb', 'puts "hello"\n');
+	await expect(page.getByTestId('code-language')).toHaveText('Plain text');
+	await expect(page.locator('.cm-content')).toContainText('puts');
+});

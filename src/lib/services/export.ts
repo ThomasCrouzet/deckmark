@@ -20,6 +20,8 @@ import { stripMdExtension, untitledBasename, untitledFilename } from '#lib/file-
 import { abortable, checkAborted } from '../abort';
 import { IMPORT_LIMITS } from '../config';
 import { isPresentation } from '../presentation/detect';
+import { documentKindForFile } from '../document-kind';
+import { activeProfile, applyExportProfile } from '../export-profiles';
 
 export interface MediaExportOptions {
 	allowNetworkImages?: boolean;
@@ -180,9 +182,33 @@ export async function triggerDownload(blob: Blob, filename: string): Promise<boo
  * Downloads the raw markdown under the file's name (`<name>.md`).
  * @returns `false` if the desktop save dialog was cancelled.
  */
+function dataUrlBlob(data: string): Blob {
+	const comma = data.indexOf(',');
+	if (comma < 0) return new Blob([]);
+	const header = data.slice(0, comma);
+	const mime = /^data:([^;,]+)/.exec(header)?.[1] ?? 'application/octet-stream';
+	const binary = atob(data.slice(comma + 1));
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+	return new Blob([bytes], { type: mime });
+}
+
+/**
+ * Downloads a document without conversion. Notes and presentations download
+ * Markdown, code downloads its original text, and images download their
+ * original binary bytes.
+ */
 export async function exportMarkdown(file: FileItem): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
-	const blob = new Blob([file.content], { type: 'text/markdown;charset=utf-8' });
+	const kind = documentKindForFile(file);
+	const blob =
+		kind === 'image' || kind === 'pdf'
+			? dataUrlBlob(file.data ?? '')
+			: kind === 'code'
+				? new Blob([file.content], {
+						type: file.mime || 'text/plain;charset=utf-8'
+					})
+				: new Blob([file.content], { type: 'text/markdown;charset=utf-8' });
 	// Sanitization at export time only: a name containing `/`, `:`, etc. would
 	// break the `download` attribute or create a sub-tree.
 	return triggerDownload(blob, sanitizeFilename(file.name));
@@ -201,6 +227,8 @@ export async function exportHTML(
 	options: MediaExportOptions = {}
 ): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
+	const kind = documentKindForFile(file);
+	if (kind === 'image' || kind === 'code') return false;
 	if (isPresentation(file.content)) return exportPresentationHTML(file, options);
 	const [
 		{ renderMarkdownDetailed },
@@ -232,13 +260,15 @@ export async function exportHTML(
 		signal: options.signal
 	});
 	const docTitle = title || fallback;
-	const html = await buildStandaloneHtmlDocument(
+	const builtHtml = await buildStandaloneHtmlDocument(
 		docTitle,
 		bodyHtml,
 		file.content,
 		i18n.locale,
 		options.signal
 	);
+	const profile = activeProfile();
+	const html = profile ? applyExportProfile(builtHtml, profile, docTitle) : builtHtml;
 	checkAborted(options.signal);
 	options.onDialog?.();
 	const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
@@ -260,6 +290,8 @@ export async function exportPDF(
 	options: MediaExportOptions = {}
 ): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
+	const kind = documentKindForFile(file);
+	if (kind === 'image' || kind === 'code') return false;
 	if (isPresentation(file.content)) return exportPresentationPDF(file, options);
 	const [
 		{ renderMarkdownDetailed },
@@ -292,13 +324,17 @@ export async function exportPDF(
 		signal: options.signal
 	});
 	const docTitle = title || fallback;
-	const html = buildPrintDocument({
+	const builtPrint = buildPrintDocument({
 		title: docTitle,
 		bodyHtml,
 		source: file.content,
 		lang: i18n.locale
 	});
-	return printInIframe(html, options);
+	const profile = activeProfile();
+	return printInIframe(
+		profile ? applyExportProfile(builtPrint, profile, docTitle) : builtPrint,
+		options
+	);
 }
 
 /**
@@ -328,7 +364,10 @@ export async function exportZip(
 	let inputBytes = 0;
 	let entries = files.length;
 	for (const file of files) {
-		const size = encoder.encode(file.content).byteLength;
+		const size =
+			documentKindForFile(file) === 'image'
+				? Math.ceil(((file.data?.length ?? 0) * 3) / 4)
+				: encoder.encode(file.content).byteLength;
 		inputBytes += size;
 		if (size > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
 			throw new Error('Library export size limit');
@@ -372,8 +411,14 @@ export async function exportZip(
 		return name;
 	}
 	for (const file of files.filter((file) => !file.projectId)) {
-		archiveBytes += encoder.encode(file.content).byteLength;
-		zip.file(archiveName(file.name), file.content);
+		if (documentKindForFile(file) === 'image') {
+			const payload = (file.data ?? '').slice((file.data ?? '').indexOf(',') + 1);
+			archiveBytes += Math.ceil((payload.length * 3) / 4);
+			zip.file(archiveName(file.name), payload, { base64: true });
+		} else {
+			archiveBytes += encoder.encode(file.content).byteLength;
+			zip.file(archiveName(file.name), file.content);
+		}
 	}
 	if (projectIds.size) {
 		const [{ db }, { buildProjectZip }] = await Promise.all([
@@ -386,7 +431,13 @@ export async function exportZip(
 			const assets = projectAssets.get(projectId) ?? [];
 			const documents = files
 				.filter((file) => file.projectId === projectId)
-				.map((file) => ({ id: file.id, relativePath: file.relativePath!, content: file.content }));
+				.map((file) => ({
+					id: file.id,
+					relativePath: file.relativePath!,
+					content: file.content,
+					...(file.kind ? { kind: file.kind } : {}),
+					...(file.data ? { data: file.data } : {})
+				}));
 			const archive = await buildProjectZip(project.name, documents, assets);
 			archiveBytes += archive.size;
 			if (archiveBytes > IMPORT_LIMITS.maxBatchBytes) throw new Error('Library export size limit');

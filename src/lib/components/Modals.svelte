@@ -16,7 +16,9 @@
 
 	interface Props {
 		kind: DocumentKind;
+		mode: EditMode;
 		onCreate: (kind: DocumentKind) => Promise<void>;
+		onCreateFromTemplate: (templateId: string) => Promise<void>;
 		onOpenOutline: () => void;
 		modals: ReturnType<typeof createModals>;
 		editorWidth: ReturnType<typeof createEditorWidth>;
@@ -28,17 +30,35 @@
 		onExportHTML: () => void;
 		onExportPDF: () => void;
 		onExportAll: () => void;
+		onSave: () => void;
+		onSaveAs: () => void;
+		onEditCopy: () => void;
+		onEditOriginal: () => void;
 		onSaveToDisk: () => void;
 		onToggleSidebar: () => void;
 		onSetMode: (m: EditMode) => void;
 		onOpenInFileSearch: () => void;
 		onPresent: () => void;
 		onAdvancedSource: () => void;
+		onOpenProperties: () => void;
+		onOpenComments: () => void;
+		onOpenExportProfiles: () => void;
+		onOpenLinkedBlocks: () => void;
+		onOpenSemantic: () => void;
+		onOpenCollection: () => void;
+		onOpenDocsCheck: () => void;
+		onOpenDocsSite: () => void;
+		onOpenDocsCheckIssue: (fileId: string, line: number) => void;
+		onOpenSnippets: () => void;
+		onSaveSnippetSelection: () => void;
+		onSaveSnippetFile: () => void;
 	}
 
 	let {
 		kind,
+		mode,
 		onCreate,
+		onCreateFromTemplate,
 		onOpenOutline,
 		modals,
 		editorWidth,
@@ -49,12 +69,28 @@
 		onExportHTML,
 		onExportPDF,
 		onExportAll,
+		onSave,
+		onSaveAs,
+		onEditCopy,
+		onEditOriginal,
 		onSaveToDisk,
 		onToggleSidebar,
 		onSetMode,
 		onOpenInFileSearch,
 		onPresent,
-		onAdvancedSource
+		onAdvancedSource,
+		onOpenProperties,
+		onOpenComments,
+		onOpenExportProfiles,
+		onOpenLinkedBlocks,
+		onOpenSemantic,
+		onOpenCollection,
+		onOpenDocsCheck,
+		onOpenDocsCheckIssue,
+		onOpenSnippets,
+		onSaveSnippetSelection,
+		onSaveSnippetFile,
+		onOpenDocsSite
 	}: Props = $props();
 </script>
 
@@ -68,6 +104,7 @@
 	{#await modals.loadCommandPalette() then CommandPalette}
 		<CommandPalette
 			{kind}
+			{mode}
 			{onCreate}
 			{onOpenOutline}
 			initialView={modals.paletteView}
@@ -80,6 +117,10 @@
 			onExportHtml={onExportHTML}
 			onExportPdf={onExportPDF}
 			{onExportAll}
+			{onSave}
+			{onSaveAs}
+			{onEditCopy}
+			{onEditOriginal}
 			{onSaveToDisk}
 			{onToggleSidebar}
 			{onSetMode}
@@ -98,6 +139,18 @@
 			onOpenSettings={modals.openSettings}
 			onOpenHistory={modals.openHistory}
 			onOpenGraph={modals.openGraph}
+			onOpenAi={modals.openAi}
+			{onOpenProperties}
+			{onOpenComments}
+			{onOpenExportProfiles}
+			{onOpenLinkedBlocks}
+			{onOpenSemantic}
+			{onOpenCollection}
+			{onOpenDocsCheck}
+			{onOpenSnippets}
+			{onSaveSnippetSelection}
+			{onSaveSnippetFile}
+			{onOpenDocsSite}
 			{onPresent}
 			{onAdvancedSource}
 		/>
@@ -169,9 +222,115 @@
 	{/await}
 {/if}
 
+{#if modals.aiOpen}
+	{#await modals.loadAiPanel() then AiPanel}
+		<AiPanel open={modals.aiOpen} onClose={() => (modals.aiOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.propertiesOpen}
+	{#await modals.loadPropertiesPanel() then PropertiesPanel}
+		<PropertiesPanel open={modals.propertiesOpen} onClose={() => (modals.propertiesOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.commentsOpen}
+	{#await modals.loadCommentsPanel() then CommentsPanel}
+		<CommentsPanel open={modals.commentsOpen} onClose={() => (modals.commentsOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.exportProfilesOpen}
+	{#await modals.loadExportProfilesPanel() then ExportProfilesPanel}
+		<ExportProfilesPanel
+			open={modals.exportProfilesOpen}
+			onClose={() => (modals.exportProfilesOpen = false)}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.linkedBlocksOpen}
+	{#await modals.loadLinkedBlocksPanel() then LinkedBlocksPanel}
+		<LinkedBlocksPanel
+			open={modals.linkedBlocksOpen}
+			onClose={() => (modals.linkedBlocksOpen = false)}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.semanticOpen}
+	{#await modals.loadSemanticPanel() then SemanticPanel}
+		<SemanticPanel
+			open={modals.semanticOpen}
+			onClose={() => (modals.semanticOpen = false)}
+			onOpenHit={(draftId, line) => modals.handleOpenHit(draftId, line, '')}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.collectionOpen}
+	{#await modals.loadCollectionPanel() then CollectionPanel}
+		<CollectionPanel open={modals.collectionOpen} onClose={() => (modals.collectionOpen = false)} />
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.docsCheckOpen}
+	{#await modals.loadDocsCheckPanel() then DocsCheckPanel}
+		<DocsCheckPanel
+			initialProjectId={modals.docsCheckProjectId}
+			onClose={() => (modals.docsCheckOpen = false)}
+			onOpenIssue={onOpenDocsCheckIssue}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.snippetsOpen}
+	{#await modals.loadSnippetsPanel() then SnippetsPanel}
+		<SnippetsPanel
+			open={modals.snippetsOpen}
+			capture={modals.snippetsOptions.capture ?? null}
+			context={modals.snippetsOptions.context ?? {}}
+			onClose={() => (modals.snippetsOpen = false)}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
+{#if modals.docsSiteOpen}
+	{#await modals.loadDocsSitePanel() then DocsSitePanel}
+		<DocsSitePanel
+			initialProjectId={modals.docsSiteProjectId}
+			onClose={() => (modals.docsSiteOpen = false)}
+		/>
+	{:catch _error}
+		<!-- Load failure handled by the loader (toast + close). -->
+	{/await}
+{/if}
+
 {#if modals.newDocumentOpen}
 	{#await modals.loadNewDocument() then NewDocumentDialog}
-		<NewDocumentDialog {onCreate} onClose={() => (modals.newDocumentOpen = false)} />
+		<NewDocumentDialog
+			{onCreate}
+			{onCreateFromTemplate}
+			onClose={() => (modals.newDocumentOpen = false)}
+		/>
 	{:catch _error}
 		<!-- Load failure handled by the loader (toast + close). -->
 	{/await}

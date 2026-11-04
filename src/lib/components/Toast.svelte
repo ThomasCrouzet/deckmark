@@ -5,7 +5,7 @@
 	import { RotateCcw } from '@lucide/svelte';
 
 	function stripExt(name: string) {
-		return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
+		return name.replace(/\.[a-z0-9]{1,10}$/i, '');
 	}
 
 	// §B1.2 - Caps at 3 visible toasts: on mobile, 5 toasts at ~50 px

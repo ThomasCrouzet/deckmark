@@ -15,5 +15,6 @@ export { $prose as prosePlugin, $remark as remarkPlugin, replaceAll } from '@mil
 export { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list';
 export { wikiLinkPlugins } from './milkdown-wiki-links';
 export { installTableBreaks } from './milkdown-table-breaks';
+export { installTableParagraph } from './milkdown-table-paragraph';
 export { installTableClipboard } from './milkdown-table-clipboard';
 export { configureTableTextSelection } from './milkdown-table-selection';

@@ -93,10 +93,7 @@ test('keeps a long outline reachable and honors focus and visibility preferences
 		'aria-current',
 		'location'
 	);
-	await page.keyboard.press('ControlOrMeta+Shift+.');
-	await expect(page.locator('.mdsh-toc-col')).toHaveCount(0);
-	await page.keyboard.press('ControlOrMeta+Shift+.');
-	await expect(toc).toBeVisible();
+	// The outline toggles through its command, not through a global shortcut.
 	await openPalette(page);
 	await page.getByRole('combobox').fill('Masquer la table des matières');
 	await page.getByRole('option').first().click();

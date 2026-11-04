@@ -13,6 +13,8 @@
 	// Load optional editor views when the selected mode needs them.
 	import SourceEditor from '#lib/components/SourceEditor.svelte';
 	import Welcome from '#lib/components/Welcome.svelte';
+	import ScrollNav from '#lib/components/ScrollNav.svelte';
+	import ImageDocument from '#lib/components/ImageDocument.svelte';
 	import { Upload } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import type { EditMode, FileItem } from '#lib/types.js';
@@ -39,6 +41,7 @@
 		articleRef: HTMLElement | null;
 		// Callbacks to surface the refs up to +page.svelte
 		onSourceEditorRef: (ref: SourceEditor | null) => void;
+		onCodeEditorRef?: (ref: { getSelectionText?: () => string } | null) => void;
 		onArticleRef: (el: HTMLElement | null) => void;
 		onTocEmpty: (empty: boolean) => void;
 		// Action callbacks
@@ -65,6 +68,7 @@
 		tocVisible,
 		focusMode,
 		onSourceEditorRef,
+		onCodeEditorRef = () => {},
 		onArticleRef,
 		onTocEmpty,
 		onEditorChange,
@@ -85,6 +89,7 @@
 	// (error "bind_invalid_expression") - local variable + $effect to
 	// surface the ref up to +page.svelte via onSourceEditorRef.
 	let sourceEditorEl = $state<SourceEditor | null>(null);
+	let codeEditorEl = $state<{ getSelectionText?: () => string } | null>(null);
 	let contentRoot = $state<HTMLDivElement | null>(null);
 	let sourceLine = $state(1);
 	let splitView = $state(false);
@@ -108,6 +113,9 @@
 	}
 	$effect(() => {
 		onSourceEditorRef(sourceEditorEl);
+	});
+	$effect(() => {
+		onCodeEditorRef(codeEditorEl);
 	});
 </script>
 
@@ -136,6 +144,30 @@
 					{:then module}
 						<module.default onPresentingChange={(value) => (modals.presenting = value)} />
 					{:catch}<p role="alert" class="p-4 text-danger">{t('slides.renderFailed')}</p>{/await}
+				{/key}
+			{:else if kind === 'image'}
+				<ImageDocument file={activeFile} />
+			{:else if kind === 'pdf'}
+				{#key activeFile.id}
+					{#await import('./PdfDocument.svelte') then module}
+						<module.default file={activeFile} />
+					{:catch}<p role="alert" class="p-4 text-danger">
+							{t('documents.pdfUnavailable')}
+						</p>{/await}
+				{/key}
+			{:else if kind === 'code'}
+				{#key activeFile.id}
+					{#await import('./CodeEditor.svelte') then module}
+						<module.default
+							bind:this={codeEditorEl}
+							fileId={activeFile.id}
+							name={activeFile.name}
+							content={activeFile.content}
+							onChange={onEditorChange}
+							onFlush={onEditorFlush}
+							onCursorLine={(line) => (sourceLine = line)}
+						/>
+					{:catch}<p role="alert" class="p-4 text-danger">{t('source.loadErrorTitle')}</p>{/await}
 				{/key}
 			{:else if mode === 'source'}
 				{#key activeFile.id}
@@ -219,6 +251,10 @@
 				onLibrary={modals.openLibrary}
 				documentCount={libraryCount}
 			/>
+		{/if}
+
+		{#if activeFile && kind === 'note'}
+			<ScrollNav {contentRoot} {mode} activeId={activeFile.id} />
 		{/if}
 
 		{#if dragOver}

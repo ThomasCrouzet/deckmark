@@ -34,7 +34,8 @@ test.describe('Command palette', () => {
 		await expect(page.locator('.mdsh-preview')).toBeVisible({ timeout: 15_000 });
 	});
 
-	test('toggles focus mode from the command palette', async ({ page }) => {
+	test('toggles focus mode from the command palette in Read mode', async ({ page }) => {
+		await page.locator('[data-mode="read"]').click();
 		await openPalette(page);
 		const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
 		await dialog.getByRole('option', { name: /Activer le mode focus/i }).click();

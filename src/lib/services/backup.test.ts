@@ -132,7 +132,10 @@ function draft(p: Partial<DraftRow> = {}): DraftRow {
 		content: p.content ?? 'hello',
 		createdAt: p.createdAt ?? now,
 		updatedAt: p.updatedAt ?? now,
-		order: p.order ?? 0
+		order: p.order ?? 0,
+		...(p.kind ? { kind: p.kind } : {}),
+		...(p.mime ? { mime: p.mime } : {}),
+		...(p.data ? { data: p.data } : {})
 	};
 }
 function workspace(p: Partial<WorkspaceRow> = {}): WorkspaceRow {
@@ -153,6 +156,7 @@ function template(p: Partial<TemplateRow> = {}): TemplateRow {
 		name: p.name ?? 'T',
 		content: p.content ?? '# x',
 		builtin: p.builtin ?? false,
+		...(p.kind ? { kind: p.kind } : {}),
 		createdAt: p.createdAt ?? now,
 		updatedAt: p.updatedAt ?? now
 	};
@@ -171,6 +175,63 @@ describe('collectBackup', () => {
 		expect(b.drafts.map((d) => d.name)).toEqual(['a', 'b']); // ordre par `order`
 		expect(b.workspaces).toHaveLength(1);
 		expect(b.templates).toHaveLength(1);
+	});
+
+	it('keeps editorial comments outside the draft content', async () => {
+		const draftRow = draft({ name: 'review.md', content: 'Anchored text' });
+		await db.drafts.put(draftRow);
+		const now = Date.now();
+		await db.comments.put({
+			id: 'comment-1',
+			draftId: draftRow.id,
+			quote: 'Anchored',
+			from: 0,
+			to: 8,
+			body: 'Check this',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: now,
+			updatedAt: now
+		});
+		const backup = await collectBackup(1234);
+		expect(backup.comments).toHaveLength(1);
+		expect(backup.drafts[0]?.content).toBe('Anchored text');
+		const parsed = parseBackup(serializeBackup(backup));
+		expect(parsed.comments?.[0]).toMatchObject({ body: 'Check this', quote: 'Anchored' });
+		await db.comments.clear();
+	});
+
+	it('keeps typed text and binary image drafts across a backup round trip', async () => {
+		await db.drafts.bulkPut([
+			draft({ name: 'script.py', content: 'print("ok")\n', kind: 'code' }),
+			draft({
+				name: 'plan.png',
+				content: '',
+				kind: 'image',
+				mime: 'image/png',
+				data: 'data:image/png;base64,iVBORw0KGgo='
+			})
+		]);
+		const backup = await collectBackup(1234);
+		const parsed = parseBackup(serializeBackup(backup));
+		expect(parsed.drafts.find((row) => row.name === 'script.py')).toMatchObject({
+			kind: 'code',
+			content: 'print("ok")\n'
+		});
+		expect(parsed.drafts.find((row) => row.name === 'plan.png')).toMatchObject({
+			kind: 'image',
+			mime: 'image/png',
+			data: 'data:image/png;base64,iVBORw0KGgo=',
+			content: ''
+		});
+	});
+
+	it('keeps the presentation kind of a template', async () => {
+		await db.templates.put(template({ name: 'Deck', kind: 'presentation' }));
+		const b = await collectBackup(1234);
+		expect(b.templates[0]).toMatchObject({ name: 'Deck', kind: 'presentation' });
+		const parsed = parseBackup(serializeBackup(b));
+		expect(parsed.templates[0]).toMatchObject({ name: 'Deck', kind: 'presentation' });
 	});
 });
 

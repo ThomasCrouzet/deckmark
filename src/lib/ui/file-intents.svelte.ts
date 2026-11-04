@@ -18,7 +18,7 @@ import { t } from '#lib/i18n/index.js';
 interface FilesStoreRef {
 	active: { id: string } | null;
 	displayTitle: (id: string) => string;
-	createNew: (name?: string, content?: string) => void;
+	createNew: (name?: string, content?: string, options?: { focusEditor?: boolean }) => void;
 	flushPending: () => void;
 	importFiles: (files: File[]) => Promise<unknown>;
 }
@@ -80,7 +80,7 @@ export function createFileIntents(opts: FileIntentsOptions) {
 		const url = params.get('url');
 		const store = opts.getFilesStore();
 		if (action === 'new') {
-			store.createNew();
+			store.createNew(t('files.untitledFilename'), '', { focusEditor: true });
 		} else if (action === 'search' || action === 'palette') {
 			// §2.11 - App shortcuts: open a modal without creating a file.
 			opts.onUiAction?.(action);

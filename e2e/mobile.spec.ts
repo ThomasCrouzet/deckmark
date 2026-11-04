@@ -54,6 +54,8 @@ test('mobile actions expose export and the document library with a neutral keybo
 	await resetAppState(page);
 	await page.getByTestId('welcome-new').click();
 	await page.getByTestId('create-note').click();
+	// New notes open in Edit mode; this action bar check uses the source editor.
+	await page.locator('button[data-mode="source"]').click();
 	await page.locator('.cm-content').fill('# Mobile note');
 	await expect(page.locator('#app-toolbar .lucide-keyboard')).toBeVisible();
 	await expect(page.locator('#app-toolbar .lucide-command')).toHaveCount(0);

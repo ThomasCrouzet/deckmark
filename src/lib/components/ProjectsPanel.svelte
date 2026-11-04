@@ -2,13 +2,17 @@
 	import { onMount, tick } from 'svelte';
 	import { db, type ProjectRow } from '#lib/db.js';
 	import { filesStore } from '#lib/files.svelte.js';
-	import { t } from '#lib/i18n/index.js';
+	import { t, i18n } from '#lib/i18n/index.js';
+	import { interpolate, type Locale } from '#lib/i18n/locale.js';
+	import { docsSiteEn, type DocsSiteMessageKey } from '#lib/i18n/messages/docs-site-en.js';
+	import { docsSiteFr } from '#lib/i18n/messages/docs-site-fr.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import { readProjectFolder, readProjectZip } from '#lib/project-archive.js';
+	import { normalizeImportedProject, type MigrationReport } from '#lib/import-vault.js';
 	import ProjectTree from './ProjectTree.svelte';
 	import {
 		importProject,
@@ -18,6 +22,7 @@
 		checkProjectLinks
 	} from '#lib/projects.js';
 	import type { ProjectLinkIssue } from '#lib/project-links.js';
+	import { projectExplorer } from '#lib/project-explorer.svelte.js';
 	import {
 		disconnectNativeProject,
 		NativeProjectOperationError,
@@ -29,13 +34,22 @@
 		type NativeProjectFailure
 	} from '#lib/projects-native.js';
 
-	let { onClose }: { onClose: () => void } = $props();
+	let {
+		onClose,
+		onOpenDocsCheck,
+		onOpenDocsSite
+	}: {
+		onClose: () => void;
+		onOpenDocsCheck?: (projectId: string) => void;
+		onOpenDocsSite?: (projectId: string) => void;
+	} = $props();
 	let projects = $state<ProjectRow[]>([]);
 	let selected = $state<string | null>(filesStore.active?.projectId ?? null);
 	let busy = $state(false);
 	let error = $state(false);
 	let issues = $state<ProjectLinkIssue[] | null>(null);
 	let nativeFailures = $state<NativeProjectFailure[]>([]);
+	let migration = $state<MigrationReport | null>(null);
 	let zipInput: HTMLInputElement;
 	let folderInput: HTMLInputElement;
 	let closeButton: HTMLButtonElement;
@@ -46,10 +60,19 @@
 	);
 	const selectedProject = $derived(projects.find((project) => project.id === selected) ?? null);
 	const nativeAvailable = nativeProjectsAvailable();
+	const DOCS_SITE_MESSAGES: Record<Locale, Record<DocsSiteMessageKey, string>> = {
+		en: docsSiteEn,
+		fr: docsSiteFr
+	};
+	function td(key: DocsSiteMessageKey, params?: Record<string, string | number>): string {
+		const dictionary = DOCS_SITE_MESSAGES[i18n.locale] ?? docsSiteEn;
+		return interpolate(dictionary[key] ?? docsSiteEn[key] ?? key, params);
+	}
 
 	async function load() {
 		projects = await db.projects.orderBy('updatedAt').reverse().toArray();
 		if (!projects.some((project) => project.id === selected)) selected = projects[0]?.id ?? null;
+		await projectExplorer.load();
 	}
 
 	async function run(operation: () => Promise<void>) {
@@ -118,7 +141,9 @@
 		const file = input.files?.[0];
 		if (file)
 			await run(async () => {
-				selected = (await importProject(await readProjectZip(file))).id;
+				const migrated = normalizeImportedProject(await readProjectZip(file));
+				migration = migrated.report;
+				selected = (await importProject(migrated.input)).id;
 			});
 		input.value = '';
 	}
@@ -128,7 +153,9 @@
 		const files = Array.from(input.files ?? []);
 		if (files.length)
 			await run(async () => {
-				selected = (await importProject(await readProjectFolder(files))).id;
+				const migrated = normalizeImportedProject(await readProjectFolder(files));
+				migration = migrated.report;
+				selected = (await importProject(migrated.input)).id;
 			});
 		input.value = '';
 	}
@@ -238,6 +265,41 @@
 				aria-label={t('projects.importFolder')}
 			/>
 		</div>
+		{#if migration}
+			<section
+				class="migration-report"
+				aria-label={t('vault.report')}
+				data-testid="migration-report"
+			>
+				<strong>{t('vault.report')}</strong>
+				<p>
+					{t('vault.summary', {
+						kind: migration.kind,
+						documents: migration.documents,
+						assets: migration.assets
+					})}
+				</p>
+				{#if migration.renamed.length > 0}
+					<p>{t('vault.renamed', { n: migration.renamed.length })}</p>
+				{/if}
+				{#if migration.skipped.length > 0}
+					<details>
+						<summary>{t('vault.skipped', { n: migration.skipped.length })}</summary>
+						<ul>
+							{#each migration.skipped.slice(0, 50) as path (path)}<li>{path}</li>{/each}
+						</ul>
+					</details>
+				{/if}
+				{#if migration.unsupported.length > 0}
+					<details>
+						<summary>{t('vault.unsupported', { n: migration.unsupported.length })}</summary>
+						<ul>
+							{#each migration.unsupported.slice(0, 50) as path (path)}<li>{path}</li>{/each}
+						</ul>
+					</details>
+				{/if}
+			</section>
+		{/if}
 		{#if error}<p role="alert" class="p-3 text-sm text-danger">
 				{t('projects.operationFailed')}
 			</p>{/if}
@@ -248,7 +310,9 @@
 				{/each}
 			</ul>
 		{/if}
-		{#if busy}<p role="status" class="p-3 text-sm text-fg-muted">{t('projects.busy')}</p>{/if}
+		{#if busy}<p role="status" data-testid="projects-busy" class="p-3 text-sm text-fg-muted">
+				{t('projects.busy')}
+			</p>{/if}
 		<div class="min-h-0 flex-1 overflow-auto p-3">
 			{#if projects.length}
 				<label class="flex items-center gap-2 text-sm"
@@ -282,6 +346,26 @@
 								if (selected) issues = await checkProjectLinks(selected);
 							})}>{t('projects.checkLinks')}</button
 					>
+					{#if onOpenDocsCheck}
+						<button
+							disabled={busy || !selected}
+							onclick={() => {
+								if (!selected) return;
+								onOpenDocsCheck(selected);
+								onClose();
+							}}>{t('docsCheck.command')}</button
+						>
+					{/if}
+					{#if onOpenDocsSite}
+						<button
+							disabled={busy || !selected}
+							onclick={() => {
+								if (!selected) return;
+								onOpenDocsSite(selected);
+								onClose();
+							}}>{td('docsSite.command')}</button
+						>
+					{/if}
 					{#if nativeAvailable && selectedProject?.nativeRootId}
 						<button disabled={busy} onclick={refreshNative}>{t('projects.refresh')}</button>
 						<button disabled={busy} onclick={saveNative}>{t('projects.save')}</button>
@@ -303,7 +387,12 @@
 						{/if}
 					</div>
 				{/if}
-				<ProjectTree {documents} {busy} onOpen={openDocument} />
+				<ProjectTree
+					{documents}
+					projects={selectedProject ? [{ id: selectedProject.id, name: selectedProject.name }] : []}
+					{busy}
+					onOpen={openDocument}
+				/>
 			{:else}<p class="py-6 text-sm text-fg-muted">{t('projects.empty')}</p>{/if}
 		</div>
 		<footer class="space-y-1 border-t border-border p-3 text-xs text-fg-muted">

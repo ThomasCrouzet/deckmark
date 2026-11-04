@@ -57,6 +57,7 @@ test.describe('Workspaces - save and restore sessions', () => {
 		await expect(fileButtons.locator('.truncate')).toHaveText(['doc-a', 'doc-b']);
 		await expect(fileButtons.nth(0)).toHaveAttribute('aria-current', 'true');
 		await expect(fileName).toHaveValue('doc-a');
+		await page.locator('button[data-mode="source"]').click();
 		await expect(page.locator('.cm-content')).toHaveText('# A');
 		await fileButtons.nth(1).click();
 		await expect(page.locator('.cm-content')).toHaveText('# B');

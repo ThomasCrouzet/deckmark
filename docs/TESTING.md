@@ -9,6 +9,61 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Edition and hosting checks
+
+GitHub Pages is the only production Web publisher. Check Web Light and Desktop
+Complete as different editions. A browser result does not replace a native
+Desktop check, and a native result does not replace a browser result.
+
+The deployment workflow builds two base paths. The production path comes from the
+current Pages configuration. The other path is a check. Both must produce a usable
+PWA with the correct service worker scope.
+
+Build and serve the project-site path:
+
+```sh
+npm run preview:pages
+```
+
+Build and serve the root path:
+
+```sh
+BASE_PATH='' npm run build
+npm run preview -- --host 127.0.0.1 --port 4893 --strictPort
+```
+
+Run these checks in a fresh browser profile for each base path:
+
+1. Open the served URL and wait for **Ready offline**.
+2. Disable the network, reload a deep link, and create a note from the cached shell.
+3. Reload the note and confirm that its content remains in IndexedDB.
+4. Deploy a new build, save a draft, and apply the update. Confirm that the draft
+   reaches IndexedDB before the page reloads.
+5. Confirm that application assets and the service worker use the same base path.
+6. Confirm that no Desktop-only native module appears in the Web build or precache.
+
+For a custom domain, also confirm HTTPS and the redirect from the project URL.
+Do not test DNS changes in CI. Record the domain state as a manual result. A
+project-site service worker keeps its old origin after a domain change. Install
+the PWA again from the custom domain and repeat the offline checks.
+
+Keep the command, source revision, browser version, base path, domain state, and
+results in the run artifact. The browser suite still produces the standard
+`playwright-report/index.html` and `test-results/results.json` files.
+
+The retained failure risks are:
+
+- A wrong base path can produce a blank offline shell or an empty precache.
+- A service worker with the wrong scope can lose deep-link refresh and offline
+  first use.
+- A stale project-site worker can keep an old origin after a domain change.
+- An absolute asset URL can work on one host and fail on the other.
+- A Desktop-only module can enter the Web bundle or precache.
+- An update can reload before a draft reaches IndexedDB.
+
+See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the hosting contract and
+[DEVELOPMENT.md](DEVELOPMENT.md#web-publishing) for the maintainer steps.
+
 ## Version 2.0 project risks
 
 At native 200% browser zoom in a 320 by 844 viewport, save-status text can wrap
@@ -43,6 +98,36 @@ Write browser scenarios before implementation. Test the following failures throu
 
 Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), [native projects](testing/native-projects.md), and [presentations](testing/presentations.md).
 
+## Code snippets
+
+`e2e/snippets.spec.ts` checks the snippet library in Chromium. The cases are:
+
+- A selection becomes a snippet. A second save with the same code and language
+  shows the duplicate message and does not add a row.
+- A snippet copies from the keyboard. `${PROJECT_NAME}` and `${FILE_NAME}`
+  resolve. An escaped `\${PROJECT_NAME}` stays literal. The favorite state
+  survives a reload.
+- Search returns 100 of 3000 metadata rows in less than three seconds. The
+  panel mounts one code editor, not one editor per result. A query that only
+  matches code text returns no result.
+- The JSON export and import keep exact code bytes, language, tags, folder, and
+  favorite state.
+- A backup export and restore keeps the snippet collection and the exact code.
+- A 375 by 812 viewport fits the panel. The dialog, search box, list, and close
+  button have accessible names.
+
+The spec attaches JSON reports and screenshots with the run. Run it with:
+
+```sh
+E2E_PORT=4177 npx playwright test e2e/snippets.spec.ts --project=chromium --workers=1
+```
+
+The checks use browser storage and the Chromium clipboard permission. A native
+Desktop clipboard and a physical screen reader need a manual smoke test.
+The retained failure risks are a lost code byte during a backup round trip, a
+search path that reads code instead of metadata, a stale snippet list after a
+restore, and a panel that loads every code editor.
+
 The outline and editor keyboard scenarios in `e2e/toc-modes.spec.ts` and
 `e2e/editor-tab.spec.ts` check two failure modes. A render can replace heading
 nodes before the outline refresh. Tab can move focus and scroll the page instead
@@ -53,6 +138,30 @@ nodes in the same frame as the click, so a detached node cannot hide the failure
 The browser filesystem workflow uses an OPFS file selected by its fixture.
 It verifies cancellation, stale comparison rejection, reload, and a retained local checkpoint.
 Browser file APIs cannot make the final revision check and write atomic against another application.
+
+## Local file and copy workflows
+
+`disk-workflows.spec.ts` checks the visible disk and copy behavior. The cases are:
+
+- A browser without the File System Access API downloads a copy. The status stays
+  `draft`, and the original source is not touched.
+- A linked file saves in place through the granted handle. An external change
+  shows the conflict dialog. Cancel keeps the disk bytes and the local draft.
+- Save As writes a new file and leaves the linked source unchanged. A target that
+  is the linked source is refused.
+- A denied permission shows an error and does not write. The status stays
+  `pending`.
+- A cancelled save dialog keeps the original and the draft.
+
+The spec attaches a JSON report and a screenshot for each case. Run it with:
+
+```sh
+npx playwright test e2e/disk-workflows.spec.ts --project=chromium --workers=1
+```
+
+The test replaces the native pickers with OPFS handles. This checks the browser
+code path only. A native Tauri save, permission revocation, and conflict flow
+needs a manual smoke test on Windows, Linux, and macOS.
 
 The portable project scenario verifies cached rendering after network loss.
 Wait for the saved-state indicator before reloading a reopened document.
@@ -114,6 +223,190 @@ Remove an isolated case when a reliable E2E test covers the same risk. Keep the
 reason for each remaining case clear in its test name. `npm run test:coverage`
 still reports coverage for diagnosis. No percentage target requires extra tests.
 
+## Performance benchmarks and native WebView coverage
+
+Use `scripts/benchmark-local.mjs` for repeatable performance evidence. It is one
+command with two separate targets. A web run and a native run never share a
+result, because a browser process and a native WebView have different renderers,
+process models and startup paths.
+
+```sh
+npm run build
+npm run benchmark:local
+node scripts/benchmark-local.mjs --output /tmp/benchmark/web-chromium.json
+node scripts/benchmark-local.mjs --browser firefox --runs 5 --output /tmp/benchmark/web-firefox.json
+node scripts/benchmark-local.mjs --browser webkit --runs 5 --output /tmp/benchmark/web-webkit.json
+```
+
+A native run needs the isolated test binary first:
+
+```sh
+npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+node scripts/benchmark-local.mjs --target native --build-mode debug --output /tmp/benchmark/native.json
+```
+
+The command reads local files and writes one raw JSON report. It sends no
+telemetry. Its only network request is to the local static server that serves
+`build/`.
+
+The report holds the schema version, target, build mode, source revision,
+runtime identity, fixture identity, method text, p50 and p95 summaries, raw
+samples, a budget comparison and explicit limits. Runtime identity includes the
+Node version, OS name and version, CPU model and count, total memory, browser
+name and version or WebDriver WebView capabilities, and the CI runner name.
+Each fixture records its description, byte count and SHA-256. Generated fixtures
+record their generator name and arguments.
+
+### Measured stages
+
+| Metric | Web target | Native target |
+| --- | --- | --- |
+| Startup | Cold navigation to the ready shell, service worker restart, first contentful paint, DOM content loaded. | Process spawn to the WebDriver ready endpoint, shell ready, close, then warm restart. |
+| Typing | In-page insert to the next animation frame, synchronous insert cost, and WebDriver text insertion. Source and visual editor. | The same probes through the embedded WebDriver. |
+| Document work | Library reload, document switch, large note open, read mode and visual mode switch. | The same stages in the native editor. |
+| Scroll | Scroll to position plus two animation frames in read mode. | The same probe in the native WebView. |
+| Project tree | Projects panel open to the expected row count. | The same probe with the native project panel. |
+| Presentation | Editor load, slide switch and present mode toggle. | The same stages with native slide rendering. |
+| Export | HTML export from the command palette to the browser download event. | Export preparation to the print document. macOS writes the real PDF. Linux and Windows stop before the OS print dialog. |
+| Memory | Chromium JS heap from CDP; other engines report `performance.memory` when present. | Resident bytes or working set for the application process tree, including WebView helper processes when the platform reports them. |
+
+The input probe dispatches one `execCommand` insert, then waits one animation
+frame. It excludes driver round trip. The sample includes any product work that
+the input triggers, such as save scheduling and index updates. WebDriver text
+insertion is recorded separately because it includes driver IPC. Do not compare
+an engine that handles one insert with an engine that processes each key.
+
+### Fixture corpus and budgets
+
+`scripts/benchmark-fixtures/manifest.json` describes the corpus. The repository
+keeps `note-small.md`, `presentation.md`, and deterministic generators in
+`scripts/benchmark-fixtures/corpus.mjs`:
+
+- `note-large` creates about 240 KB of Markdown.
+- `library` creates 300 notes of about 16 KB each.
+- `project-tree` creates one project with 600 documents in 30 nested folders.
+
+`scripts/benchmark-budgets.json` holds one baseline set for each platform key:
+`web-chromium`, `web-firefox`, `web-webkit`,
+`native-linux-webkitgtk`, `native-windows-webview2` and
+`native-macos-wkwebview`. A baseline is a recorded p95 for one platform. It is
+not a claim that two platforms have equal timings. The default tolerance is
+1.0, so a measurement can be twice the recorded baseline before it reports
+`over-budget`. The report always includes the comparison. Pass
+`--enforce-budgets` only for a dedicated regression run with a stable machine.
+
+The recorded Chromium baseline near 2.5 s for a document switch uses the
+900-document fixture library. This value reproduces the reported desktop
+responsiveness problem and is not an acceptance target. Diagnose the stage
+before you tighten or raise the value. Keep the matching artifact with any
+budget change.
+
+Do not compare these results across platforms, build modes, machines or corpus
+counts. A debug native build is slower than a release build. A hosted CI runner
+has unequal hardware and a shared CPU.
+
+### Retained benchmark and native risks
+
+- A headless browser does not prove a native WebView result. Keep web and native
+  artifacts separate.
+- Headless animation frames can be throttled. A large frame delay can include
+  engine scheduling and is not always editor work.
+- The native benchmark uses a test binary with the embedded WebDriver feature.
+  Packaged installers have no test driver. Native timing evidence does not prove
+  release performance. Record `buildMode` and compare equal modes only.
+- The native matrix uses hosted runners with unequal hardware. A failed platform
+  job must keep `results.json`, screenshots, `application.log` and the source
+  snapshots.
+- Linux native tests use WebKitGTK under Xvfb with the DMA-BUF renderer disabled.
+  This does not prove compositor behavior on a physical display.
+- The benchmark seeds IndexedDB directly. It does not cover the import dialog,
+  file picker, disk latency or network conditions.
+- A change to a fixture count or generator invalidates a comparison. Compare the
+  recorded fixture hashes and corpus counts first.
+- A document switch sample includes the pending save flush. A switch on a small
+  library is not comparable.
+- Small sample counts are explicit in the report. An expensive stage uses five
+  samples by default. Treat its p95 as an indication, not a precise percentile.
+- Native export evidence stops before the OS print dialog on Linux and Windows.
+  Only the macOS run writes the product PDF.
+
+### Native WebView workflow coverage
+
+`scripts/native-smoke.mjs` runs against the built Tauri binary on its real
+WebView. The suite now also records:
+
+- Source and visual note editing, undo, redo and save.
+- The project tree row count after a native project import.
+- Linked disk save, rename, restart, revocation and stale-write races.
+- Focus mode and theme toggles.
+- Built-in template creation and the return to the linked note.
+- Presentation editing and separate menu and shortcut PDF exports.
+- Process memory for the application process tree, startup, reload, save, close
+  and template timings, and platform identity from the driver capabilities.
+- A failure screenshot, the page state and the last driver response.
+
+The suite does not claim coverage for features that do not exist. The
+`features` block in `results.json` records that the product has no AI feature,
+no annotation workflow and no reusable snippet feature. Do not add a check for
+an absent feature. Add one only when the product provides an observable
+workflow and the browser suite has a matching case.
+
+The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
+browser pass is not a native desktop pass, and a headless WebKit pass is not a
+WebKitGTK pass.
+
+### Benchmark and native CI artifacts
+
+`.github/workflows/desktop.yml` runs these jobs for a Desktop change:
+
+- `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. Artifact:
+  `web-benchmark-<browser>`.
+- `native-smoke` on Ubuntu, Windows and macOS with the built test binary.
+  Artifact: `native-smoke-<platform>`.
+- `native-benchmark` on Ubuntu, Windows and macOS with the same built test
+  binary. Artifact: `native-benchmark-<platform>`, which contains the raw JSON,
+  screenshots and the application log. The macOS jobs assert an ARM64 runner
+  before they run.
+- `desktop-validation` requires every job above to succeed. A reused validation
+  run must contain one successful job for each browser and each platform.
+
+The performance jobs record budgets but do not fail on a budget difference. A
+shared runner is too noisy for that gate. A harness failure, a missing result or
+a functional native check failure does fail the job.
+
+## Command-line interface checks
+
+The CLI is a Node process. A browser suite cannot start it and cannot inspect its
+exit codes or filesystem refusals. Keep the isolated CLI suite for these failure
+risks:
+
+- An output path can escape the working directory through `..`.
+- An unsupported format or output extension can create a misleading file.
+- A failed check can return a success code in a pipeline.
+- Non-deterministic archive dates or path order can break golden files.
+- A renderer change can alter the standalone HTML contract.
+- A CLI import can enter the Web bundle or the PWA precache.
+
+Run the suite:
+
+```sh
+npx vitest run cli/cli.test.ts
+```
+
+The suite uses temporary project directories, golden JSON and HTML files in
+`cli/test/golden`, and a fixed project archive digest. It records these results:
+
+- The check report and exit code `5`.
+- The filtered check exit code `0`.
+- Search order and the `deckmark-search/1` schema.
+- The inspect report for a note and a presentation.
+- The golden render HTML.
+- HTML, Markdown, and reproducible ZIP export results.
+- Path traversal exit code `4`, usage exit code `2`, and input exit code `3`.
+
+Keep the command, source revision, Node version, fixture paths, and results with
+the run. The CLI does not start the GUI, the Tauri shell, or a network service.
+
 ## Repeat the browser suite
 
 ### Whole-application review
@@ -149,6 +442,29 @@ Keep the HTML and JSON reports, fixtures, downloads, screenshots, and failure
 traces with the command and source identity. Development-server results establish
 the correction only. Run the complete production suite before release.
 
+## Documentation check risks
+
+The documentation check must not change files or start requests. A broad scan can
+also block the editor or report a malformed example as a real link. The browser
+workflow imports a project archive, runs the check twice, opens one issue, and
+compares two downloaded JSON reports. It records the stored documents before and
+after the check and rejects every external request. Keep the archive, both JSON
+reports, the summary artifact, and the browser trace with the command and source
+revision.
+
+The focused source fixtures cover code fences, anchors, duplicate headings,
+missing images and alt text, traversal, invalid front matter, ambiguous wiki
+targets, and presentation image resources. These cases compare exact issue codes
+and source positions. The browser suite cannot show every parser boundary without
+a large fixture. The E2E case confirms the report order, navigation, and stable
+bytes. A remote image is a warning because the checker never downloads it.
+Presentation overflow stays under "Not checked" because text layout needs a
+renderer and the model clamps element bounds.
+
+```sh
+npx playwright test e2e/docs-check.spec.ts --project=chromium --workers=1 --reporter=line
+```
+
 Project link reports follow database traversal order. Random document IDs can
 change the order between documents. The project link performance test sorts a
 copy by document path before comparison. It checks complete issue objects, their
@@ -158,6 +474,30 @@ downloads in the artifacts. To check repeated imports without retries, run:
 ```sh
 npm run test:e2e -- project-link-performance.spec.ts --project=chromium --workers=1 --retries=0 --repeat-each=8
 ```
+
+## Documentation site export risks
+
+The site export must not change source Markdown, start requests, or write a
+partial ZIP. The browser workflow imports a nested project, exports the site,
+reads the ZIP in Node, and resolves every local link and asset from each HTML
+page. It compares the stored documents before and after the export. It also opens
+the extracted site from a `file://` URL with the network disabled, follows one
+navigation link, and rejects every external request.
+
+Keep the source archive, the site ZIP, the report JSON, the summary artifact, and
+the browser trace with the command and source revision. Run:
+
+```sh
+E2E_PORT=4178 npx playwright test e2e/docs-site-export.spec.ts --project=chromium --workers=1 --reporter=line
+```
+
+The isolated fixtures cover nested links, anchors, missing local images, external
+images, generated HTML escaping, wiki targets, and deterministic file order. The
+browser suite cannot inspect every path boundary without a large archive. A remote
+image is a warning and the export removes its source. A missing local image is an
+error and the export stops before ZIP creation. The exporter and the Markdown
+renderer stay in lazy chunks. Run `npm run size` after a change to the export
+entry points.
 
 The visual note guard sets a collapsed DOM range at the paragraph end and waits
 for browser selection events before paste. This fixture does not test native End-key
@@ -227,16 +567,19 @@ OFFLINE_REVIEW_PHASE=final npx playwright test --config e2e/offline-review.confi
 
 The Desktop reuse validator must reject missing, repeated, failed, skipped, or
 incomplete platform jobs. It must reject a different source SHA, workflow, or run
-event. A valid run has one validation job and one native smoke job for each of
-Ubuntu, Windows, and macOS, plus one successful aggregate gate. The workflow
-trigger must reach the same path classifier for frontend and native changes.
+event. A valid run has one validation job, one native smoke job and one native
+benchmark job for each of Ubuntu, Windows, and macOS, one web benchmark job for
+each of Chromium, Firefox, and WebKit, plus one successful aggregate gate. The
+workflow trigger must reach the same path classifier for frontend and native
+changes.
 
 Browser tests cannot observe GitHub job records. The release-review artifact
 retains a 75-case runner that executes the workflow's JavaScript with recorded job
 fixtures. It includes the pre-fix and corrected results, commands, and hashes.
 
 The native smoke workflow checks presentation creation, editing, source Apply and
-Cancel, file restoration, and separate menu and shortcut exports on each platform.
+Cancel, file restoration, note editing, the project tree, disk access, focus and
+theme, built-in templates, and separate menu and shortcut exports on each platform.
 Keep both exports under `native-test-results/presentation-pdf/menu/` and
 `native-test-results/presentation-pdf/shortcut/`. Inspect the menu result before
 the shortcut export starts. macOS checks the native print operation and its PDF
@@ -683,3 +1026,34 @@ Keep the movement and frame-time limits. Retain measurements before assertions.
 The disk source fixture retries a fresh File snapshot while a write completes.
 A browser can reject an older snapshot with `NotReadableError` during that write.
 The fixture must still compare the committed file bytes and the rejected branch.
+
+## Project explorer and project drops
+
+The project explorer keeps its expansion state in `mdsh:project-expanded`.
+`e2e/project-explorer.spec.ts` checks these failure risks through the browser:
+
+- A document switch or reload can lose the expanded folder state.
+- A project document can appear twice or receive a new identity when it opens.
+- A drop can place a file in the wrong folder or steal an operating system drop.
+- A name conflict can overwrite an existing document.
+- A folder move can break Markdown links, wiki links, or image paths.
+- A cancelled conflict can leave a partial move.
+- A path traversal or unsupported file can change the project before it fails.
+- A large folder can block the interface without bounded rendering.
+
+The spec records the stored drafts, the rewritten Markdown, a screenshot, and a
+JSON report with the expansion keys or the drop result. It also records a
+heartbeat for the 320 document fixture.
+
+Run the focused workflow with:
+
+```sh
+npx playwright test e2e/project-explorer.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The operating system directory case uses `webkitRelativePath` on a synthetic
+`DataTransfer`. Chromium does not give `webkitGetAsEntry` entries to a synthetic
+drag, so the test checks the relative path fallback. A manual desktop drag of a
+real directory is still necessary for the entry traversal branch. The test does
+not reproduce a denied operating system permission or a real storage quota
+failure. The move transaction is the rollback boundary for those failures.

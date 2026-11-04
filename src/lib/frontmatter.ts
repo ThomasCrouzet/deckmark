@@ -19,6 +19,8 @@ export interface ParsedFrontmatter {
 	content: string;
 	/** Raw source prefix with the byte order mark and front matter, if present. */
 	raw: string;
+	/** YAML failure detail. The content stays usable when this field is present. */
+	error?: string;
 }
 
 /**
@@ -78,7 +80,7 @@ export async function parseFrontmatter(md: string): Promise<ParsedFrontmatter> {
 		// We log just the message (not the stack) so as not to pollute the console.
 		const msg = err instanceof Error ? err.message : String(err);
 		reportWarning('invalid YAML front-matter, ignored', msg);
-		return { data: {}, content: md, raw: '' };
+		return { data: {}, content: md, raw: '', error: msg };
 	}
 }
 

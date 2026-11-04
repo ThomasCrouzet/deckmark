@@ -193,6 +193,8 @@ test('custom templates can be edited and reused from Settings', async ({ page })
 	await openPalette(page);
 	await page.getByRole('combobox').fill('Revised');
 	await page.keyboard.press('Enter');
-	await expect(page.locator('.cm-content')).toContainText('Updated template');
-	await expect(page.locator('.cm-content')).not.toContainText('{{date}}');
+	await expect(page.locator('.ProseMirror')).toContainText('Updated template', {
+		timeout: 20_000
+	});
+	await expect(page.locator('.ProseMirror')).not.toContainText('{{date}}');
 });

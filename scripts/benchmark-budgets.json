@@ -1,0 +1,230 @@
+{
+	"version": 1,
+	"description": "Configurable performance baselines. A baseline is a recorded p95 for one platform, not a claim that platforms have equal timings. The benchmark reports an over-budget status. Pass --enforce-budgets to stop a local or dedicated run.",
+	"defaults": {
+		"toleranceRatio": 1,
+		"minimumRuns": 3
+	},
+	"platforms": {
+		"web-chromium": {
+			"label": "Headless Chromium through the production static build",
+			"source": "Recorded from a development machine. Replace it with the CI artifact for this runner.",
+			"metrics": {
+				"coldStart": { "p95": 400, "unit": "ms", "note": "Includes Playwright command overhead." },
+				"cachedRestart": { "p95": 400, "unit": "ms", "note": "Service worker controlled reload." },
+				"firstContentfulPaint": { "p95": 400, "unit": "ms" },
+				"domInteractive": { "p95": 250, "unit": "ms" },
+				"domContentLoaded": { "p95": 250, "unit": "ms" },
+				"libraryReload": {
+					"p95": 6000,
+					"unit": "ms",
+					"note": "300 library documents plus a 600-document project."
+				},
+				"documentSwitch": {
+					"p95": 6000,
+					"unit": "ms",
+					"note": "The recorded run measured about 2.5 s with 900 stored documents. This is the reported responsiveness defect. The baseline prevents a large regression before a fix lands."
+				},
+				"largeDocumentOpen": { "p95": 5000, "unit": "ms", "note": "About 240 KB of Markdown." },
+				"typingSource": {
+					"p95": 150,
+					"unit": "ms",
+					"note": "Insert dispatch to the next animation frame. Includes product work triggered by the input."
+				},
+				"typingSourceSync": { "p95": 50, "unit": "ms" },
+				"typingSourceDriver": {
+					"p95": 8000,
+					"unit": "ms",
+					"note": "WebDriver text insertion is a harness reference. It can wait behind product save work and does not measure a physical key."
+				},
+				"typingLarge": { "p95": 200, "unit": "ms" },
+				"typingLargeSync": { "p95": 50, "unit": "ms" },
+				"readModeSwitch": { "p95": 2500, "unit": "ms" },
+				"scrollFrame": { "p95": 100, "unit": "ms", "note": "Two animation frames." },
+				"wysiwygLoad": { "p95": 6000, "unit": "ms" },
+				"typingWysiwyg": {
+					"p95": 3000,
+					"unit": "ms",
+					"note": "Large document in the visual editor."
+				},
+				"typingWysiwygSync": { "p95": 200, "unit": "ms" },
+				"projectTreeRender": { "p95": 1500, "unit": "ms", "note": "600 documents in 30 folders." },
+				"presentationLoad": { "p95": 500, "unit": "ms" },
+				"presentationSlideSwitch": { "p95": 200, "unit": "ms" },
+				"presentationPresent": { "p95": 200, "unit": "ms" },
+				"exportHtml": { "p95": 1000, "unit": "ms" },
+				"heapUsedMb": { "p95": 500, "unit": "MB" }
+			}
+		},
+		"web-firefox": {
+			"label": "Headless Firefox through the production static build",
+			"source": "Recorded from a development machine. Firefox shows a higher engine cost for the same corpus.",
+			"metrics": {
+				"coldStart": { "p95": 1200, "unit": "ms" },
+				"cachedRestart": { "p95": 800, "unit": "ms" },
+				"firstContentfulPaint": { "p95": 800, "unit": "ms" },
+				"domInteractive": { "p95": 500, "unit": "ms" },
+				"domContentLoaded": { "p95": 500, "unit": "ms" },
+				"libraryReload": { "p95": 8000, "unit": "ms" },
+				"documentSwitch": { "p95": 8000, "unit": "ms" },
+				"largeDocumentOpen": { "p95": 8000, "unit": "ms" },
+				"typingSource": {
+					"p95": 6000,
+					"unit": "ms",
+					"note": "The recorded run measured about 3.5 s after a save, with 900 stored documents. Keep the sample; investigate before treating it as acceptable."
+				},
+				"typingSourceSync": { "p95": 100, "unit": "ms" },
+				"typingSourceDriver": { "p95": 6000, "unit": "ms" },
+				"typingLarge": { "p95": 6000, "unit": "ms" },
+				"typingLargeSync": { "p95": 100, "unit": "ms" },
+				"readModeSwitch": { "p95": 3000, "unit": "ms" },
+				"scrollFrame": { "p95": 150, "unit": "ms" },
+				"wysiwygLoad": { "p95": 8000, "unit": "ms" },
+				"typingWysiwyg": { "p95": 5000, "unit": "ms" },
+				"typingWysiwygSync": { "p95": 300, "unit": "ms" },
+				"projectTreeRender": { "p95": 1500, "unit": "ms" },
+				"presentationLoad": { "p95": 500, "unit": "ms" },
+				"presentationSlideSwitch": { "p95": 200, "unit": "ms" },
+				"presentationPresent": { "p95": 300, "unit": "ms" },
+				"exportHtml": { "p95": 1500, "unit": "ms" }
+			}
+		},
+		"web-webkit": {
+			"label": "Headless WebKit through the production static build",
+			"source": "Recorded from a development machine. WebKit headless is not a GTK WebView; use the native Linux baseline for that.",
+			"metrics": {
+				"coldStart": { "p95": 800, "unit": "ms" },
+				"cachedRestart": { "p95": 500, "unit": "ms" },
+				"firstContentfulPaint": { "p95": 600, "unit": "ms" },
+				"domInteractive": { "p95": 400, "unit": "ms" },
+				"domContentLoaded": { "p95": 400, "unit": "ms" },
+				"libraryReload": { "p95": 8000, "unit": "ms" },
+				"documentSwitch": { "p95": 6000, "unit": "ms" },
+				"largeDocumentOpen": { "p95": 6000, "unit": "ms" },
+				"typingSource": { "p95": 200, "unit": "ms" },
+				"typingSourceSync": { "p95": 100, "unit": "ms" },
+				"typingSourceDriver": {
+					"p95": 6000,
+					"unit": "ms",
+					"note": "Per-key WebDriver insertion is much slower than one insert command in this engine."
+				},
+				"typingLarge": { "p95": 200, "unit": "ms" },
+				"typingLargeSync": { "p95": 100, "unit": "ms" },
+				"readModeSwitch": { "p95": 4000, "unit": "ms" },
+				"scrollFrame": { "p95": 150, "unit": "ms" },
+				"wysiwygLoad": { "p95": 10000, "unit": "ms" },
+				"typingWysiwyg": { "p95": 4000, "unit": "ms" },
+				"typingWysiwygSync": { "p95": 300, "unit": "ms" },
+				"projectTreeRender": { "p95": 1500, "unit": "ms" },
+				"presentationLoad": { "p95": 600, "unit": "ms" },
+				"presentationSlideSwitch": { "p95": 200, "unit": "ms" },
+				"presentationPresent": { "p95": 500, "unit": "ms" },
+				"exportHtml": { "p95": 1500, "unit": "ms" }
+			}
+		},
+		"native-linux-webkitgtk": {
+			"label": "Linux WebKitGTK through the built Tauri binary",
+			"source": "Provisional baseline for a debug native-smoke build on a virtual display. Replace it with a recorded artifact from the target runner.",
+			"metrics": {
+				"startupCold": { "p95": 15000, "unit": "ms", "note": "Debug build and virtual display." },
+				"startupWarm": { "p95": 12000, "unit": "ms" },
+				"libraryReload": { "p95": 6000, "unit": "ms" },
+				"typingSource": { "p95": 300, "unit": "ms" },
+				"typingSourceSync": { "p95": 100, "unit": "ms" },
+				"typingSourceDriver": {
+					"p95": 8000,
+					"unit": "ms",
+					"note": "Harness reference only. It can wait behind product save work."
+				},
+				"documentSwitch": { "p95": 6000, "unit": "ms" },
+				"largeDocumentOpen": { "p95": 5000, "unit": "ms" },
+				"typingLarge": { "p95": 400, "unit": "ms" },
+				"typingLargeSync": { "p95": 150, "unit": "ms" },
+				"readModeSwitch": { "p95": 8000, "unit": "ms" },
+				"scrollFrame": { "p95": 200, "unit": "ms" },
+				"wysiwygLoad": { "p95": 10000, "unit": "ms" },
+				"typingWysiwyg": { "p95": 4000, "unit": "ms" },
+				"typingWysiwygSync": { "p95": 300, "unit": "ms" },
+				"projectTreeRender": { "p95": 4000, "unit": "ms" },
+				"presentationLoad": { "p95": 6000, "unit": "ms" },
+				"presentationSlideSwitch": { "p95": 800, "unit": "ms" },
+				"presentationPresent": { "p95": 600, "unit": "ms" },
+				"exportPrepare": { "p95": 8000, "unit": "ms", "note": "Stops before the OS print dialog." },
+				"closeMs": { "p95": 5000, "unit": "ms" },
+				"rssMb": { "p95": 700, "unit": "MB", "note": "Sum of the application process tree." }
+			}
+		},
+		"native-windows-webview2": {
+			"label": "Windows WebView2 through the built Tauri binary",
+			"source": "Provisional baseline for a GitHub Windows runner. Replace it with a recorded artifact from that runner.",
+			"metrics": {
+				"startupCold": { "p95": 15000, "unit": "ms" },
+				"startupWarm": { "p95": 12000, "unit": "ms" },
+				"libraryReload": { "p95": 6000, "unit": "ms" },
+				"typingSource": { "p95": 300, "unit": "ms" },
+				"typingSourceSync": { "p95": 100, "unit": "ms" },
+				"typingSourceDriver": {
+					"p95": 8000,
+					"unit": "ms",
+					"note": "Harness reference only. It can wait behind product save work."
+				},
+				"documentSwitch": { "p95": 6000, "unit": "ms" },
+				"largeDocumentOpen": { "p95": 5000, "unit": "ms" },
+				"typingLarge": { "p95": 400, "unit": "ms" },
+				"typingLargeSync": { "p95": 150, "unit": "ms" },
+				"readModeSwitch": { "p95": 8000, "unit": "ms" },
+				"scrollFrame": { "p95": 200, "unit": "ms" },
+				"wysiwygLoad": { "p95": 10000, "unit": "ms" },
+				"typingWysiwyg": { "p95": 4000, "unit": "ms" },
+				"typingWysiwygSync": { "p95": 300, "unit": "ms" },
+				"projectTreeRender": { "p95": 4000, "unit": "ms" },
+				"presentationLoad": { "p95": 6000, "unit": "ms" },
+				"presentationSlideSwitch": { "p95": 800, "unit": "ms" },
+				"presentationPresent": { "p95": 600, "unit": "ms" },
+				"exportPrepare": { "p95": 8000, "unit": "ms" },
+				"closeMs": { "p95": 5000, "unit": "ms" },
+				"rssMb": {
+					"p95": 900,
+					"unit": "MB",
+					"note": "WebView2 helper processes can raise the total."
+				}
+			}
+		},
+		"native-macos-wkwebview": {
+			"label": "macOS Apple Silicon WKWebView through the built Tauri binary",
+			"source": "Provisional baseline for an Apple Silicon GitHub runner. Replace it with a recorded artifact from that runner.",
+			"metrics": {
+				"startupCold": { "p95": 12000, "unit": "ms" },
+				"startupWarm": { "p95": 9000, "unit": "ms" },
+				"libraryReload": { "p95": 5000, "unit": "ms" },
+				"typingSource": { "p95": 200, "unit": "ms" },
+				"typingSourceSync": { "p95": 80, "unit": "ms" },
+				"typingSourceDriver": {
+					"p95": 8000,
+					"unit": "ms",
+					"note": "Harness reference only. It can wait behind product save work."
+				},
+				"documentSwitch": { "p95": 5000, "unit": "ms" },
+				"largeDocumentOpen": { "p95": 4000, "unit": "ms" },
+				"typingLarge": { "p95": 300, "unit": "ms" },
+				"typingLargeSync": { "p95": 100, "unit": "ms" },
+				"readModeSwitch": { "p95": 6000, "unit": "ms" },
+				"scrollFrame": { "p95": 150, "unit": "ms" },
+				"wysiwygLoad": { "p95": 8000, "unit": "ms" },
+				"typingWysiwyg": { "p95": 3000, "unit": "ms" },
+				"typingWysiwygSync": { "p95": 250, "unit": "ms" },
+				"projectTreeRender": { "p95": 3000, "unit": "ms" },
+				"presentationLoad": { "p95": 5000, "unit": "ms" },
+				"presentationSlideSwitch": { "p95": 600, "unit": "ms" },
+				"presentationPresent": { "p95": 500, "unit": "ms" },
+				"exportPrepare": {
+					"p95": 10000,
+					"unit": "ms",
+					"note": "Real AppKit print operation and PDF write."
+				},
+				"closeMs": { "p95": 4000, "unit": "ms" },
+				"rssMb": { "p95": 700, "unit": "MB" }
+			}
+		}
+	}
+}

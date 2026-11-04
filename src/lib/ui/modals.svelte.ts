@@ -16,7 +16,8 @@
 import type { EditMode } from '#lib/types.js';
 import { reportError } from '#lib/report.js';
 import { t, type MessageKey } from '#lib/i18n/index.js';
-import { documentKind } from '#lib/document-kind.js';
+import { documentKindForFile } from '#lib/document-kind.js';
+import type { SnippetsOpenOptions } from '#lib/snippets.js';
 
 /**
  * Builds a memoized loader for a lazy modal. An import can fail offline or with
@@ -79,6 +80,19 @@ export function createModals(opts: ModalsOptions) {
 	let settingsOpen = $state(false);
 	let historyOpen = $state(false);
 	let graphOpen = $state(false);
+	let aiOpen = $state(false);
+	let propertiesOpen = $state(false);
+	let commentsOpen = $state(false);
+	let exportProfilesOpen = $state(false);
+	let linkedBlocksOpen = $state(false);
+	let semanticOpen = $state(false);
+	let collectionOpen = $state(false);
+	let docsCheckOpen = $state(false);
+	let docsCheckProjectId = $state<string | null>(null);
+	let snippetsOpen = $state(false);
+	let snippetsOptions = $state<SnippetsOpenOptions>({});
+	let docsSiteOpen = $state(false);
+	let docsSiteProjectId = $state<string | null>(null);
 	let presenting = $state(false);
 	let newDocumentOpen = $state(false);
 
@@ -91,6 +105,16 @@ export function createModals(opts: ModalsOptions) {
 		settingsOpen = false;
 		historyOpen = false;
 		graphOpen = false;
+		aiOpen = false;
+		propertiesOpen = false;
+		commentsOpen = false;
+		exportProfilesOpen = false;
+		linkedBlocksOpen = false;
+		semanticOpen = false;
+		collectionOpen = false;
+		docsCheckOpen = false;
+		snippetsOpen = false;
+		docsSiteOpen = false;
 		newDocumentOpen = false;
 	}
 
@@ -154,6 +178,76 @@ export function createModals(opts: ModalsOptions) {
 		},
 		'modals.labelGraph'
 	);
+	const loadAiPanel = makeLazyLoader(
+		() => import('#lib/components/AiPanel.svelte'),
+		() => {
+			aiOpen = false;
+		},
+		'modals.labelAi'
+	);
+	const loadPropertiesPanel = makeLazyLoader(
+		() => import('#lib/components/FrontmatterPanel.svelte'),
+		() => {
+			propertiesOpen = false;
+		},
+		'modals.labelProperties'
+	);
+	const loadCommentsPanel = makeLazyLoader(
+		() => import('#lib/components/CommentsPanel.svelte'),
+		() => {
+			commentsOpen = false;
+		},
+		'modals.labelComments'
+	);
+	const loadExportProfilesPanel = makeLazyLoader(
+		() => import('#lib/components/ExportProfilesPanel.svelte'),
+		() => {
+			exportProfilesOpen = false;
+		},
+		'exportProfiles.title'
+	);
+	const loadLinkedBlocksPanel = makeLazyLoader(
+		() => import('#lib/components/LinkedBlocksPanel.svelte'),
+		() => {
+			linkedBlocksOpen = false;
+		},
+		'blocks.title'
+	);
+	const loadSemanticPanel = makeLazyLoader(
+		() => import('#lib/components/SemanticSearchPanel.svelte'),
+		() => {
+			semanticOpen = false;
+		},
+		'semantic.title'
+	);
+	const loadCollectionPanel = makeLazyLoader(
+		() => import('#lib/components/CollectionPanel.svelte'),
+		() => {
+			collectionOpen = false;
+		},
+		'modals.labelCollection'
+	);
+	const loadDocsCheckPanel = makeLazyLoader(
+		() => import('#lib/components/DocsCheckPanel.svelte'),
+		() => {
+			docsCheckOpen = false;
+		},
+		'modals.labelDocsCheck'
+	);
+	const loadSnippetsPanel = makeLazyLoader(
+		() => import('#lib/components/SnippetsPanel.svelte'),
+		() => {
+			snippetsOpen = false;
+		},
+		'snippets.title'
+	);
+	const loadDocsSitePanel = makeLazyLoader(
+		() => import('#lib/components/DocsSiteExportPanel.svelte'),
+		() => {
+			docsSiteOpen = false;
+		},
+		'projects.export'
+	);
 	const loadNewDocument = makeLazyLoader(
 		() => import('#lib/components/NewDocumentDialog.svelte'),
 		() => {
@@ -214,6 +308,59 @@ export function createModals(opts: ModalsOptions) {
 		graphOpen = true;
 	}
 
+	function openAi() {
+		closeAll();
+		aiOpen = true;
+	}
+
+	function openProperties() {
+		closeAll();
+		propertiesOpen = true;
+	}
+
+	function openComments() {
+		closeAll();
+		commentsOpen = true;
+	}
+
+	function openExportProfiles() {
+		closeAll();
+		exportProfilesOpen = true;
+	}
+
+	function openSemantic() {
+		closeAll();
+		semanticOpen = true;
+	}
+
+	function openLinkedBlocks() {
+		closeAll();
+		linkedBlocksOpen = true;
+	}
+
+	function openCollection() {
+		closeAll();
+		collectionOpen = true;
+	}
+
+	function openDocsCheck(projectId: string | null = null) {
+		closeAll();
+		docsCheckProjectId = projectId;
+		docsCheckOpen = true;
+	}
+
+	function openSnippets(options: SnippetsOpenOptions = {}) {
+		closeAll();
+		snippetsOptions = options;
+		snippetsOpen = true;
+	}
+
+	function openDocsSite(projectId: string | null = null) {
+		closeAll();
+		docsSiteProjectId = projectId;
+		docsSiteOpen = true;
+	}
+
 	function openNewDocument() {
 		closeAll();
 		newDocumentOpen = true;
@@ -226,7 +373,8 @@ export function createModals(opts: ModalsOptions) {
 	function handleOpenHit(fileId: string, line: number, query: string) {
 		const changedFile = opts.getFilesStoreActive()?.id !== fileId;
 		opts.getFilesStoreSetActive()(fileId);
-		if (documentKind(opts.getFilesStoreActive()?.content ?? '') === 'presentation') {
+		const hitFile = opts.getFilesStoreActive();
+		if (!hitFile || documentKindForFile(hitFile) === 'image') {
 			opts.setPendingGoToHit(null);
 			return;
 		}
@@ -262,6 +410,16 @@ export function createModals(opts: ModalsOptions) {
 				settingsOpen ||
 				historyOpen ||
 				graphOpen ||
+				aiOpen ||
+				propertiesOpen ||
+				commentsOpen ||
+				exportProfilesOpen ||
+				linkedBlocksOpen ||
+				semanticOpen ||
+				collectionOpen ||
+				docsCheckOpen ||
+				snippetsOpen ||
+				docsSiteOpen ||
 				newDocumentOpen ||
 				presenting
 			);
@@ -316,11 +474,90 @@ export function createModals(opts: ModalsOptions) {
 			if (v) openGraph();
 			else graphOpen = false;
 		},
+		get propertiesOpen() {
+			return propertiesOpen;
+		},
+		set propertiesOpen(value: boolean) {
+			if (value) openProperties();
+			else propertiesOpen = false;
+		},
+		get commentsOpen() {
+			return commentsOpen;
+		},
+		set commentsOpen(value: boolean) {
+			if (value) openComments();
+			else commentsOpen = false;
+		},
+		get exportProfilesOpen() {
+			return exportProfilesOpen;
+		},
+		set exportProfilesOpen(value: boolean) {
+			if (value) openExportProfiles();
+			else exportProfilesOpen = false;
+		},
+		get semanticOpen() {
+			return semanticOpen;
+		},
+		set semanticOpen(value: boolean) {
+			if (value) openSemantic();
+			else semanticOpen = false;
+		},
+		get linkedBlocksOpen() {
+			return linkedBlocksOpen;
+		},
+		set linkedBlocksOpen(value: boolean) {
+			if (value) openLinkedBlocks();
+			else linkedBlocksOpen = false;
+		},
+		get collectionOpen() {
+			return collectionOpen;
+		},
+		set collectionOpen(value: boolean) {
+			if (value) openCollection();
+			else collectionOpen = false;
+		},
+		get docsCheckOpen() {
+			return docsCheckOpen;
+		},
+		set docsCheckOpen(v: boolean) {
+			if (v) openDocsCheck();
+			else docsCheckOpen = false;
+		},
+		get docsCheckProjectId() {
+			return docsCheckProjectId;
+		},
+		get snippetsOpen() {
+			return snippetsOpen;
+		},
+		set snippetsOpen(value: boolean) {
+			if (value) openSnippets(snippetsOptions);
+			else snippetsOpen = false;
+		},
+		get snippetsOptions() {
+			return snippetsOptions;
+		},
+		get docsSiteOpen() {
+			return docsSiteOpen;
+		},
+		set docsSiteOpen(v: boolean) {
+			if (v) openDocsSite();
+			else docsSiteOpen = false;
+		},
+		get docsSiteProjectId() {
+			return docsSiteProjectId;
+		},
 		get presenting() {
 			return presenting;
 		},
 		set presenting(v: boolean) {
 			presenting = v;
+		},
+		get aiOpen() {
+			return aiOpen;
+		},
+		set aiOpen(value: boolean) {
+			if (value) openAi();
+			else aiOpen = false;
 		},
 		get newDocumentOpen() {
 			return newDocumentOpen;
@@ -330,6 +567,20 @@ export function createModals(opts: ModalsOptions) {
 			else newDocumentOpen = false;
 		},
 		loadNewDocument,
+		loadAiPanel,
+		loadPropertiesPanel,
+		loadCommentsPanel,
+		loadCollectionPanel,
+		loadExportProfilesPanel,
+		loadLinkedBlocksPanel,
+		loadSemanticPanel,
+		openAi,
+		openExportProfiles,
+		openLinkedBlocks,
+		openSemantic,
+		openProperties,
+		openComments,
+		openCollection,
 		openNewDocument,
 		// Loaders
 		loadCommandPalette,
@@ -339,8 +590,13 @@ export function createModals(opts: ModalsOptions) {
 		loadSettingsPanel,
 		loadHistoryPanel,
 		loadGraphPanel,
+		loadDocsCheckPanel,
+		loadSnippetsPanel,
+		loadDocsSitePanel,
 		loadToc,
 		// Actions
+		openSnippets,
+		openDocsSite,
 		openPalette,
 		openSearch,
 		openDiskLinks,
@@ -348,6 +604,7 @@ export function createModals(opts: ModalsOptions) {
 		openSettings,
 		openHistory,
 		openGraph,
+		openDocsCheck,
 		handleOpenHit
 	};
 }

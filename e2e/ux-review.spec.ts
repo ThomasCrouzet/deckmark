@@ -24,6 +24,8 @@ async function start(page: Page, locale: 'en' | 'fr') {
 async function note(page: Page) {
 	await page.getByTestId('welcome-new').click();
 	await page.getByTestId('create-note').click();
+	// New notes open in Edit mode; these review checks drive the source editor.
+	await page.locator('button[data-mode="source"]').click();
 	await page.locator('.cm-content').fill('# Review note\n\nA local document.');
 }
 

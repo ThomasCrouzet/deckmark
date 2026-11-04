@@ -1,10 +1,26 @@
+// Measure product performance through a real browser or a real native WebView.
+// The command reads local fixtures, writes one raw JSON report, and sends no
+// telemetry. Run it in two modes: --target web and --target native.
 import { createServer } from 'node:http';
 import { readFile, stat, writeFile } from 'node:fs/promises';
-import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { chromium } from '@playwright/test';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { chromium, firefox, webkit } from '@playwright/test';
+import {
+	budgetReport,
+	environmentIdentity,
+	gitRevision,
+	loadBudgets,
+	loadFixtures,
+	megabytes,
+	platformKeyForWeb,
+	round,
+	summarize
+} from './benchmark-shared.mjs';
+import { largeNote, libraryRows, projectRows } from './benchmark-fixtures/corpus.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 const defaultPort = 4183;
+const browserTypes = { chromium, firefox, webkit };
 const contentTypes = {
 	'.css': 'text/css; charset=utf-8',
 	'.html': 'text/html; charset=utf-8',
@@ -15,17 +31,43 @@ const contentTypes = {
 	'.svg': 'image/svg+xml',
 	'.webmanifest': 'application/manifest+json',
 	'.webp': 'image/webp',
+	'.woff': 'font/woff',
 	'.woff2': 'font/woff2'
 };
+const libraryFixture = libraryRows();
+const projectFixture = projectRows();
+const largeFixture = largeNote();
 
 function parseArguments(args) {
-	const options = { runs: 9, output: null, url: null };
+	const options = {
+		target: 'web',
+		browser: 'chromium',
+		runs: 9,
+		output: null,
+		url: null,
+		budgets: join(projectRoot, 'scripts/benchmark-budgets.json'),
+		fixtures: join(projectRoot, 'scripts/benchmark-fixtures'),
+		buildMode: process.env.BENCHMARK_BUILD_MODE ?? 'production-static',
+		enforceBudgets: false
+	};
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index];
-		if (arg === '--runs') options.runs = Number(args[++index]);
+		if (arg === '--target') options.target = args[++index];
+		else if (arg === '--browser') options.browser = args[++index];
+		else if (arg === '--runs') options.runs = Number(args[++index]);
 		else if (arg === '--output') options.output = args[++index] ?? null;
 		else if (arg === '--url') options.url = args[++index] ?? null;
+		else if (arg === '--budgets') options.budgets = resolve(args[++index] ?? '');
+		else if (arg === '--fixtures') options.fixtures = resolve(args[++index] ?? '');
+		else if (arg === '--build-mode') options.buildMode = args[++index] ?? options.buildMode;
+		else if (arg === '--enforce-budgets') options.enforceBudgets = true;
 		else throw new Error(`Unknown argument: ${arg}`);
+	}
+	if (!['web', 'native'].includes(options.target)) {
+		throw new Error('--target must be web or native.');
+	}
+	if (!browserTypes[options.browser]) {
+		throw new Error('--browser must be chromium, firefox, or webkit.');
 	}
 	if (!Number.isInteger(options.runs) || options.runs < 3 || options.runs > 50) {
 		throw new Error('--runs must be an integer from 3 through 50.');
@@ -38,21 +80,6 @@ function parseArguments(args) {
 		}
 	}
 	return options;
-}
-
-function percentile(values, ratio) {
-	const sorted = [...values].sort((a, b) => a - b);
-	return sorted[Math.max(0, Math.ceil(sorted.length * ratio) - 1)];
-}
-
-function summarize(values) {
-	return {
-		runs: values.length,
-		medianMs: Number(percentile(values, 0.5).toFixed(1)),
-		p95Ms: Number(percentile(values, 0.95).toFixed(1)),
-		minMs: Number(Math.min(...values).toFixed(1)),
-		maxMs: Number(Math.max(...values).toFixed(1))
-	};
 }
 
 async function waitForServer(url) {
@@ -125,9 +152,53 @@ async function waitForShell(page) {
 	});
 }
 
+/** Dispatch a DOM click so Playwright actionability retries do not inflate the sample. */
+async function domClick(page, selector) {
+	await page.evaluate((target) => {
+		const element = document.querySelector(target);
+		if (!element) throw new Error(`Missing click target: ${target}`);
+		element.click();
+	}, selector);
+}
+
+/**
+ * Wait for a quiet main thread before an input sample. Background indexing after
+ * a large seed can otherwise dominate the first frames and hide steady state.
+ */
+async function waitForIdle(page, timeout = 20_000) {
+	await page.evaluate(
+		(limit) =>
+			new Promise((resolvePromise) => {
+				let settled = false;
+				const finish = () => {
+					if (settled) return;
+					settled = true;
+					resolvePromise(true);
+				};
+				const fallback = setTimeout(finish, limit);
+				if (typeof requestIdleCallback !== 'function') {
+					setTimeout(finish, 1_500);
+					return;
+				}
+				requestIdleCallback(
+					() =>
+						setTimeout(() => {
+							clearTimeout(fallback);
+							finish();
+						}, 250),
+					{ timeout: limit }
+				);
+			}),
+		timeout
+	);
+}
+
 async function measureStartup(browser, url, runs) {
 	const coldStart = [];
 	const cachedRestart = [];
+	const firstContentfulPaint = [];
+	const domContentLoaded = [];
+	const domInteractive = [];
 	for (let run = 0; run < runs; run += 1) {
 		const context = await browser.newContext({ locale: 'en-US' });
 		const page = await context.newPage();
@@ -135,6 +206,18 @@ async function measureStartup(browser, url, runs) {
 		await page.goto(url);
 		await waitForShell(page);
 		coldStart.push(performance.now() - coldStartAt);
+		const navigations = await page.evaluate(() => {
+			const navigation = performance.getEntriesByType('navigation')[0];
+			const paint = performance.getEntriesByName('first-contentful-paint')[0];
+			return {
+				fcp: paint?.startTime ?? null,
+				domInteractive: navigation?.domInteractive ?? null,
+				domContentLoaded: navigation?.domContentLoadedEventEnd ?? null
+			};
+		});
+		firstContentfulPaint.push(navigations.fcp);
+		domInteractive.push(navigations.domInteractive);
+		domContentLoaded.push(navigations.domContentLoaded);
 
 		await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 		for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -148,122 +231,540 @@ async function measureStartup(browser, url, runs) {
 		cachedRestart.push(performance.now() - cachedStartAt);
 		await context.close();
 	}
-	return { coldStart, cachedRestart };
+	return { coldStart, cachedRestart, firstContentfulPaint, domInteractive, domContentLoaded };
 }
 
-function benchmarkContent(index) {
-	const paragraph = `Draft ${index} contains local Markdown, tags, [[links]], tables, and code. `;
-	return `---\ntitle: Benchmark ${index}\ntags: [benchmark, corpus]\n---\n\n# Draft ${index}\n\n${paragraph.repeat(145)}`;
-}
-
-async function seedCorpus(page, count) {
-	const drafts = Array.from({ length: count }, (_, index) => ({
-		id: `benchmark-${String(index).padStart(3, '0')}`,
-		name: `benchmark-${String(index).padStart(3, '0')}.md`,
-		content: benchmarkContent(index),
-		createdAt: 1_700_000_000_000 + index,
-		updatedAt: 1_700_000_000_000 + index,
-		order: index,
-		open: true
-	}));
-	await page.evaluate(async (rows) => {
-		await new Promise((resolvePromise, reject) => {
-			const request = indexedDB.open('mdsh');
-			request.onerror = () => reject(request.error);
-			request.onsuccess = () => {
-				const database = request.result;
-				const transaction = database.transaction('drafts', 'readwrite');
-				const store = transaction.objectStore('drafts');
-				store.clear();
-				for (const row of rows) store.put(row);
-				transaction.oncomplete = () => {
-					database.close();
-					resolvePromise(undefined);
+async function seedDatabase(page) {
+	const rows = [
+		{
+			...libraryFixture[0],
+			id: 'bench-presentation',
+			name: 'bench-presentation.md',
+			content: (
+				await readFile(join(projectRoot, 'scripts/benchmark-fixtures/presentation.md'))
+			).toString('utf8'),
+			order: -2,
+			open: true
+		},
+		{
+			id: 'bench-large',
+			name: 'bench-large.md',
+			content: largeFixture,
+			createdAt: 1_700_000_000_000,
+			updatedAt: 1_700_000_000_000,
+			order: -1,
+			open: true
+		},
+		...libraryFixture,
+		...projectFixture.documents
+	];
+	await page.evaluate(
+		async ({ rows: draftRows, project }) => {
+			await new Promise((resolvePromise, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const names = [...database.objectStoreNames];
+					const stores = ['drafts', ...(names.includes('projects') ? ['projects'] : [])];
+					const transaction = database.transaction(stores, 'readwrite');
+					const drafts = transaction.objectStore('drafts');
+					drafts.clear();
+					for (const row of draftRows) drafts.put(row);
+					if (names.includes('projects')) {
+						const projects = transaction.objectStore('projects');
+						projects.clear();
+						projects.put(project);
+					}
+					transaction.oncomplete = () => {
+						database.close();
+						resolvePromise(undefined);
+					};
+					transaction.onerror = () => reject(transaction.error);
 				};
-				transaction.onerror = () => reject(transaction.error);
-			};
-		});
-		localStorage.setItem('mdsh:activeId', rows[0].id);
-		localStorage.setItem('mdsh:mode', 'source');
-	}, drafts);
+			});
+			localStorage.setItem('mdsh:activeId', 'bench-000');
+			localStorage.setItem('mdsh:mode', 'source');
+			localStorage.setItem('mdsh:locale', 'en');
+		},
+		{ rows, project: projectFixture.project }
+	);
 }
 
-async function measureCorpus(browser, url, runs) {
-	const context = await browser.newContext({ locale: 'en-US' });
-	const page = await context.newPage();
-	await page.goto(url);
-	await waitForShell(page);
-	await seedCorpus(page, 300);
+async function installInputProbe(page) {
+	await page.evaluate(() => {
+		const benchmark = (window.__benchmark = window.__benchmark ?? {});
+		benchmark.input = (selector, text) => {
+			const editor = document.querySelector(selector);
+			if (!editor) return Promise.resolve({ supported: false, reason: 'missing-editor' });
+			editor.focus();
+			const range = document.createRange();
+			range.selectNodeContents(editor);
+			range.collapse(false);
+			const selection = window.getSelection();
+			selection.removeAllRanges();
+			selection.addRange(range);
+			const before = editor.textContent ?? '';
+			const startedAt = performance.now();
+			let supported = true;
+			try {
+				supported = document.execCommand('insertText', false, text);
+			} catch {
+				supported = false;
+			}
+			const updatedAt = performance.now();
+			return new Promise((resolvePromise) =>
+				requestAnimationFrame(() => {
+					const after = editor.textContent ?? '';
+					resolvePromise({
+						supported,
+						changed: after !== before,
+						syncMs: updatedAt - startedAt,
+						frameMs: performance.now() - startedAt
+					});
+				})
+			);
+		};
+	});
+}
 
-	const corpusReload = [];
+async function measureInput(page, selector, runs, label) {
+	const values = [];
+	const sync = [];
+	let supported = true;
+	for (let run = 0; run < runs; run += 1) {
+		const result = await page.evaluate(
+			([target, text]) => window.__benchmark.input(target, text),
+			[selector, ` ${label}${run}`]
+		);
+		if (!result?.supported || !result.changed) {
+			supported = false;
+			values.push(null);
+			sync.push(null);
+			if (run >= 1) break;
+			continue;
+		}
+		values.push(round(result.frameMs));
+		sync.push(round(result.syncMs));
+	}
+	while (values.length < runs) {
+		values.push(null);
+		sync.push(null);
+	}
+	return { values, sync, supported };
+}
+
+async function measureDriverTyping(page, runs, label) {
+	const values = [];
 	for (let run = 0; run < runs; run += 1) {
 		const startedAt = performance.now();
+		await page.keyboard.insertText(` ${label}${run}`);
+		values.push(performance.now() - startedAt);
+	}
+	return values;
+}
+
+async function measureDocumentSwitch(page, runs) {
+	await domClick(page, 'button[data-mode="source"]');
+	await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
+	const values = [];
+	for (let run = 0; run < runs; run += 1) {
+		const id = `bench-${String((run % 6) + 1).padStart(3, '0')}`;
+		await waitForIdle(page);
+		const startedAt = performance.now();
+		await domClick(page, `button[data-file-id="${id}"]`);
+		await page.waitForFunction(
+			(expected) => document.querySelector('header input')?.value === expected,
+			id,
+			{ timeout: 30_000 }
+		);
+		values.push(performance.now() - startedAt);
+	}
+	return values;
+}
+
+async function measureLargeDocumentOpen(page, runs) {
+	const values = [];
+	for (let run = 0; run < runs; run += 1) {
+		await domClick(page, 'button[data-file-id="bench-000"]');
+		await page.waitForFunction(
+			() => document.querySelector('header input')?.value === 'bench-000',
+			undefined,
+			{ timeout: 30_000 }
+		);
+		await waitForIdle(page);
+		const startedAt = performance.now();
+		await domClick(page, 'button[data-file-id="bench-large"]');
+		await page.waitForFunction(
+			() => document.querySelector('header input')?.value === 'bench-large',
+			undefined,
+			{ timeout: 60_000 }
+		);
+		values.push(performance.now() - startedAt);
+	}
+	return values;
+}
+
+async function measureReadMode(page, runs) {
+	const values = [];
+	for (let run = 0; run < runs; run += 1) {
+		const startedAt = performance.now();
+		await domClick(page, 'button[data-mode="read"]');
+		await page.locator('.mdsh-read .mdsh-preview').waitFor({ state: 'visible', timeout: 60_000 });
+		await page.waitForFunction(
+			() => (document.querySelector('.mdsh-preview')?.textContent?.length ?? 0) > 100_000,
+			undefined,
+			{ timeout: 60_000 }
+		);
+		values.push(performance.now() - startedAt);
+		await domClick(page, 'button[data-mode="source"]');
+		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
+	}
+	return values;
+}
+
+async function measureScroll(page, runs) {
+	const values = [];
+	for (let run = 0; run < runs; run += 1) {
+		const result = await page.evaluate(
+			(ratio) =>
+				new Promise((resolvePromise) => {
+					const scroller = document.querySelector('.mdsh-read');
+					if (!scroller) {
+						resolvePromise(null);
+						return;
+					}
+					const room = scroller.scrollHeight - scroller.clientHeight;
+					const startedAt = performance.now();
+					scroller.scrollTop = Math.round(room * ratio);
+					requestAnimationFrame(() => {
+						requestAnimationFrame(() => {
+							resolvePromise({
+								ms: performance.now() - startedAt,
+								applied: scroller.scrollTop,
+								room
+							});
+						});
+					});
+				}),
+			((run % 8) + 1) / 9
+		);
+		values.push(result && result.room > 0 ? round(result.ms) : null);
+	}
+	return values;
+}
+
+async function measureModeSwitch(page, runs) {
+	const wysiwygLoad = [];
+	const typing = [];
+	const typingSync = [];
+	for (let run = 0; run < runs; run += 1) {
+		const startedAt = performance.now();
+		await domClick(page, 'button[data-mode="wysiwyg"]');
+		await page.locator('.milkdown .ProseMirror').waitFor({ state: 'visible', timeout: 60_000 });
+		wysiwygLoad.push(performance.now() - startedAt);
+		await waitForIdle(page);
+		await installInputProbe(page);
+		const result = await measureInput(page, '.milkdown .ProseMirror', 1, `visual${run}`);
+		typing.push(result.values[0]);
+		typingSync.push(result.sync[0]);
+		await domClick(page, 'button[data-mode="source"]');
+		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
+	}
+	return { wysiwygLoad, typing, typingSync };
+}
+
+async function measureProjectTree(page, runs) {
+	const panel = page.locator('[role="dialog"][aria-labelledby="projects-title"]');
+	const values = [];
+	for (let run = 0; run < runs; run += 1) {
+		const startedAt = performance.now();
+		await domClick(page, '[data-testid="projects-open"]');
+		await panel.waitFor({ state: 'visible', timeout: 30_000 });
+		await page.waitForFunction(
+			(expected) =>
+				document.querySelectorAll('[role="dialog"] [data-project-document]').length === expected,
+			projectFixture.documents.length,
+			{ timeout: 60_000 }
+		);
+		values.push(performance.now() - startedAt);
+		// The close control stays disabled while the panel is busy. Wait for the
+		// idle state before the close click, otherwise slower engines drop it.
+		await page.waitForFunction(
+			() => {
+				const button = document.querySelector(
+					'[role="dialog"][aria-labelledby="projects-title"] header button'
+				);
+				return !!button && !(/** @type {HTMLButtonElement} */ (button).disabled);
+			},
+			null,
+			{ timeout: 60_000 }
+		);
+		await domClick(page, '[role="dialog"][aria-labelledby="projects-title"] header button');
+		await panel.waitFor({ state: 'hidden', timeout: 30_000 });
+	}
+	return values;
+}
+
+async function measurePresentation(page, runs) {
+	await domClick(page, 'button[data-file-id="bench-presentation"]');
+	const loadStartedAt = performance.now();
+	await page.locator('[data-testid="presentation-editor"]').waitFor({
+		state: 'visible',
+		timeout: 60_000
+	});
+	await page
+		.locator('[data-testid="slide-thumbnail"]')
+		.first()
+		.waitFor({ state: 'visible', timeout: 60_000 });
+	const load = performance.now() - loadStartedAt;
+	const slideSwitch = [];
+	for (let run = 0; run < runs; run += 1) {
+		const index = (run % 2) + 1;
+		const startedAt = performance.now();
+		await domClick(page, `[data-testid="slide-thumbnail"][data-slide-index="${index}"]`);
+		await page.waitForFunction(
+			(expected) =>
+				document
+					.querySelector(`[data-testid="slide-thumbnail"][data-slide-index="${expected}"]`)
+					?.getAttribute('aria-current') === 'true',
+			index,
+			{ timeout: 30_000 }
+		);
+		slideSwitch.push(performance.now() - startedAt);
+	}
+	const present = [];
+	for (let run = 0; run < runs; run += 1) {
+		const startedAt = performance.now();
+		await domClick(page, '[data-testid="slide-present"]');
+		await page.locator('[data-testid="slide-present-exit"]').waitFor({
+			state: 'visible',
+			timeout: 30_000
+		});
+		present.push(performance.now() - startedAt);
+		await domClick(page, '[data-testid="slide-present-exit"]');
+		await page.locator('[data-testid="slide-present"]').waitFor({
+			state: 'visible',
+			timeout: 30_000
+		});
+	}
+	return { load: [load], slideSwitch, present };
+}
+
+async function measureExport(page, runs) {
+	const values = [];
+	for (let run = 0; run < runs; run += 1) {
+		await domClick(page, 'button[aria-label="Command palette"]');
+		await page.getByRole('dialog', { name: 'Command palette' }).waitFor({ state: 'visible' });
+		await page.keyboard.type('Export as HTML');
+		const startedAt = performance.now();
+		const download = page.waitForEvent('download');
+		await page.keyboard.press('Enter');
+		const result = await download;
+		values.push(performance.now() - startedAt);
+		await result.cancel().catch(() => undefined);
+		await page
+			.getByRole('dialog', { name: 'Command palette' })
+			.waitFor({ state: 'hidden', timeout: 30_000 });
+	}
+	return values;
+}
+
+async function measureHeap(page, browserName) {
+	if (browserName !== 'chromium') {
+		const value = await page.evaluate(() => {
+			const memory = /** @type {{ usedJSHeapSize?: number } | undefined} */ (performance.memory);
+			return memory?.usedJSHeapSize ?? null;
+		});
+		return value === null ? null : megabytes(value);
+	}
+	const session = await page.context().newCDPSession(page);
+	try {
+		await session.send('Performance.enable');
+		const { metrics } = await session.send('Performance.getMetrics');
+		const heap = metrics.find((metric) => metric.name === 'JSHeapUsedSize')?.value;
+		return heap === undefined ? null : megabytes(heap);
+	} finally {
+		await session.detach();
+	}
+}
+
+async function runWebBenchmark(options, fixtures) {
+	const { server, url } = options.url
+		? { server: null, url: options.url }
+		: await startStaticServer();
+	const browserType = browserTypes[options.browser];
+	const browser = await browserType.launch();
+	const failures = [];
+	const expensiveRuns = Math.min(options.runs, 5);
+	try {
+		const startup = await measureStartup(browser, url, options.runs);
+		const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
+		const page = await context.newPage();
+		await page.goto(url);
+		await waitForShell(page);
+		await seedDatabase(page);
+		const libraryReload = [];
+		const libraryReloadAt = performance.now();
 		await page.reload();
 		await waitForShell(page);
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
-		corpusReload.push(performance.now() - startedAt);
-	}
+		libraryReload.push(performance.now() - libraryReloadAt);
 
-	const sourceInsertion = [];
-	const editor = page.locator('.cm-content').first();
-	await editor.click();
-	for (let run = 0; run < runs; run += 1) {
-		const startedAt = performance.now();
-		await page.keyboard.insertText(` sample-${run}-text`);
-		sourceInsertion.push(performance.now() - startedAt);
-	}
-
-	const readingMode = [];
-	const wysiwygMode = [];
-	for (let run = 0; run < runs; run += 1) {
-		let startedAt = performance.now();
-		await page.locator('button[data-mode="read"]').click();
-		await page.locator('.mdsh-preview').waitFor({ state: 'visible', timeout: 30_000 });
-		readingMode.push(performance.now() - startedAt);
-
-		await page.locator('button[data-mode="source"]').click();
+		await waitForIdle(page);
+		await installInputProbe(page);
+		const typingSource = await measureInput(page, '.cm-content', options.runs, 'source');
+		const typingSourceDriver = await measureDriverTyping(page, options.runs, 'driver');
+		const documentSwitch = await measureDocumentSwitch(page, options.runs);
+		const largeDocumentOpen = await measureLargeDocumentOpen(page, options.runs);
+		await waitForIdle(page);
+		const typingLarge = await measureInput(page, '.cm-content', options.runs, 'large');
+		const readMode = await measureReadMode(page, expensiveRuns);
+		await domClick(page, 'button[data-mode="read"]');
+		await page.locator('.mdsh-read .mdsh-preview').waitFor({ state: 'visible', timeout: 60_000 });
+		await page.waitForFunction(
+			() => (document.querySelector('.mdsh-preview')?.textContent?.length ?? 0) > 100_000,
+			undefined,
+			{ timeout: 60_000 }
+		);
+		const scrollFrame = await measureScroll(page, options.runs);
+		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
-		startedAt = performance.now();
-		await page.locator('button[data-mode="wysiwyg"]').click();
-		await page.locator('.ProseMirror').waitFor({ state: 'visible', timeout: 30_000 });
-		wysiwygMode.push(performance.now() - startedAt);
-
-		await page.locator('button[data-mode="source"]').click();
+		const modeSwitch = await measureModeSwitch(page, expensiveRuns);
+		const heapSamples = [await measureHeap(page, options.browser)];
+		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
+		await page.locator('button[data-file-id="bench-000"]').click();
+		const exportHtml = await measureExport(page, expensiveRuns);
+		heapSamples.push(await measureHeap(page, options.browser));
+		const projectTree = await measureProjectTree(page, expensiveRuns);
+		heapSamples.push(await measureHeap(page, options.browser));
+		const presentation = await measurePresentation(page, expensiveRuns);
+		heapSamples.push(await measureHeap(page, options.browser));
+		const identityContext = await browser.newContext();
+		const identityPage = await identityContext.newPage();
+		const userAgent = await identityPage.evaluate(() => navigator.userAgent);
+		await identityContext.close();
+		await context.close();
+
+		const samples = {
+			coldStart: startup.coldStart,
+			cachedRestart: startup.cachedRestart,
+			firstContentfulPaint: startup.firstContentfulPaint,
+			domInteractive: startup.domInteractive,
+			domContentLoaded: startup.domContentLoaded,
+			libraryReload,
+			documentSwitch,
+			largeDocumentOpen,
+			typingSource: typingSource.values,
+			typingSourceSync: typingSource.sync,
+			typingSourceDriver,
+			typingLarge: typingLarge.values,
+			typingLargeSync: typingLarge.sync,
+			readModeSwitch: readMode,
+			scrollFrame,
+			wysiwygLoad: modeSwitch.wysiwygLoad,
+			typingWysiwyg: modeSwitch.typing,
+			typingWysiwygSync: modeSwitch.typingSync,
+			projectTreeRender: projectTree,
+			presentationLoad: presentation.load,
+			presentationSlideSwitch: presentation.slideSwitch,
+			presentationPresent: presentation.present,
+			exportHtml,
+			heapUsedMb: heapSamples
+		};
+		const summary = Object.fromEntries(
+			Object.entries(samples).map(([name, values]) => [
+				name,
+				summarize(values, name === 'heapUsedMb' ? 'MB' : 'ms')
+			])
+		);
+		const budgets = await loadBudgets(options.budgets);
+		const platformKey = platformKeyForWeb(options.browser);
+		const budget = budgetReport({ platformKey, summary, budgets });
+		return {
+			schemaVersion: 2,
+			generatedAt: new Date().toISOString(),
+			target: 'web',
+			browser: {
+				name: options.browser,
+				version: browser.version(),
+				engine: browserType.name(),
+				userAgent
+			},
+			buildMode: options.buildMode,
+			url,
+			source: gitRevision(projectRoot),
+			environment: environmentIdentity(),
+			fixtures: fixtures.descriptors,
+			corpus: {
+				libraryDocuments: libraryFixture.length,
+				largeNoteBytes: Buffer.byteLength(largeFixture),
+				projectDocuments: projectFixture.documents.length
+			},
+			method: {
+				startup:
+					'Harness wall clock from page.goto to the shell visible state. Includes Playwright command overhead.',
+				firstContentfulPaint: 'Browser paint entry startTime for the cold navigation.',
+				inputLatency:
+					'In-page time from a focused execCommand insertText call to the next animation frame. Excludes driver round trip. Unsupported editors report null.',
+				scrollFrame: 'In-page time to set scrollTop and observe two animation frames.',
+				documentSwitch: 'Wall clock from a sidebar click to the matching editor content.',
+				modeSwitch: 'Wall clock from a mode button click to the visible target editor.',
+				projectTree: 'Wall clock from the Projects panel click to the expected project row count.',
+				presentation:
+					'Wall clock from the document click or slide action to the visible slide state.',
+				export: 'Wall clock from the palette confirmation to the browser download event.',
+				heap: 'Chromium CDP JSHeapUsedSize. Other engines report performance.memory when present.'
+			},
+			limits: [
+				'Headless browser timings do not prove native WebView timings. Run --target native separately.',
+				'A shared CI runner has unequal hardware. Treat the budget as a baseline for this platform.',
+				'Input latency uses a synthetic execCommand path, not a physical keyboard driver.'
+			],
+			budget,
+			forcedBudgetFailure: options.enforceBudgets && budget.status === 'over-budget',
+			summary,
+			samples,
+			failures
+		};
+	} finally {
+		await browser.close();
+		server?.closeAllConnections();
+		server?.close();
 	}
-	await context.close();
-	return { corpusReload, sourceInsertion, readingMode, wysiwygMode };
 }
 
 async function main() {
 	const options = parseArguments(process.argv.slice(2));
-	let preview = null;
-	const url = options.url ?? (preview = await startStaticServer()).url;
-	let browser = null;
-	try {
-		browser = await chromium.launch();
-		const startup = await measureStartup(browser, url, options.runs);
-		const corpus = await measureCorpus(browser, url, options.runs);
-		const samples = { ...startup, ...corpus };
-		const summary = Object.fromEntries(
-			Object.entries(samples).map(([name, values]) => [name, summarize(values)])
-		);
-		const result = {
-			generatedAt: new Date().toISOString(),
-			url,
-			corpus: { drafts: 300, bytesPerDraft: Buffer.byteLength(benchmarkContent(0)) },
-			summary,
-			samples
-		};
-		console.table(summary);
-		if (options.output) {
-			await writeFile(options.output, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
-			console.log(`Wrote benchmark data to ${options.output}.`);
-		}
-	} finally {
-		await browser?.close();
-		preview?.server.closeAllConnections();
-		preview?.server.close();
+	const fixtures = await loadFixtures(options.fixtures);
+	let result;
+	if (options.target === 'native') {
+		const { runNativeBenchmark } = await import('./benchmark-native.mjs');
+		result = await runNativeBenchmark({ options, fixtures, projectRoot });
+	} else {
+		result = await runWebBenchmark(options, fixtures);
+	}
+	console.table(
+		Object.fromEntries(
+			Object.entries(result.summary).map(([name, summary]) => [
+				name,
+				summary.measured
+					? { runs: summary.runs, p50: summary.p50, p95: summary.p95, unit: summary.unit }
+					: { runs: 0, unit: summary.unit }
+			])
+		)
+	);
+	console.log(`Budget status for ${result.budget.platformKey}: ${result.budget.status}`);
+	if (options.output) {
+		await writeFile(options.output, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+		console.log(`Wrote benchmark data to ${options.output}.`);
+	}
+	if (result.forcedBudgetFailure) {
+		const over = Object.entries(result.budget.metrics)
+			.filter(([, value]) => /** @type {{status: string}} */ (value).status === 'over-budget')
+			.map(([name]) => name);
+		throw new Error(`Measured p95 exceeds the configured baseline: ${over.join(', ')}`);
 	}
 }
 

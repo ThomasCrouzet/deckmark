@@ -77,6 +77,23 @@ export async function readUtf8File(
 	}
 }
 
+/** Reads a binary file as a base64 data URL, with the same size guard as text. */
+export async function readDataUrl(
+	file: File,
+	maxBytes: number,
+	signal?: AbortSignal
+): Promise<string> {
+	if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > maxBytes)
+		throw new ImportReadError('file-size');
+	const bytes = new Uint8Array(await readBytes(file, signal));
+	if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+	let binary = '';
+	const chunk = 0x8000;
+	for (let offset = 0; offset < bytes.length; offset += chunk)
+		binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+	return `data:${file.type || 'application/octet-stream'};base64,${btoa(binary)}`;
+}
+
 export class ImportSession {
 	readonly report: ImportReport = {
 		processed: 0,

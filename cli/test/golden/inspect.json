@@ -1,0 +1,40 @@
+{
+  "schema": "deckmark-inspect/1",
+  "path": "notes/valid.md",
+  "kind": "note",
+  "title": "Valid note",
+  "frontmatter": {
+    "title": "Valid note"
+  },
+  "headings": [
+    {
+      "level": 1,
+      "text": "Valid note",
+      "line": 5
+    },
+    {
+      "level": 2,
+      "text": "Details",
+      "line": 9
+    },
+    {
+      "level": 2,
+      "text": "More",
+      "line": 13
+    }
+  ],
+  "links": {
+    "markdown": 1,
+    "images": 0,
+    "wiki": 0,
+    "external": 0,
+    "internal": 1,
+    "anchors": 0,
+    "total": 1
+  },
+  "statistics": {
+    "lines": 16,
+    "words": 21,
+    "characters": 164
+  }
+}

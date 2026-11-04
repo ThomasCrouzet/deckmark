@@ -50,6 +50,9 @@ async function prepare(page: Page, count = 1) {
 		.poll(async () => (await drafts(page)).map((row) => row.name).sort())
 		.toEqual(names.slice(0, count));
 	const rows = await drafts(page);
+	// New notes open in Edit mode; this suite drives the CodeMirror source editor.
+	await page.locator('button[data-mode="source"]').click();
+	await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 10_000 });
 	await page.evaluate(() => {
 		window.saveRecoveryReview = { blocked: [], events: [] };
 		const put = IDBObjectStore.prototype.put;

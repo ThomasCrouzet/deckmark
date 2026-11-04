@@ -9,6 +9,16 @@ export interface FileItem {
 	createdAt: number;
 	updatedAt: number;
 	dirty: boolean;
+	/** Explicit document type. Missing means derive it from the name and content. */
+	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
+	/** MIME type for binary image documents. */
+	mime?: string;
+	/** Data URL for binary image documents. Content stays empty. */
+	data?: string;
+	/** How the document first entered the library. */
+	origin?: 'created' | 'imported' | 'template';
+	/** Id of the linked original when this document is an explicit copy. */
+	sourceFileId?: string;
 	linkedToDisk?: boolean;
 	// "Broken disk link" flag - true if an FSA handle was associated but is no
 	// longer resolvable (file deleted/moved, IDB purged…). Managed by

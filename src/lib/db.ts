@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import type { DocumentKind } from './document-kind';
 
 export interface DraftRow {
 	id: string;
@@ -9,6 +10,12 @@ export interface DraftRow {
 	createdAt: number;
 	updatedAt: number;
 	order: number;
+	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
+	mime?: string;
+	data?: string;
+	origin?: 'created' | 'imported' | 'template';
+	/** Linked original id for an explicit edit copy. */
+	sourceFileId?: string;
 	/** Whether the document is currently shown as an open tab. Missing means open for v4 data. */
 	open?: boolean;
 }
@@ -68,7 +75,53 @@ export interface TemplateRow {
 	name: string;
 	content: string;
 	builtin: boolean;
+	/** Intended document type. Absent in older backups; treat as a note. */
+	kind?: DocumentKind;
 	createdAt: number;
+	updatedAt: number;
+}
+
+export interface CommentRow {
+	id: string;
+	draftId: string;
+	quote: string;
+	from: number;
+	to: number;
+	body: string;
+	author: string;
+	status: 'open' | 'resolved';
+	createdAt: number;
+	updatedAt: number;
+}
+
+/**
+ * Reusable text or code snippet. The row stores the exact code bytes in
+ * `code`. Search reads only the metadata fields.
+ */
+export interface SnippetRow {
+	id: string;
+	title: string;
+	code: string;
+	language: string;
+	tags: string[];
+	/** Optional free-form folder name. */
+	folder?: string;
+	/** Optional project scope. The project may be deleted later. */
+	projectId?: string;
+	favorite: boolean;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export interface SemanticIndexRow {
+	id: string;
+	projectId: string | null;
+	draftId: string;
+	path: string;
+	contentHash: string;
+	modelId: string;
+	vector: number[];
+	chunks: Array<{ line: number; text: string }>;
 	updatedAt: number;
 }
 
@@ -103,9 +156,12 @@ class MdshDB extends Dexie {
 	workspaces!: Table<WorkspaceRow, string>;
 	versions!: Table<VersionRow, string>;
 	templates!: Table<TemplateRow, string>;
+	snippets!: Table<SnippetRow, string>;
 	metadata!: Table<MetadataRow, string>;
 	projects!: Table<ProjectRow, string>;
 	projectAssets!: Table<ProjectAssetRow, string>;
+	comments!: Table<CommentRow, string>;
+	semanticIndex!: Table<SemanticIndexRow, string>;
 
 	constructor() {
 		super('mdsh');
@@ -152,6 +208,16 @@ class MdshDB extends Dexie {
 			drafts: 'id, updatedAt, order, projectId, &[projectId+relativePath]',
 			projects: 'id, updatedAt',
 			projectAssets: 'id, projectId, &[projectId+path]'
+		});
+		// v7: editorial comments and reusable snippets. Both new tables need no
+		// data migration. Snippet metadata supports search and duplicate checks.
+		this.version(7).stores({
+			comments: 'id, draftId, status, createdAt',
+			snippets: 'id, updatedAt, favorite, projectId, folder, language'
+		});
+		// v8: optional local semantic index. Nothing is indexed until the user opts in.
+		this.version(8).stores({
+			semanticIndex: 'id, projectId, draftId'
 		});
 	}
 }

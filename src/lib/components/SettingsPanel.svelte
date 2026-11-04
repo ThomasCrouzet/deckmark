@@ -25,6 +25,7 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { workspaceStore } from '#lib/workspaces.svelte.js';
 	import { templatesStore } from '#lib/templates.svelte.js';
+	import { snippetsStore } from '#lib/snippets.svelte.js';
 	import {
 		downloadBackup,
 		restoreFromText,
@@ -33,11 +34,13 @@
 		serializeBackup
 	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
+	import { editionManifest } from '#lib/edition.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
 	import type { TemplateRow } from '#lib/db.js';
 	import { reportError } from '#lib/report.js';
 	import { spinnerStore } from '#lib/spinner.svelte.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
+	import { aiStore, aiErrorMessage } from '#lib/ai/store.svelte.js';
 	import {
 		formatStorageBytes,
 		getStorageHealth,
@@ -61,6 +64,10 @@
 	let { open, onClose, editorWidth, prefs }: Props = $props();
 
 	let closeButton: HTMLButtonElement | null = $state(null);
+	let aiModels = $state<string[]>([]);
+	let aiBusy = $state(false);
+	let aiStatus = $state('');
+	let aiKeyDraft = $state('');
 	let importInput: HTMLInputElement | null = $state(null);
 	let shortcutFeedback = $state('');
 	function showShortcutResult(error: ShortcutError | null): void {
@@ -158,8 +165,44 @@
 		}).format(value);
 	}
 
+	async function loadAiModels() {
+		if (aiBusy) return;
+		aiBusy = true;
+		aiStatus = '';
+		try {
+			aiModels = await aiStore.listModels();
+			if (!aiStore.settings.model && aiModels[0]) aiStore.update({ model: aiModels[0] });
+			aiStatus = t('settings.aiModelsLoaded', { n: aiModels.length });
+		} catch (error) {
+			aiStatus = aiErrorMessage(error);
+		} finally {
+			aiBusy = false;
+		}
+	}
+
+	async function testAiConnection() {
+		if (aiBusy) return;
+		aiBusy = true;
+		aiStatus = t('settings.aiTesting');
+		try {
+			const reply = await aiStore.testConnection();
+			aiStatus = t('settings.aiTestOk', { reply: reply.slice(0, 40) });
+		} catch (error) {
+			aiStatus = aiErrorMessage(error);
+		} finally {
+			aiBusy = false;
+		}
+	}
+
+	function saveAiKey() {
+		aiStore.setApiKey(aiKeyDraft);
+		aiKeyDraft = '';
+		aiStatus = aiStore.keyConfigured ? t('settings.aiKeyConfigured') : '';
+	}
+
 	$effect(() => {
 		if (!open || !browser) return;
+		aiStore.load();
 		tick().then(() => closeButton?.focus());
 		void refreshStorageHealth();
 		void templatesStore
@@ -466,6 +509,7 @@
 				drafts: backup.drafts.length,
 				workspaces: backup.workspaces.length,
 				templates: backup.templates.length,
+				snippets: backup.snippets?.length ?? 0,
 				projects: backup.projects?.length ?? 0,
 				assets: backup.projectAssets?.length ?? 0
 			});
@@ -502,7 +546,12 @@
 		try {
 			// The restore service saves pending edits before it changes persisted drafts.
 			const counts = await restoreFromText(text, replace ? 'replace' : 'merge', passphrase);
-			await Promise.all([filesStore.reload(), workspaceStore.reload(), templatesStore.reload()]);
+			await Promise.all([
+				filesStore.reload(),
+				workspaceStore.reload(),
+				templatesStore.reload(),
+				snippetsStore.reload()
+			]);
 			// Partial restore: warn if corrupted entries were
 			// skipped, so as not to imply a complete recovery.
 			const skippedSuffix =
@@ -511,6 +560,7 @@
 				counts.unchanged.drafts +
 				counts.unchanged.workspaces +
 				counts.unchanged.templates +
+				(counts.unchanged.snippets ?? 0) +
 				(counts.unchanged.projects ?? 0) +
 				(counts.unchanged.projectAssets ?? 0);
 			const unchangedSuffix =
@@ -519,6 +569,7 @@
 				t('settings.backupProjectRestored', {
 					drafts: counts.drafts,
 					workspaces: counts.workspaces,
+					snippets: counts.snippets,
 					projects: counts.projects,
 					assets: counts.projectAssets
 				}) +
@@ -626,6 +677,173 @@
 						</div>
 					</div>
 				</section>
+
+				<!-- AI: optional provider-agnostic connection -->
+				<details class="mb-5 rounded border border-border p-3 text-sm" data-testid="ai-settings">
+					<summary class="cursor-pointer">{t('settings.ai')}</summary>
+					<p class="mt-2 text-xs text-fg-muted">{t('settings.aiHelp')}</p>
+					<label class="mt-3 flex items-center justify-between gap-3">
+						<span>{t('settings.aiEnabled')}</span>
+						<input
+							type="checkbox"
+							checked={aiStore.settings.enabled}
+							onchange={(event) => aiStore.update({ enabled: event.currentTarget.checked })}
+							data-testid="ai-enabled"
+						/>
+					</label>
+					<div
+						class="mt-3 flex flex-wrap items-center gap-1"
+						role="group"
+						aria-label={t('settings.aiPrivacy')}
+					>
+						<button
+							type="button"
+							class="rounded border border-border px-2.5 py-1 text-xs"
+							class:bg-bg-3={aiStore.settings.privacyMode === 'direct'}
+							aria-pressed={aiStore.settings.privacyMode === 'direct'}
+							onclick={() => aiStore.update({ privacyMode: 'direct' })}
+							data-testid="ai-mode-direct">{t('settings.aiDirect')}</button
+						>
+						<button
+							type="button"
+							class="rounded border border-border px-2.5 py-1 text-xs"
+							class:bg-bg-3={aiStore.settings.privacyMode === 'local'}
+							aria-pressed={aiStore.settings.privacyMode === 'local'}
+							onclick={() => aiStore.update({ privacyMode: 'local' })}
+							data-testid="ai-mode-local">{t('settings.aiLocal')}</button
+						>
+					</div>
+					{#if aiStore.settings.privacyMode === 'local'}
+						<p class="mt-2 text-xs text-warning" role="status">
+							{t('settings.aiLocalUnavailable')}
+						</p>
+					{:else}
+						<label class="mt-3 flex items-center justify-between gap-3">
+							<span class="text-xs text-fg-muted">{t('settings.aiAllowKey')}</span>
+							<input
+								type="checkbox"
+								checked={aiStore.settings.allowBrowserKey}
+								onchange={(event) =>
+									aiStore.update({ allowBrowserKey: event.currentTarget.checked })}
+								data-testid="ai-allow-key"
+							/>
+						</label>
+						<p class="mt-1 text-xs text-warning" role="note">
+							{t('settings.aiAllowKeyWarning')}
+						</p>
+					{/if}
+					<label class="mt-3 block text-xs text-fg-muted">
+						<span>{t('settings.aiBaseUrl')}</span>
+						<input
+							type="url"
+							class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
+							value={aiStore.settings.baseUrl}
+							onchange={(event) => aiStore.update({ baseUrl: event.currentTarget.value })}
+							data-testid="ai-base-url"
+						/>
+					</label>
+					<label class="mt-2 block text-xs text-fg-muted">
+						<span>{t('settings.aiModel')}</span>
+						<input
+							type="text"
+							list="ai-model-list"
+							class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
+							value={aiStore.settings.model}
+							placeholder={t('settings.aiModelPlaceholder')}
+							oninput={(event) => aiStore.update({ model: event.currentTarget.value })}
+							data-testid="ai-model"
+						/>
+					</label>
+					<datalist id="ai-model-list">
+						{#each aiModels as model (model)}<option value={model}></option>{/each}
+					</datalist>
+					<div class="mt-2 flex flex-wrap items-end gap-2">
+						<button
+							type="button"
+							class="rounded border border-border px-2.5 py-1 text-xs"
+							disabled={aiBusy}
+							onclick={() => void loadAiModels()}
+							data-testid="ai-load-models">{t('settings.aiLoadModels')}</button
+						>
+						<button
+							type="button"
+							class="rounded border border-border px-2.5 py-1 text-xs"
+							disabled={aiBusy}
+							onclick={() => void testAiConnection()}
+							data-testid="ai-test">{t('settings.aiTest')}</button
+						>
+					</div>
+					<div class="mt-2 flex flex-wrap items-end gap-2">
+						<label class="flex-1 text-xs text-fg-muted">
+							<span>{t('settings.aiKey')}</span>
+							<input
+								type="password"
+								autocomplete="off"
+								class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
+								bind:value={aiKeyDraft}
+								placeholder={aiStore.keyConfigured
+									? t('settings.aiKeyConfigured')
+									: t('settings.aiKeyPlaceholder')}
+								data-testid="ai-key"
+							/>
+						</label>
+						<button
+							type="button"
+							class="rounded border border-border px-2.5 py-1 text-xs"
+							onclick={saveAiKey}
+							data-testid="ai-key-save">{t('settings.aiKeySave')}</button
+						>
+						<button
+							type="button"
+							class="rounded border border-border px-2.5 py-1 text-xs"
+							onclick={() => {
+								aiStore.clearApiKey();
+								aiStatus = '';
+							}}
+							data-testid="ai-key-clear">{t('settings.aiKeyClear')}</button
+						>
+					</div>
+					<p class="mt-1 text-xs text-fg-muted">{t('settings.aiKeyHint')}</p>
+					<div class="mt-2 grid grid-cols-2 gap-2 text-xs text-fg-muted">
+						<label>
+							<span>{t('settings.aiTemperature')}</span>
+							<input
+								type="number"
+								min="0"
+								max="2"
+								step="0.1"
+								class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
+								value={aiStore.settings.temperature}
+								onchange={(event) =>
+									aiStore.update({ temperature: Number(event.currentTarget.value) })}
+							/>
+						</label>
+						<label>
+							<span>{t('settings.aiMaxTokens')}</span>
+							<input
+								type="number"
+								min="1"
+								max="32000"
+								class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
+								value={aiStore.settings.maxTokens}
+								onchange={(event) =>
+									aiStore.update({ maxTokens: Number(event.currentTarget.value) })}
+							/>
+						</label>
+					</div>
+					{#if aiStore.settings.enabled}
+						<p class="mt-2 text-xs text-fg-muted" data-testid="ai-destination">
+							{t('settings.aiDestination', { host: aiStore.providerHost })}
+						</p>
+					{:else}
+						<p class="mt-2 text-xs text-fg-muted">{t('settings.aiDisabledHint')}</p>
+					{/if}
+					{#if aiStatus}
+						<p class="mt-2 break-words text-xs text-fg-muted" role="status" data-testid="ai-status">
+							{aiStatus}
+						</p>
+					{/if}
+				</details>
 
 				<!-- Editor: width -->
 				<section class="mb-5">
@@ -885,7 +1103,26 @@
 				</section>
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
-					<p>{t('brand.name')} {version} · {isDesktop() ? 'Desktop Beta' : 'PWA'}</p>
+					<p>
+						{t('brand.name')}
+						{version} ·
+						{editionManifest().edition === 'desktop'
+							? t('settings.editionDesktop')
+							: t('settings.editionWeb')}
+					</p>
+					<p class="mt-1 text-xs text-fg-muted" data-testid="edition-capabilities">
+						{t('settings.editionCapabilities', {
+							features: editionManifest().features.slice(0, 6).join(', ')
+						})}
+					</p>
+					<p class="mt-1" data-testid="about-author">{t('settings.authorCredit')}</p>
+					<a
+						class="mt-1 inline-block underline"
+						href="https://github.com/ThomasCrouzet"
+						target="_blank"
+						rel="noopener noreferrer"
+						data-testid="about-github">{t('settings.githubProfile')}</a
+					>
 					<p class="mt-1" role="status">
 						{t(
 							offlineState.status === 'ready'

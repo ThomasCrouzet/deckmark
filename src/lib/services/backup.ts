@@ -25,14 +25,17 @@ import {
 	type DraftRow,
 	type ProjectAssetRow,
 	type ProjectRow,
+	type SnippetRow,
 	type WorkspaceRow,
-	type TemplateRow
+	type TemplateRow,
+	type CommentRow
 } from '../db';
 import { encryptString, decryptString, isEncryptedEnvelope } from '../crypto';
 import { t } from '#lib/i18n/index.js';
 import { rewriteWikiLinkTargets } from '../wiki-links';
 import { documentKind } from '../document-kind';
 import { imageMime, pathKey, projectPath } from '../project-paths';
+import { MAX_SNIPPETS, normalizeSnippetRow, validSnippetRow } from '../snippets';
 
 export const BACKUP_FORMAT = 'mdsh-backup';
 export const BACKUP_SCHEMA_VERSION = 2;
@@ -56,10 +59,18 @@ export interface BackupFile {
 	drafts: DraftRow[];
 	workspaces: WorkspaceRow[];
 	templates: TemplateRow[];
+	/**
+	 * Reusable snippets. Older files omit this optional collection. New files
+	 * keep the schema 2 envelope so an older build can still restore the other
+	 * collections.
+	 */
+	snippets?: SnippetRow[];
 	/** Schema 2 portable projects. Schema 1 fixtures omit this collection. */
 	projects?: BackupProject[];
 	/** Schema 2 assets use bounded base64 instead of IndexedDB binary values. */
 	projectAssets?: BackupProjectAsset[];
+	/** Editorial comments. Older backups omit this collection. */
+	comments?: CommentRow[];
 }
 
 export type BackupProject = Omit<ProjectRow, 'nativeRootId'>;
@@ -150,12 +161,15 @@ export interface RestoreCounts {
 	drafts: number;
 	workspaces: number;
 	templates: number;
+	snippets: number;
 	projects: number;
 	projectAssets: number;
+	comments?: number;
 	unchanged: {
 		drafts: number;
 		workspaces: number;
 		templates: number;
+		snippets?: number;
 		projects?: number;
 		projectAssets?: number;
 	};
@@ -172,8 +186,10 @@ export interface BackupSkipped {
 	drafts: number;
 	workspaces: number;
 	templates: number;
+	snippets: number;
 	projects: number;
 	projectAssets: number;
+	comments?: number;
 }
 
 /** Result of `parseBackup`: the valid backup + the count of rejected rows. */
@@ -194,14 +210,18 @@ export class BackupParseError extends Error {
 
 /** Reads the persisted state and builds the backup object (draft order preserved). */
 export async function collectBackup(now = Date.now()): Promise<BackupFile> {
-	const [draftRows, workspaces, templates, projectRows, assetRows] = await Promise.all([
-		db.drafts.orderBy('order').toArray(),
-		db.workspaces.orderBy('updatedAt').toArray(),
-		db.templates.orderBy('updatedAt').toArray(),
-		db.projects.orderBy('updatedAt').toArray(),
-		db.projectAssets.toArray()
-	]);
+	const [draftRows, workspaces, templates, snippetRows, projectRows, assetRows, comments] =
+		await Promise.all([
+			db.drafts.orderBy('order').toArray(),
+			db.workspaces.orderBy('updatedAt').toArray(),
+			db.templates.orderBy('updatedAt').toArray(),
+			db.snippets.orderBy('updatedAt').toArray(),
+			db.projects.orderBy('updatedAt').toArray(),
+			db.projectAssets.toArray(),
+			db.comments.orderBy('createdAt').toArray()
+		]);
 	const drafts = draftRows.map(normalizeDraft);
+	const snippets = snippetRows.map(normalizeSnippetRow);
 	const projects = projectRows.map(normalizeProject);
 	const projectAssets = assetRows.map((asset) => ({
 		id: asset.id,
@@ -217,8 +237,10 @@ export async function collectBackup(now = Date.now()): Promise<BackupFile> {
 		drafts,
 		workspaces,
 		templates,
+		snippets,
 		projects,
-		projectAssets
+		projectAssets,
+		comments
 	};
 }
 
@@ -244,6 +266,10 @@ function normalizeDraft(draft: DraftRow): DraftRow {
 		content: draft.content,
 		...(draft.projectId === undefined ? {} : { projectId: draft.projectId }),
 		...(draft.relativePath === undefined ? {} : { relativePath: draft.relativePath }),
+		...(draft.origin === undefined ? {} : { origin: draft.origin }),
+		...(draft.kind === undefined ? {} : { kind: draft.kind }),
+		...(draft.mime === undefined ? {} : { mime: draft.mime }),
+		...(draft.data === undefined ? {} : { data: draft.data }),
 		createdAt: draft.createdAt,
 		updatedAt: draft.updatedAt,
 		order: draft.order,
@@ -299,7 +325,39 @@ function validDraft(v: unknown): v is DraftRow {
 		(v.projectId === undefined || (typeof v.projectId === 'string' && v.projectId.length > 0)) &&
 		(v.relativePath === undefined ||
 			(typeof v.relativePath === 'string' && v.relativePath.length > 0)) &&
+		(v.origin === undefined ||
+			v.origin === 'created' ||
+			v.origin === 'imported' ||
+			v.origin === 'template') &&
+		(v.kind === undefined ||
+			v.kind === 'note' ||
+			v.kind === 'presentation' ||
+			v.kind === 'code' ||
+			v.kind === 'image' ||
+			v.kind === 'pdf') &&
+		(v.mime === undefined || typeof v.mime === 'string') &&
+		(v.data === undefined || typeof v.data === 'string') &&
 		(v.projectId === undefined) === (v.relativePath === undefined)
+	);
+}
+
+function validComment(v: unknown): v is CommentRow {
+	if (!isObject(v)) return false;
+	return (
+		typeof v.id === 'string' &&
+		v.id.length > 0 &&
+		typeof v.draftId === 'string' &&
+		v.draftId.length > 0 &&
+		typeof v.quote === 'string' &&
+		typeof v.body === 'string' &&
+		typeof v.author === 'string' &&
+		(v.status === 'open' || v.status === 'resolved') &&
+		typeof v.from === 'number' &&
+		Number.isFinite(v.from) &&
+		typeof v.to === 'number' &&
+		Number.isFinite(v.to) &&
+		validTimestamp(v.createdAt) &&
+		validTimestamp(v.updatedAt)
 	);
 }
 
@@ -355,6 +413,7 @@ function validTemplate(v: unknown): v is TemplateRow {
 		typeof v.name === 'string' &&
 		typeof v.content === 'string' &&
 		typeof v.builtin === 'boolean' &&
+		(v.kind === undefined || v.kind === 'note' || v.kind === 'presentation') &&
 		validTimestamp(v.createdAt) &&
 		validTimestamp(v.updatedAt)
 	);
@@ -391,6 +450,7 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 		!Array.isArray(raw.drafts) ||
 		!Array.isArray(raw.workspaces) ||
 		!Array.isArray(raw.templates) ||
+		(raw.snippets !== undefined && !Array.isArray(raw.snippets)) ||
 		(schemaVersion >= 2 && (!Array.isArray(raw.projects) || !Array.isArray(raw.projectAssets)))
 	) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
@@ -401,6 +461,7 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 	if (
 		raw.drafts.length + raw.templates.length > BACKUP_LIMITS.maxDocuments ||
 		raw.workspaces.length > BACKUP_LIMITS.maxWorkspaces ||
+		(Array.isArray(raw.snippets) && raw.snippets.length > MAX_SNIPPETS) ||
 		(schemaVersion >= 2 &&
 			(raw.projects as unknown[]).length > PROJECT_BACKUP_LIMITS.maxProjects) ||
 		(schemaVersion >= 2 &&
@@ -410,23 +471,36 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 	const draftRows = raw.drafts.filter(validDraft);
 	const workspaceRows = raw.workspaces.filter(validWorkspace);
 	const templateRows = raw.templates.filter(validTemplate);
+	const snippetRows = Array.isArray(raw.snippets) ? raw.snippets.filter(validSnippetRow) : [];
 	const projectRows = schemaVersion >= 2 ? (raw.projects as unknown[]).filter(validProject) : [];
 	const assetRows =
 		schemaVersion >= 2 ? (raw.projectAssets as unknown[]).filter(validProjectAsset) : [];
+	const commentRows =
+		raw.comments === undefined
+			? []
+			: Array.isArray(raw.comments)
+				? raw.comments.filter(validComment)
+				: null;
+	if (commentRows === null) throw new BackupParseError(t('backup.notMdshBackup'));
 	const skipped = {
 		drafts: raw.drafts.length - draftRows.length,
 		workspaces: raw.workspaces.length - workspaceRows.length,
 		templates: raw.templates.length - templateRows.length,
+		snippets: Array.isArray(raw.snippets) ? raw.snippets.length - snippetRows.length : 0,
 		projects: schemaVersion >= 2 ? (raw.projects as unknown[]).length - projectRows.length : 0,
 		projectAssets:
-			schemaVersion >= 2 ? (raw.projectAssets as unknown[]).length - assetRows.length : 0
+			schemaVersion >= 2 ? (raw.projectAssets as unknown[]).length - assetRows.length : 0,
+		comments:
+			raw.comments === undefined ? 0 : (raw.comments as unknown[]).length - commentRows.length
 	};
 	if (
 		skipped.drafts +
 			skipped.workspaces +
 			skipped.templates +
+			skipped.snippets +
 			skipped.projects +
-			skipped.projectAssets >
+			skipped.projectAssets +
+			(skipped.comments ?? 0) >
 		0
 	) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
@@ -445,9 +519,11 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 		name: template.name,
 		content: template.content,
 		builtin: template.builtin,
+		...(template.kind ? { kind: template.kind } : {}),
 		createdAt: template.createdAt,
 		updatedAt: template.updatedAt
 	}));
+	const snippets = snippetRows.map(normalizeSnippetRow);
 	const projects = projectRows.map((project) => normalizeProject(project));
 	const projectAssets = assetRows.map((asset) => ({
 		id: asset.id,
@@ -473,7 +549,13 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 			throw new BackupParseError(t('backup.notMdshBackup'));
 		}
 	}
-	for (const rows of [drafts, workspaces, templates]) {
+	for (const snippet of snippets) {
+		const size = new TextEncoder().encode(snippet.code).byteLength;
+		contentBytes += size;
+		if (size > IMPORT_LIMITS.maxFileBytes || contentBytes > IMPORT_LIMITS.maxBatchBytes)
+			throw new BackupParseError(t('backup.tooLarge'));
+	}
+	for (const rows of [drafts, workspaces, templates, snippets, commentRows]) {
 		if (new Set(rows.map((row) => row.id)).size !== rows.length) {
 			throw new BackupParseError(t('backup.notMdshBackup'));
 		}
@@ -533,8 +615,10 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 			drafts,
 			workspaces,
 			templates,
+			...(raw.snippets === undefined ? {} : { snippets }),
 			projects,
-			projectAssets
+			projectAssets,
+			comments: commentRows
 		},
 		skipped
 	};
@@ -679,6 +763,7 @@ export async function applyBackup(
 	backup = parseBackupWithReport(serializeBackup(backup)).backup;
 	if (skipped > 0) throw new BackupParseError(t('backup.notMdshBackup'));
 	const projects = backup.projects ?? [];
+	const snippets = backup.snippets ?? [];
 	const projectAssets = (backup.projectAssets ?? []).map((asset): ProjectAssetRow => ({
 		...asset,
 		data: base64ToBytes(asset.data)
@@ -687,12 +772,14 @@ export async function applyBackup(
 		drafts: 0,
 		workspaces: 0,
 		templates: 0,
+		snippets: 0,
 		projects: 0,
 		projectAssets: 0,
 		unchanged: {
 			drafts: 0,
 			workspaces: 0,
 			templates: 0,
+			...(backup.snippets === undefined ? {} : { snippets: 0 }),
 			...(backup.schemaVersion >= 2 ? { projects: 0, projectAssets: 0 } : {})
 		},
 		skipped
@@ -703,11 +790,13 @@ export async function applyBackup(
 			db.drafts,
 			db.workspaces,
 			db.templates,
+			db.snippets,
 			db.versions,
 			db.trashed,
 			db.metadata,
 			db.projects,
-			db.projectAssets
+			db.projectAssets,
+			db.comments
 		],
 		async () => {
 			if (mode === 'replace') {
@@ -807,8 +896,10 @@ export async function applyBackup(
 					db.drafts.clear(),
 					db.workspaces.clear(),
 					db.templates.clear(),
+					db.snippets.clear(),
 					db.projects.clear(),
-					db.projectAssets.clear()
+					db.projectAssets.clear(),
+					db.comments.clear()
 				]);
 				await db.metadata.where('key').startsWith(PROJECT_NATIVE_BASELINE_PREFIX).delete();
 				await db.metadata.put({ key: DISK_LINK_EPOCH_KEY, value: newId() });
@@ -816,14 +907,19 @@ export async function applyBackup(
 					db.drafts.bulkPut(backup.drafts),
 					db.workspaces.bulkPut(backup.workspaces),
 					db.templates.bulkPut(backup.templates),
+					db.snippets.bulkPut(snippets),
 					db.projects.bulkPut([...projects, ...recoveryProjects]),
-					db.projectAssets.bulkPut([...projectAssets, ...recoveryAssets])
+					db.projectAssets.bulkPut([...projectAssets, ...recoveryAssets]),
+					db.comments.bulkPut(backup.comments ?? [])
 				]);
 				counts.drafts = backup.drafts.length;
 				counts.workspaces = backup.workspaces.length;
 				counts.templates = backup.templates.length;
+				counts.snippets = snippets.length;
 				counts.projects = projects.length;
 				counts.projectAssets = projectAssets.length;
+				counts.comments = backup.comments?.length ?? 0;
+				if (backup.snippets !== undefined) counts.unchanged.snippets = 0;
 				return;
 			}
 			// merge
@@ -876,28 +972,68 @@ export async function applyBackup(
 						row.name === template.name &&
 						row.content === template.content &&
 						row.builtin === template.builtin &&
+						(row.kind ?? 'note') === (template.kind ?? 'note') &&
 						row.createdAt === template.createdAt &&
 						row.updatedAt === template.updatedAt
 				);
 				if (identical) return [];
 				return [{ ...template, id: templateIds.has(template.id) ? newId() : template.id }];
 			});
+			const existingComments = await db.comments.toArray();
+			const commentIds = new Set(existingComments.map((row) => row.id));
+			const commentsToPut = (backup.comments ?? []).flatMap((comment) => {
+				const mappedDraftId = importedIdMap.get(comment.draftId);
+				if (!mappedDraftId) return [];
+				const mapped = { ...comment, draftId: mappedDraftId };
+				const identical = existingComments.some(
+					(row) =>
+						row.id === mapped.id &&
+						row.body === mapped.body &&
+						row.status === mapped.status &&
+						row.updatedAt === mapped.updatedAt
+				);
+				if (identical) return [];
+				return [{ ...mapped, id: commentIds.has(mapped.id) ? newId() : mapped.id }];
+			});
+			const existingSnippets = await db.snippets.toArray();
+			const snippetIds = new Set(existingSnippets.map((row) => row.id));
+			const snippetsToPut = snippets.flatMap((snippet) => {
+				const identical = existingSnippets.some(
+					(row) =>
+						row.title === snippet.title &&
+						row.code === snippet.code &&
+						row.language === snippet.language &&
+						row.tags.join('\0') === snippet.tags.join('\0') &&
+						row.folder === snippet.folder &&
+						row.projectId === snippet.projectId &&
+						row.favorite === snippet.favorite &&
+						row.createdAt === snippet.createdAt &&
+						row.updatedAt === snippet.updatedAt
+				);
+				if (identical) return [];
+				return [{ ...snippet, id: snippetIds.has(snippet.id) ? newId() : snippet.id }];
+			});
 			await Promise.all([
 				db.drafts.bulkPut(draftsToPut.filter((row): row is DraftRow => row !== null)),
 				db.workspaces.bulkPut(workspacesToPut),
 				db.templates.bulkPut(templatesToPut),
+				db.snippets.bulkPut(snippetsToPut),
 				db.projects.bulkPut(projectPlan.projectsToPut),
-				db.projectAssets.bulkPut(projectPlan.assetsToPut)
+				db.projectAssets.bulkPut(projectPlan.assetsToPut),
+				db.comments.bulkPut(commentsToPut)
 			]);
 			counts.drafts = draftsToPut.filter((row) => row !== null).length;
 			counts.workspaces = workspacesToPut.length;
 			counts.templates = templatesToPut.length;
+			counts.snippets = snippetsToPut.length;
 			counts.projects = projectPlan.projectsToPut.length;
 			counts.projectAssets = projectPlan.assetsToPut.length;
+			counts.comments = commentsToPut.length;
 			counts.unchanged = {
 				drafts: backup.drafts.length - counts.drafts,
 				workspaces: backup.workspaces.length - counts.workspaces,
 				templates: backup.templates.length - counts.templates,
+				...(backup.snippets === undefined ? {} : { snippets: snippets.length - counts.snippets }),
 				...(backup.schemaVersion >= 2
 					? {
 							projects: projects.length - counts.projects,
@@ -1001,6 +1137,7 @@ export async function restoreFromText(
 		skipped.drafts +
 		skipped.workspaces +
 		skipped.templates +
+		skipped.snippets +
 		skipped.projects +
 		skipped.projectAssets;
 	return applyBackup(backup, mode, skippedTotal);

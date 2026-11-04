@@ -1,0 +1,96 @@
+{
+  "schema": "mdsh-docs-check/1",
+  "documents": 4,
+  "summary": {
+    "errors": 4,
+    "warnings": 3
+  },
+  "issues": [
+    {
+      "code": "link-missing",
+      "severity": "error",
+      "documentId": "README.md",
+      "path": "README.md",
+      "target": "notes/missing.md",
+      "message": "Missing link target \"notes/missing.md\".",
+      "line": 9,
+      "column": 62
+    },
+    {
+      "code": "frontmatter-invalid",
+      "severity": "error",
+      "documentId": "notes/broken.md",
+      "path": "notes/broken.md",
+      "message": "Invalid YAML front matter.",
+      "line": 1,
+      "column": 1
+    },
+    {
+      "code": "anchor-missing",
+      "severity": "warning",
+      "documentId": "notes/broken.md",
+      "path": "notes/broken.md",
+      "target": "valid.md#absent",
+      "message": "Missing anchor \"absent\".",
+      "line": 8,
+      "column": 18
+    },
+    {
+      "code": "link-outside-project",
+      "severity": "error",
+      "documentId": "notes/broken.md",
+      "path": "notes/broken.md",
+      "target": "../../outside.md",
+      "message": "\"../../outside.md\" is outside the project.",
+      "line": 10,
+      "column": 23
+    },
+    {
+      "code": "image-missing",
+      "severity": "error",
+      "documentId": "notes/broken.md",
+      "path": "notes/broken.md",
+      "target": "missing.png",
+      "message": "Missing image \"missing.png\".",
+      "line": 12,
+      "column": 18
+    },
+    {
+      "code": "heading-duplicate",
+      "severity": "warning",
+      "documentId": "notes/broken.md",
+      "path": "notes/broken.md",
+      "target": "duplicate",
+      "message": "Duplicate heading anchor \"duplicate\".",
+      "line": 16,
+      "column": 1
+    },
+    {
+      "code": "fence-unclosed",
+      "severity": "warning",
+      "documentId": "notes/broken.md",
+      "path": "notes/broken.md",
+      "message": "Code fence is not closed.",
+      "line": 18,
+      "column": 1
+    }
+  ],
+  "skipped": [
+    {
+      "check": "presentation-layout",
+      "reason": "Text overflow needs layout measurement. The model clamps element bounds."
+    },
+    {
+      "check": "remote-resources",
+      "reason": "Remote resources are not downloaded. The checker reports them as warnings."
+    },
+    {
+      "check": "html-content",
+      "reason": "Raw HTML content is not validated."
+    },
+    {
+      "check": "external-anchors",
+      "reason": "Anchors in external pages are not checked."
+    }
+  ]
+}

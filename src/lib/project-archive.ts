@@ -7,15 +7,20 @@ import {
 	rewriteProjectDestinations
 } from './project-links';
 import { rewriteWikiLinkTargets } from './wiki-links';
-import { documentKind } from './document-kind';
+import { documentKindForFile } from './document-kind';
 import type { ProjectAssetRow } from './db';
 type JSZipObject = import('jszip').JSZipObject;
 
-export const PROJECT_LIMITS = { maxEntries: 1300, maxBytes: 64 * 1024 * 1024 } as const;
+import { PROJECT_SCALE_LIMITS, projectDocumentLimit } from './project-limits';
+
+export const PROJECT_LIMITS = PROJECT_SCALE_LIMITS;
 export interface ProjectDocumentInput {
 	id?: string;
 	relativePath: string;
 	content: string;
+	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
+	/** Data URL for an image document. */
+	data?: string;
 }
 export interface ProjectAssetInput {
 	path: string;
@@ -130,7 +135,7 @@ function appendEntry(input: ProjectInput, path: string, data: Uint8Array): void 
 	}
 	if (pathKey(path).startsWith('.mdsh/')) throw new Error('Reserved project path');
 	if (/\.(md|markdown|mdx|txt)$/i.test(path)) {
-		if (input.documents.length >= IMPORT_LIMITS.maxFiles) throw new Error('Project document limit');
+		if (input.documents.length >= projectDocumentLimit()) throw new Error('Project document limit');
 		const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
 		validateMarkdownContent(content);
 		input.documents.push({ relativePath: path, content });
@@ -191,14 +196,21 @@ export async function readProjectFolder(files: readonly File[]): Promise<Project
 	return input;
 }
 
+export interface ProjectZipOptions {
+	/** Fixed entry date for a reproducible archive. */
+	date?: Date;
+}
+
 export async function buildProjectZip(
 	name: string,
 	documents: readonly ProjectDocumentInput[],
-	assets: readonly Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>[]
+	assets: readonly Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>[],
+	options: ProjectZipOptions = {}
 ): Promise<Blob> {
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
-	if (documents.length > IMPORT_LIMITS.maxFiles) throw new Error('Project document limit');
+	const entryOptions = options.date ? { date: options.date } : undefined;
+	if (documents.length > projectDocumentLimit()) throw new Error('Project document limit');
 	const occupied = new Set<string>();
 	const exportedAssets = new Map<string, Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>>();
 	for (const asset of assets) {
@@ -234,8 +246,20 @@ export async function buildProjectZip(
 		const documentKey = pathKey(documentPath);
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
+		if (document.kind === 'image' && document.data) {
+			const payload = document.data.slice(document.data.indexOf(',') + 1);
+			occupied.add(documentKey);
+			exportedDocuments.push({
+				...(document.id ? { id: document.id } : {}),
+				relativePath: documentPath,
+				content: '',
+				kind: 'image'
+			});
+			zip.file(documentPath, payload, { base64: true, ...entryOptions });
+			continue;
+		}
 		const portableContent =
-			documentKind(document.content) === 'presentation'
+			documentKindForFile(document) !== 'note'
 				? document.content
 				: rewriteWikiLinkTargets(document.content, (target) => {
 						const id = target.split('#', 1)[0]!;
@@ -298,12 +322,14 @@ export async function buildProjectZip(
 			relativePath: documentPath,
 			content
 		});
-		zip.file(documentPath, content);
+		zip.file(documentPath, content, entryOptions);
 	}
-	for (const asset of exportedAssets.values()) zip.file(projectPath(asset.path), asset.data);
+	for (const asset of exportedAssets.values())
+		zip.file(projectPath(asset.path), asset.data, entryOptions);
 	zip.file(
 		'.mdsh/project.json',
-		JSON.stringify({ format: 'mdsh-project', schemaVersion: 1, name }, null, 2)
+		JSON.stringify({ format: 'mdsh-project', schemaVersion: 1, name }, null, 2),
+		entryOptions
 	);
 	zip.file(
 		'.mdsh/link-report.json',
@@ -311,8 +337,14 @@ export async function buildProjectZip(
 			{ issues: projectLinkReport(exportedDocuments, [...exportedAssets.keys()]) },
 			null,
 			2
-		)
+		),
+		entryOptions
 	);
+	if (options.date) {
+		// JSZip adds directory entries with the current time. A fixed date on
+		// every entry keeps the archive reproducible.
+		for (const entry of Object.values(zip.files)) entry.date = options.date;
+	}
 	const output = await zip.generateAsync({
 		type: 'blob',
 		compression: 'DEFLATE',

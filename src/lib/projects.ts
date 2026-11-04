@@ -3,7 +3,7 @@ import { browser } from '$app/env';
 import { db, newId, type DraftRow, type ProjectAssetRow, type ProjectRow } from './db';
 
 import { filesStore } from './files.svelte';
-import { documentKind } from './document-kind';
+import { documentKindForFile } from './document-kind';
 import {
 	projectPath,
 	pathKey,
@@ -13,7 +13,7 @@ import {
 } from './project-paths';
 import { renameProjectLinks, projectLinkReport } from './project-links';
 import { buildProjectZip, PROJECT_LIMITS, type ProjectInput } from './project-archive';
-import { IMPORT_LIMITS } from './config';
+import { projectDocumentLimit } from './project-limits';
 import { normalizeRename } from './file-utils';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { notify } from './notify.svelte';
@@ -93,7 +93,7 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 		const documents = await db.drafts.where('projectId').equals(projectId).toArray();
 		const assets = await db.projectAssets.where('projectId').equals(projectId).toArray();
 		if (
-			documents.length >= IMPORT_LIMITS.maxFiles ||
+			documents.length >= projectDocumentLimit() ||
 			documents.length + assets.length >= PROJECT_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project entry limit');
@@ -111,7 +111,12 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 }
 
 export async function exportProject(projectId: string): Promise<boolean> {
-	await filesStore.flushPendingAwait();
+	// A blocked save retry must not block the archive forever: the snapshot below
+	// reads the durable rows, and a slow flush still lands before the ZIP is built.
+	await Promise.race([
+		filesStore.flushPendingAwait().catch(() => undefined),
+		new Promise<void>((resolve) => setTimeout(resolve, 5000))
+	]);
 	const snapshot = await db.transaction(
 		'r',
 		db.projects,
@@ -129,7 +134,9 @@ export async function exportProject(projectId: string): Promise<boolean> {
 		snapshot.documents.map((doc) => ({
 			id: doc.id,
 			relativePath: doc.relativePath!,
-			content: doc.content
+			content: doc.content,
+			...(doc.kind ? { kind: doc.kind } : {}),
+			...(doc.data ? { data: doc.data } : {})
 		})),
 		snapshot.assets
 	);
@@ -137,16 +144,81 @@ export async function exportProject(projectId: string): Promise<boolean> {
 	return triggerDownload(blob, sanitizeFilename(`${snapshot.project.name}.zip`));
 }
 
-export async function checkProjectLinks(projectId: string) {
+/** Reads the durable project snapshot without changing document content. */
+export async function projectDocumentSources(projectId: string): Promise<{
+	documents: Array<{ id: string; relativePath: string; content: string }>;
+	assets: string[];
+}> {
 	await filesStore.flushPendingAwait();
 	const [documents, assets] = await Promise.all([
 		db.drafts.where('projectId').equals(projectId).toArray(),
 		db.projectAssets.where('projectId').equals(projectId).toArray()
 	]);
-	return projectLinkReport(
-		documents.map((doc) => ({ id: doc.id, relativePath: doc.relativePath!, content: doc.content })),
-		assets.map((asset) => asset.path)
+	return {
+		documents: documents.map((doc) => ({
+			id: doc.id,
+			relativePath: doc.relativePath!,
+			content: doc.content
+		})),
+		assets: assets.map((asset) => asset.path)
+	};
+}
+
+export async function checkProjectLinks(projectId: string) {
+	const { documents, assets } = await projectDocumentSources(projectId);
+	return projectLinkReport(documents, assets);
+}
+
+/** Rename a project without changing its documents or paths. */
+export async function renameProject(projectId: string, requested: string): Promise<boolean> {
+	const name = requested.trim();
+	if (!name || name.length > 120) return false;
+	const project = await db.projects.get(projectId);
+	if (!project) return false;
+	await db.projects.update(projectId, { name, updatedAt: Date.now() });
+	return true;
+}
+
+export interface ProjectSiteSnapshot {
+	project: ProjectRow;
+	documents: Array<{
+		id: string;
+		relativePath: string;
+		content: string;
+		kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
+		data?: string;
+		mime?: string;
+	}>;
+	assets: ProjectAssetRow[];
+}
+
+/** Reads a durable project snapshot for an offline export. It does not write. */
+export async function projectSiteSnapshot(projectId: string): Promise<ProjectSiteSnapshot> {
+	await filesStore.flushPendingAwait();
+	const snapshot = await db.transaction(
+		'r',
+		db.projects,
+		db.drafts,
+		db.projectAssets,
+		async () => ({
+			project: await db.projects.get(projectId),
+			documents: await db.drafts.where('projectId').equals(projectId).toArray(),
+			assets: await db.projectAssets.where('projectId').equals(projectId).toArray()
+		})
 	);
+	if (!snapshot.project) throw new Error('Project no longer exists');
+	return {
+		project: snapshot.project,
+		documents: snapshot.documents.map((document) => ({
+			id: document.id,
+			relativePath: document.relativePath!,
+			content: document.content,
+			...(document.kind ? { kind: document.kind } : {}),
+			...(document.data ? { data: document.data } : {}),
+			...(document.mime ? { mime: document.mime } : {})
+		})),
+		assets: snapshot.assets
+	};
 }
 
 let renameQueue: Promise<unknown> = Promise.resolve();
@@ -173,7 +245,7 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					const file = snapshot.find((entry) => entry.id === fileId)!;
 					const from = file.relativePath!;
 					const linked = renameProjectLinks(content, from, oldPath, newPath);
-					if (documentKind(content) === 'presentation') return linked;
+					if (documentKindForFile(file) !== 'note') return linked;
 					return rewriteWikiLinkTargets(linked, (target) => {
 						const candidates = projectWikiCandidates(file, target, snapshot);
 						if (candidates.length !== 1 || candidates[0]!.id !== id || target === id) return target;

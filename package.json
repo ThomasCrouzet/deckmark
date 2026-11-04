@@ -27,14 +27,24 @@
 		"note-taking"
 	],
 	"type": "module",
+	"bin": {
+		"deckmark": "bin/deckmark.mjs",
+		"deckmark-mcp": "bin/deckmark-mcp.mjs"
+	},
 	"engines": {
 		"node": ">=22"
 	},
 	"scripts": {
 		"patch:milkdown": "node scripts/patch-milkdown-images.mjs --write",
 		"patch:milkdown:check": "node scripts/patch-milkdown-images.mjs --check",
+		"cli": "node bin/deckmark.mjs",
+		"mcp": "node bin/deckmark-mcp.mjs",
+		"cli:build": "node scripts/build-cli.mjs",
 		"dev": "node scripts/patch-milkdown-images.mjs --write && vite dev",
-		"build": "node scripts/patch-milkdown-images.mjs --write && vite build && node scripts/generate-service-worker.mjs",
+		"build": "node scripts/build-edition.mjs web",
+		"build:web": "node scripts/build-edition.mjs web",
+		"build:desktop": "node scripts/build-edition.mjs desktop",
+		"check:edition": "node scripts/check-edition-boundaries.mjs web",
 		"preview": "vite preview --outDir build",
 		"preview:pages": "node scripts/preview-pages.mjs",
 		"prepare": "node scripts/prepare.mjs",
@@ -102,9 +112,23 @@
 		"workbox-build": "7.4.1"
 	},
 	"dependencies": {
+		"@codemirror/autocomplete": "6.20.1",
 		"@codemirror/commands": "^6.11.1",
+		"@codemirror/lang-cpp": "6.0.3",
+		"@codemirror/lang-css": "6.3.1",
+		"@codemirror/lang-html": "6.4.11",
+		"@codemirror/lang-java": "6.0.2",
+		"@codemirror/lang-javascript": "6.2.5",
+		"@codemirror/lang-json": "6.0.2",
 		"@codemirror/lang-markdown": "^6.5.2",
-		"@codemirror/language": "^6.13.1",
+		"@codemirror/lang-php": "6.0.2",
+		"@codemirror/lang-python": "6.2.1",
+		"@codemirror/lang-rust": "6.0.2",
+		"@codemirror/lang-sql": "6.10.0",
+		"@codemirror/lang-xml": "6.1.0",
+		"@codemirror/lang-yaml": "6.1.3",
+		"@codemirror/language": "6.13.1",
+		"@codemirror/legacy-modes": "6.5.3",
 		"@codemirror/search": "^6.7.2",
 		"@codemirror/state": "^6.7.6",
 		"@codemirror/view": "^6.43.15",

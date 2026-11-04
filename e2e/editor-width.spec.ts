@@ -145,14 +145,17 @@ async function expectScrollbarReachable(page: Page, scroller: Locator) {
 					inset,
 					fraction,
 					hitGrip: Boolean(hit?.closest('.resize-handle')),
-					hitScroller: hit === element || element.contains(hit)
+					hitScroller: hit === element || element.contains(hit),
+					// The floating scroll navigation is a deliberate overlay. It must
+					// never cover the resize handle, but it may sit over the edge.
+					hitScrollNav: Boolean(hit?.closest('.mdsh-scroll-nav'))
 				};
 			})
 		);
 	});
 	for (const sample of samples) {
 		expect(sample.hitGrip, JSON.stringify(sample)).toBe(false);
-		expect(sample.hitScroller, JSON.stringify(sample)).toBe(true);
+		expect(sample.hitScroller || sample.hitScrollNav, JSON.stringify(sample)).toBe(true);
 	}
 	const rect = await scroller.boundingBox();
 	if (!rect) throw new Error('The scroll container has no bounds');

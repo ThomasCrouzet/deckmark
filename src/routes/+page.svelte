@@ -20,6 +20,8 @@
 	import { reportError } from '#lib/report.js';
 	import { createModals } from '#lib/ui/modals.svelte.js';
 	import { filesStore } from '#lib/files.svelte.js';
+	import { templatesStore } from '#lib/templates.svelte.js';
+	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { requestPersistentStorage, checkStoragePressure } from '#lib/storage.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 	import { isDesktop } from '#lib/desktop.js';
@@ -29,20 +31,24 @@
 	import { buildKeydownHandler } from '#lib/ui/shortcuts.svelte.js';
 	import { createUiPrefs } from '#lib/ui/prefs.svelte.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
+	import { requestEditorFocus } from '#lib/ui/editor-focus.js';
 	import { registerPwaUpdates } from '#lib/ui/pwa-update.js';
 	import { buildDropHandlers } from '#lib/ui/image-drop.svelte.js';
 	import { schedulePrefetch } from '#lib/ui/prefetch.svelte.js';
 	import { createFileIntents } from '#lib/ui/file-intents.svelte.js';
 	import { initDesktopShell, type DesktopMenuAction } from '#lib/desktop-shell.js';
 	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
-	import { documentKind, type DocumentKind } from '#lib/document-kind.js';
-	const kind = $derived(documentKind(filesStore.active?.content ?? ''));
+	import { documentKind, documentKindForFile, type DocumentKind } from '#lib/document-kind.js';
+	import type { SnippetCapture } from '#lib/snippets.js';
+	const kind = $derived(
+		filesStore.active ? documentKindForFile(filesStore.active) : ('note' as DocumentKind)
+	);
 
 	let mode = $state<EditMode>('wysiwyg');
 	let projectsOpen = $state(false);
 	let documentTool = $state<'find' | 'outline' | null>(null);
 	function openDocumentTool(kind: 'find' | 'outline') {
-		if (documentKind(filesStore.active?.content ?? '') !== 'note') return;
+		if (!filesStore.active || documentKindForFile(filesStore.active) !== 'note') return;
 		documentTool = kind;
 		void tick().then(() =>
 			document
@@ -52,11 +58,53 @@
 				?.focus()
 		);
 	}
+	function snippetCapture(source: 'selection' | 'file'): SnippetCapture | null {
+		const active = filesStore.active;
+		if (!active) {
+			notify.info(t('snippets.fileMissing'));
+			return null;
+		}
+		let code = active.content;
+		if (source === 'selection') {
+			const selected =
+				codeEditorRef?.getSelectionText?.() ||
+				sourceEditorRef?.getSelectionText?.() ||
+				window.getSelection()?.toString() ||
+				'';
+			if (selected.trim()) code = selected;
+			else notify.info(t('snippets.selectionMissing'));
+		}
+		return {
+			code,
+			title: '',
+			fileName: active.name,
+			...(active.projectId ? { projectId: active.projectId } : {}),
+			source
+		};
+	}
+
+	function openSnippetPanel(capture: SnippetCapture | null = null) {
+		const active = filesStore.active;
+		modals.openSnippets({
+			capture,
+			context: {
+				...(active?.projectId ? { projectId: active.projectId } : {}),
+				...(active
+					? { fileName: active.name, documentTitle: filesStore.documentTitle(active.id) }
+					: {})
+			}
+		});
+	}
+
 	function openOutline() {
 		openDocumentTool('outline');
 	}
 	async function requestMode(nextMode: EditMode): Promise<void> {
-		if (kind !== 'note') return;
+		if (kind !== 'note' && kind !== 'code') return;
+		if (kind === 'code') {
+			mode = 'source';
+			return;
+		}
 		documentTool = null;
 		const activeId = filesStore.activeId;
 		if (nextMode !== 'source' && activeId && filesStore.requiresRenderConfirmation(activeId)) {
@@ -139,6 +187,7 @@
 	// (`openSearch()` method) and its typewriter mode (`setTypewriter()`),
 	// both exposed via `bind:this`.
 	let sourceEditorRef = $state<SourceEditor | null>(null);
+	let codeEditorRef = $state<{ getSelectionText?: () => string } | null>(null);
 	// Search panel open-request flag: set when `⌘F` is pressed while in WYSIWYG /
 	// reading mode. We switch to `source` then the `$effect` below opens the
 	// panel as soon as the component is mounted.
@@ -230,6 +279,7 @@
 			// §2.1 - Theme applied early (before loading files) to limit the flash
 			// on light/system preferences.
 			themeStore.load();
+			aiStore.load();
 			// Locale applied on mount (after hydration: the prerendered render and
 			// the first client render are in English by default, no mismatch).
 			i18n.load();
@@ -279,6 +329,8 @@
 					edit: t('desktopMenu.edit'),
 					newFile: t('desktopMenu.new'),
 					open: t('desktopMenu.open'),
+					save: t('desktopMenu.save'),
+					saveAs: t('desktopMenu.saveAs'),
 					saveToDisk: t('desktopMenu.saveToDisk'),
 					exportMarkdown: t('desktopMenu.exportMarkdown'),
 					exportPdf: t('desktopMenu.exportPdf'),
@@ -324,6 +376,38 @@
 		} catch (error) {
 			reportError('create document', error, { notifyUser: t('page.saveToDiskError') });
 		}
+	}
+
+	// A user-created note opens in Edit with a ready caret, whatever the prior
+	// mode. Existing notes keep the selected mode. The request is keyed by file
+	// id because the visual editor mounts only after its lazy import.
+	$effect(() => {
+		const id = filesStore.newDocumentFocusId;
+		if (!id) return;
+		filesStore.newDocumentFocusId = null;
+		if (kind !== 'note' || !filesStore.files.some((file) => file.id === id)) return;
+		documentTool = null;
+		mode = 'wysiwyg';
+		requestEditorFocus(id);
+	});
+
+	async function handleCreateFromTemplate(templateId: string): Promise<void> {
+		const document = templatesStore.resolve(templateId);
+		if (!document) return;
+		// Keep the last keystroke of the outgoing document before the new one
+		// replaces the active tab.
+		filesStore.flushPending();
+		filesStore.createNew(document.name, document.content, {
+			focusEditor: document.kind === 'note',
+			origin: 'template'
+		});
+		modals.newDocumentOpen = false;
+		if (window.innerWidth < 768) sidebarOpen = false;
+		announceContext(
+			t('documents.created', {
+				type: t(document.kind === 'presentation' ? 'documents.presentation' : 'documents.note')
+			})
+		);
 	}
 
 	function handleDemo() {
@@ -384,7 +468,7 @@
 			return;
 		if (
 			kind === 'presentation' &&
-			['export-md', 'export-html', 'export-pdf', 'save-disk'].includes(action)
+			['export-md', 'export-html', 'export-pdf', 'save', 'save-as', 'save-disk'].includes(action)
 		) {
 			window.dispatchEvent(new CustomEvent('mdsh:presentation-action', { detail: action }));
 			return;
@@ -398,6 +482,12 @@
 				break;
 			case 'open':
 				await handleImport();
+				break;
+			case 'save':
+				await handleSave();
+				break;
+			case 'save-as':
+				await handleSaveAs();
 				break;
 			case 'save-disk':
 				await handleSaveToDisk();
@@ -442,13 +532,13 @@
 		input.value = '';
 	}
 
-	function handleEditorChange(markdown: string) {
-		if (documentKind(markdown) !== 'note') {
+	function handleEditorChange(text: string) {
+		if (!filesStore.active) return;
+		if (kind === 'note' && documentKind(text) !== 'note') {
 			notify.error(t('documents.noConversion'));
 			return;
 		}
-		if (filesStore.active && kind === 'note')
-			filesStore.updateContent(filesStore.active.id, markdown);
+		if (kind === 'note' || kind === 'code') filesStore.updateContent(filesStore.active.id, text);
 	}
 
 	// §C1 - WYSIWYG flush: explicitly writes to the file `id` provided by the
@@ -456,9 +546,12 @@
 	// when switching tabs right after typing (Milkdown's markdownUpdated is
 	// asynchronous). `updateContent` ignores identical content.
 	function handleEditorFlush(id: string, markdown: string) {
-		if (documentKind(markdown) !== 'note') return;
 		const file = filesStore.library.find((entry) => entry.id === id);
-		if (file && documentKind(file.content) === 'note') filesStore.updateContent(id, markdown);
+		if (!file) return;
+		const fileKind = documentKindForFile(file);
+		if (fileKind !== 'note' && fileKind !== 'code') return;
+		if (fileKind === 'note' && documentKind(markdown) !== 'note') return;
+		filesStore.updateContent(id, markdown);
 	}
 
 	function handleExport() {
@@ -515,6 +608,50 @@
 		}
 	}
 
+	function openDocsCheckIssue(fileId: string, line: number): void {
+		modals.docsCheckOpen = false;
+		modals.handleOpenHit(fileId, line, '');
+	}
+
+	async function handleSave() {
+		if (busyDisk) return;
+		busyDisk = true;
+		try {
+			await filesStore.saveActive();
+		} catch (err) {
+			reportError('save document', err, { notifyUser: t('page.saveToDiskError') });
+		} finally {
+			busyDisk = false;
+		}
+	}
+
+	async function handleSaveAs() {
+		if (busyDisk) return;
+		busyDisk = true;
+		try {
+			await filesStore.saveActiveAs();
+		} catch (err) {
+			reportError('save document as', err, { notifyUser: t('page.saveToDiskError') });
+		} finally {
+			busyDisk = false;
+		}
+	}
+
+	function handleEditCopy() {
+		const active = filesStore.active;
+		if (active) filesStore.editCopy(active.id);
+	}
+
+	async function handleEditOriginal() {
+		const active = filesStore.active;
+		if (!active) return;
+		try {
+			await filesStore.editOriginal(active.id);
+		} catch (err) {
+			reportError('edit original', err, { notifyUser: t('page.openFromDiskError') });
+		}
+	}
+
 	// Honors the pendingGoToHit as soon as SourceEditor is mounted in source mode.
 	$effect(() => {
 		if (mode !== 'source' || !pendingGoToHit) return;
@@ -554,7 +691,8 @@
 		onImport: handleImport,
 		onExport: handleExport,
 		onExportPDF: handleExportPDF,
-		onSaveToDisk: handleSaveToDisk,
+		onSave: handleSave,
+		onSaveAs: handleSaveAs,
 		onNavigateFile: (direction) => filesStore.navigateFile(direction),
 		getMode: () => mode,
 		setMode: (m) => void requestMode(m),
@@ -564,7 +702,7 @@
 		onOpenInFileSearch: openInFileSearch,
 		onOpenSettings: modals.openSettings,
 		onToggleFocus: () => {
-			if (kind === 'note') prefs.toggleFocusMode();
+			if (kind === 'note' && mode === 'read') prefs.toggleFocusMode();
 		},
 		onPresent: () => presentationAction('present'),
 		getActiveId: () => filesStore.activeId,
@@ -595,6 +733,7 @@
 	}
 
 	function handleWindowDrag(event: DragEvent, handler: (event: DragEvent) => void | Promise<void>) {
+		if (event.defaultPrevented) return;
 		if (
 			!canInteract ||
 			modals.anyOpen ||
@@ -614,9 +753,17 @@
 <svelte:window
 	bind:innerWidth={viewportWidth}
 	onkeydown={handleWindowKeydown}
-	ondrop={(event) => handleWindowDrag(event, handleDrop)}
+	ondrop={(event) => {
+		// A child drop handler may call preventDefault before the event reaches the
+		// window. Clear the overlay anyway so it never stays after a drop.
+		dragOver = false;
+		handleWindowDrag(event, handleDrop);
+	}}
 	ondragover={(event) => handleWindowDrag(event, handleDragOver)}
-	ondragleave={(event) => handleWindowDrag(event, handleDragLeave)}
+	ondragleave={(event) => {
+		if (event.relatedTarget === null) dragOver = false;
+		handleWindowDrag(event, handleDragLeave);
+	}}
 />
 
 <!-- §J1 - Blocking banner if IndexedDB is inaccessible at startup (private mode,
@@ -649,6 +796,7 @@
 			onImport={handleImport}
 			onOpenLibrary={modals.openLibrary}
 			onOpenProjects={() => (projectsOpen = true)}
+			onHome={() => filesStore.showHome()}
 		/>
 	</div>
 
@@ -667,7 +815,13 @@
 				onExportPDF={handleExportPDF}
 				onOpenPalette={modals.openPalette}
 				onOpenActions={modals.openActions}
+				onSave={handleSave}
+				onSaveAs={handleSaveAs}
+				onEditCopy={handleEditCopy}
+				onEditOriginal={handleEditOriginal}
 				onSaveToDisk={handleSaveToDisk}
+				focusMode={prefs.focusMode}
+				onToggleFocus={prefs.toggleFocusMode}
 			/>
 		</div>
 
@@ -696,6 +850,7 @@
 				focusMode={prefs.focusMode}
 				{articleRef}
 				onSourceEditorRef={(ref) => (sourceEditorRef = ref)}
+				onCodeEditorRef={(ref) => (codeEditorRef = ref)}
 				onArticleRef={(el) => (articleRef = el)}
 				onTocEmpty={(empty) => (tocEmpty = empty)}
 				onEditorChange={handleEditorChange}
@@ -748,6 +903,8 @@
 					document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')?.focus()
 				);
 			}}
+			onOpenDocsCheck={(projectId) => modals.openDocsCheck(projectId)}
+			onOpenDocsSite={(projectId) => modals.openDocsSite(projectId)}
 		/>
 	{:catch _error}
 		<div role="alert" class="fixed inset-0 z-50 bg-bg p-6 text-fg">
@@ -809,7 +966,15 @@
      Lazy-load is preserved: no modal bytes are pulled before the 1st opening. -->
 <Modals
 	{kind}
+	{mode}
 	onCreate={handleCreate}
+	onCreateFromTemplate={handleCreateFromTemplate}
+	onOpenProperties={modals.openProperties}
+	onOpenComments={modals.openComments}
+	onOpenExportProfiles={modals.openExportProfiles}
+	onOpenLinkedBlocks={modals.openLinkedBlocks}
+	onOpenSemantic={modals.openSemantic}
+	onOpenCollection={modals.openCollection}
 	onOpenOutline={openOutline}
 	{modals}
 	{editorWidth}
@@ -820,10 +985,26 @@
 	onExportHTML={handleExportHTML}
 	onExportPDF={handleExportPDF}
 	onExportAll={handleExportAll}
+	onSave={handleSave}
+	onSaveAs={handleSaveAs}
+	onEditCopy={handleEditCopy}
+	onEditOriginal={handleEditOriginal}
 	onSaveToDisk={handleSaveToDisk}
 	onToggleSidebar={toggleSidebar}
 	onSetMode={(m) => void requestMode(m)}
 	onOpenInFileSearch={openInFileSearch}
+	onOpenDocsCheck={() => modals.openDocsCheck(filesStore.active?.projectId ?? null)}
+	onOpenDocsSite={() => modals.openDocsSite(filesStore.active?.projectId ?? null)}
+	onOpenDocsCheckIssue={openDocsCheckIssue}
+	onOpenSnippets={() => openSnippetPanel()}
+	onSaveSnippetSelection={() => {
+		const capture = snippetCapture('selection');
+		if (capture) openSnippetPanel(capture);
+	}}
+	onSaveSnippetFile={() => {
+		const capture = snippetCapture('file');
+		if (capture) openSnippetPanel(capture);
+	}}
 	onPresent={() => presentationAction('present')}
 	onAdvancedSource={() => presentationAction('source')}
 />

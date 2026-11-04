@@ -2,12 +2,14 @@
 	import { tick, onMount } from 'svelte';
 	import { browser } from '$app/env';
 	import { filesStore } from '#lib/files.svelte.js';
-	import { documentKind } from '#lib/document-kind.js';
+	import { documentKindForFile, documentKindLabelKey } from '#lib/document-kind.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import {
 		FilePlus,
 		FileText,
 		Presentation,
+		Code2,
+		Image,
 		Upload,
 		X,
 		Circle,
@@ -16,15 +18,24 @@
 		Tag,
 		Archive,
 		CircleX,
-		AlertTriangle
+		Copy,
+		Link2
 	} from '@lucide/svelte';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
 	import { spinnerStore } from '#lib/spinner.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import BrandLogo from './BrandLogo.svelte';
+	import FileStatusBadge from './FileStatusBadge.svelte';
 	import TrashPanel from './TrashPanel.svelte';
-	import { ArrowUp, ArrowDown } from '@lucide/svelte';
+	import ProjectTree from './ProjectTree.svelte';
+	import { projectExplorer, folderKey, rootKey } from '#lib/project-explorer.svelte.js';
+	import { createProject } from '#lib/projects.js';
+	import { PROJECT_DRAG_TYPE } from '#lib/project-transfer.js';
+	import { ArrowUp, ArrowDown, FolderPlus } from '@lucide/svelte';
+	import { notify } from '#lib/notify.svelte.js';
+	import { reportError } from '#lib/report.js';
 
 	interface Props {
 		open: boolean;
@@ -34,6 +45,7 @@
 		onImport: () => Promise<void> | void;
 		onOpenLibrary?: () => void;
 		onOpenProjects?: () => void;
+		onHome?: () => void;
 	}
 
 	let {
@@ -43,7 +55,8 @@
 		onNew,
 		onImport,
 		onOpenLibrary,
-		onOpenProjects
+		onOpenProjects,
+		onHome
 	}: Props = $props();
 
 	let draggingId = $state<string | null>(null);
@@ -78,7 +91,7 @@
 		if (
 			activeTag &&
 			(!tags.includes(activeTag) ||
-				(filesStore.active && documentKind(filesStore.active.content) === 'presentation'))
+				(filesStore.active && documentKindForFile(filesStore.active) === 'presentation'))
 		) {
 			activeTag = null;
 		}
@@ -86,11 +99,30 @@
 
 	// Filtered file list: if a tag is active, keep only the
 	// files that contain it. Otherwise, all files.
+	const libraryFiles = $derived(filesStore.files.filter((file) => !file.projectId));
 	const filteredFiles = $derived(
 		activeTag === null
-			? filesStore.files
-			: filesStore.files.filter((f) => filesStore.getTags(f.id).includes(activeTag!))
+			? libraryFiles
+			: libraryFiles.filter((f) => filesStore.getTags(f.id).includes(activeTag!))
 	);
+	const projectDocuments = $derived(
+		filesStore.library.filter(
+			(file) =>
+				!!file.projectId && (activeTag === null || filesStore.getTags(file.id).includes(activeTag))
+		)
+	);
+	const projectRoots = $derived.by(() => {
+		const roots = projectExplorer.projects.map((project) => ({
+			id: project.id,
+			name: project.name
+		}));
+		for (const document of filesStore.library) {
+			if (document.projectId && !roots.some((root) => root.id === document.projectId))
+				roots.push({ id: document.projectId, name: document.projectId });
+		}
+		return roots;
+	});
+	const hasExplorer = $derived(projectRoots.length > 0);
 
 	const rowHeights = $derived(
 		filteredFiles.map((file) => (coarsePointer || file.relativePath ? 52 : 36))
@@ -126,6 +158,20 @@
 	const bottomSpacerHeight = $derived(
 		useVirtualization ? rowOffsets[rowOffsets.length - 1]! - rowOffsets[visibleEnd]! : 0
 	);
+
+	onMount(() => {
+		void projectExplorer.load().then(() => {
+			projectExplorer.revealInitial(filesStore.active?.projectId, filesStore.active?.relativePath);
+		});
+	});
+
+	let revealedActiveId: string | null = null;
+	$effect(() => {
+		const active = filesStore.active;
+		if (!projectExplorer.loaded || !active?.projectId || active.id === revealedActiveId) return;
+		revealedActiveId = active.id;
+		projectExplorer.revealActive(active.projectId, active.relativePath);
+	});
 
 	onMount(() => {
 		if (!browser || typeof window.matchMedia !== 'function') return;
@@ -214,8 +260,16 @@
 	function onDragStart(e: DragEvent, id: string) {
 		draggingId = id;
 		if (e.dataTransfer) {
-			e.dataTransfer.effectAllowed = 'move';
+			const file = filesStore.library.find((entry) => entry.id === id);
+			e.dataTransfer.effectAllowed = 'copyMove';
 			e.dataTransfer.setData('text/plain', id);
+			e.dataTransfer.setData(
+				PROJECT_DRAG_TYPE,
+				JSON.stringify({
+					...(file?.projectId ? { projectId: file.projectId } : {}),
+					documentIds: [id]
+				})
+			);
 		}
 	}
 
@@ -272,6 +326,41 @@
 
 	function selectTag(tag: string | null) {
 		activeTag = tag;
+	}
+
+	async function handleProjectChanged(target: {
+		projectId: string;
+		folder?: string;
+	}): Promise<void> {
+		await projectExplorer.load();
+		const keys = [rootKey(target.projectId)];
+		if (target.folder) {
+			const parts = target.folder.split('/');
+			let current = '';
+			for (const part of parts) {
+				current = current ? `${current}/${part}` : part;
+				keys.push(folderKey(target.projectId, current));
+			}
+		}
+		projectExplorer.expand(keys);
+		await tick();
+	}
+
+	async function createProjectFromSidebar(): Promise<void> {
+		const name = await promptStore.prompt({
+			title: t('projects.name'),
+			confirmLabel: t('projects.newProject')
+		});
+		if (!name?.trim()) return;
+		try {
+			const project = await createProject(name.trim());
+			await projectExplorer.load();
+			projectExplorer.expand([rootKey(project.id)]);
+			await tick();
+		} catch (error) {
+			reportError('project create', error);
+			notify.error(t('projects.operationFailed'));
+		}
 	}
 
 	// §B1.11 - Sidebar in mobile drawer mode: focus-trap when open on a
@@ -365,10 +454,20 @@
 	<div
 		class="mdsh-sidebar-head flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-4"
 	>
-		<div class="mdsh-sidebar-brand">
+		<button
+			type="button"
+			class="mdsh-sidebar-brand min-h-10 rounded text-left"
+			onclick={() => {
+				if (isMobile) onClose();
+				onHome?.();
+			}}
+			aria-label={t('sidebar.homeLabel')}
+			title={t('sidebar.homeLabel')}
+			data-testid="home-logo"
+		>
 			<BrandLogo />
 			<span class="mdsh-sidebar-label">{t('brand.localWorkspace')}</span>
-		</div>
+		</button>
 		<button
 			bind:this={closeButton}
 			class="shrink-0 text-fg-subtle hover:text-fg md:hidden"
@@ -386,7 +485,7 @@
 			onclick={() => {
 				if (isMobile) onClose();
 				onOpenProjects?.();
-			}}>{t('projects.open')}</button
+			}}>{t('projects.manage')}</button
 		>
 		<button
 			bind:this={libraryButton}
@@ -483,15 +582,54 @@
 
 	<!-- File list -->
 	<div bind:this={scrollContainer} class="flex-1 overflow-y-auto py-1" onscroll={handleListScroll}>
-		{#if filesStore.files.length === 0}
+		{#if hasExplorer}
+			<section
+				class="mb-1 border-b border-border pb-1"
+				data-sidebar-projects
+				aria-label={t('projects.explorer')}
+			>
+				<div class="flex items-center gap-1 px-2 py-1">
+					<span class="flex-1 text-[11px] uppercase tracking-wide text-fg-dim"
+						>{t('projects.explorer')}</span
+					>
+					<button
+						type="button"
+						class="rounded p-1 text-fg-dim hover:bg-bg-2 hover:text-fg"
+						data-testid="sidebar-new-project"
+						aria-label={t('projects.newProject')}
+						title={t('projects.newProject')}
+						onclick={() => void createProjectFromSidebar()}
+					>
+						<FolderPlus size={12} aria-hidden="true" />
+					</button>
+				</div>
+				<ProjectTree
+					documents={projectDocuments}
+					projects={projectRoots}
+					expanded={projectExplorer.expanded}
+					onToggle={(key, open) => projectExplorer.setExpanded(key, open)}
+					onOpen={selectFile}
+					actions
+					rowLabels
+					onManageProjects={() => {
+						if (isMobile) onClose();
+						onOpenProjects?.();
+					}}
+					onChanged={(target) => void handleProjectChanged(target)}
+				/>
+			</section>
+		{/if}
+		{#if filesStore.files.length === 0 && !hasExplorer}
 			<div class="px-4 py-8 text-center text-xs text-fg-subtle">
 				{t('sidebar.noFileOpen')}<br />
 				<span class="text-fg-dim">{t('sidebar.createOrImportHint')}</span>
 			</div>
 		{:else if filteredFiles.length === 0}
-			<div class="px-4 py-8 text-center text-xs text-fg-subtle">
-				{t('sidebar.noFileWithTag')} <span class="font-mono">{activeTag}</span>.
-			</div>
+			{#if libraryFiles.length > 0}
+				<div class="px-4 py-8 text-center text-xs text-fg-subtle">
+					{t('sidebar.noFileWithTag')} <span class="font-mono">{activeTag}</span>.
+				</div>
+			{/if}
 		{:else}
 			{#if topSpacerHeight > 0}
 				<div style:height={`${topSpacerHeight}px`} aria-hidden="true"></div>
@@ -502,9 +640,18 @@
 					{@const dirtyHint = file.dirty ? t('sidebar.unexportedChangesHint') : ''}
 					{@const label = filesStore.displayTitle(file.id)}
 					{@const isSelected = filesStore.selectedIds.has(file.id)}
-					{@const kind = documentKind(file.content)}
-					{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
-					{@const TypeIcon = kind === 'note' ? FileText : Presentation}
+					{@const kind = documentKindForFile(file)}
+					{@const typeLabel = t(documentKindLabelKey(kind))}
+					{@const TypeIcon =
+						kind === 'note'
+							? FileText
+							: kind === 'presentation'
+								? Presentation
+								: kind === 'code'
+									? Code2
+									: kind === 'image'
+										? Image
+										: FileText}
 					<li
 						style:height={`${rowHeights[visibleStart + fileIndex]}px`}
 						aria-posinset={visibleStart + fileIndex + 1}
@@ -565,18 +712,7 @@
 										>{file.relativePath}</span
 									>{/if}
 							</span>
-							{#if file.brokenLink}
-								<!-- §6.9 - "Broken disk link" badge: visually warns that the
-								     FSA handle no longer resolves. Relinking action via DiskLinksPanel
-								     or ⌘⇧S (which sets a new handle). -->
-								<span
-									class="flex-shrink-0 text-warning"
-									title={t('sidebar.brokenDiskLinkHint')}
-									aria-label={t('sidebar.brokenDiskLink')}
-								>
-									<AlertTriangle size={10} />
-								</span>
-							{/if}
+							<FileStatusBadge {file} />
 							{#if file.dirty}
 								<span class="sr-only">{t('sidebar.notExported')}</span>
 							{/if}
@@ -618,6 +754,26 @@
 					aria-label={t('sidebar.moveDown')}><ArrowDown size={16} /></button
 				>
 				<button
+					class="rounded border border-border p-2"
+					onclick={() => filesStore.editCopy(filesStore.activeId!)}
+					aria-label={t('palette.editCopy')}
+					title={t('palette.editCopy')}
+					data-testid="sidebar-edit-copy"
+				>
+					<Copy size={16} />
+				</button>
+				{#if isDiskLinkingAvailable() || filesStore.active.sourceFileId}
+					<button
+						class="rounded border border-border p-2"
+						onclick={() => void filesStore.editOriginal(filesStore.activeId!)}
+						aria-label={t('palette.editOriginal')}
+						title={t('palette.editOriginal')}
+						data-testid="sidebar-edit-original"
+					>
+						<Link2 size={16} />
+					</button>
+				{/if}
+				<button
 					class="rounded border border-border p-2 text-danger"
 					onclick={() => void deleteFile(filesStore.activeId!)}>{t('palette.deleteFile')}</button
 				>
@@ -630,9 +786,18 @@
 				>{t('sidebar.closedFiles')} ({filesStore.closedFiles.length})</summary
 			>
 			{#each filesStore.closedFiles as file (file.id)}
-				{@const kind = documentKind(file.content)}
-				{@const typeLabel = t(kind === 'note' ? 'documents.note' : 'documents.presentation')}
-				{@const TypeIcon = kind === 'note' ? FileText : Presentation}
+				{@const kind = documentKindForFile(file)}
+				{@const typeLabel = t(documentKindLabelKey(kind))}
+				{@const TypeIcon =
+					kind === 'note'
+						? FileText
+						: kind === 'presentation'
+							? Presentation
+							: kind === 'code'
+								? Code2
+								: kind === 'image'
+									? Image
+									: FileText}
 				<button
 					class="flex w-full items-center gap-2 py-2 text-left"
 					aria-label={file.name}
@@ -748,6 +913,11 @@
 		width: 9rem;
 		flex-direction: column;
 		gap: 0.125rem;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
 	}
 	.mdsh-sidebar-label {
 		font-family: var(--font-mono);
