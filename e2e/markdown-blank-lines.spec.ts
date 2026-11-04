@@ -47,15 +47,29 @@ test('empty visual paragraphs export as blank Markdown lines', async ({ page }, 
 	expect(await downloadMarkdown(page, info)).toBe(expected);
 });
 
-for (const { name, newline } of [
-	{ name: 'LF', newline: '\n' },
-	{ name: 'CRLF', newline: '\r\n' }
+for (const { name, source, inserted } of [
+	...[
+		{ name: 'LF', newline: '\n' },
+		{ name: 'CRLF', newline: '\r\n' }
+	].map(({ name, newline }) => ({
+		name,
+		source: `First paragraph.${newline}${newline}Second paragraph.${newline}`,
+		inserted: `First paragraph.${newline.repeat(4)}Second paragraph.${newline}`
+	})),
+	{
+		name: 'reference definition',
+		source: 'First paragraph.\n\n[link]: https://example.invalid/\n\nSecond paragraph.\n',
+		inserted: 'First paragraph.\n\n[link]: https://example.invalid/\n\n\n\nSecond paragraph.\n'
+	},
+	{
+		name: 'blockquote',
+		source: '> First paragraph.\n>\n> Second paragraph.\n',
+		inserted: '> First paragraph.\n>\n>\n>\n> Second paragraph.\n'
+	}
 ]) {
 	test(`an inserted empty paragraph survives export and reload in an existing ${name} note`, async ({
 		page
 	}, info) => {
-		const source = `First paragraph.${newline}${newline}Second paragraph.${newline}`;
-		const inserted = `First paragraph.${newline.repeat(4)}Second paragraph.${newline}`;
 		const edited = inserted.replace('Second paragraph.', 'Last paragraph.');
 		await info.attach('fixture.json', {
 			body: JSON.stringify({ source, inserted, edited }),
@@ -66,11 +80,9 @@ for (const { name, newline } of [
 		await page.locator('[data-mode="wysiwyg"]').click();
 		await editSentence(page, 'First paragraph.', 'First paragraph.');
 		await page.keyboard.press('Enter');
-		await expect(page.locator('.ProseMirror > p')).toHaveText([
-			'First paragraph.',
-			'',
-			'Second paragraph.'
-		]);
+		await expect(
+			page.locator(name === 'blockquote' ? '.ProseMirror blockquote p' : '.ProseMirror > p')
+		).toHaveText(['First paragraph.', '', 'Second paragraph.']);
 		expect.soft(await downloadMarkdown(page, info), 'After insertion').toBe(inserted);
 		await editSentence(page, 'Second paragraph.', 'Last paragraph.');
 		const downloaded = await downloadMarkdown(page, info);
