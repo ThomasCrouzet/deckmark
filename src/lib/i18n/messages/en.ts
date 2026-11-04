@@ -10,6 +10,7 @@ import { splitEn } from './split-en';
 import { projectEn } from './project-en';
 import { diffEn } from './diff-en';
 import { backupProjectEn } from './backup-project-en';
+import { desktopBackupEn } from './desktop-backup-en';
 import { slidesEn } from './slides-en';
 import { snippetsEn } from './snippets-en';
 
@@ -20,6 +21,7 @@ export const en = {
 	...projectEn,
 	...diffEn,
 	...backupProjectEn,
+	...desktopBackupEn,
 	'docsCheck.command': 'Check documentation',
 	'docsCheck.commandHint': 'Run an offline audit of the selected project.',
 	'brand.name': 'DeckMark',

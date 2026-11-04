@@ -9,9 +9,11 @@
 	// (runes factories from the parent). Backup directly calls the `backup`
 	// service + reloads the stores - pattern identical to the other panels.
 
-	import { tick } from 'svelte';
+	import { tick, onMount } from 'svelte';
+	import type { Component } from 'svelte';
 	import { browser } from '$app/env';
 	import { t, i18n, LOCALES, LOCALE_LABELS } from '#lib/i18n/index.js';
+	import { IS_DESKTOP_EDITION } from '#lib/edition.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { coreCommands } from '#lib/ui/commands.js';
 	import { keyboardStore, type ShortcutError } from '#lib/ui/keyboard.svelte.js';
@@ -104,6 +106,17 @@
 	}
 	let storageHealth: StorageHealth | null = $state(null);
 	let backupBusy = $state(false);
+	type DesktopBackupPanelComponent = Component<{
+		onRestore: (text: string) => Promise<void>;
+	}>;
+	let DesktopBackupPanel = $state<DesktopBackupPanelComponent | null>(null);
+
+	onMount(() => {
+		if (import.meta.env.VITE_EDITION !== 'desktop') return;
+		void import('#lib/components/DesktopBackupPanel.svelte').then((module) => {
+			DesktopBackupPanel = module.default as DesktopBackupPanelComponent;
+		});
+	});
 	let verifyOnly = false;
 	let editingTemplate = $state<string | null>(null);
 	let templateName = $state('');
@@ -488,6 +501,10 @@
 			return;
 		}
 
+		await restoreBackupText(text, verifyOnly);
+	}
+
+	async function restoreBackupText(text: string, verifyOnly = false): Promise<void> {
 		// §2.8 - Encrypted backup: ask for the passphrase first.
 		let passphrase: string | undefined;
 		if (isEncryptedBackup(text)) {
@@ -1101,6 +1118,15 @@
 					</div>
 					<p class="mt-2 text-xs text-fg-muted">{t('settings.backupDownloadHint')}</p>
 				</section>
+				{#if IS_DESKTOP_EDITION}
+					<section class="mt-5 border-t border-border pt-3" data-testid="desktop-backup-section">
+						{#if DesktopBackupPanel}
+							<DesktopBackupPanel onRestore={restoreBackupText} />
+						{:else}
+							<p class="text-xs text-fg-muted">{t('settings.desktopBackupLoading')}</p>
+						{/if}
+					</section>
+				{/if}
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
 					<p>

@@ -6,6 +6,7 @@ import { splitFr } from './split-fr';
 import { projectFr } from './project-fr';
 import { diffFr } from './diff-fr';
 import { backupProjectFr } from './backup-project-fr';
+import { desktopBackupFr } from './desktop-backup-fr';
 import { slidesFr } from './slides-fr';
 import { snippetsFr } from './snippets-fr';
 
@@ -16,6 +17,7 @@ export const fr: Record<MessageKey, string> = {
 	...projectFr,
 	...diffFr,
 	...backupProjectFr,
+	...desktopBackupFr,
 	'docsCheck.command': 'Vérifier la documentation',
 	'docsCheck.commandHint': 'Lance un audit hors ligne du projet sélectionné.',
 	'brand.name': 'DeckMark',
