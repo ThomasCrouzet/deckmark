@@ -1,4 +1,7 @@
 <script lang="ts">
+	// Update delivery is on standby. This component is kept for a future signed
+	// release, but Settings no longer mounts it. Re-enable it only after the
+	// signing prerequisites in docs/decisions/desktop-updates-standby.md exist.
 	import { onMount } from 'svelte';
 	import { ShieldCheck, ShieldAlert } from '@lucide/svelte';
 	import { t } from '#lib/i18n/index.js';

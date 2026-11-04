@@ -1,18 +1,25 @@
 # Desktop update delivery
 
-DeckMark still publishes unsigned Desktop installers. This document records the
-update policy, the manifest contract, and the steps that must happen before the
-update feature can be enabled.
+Update delivery is on standby. DeckMark publishes unsigned Desktop installers,
+and the application does not check for updates. This document records the
+policy, the manifest contract, and the steps that must happen before a future
+release can reactivate the feature.
 
 ## Current state
 
-Update checks are disabled. The application reports `signing-required` and does
-not contact any server. Automatic installation does not exist: the
-`update_install` command always returns `manual-install-required`.
+- Settings does not show an update section.
+- The application performs no update request and contacts no update server.
+- Automatic installation does not exist: the `update_install` command always
+  returns `manual-install-required`.
+- The native commands and their tests stay in the binary, so the boundary does
+  not regress. `update_status` reports `signing-required` because no public key
+  is configured.
+- Users update Desktop Complete by downloading and installing a new release.
 
-This matches `docs/decisions/desktop-signing.md`.
+This matches `docs/decisions/desktop-signing.md` and
+`docs/decisions/desktop-updates-standby.md`.
 
-## Prerequisites for enabling updates
+## Reactivation prerequisites
 
 1. An Apple Developer ID certificate for macOS, an Authenticode certificate for
    Windows, and a signed package for Linux.
@@ -30,9 +37,9 @@ This matches `docs/decisions/desktop-signing.md`.
 | `DECKMARK_UPDATE_BASE_URL` | HTTPS base URL that serves `latest.json` and `latest.json.sig`. |
 | `DECKMARK_UPDATE_CHANNEL` | `beta` by default; `stable` for a stable channel. |
 
-When the public key is missing, the update panel shows that updates are
-disabled. When it is present, the panel shows the key fingerprint and a manual
-check button.
+These variables are used only after the standby decision is lifted. When the
+public key is missing, the native boundary stays closed. When it is present, a
+future release can show the key fingerprint and a manual check button again.
 
 ## Manifest contract
 
@@ -78,12 +85,14 @@ Web Light contains no updater, no update check and no network request. The
 settings panel renders the update section only in the desktop edition, and the
 native commands exist only in the Rust binary.
 
-## Tests
+## Standby checks
 
 ```sh
 cargo test --manifest-path src-tauri/Cargo.toml update::
 ```
 
 The tests cover signature validation, tampering, cross-platform manifests,
-version ordering, endpoint validation, redaction of the key, and the
-manual-install gate.
+version ordering, endpoint validation, and the manual-install gate. The native
+smoke also asserts that the settings dialog has no update panel and that
+`update_install` is rejected. `e2e/update-gate.spec.ts` asserts that Web Light
+has no update panel and sends no external request.

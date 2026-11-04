@@ -356,6 +356,8 @@ WebView. The suite now also records:
   reused window, and a cancel path with no new row. The session switches
   windows instead of opening a second WebDriver session. The artifact is
   `native-capture.json`.
+- The update standby state: the settings dialog has no update panel, and the
+  native install command stays rejected.
 - Process memory for the application process tree, startup, reload, save, close
   and template timings, and platform identity from the driver capabilities.
 - A failure screenshot, the page state and the last driver response.

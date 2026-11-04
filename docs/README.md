@@ -19,7 +19,8 @@
 - [Performance](PERFORMANCE.md): measured desktop bottlenecks and results.
 - [GitHub settings](GITHUB_SETTINGS.md): repository controls and release checks.
 - [Desktop signing decision](decisions/desktop-signing.md): current state and revisit trigger.
-- [Desktop updates](UPDATES.md): signed manifest contract, gating, and rollback policy.
+- [Desktop updates](UPDATES.md): standby state, signed manifest contract, and rollback policy.
+- [Update standby decision](decisions/desktop-updates-standby.md): why update delivery is dormant.
 - [Brand assets](BRANDING.md): icon generation, screenshots, and demo capture.
 - [Changelog](../CHANGELOG.md): released changes.
 
