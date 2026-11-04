@@ -1,6 +1,5 @@
 import { browser } from '$app/env';
 import { IS_DESKTOP_EDITION } from '#lib/edition.js';
-import { isDesktop } from '#lib/desktop.js';
 import { t, type MessageKey } from '#lib/i18n/index.js';
 import {
 	AiProviderError,
@@ -98,9 +97,11 @@ class AiStore {
 	private vaultKeyPresent = $state(false);
 	loaded = $state(false);
 
-	/** True when the native vault is available in this build and window. */
+	/** True when this build must use the native vault. */
 	get usesNativeVault(): boolean {
-		return IS_DESKTOP_EDITION && isDesktop();
+		// The desktop edition never falls back to JavaScript key storage. If the
+		// native shell is absent, the vault call fails closed.
+		return IS_DESKTOP_EDITION;
 	}
 
 	load(): void {
