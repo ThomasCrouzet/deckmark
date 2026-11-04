@@ -575,6 +575,10 @@ the palette before it starts the export timer.
 The offline status keeps a fixed width. `e2e/toolbar-stability.spec.ts` holds
 service worker registration, then checks that the mode button stays under the
 pointer when offline preparation completes. Long status text uses an ellipsis.
+The 400-section source fidelity case has a 60-second timeout. It types each
+character through the browser, exports the file, and compares the exact bytes.
+Firefox can use most of the default 30-second limit for typing alone. This
+timeout permits the export check to finish; it is not a performance budget.
 
 ### Code editor focus after delayed loading
 

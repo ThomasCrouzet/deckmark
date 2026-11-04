@@ -260,6 +260,7 @@ test('repeated text keeps its occurrence and flushes before a tab switch', async
 });
 
 test('an edit in a large document preserves all other source spans', async ({ page }, info) => {
+	test.setTimeout(60_000);
 	await resetAppState(page);
 	const source =
 		fidelityFixtures[0]!.source +
