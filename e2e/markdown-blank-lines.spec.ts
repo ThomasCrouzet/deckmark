@@ -106,6 +106,25 @@ test('visual hard breaks use Markdown syntax in downloaded notes', async ({ page
 	expect(await downloadMarkdown(page, info)).toBe('First line.\\\nSecond line.');
 });
 
+test('blank lines at document edges preserve adjacent edits and source syntax', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await importSource(page, 'Keep &amp; this.');
+	await page.locator('[data-mode="wysiwyg"]').click();
+	await editSentence(page, 'Keep & this.', 'Keep & this.!');
+	await page.keyboard.press('Enter');
+	await page.keyboard.press('Enter');
+	expect
+		.soft(await downloadMarkdown(page, info), 'Trailing blank paragraph')
+		.toBe('Keep &amp; this.!\n\n');
+	await editSentence(page, 'Keep & this.!', 'Keep & this.!');
+	await page.keyboard.press('Home');
+	await page.keyboard.press('Enter');
+	await page.keyboard.type('Now ');
+	expect(await downloadMarkdown(page, info)).toBe('\n\nNow Keep &amp; this.!\n\n');
+});
+
 test('a text edit preserves authored HTML and table breaks in Markdown export', async ({
 	page
 }, info) => {
