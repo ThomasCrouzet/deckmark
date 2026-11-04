@@ -341,15 +341,20 @@
 				"startupCold": {
 					"p95": 15000,
 					"unit": "ms",
-					"note": "Debug build and virtual display."
+					"note": "Debug build and virtual display. One lifecycle sample per run is the reviewed minimum; the report discloses runs=1.",
+					"minimumRuns": 1
 				},
 				"startupWarm": {
 					"p95": 12000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"libraryReload": {
 					"p95": 6000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"typingSource": {
 					"p95": 300,
@@ -406,7 +411,9 @@
 				},
 				"presentationLoad": {
 					"p95": 6000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"presentationSlideSwitch": {
 					"p95": 800,
@@ -423,7 +430,9 @@
 				},
 				"closeMs": {
 					"p95": 5000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"rssMb": {
 					"p95": 700,
@@ -434,19 +443,25 @@
 		},
 		"native-windows-webview2": {
 			"label": "Windows WebView2 through the built Tauri binary",
-			"source": "Provisional baseline for a GitHub Windows runner. Replace it with a recorded artifact from that runner.",
+			"source": "Calibrated from GitHub Actions run 41933449566 (2026-11-04, windows-2022, 5 runs). Debug native-smoke build, diagnostic only.",
 			"metrics": {
 				"startupCold": {
 					"p95": 15000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"startupWarm": {
 					"p95": 12000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"libraryReload": {
 					"p95": 6000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"typingSource": {
 					"p95": 300,
@@ -503,7 +518,9 @@
 				},
 				"presentationLoad": {
 					"p95": 6000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"presentationSlideSwitch": {
 					"p95": 800,
@@ -519,12 +536,14 @@
 				},
 				"closeMs": {
 					"p95": 5000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"rssMb": {
-					"p95": 900,
+					"p95": 2200,
 					"unit": "MB",
-					"note": "WebView2 helper processes can raise the total."
+					"note": "CI debug build measured 1968.8 MB p95. WebView2 helper processes raise the total. Keep diagnostic only."
 				}
 			}
 		},
@@ -534,15 +553,21 @@
 			"metrics": {
 				"startupCold": {
 					"p95": 12000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"startupWarm": {
 					"p95": 9000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"libraryReload": {
 					"p95": 5000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"typingSource": {
 					"p95": 200,
@@ -599,7 +624,9 @@
 				},
 				"presentationLoad": {
 					"p95": 5000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"presentationSlideSwitch": {
 					"p95": 600,
@@ -616,7 +643,9 @@
 				},
 				"closeMs": {
 					"p95": 4000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"rssMb": {
 					"p95": 700,

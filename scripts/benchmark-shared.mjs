@@ -193,10 +193,11 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 	const budgetDefinitions = platformBudget.metrics ?? {};
 	for (const [metric, definition] of Object.entries(budgetDefinitions)) {
 		const budget =
-			/** @type {{ p95: number, unit: string, note?: string, toleranceRatio?: number, optional?: boolean }} */ (
+			/** @type {{ p95: number, unit: string, note?: string, toleranceRatio?: number, optional?: boolean, minimumRuns?: number }} */ (
 				definition
 			);
 		const measured = summary[metric];
+		const metricMinimumRuns = budget.minimumRuns ?? requiredRuns;
 		const fail = (status, reason) => {
 			if (!budget.optional) failures.push(`${metric}:${reason}`);
 			metrics[metric] = {
@@ -205,7 +206,7 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 				status,
 				reason,
 				runs: measured?.runs ?? 0,
-				minimumRuns: requiredRuns,
+				minimumRuns: metricMinimumRuns,
 				note: budget.note
 			};
 			return;
@@ -218,7 +219,7 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 			fail(budget.optional ? 'unsupported' : 'missing', 'missing-measurement');
 			continue;
 		}
-		if (!Number.isFinite(measured.runs) || measured.runs < requiredRuns) {
+		if (!Number.isFinite(measured.runs) || measured.runs < metricMinimumRuns) {
 			fail('insufficient-samples', 'too-few-runs');
 			continue;
 		}
@@ -239,7 +240,7 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 			unit: budget.unit,
 			status: over ? 'over-budget' : 'ok',
 			runs: measured.runs,
-			minimumRuns: requiredRuns,
+			minimumRuns: metricMinimumRuns,
 			note: budget.note
 		};
 		if (over) failures.push(`${metric}:over-budget`);

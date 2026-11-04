@@ -94,6 +94,25 @@ describe('benchmark budget gate', () => {
 		assert.deepEqual(report.failures, ['switchMs:too-few-runs']);
 	});
 
+	it('uses an explicit per-metric minimum for one-shot lifecycle samples', () => {
+		const report = budgetReport({
+			platformKey: 'web-test',
+			summary: { switchMs: measured(100, 1) },
+			budgets: {
+				...budgets,
+				platforms: {
+					'web-test': {
+						label: 'One shot',
+						metrics: { switchMs: { p95: 100, unit: 'ms', minimumRuns: 1 } }
+					}
+				}
+			}
+		});
+		assert.equal(report.status, 'ok');
+		assert.equal(report.metrics.switchMs.runs, 1);
+		assert.equal(report.metrics.switchMs.minimumRuns, 1);
+	});
+
 	it('fails on a non-finite or negative measurement', () => {
 		const infinite = budgetReport({
 			platformKey: 'web-test',

@@ -79,7 +79,9 @@ metric. `scripts/benchmark-shared.mjs` evaluates a report as follows:
 
 - A missing platform baseline fails the gate.
 - A required metric with no measurement fails the gate.
-- Fewer runs than `defaults.minimumRuns` fails the gate.
+- Fewer runs than `defaults.minimumRuns` fails the gate. A metric can set a
+  reviewed `minimumRuns` value. One-shot lifecycle metrics such as cold start
+  and close use 1 sample, and the report shows `runs: 1`.
 - A unit mismatch, a non-finite value, or a negative value fails the gate.
 - A measured summary field with no budget entry fails the gate. Add a reviewed
   budget or an explicit `optional` entry instead of dropping the metric.
@@ -133,6 +135,7 @@ measurements:
 | WebKit `projectTreeRender` | 2516 ms | 2600 ms |
 | WebKit `presentationPresent` | 1420 ms | 1500 ms |
 | WebKit `exportHtml` | 4396 ms | 4500 ms |
+| Windows native `rssMb` | 1968.8 MB | 2200 MB |
 
 Firefox stayed inside its earlier budget. These changes move a provisional
 development baseline to the actual runner. They do not remove the gate. A later
