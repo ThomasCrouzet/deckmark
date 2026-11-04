@@ -70,7 +70,7 @@ records the edition, version, base path, features, and excluded capabilities.
 | Secure native API key vault | No. A browser-resident key is not a protected secret. | Yes, through the operating-system credential store |
 | Secure browser API key vault | Unavailable | Unavailable |
 | Signed update checks | No | Gated: disabled until a signing key is configured, and the user installs the signed package manually |
-| Local command-line interface and MCP server | No | Yes, with the desktop package |
+| Local command-line interface and MCP server | No | Yes, from a source checkout |
 | Unrestricted filesystem access | Unavailable | Unavailable. Access is limited to selected paths. |
 | Cloud sync, shared editing, accounts, and plugins | Unavailable | Unavailable |
 | Telemetry and crash reports | None | None |
