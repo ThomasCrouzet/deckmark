@@ -22,24 +22,27 @@ session token for an approved path, not a general filesystem handle. The native
 access registry is separate from IndexedDB. The Desktop build serves assets from
 the package and does not register the service worker.
 
-The current release uses runtime boundaries and lazy imports to keep native
-modules out of the Web startup graph. A compile-time edition manifest is planned.
-The Web build and its precache must not contain Desktop-only native modules.
+The edition is a compile-time input. `scripts/build-edition.mjs` sets
+`VITE_EDITION` and writes `build/edition.json`. `vite.config.ts` replaces native
+bridges with Web stubs. `scripts/check-edition-boundaries.mjs` checks the output
+and precache for native bridge strings. Lazy imports keep optional features out
+of the startup graph. See [edition builds](docs/EDITIONS.md#build-each-edition).
 
 GitHub Pages is the only production Web publisher. The deployment workflow reads
 the Pages base path before the build. A custom domain uses the root and a project
 site uses `/deckmark/`. The service worker scope and navigation fallback follow
 that base path. The workflow does not configure DNS or a custom domain.
 
-Neither edition has an AI feature, a browser API key vault, or unrestricted
-filesystem access. See [docs/EDITIONS.md](docs/EDITIONS.md) for the feature
-matrix and support boundaries.
+Both editions have an optional OpenAI-compatible AI connection, disabled by
+default. Neither has a secure browser API key vault or unrestricted filesystem
+access. See [docs/EDITIONS.md](docs/EDITIONS.md) for the feature matrix.
 
 ## Offline-first without a backend
 
-DeckMark has no server. Dexie stores drafts in IndexedDB. The File System Access API
-edits disk files in place. Exports are plain files. The PWA must work offline on
-its first use, before a previous online visit can fill browser caches.
+DeckMark requires no application server. Dexie stores drafts in IndexedDB. The
+File System Access API edits selected disk files in supported browsers. Exports
+are plain files. The PWA needs an initial online installation. After **Ready
+offline**, it must start without relying on a previous document visit.
 
 The pre-1.0 hardening pass broke this guarantee. The post-build step in
 `scripts/generate-service-worker.mjs` converts Workbox URLs to requested browser URLs.
@@ -51,7 +54,8 @@ produced an empty precache.
 A previous online visit hid the defect because the browser already had the page.
 `e2e/pwa.spec.ts` found it by loading a new installation after network access was
 disabled. The fix aligned the fallback key with the served URL. An offline-first
-claim requires a CI test that disables the network before first use.
+claim requires a test that disables the network after installation and before
+the first offline navigation.
 
 ## The bundle budget as a design constraint
 
@@ -86,9 +90,10 @@ titles. `save-queue` controls debounced Dexie writes. `trash` controls the trash
 
 Each module is a plain class or function set. Callbacks connect it to the store.
 For example, `meta-index` receives a `() => FileItem[]` accessor. `save-queue`
-receives `onSaved` and `onError` callbacks. Thus, `save-queue.test.ts` and
-`meta-index.test.ts` test logic without the store, DOM, or Svelte runtime. An
-IndexedDB failure reaches `onError` instead of a silent store `console.error`.
+receives `onSaved` and `onError` callbacks. An IndexedDB failure reaches `onError`
+instead of a silent store `console.error`. Browser workflows verify observable
+save and recovery results. Retained isolated tests cover the failure risks in
+[docs/TESTING.md](docs/TESTING.md).
 
 ## An in-house bilingual layer instead of a library
 
@@ -130,20 +135,71 @@ The native directory registry owns access independently of IndexedDB.
 Session tokens authorize relative operations under one selected root. Backups exclude registry identifiers and revision baselines.
 Native refresh is explicit. Local and external changes require comparison before either branch replaces the other.
 
-## Notes and Markdown presentations
+## Optional tools share local documents
 
-`document-kind.ts` derives the document type from content through `isPresentation()`.
-A file without presentation metadata is a note. A recognized marker with valid
-or malformed metadata makes the file a presentation. Markers inside code fences,
+Dexie schema 7 adds comments and snippets. Schema 8 adds the optional local
+search index. `snippets.ts` searches snippet metadata and resolves placeholders
+for copy. The stored snippet keeps its source text. `linked-blocks.ts` stores
+source markers and readable include snapshots in Markdown. Updates, freezing,
+and detachment are explicit actions.
+
+`docs-check.ts` checks a project without file writes or network requests.
+`services/docs-site-export.ts` creates a static site ZIP from local documents
+and assets. It reports missing resources and does not fetch remote images.
+`semantic-search.ts` uses feature hashing or local term co-occurrence. The
+user builds the index explicitly. These search models need no downloaded model
+and are separate from the provider-based AI assistant.
+
+Desktop loads Git, scheduled backup, and global capture modules through its
+edition boundary. Git acts on disk files under an approved project root.
+`desktop-backup.ts` collects a portable backup after pending draft writes finish.
+Its timer runs in the application, not an operating-system service. Quick capture
+uses a separate native window and an opt-in global shortcut.
+
+The Node CLI and MCP server are separate processes from a source checkout.
+The MCP server uses standard input and output, with explicit filesystem roots.
+Its tools read files or propose patches without applying them. See
+[docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md).
+
+## AI has an explicit network boundary
+
+AI is disabled by default. `ai/store.svelte.ts` keeps provider settings separate
+from document storage. Web Light keeps its key in memory and `sessionStorage`
+after browser-key consent. This is session storage, not a secure vault.
+`ai/openai-compatible.ts` makes direct provider requests subject to browser CORS
+and the application's connection policy.
+
+Desktop uses `ai/native.ts` and the Rust request boundary. The key entry field
+passes a key to the operating-system credential store. Stored keys are not read
+back into the WebView. Rust obtains the key for each request.
+
+`AiPanel.svelte` builds a context manifest from the user's selected scope.
+A send action transmits the prompt and included context. Proposed edits require
+review and an explicit apply action. No bundled inference engine, required
+backend, telemetry, or automatic document upload is part of this flow.
+
+<a id="notes-and-markdown-presentations"></a>
+
+## Document types and Markdown presentations
+
+`document-kind.ts` defines note, presentation, code, image, and PDF types.
+`documentKindForFile()` checks an explicit kind, then the filename extension,
+then Markdown presentation metadata. Draft rows can store `kind`, `mime`, and
+binary `data`. Code uses a separate CodeMirror editor. Images use an annotation
+canvas with flattened PNG export. PDF viewing uses a browser viewer, with
+open and download actions. The production Web CSP permits local blob frames
+and blocks network frames. Inline PDF support depends on the browser viewer.
+
+For Markdown, a recognized marker with valid or malformed metadata makes the
+file a presentation. Markers inside code fences,
 front matter, or framed element content do not change a note's type.
-There is no stored type field, database migration, or format change. Presentations
-keep format version 1.
+Presentations keep format version 1.
 
 The New dialog offers Note and Presentation. Presentation creation serializes an
 empty deck with one slide before the first save. The app does not convert notes
 to presentations or rewrite existing files when it opens them.
 
-`EditorPane.svelte` selects the note editor or the inline slide editor. The active
+`EditorPane.svelte` selects the view for each document type. The active
 file ID keys the slide editor so a file switch cannot reuse another deck's state.
 The editor and exports use the lazy module `presentation/entry.ts`. The small
 static type detector keeps the presentation graph outside the startup bundle.

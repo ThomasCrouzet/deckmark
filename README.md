@@ -1,5 +1,3 @@
-<!-- README standard: filmcraft-inspired/v4; profile: application -->
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="static/brand/logo-dark.svg">
@@ -24,15 +22,16 @@
 ## Why DeckMark?
 
 DeckMark is a Markdown workspace with two editions: **Web Light** and
-**Desktop Complete (Beta)**. Both editions create notes and presentations.
-Write and link notes, or create a presentation and arrange its slides.
+**Desktop Complete (Beta)**. Both editions support notes, presentations, code,
+images, and imported PDFs. Write and link notes, or arrange presentation slides.
 The web app stores drafts on your device and works offline after its
 offline resources are ready. Desktop Complete adds native file access and
 native operating-system integration.
 
 Web Light is a complete browser product. It is free and it is not a trial.
 Use it for a personal document library that you can export as plain files.
-Cloud sync, shared editing, AI, and plugins are outside the current product.
+AI is optional and disabled by default. Cloud sync, shared editing, accounts,
+and plugins are outside the current product.
 See the [edition matrix](docs/EDITIONS.md) for the complete comparison.
 
 <a id="privacy-and-limits"></a>
@@ -43,9 +42,9 @@ See the [edition matrix](docs/EDITIONS.md) for the complete comparison.
 
 **Telemetry:** The app sends no telemetry or crash reports. Errors go to the local console and in-app notifications.
 
-**AI:** No AI feature is implemented. The app sends no AI request and stores no AI API key. The Web client has no secure API key vault. Do not put provider secrets in browser storage or in a Web build.
+**AI:** An optional OpenAI-compatible connection sends your prompt and selected context to the provider that you configure. Review the context before you send it. Web Light requires browser-key consent and keeps the key in tab session storage, not a secure vault. Desktop stores the key in the operating-system credential store and sends requests through Rust. See [AI and network access](docs/USER_GUIDE.md#ai-and-network-access).
 
-**Data:** Drafts, projects, assets, history, workspaces, and templates use IndexedDB on your device. Interface preferences use localStorage. The web app contacts its host to load and update app files; it does not upload documents. Remote images are blocked until you choose to load them. That action contacts the image host and reveals your IP address, without cookies or a referrer.
+**Data:** Drafts, projects, assets, history, workspaces, templates, snippets, comments, and the optional search index use IndexedDB on your device. Preferences use localStorage. The web app contacts its host to load and update app files. Documents stay local unless you send selected context to an AI provider. Remote images are blocked until you choose to load them. That action contacts the image host and reveals your IP address, without cookies or a referrer.
 
 **Files:** A browser disk link uses the browser file API and an explicit action. Desktop accepts only paths that you select. Neither edition gives the application unrestricted filesystem access.
 
@@ -59,7 +58,9 @@ select **Retry save**. A browser or system crash can lose text that has not reac
 IndexedDB.
 
 <!-- readme:section capabilities -->
-## Notes and presentations
+<a id="notes-and-presentations"></a>
+
+## Documents
 
 ![DeckMark demo: create a note, change its view, then create and edit a separate presentation.](docs/demo.gif)
 
@@ -70,6 +71,13 @@ own type. The app does not convert notes to presentations.
 | --- | --- |
 | **Note** | Use **Edit**, **Source**, and **Read**. Add tables, checklists, images, formulas, and diagrams. Use an outline, tags, and wiki links. |
 | **Presentation** | Edit slides directly in the document area. Arrange text, images, shapes, and connectors. Add presenter notes and select **Present** for full screen. |
+| **Code and JSON** | Import text or code files. Use syntax highlighting, search, indentation controls, and JSON checks, formatting, or minification. |
+| **Image** | Import an image, draw annotations, and export a flattened PNG. Annotation strokes are temporary until exported. |
+| **PDF** | Import and export PDF files. Viewing depends on the browser PDF viewer and security policy. Use **Open PDF** or download the file when inline viewing is blocked. |
+
+The New dialog creates notes and presentations. Import the other document types.
+PDF support does not include text extraction, OCR, or PDF editing. See
+[code, images, and PDFs](docs/USER_GUIDE.md#code-images-and-pdfs).
 
 For notes, Source provides syntax highlighting, search, replacement, and
 per-document undo. Its preview divider works with the pointer or arrow keys.
@@ -118,7 +126,11 @@ selects French when it detects a French browser language.
   formulas, Mermaid diagrams, YAML front matter, and embedded images. Mermaid
   uses the Dagre layout online and offline; document layout overrides are ignored.
 - **Find and connect notes:** use tags, document search, wiki links, backlinks,
-  and the link graph. Workspaces and templates help organize recurring work.
+  and the link graph. The optional [local search index](docs/USER_GUIDE.md#local-search-index)
+  uses local text features without a provider request or model download.
+- **Reuse content:** save code snippets with tags and placeholders. Linked content
+  blocks keep a readable Markdown snapshot that you update explicitly. See
+  [snippets and content blocks](docs/USER_GUIDE.md#snippets-and-content-blocks).
 - **Review changes:** compare version history, disk conflicts, and cross-file
   replacements before you apply them.
 - **Manage the library:** find open and closed documents, select several files,
@@ -126,9 +138,17 @@ selects French when it detects a French browser language.
   the library. Deleting a document moves it to trash for 30 days.
 - **Keep portable projects:** import a folder or ZIP with document paths and
   local assets. Export the project with its resources and a link report.
+- **Check documentation:** find missing links, invalid front matter, heading
+  problems, and missing images offline. Export a static documentation site with
+  local assets and optional search. See [documentation projects](docs/USER_GUIDE.md#check-and-export-documentation).
 - **Save back to disk:** keep file links in supported browsers and Desktop.
   Revision checks detect external edits before an overwrite. Disk saves require
   an explicit action; a local draft save does not write to the linked file.
+
+Desktop Complete also adds local Git status, diffs, staging, and commits for an
+approved project folder. Its optional global quick capture saves notes and
+snippets. Both features use explicit actions. See
+[Desktop tools](docs/USER_GUIDE.md#desktop-tools).
 
 <!-- readme:section capabilities -->
 ## Export and back up
@@ -140,12 +160,15 @@ guides you to a 178 mm text area; the print dialog controls final page settings.
 
 Use **Settings > Export a backup** to keep a JSON copy outside browser storage.
 Settings can also check a backup before restore. Backups include open and closed
-documents, projects, assets, workspaces, and custom templates. They exclude trash,
-version history, and disk permissions.
+documents, projects, assets, workspaces, custom templates, snippets, and comments.
+They exclude trash, version history, the search index, API keys, and disk permissions.
 
 Optional backup encryption uses AES-GCM and PBKDF2 through WebCrypto. Keep the
 passphrase: an encrypted backup cannot be recovered without it. See
 [backups and storage health](docs/USER_GUIDE.md#backups-and-storage-health).
+
+Desktop can schedule unencrypted JSON snapshots in a selected folder while the
+app runs. Settings provides a retention count, manual backup, and restore preview.
 
 Scripts and CI pipelines can use the local Node CLI without the GUI:
 
@@ -157,6 +180,9 @@ npm run cli -- export . --format zip --out project.zip
 The CLI reuses the documentation checker, project archive, search matcher, and
 link rules. It does not start a server or a GUI. Commands, exit codes, JSON
 schemas, and the known renderer differences are in [docs/CLI.md](docs/CLI.md).
+The separate [local MCP server](docs/MCP.md) exposes read, search, check, and
+patch-proposal tools to a client over standard input and output. It needs an
+explicit root and does not write files. Both tools run from a source checkout.
 
 <!-- readme:section compatibility -->
 ## Browser and Desktop support
@@ -174,6 +200,8 @@ Web Light needs no installation. Disk access depends on the browser:
 are separate `desktop-v<version>` prereleases. Installers are unsigned and can
 trigger an operating-system warning. Older releases can use the previous mdsh
 name. The Desktop release workflow includes checksums and build provenance.
+Desktop update delivery is on standby. The app does not check for or install
+updates. Download and install each new release manually.
 See the [Desktop guide](docs/USER_GUIDE.md#desktop-complete-app) for
 requirements and supported architectures.
 
@@ -302,6 +330,7 @@ and native libraries specified in [CONTRIBUTING.md](CONTRIBUTING.md).
 | [User guide](docs/USER_GUIDE.md) | Editing, imports, images, disk links, backups, and shortcuts. |
 | [Presentation editor](docs/presentation-editor.md) · [File format](docs/presentation-format.md) | Create, present, and export Markdown slide decks. |
 | [Command-line interface](docs/CLI.md) | Local commands, exit codes, JSON output, and renderer differences. |
+| [Local MCP server](docs/MCP.md) | Client setup, approved roots, read-only tools, and patch proposals. |
 | [Contributing](CONTRIBUTING.md) · [Development](docs/DEVELOPMENT.md) | Setup, code rules, and module reference. |
 | [Architecture](ARCHITECTURE.md) | Storage, offline resources, rendering, and native file access. |
 | [Testing](docs/TESTING.md) | Failure risks, browser commands, and repeatable report artifacts. |
@@ -320,12 +349,14 @@ editions. See the [edition matrix](docs/EDITIONS.md) for the exact differences.
 
 Current limits:
 
-- **Unavailable capabilities:** no AI feature, cloud sync, shared editing,
-  account, plugin system, browser API key vault, or unrestricted filesystem
+- **Unavailable capabilities:** no cloud sync, shared editing,
+  account, plugin system, secure browser API key vault, or unrestricted filesystem
   access.
-- **Cross-edition tests:** both editions use the same Markdown, project ZIP, and
-  backup formats. Round-trip tests across editions are planned, not a current
-  guarantee.
+- **Portability:** both editions use the same document, project ZIP, and backup
+  formats. New metadata can require a newer release. See [format and test limits](docs/EDITIONS.md#support-boundaries).
+- **AI:** requires provider configuration and explicit actions. Browser requests
+  depend on the provider's CORS policy and the app's connection policy. No local
+  inference engine is bundled.
 - **Library size:** the working target is about **200 to 300 documents**.
 - **Imports:** a file selection accepts up to 300 files and 64 MiB in total,
   with a 16 MiB limit per document. Projects have additional asset and archive

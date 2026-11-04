@@ -1,6 +1,9 @@
 # Security policy
 
-DeckMark is a local-first static PWA with an optional Tauri Desktop Beta shell. It has no application backend, account, cloud synchronization, or telemetry. Browser drafts live in IndexedDB.
+DeckMark is a local-first static PWA with an optional Tauri Desktop Beta shell.
+It requires no application backend, account, or cloud storage. It sends no
+telemetry or crash reports. Browser drafts live in IndexedDB. Optional AI sends
+user-selected context to a configured provider after an explicit action.
 
 ## Supported versions
 
@@ -23,11 +26,40 @@ In scope:
 - CSS or image requests that disclose network metadata without consent;
 - a CSP or offline-shell bypass;
 - silent IndexedDB loss, stale backups, or a false durability status;
-- weaknesses in encrypted backup handling.
+- weaknesses in encrypted backup handling;
+- provider-key exposure or transmission of AI context without a user action.
 
 Rendering uses DOMPurify as the final sanitizer. CSS `url()` values in user content accept only validated local SVG fragments. The sanitizer removes SVG `feImage` filters to close that network request path. The app blocks remote images by default. It fetches them only after an explicit action for the document. An HTTPS fetch reveals the client IP address to the remote server. It sends no cookies or referrer and does not follow redirects. The app then embeds the validated bytes in the document. The project does not provide an image proxy.
 
-The production CSP blocks unauthorized scripts, objects, forms, and external framing. It permits the HTTPS connections required for approved image fetches. It blocks direct image loading from an external origin. The media preparation layer still enforces consent. The editor, KaTeX, and Mermaid require inline styles. Before rendering, Mermaid diagrams reject images and network styles. They use native SVG labels and keep only drawing styles limited to the SVG. Standalone HTML exports contain no scripts or remote font dependencies.
+The production CSP blocks unauthorized scripts, objects, forms, and external framing. It permits HTTPS connections for approved image fetches and optional AI requests. It blocks direct image loading from an external origin. The media preparation layer still enforces consent. The editor, KaTeX, and Mermaid require inline styles. Before rendering, Mermaid diagrams reject images and network styles. They use native SVG labels and keep only drawing styles limited to the SVG. Note HTML exports contain no scripts or remote font dependencies. Documentation site exports include local scripts for navigation controls and optional search.
+
+Imported PDFs use the browser PDF viewer. The production Web CSP permits local
+blob frames and blocks network frames. Open or download the PDF when inline viewing is unavailable. DeckMark
+does not extract PDF text or provide a PDF editor.
+
+## Optional AI and local MCP
+
+AI is disabled by default. The assistant sends a prompt and context from the
+selected document scope only after a send action. A connection test sends a test
+prompt without document content. Provider configuration and context selection
+remain the user's responsibility. A response does not execute commands or apply
+document edits automatically.
+
+Web Light requires browser-key consent. The key is held in memory and tab
+`sessionStorage`, where page scripts can access it. This is not a protected
+secret store. **Forget key** removes the browser key. Browser provider requests
+are subject to CORS and the production connection policy.
+
+Desktop stores the entered key in the operating-system credential store.
+Stored keys are not returned to the WebView. Rust reads them for provider
+requests and binds them to the full canonical endpoint. Old host-only entries
+require key re-entry. **Delete key** removes the endpoint's stored key. The native request boundary
+restricts endpoints and redirects. See [AI privacy](docs/EDITIONS.md#ai-and-network-privacy).
+
+The optional [MCP server](docs/MCP.md) is a separate local process with explicit
+roots and read-only tools. It binds no port and cannot apply its patch proposals.
+An external MCP client can send returned content elsewhere. Its data handling
+is outside DeckMark's network boundary.
 
 ## Desktop threat model
 
@@ -37,7 +69,7 @@ A rename accepts a filename in the same approved directory. It rejects traversal
 
 Native file operations reject relative paths, parent traversal, unsupported extensions, and symlink substitutions. Writes use a same-directory temporary file, file synchronization, permission preservation, a final content-revision conflict check, atomic replacement, and directory synchronization where supported. An external edit requires an explicit user decision. Windows uses the native replace API for an existing target.
 
-These boundaries reduce the impact of a WebView compromise but do not make an already compromised local operating-system account safe. Desktop installers remain unsigned beta artifacts until platform signing and notarization are available. There is no auto-update channel.
+These boundaries reduce the impact of a WebView compromise but do not make an already compromised local operating-system account safe. Desktop installers remain unsigned beta artifacts until platform signing and notarization are available. Update delivery is on standby. The app does not check for or install updates. Install new releases manually.
 
 Path and revision checks do not lock out external processes. A noncooperating
 writer can change an entry after the final check. See the remaining race window
@@ -48,7 +80,11 @@ and [Testing](docs/TESTING.md).
 
 IndexedDB writes are debounced by 400 ms and flushed when the page becomes hidden, on page hide, and before relevant navigation. A rejected write makes the durability barrier fail closed and blocks backup, restore, and workspace replacement. A browser or device kill can still lose edits within the debounce window, and IndexedDB can be removed with browser profile data.
 
-External backups include drafts, workspaces, and custom templates. They exclude trash, version history, File System Access handles, and Desktop capability tokens. Encrypted backups are unrecoverable without their passphrase.
+External backups include drafts, projects, assets, workspaces, custom templates,
+snippets, and comments. They exclude trash, version history, the local search
+index, API keys, File System Access handles, and Desktop capability tokens.
+Encrypted backups are unrecoverable without their passphrase. Desktop scheduled
+snapshots are unencrypted JSON files in a selected folder.
 
 ## Supply chain
 

@@ -3,10 +3,14 @@
 ## Use DeckMark
 
 - [Project overview](../README.md): features, downloads, browser support, and limits.
-- [User guide](USER_GUIDE.md): editing, images, disk links, backups, exports, and shortcuts.
+- [Editions](EDITIONS.md): Web Light and Desktop Complete capabilities, requirements, and support limits.
+- [User guide](USER_GUIDE.md): document types, AI consent, snippets, search, disk links, and backups.
+- [Documentation projects](USER_GUIDE.md#check-and-export-documentation): offline checks and static site export.
+- [Desktop tools](USER_GUIDE.md#desktop-tools): local Git and global quick capture.
 - [Presentation editor](presentation-editor.md): build, present, and export a slide deck.
 - [Presentation format](presentation-format.md): the Markdown file contract and failure limits.
 - [Command-line interface](CLI.md): local check, search, render, export, and inspect commands.
+- [Local MCP server](MCP.md): client setup, approved roots, and read-only tools.
 - [Support](../SUPPORT.md): report a problem or request help.
 - [Security policy](../SECURITY.md): privacy boundaries and private reports.
 
