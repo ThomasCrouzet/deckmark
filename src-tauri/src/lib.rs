@@ -1,9 +1,11 @@
+mod ai;
 mod disk;
 #[cfg(feature = "native-smoke")]
 mod disk_gate;
 mod printing;
 mod projects;
 mod shell;
+mod vault;
 
 use disk::{collect_argv_paths, collect_paths_from_directory, CapabilityStore, PendingOpenPaths};
 use tauri::{Emitter, Manager};
@@ -80,6 +82,7 @@ pub fn run() {
         .manage(CapabilityStore::default())
         .manage(projects::ProjectStore::default())
         .manage(shell::CloseState::default())
+        .manage(vault::VaultState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
@@ -117,6 +120,10 @@ pub fn run() {
             printing::desktop_print,
             shell::desktop_smoke_key,
             shell::desktop_smoke_cancel_dialog,
+            vault::vault_set,
+            vault::vault_status,
+            vault::vault_delete,
+            ai::ai_chat,
         ])
         .setup(move |app| {
             app.state::<CapabilityStore>()
