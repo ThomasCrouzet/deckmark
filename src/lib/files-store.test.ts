@@ -504,6 +504,25 @@ describe('backlinks / wiki-links', () => {
 		expect(await filesStore.rename(first.id, 'OTHER')).toBe(false);
 		expect(first.name).toBe('first.md');
 	});
+	it('reuses the library view until an open or closed list changes', async () => {
+		const first = filesStore.createNew('one.md', 'content');
+		filesStore.createNew('two.md', 'content');
+		const view = filesStore.library;
+		expect(filesStore.library).toBe(view);
+		expect(view).toHaveLength(2);
+
+		filesStore.close(first.id);
+		const closedView = filesStore.library;
+		expect(closedView).not.toBe(view);
+		expect(closedView.map((file) => file.name)).toEqual(['two.md', 'one.md']);
+		expect(filesStore.library).toBe(closedView);
+
+		filesStore.reopen(first.id);
+		const reopened = filesStore.library;
+		expect(reopened).not.toBe(closedView);
+		expect(reopened.map((file) => file.name)).toEqual(['two.md', 'one.md']);
+	});
+
 	it('does not guess between imported documents with the same name', async () => {
 		await db.drafts.bulkPut([draftRow('a', 'same.md'), draftRow('b', 'same.md')]);
 		await filesStore.reload(false);

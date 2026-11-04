@@ -301,12 +301,9 @@
 			overflow: hidden;
 			-webkit-box-orient: vertical;
 			-webkit-line-clamp: 2;
+			line-clamp: 2;
 			font-size: 10px;
 			line-height: 1.15;
-		}
-		.cards button svg {
-			width: 18px;
-			height: 18px;
 		}
 	}
 	@media (max-width: 640px) {

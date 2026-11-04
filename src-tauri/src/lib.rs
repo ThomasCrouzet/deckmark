@@ -4,6 +4,7 @@ mod disk_gate;
 mod printing;
 mod projects;
 mod shell;
+mod update;
 
 use disk::{collect_argv_paths, collect_paths_from_directory, CapabilityStore, PendingOpenPaths};
 use tauri::{Emitter, Manager};
@@ -117,6 +118,10 @@ pub fn run() {
             printing::desktop_print,
             shell::desktop_smoke_key,
             shell::desktop_smoke_cancel_dialog,
+            update::update_status,
+            update::update_check,
+            update::update_verify_manifest,
+            update::update_install,
         ])
         .setup(move |app| {
             app.state::<CapabilityStore>()

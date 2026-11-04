@@ -34,7 +34,7 @@
 		serializeBackup
 	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
-	import { editionManifest } from '#lib/edition.js';
+	import { editionManifest, IS_DESKTOP_EDITION } from '#lib/edition.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
 	import type { TemplateRow } from '#lib/db.js';
 	import { reportError } from '#lib/report.js';
@@ -1101,6 +1101,14 @@
 					</div>
 					<p class="mt-2 text-xs text-fg-muted">{t('settings.backupDownloadHint')}</p>
 				</section>
+				{#if IS_DESKTOP_EDITION}
+					{#await import('./UpdatePanel.svelte') then module}
+						<module.default />
+					{:catch _error}
+						<!-- A load failure keeps the settings panel usable. -->
+					{/await}
+				{/if}
+
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
 					<p>

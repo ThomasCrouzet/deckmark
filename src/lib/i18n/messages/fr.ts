@@ -125,6 +125,19 @@ export const fr: Record<MessageKey, string> = {
 	'settings.aiDestination':
 		'Les requêtes vont vers {host}. Vérifiez les fichiers inclus avant l’envoi.',
 	'settings.aiDisabledHint': 'L’IA est désactivée. Aucune requête ne quitte cet appareil.',
+	'updates.title': 'Mises à jour signées',
+	'updates.channel': 'Canal : {channel}',
+	'updates.configured': 'Clé de signature configurée ({fingerprint}). Vérification manuelle.',
+	'updates.blocked': 'Mises à jour désactivées : aucune clé de signature configurée.',
+	'updates.blockedHelp':
+		'Les installeurs Desktop ne sont pas signés. Configurez une clé publique ed25519 et un manifeste de version signé avant d’activer la vérification.',
+	'updates.check': 'Vérifier les mises à jour',
+	'updates.available': 'Mise à jour {version} vérifiée.',
+	'updates.verified': 'Version signée {version}',
+	'updates.copyLink': 'Copier le lien de téléchargement',
+	'updates.copied': 'Lien de téléchargement copié.',
+	'updates.manualInstall':
+		'Installez le paquet signé manuellement. L’application n’installe jamais une mise à jour elle-même.',
 	'settings.about': 'À propos de deckmark',
 	'settings.authorCredit': 'Créé par Thomas CROUZET',
 	'sidebar.homeLabel': 'Ouvrir la page d’accueil',
