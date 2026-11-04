@@ -359,22 +359,12 @@ fn status_path(path: &str, confined: bool, outside_changes: &mut usize) -> Optio
     Some(path.to_string())
 }
 
+#[derive(Default)]
 struct StatusHeader {
     head: Option<String>,
     branch: Option<String>,
     detached: bool,
     initial: bool,
-}
-
-impl Default for StatusHeader {
-    fn default() -> Self {
-        Self {
-            head: None,
-            branch: None,
-            detached: false,
-            initial: false,
-        }
-    }
 }
 
 fn parse_status_header(line: &str, header: &mut StatusHeader) {
@@ -643,10 +633,7 @@ fn parse_commits(output: &[u8]) -> Result<Vec<GitCommit>, String> {
         .map_err(|_| "Git log contains text that is not UTF-8".to_string())?;
     let mut fields = text.split('\0');
     let mut commits = Vec::new();
-    loop {
-        let Some(hash) = fields.next() else {
-            break;
-        };
+    while let Some(hash) = fields.next() {
         let hash = hash.trim_start_matches(['\n', '\r']);
         if hash.is_empty() {
             break;
