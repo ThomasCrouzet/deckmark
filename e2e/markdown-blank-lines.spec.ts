@@ -47,6 +47,43 @@ test('empty visual paragraphs export as blank Markdown lines', async ({ page }, 
 	expect(await downloadMarkdown(page, info)).toBe(expected);
 });
 
+for (const { name, newline } of [
+	{ name: 'LF', newline: '\n' },
+	{ name: 'CRLF', newline: '\r\n' }
+]) {
+	test(`an inserted empty paragraph survives export and reload in an existing ${name} note`, async ({
+		page
+	}, info) => {
+		const source = `First paragraph.${newline}${newline}Second paragraph.${newline}`;
+		const inserted = `First paragraph.${newline.repeat(4)}Second paragraph.${newline}`;
+		const edited = inserted.replace('Second paragraph.', 'Last paragraph.');
+		await info.attach('fixture.json', {
+			body: JSON.stringify({ source, inserted, edited }),
+			contentType: 'application/json'
+		});
+		await resetAppState(page);
+		await importSource(page, source);
+		await page.locator('[data-mode="wysiwyg"]').click();
+		await editSentence(page, 'First paragraph.', 'First paragraph.');
+		await page.keyboard.press('Enter');
+		await expect(page.locator('.ProseMirror > p')).toHaveText([
+			'First paragraph.',
+			'',
+			'Second paragraph.'
+		]);
+		expect.soft(await downloadMarkdown(page, info), 'After insertion').toBe(inserted);
+		await editSentence(page, 'Second paragraph.', 'Last paragraph.');
+		const downloaded = await downloadMarkdown(page, info);
+		expect.soft(downloaded, 'After nearby edit').toBe(edited);
+		await expect
+			.poll(async () => (await databaseState(page)).drafts.map((draft) => draft.content))
+			.toEqual([downloaded]);
+		await page.reload();
+		await expect(page.locator('.ProseMirror')).toContainText('Last paragraph.');
+		expect.soft(await downloadMarkdown(page, info), 'After reload').toBe(edited);
+	});
+}
+
 test('visual hard breaks use Markdown syntax in downloaded notes', async ({ page }, info) => {
 	await resetAppState(page, { mode: 'wysiwyg' });
 	await createFirstFile(page);
