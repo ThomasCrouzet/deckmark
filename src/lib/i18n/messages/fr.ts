@@ -98,6 +98,14 @@ export const fr: Record<MessageKey, string> = {
 	'settings.ai': 'Connexion IA (facultative)',
 	'settings.aiHelp':
 		'Connectez un fournisseur compatible OpenAI. L’IA reste désactivée par défaut et l’éditeur fonctionne sans elle.',
+	'settings.aiNativeBoundary':
+		'Desktop Complete conserve la clé API dans le magasin d’identifiants du système. La clé n’entre jamais dans cette page.',
+	'settings.aiBrowserNoVault':
+		'Web Light n’a pas de magasin d’identifiants natif. La clé API reste dans la session de cet onglet.',
+	'settings.aiNativeKeyNote':
+		'La clé est envoyée au coffre natif à l’enregistrement. Cette page ne peut plus la lire.',
+	'settings.aiModelsDesktopUnavailable':
+		'La découverte des modèles nécessite la clé du navigateur. Saisissez l’identifiant du modèle dans Desktop Complete.',
 	'settings.aiEnabled': 'Activer les fonctions IA',
 	'settings.aiPrivacy': 'Mode de confidentialité IA',
 	'settings.aiDirect': 'Clé navigateur directe',
@@ -119,6 +127,12 @@ export const fr: Record<MessageKey, string> = {
 	'settings.aiKeySave': 'Utiliser la clé',
 	'settings.aiKeyClear': 'Oublier la clé',
 	'settings.aiKeyConfigured': 'Clé configurée pour cette session',
+	'settings.aiKeyPlaceholderNative':
+		'Collez une clé à conserver dans le magasin d’identifiants du système',
+	'settings.aiKeyHintNative':
+		'La clé va dans le magasin d’identifiants du système. Cette page ne peut pas la lire et elle n’est pas écrite dans IndexedDB, les sauvegardes ou les exports.',
+	'settings.aiKeyClearNative': 'Supprimer la clé',
+	'settings.aiKeyConfiguredNative': 'Clé conservée dans le magasin d’identifiants du système',
 	'settings.aiTemperature': 'Température',
 	'settings.aiMaxTokens': 'Jetons max.',
 	'settings.aiTest': 'Tester la connexion',
@@ -709,6 +723,18 @@ export const fr: Record<MessageKey, string> = {
 	'ai.reason_ignored': 'ignoré',
 	'ai.reason_budget': 'budget',
 	'ai.destination': 'Les requêtes vont vers {host}. Seul le contenu listé est envoyé.',
+	'ai.nativeBoundary':
+		'Desktop Complete envoie cette requête depuis la couche native. La clé API reste dans le magasin d’identifiants du système.',
+	'ai.errorAuth': 'Le fournisseur a refusé la clé enregistrée. Remplacez-la dans les réglages.',
+	'ai.errorRateLimit': 'La limite de débit du fournisseur est atteinte. Réessayez plus tard.',
+	'ai.errorServer': 'Le fournisseur a renvoyé une erreur. Réessayez plus tard.',
+	'ai.errorNetwork': 'La requête native a échoué. Vérifiez le réseau et l’URL de base.',
+	'ai.errorInvalidEndpoint':
+		'Cette adresse n’est pas autorisée. Utilisez https, ou une adresse http locale sur 127.0.0.1, localhost ou [::1].',
+	'ai.errorMissingKey':
+		'Aucune clé enregistrée ne correspond à ce fournisseur. Ajoutez-la dans les réglages.',
+	'ai.errorDisabled': 'L’IA est désactivée. Activez-la dans les réglages.',
+	'ai.errorCancelled': 'Requête annulée',
 	'ai.actions': 'Actions',
 	'ai.explain': 'Expliquer',
 	'ai.fix': 'Corriger',

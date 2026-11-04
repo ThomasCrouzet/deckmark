@@ -208,9 +208,38 @@
 	}
 
 	function saveAiKey() {
-		aiStore.setApiKey(aiKeyDraft);
-		aiKeyDraft = '';
-		aiStatus = aiStore.keyConfigured ? t('settings.aiKeyConfigured') : '';
+		void (async () => {
+			aiBusy = true;
+			try {
+				await aiStore.setApiKey(aiKeyDraft);
+				aiKeyDraft = '';
+				aiStatus = aiStore.keyConfigured
+					? t(
+							aiStore.usesNativeVault
+								? 'settings.aiKeyConfiguredNative'
+								: 'settings.aiKeyConfigured'
+						)
+					: '';
+			} catch (error) {
+				aiStatus = aiErrorMessage(error);
+			} finally {
+				aiBusy = false;
+			}
+		})();
+	}
+
+	function clearAiKey() {
+		void (async () => {
+			aiBusy = true;
+			try {
+				await aiStore.clearApiKey();
+				aiStatus = '';
+			} catch (error) {
+				aiStatus = aiErrorMessage(error);
+			} finally {
+				aiBusy = false;
+			}
+		})();
 	}
 
 	$effect(() => {
@@ -699,6 +728,15 @@
 				<details class="mb-5 rounded border border-border p-3 text-sm" data-testid="ai-settings">
 					<summary class="cursor-pointer">{t('settings.ai')}</summary>
 					<p class="mt-2 text-xs text-fg-muted">{t('settings.aiHelp')}</p>
+					{#if aiStore.usesNativeVault}
+						<p class="mt-1 text-xs text-fg-muted" data-testid="ai-native-boundary">
+							{t('settings.aiNativeBoundary')}
+						</p>
+					{:else}
+						<p class="mt-1 text-xs text-fg-muted" data-testid="ai-browser-boundary">
+							{t('settings.aiBrowserNoVault')}
+						</p>
+					{/if}
 					<label class="mt-3 flex items-center justify-between gap-3">
 						<span>{t('settings.aiEnabled')}</span>
 						<input
@@ -735,19 +773,25 @@
 							{t('settings.aiLocalUnavailable')}
 						</p>
 					{:else}
-						<label class="mt-3 flex items-center justify-between gap-3">
-							<span class="text-xs text-fg-muted">{t('settings.aiAllowKey')}</span>
-							<input
-								type="checkbox"
-								checked={aiStore.settings.allowBrowserKey}
-								onchange={(event) =>
-									aiStore.update({ allowBrowserKey: event.currentTarget.checked })}
-								data-testid="ai-allow-key"
-							/>
-						</label>
-						<p class="mt-1 text-xs text-warning" role="note">
-							{t('settings.aiAllowKeyWarning')}
-						</p>
+						{#if aiStore.usesNativeVault}
+							<p class="mt-3 text-xs text-fg-muted" role="note">
+								{t('settings.aiNativeKeyNote')}
+							</p>
+						{:else}
+							<label class="mt-3 flex items-center justify-between gap-3">
+								<span class="text-xs text-fg-muted">{t('settings.aiAllowKey')}</span>
+								<input
+									type="checkbox"
+									checked={aiStore.settings.allowBrowserKey}
+									onchange={(event) =>
+										aiStore.update({ allowBrowserKey: event.currentTarget.checked })}
+									data-testid="ai-allow-key"
+								/>
+							</label>
+							<p class="mt-1 text-xs text-warning" role="note">
+								{t('settings.aiAllowKeyWarning')}
+							</p>
+						{/if}
 					{/if}
 					<label class="mt-3 block text-xs text-fg-muted">
 						<span>{t('settings.aiBaseUrl')}</span>
@@ -778,7 +822,7 @@
 						<button
 							type="button"
 							class="rounded border border-border px-2.5 py-1 text-xs"
-							disabled={aiBusy}
+							disabled={aiBusy || aiStore.usesNativeVault}
 							onclick={() => void loadAiModels()}
 							data-testid="ai-load-models">{t('settings.aiLoadModels')}</button
 						>
@@ -799,28 +843,45 @@
 								class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
 								bind:value={aiKeyDraft}
 								placeholder={aiStore.keyConfigured
-									? t('settings.aiKeyConfigured')
-									: t('settings.aiKeyPlaceholder')}
+									? t(
+											aiStore.usesNativeVault
+												? 'settings.aiKeyConfiguredNative'
+												: 'settings.aiKeyConfigured'
+										)
+									: t(
+											aiStore.usesNativeVault
+												? 'settings.aiKeyPlaceholderNative'
+												: 'settings.aiKeyPlaceholder'
+										)}
 								data-testid="ai-key"
 							/>
 						</label>
 						<button
 							type="button"
 							class="rounded border border-border px-2.5 py-1 text-xs"
+							disabled={aiBusy}
 							onclick={saveAiKey}
 							data-testid="ai-key-save">{t('settings.aiKeySave')}</button
 						>
 						<button
 							type="button"
 							class="rounded border border-border px-2.5 py-1 text-xs"
-							onclick={() => {
-								aiStore.clearApiKey();
-								aiStatus = '';
-							}}
-							data-testid="ai-key-clear">{t('settings.aiKeyClear')}</button
+							disabled={aiBusy}
+							onclick={clearAiKey}
+							data-testid="ai-key-clear"
+							>{aiStore.usesNativeVault
+								? t('settings.aiKeyClearNative')
+								: t('settings.aiKeyClear')}</button
 						>
 					</div>
-					<p class="mt-1 text-xs text-fg-muted">{t('settings.aiKeyHint')}</p>
+					<p class="mt-1 text-xs text-fg-muted">
+						{aiStore.usesNativeVault ? t('settings.aiKeyHintNative') : t('settings.aiKeyHint')}
+					</p>
+					{#if aiStore.usesNativeVault}
+						<p class="mt-1 text-xs text-fg-muted">
+							{t('settings.aiModelsDesktopUnavailable')}
+						</p>
+					{/if}
 					<div class="mt-2 grid grid-cols-2 gap-2 text-xs text-fg-muted">
 						<label>
 							<span>{t('settings.aiTemperature')}</span>

@@ -34,13 +34,24 @@ const features =
 				'pwa-offline',
 				'native-disk',
 				'native-projects',
-				'git'
+				'git',
+				'native-vault',
+				'native-ai'
 			]
 		: ['notes', 'presentations', 'code', 'images', 'projects', 'pwa-offline'];
 const excluded =
 	edition === 'desktop'
 		? []
-		: ['native-disk', 'native-projects', 'native-vault', 'git', 'cli', 'mcp', 'global-capture'];
+		: [
+				'native-disk',
+				'native-projects',
+				'native-vault',
+				'native-ai',
+				'git',
+				'cli',
+				'mcp',
+				'global-capture'
+			];
 mkdirSync('build', { recursive: true });
 writeFileSync(
 	join('build', 'edition.json'),

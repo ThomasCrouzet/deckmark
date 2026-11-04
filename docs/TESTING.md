@@ -210,7 +210,13 @@ tests cover these additional risks:
 | Markdown, search, and media | Hostile CSS and SVG, parser time limits, code and YAML boundaries, Unicode matching, unsafe regexes, invalid images, and resource limits. |
 | UI coordination | Competing prompts, rejected lazy imports, stale search results, worker timeouts, failed preference writes, and keyboard composition. |
 | Release scripts and budgets | Incorrect checksums, missing installers, source identity, SBOM patch provenance, changelog boundaries, and shared-chunk accounting. |
-| Native Rust code | Symlink substitution, persisted grants, file replacement, close ordering, and the GLib iterator security regression. |
+| Native Rust code | Symlink substitution, persisted grants, file replacement, close ordering, the GLib iterator security regression, vault lifecycle, endpoint validation, and error redaction. |
+
+The native AI boundary tests use an in-memory secret store. A headless Linux
+machine can lack a Secret Service. Use a desktop session to test the operating
+system credential store. The tests cover endpoint rejection, a missing key that
+stops the request, stable error codes, redaction, request body building, and
+command return types.
 
 The presentation round-trip test keeps one byte-identity case that a browser workflow
 cannot observe directly. The browser suite checks the visible import, edit, and save

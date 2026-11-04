@@ -7,17 +7,17 @@ import { join } from 'node:path';
 
 /**
  * @param {{
- *   execute: (script: string, args?: unknown[]) => Promise<any>,
+ *   executeAsync: (script: string, args?: unknown[]) => Promise<any>,
  *   passed: (label: string) => void,
  *   output: string
  * }} context
  */
-export async function checkDesktopTools({ execute, passed, output }) {
+export async function checkDesktopTools({ executeAsync, passed, output }) {
 	const directory = join(output, 'desktop-tools');
 	rmSync(directory, { recursive: true, force: true });
 	mkdirSync(directory, { recursive: true });
 
-	const status = await execute(
+	const status = await executeAsync(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('update_status').then(done, error => done({ error: String(error) }));`
 	);
@@ -26,7 +26,7 @@ export async function checkDesktopTools({ execute, passed, output }) {
 	assert.equal(status.blockedReason, 'signing-required');
 	passed('native updates stay blocked without a signing key');
 
-	const install = await execute(
+	const install = await executeAsync(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('update_install').then(done, error => done({ error: String(error) }));`
 	);
@@ -42,7 +42,7 @@ export async function checkDesktopTools({ execute, passed, output }) {
 		sha256: 'a'.repeat(64),
 		notes: ''
 	});
-	const rejected = await execute(
+	const rejected = await executeAsync(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('update_verify_manifest', { manifest: arguments[0], signature: 'AAAA' })
 			.then(done, error => done({ error: String(error) }));`,
@@ -54,7 +54,7 @@ export async function checkDesktopTools({ execute, passed, output }) {
 	// Backup snapshots: write two, keep the newest, preserve unrelated files.
 	writeFileSync(join(directory, 'notes.txt'), 'keep me');
 	const write = (payload, keep) =>
-		execute(
+		executeAsync(
 			`const done = arguments[arguments.length - 1];
 			window.__TAURI__.core.invoke('desktop_backup_write', {
 				root: arguments[0], payload: arguments[1], keep: arguments[2]
@@ -69,7 +69,7 @@ export async function checkDesktopTools({ execute, passed, output }) {
 	assert.notEqual(second.path, first.path, 'snapshots must not overwrite each other');
 	assert.equal(existsSync(first.path), false, 'retention must remove the older snapshot');
 
-	const listed = await execute(
+	const listed = await executeAsync(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('desktop_backup_list', { root: arguments[0] })
 			.then(done, error => done({ error: String(error) }));`,
@@ -83,7 +83,7 @@ export async function checkDesktopTools({ execute, passed, output }) {
 	);
 	assert.equal(readFileSync(join(directory, 'notes.txt'), 'utf8'), 'keep me');
 
-	const read = await execute(
+	const read = await executeAsync(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('desktop_backup_read', { path: arguments[0] })
 			.then(done, error => done({ error: String(error) }));`,
@@ -92,7 +92,7 @@ export async function checkDesktopTools({ execute, passed, output }) {
 	assert.match(String(read), /"marker":"second"/);
 	passed('native backup snapshots write atomically, keep the newest and preserve user files');
 
-	const escaped = await execute(
+	const escaped = await executeAsync(
 		`const done = arguments[arguments.length - 1];
 		window.__TAURI__.core.invoke('desktop_backup_read', { path: arguments[0] })
 			.then(done, error => done({ error: String(error) }));`,

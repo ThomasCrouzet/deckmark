@@ -21,7 +21,12 @@ const forbidden = [
 	'git_log',
 	'git_stage',
 	'git_unstage',
-	'git_commit'
+	'git_commit',
+	'vault_set',
+	'vault_status',
+	'vault_delete',
+	'ai_chat',
+	'keyring'
 ];
 
 function files(directory) {

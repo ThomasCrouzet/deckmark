@@ -374,6 +374,11 @@
 						<p class="ai-destination">
 							{t('ai.destination', { host: aiStore.providerHost })}
 						</p>
+						{#if aiStore.usesNativeVault}
+							<p class="ai-destination" data-testid="ai-native-boundary">
+								{t('ai.nativeBoundary')}
+							</p>
+						{/if}
 					</div>
 				</section>
 

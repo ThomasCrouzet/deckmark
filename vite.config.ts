@@ -40,6 +40,9 @@ export default defineConfig(({ mode }) => {
 							'@tauri-apps/api/core': nativeStub,
 							'@tauri-apps/api/event': nativeStub,
 							'@tauri-apps/api/menu': nativeStub,
+							'#lib/ai/native.js': fileURLToPath(
+								new URL('./src/lib/edition/web/ai-native-stub.ts', import.meta.url)
+							),
 							'#lib/desktop-shell.js': fileURLToPath(
 								new URL('./src/lib/desktop-shell.web.ts', import.meta.url)
 							),

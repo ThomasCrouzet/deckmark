@@ -8,7 +8,6 @@
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 const MANIFEST_SCHEMA: u32 = 1;
 const MAX_MANIFEST_BYTES: usize = 6 * 1024;
@@ -253,11 +252,10 @@ fn fetch(url: &str) -> Result<String, UpdateError> {
     if !valid_url(url) {
         return Err(UpdateError::code("invalid-endpoint", "invalid update URL"));
     }
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|error| UpdateError::code("network", error.to_string()))?;
+    // Reuse the AI boundary client: it installs the rustls provider once and
+    // disables redirects.
+    let client = crate::ai::build_client()
+        .map_err(|error| UpdateError::code("network", error))?;
     let response = client
         .get(url)
         .header("accept", "application/json, text/plain")
