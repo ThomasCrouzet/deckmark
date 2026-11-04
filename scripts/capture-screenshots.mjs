@@ -31,14 +31,13 @@ const PWA_NAMES = ['mode-wysiwyg', 'mode-source', 'mode-read', 'palette'];
 
 async function captureTheme(session, theme) {
 	const page = await newCapturePage(session, theme);
-	await page.setViewportSize({ width: 1600, height: 1000 });
 	const shots = [];
 	async function capture(name) {
 		const stem = `${name}${theme === 'light' ? '-light' : ''}`;
 		const png = join(session.evidenceDir, `${stem}.png`);
 		const webp = join(session.evidenceDir, `${stem}.webp`);
 		await saveScreenshot(page, png);
-		const args = ['-quiet', '-lossless', '-z', '9', '-resize', '2560', '1600', png, '-o', webp];
+		const args = ['-quiet', '-lossless', '-z', '9', png, '-o', webp];
 		runTool('cwebp', args);
 		const media = probeMedia(webp);
 		expect(media.streams[0].width).toBe(2560);

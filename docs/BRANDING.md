@@ -37,6 +37,8 @@ node scripts/capture-demo-gif.mjs
 The second build includes the new PWA screenshots. The scripts start and stop
 their own preview servers. They use a fixed viewport, English, seeded documents,
 and explicit theme settings. They capture the real interface.
+Desktop captures use a 1280 by 800 CSS pixel viewport. Still images use a device
+pixel ratio of 2. Keep this viewport to show the compact toolbar at normal size.
 
 The screenshot script updates all images in `docs/screenshots/` and
 `static/screenshots/`, including the desktop and mobile slide editor.

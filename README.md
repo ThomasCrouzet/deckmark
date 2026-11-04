@@ -79,6 +79,10 @@ The New dialog creates notes and presentations. Import the other document types.
 PDF support does not include text extraction, OCR, or PDF editing. See
 [code, images, and PDFs](docs/USER_GUIDE.md#code-images-and-pdfs).
 
+The toolbar adapts to the available document width. **Edit**, **Source**, and
+**Read** keep their labels on small screens. Use **Actions** for file commands
+that do not fit in the toolbar.
+
 For notes, Source provides syntax highlighting, search, replacement, and
 per-document undo. Its preview divider works with the pointer or arrow keys.
 The app remembers its position and stacks the panes on narrow screens.

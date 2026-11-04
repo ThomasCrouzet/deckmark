@@ -280,7 +280,7 @@
 				requestAnimationFrame(() => {
 					if (!view) return;
 					if (saved) view.scrollDOM.scrollTop = saved.scrollTop;
-					view.focus();
+					if (document.activeElement === document.body) view.focus();
 				});
 			} catch (error) {
 				loadError = true;

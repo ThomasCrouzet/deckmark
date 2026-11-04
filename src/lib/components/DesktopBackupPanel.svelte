@@ -340,3 +340,12 @@
 		</div>
 	{/if}
 </section>
+
+<style>
+	@media (max-width: 639px), (pointer: coarse) {
+		button {
+			min-width: 44px;
+			min-height: 44px;
+		}
+	}
+</style>

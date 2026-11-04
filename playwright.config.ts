@@ -85,6 +85,8 @@ export default defineConfig({
 				'**/read-preview-isolation.spec.ts',
 				'**/modal-isolation-review.spec.ts',
 				'**/palette-load-review.spec.ts',
+				'**/toolbar-density.spec.ts',
+				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts'
 			]
 		},
@@ -114,6 +116,8 @@ export default defineConfig({
 				'**/read-preview-isolation.spec.ts',
 				'**/modal-isolation-review.spec.ts',
 				'**/palette-load-review.spec.ts',
+				'**/toolbar-density.spec.ts',
+				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts'
 			]
 		},

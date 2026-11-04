@@ -300,43 +300,21 @@ body.typewriter-mode .mdsh-editor {
 }
 
 .mdsh-mode-switch {
-	border-radius: 0;
-	background: transparent;
+	border-radius: 8px;
+	border-color: color-mix(in oklab, var(--color-border) 65%, transparent);
+	background: var(--color-bg-1);
 }
 
 .mdsh-mode-switch button {
 	position: relative;
 	border: 1px solid transparent;
-	border-radius: 0;
+	border-radius: 6px;
 }
 
 .mdsh-mode-switch button[aria-checked='true'] {
-	border-color: color-mix(in oklab, var(--color-accent) 55%, var(--color-border));
-	background: color-mix(in oklab, var(--color-accent) 10%, var(--color-bg-2));
+	border-color: color-mix(in oklab, var(--color-accent) 24%, var(--color-border));
+	background: color-mix(in oklab, var(--color-accent) 12%, var(--color-bg-2));
 	color: var(--color-accent);
-}
-
-.mdsh-mode-switch button[aria-checked='true']::after {
-	content: '';
-	position: absolute;
-	left: 5px;
-	right: 5px;
-	bottom: -1px;
-	height: 3px;
-	background: var(--color-accent);
-}
-
-.mdsh-local-indicator {
-	display: none;
-	/* Keep the mode buttons fixed when offline preparation completes. */
-	flex: 0 0 14rem;
-	align-items: center;
-	gap: 0.45rem;
-	padding-inline: 0.6rem;
-	font-family: var(--font-mono);
-	font-size: 0.75rem;
-	letter-spacing: 0.06em;
-	color: var(--color-fg-dim);
 }
 
 .mdsh-local-indicator::before {
@@ -346,12 +324,6 @@ body.typewriter-mode .mdsh-editor {
 	height: 5px;
 	background: var(--color-accent);
 	box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-accent) 14%, transparent);
-}
-
-@media (min-width: 1100px) {
-	.mdsh-local-indicator {
-		display: flex;
-	}
 }
 
 .mdsh-dialog-panel {
@@ -494,25 +466,6 @@ body.typewriter-mode .mdsh-editor {
 	}
 	.mdsh-dialog-panel {
 		max-height: calc(100dvh - 2rem);
-	}
-}
-
-@media (max-width: 639px) {
-	#app-toolbar {
-		flex-wrap: wrap;
-		padding-block: 4px;
-	}
-	#app-toolbar .mdsh-mode-switch {
-		order: 2;
-		width: 100%;
-		margin-left: 0;
-		justify-content: center;
-	}
-	#app-toolbar .mdsh-mode-switch button {
-		flex: 1;
-	}
-	#app-toolbar .mdsh-mode-switch span {
-		display: inline;
 	}
 }
 

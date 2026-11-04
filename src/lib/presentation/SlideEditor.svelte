@@ -41,6 +41,12 @@
 		ArrowUpRight,
 		Minus,
 		Copy,
+		CopyPlus,
+		ClipboardPaste,
+		Pencil,
+		StickyNote,
+		Download,
+		Ellipsis,
 		Trash2,
 		Code2,
 		Maximize,
@@ -218,16 +224,24 @@
 	$effect(() => {
 		const element = viewport;
 		if (!element) return;
+		let frame: number | undefined;
 		const observer = new ResizeObserver((entries) => {
 			const box = entries[0]?.contentRect;
 			if (box) {
-				viewportWidth = box.width;
-				viewportHeight = box.height;
-				keepFocusedControlVisible();
+				if (frame !== undefined) cancelAnimationFrame(frame);
+				frame = requestAnimationFrame(() => {
+					frame = undefined;
+					viewportWidth = box.width;
+					viewportHeight = box.height;
+					keepFocusedControlVisible();
+				});
 			}
 		});
 		observer.observe(element);
-		return () => observer.disconnect();
+		return () => {
+			observer.disconnect();
+			if (frame !== undefined) cancelAnimationFrame(frame);
+		};
 	});
 	$effect(() => {
 		void editor.source;
@@ -739,7 +753,8 @@
 	label: MessageKey,
 	run: () => void,
 	disabled = false,
-	describedBy: string | undefined = undefined
+	describedBy: string | undefined = undefined,
+	Icon: typeof Copy | undefined = undefined
 )}
 	<button
 		type="button"
@@ -747,7 +762,9 @@
 		onclick={run}
 		{disabled}
 		title={t(label)}
-		aria-describedby={describedBy}>{t(label)}</button
+		aria-label={Icon ? t(label) : undefined}
+		aria-describedby={describedBy}
+		>{#if Icon}<Icon size={16} />{/if}<span class:compact-label={!!Icon}>{t(label)}</span></button
 	>
 {/snippet}
 
@@ -774,7 +791,13 @@
 		{#if !presenting}
 			<div class="header-actions">
 				<details bind:open={advancedOpen}>
-					<summary data-testid="slide-advanced">{t('slides.advanced')}</summary>
+					<summary
+						data-testid="slide-advanced"
+						aria-label={t('slides.advanced')}
+						title={t('slides.advanced')}
+						><Ellipsis size={18} /><span class="compact-label">{t('slides.advanced')}</span
+						></summary
+					>
 					<div class="action-menu">
 						{@render action('source', 'slides.source', openSource)}
 						{@render action(
@@ -786,7 +809,12 @@
 					</div>
 				</details>
 				<details bind:open={exportOpen}>
-					<summary data-testid="slide-export">{t('slides.export')}</summary>
+					<summary
+						data-testid="slide-export"
+						aria-label={t('slides.export')}
+						title={t('slides.export')}
+						><Download size={17} /><span class="compact-label">{t('slides.export')}</span></summary
+					>
 					<div class="action-menu">
 						{@render action(
 							'export-md',
@@ -810,8 +838,11 @@
 				</details>
 				<button
 					data-testid="slide-notes-toggle"
+					aria-label={t('slides.notes')}
+					title={t('slides.notes')}
 					aria-pressed={notesOpen}
-					onclick={() => (notesOpen = !notesOpen)}>{t('slides.notes')}</button
+					onclick={() => (notesOpen = !notesOpen)}
+					><StickyNote size={17} /><span class="compact-label">{t('slides.notes')}</span></button
 				>
 				<button
 					class="primary"
@@ -820,9 +851,6 @@
 					aria-describedby={sourceOpen ? `${guidanceId}-present` : undefined}
 					disabled={editor.error || sourceOpen}><Play size={15} />{t('slides.present')}</button
 				>
-				{#if sourceOpen}<p id={`${guidanceId}-present`} class="action-hint present-hint">
-						{t('slides.presentSourceHint')}
-					</p>{/if}
 			</div>
 		{:else}
 			<span class="present-count">{editor.index + 1} / {editor.deck.slides.length}</span>
@@ -842,6 +870,9 @@
 				onclick={exitPresent}><X size={20} />{t('slides.exitPresent')}</button
 			>{/if}
 	</header>
+	{#if !presenting && sourceOpen}<p id={`${guidanceId}-present`} class="action-hint">
+			{t('slides.presentSourceHint')}
+		</p>{/if}
 	<p class="sr-only" role="status" aria-live="polite" data-testid="slide-selection-status">
 		{selectionAnnouncement}
 	</p>
@@ -895,34 +926,74 @@
 				disabled={!editor.redoEntries.length}><Redo2 size={18} /></button
 			>
 			<span class="tool-separator"></span>
-			<button data-testid="slide-add-text" onclick={() => add('text')}
-				><Type size={17} />{t('slides.text')}</button
+			<button
+				data-testid="slide-add-text"
+				aria-label={t('slides.text')}
+				title={t('slides.text')}
+				onclick={() => add('text')}
+				><Type size={17} /><span class="compact-label">{t('slides.text')}</span></button
 			>
-			<button data-testid="slide-add-image" onclick={() => add('image')}
-				><Image size={17} />{t('slides.image')}</button
+			<button
+				data-testid="slide-add-image"
+				aria-label={t('slides.image')}
+				title={t('slides.image')}
+				onclick={() => add('image')}
+				><Image size={17} /><span class="compact-label">{t('slides.image')}</span></button
 			>
-			<button data-testid="slide-add-rectangle" onclick={() => add('rectangle')}
-				><Square size={17} />{t('slides.rectangle')}</button
+			<button
+				data-testid="slide-add-rectangle"
+				aria-label={t('slides.rectangle')}
+				title={t('slides.rectangle')}
+				onclick={() => add('rectangle')}
+				><Square size={17} /><span class="compact-label">{t('slides.rectangle')}</span></button
 			>
-			<button data-testid="slide-add-rounded-rectangle" onclick={() => add('rounded-rectangle')}
-				><Square size={17} />{t('slides.rounded-rectangle')}</button
+			<button
+				data-testid="slide-add-rounded-rectangle"
+				aria-label={t('slides.rounded-rectangle')}
+				title={t('slides.rounded-rectangle')}
+				onclick={() => add('rounded-rectangle')}
+				><svg
+					width="17"
+					height="17"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="6" /></svg
+				><span class="compact-label">{t('slides.rounded-rectangle')}</span></button
 			>
-			<button data-testid="slide-add-ellipse" onclick={() => add('ellipse')}
-				><Circle size={17} />{t('slides.ellipse')}</button
+			<button
+				data-testid="slide-add-ellipse"
+				aria-label={t('slides.ellipse')}
+				title={t('slides.ellipse')}
+				onclick={() => add('ellipse')}
+				><Circle size={17} /><span class="compact-label">{t('slides.ellipse')}</span></button
 			>
-			<button data-testid="slide-add-line" onclick={() => add('line')}
-				><Minus size={17} />{t('slides.line')}</button
+			<button
+				data-testid="slide-add-line"
+				aria-label={t('slides.line')}
+				title={t('slides.line')}
+				onclick={() => add('line')}
+				><Minus size={17} /><span class="compact-label">{t('slides.line')}</span></button
 			>
-			<button data-testid="slide-add-arrow" onclick={() => add('arrow')}
-				><ArrowUpRight size={17} />{t('slides.arrow')}</button
+			<button
+				data-testid="slide-add-arrow"
+				aria-label={t('slides.arrow')}
+				title={t('slides.arrow')}
+				onclick={() => add('arrow')}
+				><ArrowUpRight size={17} /><span class="compact-label">{t('slides.arrow')}</span></button
 			>
 			<span class="tool-separator"></span>
 			<button
 				data-testid="slide-properties"
+				aria-label={t('slides.properties')}
+				title={t('slides.properties')}
 				aria-pressed={inspectorOpen}
 				onclick={() => {
 					inspectorOpen = !inspectorOpen;
-				}}><SlidersHorizontal size={17} />{t('slides.properties')}</button
+				}}
+				><SlidersHorizontal size={17} /><span class="compact-label">{t('slides.properties')}</span
+				></button
 			>
 		</div>
 	{/if}
@@ -1052,34 +1123,40 @@
 								copySelection();
 							},
 							!editor.selected.length,
-							!editor.selected.length ? `${guidanceId}-selection` : undefined
+							!editor.selected.length ? `${guidanceId}-selection` : undefined,
+							Copy
 						)}
 						{@render action(
 							'paste',
 							'slides.paste',
 							() => editor.paste(),
-							!editor.clipboardAvailable
+							!editor.clipboardAvailable,
+							undefined,
+							ClipboardPaste
 						)}
 						{@render action(
 							'duplicate',
 							'slides.duplicate',
 							() => editor.duplicate(),
 							!editor.selected.length,
-							!editor.selected.length ? `${guidanceId}-selection` : undefined
+							!editor.selected.length ? `${guidanceId}-selection` : undefined,
+							CopyPlus
 						)}
 						{@render action(
 							'delete',
 							'slides.delete',
 							() => editor.remove(),
 							!editor.selected.length,
-							!editor.selected.length ? `${guidanceId}-selection` : undefined
+							!editor.selected.length ? `${guidanceId}-selection` : undefined,
+							Trash2
 						)}
 						{@render action(
 							'edit-text',
 							'slides.editText',
 							() => void editText(),
 							!editor.primary || ['image', 'line', 'arrow'].includes(editor.primary.type),
-							!editor.selected.length ? `${guidanceId}-selection` : undefined
+							!editor.selected.length ? `${guidanceId}-selection` : undefined,
+							Pencil
 						)}
 						<label class="snap-control"
 							><input type="checkbox" bind:checked={gestures.snap} />{t('slides.snap')}</label
@@ -1391,9 +1468,26 @@
 	}
 	summary {
 		cursor: pointer;
-		padding: 12px 10px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		padding: 6px 10px;
 		min-height: 44px;
+		min-width: 44px;
+		border-radius: 6px;
 		font-size: 12px;
+		list-style: none;
+		white-space: nowrap;
+	}
+	summary::-webkit-details-marker {
+		display: none;
+	}
+	summary:hover,
+	details[open] > summary,
+	button[aria-pressed='true'] {
+		background: var(--color-bg-3);
+		color: var(--color-accent);
 	}
 	summary:focus-visible {
 		outline: 2px solid var(--color-focus);
@@ -1461,18 +1555,21 @@
 	.presentation-header {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		min-height: 62px;
-		padding: 8px 16px;
+		gap: 4px;
+		min-height: 48px;
+		padding: 1px 8px;
 		border-bottom: 1px solid var(--color-border);
+		background: var(--color-bg-1);
 		flex: none;
 	}
 	.header-actions {
 		width: 100%;
-		flex-wrap: wrap;
 		display: flex;
 		align-items: center;
 		gap: 3px;
+	}
+	.header-actions > * {
+		flex: none;
 	}
 	.header-actions .primary {
 		margin-left: auto;
@@ -1486,9 +1583,6 @@
 		color: var(--color-fg-muted);
 		overflow-wrap: anywhere;
 	}
-	.present-hint {
-		width: 100%;
-	}
 	.icon-button {
 		padding: 8px;
 	}
@@ -1498,16 +1592,18 @@
 		display: flex;
 		align-items: center;
 		gap: 3px;
-		padding: 6px 12px;
+		padding: 2px 8px;
 		border-bottom: 1px solid var(--color-border);
 		overflow-x: auto;
+		scrollbar-width: thin;
+		scroll-padding-inline: 8px;
 		flex: none;
 	}
 	.tool-separator {
 		height: 22px;
 		width: 1px;
 		background: var(--color-border);
-		margin: 0 6px;
+		margin: 0 3px;
 		flex: none;
 	}
 	.presentation-tools > button,
@@ -1596,7 +1692,10 @@
 		display: flex;
 		align-items: center;
 		overflow: auto;
-		padding: 3px 10px;
+		padding: 2px 8px;
+		gap: 2px;
+		scrollbar-width: thin;
+		scroll-padding-inline: 8px;
 		background: var(--color-bg-1);
 		border-bottom: 1px solid var(--color-border);
 		flex: none;
@@ -1613,6 +1712,8 @@
 	}
 	.snap-control {
 		margin-left: auto;
+		min-height: 44px;
+		flex: none;
 		padding: 0 8px;
 		display: flex;
 		gap: 6px;
@@ -1911,9 +2012,37 @@
 			display: none;
 		}
 	}
-	@container (max-width: 320px) {
+	@media (hover: hover) and (pointer: fine) {
+		.presentation-header button,
+		.presentation-header summary,
+		.presentation-tools button,
+		.selection-tools button,
+		.snap-control {
+			min-height: 34px;
+			min-width: 34px;
+		}
 		.presentation-tools,
-		.selection-tools,
+		.selection-tools {
+			padding-block: 3px;
+		}
+	}
+	@container (max-width: 600px) {
+		.compact-label {
+			display: none;
+		}
+		.header-actions button:not(.primary),
+		.header-actions summary,
+		.presentation-tools button,
+		.selection-tools button {
+			padding-inline: 8px;
+		}
+	}
+	@container (max-width: 260px) {
+		.header-actions {
+			flex-wrap: wrap;
+		}
+	}
+	@container (max-width: 320px) {
 		.source-actions {
 			flex-wrap: wrap;
 		}
@@ -1942,36 +2071,12 @@
 		}
 	}
 	@container (max-width: 800px) {
-		/* Narrow layouts stack the filmstrip and the notes. Leave enough slack for
-		   the wrapped toolbar so the footer never covers the notes field. */
+		/* Keep space for the canvas between the filmstrip and the notes. */
 		.slide-viewport {
 			min-height: 40px;
 		}
 	}
 	@container (max-width: 800px) {
-		.presentation-header {
-			padding: 6px 8px;
-			gap: 4px;
-			min-height: 48px;
-			flex-wrap: wrap;
-		}
-		.header-actions {
-			order: 3;
-			width: 100%;
-			border-top: 1px solid var(--color-border);
-			padding-top: 4px;
-		}
-		.header-actions button {
-			flex: none;
-			max-width: 100%;
-			white-space: normal;
-		}
-		.presentation-tools {
-			padding: 4px 6px;
-		}
-		.presentation-tools button {
-			min-height: 44px;
-		}
 		.presentation-workspace {
 			flex-direction: column;
 			min-height: 360px;
@@ -2025,14 +2130,6 @@
 		.filmstrip-bottom button {
 			min-height: 44px;
 			padding: 5px;
-		}
-		.selection-tools {
-			flex-wrap: wrap;
-			overflow: visible;
-			padding: 2px 5px;
-		}
-		.snap-control {
-			display: none;
 		}
 		.notes {
 			padding: 6px 10px;

@@ -548,6 +548,36 @@ fails. An incomplete run has no budget result.
 Run `node scripts/benchmark-local.mjs --browser webkit --runs 5 --build-mode production-static --output /tmp/opencode/web-benchmark-webkit.json`
 against a recorded production build. Keep its build hashes with the report.
 
+### Compact toolbars
+
+`e2e/toolbar-density.spec.ts` checks English and French at widths from 320 to
+1600 pixels. The app toolbar must fit one row on desktop and two rows on narrow
+screens. Check visible mode labels, control bounds, document rename, and menu
+focus return. Retain the measured geometry and screenshots.
+
+`ux-review.spec.ts` also checks 44-pixel touch targets and real 200 percent
+browser zoom. Use a short `TMPDIR` path on disk for Chromium persistent profiles.
+Long paths can exceed the operating system limit for the browser socket.
+Desktop backup controls must keep the same touch target size as Settings.
+
+`e2e/presentation-toolbar-density.spec.ts` checks compact presentation controls
+with keyboard and touch input, in both languages. It checks source changes,
+exact Markdown export bytes, Present, and focus return. It retains geometry,
+screenshots, browser errors, fixture content, and source hashes.
+The resize case checks browser error events while the viewport changes from
+320 to 1280 pixels. Canvas scale updates must run after resize delivery to
+prevent a ResizeObserver notification loop.
+
+### Code editor focus after delayed loading
+
+`e2e/code-focus-review.spec.ts` delays the code editor while the user types a
+snippet title. The title must retain the complete input and focus. Code must
+remain unchanged. The test checks saved bytes, keyboard copy, favorites, and
+reload. A second case checks initial focus when no control has focus.
+
+Run `npx playwright test e2e/code-focus-review.spec.ts e2e/snippets.spec.ts e2e/code-editor.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep the JSON values, screenshots, source revision, environment, and fixtures.
+
 ### Whole-application review
 
 The presentation-file review found failures in shared workflows. These retained
