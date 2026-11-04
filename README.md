@@ -86,6 +86,8 @@ that do not fit in the toolbar.
 For notes, Source provides syntax highlighting, search, replacement, and
 per-document undo. Its preview divider works with the pointer or arrow keys.
 The app remembers its position and stacks the panes on narrow screens.
+Empty paragraphs export as blank Markdown lines. Existing HTML and table cell
+breaks stay in the exported file.
 
 Presentations stay in one Markdown file. A terminal metadata block stores slide
 layouts, and the body keeps text and images readable in other editors. Use

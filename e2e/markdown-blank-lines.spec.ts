@@ -1,6 +1,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createFirstFile, openPalette, resetAppState } from './helpers';
 import { editSentence, importSource } from './source-fidelity-harness';
+import { databaseState } from './storage-evidence';
 
 async function downloadMarkdown(page: Page, info: TestInfo) {
 	await openPalette(page);
@@ -33,6 +34,17 @@ test('empty visual paragraphs export as blank Markdown lines', async ({ page }, 
 	await page.keyboard.press('Enter');
 	await page.keyboard.type('Second paragraph.');
 	expect(await downloadMarkdown(page, info)).toBe('First paragraph.\n\n\n\nSecond paragraph.');
+	await page.locator('[data-mode="source"]').click();
+	await page.locator('[data-mode="wysiwyg"]').click();
+	await editSentence(page, 'Second paragraph.', 'Last paragraph.');
+	const expected = 'First paragraph.\n\n\n\nLast paragraph.';
+	expect(await downloadMarkdown(page, info)).toBe(expected);
+	await expect
+		.poll(async () => (await databaseState(page)).drafts.map((draft) => draft.content))
+		.toEqual([expected]);
+	await page.reload();
+	await expect(page.locator('.ProseMirror')).toContainText('Last paragraph.');
+	expect(await downloadMarkdown(page, info)).toBe(expected);
 });
 
 test('visual hard breaks use Markdown syntax in downloaded notes', async ({ page }, info) => {
@@ -50,7 +62,7 @@ test('a text edit preserves authored HTML and table breaks in Markdown export', 
 }, info) => {
 	await resetAppState(page);
 	const source =
-		'# Existing note\n\nBefore<br>After.\n\n```html\n<br>\n```\n\n| A | B |\n| --- | --- |\n| One<br>Two | Other |\n';
+		'# Existing note\n\nBefore<br>After.\n\n<br />\n\n```html\n<br>\n```\n\n| A | B |\n| --- | --- |\n| One<br>Two | Other |\n';
 	await importSource(page, source);
 	await page.locator('[data-mode="wysiwyg"]').click();
 	await editSentence(page, 'Before', 'Edited');
