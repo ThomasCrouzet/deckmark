@@ -620,6 +620,9 @@ Select motion targets and read their styles in one browser task. Require the
 filename input and Present button in both samples. Reject non-finite durations
 and keep the 0.001-second reduced-motion limit. Retain every viewport cell and
 its exact Markdown export comparison.
+On a failed pointer hit test, report the covering element, editor bounds, scroll
+position, and focused control. A boolean result alone cannot identify a covered
+button in a CI-only failure.
 
 Repeat the editor, modal, and responsive workflows with one worker:
 

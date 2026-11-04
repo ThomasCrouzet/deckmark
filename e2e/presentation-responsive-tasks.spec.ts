@@ -82,6 +82,7 @@ async function reach(control: Locator, label: string, evidence: Evidence) {
 			const x = box.x + box.width / 2;
 			const y = box.y + box.height / 2;
 			const top = document.elementFromPoint(x, y);
+			const editor = element.closest('[data-testid="presentation-editor"]');
 			return {
 				name: element.getAttribute('aria-label') ?? element.textContent?.trim(),
 				box: { x: box.x, y: box.y, width: box.width, height: box.height },
@@ -94,14 +95,21 @@ async function reach(control: Locator, label: string, evidence: Evidence) {
 							text: top.textContent?.slice(0, 160)
 						}
 					: null,
+				editor: editor
+					? {
+							box: editor.getBoundingClientRect().toJSON(),
+							scrollTop: editor.scrollTop,
+							clientHeight: editor.clientHeight,
+							scrollHeight: editor.scrollHeight
+						}
+					: null,
+				focusedControl: document.activeElement?.getAttribute('data-testid'),
 				inert: element.closest('[inert]') !== null,
 				active: document.activeElement === element
 			};
 		});
 	try {
-		await expect
-			.poll(async () => (await measure()).hit, { message: label, timeout: 5000 })
-			.toBe(true);
+		await expect.poll(measure, { message: label, timeout: 5000 }).toMatchObject({ hit: true });
 	} finally {
 		evidence.controls.push({ label, ...(await measure()) });
 	}
