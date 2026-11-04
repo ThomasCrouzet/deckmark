@@ -62,7 +62,7 @@ IndexedDB.
 
 ## Documents
 
-![DeckMark demo: create a note, change its view, then create and edit a separate presentation.](docs/demo.gif)
+![DeckMark demo: plan a launch with linked notes, diagrams, code, project checks, exports, and a presentation.](docs/demo.gif)
 
 Select **New file**, then choose **Note** or **Presentation**. Each file keeps its
 own type. The app does not convert notes to presentations.
@@ -79,9 +79,15 @@ The New dialog creates notes and presentations. Import the other document types.
 PDF support does not include text extraction, OCR, or PDF editing. See
 [code, images, and PDFs](docs/USER_GUIDE.md#code-images-and-pdfs).
 
+The toolbar adapts to the available document width. **Edit**, **Source**, and
+**Read** keep their labels on small screens. Use **Actions** for file commands
+that do not fit in the toolbar.
+
 For notes, Source provides syntax highlighting, search, replacement, and
 per-document undo. Its preview divider works with the pointer or arrow keys.
 The app remembers its position and stacks the panes on narrow screens.
+Empty paragraphs export as blank Markdown lines. Existing HTML and table cell
+breaks stay in the exported file.
 
 Presentations stay in one Markdown file. A terminal metadata block stores slide
 layouts, and the body keeps text and images readable in other editors. Use
@@ -104,14 +110,14 @@ selects French when it detects a French browser language.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/mode-wysiwyg.webp">
-    <img src="docs/screenshots/mode-wysiwyg-light.webp" alt="Visual editing with linked notes, formulas, and a task list." width="100%">
+    <img src="docs/screenshots/mode-wysiwyg-light.webp" alt="Visual editing with linked notes, a project table, and a task list." width="100%">
   </picture>
 </p>
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/mode-read.webp">
-    <img src="docs/screenshots/mode-read-light.webp" alt="Reading view with rendered formulas and the document sidebar." width="100%">
+    <img src="docs/screenshots/mode-read-light.webp" alt="Launch brief in reading view with a document outline and backlinks." width="100%">
   </picture>
 </p>
 

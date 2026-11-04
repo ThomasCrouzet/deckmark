@@ -37,11 +37,13 @@ node scripts/capture-demo-gif.mjs
 The second build includes the new PWA screenshots. The scripts start and stop
 their own preview servers. They use a fixed viewport, English, seeded documents,
 and explicit theme settings. They capture the real interface.
+Desktop captures use a 1280 by 800 CSS pixel viewport. Still images use a device
+pixel ratio of 2. Keep this viewport to show the compact toolbar at normal size.
 
-The screenshot script updates `docs/screenshots/` and `static/screenshots/`. The
-demo script writes `docs/demo.gif` at 960 by 600 pixels and captures the desktop
-and mobile slide editor. The demo shows writing, source, reading, wiki links,
-diagrams, the library, the PDF width guide, the graph, slides, and the light theme.
+The screenshot script updates all images in `docs/screenshots/` and
+`static/screenshots/`, including the desktop and mobile slide editor.
+The demo script writes `docs/demo.gif` at 960 by 600 pixels. It follows a launch
+project through notes, wiki links, diagrams, code, project checks, exports, and slides.
 Capture evidence, source
 frames, build hashes, and encoding settings stay in `test-results/capture-*`.
 Inspect the images and GIF before committing them. Browser and system font
@@ -49,8 +51,16 @@ versions can affect raster output.
 
 | File in `docs/screenshots/` | Scenario |
 | --- | --- |
-| `mode-wysiwyg.webp` | Visual editor, heading, math, code, and checklist. |
+| `mode-wysiwyg.webp` | Launch brief with linked notes, a project table, and a checklist. |
 | `mode-wysiwyg-light.webp` | Visual editor in the light theme. |
 | `mode-source.webp` | Source editor with syntax colors and line numbers. |
-| `mode-read.webp` | Reading mode, outline, formulas, and backlinks. |
+| `mode-read.webp` | Reading mode, document outline, and backlinks. |
 | `palette.webp` | Command palette and shortcut labels. |
+| `welcome.webp`, `welcome-light.webp` | Empty workspace in both themes. |
+| `new-document.png` | Note and Presentation choices. |
+| `presentation-editor.png` | Three-slide launch deck with presenter notes. |
+| `presentation-present.png` | Launch deck in presentation mode. |
+| `presentation-editor-mobile.png` | Slide editor at a 390-pixel viewport width. |
+
+Source, reading, and palette captures also have `-light` variants. The four
+desktop PWA images are 2560 by 1600 pixels. `relay-mobile.webp` is 390 by 844 pixels.

@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import { databaseState } from './storage-evidence';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -47,15 +48,33 @@ test('labels an imported copy as temporary and persists that state', async ({
 	await expect(toolbarStatus(page)).toHaveCount(1);
 	await expect(toolbarStatus(page)).toHaveAttribute('data-origin', 'temporary');
 	await expect(toolbarStatus(page)).toHaveAttribute('aria-label', /Copie temporaire/);
+	await expect(
+		page.locator('#app-statusbar').getByText('Brouillons locaux : enregistré', { exact: true })
+	).toBeVisible();
+	const draftId = await toolbarStatus(page).evaluate((element) =>
+		(element.getAttribute('data-testid') ?? '').replace(/^storage-status-/, '')
+	);
+	expect(draftId).not.toBe('');
+	const readDrafts = async () =>
+		(await databaseState(page)).drafts.map(({ id, content, origin }) => ({ id, content, origin }));
+	const expectedDrafts = [{ id: draftId, content: '# Imported', origin: 'imported' }];
+	await expect.poll(readDrafts).toEqual(expectedDrafts);
+	const beforeReload = await readDrafts();
+	expect(beforeReload).toEqual(expectedDrafts);
 
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await expect(toolbarStatus(page)).toHaveAttribute('data-testid', `storage-status-${draftId}`);
 	await expect(toolbarStatus(page)).toHaveAttribute('data-origin', 'temporary');
+	await expect(page.locator('.cm-content').first()).toHaveText('# Imported');
+	const afterReload = await readDrafts();
+	expect(afterReload).toEqual(beforeReload);
 
 	await info.attach('temporary-status.json', {
 		body: JSON.stringify({
 			origin: await toolbarStatus(page).getAttribute('data-origin'),
-			persistedAfterReload: true
+			beforeReload,
+			afterReload
 		}),
 		contentType: 'application/json'
 	});

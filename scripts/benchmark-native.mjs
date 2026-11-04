@@ -451,18 +451,25 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 
 	async function readMode(runs) {
 		const values = [];
+		result.samples.readModeSwitch = values;
 		for (let run = 0; run < runs; run += 1) {
+			result.readModeProgress = { iteration: run + 1, phase: 'click-read' };
 			const startedAt = performance.now();
 			await click('button[data-mode="read"]');
+			result.readModeProgress.phase = 'wait-preview';
 			await waitForContent(
 				`!!document.querySelector('.mdsh-read .mdsh-preview') && (document.querySelector('.mdsh-preview')?.textContent?.length ?? 0) > 100000`,
 				'render large note in read mode',
 				90_000
 			);
 			values.push(performance.now() - startedAt);
+			runMemory(`read-mode-${run + 1}`);
+			result.readModeCanvas = await execute(
+				'return [...document.querySelectorAll("canvas")].map(canvas => ({ width: canvas.width, height: canvas.height, annotation: canvas.dataset.testid === "annotation-canvas" }));'
+			);
+			result.readModeProgress.phase = 'click-source';
 			await click('button[data-mode="source"]');
 		}
-		return values;
 	}
 
 	async function scroll(runs) {
@@ -604,10 +611,11 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		);
 		const values = [];
 		for (let run = 0; run < runs; run += 1) {
+			await click('button[aria-label="Command palette"]');
 			if (process.platform === 'darwin') {
 				if (existsSync(pdfPath)) rmSync(pdfPath, { force: true });
 				const startedAt = performance.now();
-				await click('button[aria-label="Export to PDF"]');
+				await click('#cmd-palette-opt-export-pdf');
 				await until(
 					() => existsSync(pdfPath) && readFileSync(pdfPath).length > 1_000,
 					'native PDF export',
@@ -620,7 +628,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 				'window.__benchmarkPrintCalled = false; window.__benchmarkOriginalPrint = window.print; window.print = () => { window.__benchmarkPrintCalled = true; };'
 			);
 			const startedAt = performance.now();
-			await click('button[aria-label="Export to PDF"]');
+			await click('#cmd-palette-opt-export-pdf');
 			await until(
 				() => execute('return window.__benchmarkPrintCalled === true;'),
 				'native print prepared',
@@ -660,7 +668,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 			scrollFrame: 'In-page time to set scrollTop and observe two animation frames.',
 			projectTree: 'Wall clock from the Projects panel click to the expected project row count.',
 			export:
-				'Wall clock from the export button click to the prepared print document. macOS writes the real PDF; Linux and Windows replace only the final OS print dialog call.',
+				'Wall clock from the PDF command click to the prepared print document. Opening the command palette is excluded. macOS writes the real PDF; Linux and Windows replace only the final OS print dialog call.',
 			memory:
 				'Sum of resident bytes or working set for the application process tree. WebView helper processes are included when the platform reports them.'
 		},
@@ -695,6 +703,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		}
 	};
 
+	let finalizationError;
 	try {
 		result.stage = 'cold-startup';
 		const cold = await launch();
@@ -737,16 +746,22 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		result.samples.typingLargeSync = largeTyping.sync;
 		runMemory('large-document');
 		result.stage = 'read-mode';
-		result.samples.readModeSwitch = await readMode(Math.min(options.runs, 5));
+		await readMode(Math.min(options.runs, 5));
+		result.readModeProgress = { iteration: null, phase: 'click-read-for-scroll' };
 		await click('button[data-mode="read"]');
+		result.readModeProgress.phase = 'wait-preview-for-scroll';
 		await waitForContent(
 			`(document.querySelector('.mdsh-preview')?.textContent?.length ?? 0) > 100000`,
 			'read mode for scroll',
 			90_000
 		);
+		result.readModeProgress.phase = 'scroll';
 		result.samples.scrollFrame = await scroll(options.runs);
+		result.readModeProgress.phase = 'screenshot';
 		await screenshot('03-read-mode');
+		result.readModeProgress.phase = 'click-source-after-scroll';
 		await click('button[data-mode="source"]');
+		result.readModeProgress.phase = 'complete';
 		result.stage = 'wysiwyg';
 		const visual = await modeSwitch(Math.min(options.runs, 5));
 		result.samples.wysiwygLoad = visual.wysiwygLoad;
@@ -780,46 +795,70 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		result.checks.push('native warm startup');
 	} catch (error) {
 		result.error = String(error);
+		result.passed = false;
+		runMemory('failure');
 		if (session) {
 			try {
 				result.page = await execute(
 					'return { title: document.title, text: document.body?.innerText.slice(0, 2000), dialogs: [...document.querySelectorAll("[role=dialog]")].map(node => node.getAttribute("aria-label")) };'
 				);
-			} catch {
-				// The window can already be closed.
+			} catch (pageError) {
+				failures.push({ stage: 'page:failure', error: String(pageError) });
 			}
 			await screenshot('failure');
 		}
-		result.passed = false;
 		throw error;
 	} finally {
 		result.passed = result.passed !== false;
-		result.summary = Object.fromEntries(
-			Object.entries(result.samples)
-				.filter(([, values]) => Array.isArray(values))
-				.map(([name, values]) => [name, summarize(values)])
-		);
-		if (memory.length > 0) {
-			const rss = memory.map((sample) => sample.mb);
-			result.samples.rssMb = rss;
-			result.summary.rssMb = summarize(rss, 'MB');
-		}
-		result.budget = budgetReport({
-			platformKey: platformKeyForNative(),
-			summary: result.summary,
-			budgets: await loadBudgets(options.budgets)
-		});
-		if (options.enforceBudgets && result.passed && result.budget.status === 'over-budget') {
-			result.forcedBudgetFailure = true;
-		}
-		if (result.maxMemoryMb === undefined) {
+		try {
+			result.summary = Object.fromEntries(
+				Object.entries(result.samples)
+					.filter(([, values]) => Array.isArray(values))
+					.map(([name, values]) => [name, summarize(values)])
+			);
+			if (memory.length > 0) {
+				const rss = memory.map((sample) => sample.mb);
+				result.samples.rssMb = rss;
+				result.summary.rssMb = summarize(rss, 'MB');
+			}
 			result.maxMemoryMb = memory.reduce((peak, sample) => Math.max(peak, sample.mb), 0);
+			result.budget = budgetReport({
+				platformKey: platformKeyForNative(),
+				summary: result.summary,
+				budgets: await loadBudgets(options.budgets)
+			});
+			if (options.enforceBudgets && result.passed && result.budget.status === 'over-budget') {
+				result.forcedBudgetFailure = true;
+			}
+		} catch (error) {
+			failures.push({ stage: 'finalize', error: String(error) });
+			result.passed = false;
+			finalizationError = error;
 		}
-		if (app?.pid) app.kill();
-		if (!options.output) {
-			await writeFile(join(outputDirectory, 'results.json'), JSON.stringify(result, null, 2));
+		result.application = {
+			pid: app?.pid ?? null,
+			exitCode: app?.exitCode ?? null,
+			signalCode: app?.signalCode ?? null
+		};
+		try {
+			if (app?.pid) app.kill();
+		} catch (error) {
+			failures.push({ stage: 'cleanup', error: String(error) });
+			result.passed = false;
+			finalizationError ??= error;
+		}
+		try {
+			await writeFile(
+				options.output ? resolve(options.output) : join(outputDirectory, 'results.json'),
+				`${JSON.stringify(result, null, 2)}\n`
+			);
+		} catch (error) {
+			failures.push({ stage: 'write-result', error: String(error) });
+			console.error('Could not write native benchmark results:', error);
+			finalizationError ??= error;
 		}
 	}
+	if (finalizationError) throw finalizationError;
 	if (result.forcedBudgetFailure) {
 		const over = Object.entries(result.budget.metrics)
 			.filter(([, value]) => value.status === 'over-budget')

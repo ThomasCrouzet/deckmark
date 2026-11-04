@@ -89,7 +89,6 @@ export function installTableBreaks(editor: Editor): void {
 				};
 			});
 		}
-		// Convert a sole cell break before the empty-line plugin deletes it.
 		ctx.update(remarkPluginsCtx, (plugins) => [tableBreakRemark, ...plugins]);
 		ctx.update(editorViewOptionsCtx, (previous) => ({
 			...previous,

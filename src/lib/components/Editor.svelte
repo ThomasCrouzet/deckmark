@@ -119,6 +119,7 @@
 				DecorationSet,
 				prosePlugin,
 				remarkPlugin,
+				remarkPreserveEmptyLinePlugin,
 				linkTooltipConfig: linkTooltipConfigCtx,
 				imageBlockConfig: imageBlockConfigCtx,
 				inlineImageConfig: inlineImageConfigCtx,
@@ -349,6 +350,7 @@
 				[Crepe.Feature.CodeMirror]: codeMirrorConfig
 			}
 		});
+		await instance.editor.remove(remarkPreserveEmptyLinePlugin);
 		instance.editor.use(wikiLinkPlugins);
 		installTableBreaks(instance.editor);
 		installTableParagraph(instance.editor);

@@ -75,6 +75,7 @@ export default defineConfig({
 				'**/table-editing.spec.ts',
 				'**/wiki-links.spec.ts',
 				'**/source-fidelity.spec.ts',
+				'**/markdown-blank-lines.spec.ts',
 				'**/presentation-editor.spec.ts',
 				'**/presentation-export.spec.ts',
 				'**/presentation-offline.spec.ts',
@@ -83,7 +84,11 @@ export default defineConfig({
 				'**/presentation-review.spec.ts',
 				'**/note-type-guard.spec.ts',
 				'**/read-preview-isolation.spec.ts',
+				'**/read-annotations.spec.ts',
 				'**/modal-isolation-review.spec.ts',
+				'**/palette-load-review.spec.ts',
+				'**/toolbar-density.spec.ts',
+				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts'
 			]
 		},
@@ -104,6 +109,7 @@ export default defineConfig({
 				'**/table-editing.spec.ts',
 				'**/wiki-links.spec.ts',
 				'**/source-fidelity.spec.ts',
+				'**/markdown-blank-lines.spec.ts',
 				'**/presentation-editor.spec.ts',
 				'**/presentation-export.spec.ts',
 				'**/presentation-files.spec.ts',
@@ -111,7 +117,11 @@ export default defineConfig({
 				'**/presentation-review.spec.ts',
 				'**/note-type-guard.spec.ts',
 				'**/read-preview-isolation.spec.ts',
+				'**/read-annotations.spec.ts',
 				'**/modal-isolation-review.spec.ts',
+				'**/palette-load-review.spec.ts',
+				'**/toolbar-density.spec.ts',
+				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts'
 			]
 		},

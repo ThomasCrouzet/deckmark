@@ -417,6 +417,14 @@ has unequal hardware and a shared CPU.
 - The native matrix uses hosted runners with unequal hardware. A failed platform
   job must keep `results.json`, screenshots, `application.log` and the source
   snapshots.
+  The configured output path must receive a report on failure. Record partial
+  samples, the read-mode iteration, process state, and diagnostic errors.
+  A failed screenshot must not replace the first benchmark error.
+- Read mode must not allocate a full-document annotation canvas before the user
+  enables annotations. `read-annotations.spec.ts` switches the full native
+  benchmark note between Source and Read five times. Keep the canvas dimensions,
+  fixture hash, screenshot, and source snapshot. Existing ink must remain visible
+  when the user closes the tools. Reload and Clear must remove the ink.
 - Linux native tests use WebKitGTK under Xvfb with the DMA-BUF renderer disabled.
   This does not prove compositor behavior on a physical display.
 - The benchmark seeds IndexedDB directly. It does not cover the import dialog,
@@ -526,6 +534,91 @@ Browser profiles, downloads, and traces need free temporary storage. If `/tmp`
 uses a small memory filesystem, set `TMPDIR` to an empty directory on disk before
 the run. Keep any `ENOSPC` failure report and repeat the affected cases after the
 storage problem is corrected. Do not treat a failed trace write as an application result.
+
+### Command palette load order
+
+`e2e/palette-load-review.spec.ts` holds a real IndexedDB transaction on
+`workspaces` and `templates`. The user types an export query and selects HTML
+with ArrowDown. After the transaction completes, saved commands must appear
+without changes to the query, focus, or selection. Enter must download the
+expected HTML. A second opening must start with an empty query.
+
+Run `npx playwright test e2e/palette-load-review.spec.ts --workers=1`.
+Keep the report, source revision, diff, fixtures, screenshots, and exported HTML.
+The test runs in Chromium, Firefox, and WebKit.
+
+The export benchmark confirms the named, enabled HTML option directly. Its
+measured interval ends at the download event. Completion and byte checks follow
+that interval. `exportDownloads` records the filename, byte count, and SHA-256.
+On failure, the JSON report retains browser state and errors, then the command
+fails. An incomplete run has no budget result.
+
+Run `node scripts/benchmark-local.mjs --browser webkit --runs 5 --build-mode production-static --output /tmp/opencode/web-benchmark-webkit.json`
+against a recorded production build. Keep its build hashes with the report.
+
+### Compact toolbars
+
+`e2e/toolbar-density.spec.ts` checks English and French at widths from 320 to
+1600 pixels. The app toolbar must fit one row on desktop and two rows on narrow
+screens. Check visible mode labels, control bounds, document rename, and menu
+focus return. Retain the measured geometry and screenshots.
+
+`ux-review.spec.ts` also checks 44-pixel touch targets and real 200 percent
+browser zoom. Use a short `TMPDIR` path on disk for Chromium persistent profiles.
+Long paths can exceed the operating system limit for the browser socket.
+Desktop backup controls must keep the same touch target size as Settings.
+
+`e2e/presentation-toolbar-density.spec.ts` checks compact presentation controls
+with keyboard and touch input, in both languages. It checks source changes,
+exact Markdown export bytes, Present, and focus return. It retains geometry,
+screenshots, browser errors, fixture content, and source hashes.
+The resize case checks browser error events while the viewport changes from
+320 to 1280 pixels. Canvas scale updates must run after resize delivery to
+prevent a ResizeObserver notification loop.
+At widths below 260 CSS pixels, presentation controls can wrap. The native
+200 percent zoom checks verify keyboard access before and after a draft save.
+Native PDF checks use the command palette because the direct toolbar action
+can be hidden at the default window width. The native export benchmark opens
+the palette before it starts the export timer.
+The offline status keeps a fixed width. `e2e/toolbar-stability.spec.ts` holds
+service worker registration, then checks that the mode button stays under the
+pointer when offline preparation completes. Long status text uses an ellipsis.
+The 400-section source fidelity case has a 60-second timeout. It types each
+character through the browser, exports the file, and compares the exact bytes.
+Firefox can use most of the default 30-second limit for typing alone. This
+timeout permits the export check to finish; it is not a performance budget.
+
+### Blank lines in Markdown downloads
+
+`e2e/markdown-blank-lines.spec.ts` types two paragraphs with an empty paragraph
+between them. The downloaded file must contain blank Markdown lines, without an
+HTML placeholder. Check the exact bytes after a mode change, a second edit, and
+a reload. Wait for the committed draft before reload.
+
+Shift+Enter must use a Markdown hard break. Preserve HTML that the source
+already contains, including a separate `<br />`, code, and table cell breaks.
+Markdown parsers do not retain empty paragraph nodes. Source fidelity must keep
+the blank lines when the editor mounts again and changes nearby text.
+The existing-note cases cover LF, CRLF, reference definitions, and blockquotes.
+A visual insertion must change the saved gap even when the parsed block content
+stays equal.
+After export, click the document to place a caret at its start. ProseMirror can
+restore the previous selection after programmatic focus. Check the collapsed
+selection before the next key.
+
+Run `npx playwright test markdown-blank-lines.spec.ts table-editing.spec.ts source-fidelity.spec.ts --workers=2 --retries=0`.
+Keep the report, traces, downloaded bytes, source revision, command, browser,
+environment, and fixture text. The blank-line spec attaches each download.
+
+### Code editor focus after delayed loading
+
+`e2e/code-focus-review.spec.ts` delays the code editor while the user types a
+snippet title. The title must retain the complete input and focus. Code must
+remain unchanged. The test checks saved bytes, keyboard copy, favorites, and
+reload. A second case checks initial focus when no control has focus.
+
+Run `npx playwright test e2e/code-focus-review.spec.ts e2e/snippets.spec.ts e2e/code-editor.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep the JSON values, screenshots, source revision, environment, and fixtures.
 
 ### Whole-application review
 
@@ -664,7 +757,7 @@ failure after manual dismissal, and recovery of only one failed draft. Trash
 rollback must restore an open tab's active ID when no other tab is active. It must
 not replace a tab that the user selected while the operation was pending.
 
-For imported presentation reload checks, wait for the saved indicator and the
+For imported document reload checks, wait for the saved indicator and the
 exact committed fixture before reload. Record the same draft ID and content after
 reload. An import report confirms parsing, not completion of the 400 ms save.
 Use the same barrier before a second tab loads an imported malformed presentation.

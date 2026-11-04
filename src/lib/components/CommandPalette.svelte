@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import LoadError from './LoadError.svelte';
 	import { reportPersistenceError } from '#lib/storage.js';
 	import { browser } from '$app/env';
@@ -967,7 +967,7 @@
 			selected = 0;
 			// Load workspaces + templates on first open so that
 			// the direct commands appear in the list.
-			void loadSavedCommands();
+			void untrack(loadSavedCommands);
 			tick().then(() => (view === 'actions' ? closeButton?.focus() : inputEl?.focus()));
 		}
 	});

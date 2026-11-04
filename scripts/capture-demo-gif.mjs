@@ -1,23 +1,11 @@
 #!/usr/bin/env node
-/**
- * Capture the README demo from the built app with Playwright and ffmpeg.
- * After UI integration: npm run build && node scripts/capture-demo-gif.mjs
- * The script starts and stops its own preview server on port 4174.
- * CAPTURE_PORT and BASE_PATH can select another port and built base path.
- *
- * Real PNG frames have fixed display durations. Setup and load waits are omitted.
- * Keep the GIF between 20 and 35 seconds, at 960 pixels wide, below 5 MB.
- * Frames, encode commands, checksums, and results stay under test-results/.
- */
+/** Capture the README story from the existing production build. */
 import { expect } from '@playwright/test';
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
 	ROOT,
 	VIEWPORT,
-	IDEAS,
-	DIAGRAMS,
-	createDocument,
 	ensureMode,
 	fileEvidence,
 	newCapturePage,
@@ -26,39 +14,209 @@ import {
 	readDrafts,
 	runTool,
 	saveScreenshot,
-	seedDocuments,
 	waitForSaved,
 	withCapture
 } from './capture-helpers.mjs';
 
 const GIF_WIDTH = 960;
-const MAX_BYTES = 5_000_000;
-const NAME = 'Field notes';
-const INTRO = 'Write Markdown. Keep your drafts on this device.';
-const INITIAL_MARKDOWN = `# ${NAME}\n\n${INTRO}`;
-const ADDITION =
-	'\n\nSee [[Ideas]] and [[Diagrams]].\n\n## Next steps\n\n- [x] Write a draft\n- [ ] Export a PDF\n';
-const DEMO_DIAGRAM = {
-	...DIAGRAMS,
-	content: `# Diagrams
+const MAX_BYTES = 8_000_000;
+const NAME = 'Launch log';
+const INTRO = 'One small idea. Ready for orbit.';
+const NOTE = `# ${NAME}\n\n${INTRO}`;
+const COMPLETE_NOTE = `${NOTE}
 
-A short path from draft to document.
+## Orbit / launch day
 
-\`\`\`mermaid
-sequenceDiagram
-  participant You
-  participant Draft as Local draft
-  You->>Draft: Write Markdown
-  Draft-->>You: Save locally
-  You->>Draft: Export a document
-\`\`\`
+Turn the plan into something we can share.
 
-Back to [[Field notes]].
-`
+- [x] Connect the [[Flight plan]]
+- [x] Review the [[Release checklist]]
+- [ ] Present the launch briefing
+
+> Keep the work close. Take the story further.
+`;
+const CONFIG = {
+	mission: 'Orbit',
+	stage: 'ready',
+	launch: { date: '2026-09-24', channel: 'preview' },
+	deliverables: ['field notes', 'project archive', 'launch briefing'],
+	offline: true
 };
 
+/** The fixture is an ordinary Markdown deck with editable text and shapes. */
+function launchDeck() {
+	let nextId = 0;
+	const element = (type, x, y, width, height, options = {}) => ({
+		id: `orbit-element-${++nextId}`,
+		type,
+		x,
+		y,
+		width,
+		height,
+		rotation: 0,
+		fill: 'transparent',
+		stroke: 'none',
+		strokeWidth: 0,
+		color: '#142e38',
+		fontSize: 28,
+		textAlign: 'left',
+		content: '',
+		...options
+	});
+	const text = (x, y, width, height, content, fontSize = 28, options = {}) =>
+		element('text', x, y, width, height, { content, fontSize, ...options });
+	const shape = (type, x, y, width, height, fill, options = {}) =>
+		element(type, x, y, width, height, { fill, ...options });
+	const footer = (number) => [
+		shape('rectangle', 72, 642, 1136, 2, '#c9d2cc'),
+		text(72, 658, 700, 44, 'ORBIT / LAUNCH BRIEFING', 17),
+		text(1130, 658, 78, 44, `0${number}`, 17, { textAlign: 'right' })
+	];
+	const slides = [
+		{
+			id: 'orbit-cover',
+			background: '#f8f5ed',
+			notes: 'Introduce Orbit. A small launch with a clear plan.',
+			elements: [
+				text(72, 66, 650, 44, 'A SMALL IDEA. A NEW DIRECTION.', 20),
+				text(64, 182, 740, 164, '**ORBIT**', 112),
+				text(72, 350, 660, 132, 'From field notes  \nto launch day.', 40),
+				shape('rounded-rectangle', 80, 514, 350, 56, '#f77542'),
+				text(92, 518, 330, 48, '**READY FOR LAUNCH**', 20),
+				shape('ellipse', 832, 168, 300, 300, 'transparent', {
+					stroke: '#b7c7c0',
+					strokeWidth: 2
+				}),
+				shape('ellipse', 784, 120, 396, 396, 'transparent', {
+					stroke: '#b7c7c0',
+					strokeWidth: 2
+				}),
+				shape('ellipse', 894, 230, 176, 176, '#142e38'),
+				shape('ellipse', 1082, 202, 68, 68, '#f77542'),
+				shape('ellipse', 810, 436, 34, 34, '#448c7b'),
+				...footer(1)
+			]
+		},
+		{
+			id: 'orbit-plan',
+			background: '#f8f5ed',
+			notes: 'Show the path from connected notes to a checked project and a shared briefing.',
+			elements: [
+				text(72, 64, 900, 48, 'THE FLIGHT PLAN', 20),
+				text(68, 134, 1120, 112, '**A clear path from idea to launch.**', 51),
+				...[
+					['01', 'CONNECT', 'Link the notes.  \nKeep the context.', '#e3ece5'],
+					['02', 'CHECK', 'Review the project.  \nExport a copy.', '#f7e4d8'],
+					['03', 'PRESENT', 'Build the briefing.  \nTell the story.', '#dfebee']
+				].flatMap(([number, title, description, fill], index) => {
+					const x = 80 + index * 382;
+					return [
+						shape('rounded-rectangle', x, 296, 354, 282, fill),
+						text(x + 24, 312, 300, 80, number, 40),
+						text(x + 24, 400, 300, 64, `**${title}**`, 27),
+						text(x + 24, 474, 306, 84, description, 25)
+					];
+				}),
+				...footer(2)
+			]
+		},
+		{
+			id: 'orbit-ready',
+			background: '#e3ece5',
+			notes: 'The notes, project, and briefing are ready. Invite the team to launch.',
+			elements: [
+				text(72, 64, 760, 44, 'THE NEXT CHAPTER STARTS HERE.', 20),
+				text(68, 176, 780, 244, '**Ready for  \nwhat is next.**', 72),
+				text(76, 470, 670, 100, 'Notes connected. Project checked.  \nLet us launch.', 29),
+				shape('ellipse', 858, 214, 298, 298, '#f77542'),
+				text(874, 286, 266, 150, '**GO**', 94, { textAlign: 'center' }),
+				...footer(3)
+			]
+		}
+	];
+	const body = slides
+		.map(
+			(slide) =>
+				`<!-- mdsh-slide:${slide.id} -->\n\n` +
+				slide.elements
+					.filter((item) => item.type === 'text')
+					.map((item) => `<!-- mdsh-element:${item.id} -->\n${item.content}\n`)
+					.join('\n')
+		)
+		.join('\n---\n\n');
+	return `${body}\n\n<!-- mdsh-presentation\n${JSON.stringify({
+		version: 1,
+		width: 1280,
+		height: 720,
+		theme: 'default',
+		slides: slides.map((slide) => ({
+			...slide,
+			elements: slide.elements.map((item) => ({ ...item, content: '' }))
+		}))
+	})}\n-->\n`;
+}
+
+async function prepareProject(session, page) {
+	const { default: JSZip } = await import('jszip');
+	const files = {
+		'Flight plan.md': `# Flight plan
+
+**ORBIT / LAUNCH 01**
+
+A small launch. A clear path from idea to delivery.
+
+\`\`\`mermaid
+flowchart LR
+  A[Connect the notes] --> B[Check the project]
+  B --> C[Present the story]
+\`\`\`
+
+## Ready for the next step
+
+Review the [[Release checklist]], then open the launch briefing from the project files.
+`,
+		'Release checklist.md': `# Release checklist
+
+## Before we launch
+
+- [x] Connect the project notes
+- [x] Check all local links
+- [x] Export a project archive
+- [x] Prepare the three-slide briefing
+
+## The handoff
+
+The [[Flight plan]] sets the direction. The launch briefing tells the story.
+`,
+		'Launch briefing.md': launchDeck()
+	};
+	const zip = new JSZip();
+	for (const [name, content] of Object.entries(files)) {
+		zip.file(name, content, { date: new Date('2026-09-24T10:00:00Z') });
+	}
+	const fixture = join(session.evidenceDir, 'Orbit.zip');
+	await writeFile(fixture, await zip.generateAsync({ type: 'nodebuffer' }));
+	await writeFile(join(session.evidenceDir, 'launch.json'), JSON.stringify(CONFIG));
+	await writeFile(join(session.evidenceDir, 'Launch log.md'), COMPLETE_NOTE);
+	session.metadata.fixtures = {
+		project: await fileEvidence(fixture),
+		json: await fileEvidence(join(session.evidenceDir, 'launch.json')),
+		note: await fileEvidence(join(session.evidenceDir, 'Launch log.md'))
+	};
+	await page.getByTestId('projects-open').click();
+	const panel = page.getByRole('dialog', { name: 'Markdown projects', exact: true });
+	await panel.locator('input[type=file][accept=".zip"]').setInputFiles(fixture);
+	await expect(
+		panel.getByRole('button', { name: 'Open Flight plan.md', exact: true })
+	).toBeVisible();
+	await panel.getByRole('button', { name: 'Close projects', exact: true }).click();
+	await expect.poll(async () => (await readDrafts(page)).length).toBe(3);
+	return files;
+}
+
 async function record(session) {
-	const page = await newCapturePage(session);
+	const page = await newCapturePage(session, 'light');
+	const files = await prepareProject(session, page);
 	const frames = [];
 	await mkdir(join(session.evidenceDir, 'frames'));
 	async function frame(label, seconds) {
@@ -70,225 +228,212 @@ async function record(session) {
 			JSON.stringify(frames, null, 2) + '\n'
 		);
 	}
-	async function typeText(text, target) {
+	async function type(text, target) {
 		let typed = '';
-		for (const chunk of text.match(/.{1,4}/g) ?? []) {
+		for (const chunk of text.match(/.{1,5}/g) ?? []) {
 			await page.keyboard.type(chunk);
 			typed += chunk;
 			await expect(target).toHaveText(typed);
-			await frame('Type in the visual editor', 0.12);
+			await frame('Write a short launch note', 0.12);
 		}
 	}
-
-	// Create linked documents through the UI, then close their tabs before capture.
-	await seedDocuments(page, [IDEAS, DEMO_DIAGRAM]);
-	for (let count = 2; count > 0; count--) {
-		await page
-			.locator('.mdsh-file-row')
-			.last()
-			.getByRole('button', { name: /^Close / })
-			.click();
-		await expect(page.locator('.mdsh-file-row')).toHaveCount(count - 1);
+	async function projects() {
+		await page.getByTestId('projects-open').click();
+		return page.getByRole('dialog', { name: 'Markdown projects', exact: true });
 	}
-	await expect
-		.poll(async () => (await readDrafts(page)).every((row) => row.open === false))
-		.toBe(true);
-	// Reload clears the transient close-tab notification through normal app startup.
-	await page.reload();
-	await expect(page.locator('.mdsh-shell[aria-busy="false"]:not([inert])')).toBeVisible();
-	await expect(page.getByTestId('welcome-new')).toBeVisible();
-	await expect(page.locator('#welcome-title')).toBeVisible();
-	await expect(page.locator('.mdsh-local-indicator')).toHaveText('Ready offline');
-	await frame('Branded welcome with a local library', 2.2);
+	async function download(button, name) {
+		const pending = page.waitForEvent('download');
+		await button.click();
+		const result = await pending;
+		const path = join(session.evidenceDir, name);
+		await result.saveAs(path);
+		expect(await result.failure()).toBeNull();
+		return { filename: result.suggestedFilename(), path, ...(await fileEvidence(path)) };
+	}
 
-	await createDocument(page, NAME);
+	await expect(page.getByTestId('welcome-new')).toBeVisible();
+	await frame('A local workspace for a new launch', 1.4);
+	await page.getByTestId('welcome-new').click();
+	await expect(page.getByTestId('create-note')).toBeFocused();
+	await expect(page.getByTestId('create-presentation')).toBeVisible();
+	await frame('Choose a note or a presentation', 1.2);
+	await page.getByTestId('create-note').click();
+	const filename = page.locator('#app-toolbar input[aria-label^="File name"]');
+	await filename.fill(NAME);
+	await filename.press('Enter');
 	await ensureMode(page, 'wysiwyg');
 	const editor = page.locator('.milkdown .ProseMirror');
-	await expect(editor).toHaveText('');
-	await frame('Create Field notes', 0.6);
 	await editor.click();
 	await page.keyboard.type('/h1');
-	const menu = page.locator('.milkdown-slash-menu');
-	await expect(menu).toBeVisible();
-	await expect(menu.locator('[data-index]')).toHaveCount(1);
-	await expect(menu.locator('[data-index]')).toContainText('Heading 1');
-	await frame('Select a heading with /h1', 1.2);
+	await expect(page.locator('.milkdown-slash-menu')).toBeVisible();
+	await frame('Insert a heading with the slash menu', 0.6);
 	await page.keyboard.press('Enter');
-	await expect(menu).not.toBeVisible();
-	await expect(editor.locator('h1')).toHaveText('');
-	await typeText(NAME, editor.locator('h1'));
-	await frame('Heading inserted', 0.6);
+	await type(NAME, editor.locator('h1'));
 	await page.keyboard.press('Enter');
-	await typeText(INTRO, editor.locator('p'));
-	await waitForSaved(page, NAME, INITIAL_MARKDOWN);
-	await frame('Visual editing with a saved local draft', 0.8);
-
+	await type(INTRO, editor.locator('p'));
+	await waitForSaved(page, NAME, NOTE);
+	await frame('A saved note in Edit mode', 1.2);
 	await ensureMode(page, 'source');
-	await expect(page.locator('.cm-content')).toContainText(`# ${NAME}`);
-	await frame('Switch to Markdown source', 1.2);
+	await frame('Switch to Markdown source', 0.9);
 	await page.locator('.cm-content').click();
 	await page.keyboard.press('ControlOrMeta+a');
-	await page.keyboard.insertText(INITIAL_MARKDOWN + ADDITION);
-	await waitForSaved(page, NAME, INITIAL_MARKDOWN + ADDITION);
-	await expect(page.locator('.cm-content')).toContainText('[[Diagrams]]');
-	await frame('Add wiki links and a task list', 1.8);
-
+	await page.keyboard.insertText(COMPLETE_NOTE);
+	await waitForSaved(page, NAME, COMPLETE_NOTE);
+	await frame('Add linked notes and launch tasks', 2);
 	await ensureMode(page, 'read');
 	const preview = page.locator('.mdsh-preview');
-	await expect(preview.locator('h1')).toHaveText(NAME);
-	await expect(preview.locator('input[type="checkbox"]')).toHaveCount(2);
 	await expect(preview.locator('a.wiki-link')).toHaveCount(2);
-	await frame('Read the rendered document', 2);
-	await preview.getByRole('link', { name: 'Diagrams', exact: true }).click();
-	await expect(page.locator('#app-toolbar input')).toHaveValue('Diagrams');
-	await expect(preview.locator('h1')).toHaveText('Diagrams');
+	await expect(preview.locator('input[type=checkbox]')).toHaveCount(3);
+	await frame('Read the launch note', 2.3);
+	await preview.getByRole('link', { name: 'Flight plan', exact: true }).click();
+	await expect(preview.locator('h1')).toHaveText('Flight plan');
 	await expect(preview.locator('.mermaid-block svg')).toBeVisible({ timeout: 20_000 });
-	await expect(preview.locator('.mermaid-block')).toContainText('Save locally');
-	await expect(page.locator('.mdsh-toc-col button')).toHaveText(['Diagrams']);
-	session.metadata.diagram = await preview.locator('.mermaid-block svg').evaluate((svg) => {
-		const box = svg.getBoundingClientRect();
-		const content = svg.getBBox();
-		const view = svg.viewBox.baseVal;
-		return {
-			attributes: Object.fromEntries(
-				Array.from(svg.attributes, ({ name, value }) => [name, value])
-			),
-			box: { x: box.x, y: box.y, width: box.width, height: box.height },
-			content: { x: content.x, y: content.y, width: content.width, height: content.height },
-			inside:
-				content.x >= view.x - 1 &&
-				content.y >= view.y - 1 &&
-				content.x + content.width <= view.x + view.width + 1 &&
-				content.y + content.height <= view.y + view.height + 1
-		};
-	});
-	expect(session.metadata.diagram.inside, 'Show the complete diagram.').toBe(true);
-	await expect
-		.poll(async () => (await readDrafts(page)).find((row) => row.name === 'Diagrams.md')?.open)
-		.toBe(true);
-	await frame('Follow a wiki link to a real Mermaid diagram', 2.2);
-
-	await page
-		.locator('aside')
-		.getByRole('button', { name: /^Document library/ })
-		.click();
-	const library = page.getByRole('dialog', { name: 'Document library', exact: true });
-	await expect(library.getByRole('textbox')).toBeFocused();
-	await expect(library.getByRole('heading')).toHaveText('Document library (3)');
-	for (const name of ['Ideas', 'Diagrams']) {
-		await library.getByRole('checkbox', { name: `Select ${name}.md`, exact: true }).check();
-	}
-	await expect(library.getByRole('status')).toHaveText('2 document(s) selected');
-	await frame('Select open and closed documents in the library', 1.6);
-	await library.getByRole('button', { name: 'Open Field notes.md', exact: true }).click();
-	await expect(page.locator('#app-toolbar input')).toHaveValue(NAME);
-	await ensureMode(page, 'wysiwyg');
-	await expect(editor.locator('h1')).toHaveText(NAME);
-
-	await page.keyboard.press('ControlOrMeta+,');
-	const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
-	const widths = settings.getByRole('group', { name: 'Editor width', exact: true });
-	const pdfWidth = widths.getByRole('button', { name: 'PDF (A4)', exact: true });
-	await pdfWidth.click();
-	await expect(pdfWidth).toHaveAttribute('aria-pressed', 'true');
-	await expect(widths.locator('[aria-pressed="true"]')).toHaveCount(1);
-	await expect(settings.locator('#editor-width-pdf-help')).toContainText('178 mm');
-	await frame('Set the PDF (A4) editor width', 2.2);
-	await settings.getByRole('button', { name: 'Close', exact: true }).click();
-	await expect(settings).not.toBeVisible();
-	await expect
-		.poll(() =>
-			editor.evaluate((element) => {
-				const style = getComputedStyle(element);
-				const width = element.getBoundingClientRect().width;
-				return Math.abs(
-					width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - (178 * 96) / 25.4
-				);
-			})
-		)
-		.toBeLessThan(1);
-	await frame('Use the PDF text width in the visual editor', 1.4);
-
+	await expect(preview.locator('.mermaid-block')).toContainText(/Present the\s*story/);
+	await frame('Follow the plan into a rendered Mermaid diagram', 2.5);
 	const palette = await openPalette(page);
 	await palette.getByRole('combobox').fill('graph');
-	const graphCommand = palette.getByRole('option', { name: 'Links graph', exact: true });
-	await expect(graphCommand).toBeVisible();
-	await frame('Find the link graph in the command palette', 1.4);
-	await graphCommand.click();
+	await expect(palette.getByRole('option', { name: 'Links graph', exact: true })).toBeVisible();
+	await frame('Find the link graph', 0.7);
+	await palette.getByRole('option', { name: 'Links graph', exact: true }).click();
 	const graph = page.getByRole('dialog', { name: 'Link graph', exact: true });
 	await expect(graph.locator('.graph-node')).toHaveCount(3);
 	await expect(graph.locator('svg line').first()).toBeVisible();
-	await frame('Inspect links between the three documents', 1.8);
+	await frame('See how the launch documents connect', 2.3);
 	await graph.getByRole('button', { name: 'Close', exact: true }).click();
-	await expect(graph).not.toBeVisible();
-	await expect(editor.locator('h1')).toHaveText(NAME);
-	await page.locator('.mdsh-sidebar').getByRole('button', { name: /^New/ }).click();
-	await expect(page.getByTestId('create-note')).toBeFocused();
-	await frame('Choose Note or Presentation', 1.4);
-	await saveScreenshot(page, join(ROOT, 'docs/screenshots/new-document.png'));
-	await page.getByTestId('create-presentation').click();
-	const slides = page.getByTestId('presentation-editor');
-	await expect(slides.getByTestId('slide-canvas')).toBeVisible();
-	await page.locator('#app-toolbar input').fill('Field briefing');
-	await page.locator('#app-toolbar input').press('Enter');
-	await slides.getByTestId('slide-add-text').click();
-	await slides.getByTestId('slide-edit-text').click();
-	await slides
-		.getByTestId('slide-text-editor')
-		.fill(
-			'# Field briefing\n\nKeep your notes and presentations on this device.\n\n- Arrange your slides\n- Add your speech\n- Present offline'
-		);
-	await slides.getByTestId('slide-text-done').click();
-	await slides.getByTestId('slide-object-list-item').first().click();
-	for (const [property, value] of [
-		['width', '1040'],
-		['height', '520'],
-		['fontSize', '28']
-	]) {
-		await slides.getByTestId(`slide-prop-${property}`).fill(value);
-		await slides.getByTestId(`slide-prop-${property}`).press('Tab');
+
+	let panel = await projects();
+	await panel.getByRole('button', { name: 'Check links', exact: true }).click();
+	await expect(panel.locator('[data-project-link-report]')).toHaveText('All local links resolve.');
+	await frame('Review the Orbit project and its local links', 2);
+	const archive = await download(
+		panel.getByRole('button', { name: 'Export project', exact: true }),
+		'Orbit-export.zip'
+	);
+	const exported = await (await import('jszip')).default.loadAsync(await readFile(archive.path));
+	for (const [name, content] of Object.entries(files)) {
+		expect(await exported.file(name).async('string')).toBe(content);
 	}
-	await expect(slides.locator('.save-state')).toHaveText('saved');
-	await slides.getByTestId('slide-notes').fill('Explain the field results and the next steps.');
+	expect(JSON.parse(await exported.file('.mdsh/link-report.json').async('string')).issues).toEqual(
+		[]
+	);
+	session.metadata.projectExport = archive;
+	await panel.getByRole('button', { name: 'Check documentation', exact: true }).click();
+	const check = page.getByRole('dialog', { name: 'Documentation check', exact: true });
+	await check.getByRole('button', { name: 'Run check', exact: true }).click();
+	await expect(check).toContainText('No documentation issues found.');
+	await expect(check).toContainText('3 document(s), 0 error(s), 0 warning(s)');
+	await frame('Check the documentation before the handoff', 2.7);
+	const report = await download(
+		check.getByRole('button', { name: 'Export JSON', exact: true }),
+		'Orbit-docs-check.json'
+	);
+	expect(JSON.parse(await readFile(report.path, 'utf8')).issues).toEqual([]);
+	session.metadata.documentationExport = report;
+	await check.getByRole('button', { name: 'Close documentation check', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Close notification', exact: true })).toHaveCount(
+		0,
+		{ timeout: 15_000 }
+	);
+
+	await page
+		.locator('input[type=file][accept*="text/markdown"]')
+		.setInputFiles(join(session.evidenceDir, 'launch.json'));
+	const importReport = page.getByRole('button', { name: 'Close import report', exact: true });
+	await expect(page.getByTestId('code-language')).toHaveText('JSON');
+	await expect(page.getByTestId('json-status')).toContainText('Valid JSON');
+	await expect(importReport).toBeVisible();
+	await importReport.click();
+	await expect(importReport).not.toBeVisible();
+	await frame('Open the launch configuration as code', 1.3);
+	await page.getByTestId('json-format').click();
+	await expect
+		.poll(async () => (await readDrafts(page)).find((row) => row.name === 'launch.json')?.content)
+		.toBe(JSON.stringify(CONFIG, null, 2));
+	await expect(page.locator('.cm-line')).toHaveCount(14);
+	await frame('Format and validate the JSON configuration', 2.4);
+
+	panel = await projects();
+	await panel.getByRole('button', { name: 'Open Launch briefing.md', exact: true }).click();
+	const slides = page.getByTestId('presentation-editor');
+	await expect(slides.getByTestId('slide-thumbnail')).toHaveCount(3);
+	await expect(slides.getByTestId('slide-canvas')).toContainText('ORBIT');
+	if (await slides.getByTestId('slide-inspector').isVisible()) {
+		await slides.getByTestId('slide-properties').click();
+	}
+	if (await slides.getByTestId('slide-notes').isVisible()) {
+		await slides.getByTestId('slide-notes-toggle').click();
+	}
+	await expect(slides.getByTestId('slide-overflow')).toHaveCount(0);
+	await frame('Open the three-slide launch briefing', 2.7);
+	await slides.getByTestId('slide-notes-toggle').click();
+	await slides
+		.getByTestId('slide-notes')
+		.fill('Connect the notes. Check the project. Tell the story.');
 	await slides.getByTestId('slide-notes').press('Tab');
 	await expect(slides.locator('.save-state')).toHaveText('saved');
-	await slides.getByTestId('slide-inspector').evaluate((element) => {
-		element.scrollTop = 0;
-	});
-	await frame('Edit a separate presentation and its speech', 2.4);
-	await saveScreenshot(page, join(ROOT, 'docs/screenshots/presentation-editor.png'));
+	await frame('Add the speaker notes', 1.5);
+	await slides.getByTestId('slide-notes-toggle').click();
+	await slides.getByTestId('slide-thumbnail').nth(1).click();
+	await expect(slides.getByTestId('slide-canvas')).toContainText('A clear path');
+	await expect(slides.getByTestId('slide-overflow')).toHaveCount(0);
+	await frame('Review the plan in the slide editor', 1.8);
+	await slides.getByTestId('slide-thumbnail').nth(2).click();
+	await expect(slides.getByTestId('slide-canvas')).toContainText('Ready for');
+	await expect(slides.getByTestId('slide-overflow')).toHaveCount(0);
+	await slides.getByTestId('slide-thumbnail').first().click();
 	await slides.getByTestId('slide-present').click();
-	await frame('Present the deck', 1.4);
-	await saveScreenshot(page, join(ROOT, 'docs/screenshots/presentation-present.png'));
+	for (const [index, id, label] of [
+		[0, 'orbit-cover', 'Present the launch'],
+		[1, 'orbit-plan', 'Present the connected workflow'],
+		[2, 'orbit-ready', 'Ready for what is next']
+	]) {
+		if (index) await page.keyboard.press('ArrowRight');
+		await expect(slides.locator('.present-count')).toHaveText(`${index + 1} / 3`);
+		await expect(
+			slides.getByTestId('slide-canvas').locator(`[data-slide-id="${id}"]`)
+		).toBeVisible();
+		await expect(slides.getByTestId('slide-overflow')).toHaveCount(0);
+		const textBoxes = slides
+			.getByTestId('slide-canvas')
+			.locator('.mdsh-slide-element-rich .mdsh-slide-element-content');
+		await expect
+			.poll(() =>
+				textBoxes.evaluateAll((boxes) =>
+					boxes
+						.filter(
+							(box) =>
+								box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1
+						)
+						.map((box) => box.textContent)
+				)
+			)
+			.toEqual([]);
+		await frame(label, index === 2 ? 4.5 : 3.5);
+	}
 	await page.keyboard.press('Escape');
-	await page.setViewportSize({ width: 390, height: 844 });
-	if (await slides.getByTestId('slide-inspector').isVisible())
-		await slides.getByTestId('slide-properties').click();
-	await slides.locator('.presentation-tools').evaluate((element) => {
-		element.scrollLeft = 0;
-	});
-	await expect(slides.getByTestId('slide-canvas')).toBeInViewport();
-	await saveScreenshot(page, join(ROOT, 'docs/screenshots/presentation-editor-mobile.png'));
-	await page.setViewportSize(VIEWPORT);
-	const files = await openPalette(page);
-	await files.getByRole('combobox').fill(NAME);
-	await files.getByRole('option', { name: NAME, exact: true }).click();
-	await expect(slides).not.toBeVisible();
-	await page.keyboard.press('ControlOrMeta+,');
 	await page
-		.getByRole('dialog', { name: 'Settings', exact: true })
-		.getByRole('button', { name: 'Light', exact: true })
+		.locator('.mdsh-file-row')
+		.getByRole('button', { name: /^Launch log - / })
 		.click();
-	await page.keyboard.press('Escape');
+	await ensureMode(page, 'source');
+	await page.locator('.cm-content').click();
+	await page.keyboard.press('ControlOrMeta+a');
+	const finishedNote = COMPLETE_NOTE.replace('[ ]', '[x]');
+	await page.keyboard.insertText(finishedNote);
+	await waitForSaved(page, NAME, finishedNote);
+	await frame('Mark the briefing complete', 0.6);
+	await ensureMode(page, 'read');
+	await expect(preview.locator('h1')).toHaveText(NAME);
+	await expect(preview.locator('input[type=checkbox]:checked')).toHaveCount(3);
 	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-	await frame('Continue writing with the light theme', 2);
+	await frame('Back to the notes, with the whole launch on this device', 2.3);
 	return { frames, documents: await readDrafts(page) };
 }
 
 async function encode(session, frames) {
 	const duration = frames.reduce((total, frame) => total + frame.seconds, 0);
-	expect(duration).toBeGreaterThanOrEqual(20);
-	expect(duration).toBeLessThanOrEqual(35);
+	expect(duration).toBeGreaterThanOrEqual(40);
+	expect(duration).toBeLessThanOrEqual(55);
 	const concatPath = join(session.evidenceDir, 'frames.ffconcat');
 	await writeFile(
 		concatPath,
@@ -339,17 +484,54 @@ async function encode(session, frames) {
 	expect(media.streams[0].width).toBe(GIF_WIDTH);
 	expect(media.streams[0].height).toBe((VIEWPORT.height * GIF_WIDTH) / VIEWPORT.width);
 	expect(Math.abs(Number(media.format.duration) - duration)).toBeLessThan(0.1);
-	expect(evidence.bytes, 'The README GIF must be below 5 MB.').toBeLessThan(MAX_BYTES);
+	expect(evidence.bytes, 'The README GIF must be below 8 MB.').toBeLessThan(MAX_BYTES);
 	expect(session.metadata.pageErrors).toEqual([]);
 	expect(session.metadata.httpErrors).toEqual([]);
-	await copyFile(gifPath, join(ROOT, 'docs', 'demo.gif'));
+	const storyboard = [];
+	let start = 0;
+	for (const frame of frames) {
+		storyboard.push({ start: Number(start.toFixed(2)), ...frame });
+		start += frame.seconds;
+	}
+	await writeFile(
+		join(session.evidenceDir, 'storyboard.json'),
+		JSON.stringify(storyboard, null, 2) + '\n'
+	);
+	const holds = frames
+		.map((frame, index) => ({ ...frame, index }))
+		.filter((frame) => frame.seconds >= 0.6);
+	const contactCommand = [
+		...common,
+		'-framerate',
+		'1',
+		'-i',
+		join(session.evidenceDir, 'frames/%03d.png'),
+		'-vf',
+		`select='${holds.map((frame) => `eq(n,${frame.index})`).join('+')}',scale=384:240,tile=4x${Math.ceil(holds.length / 4)}:padding=8:margin=8:color=white`,
+		'-frames:v',
+		'1',
+		join(session.evidenceDir, 'contact-sheet.png')
+	];
+	runTool('ffmpeg', contactCommand);
+	await writeFile(
+		join(session.evidenceDir, 'contact-sheet-command.json'),
+		JSON.stringify(contactCommand, null, 2) + '\n'
+	);
+	await copyFile(gifPath, join(ROOT, 'docs/demo.gif'));
 	console.log(
 		`[capture] docs/demo.gif: ${Number(media.format.duration)} s, ${evidence.bytes} bytes`
 	);
 	return { path: 'docs/demo.gif', duration, ...evidence, media };
 }
 
-withCapture('demo', 4174, async (session) => {
+withCapture('demo', 4204, async (session) => {
+	session.metadata.command = `TMPDIR=${process.env.TMPDIR} CAPTURE_PORT=${process.env.CAPTURE_PORT ?? 4204} node scripts/capture-demo-gif.mjs`;
+	session.metadata.script = await fileEvidence(join(ROOT, 'scripts/capture-demo-gif.mjs'));
+	session.metadata.helper = await fileEvidence(join(ROOT, 'scripts/capture-helpers.mjs'));
+	await copyFile(
+		join(ROOT, 'scripts/capture-demo-gif.mjs'),
+		join(session.evidenceDir, 'capture-demo-gif.mjs')
+	);
 	const result = await record(session);
 	const output = await encode(session, result.frames);
 	return { ...result, output };

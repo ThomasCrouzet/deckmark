@@ -14,7 +14,7 @@
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache } from '#lib/editor-state.js';
-	import { onDestroy, onMount, tick } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 
 	interface Props {
 		fileId: string;
@@ -41,6 +41,7 @@
 		points: InkPoint[];
 	}
 	let annotate = $state(false);
+	let hasInk = $state(false);
 	let tool = $state<'pen' | 'highlighter' | 'eraser'>('pen');
 	let color = $state('#f5c542');
 	let inkSize = $state(3);
@@ -103,6 +104,7 @@
 		event.preventDefault();
 		canvas.setPointerCapture(event.pointerId);
 		drawing = true;
+		hasInk = true;
 		current = {
 			tool,
 			color,
@@ -154,6 +156,7 @@
 	function clearInk() {
 		strokes = [];
 		current = null;
+		hasInk = false;
 		redrawInk();
 	}
 
@@ -195,9 +198,7 @@
 
 	$effect(() => {
 		void fileId;
-		strokes = [];
-		current = null;
-		redrawInk();
+		untrack(clearInk);
 	});
 
 	$effect(() => {
@@ -474,17 +475,19 @@
 				<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 				{@html html}
 			</article>
-			<canvas
-				bind:this={canvas}
-				class="annotation-canvas"
-				class:drawing={annotate}
-				aria-hidden="true"
-				data-testid="annotation-canvas"
-				onpointerdown={startInk}
-				onpointermove={moveInk}
-				onpointerup={endInk}
-				onpointercancel={endInk}
-			></canvas>
+			{#if annotate || hasInk}
+				<canvas
+					bind:this={canvas}
+					class="annotation-canvas"
+					class:drawing={annotate}
+					aria-hidden="true"
+					data-testid="annotation-canvas"
+					onpointerdown={startInk}
+					onpointermove={moveInk}
+					onpointerup={endInk}
+					onpointercancel={endInk}
+				></canvas>
+			{/if}
 		{/if}
 	</div>
 	<div class="annotation-bar" role="toolbar" aria-label={t('annotations.toolbar')}>

@@ -251,6 +251,7 @@ export class SourceFidelity {
 					value = prefix < originals.length ? `${value}\n\n` : `\n\n${value}`;
 				patches.push({ start: from, end: to, value: this.lineEndings(value) });
 			}
+			this.patchGaps(markdown, next, originals, patches);
 			const candidate = apply(this.source, patches);
 			// Reject a source patch if Markdown syntax changes its meaning.
 			const target = this.parse(this.normalize(markdown));
@@ -274,6 +275,7 @@ export class SourceFidelity {
 						value: this.lineEndings(markdown.slice(start(after[index]!), end(after[index]!)))
 					});
 				}
+				this.patchGaps(markdown, next, originals, blocks);
 				const fallback = apply(this.source, blocks);
 				if (matches(fallback)) {
 					result = fallback;
@@ -285,6 +287,131 @@ export class SourceFidelity {
 		this.cachedSource = result;
 		recordSourceFidelityPath(path);
 		return result;
+	}
+
+	private patchGaps(
+		markdown: string,
+		next: MarkdownNode,
+		originals: MarkdownNode[],
+		owned: Patch[]
+	): void {
+		const patches: Patch[] = [];
+		const visit = (
+			original: MarkdownNode,
+			before: MarkdownNode,
+			after: MarkdownNode,
+			children = (original.children ?? []).filter((node) => node.type !== 'definition')
+		): void => {
+			if (
+				original.type !== before.type ||
+				before.type !== after.type ||
+				!['root', 'blockquote', 'listItem', 'list'].includes(before.type)
+			)
+				return;
+			const oldChildren = before.children ?? [];
+			const newChildren = after.children ?? [];
+			if (children.length !== oldChildren.length) return;
+			const mapped = new Map<number, number>();
+			if (oldChildren.length === newChildren.length) {
+				oldChildren.forEach((_, index) => mapped.set(index, index));
+			} else {
+				let prefix = 0;
+				while (
+					prefix < oldChildren.length &&
+					prefix < newChildren.length &&
+					equal(oldChildren[prefix]!, newChildren[prefix]!)
+				) {
+					mapped.set(prefix, prefix);
+					prefix++;
+				}
+				let oldIndex = oldChildren.length - 1;
+				let newIndex = newChildren.length - 1;
+				while (
+					oldIndex >= prefix &&
+					newIndex >= prefix &&
+					equal(oldChildren[oldIndex]!, newChildren[newIndex]!)
+				)
+					mapped.set(oldIndex--, newIndex--);
+			}
+			for (const [oldIndex, newIndex] of mapped)
+				visit(children[oldIndex]!, oldChildren[oldIndex]!, newChildren[newIndex]!);
+			// Lists route to their items. Only block containers own paragraph gaps.
+			if (before.type === 'list') return;
+			const root = before.type === 'root';
+			for (let index = root ? 0 : 1; index <= children.length - (root ? 0 : 1); index++) {
+				const left = index === 0 ? -1 : mapped.get(index - 1);
+				const right = index === children.length ? newChildren.length : mapped.get(index);
+				if (left === undefined || right === undefined || right !== left + 1) continue;
+				const from = index === 0 ? 0 : end(children[index - 1]!);
+				const to = index === children.length ? this.source.length : start(children[index]!);
+				if (
+					owned.some((patch) =>
+						patch.start === patch.end
+							? (patch.start > from && patch.start < to) ||
+								(patch.start >= from && patch.start <= to && patch.value.includes('\n'))
+							: patch.start < to && patch.end > from
+					)
+				)
+					continue;
+				const oldGap = this.markdown.slice(
+					index === 0 ? 0 : end(oldChildren[index - 1]!),
+					index === oldChildren.length ? this.markdown.length : start(oldChildren[index]!)
+				);
+				const newGap = markdown.slice(
+					left === -1 ? 0 : end(newChildren[left]!),
+					right === newChildren.length ? markdown.length : start(newChildren[right]!)
+				);
+				const delta = (newGap.match(/\n/g)?.length ?? 0) - (oldGap.match(/\n/g)?.length ?? 0);
+				if (!delta) continue;
+				const raw = this.source.slice(from, to);
+				if (delta > 0) {
+					const tail = raw.slice(raw.lastIndexOf('\n') + 1);
+					if (!/^[\t >]*$/.test(tail)) continue;
+					const at = to - tail.length;
+					// The serializer adds an EOF newline that the source can omit.
+					const added =
+						delta +
+						(root && index === children.length && !raw.includes('\n') && oldGap === '\n' ? 1 : 0);
+					const value = this.lineEndings(`${tail.trimEnd()}\n`.repeat(added));
+					const insertion = owned.find((patch) => patch.start === at && patch.end === at);
+					if (insertion) {
+						insertion.value =
+							index === children.length ? insertion.value + value : value + insertion.value;
+					} else patches.push({ start: at, end: at, value });
+				} else {
+					let remaining = -delta;
+					const runs = [...raw.matchAll(/(?:^|(?<=\n))(?:[\t >]*(?:\r\n|\n))+/g)];
+					for (const run of runs.reverse()) {
+						if (
+							(original.children ?? []).some(
+								(node) =>
+									node.type === 'definition' &&
+									start(node) < from + run.index + run[0].length &&
+									end(node) > from + run.index
+							)
+						)
+							continue;
+						const tokens = [...run[0].matchAll(/[\t >]*(?:\r\n|\n)/g)];
+						const edge =
+							(root && from === 0 && run.index === 0) ||
+							(root && to === this.source.length && run.index + run[0].length === raw.length);
+						const minimum = edge ? 0 : run.index === 0 ? 2 : 1;
+						const count = Math.min(remaining, Math.max(0, tokens.length - minimum));
+						if (!count) continue;
+						const first = tokens[tokens.length - count]!;
+						patches.push({
+							start: from + run.index + first.index,
+							end: from + run.index + run[0].length,
+							value: ''
+						});
+						remaining -= count;
+						if (!remaining) break;
+					}
+				}
+			}
+		};
+		visit(this.original, this.baseline, next, originals);
+		owned.push(...patches);
 	}
 
 	private alignBlocks(originals: MarkdownNode[], before: MarkdownNode[]): MarkdownNode[] {

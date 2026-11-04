@@ -2,6 +2,7 @@
 // The command reads local fixtures, writes one raw JSON report, and sends no
 // telemetry. Run it in two modes: --target web and --target native.
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { chromium, firefox, webkit } from '@playwright/test';
@@ -553,21 +554,38 @@ async function measurePresentation(page, runs) {
 
 async function measureExport(page, runs) {
 	const values = [];
+	const downloads = [];
 	for (let run = 0; run < runs; run += 1) {
 		await domClick(page, 'button[aria-label="Command palette"]');
 		await page.getByRole('dialog', { name: 'Command palette' }).waitFor({ state: 'visible' });
-		await page.keyboard.type('Export as HTML');
+		const selector = '#cmd-palette-opt-export-html:not([aria-disabled="true"])';
+		await page.locator(selector).waitFor({ state: 'visible' });
+		// Measure export after the named command is ready.
 		const startedAt = performance.now();
-		const download = page.waitForEvent('download');
-		await page.keyboard.press('Enter');
-		const result = await download;
+		const [result] = await Promise.all([page.waitForEvent('download'), domClick(page, selector)]);
 		values.push(performance.now() - startedAt);
-		await result.cancel().catch(() => undefined);
+		const path = await result.path();
+		if (!path) throw new Error('HTML export did not produce a local download.');
+		const bytes = await readFile(path);
+		const html = bytes.toString('utf8');
+		if (
+			result.suggestedFilename() !== 'bench-000.html' ||
+			!html.includes('<title>Benchmark note 000</title>') ||
+			!html.includes('Paragraph 1 with a') ||
+			!html.trimEnd().endsWith('</html>')
+		) {
+			throw new Error('HTML export does not contain the expected benchmark note.');
+		}
+		downloads.push({
+			filename: result.suggestedFilename(),
+			bytes: bytes.byteLength,
+			sha256: createHash('sha256').update(bytes).digest('hex')
+		});
 		await page
 			.getByRole('dialog', { name: 'Command palette' })
 			.waitFor({ state: 'hidden', timeout: 30_000 });
 	}
-	return values;
+	return { values, downloads };
 }
 
 async function measureHeap(page, browserName) {
@@ -596,11 +614,17 @@ async function runWebBenchmark(options, fixtures) {
 	const browserType = browserTypes[options.browser];
 	const browser = await browserType.launch();
 	const failures = [];
+	const browserErrors = [];
+	let page;
 	const expensiveRuns = Math.min(options.runs, 5);
 	try {
 		const startup = await measureStartup(browser, url, options.runs);
 		const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
-		const page = await context.newPage();
+		page = await context.newPage();
+		page.on('pageerror', (error) => browserErrors.push(error.stack ?? error.message));
+		page.on('console', (message) => {
+			if (message.type() === 'error') browserErrors.push(message.text());
+		});
 		await page.goto(url);
 		await waitForShell(page);
 		await seedDatabase(page);
@@ -635,6 +659,7 @@ async function runWebBenchmark(options, fixtures) {
 		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
 		await page.locator('button[data-file-id="bench-000"]').click();
+		await page.waitForFunction(() => document.querySelector('header input')?.value === 'bench-000');
 		const exportHtml = await measureExport(page, expensiveRuns);
 		heapSamples.push(await measureHeap(page, options.browser));
 		const projectTree = await measureProjectTree(page, expensiveRuns);
@@ -670,7 +695,7 @@ async function runWebBenchmark(options, fixtures) {
 			presentationLoad: presentation.load,
 			presentationSlideSwitch: presentation.slideSwitch,
 			presentationPresent: presentation.present,
-			exportHtml,
+			exportHtml: exportHtml.values,
 			heapUsedMb: heapSamples
 		};
 		const summary = Object.fromEntries(
@@ -714,7 +739,8 @@ async function runWebBenchmark(options, fixtures) {
 				projectTree: 'Wall clock from the Projects panel click to the expected project row count.',
 				presentation:
 					'Wall clock from the document click or slide action to the visible slide state.',
-				export: 'Wall clock from the palette confirmation to the browser download event.',
+				export:
+					'Wall clock from a DOM click on the named palette option to the browser download event. Readiness checks precede the sample. Download byte checks follow it.',
 				heap: 'Chromium CDP JSHeapUsedSize. Other engines report performance.memory when present.'
 			},
 			limits: [
@@ -726,8 +752,53 @@ async function runWebBenchmark(options, fixtures) {
 			forcedBudgetFailure: options.enforceBudgets && budget.status === 'over-budget',
 			summary,
 			samples,
+			exportDownloads: exportHtml.downloads,
 			failures
 		};
+	} catch (error) {
+		if (options.output) {
+			const browserState = page
+				? await page
+						.evaluate(() => ({
+							url: location.href,
+							title: document.title,
+							activeElement: document.activeElement?.outerHTML,
+							documentName: document.querySelector('header input')?.value,
+							paletteQuery: document.querySelector('[role="combobox"]')?.value,
+							selectedCommand: document.querySelector('[role="option"][aria-selected="true"]')
+								?.outerHTML,
+							dialogs: [...document.querySelectorAll('[role="dialog"]')].map(
+								(element) => element.outerHTML
+							),
+							messages: [...document.querySelectorAll('[role="alert"], [role="status"]')].map(
+								(element) => element.textContent
+							)
+						}))
+						.catch((captureError) => ({ captureError: String(captureError) }))
+				: null;
+			await writeFile(
+				options.output,
+				`${JSON.stringify(
+					{
+						schemaVersion: 2,
+						status: 'failed',
+						generatedAt: new Date().toISOString(),
+						target: 'web',
+						command: [process.execPath, ...process.argv.slice(1)],
+						browser: { name: options.browser, version: browser.version() },
+						buildMode: options.buildMode,
+						source: gitRevision(projectRoot),
+						environment: environmentIdentity(),
+						fixtures: fixtures.descriptors,
+						failures: [{ message: error.message, stack: error.stack, browserState, browserErrors }]
+					},
+					null,
+					2
+				)}\n`,
+				'utf8'
+			);
+		}
+		throw error;
 	} finally {
 		await browser.close();
 		server?.closeAllConnections();
