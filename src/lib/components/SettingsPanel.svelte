@@ -37,6 +37,7 @@
 	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
 	import { editionManifest } from '#lib/edition.js';
+	import { captureSettings } from '#lib/capture-settings.svelte.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
 	import type { TemplateRow } from '#lib/db.js';
 	import { reportError } from '#lib/report.js';
@@ -245,6 +246,10 @@
 	$effect(() => {
 		if (!open || !browser) return;
 		aiStore.load();
+		if (IS_DESKTOP_EDITION) {
+			if (!captureSettings.loaded) captureSettings.load();
+			void captureSettings.refreshStatus();
+		}
 		tick().then(() => closeButton?.focus());
 		void refreshStorageHealth();
 		void templatesStore
@@ -274,6 +279,14 @@
 			width: PRINT_TEXT_WIDTH_MM,
 			margin: PRINT_PAGE.marginInlineMm
 		})
+	);
+
+	const captureStatusText = $derived(
+		captureSettings.status.registered
+			? t('settings.captureRegistered', {
+					shortcut: captureSettings.status.shortcut ?? captureSettings.shortcut
+				})
+			: t('settings.captureNotRegistered')
 	);
 
 	const writingShortcuts = $derived([
@@ -922,6 +935,64 @@
 						</p>
 					{/if}
 				</details>
+
+				<!-- Quick capture: opt-in global shortcut (Desktop Complete only) -->
+				{#if IS_DESKTOP_EDITION}
+					<details
+						class="mb-5 rounded border border-border p-3 text-sm"
+						data-testid="capture-settings"
+					>
+						<summary class="cursor-pointer">{t('settings.capture')}</summary>
+						<p class="mt-2 text-xs text-fg-muted">{t('settings.captureHelp')}</p>
+						<label class="mt-3 flex items-center justify-between gap-3">
+							<span>{t('settings.captureEnable')}</span>
+							<input
+								type="checkbox"
+								checked={captureSettings.enabled}
+								disabled={captureSettings.busy}
+								onchange={(event) => void captureSettings.setEnabled(event.currentTarget.checked)}
+								data-testid="capture-enabled"
+							/>
+						</label>
+						<label class="mt-2 block text-xs text-fg-muted">
+							<span>{t('settings.captureShortcut')}</span>
+							<input
+								type="text"
+								class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1 text-sm text-fg"
+								value={captureSettings.shortcut}
+								disabled={captureSettings.busy}
+								aria-describedby="capture-shortcut-help"
+								onchange={(event) => void captureSettings.setShortcut(event.currentTarget.value)}
+								data-testid="capture-shortcut"
+							/>
+						</label>
+						<p id="capture-shortcut-help" class="mt-1 text-xs text-fg-muted">
+							{t('settings.captureShortcutHelp')}
+						</p>
+						<button
+							type="button"
+							class="mt-2 rounded border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-bg-2"
+							disabled={captureSettings.busy}
+							onclick={() => void captureSettings.openWindow()}
+							data-testid="capture-open"
+						>
+							{t('settings.captureOpen')}
+						</button>
+						<p
+							class="mt-2 text-xs"
+							class:text-accent={captureSettings.status.registered}
+							role="status"
+							data-testid="capture-settings-status"
+						>
+							{captureStatusText}
+						</p>
+						{#if captureSettings.error}
+							<p class="mt-1 text-xs text-danger" role="alert" data-testid="capture-settings-error">
+								{captureSettings.error}
+							</p>
+						{/if}
+					</details>
+				{/if}
 
 				<!-- Editor: width -->
 				<section class="mb-5">

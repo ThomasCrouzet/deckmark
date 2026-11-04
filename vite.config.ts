@@ -48,6 +48,12 @@ export default defineConfig(({ mode }) => {
 							),
 							'#lib/git-panel.js': fileURLToPath(
 								new URL('./src/lib/edition/web/git-panel.ts', import.meta.url)
+							),
+							'#lib/capture-surface.js': fileURLToPath(
+								new URL('./src/lib/capture-surface.web.ts', import.meta.url)
+							),
+							'#lib/capture-native.js': fileURLToPath(
+								new URL('./src/lib/capture-native.web.ts', import.meta.url)
 							)
 						}
 					: {}

@@ -13,10 +13,12 @@ import { backupProjectEn } from './backup-project-en';
 import { desktopBackupEn } from './desktop-backup-en';
 import { slidesEn } from './slides-en';
 import { snippetsEn } from './snippets-en';
+import { captureEn } from './capture-en';
 
 export const en = {
 	...slidesEn,
 	...snippetsEn,
+	...captureEn,
 	...splitEn,
 	...projectEn,
 	...diffEn,

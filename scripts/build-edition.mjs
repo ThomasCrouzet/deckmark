@@ -36,7 +36,8 @@ const features =
 				'native-projects',
 				'git',
 				'native-vault',
-				'native-ai'
+				'native-ai',
+				'global-capture'
 			]
 		: ['notes', 'presentations', 'code', 'images', 'projects', 'pwa-offline'];
 const excluded =

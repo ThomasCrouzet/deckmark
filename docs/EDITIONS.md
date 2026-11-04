@@ -58,6 +58,7 @@ records the edition, version, base path, features, and excluded capabilities.
 | Native macOS print panel | No. Use the browser print dialog. | Yes on macOS |
 | File associations and operating-system open events | PWA file handlers where the browser supports them | Yes |
 | Native menus and window state restore | No | Yes |
+| Global quick capture window with an opt-in shortcut | No | Yes, disabled by default with a configurable shortcut |
 | In-place disk editing with revision checks | Limited to supported browser file links | Yes, with native path capabilities and revision checks |
 | Service worker application update | Yes | No. Install a new Desktop release. |
 | First-class code and JSON files | Yes | Yes |

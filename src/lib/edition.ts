@@ -40,7 +40,8 @@ export function editionManifest(): EditionManifest {
 					'native-projects',
 					'git',
 					'native-vault',
-					'native-ai'
+					'native-ai',
+					'global-capture'
 				],
 				excluded: []
 			}

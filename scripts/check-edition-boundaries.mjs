@@ -26,7 +26,9 @@ const forbidden = [
 	'vault_status',
 	'vault_delete',
 	'ai_chat',
-	'keyring'
+	'keyring',
+	'desktop_capture_',
+	'mdsh://capture-reset'
 ];
 
 function files(directory) {
