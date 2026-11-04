@@ -527,6 +527,27 @@ uses a small memory filesystem, set `TMPDIR` to an empty directory on disk befor
 the run. Keep any `ENOSPC` failure report and repeat the affected cases after the
 storage problem is corrected. Do not treat a failed trace write as an application result.
 
+### Command palette load order
+
+`e2e/palette-load-review.spec.ts` holds a real IndexedDB transaction on
+`workspaces` and `templates`. The user types an export query and selects HTML
+with ArrowDown. After the transaction completes, saved commands must appear
+without changes to the query, focus, or selection. Enter must download the
+expected HTML. A second opening must start with an empty query.
+
+Run `npx playwright test e2e/palette-load-review.spec.ts --workers=1`.
+Keep the report, source revision, diff, fixtures, screenshots, and exported HTML.
+The test runs in Chromium, Firefox, and WebKit.
+
+The export benchmark confirms the named, enabled HTML option directly. Its
+measured interval ends at the download event. Completion and byte checks follow
+that interval. `exportDownloads` records the filename, byte count, and SHA-256.
+On failure, the JSON report retains browser state and errors, then the command
+fails. An incomplete run has no budget result.
+
+Run `node scripts/benchmark-local.mjs --browser webkit --runs 5 --build-mode production-static --output /tmp/opencode/web-benchmark-webkit.json`
+against a recorded production build. Keep its build hashes with the report.
+
 ### Whole-application review
 
 The presentation-file review found failures in shared workflows. These retained

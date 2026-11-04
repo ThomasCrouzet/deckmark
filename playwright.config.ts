@@ -84,6 +84,7 @@ export default defineConfig({
 				'**/note-type-guard.spec.ts',
 				'**/read-preview-isolation.spec.ts',
 				'**/modal-isolation-review.spec.ts',
+				'**/palette-load-review.spec.ts',
 				'**/presentation-format.spec.ts'
 			]
 		},
@@ -112,6 +113,7 @@ export default defineConfig({
 				'**/note-type-guard.spec.ts',
 				'**/read-preview-isolation.spec.ts',
 				'**/modal-isolation-review.spec.ts',
+				'**/palette-load-review.spec.ts',
 				'**/presentation-format.spec.ts'
 			]
 		},

@@ -62,7 +62,7 @@ IndexedDB.
 
 ## Documents
 
-![DeckMark demo: create a note, change its view, then create and edit a separate presentation.](docs/demo.gif)
+![DeckMark demo: plan a launch with linked notes, diagrams, code, project checks, exports, and a presentation.](docs/demo.gif)
 
 Select **New file**, then choose **Note** or **Presentation**. Each file keeps its
 own type. The app does not convert notes to presentations.
@@ -104,14 +104,14 @@ selects French when it detects a French browser language.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/mode-wysiwyg.webp">
-    <img src="docs/screenshots/mode-wysiwyg-light.webp" alt="Visual editing with linked notes, formulas, and a task list." width="100%">
+    <img src="docs/screenshots/mode-wysiwyg-light.webp" alt="Visual editing with linked notes, a project table, and a task list." width="100%">
   </picture>
 </p>
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/mode-read.webp">
-    <img src="docs/screenshots/mode-read-light.webp" alt="Reading view with rendered formulas and the document sidebar." width="100%">
+    <img src="docs/screenshots/mode-read-light.webp" alt="Launch brief in reading view with a document outline and backlinks." width="100%">
   </picture>
 </p>
 
