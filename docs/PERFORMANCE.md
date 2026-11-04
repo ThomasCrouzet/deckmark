@@ -71,3 +71,49 @@ stages stay inside the same budgets as before the change.
 The native benchmark on Windows, Linux and macOS Apple Silicon runs in CI. A
 native profile of the same scenario is captured with
 `--target native`; the shared web measurements above isolate the frontend part.
+
+## Enforced benchmark gate
+
+`scripts/benchmark-budgets.json` is the reviewed reference for each platform and
+metric. `scripts/benchmark-shared.mjs` evaluates a report as follows:
+
+- A missing platform baseline fails the gate.
+- A required metric with no measurement fails the gate.
+- Fewer runs than `defaults.minimumRuns` fails the gate.
+- A unit mismatch, a non-finite value, or a negative value fails the gate.
+- A measured summary field with no budget entry fails the gate. Add a reviewed
+  budget or an explicit `optional` entry instead of dropping the metric.
+- A p95 above `p95 * (1 + toleranceRatio)` fails the gate. The default tolerance
+  is 0.25. A 1.5 times regression therefore fails.
+- A metric marked `optional` may stay unmeasured only when the engine does not
+  expose it. The report keeps the `unsupported` status and the reason.
+
+The CI Desktop workflow passes `--enforce-budgets`. The process exits nonzero on
+any non-ok status, and the `desktop-validation` aggregate job requires the
+benchmark job to succeed. A failed benchmark therefore prevents release
+publication. Reporting-only runs can use `--report-only` through the retained
+artifact gate:
+
+```sh
+node scripts/benchmark-gate.mjs --report /tmp/bench.json --budgets scripts/benchmark-budgets.json
+```
+
+`scripts/benchmark-gate.mjs` measures nothing. It validates the report schema,
+source identity, build mode, platform identity, sample counts, units, and budget
+values. Use it to audit a retained artifact or to repeat a gate decision.
+
+The negative cases for each rule run in `scripts/benchmark-shared.test.mjs`. The
+test starts the gate as a child process and checks the exit code. This proves
+that invalid evidence cannot become a successful gate. Run:
+
+```sh
+npm run test:benchmark-gate
+```
+
+The browser benchmark collects 3 samples for reload and presentation load, and 5
+samples for the other scenarios. A report from fewer runs is not valid evidence.
+
+Native CI still builds the instrumented debug binary. Its measurements are
+diagnostic only. The debug results are not release-build performance and the
+baseline labels say so. An optimized native baseline needs a separate recorded
+reference before it can make a release claim.
