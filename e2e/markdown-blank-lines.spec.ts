@@ -118,9 +118,27 @@ test('blank lines at document edges preserve adjacent edits and source syntax', 
 	expect
 		.soft(await downloadMarkdown(page, info), 'Trailing blank paragraph')
 		.toBe('Keep &amp; this.!\n\n');
-	await editSentence(page, 'Keep & this.!', 'Keep & this.!');
-	await page.keyboard.press('Home');
+	await page
+		.locator('.ProseMirror > p')
+		.first()
+		.click({ position: { x: 0, y: 8 } });
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+			)
+	);
+	await expect
+		.poll(() =>
+			page.evaluate(() => ({
+				text: window.getSelection()?.anchorNode?.textContent,
+				offset: window.getSelection()?.anchorOffset,
+				collapsed: window.getSelection()?.isCollapsed
+			}))
+		)
+		.toEqual({ text: 'Keep & this.!', offset: 0, collapsed: true });
 	await page.keyboard.press('Enter');
+	await expect(page.locator('.ProseMirror > p').first()).toHaveText('');
 	await page.keyboard.type('Now ');
 	expect(await downloadMarkdown(page, info)).toBe('\n\nNow Keep &amp; this.!\n\n');
 });

@@ -599,6 +599,12 @@ Shift+Enter must use a Markdown hard break. Preserve HTML that the source
 already contains, including a separate `<br />`, code, and table cell breaks.
 Markdown parsers do not retain empty paragraph nodes. Source fidelity must keep
 the blank lines when the editor mounts again and changes nearby text.
+The existing-note cases cover LF, CRLF, reference definitions, and blockquotes.
+A visual insertion must change the saved gap even when the parsed block content
+stays equal.
+After export, click the document to place a caret at its start. ProseMirror can
+restore the previous selection after programmatic focus. Check the collapsed
+selection before the next key.
 
 Run `npx playwright test markdown-blank-lines.spec.ts table-editing.spec.ts source-fidelity.spec.ts --workers=2 --retries=0`.
 Keep the report, traces, downloaded bytes, source revision, command, browser,
