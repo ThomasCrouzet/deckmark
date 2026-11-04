@@ -604,10 +604,11 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		);
 		const values = [];
 		for (let run = 0; run < runs; run += 1) {
+			await click('button[aria-label="Command palette"]');
 			if (process.platform === 'darwin') {
 				if (existsSync(pdfPath)) rmSync(pdfPath, { force: true });
 				const startedAt = performance.now();
-				await click('button[aria-label="Export to PDF"]');
+				await click('#cmd-palette-opt-export-pdf');
 				await until(
 					() => existsSync(pdfPath) && readFileSync(pdfPath).length > 1_000,
 					'native PDF export',
@@ -620,7 +621,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 				'window.__benchmarkPrintCalled = false; window.__benchmarkOriginalPrint = window.print; window.print = () => { window.__benchmarkPrintCalled = true; };'
 			);
 			const startedAt = performance.now();
-			await click('button[aria-label="Export to PDF"]');
+			await click('#cmd-palette-opt-export-pdf');
 			await until(
 				() => execute('return window.__benchmarkPrintCalled === true;'),
 				'native print prepared',
@@ -660,7 +661,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 			scrollFrame: 'In-page time to set scrollTop and observe two animation frames.',
 			projectTree: 'Wall clock from the Projects panel click to the expected project row count.',
 			export:
-				'Wall clock from the export button click to the prepared print document. macOS writes the real PDF; Linux and Windows replace only the final OS print dialog call.',
+				'Wall clock from the PDF command click to the prepared print document. Opening the command palette is excluded. macOS writes the real PDF; Linux and Windows replace only the final OS print dialog call.',
 			memory:
 				'Sum of resident bytes or working set for the application process tree. WebView helper processes are included when the platform reports them.'
 		},

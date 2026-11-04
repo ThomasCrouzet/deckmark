@@ -938,7 +938,8 @@ try {
 		await execute(
 			`window.addEventListener('beforeprint', () => { const host = document.getElementById('mdsh-native-print'); const root = host?.shadowRoot ?? host; window.__printDiagnostics.push({ beforeprint: true, images: [...root.querySelectorAll('img')].map(image => ({ width: image.getBoundingClientRect().width, height: image.getBoundingClientRect().height, maxHeight: getComputedStyle(image).maxHeight, parentDisplay: getComputedStyle(image.parentElement).display, breakInside: getComputedStyle(image.parentElement).breakInside })) }); });`
 		);
-		await click('button[aria-label="Exporter en PDF"]');
+		await click('button[aria-label="Palette de commandes"]');
+		await click('#cmd-palette-opt-export-pdf');
 		await until(
 			() => existsSync(nativePdfPath) && statSync(nativePdfPath).size > 10_000,
 			'product native PDF export',
@@ -988,7 +989,8 @@ try {
 		await execute(
 			'window.__nativePrintCalled = false; window.__nativeOriginalPrint = window.print; window.print = () => { window.__nativePrintCalled = true; };'
 		);
-		await click('button[aria-label="Exporter en PDF"]');
+		await click('button[aria-label="Palette de commandes"]');
+		await click('#cmd-palette-opt-export-pdf');
 		await until(
 			() => execute('return window.__nativePrintCalled === true'),
 			'native print preparation',

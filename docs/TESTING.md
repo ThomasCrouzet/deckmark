@@ -569,6 +569,9 @@ The resize case checks browser error events while the viewport changes from
 prevent a ResizeObserver notification loop.
 At widths below 260 CSS pixels, presentation controls can wrap. The native
 200 percent zoom checks verify keyboard access before and after a draft save.
+Native PDF checks use the command palette because the direct toolbar action
+can be hidden at the default window width. The native export benchmark opens
+the palette before it starts the export timer.
 
 ### Code editor focus after delayed loading
 
