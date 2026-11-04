@@ -71,6 +71,12 @@ with the command, source revision, environment, fixtures, and results.
 The `htmlSha256` field binds the served HTML to the expected build. A fresh
 metadata file cannot hide an old HTML response.
 
+`static/_headers` sets `Cache-Control: no-transform` on Cloudflare HTML responses.
+This prevents the proxy from adding Web Analytics to the HTML. The app shell,
+service worker, and release metadata require revalidation. Files under
+`_app/immutable/` have versioned names and use a one-year browser cache.
+Keep `no-transform` off JavaScript and CSS so Cloudflare can compress those files.
+
 The daily drift check reads both public origins. If either deployment is stale,
 it starts the same gated deployment workflow and fails with a repair message.
 The detection run remains failed. The post-deployment browser checks confirm

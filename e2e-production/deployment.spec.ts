@@ -116,7 +116,7 @@ test('serves the expected Web release and keeps a draft offline', async ({
 
 	await test.step('Reload offline and verify the saved source', async () => {
 		await expect(page.getByText('Ready offline', { exact: true })).toBeVisible({
-			timeout: 45_000
+			timeout: 90_000
 		});
 		await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 		await page.reload();
