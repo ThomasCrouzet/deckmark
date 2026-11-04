@@ -42,6 +42,12 @@ export default defineConfig(({ mode }) => {
 							'@tauri-apps/api/menu': nativeStub,
 							'#lib/desktop-shell.js': fileURLToPath(
 								new URL('./src/lib/desktop-shell.web.ts', import.meta.url)
+							),
+							'#lib/capture-surface.js': fileURLToPath(
+								new URL('./src/lib/capture-surface.web.ts', import.meta.url)
+							),
+							'#lib/capture-native.js': fileURLToPath(
+								new URL('./src/lib/capture-native.web.ts', import.meta.url)
 							)
 						}
 					: {}

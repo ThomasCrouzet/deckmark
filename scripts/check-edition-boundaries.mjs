@@ -15,7 +15,9 @@ const forbidden = [
 	'tauri-plugin-',
 	'desktop_open_external',
 	'desktop_arm_close_guard',
-	'take_pending_open_paths'
+	'take_pending_open_paths',
+	'desktop_capture_',
+	'mdsh://capture-reset'
 ];
 
 function files(directory) {

@@ -8,10 +8,12 @@ import { diffFr } from './diff-fr';
 import { backupProjectFr } from './backup-project-fr';
 import { slidesFr } from './slides-fr';
 import { snippetsFr } from './snippets-fr';
+import { captureFr } from './capture-fr';
 
 export const fr: Record<MessageKey, string> = {
 	...slidesFr,
 	...snippetsFr,
+	...captureFr,
 	...splitFr,
 	...projectFr,
 	...diffFr,

@@ -33,7 +33,8 @@ const features =
 				'projects',
 				'pwa-offline',
 				'native-disk',
-				'native-projects'
+				'native-projects',
+				'global-capture'
 			]
 		: ['notes', 'presentations', 'code', 'images', 'projects', 'pwa-offline'];
 const excluded =

@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { page } from '$app/state';
 	import { readPreference, writePreference } from '#lib/preferences.js';
 	import { browser } from '$app/env';
 	import { t, i18n } from '#lib/i18n/index.js';
+	import { IS_DESKTOP_EDITION } from '#lib/edition.js';
+	import { captureSettings } from '#lib/capture-settings.svelte.js';
+	import { loadQuickCapture } from '#lib/capture-surface.js';
 	import SourceEditor from '#lib/components/SourceEditor.svelte';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import ImportProgress from '#lib/components/ImportProgress.svelte';
@@ -43,6 +47,9 @@
 	const kind = $derived(
 		filesStore.active ? documentKindForFile(filesStore.active) : ('note' as DocumentKind)
 	);
+	// §234 - the native capture window loads this page with `?capture=1`.
+	// The Web Light build never exposes the capture component.
+	const captureRequested = IS_DESKTOP_EDITION && page.url.searchParams.get('capture') === '1';
 
 	let mode = $state<EditMode>('wysiwyg');
 	let projectsOpen = $state(false);
@@ -267,6 +274,9 @@
 	onMount(() => {
 		keyboardStore.load();
 		if (!browser) return;
+		// The capture window has its own light surface and must not boot the
+		// workspace, the editor, or the desktop shell.
+		if (captureRequested) return;
 		let disposeDesktop: (() => void) | undefined;
 		let disposed = false;
 
@@ -309,6 +319,10 @@
 
 			// §1.2 - Registers the SW + wires the "Reload" toast to updates.
 			registerPwaUpdates();
+
+			// §234 - the global capture shortcut stays unregistered unless the
+			// user enabled it in Settings. The Web Light build has no capture code.
+			if (IS_DESKTOP_EDITION) void captureSettings.applyStartup();
 
 			// Desktop shell: native menu + argv / file-association open.
 			const dispose = await initDesktopShell({
@@ -717,6 +731,7 @@
 	});
 
 	function handleWindowKeydown(event: KeyboardEvent) {
+		if (captureRequested) return;
 		if (modals.anyOpen || promptStore.open || projectsOpen || diskConflictStore.pending) return;
 		if (!canInteract) {
 			if (
@@ -733,7 +748,7 @@
 	}
 
 	function handleWindowDrag(event: DragEvent, handler: (event: DragEvent) => void | Promise<void>) {
-		if (event.defaultPrevented) return;
+		if (captureRequested || event.defaultPrevented) return;
 		if (
 			!canInteract ||
 			modals.anyOpen ||
@@ -766,254 +781,266 @@
 	}}
 />
 
-<!-- §J1 - Blocking banner if IndexedDB is inaccessible at startup (private mode,
-	 storage disabled). Without it, the app would show a misleading "no file"
-	 screen, suggesting data loss. -->
-{#if filesStore.loadError}
-	<div
-		class="fixed inset-x-0 top-0 z-[70] flex items-center justify-center border-b border-danger bg-bg-1 px-4 py-2 text-center text-sm text-danger"
-		role="alert"
-	>
-		{filesStore.loadError}
-	</div>
-{/if}
-
-<div
-	inert={!canInteract ||
-		(modals.anyOpen && !modals.presenting) ||
-		promptStore.open ||
-		projectsOpen ||
-		!!diskConflictStore.pending}
-	aria-busy={!hydrated}
-	class="mdsh-shell flex h-[100dvh] w-full overflow-hidden bg-bg text-fg"
->
-	<div class="contents" inert={modals.presenting}>
-		<Sidebar
-			open={sidebarOpen}
-			focusMode={prefs.focusMode && kind === 'note'}
-			onClose={() => (sidebarOpen = false)}
-			onNew={handleNew}
-			onImport={handleImport}
-			onOpenLibrary={modals.openLibrary}
-			onOpenProjects={() => (projectsOpen = true)}
-			onHome={() => filesStore.showHome()}
-		/>
-	</div>
-
-	<div
-		inert={sidebarOpen && viewportWidth < 768}
-		class="mdsh-workspace flex min-w-0 flex-1 flex-col"
-	>
-		<div class="contents" inert={modals.presenting}>
-			<Toolbar
-				{kind}
-				{mode}
-				{sidebarOpen}
-				onToggleSidebar={toggleSidebar}
-				onSetMode={(m) => void requestMode(m)}
-				onExport={handleExport}
-				onExportPDF={handleExportPDF}
-				onOpenPalette={modals.openPalette}
-				onOpenActions={modals.openActions}
-				onSave={handleSave}
-				onSaveAs={handleSaveAs}
-				onEditCopy={handleEditCopy}
-				onEditOriginal={handleEditOriginal}
-				onSaveToDisk={handleSaveToDisk}
-				focusMode={prefs.focusMode}
-				onToggleFocus={prefs.toggleFocusMode}
-			/>
-		</div>
-
-		<!-- §P3.2 - The editing pane (3 modes + resize + drag + TOC) is delegated
-		     to EditorPane.svelte to reduce the markup of +page.svelte. -->
-		<main
-			id="main"
-			class="relative flex min-h-0 flex-1 flex-row"
-			style:--editor-max-width="{editorWidth.editorMaxWidth}px"
-			tabindex="-1"
-		>
-			<EditorPane
-				{kind}
-				libraryCount={filesStore.library.length}
-				{documentTool}
-				onCloseTool={() => {
-					documentTool = null;
-				}}
-				activeFile={filesStore.active}
-				{mode}
-				{editorWidth}
-				{modals}
-				{dragOver}
-				{tocEmpty}
-				tocVisible={prefs.tocVisible}
-				focusMode={prefs.focusMode}
-				{articleRef}
-				onSourceEditorRef={(ref) => (sourceEditorRef = ref)}
-				onCodeEditorRef={(ref) => (codeEditorRef = ref)}
-				onArticleRef={(el) => (articleRef = el)}
-				onTocEmpty={(empty) => (tocEmpty = empty)}
-				onEditorChange={handleEditorChange}
-				onEditorFlush={handleEditorFlush}
-				onNew={handleNew}
-				onImport={handleImport}
-				onDemo={handleDemo}
-			/>
-		</main>
-
-		<div class="contents" inert={modals.presenting}>
-			<StatusBar {kind} onOpenSettings={modals.openSettings} />
-		</div>
-	</div>
-</div>
-
-{#if prefs.focusMode && kind === 'note'}
-	<button
-		inert={modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending}
-		type="button"
-		class="fixed top-2 right-2 z-[75] min-h-10 rounded border border-accent bg-bg-1 px-3 text-xs font-medium text-accent shadow-lg"
-		onclick={prefs.toggleFocusMode}
-	>
-		{t('page.exitFocusMode')}
-	</button>
-{/if}
-
-<ImportProgress
-	blocked={modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending}
-/>
-
-{#if diskConflictStore.pending}
-	{#await import('#lib/components/DiskConflictPanel.svelte') then module}
-		<module.default />
+{#if captureRequested}
+	{#await loadQuickCapture() then module}
+		{#if module}
+			<module.default />
+		{/if}
 	{:catch _error}
 		<div role="alert" class="fixed inset-0 z-[80] bg-bg p-6 text-fg">
-			{t('projects.operationFailed')}<button onclick={() => diskConflictStore.choose('cancel')}
-				>{t('diskConflict.cancel')}</button
+			{t('capture.loadFailed')}
+		</div>
+	{/await}
+{:else}
+	<!-- §J1 - Blocking banner if IndexedDB is inaccessible at startup (private mode,
+	 storage disabled). Without it, the app would show a misleading "no file"
+	 screen, suggesting data loss. -->
+	{#if filesStore.loadError}
+		<div
+			class="fixed inset-x-0 top-0 z-[70] flex items-center justify-center border-b border-danger bg-bg-1 px-4 py-2 text-center text-sm text-danger"
+			role="alert"
+		>
+			{filesStore.loadError}
+		</div>
+	{/if}
+
+	<div
+		inert={!canInteract ||
+			(modals.anyOpen && !modals.presenting) ||
+			promptStore.open ||
+			projectsOpen ||
+			!!diskConflictStore.pending}
+		aria-busy={!hydrated}
+		class="mdsh-shell flex h-[100dvh] w-full overflow-hidden bg-bg text-fg"
+	>
+		<div class="contents" inert={modals.presenting}>
+			<Sidebar
+				open={sidebarOpen}
+				focusMode={prefs.focusMode && kind === 'note'}
+				onClose={() => (sidebarOpen = false)}
+				onNew={handleNew}
+				onImport={handleImport}
+				onOpenLibrary={modals.openLibrary}
+				onOpenProjects={() => (projectsOpen = true)}
+				onHome={() => filesStore.showHome()}
+			/>
+		</div>
+
+		<div
+			inert={sidebarOpen && viewportWidth < 768}
+			class="mdsh-workspace flex min-w-0 flex-1 flex-col"
+		>
+			<div class="contents" inert={modals.presenting}>
+				<Toolbar
+					{kind}
+					{mode}
+					{sidebarOpen}
+					onToggleSidebar={toggleSidebar}
+					onSetMode={(m) => void requestMode(m)}
+					onExport={handleExport}
+					onExportPDF={handleExportPDF}
+					onOpenPalette={modals.openPalette}
+					onOpenActions={modals.openActions}
+					onSave={handleSave}
+					onSaveAs={handleSaveAs}
+					onEditCopy={handleEditCopy}
+					onEditOriginal={handleEditOriginal}
+					onSaveToDisk={handleSaveToDisk}
+					focusMode={prefs.focusMode}
+					onToggleFocus={prefs.toggleFocusMode}
+				/>
+			</div>
+
+			<!-- §P3.2 - The editing pane (3 modes + resize + drag + TOC) is delegated
+		     to EditorPane.svelte to reduce the markup of +page.svelte. -->
+			<main
+				id="main"
+				class="relative flex min-h-0 flex-1 flex-row"
+				style:--editor-max-width="{editorWidth.editorMaxWidth}px"
+				tabindex="-1"
 			>
-		</div>
-	{/await}
-{/if}
+				<EditorPane
+					{kind}
+					libraryCount={filesStore.library.length}
+					{documentTool}
+					onCloseTool={() => {
+						documentTool = null;
+					}}
+					activeFile={filesStore.active}
+					{mode}
+					{editorWidth}
+					{modals}
+					{dragOver}
+					{tocEmpty}
+					tocVisible={prefs.tocVisible}
+					focusMode={prefs.focusMode}
+					{articleRef}
+					onSourceEditorRef={(ref) => (sourceEditorRef = ref)}
+					onCodeEditorRef={(ref) => (codeEditorRef = ref)}
+					onArticleRef={(el) => (articleRef = el)}
+					onTocEmpty={(empty) => (tocEmpty = empty)}
+					onEditorChange={handleEditorChange}
+					onEditorFlush={handleEditorFlush}
+					onNew={handleNew}
+					onImport={handleImport}
+					onDemo={handleDemo}
+				/>
+			</main>
 
-{#if projectsOpen}
-	{#await import('#lib/components/ProjectsPanel.svelte') then module}
-		<module.default
-			onClose={() => {
-				projectsOpen = false;
-				void tick().then(() =>
-					document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')?.focus()
-				);
-			}}
-			onOpenDocsCheck={(projectId) => modals.openDocsCheck(projectId)}
-			onOpenDocsSite={(projectId) => modals.openDocsSite(projectId)}
-		/>
-	{:catch _error}
-		<div role="alert" class="fixed inset-0 z-50 bg-bg p-6 text-fg">
-			{t('projects.operationFailed')}
-			<button onclick={() => (projectsOpen = false)}>{t('projects.close')}</button>
+			<div class="contents" inert={modals.presenting}>
+				<StatusBar {kind} onOpenSettings={modals.openSettings} />
+			</div>
 		</div>
-	{/await}
-{/if}
+	</div>
 
-<!-- Live regions to announce mode switches to screen readers
+	{#if prefs.focusMode && kind === 'note'}
+		<button
+			inert={modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending}
+			type="button"
+			class="fixed top-2 right-2 z-[75] min-h-10 rounded border border-accent bg-bg-1 px-3 text-xs font-medium text-accent shadow-lg"
+			onclick={prefs.toggleFocusMode}
+		>
+			{t('page.exitFocusMode')}
+		</button>
+	{/if}
+
+	<ImportProgress
+		blocked={modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending}
+	/>
+
+	{#if diskConflictStore.pending}
+		{#await import('#lib/components/DiskConflictPanel.svelte') then module}
+			<module.default />
+		{:catch _error}
+			<div role="alert" class="fixed inset-0 z-[80] bg-bg p-6 text-fg">
+				{t('projects.operationFailed')}<button onclick={() => diskConflictStore.choose('cancel')}
+					>{t('diskConflict.cancel')}</button
+				>
+			</div>
+		{/await}
+	{/if}
+
+	{#if projectsOpen}
+		{#await import('#lib/components/ProjectsPanel.svelte') then module}
+			<module.default
+				onClose={() => {
+					projectsOpen = false;
+					void tick().then(() =>
+						document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')?.focus()
+					);
+				}}
+				onOpenDocsCheck={(projectId) => modals.openDocsCheck(projectId)}
+				onOpenDocsSite={(projectId) => modals.openDocsSite(projectId)}
+			/>
+		{:catch _error}
+			<div role="alert" class="fixed inset-0 z-50 bg-bg p-6 text-fg">
+				{t('projects.operationFailed')}
+				<button onclick={() => (projectsOpen = false)}>{t('projects.close')}</button>
+			</div>
+		{/await}
+	{/if}
+
+	<!-- Live regions to announce mode switches to screen readers
 	 (WCAG 4.1.3 Status Messages). A distinct region per mode so announcements
 	 do not merge during a close switch. The text changes only when the
 	 corresponding state toggles. -->
-<div class="sr-only" role="status" aria-live="polite">
-	{#if hydrated}{prefs.focusMode ? t('page.focusModeOn') : t('page.focusModeOff')}{/if}
-</div>
-<div class="sr-only" role="status" aria-live="polite">
-	{#if hydrated}{prefs.typewriterMode
-			? t('page.typewriterModeOn')
-			: t('page.typewriterModeOff')}{/if}
-</div>
-<!-- §B1.10 - 3rd region: announces the current editing mode (WYSIWYG / source /
+	<div class="sr-only" role="status" aria-live="polite">
+		{#if hydrated}{prefs.focusMode ? t('page.focusModeOn') : t('page.focusModeOff')}{/if}
+	</div>
+	<div class="sr-only" role="status" aria-live="polite">
+		{#if hydrated}{prefs.typewriterMode
+				? t('page.typewriterModeOn')
+				: t('page.typewriterModeOff')}{/if}
+	</div>
+	<!-- §B1.10 - 3rd region: announces the current editing mode (WYSIWYG / source /
 	 reading). The text updates only when `mode` toggles. -->
-<div class="sr-only" role="status" aria-live="polite">
-	{#if hydrated}{modeAnnounce}{/if}
-</div>
-<!-- §B2.2 - One-off contextual announcement (auto WYSIWYG->source switch via ⌘F,
+	<div class="sr-only" role="status" aria-live="polite">
+		{#if hydrated}{modeAnnounce}{/if}
+	</div>
+	<!-- §B2.2 - One-off contextual announcement (auto WYSIWYG->source switch via ⌘F,
 	 etc.). Cleared 2s later so the announcement is not re-triggered on focus return. -->
-<div class="sr-only" role="status" aria-live="polite">{contextAnnounce}</div>
+	<div class="sr-only" role="status" aria-live="polite">{contextAnnounce}</div>
 
-<Toast />
-<SpinnerToast />
-{#if !modals.presenting && !modals.libraryOpen}<Toasts />{/if}
+	<Toast />
+	<SpinnerToast />
+	{#if !modals.presenting && !modals.libraryOpen}<Toasts />{/if}
 
-<!-- §B1.3 - Singleton prompt/confirm modal, driven by `promptStore`.
+	<!-- §B1.3 - Singleton prompt/confirm modal, driven by `promptStore`.
      Replaces the native `window.prompt` / `window.confirm` (CommandPalette +
      WorkspacesPanel). Always mounted because it is lightweight; the component
      handles its own internal `{#if open}`. -->
-{#if promptStore.config}
-	<PromptModal
-		showNotices={modals.libraryOpen}
-		open={promptStore.open}
-		mode={promptStore.config.mode}
-		title={promptStore.config.title}
-		message={promptStore.config.message}
-		defaultValue={promptStore.config.defaultValue}
-		placeholder={promptStore.config.placeholder}
-		confirmLabel={promptStore.config.confirmLabel}
-		cancelLabel={promptStore.config.cancelLabel}
-		alternateLabel={promptStore.config.alternateLabel}
-		inputType={promptStore.config.inputType}
-		danger={promptStore.config.danger}
-		onResolve={(v) => promptStore.resolve(v)}
-	/>
-{/if}
+	{#if promptStore.config}
+		<PromptModal
+			showNotices={modals.libraryOpen}
+			open={promptStore.open}
+			mode={promptStore.config.mode}
+			title={promptStore.config.title}
+			message={promptStore.config.message}
+			defaultValue={promptStore.config.defaultValue}
+			placeholder={promptStore.config.placeholder}
+			confirmLabel={promptStore.config.confirmLabel}
+			cancelLabel={promptStore.config.cancelLabel}
+			alternateLabel={promptStore.config.alternateLabel}
+			inputType={promptStore.config.inputType}
+			danger={promptStore.config.danger}
+			onResolve={(v) => promptStore.resolve(v)}
+		/>
+	{/if}
 
-<!-- §P3.1 - Mounting of lazy-loaded modals delegated to Modals.svelte.
+	<!-- §P3.1 - Mounting of lazy-loaded modals delegated to Modals.svelte.
      The open state and memoized loaders live in `modals` (createModals).
      Lazy-load is preserved: no modal bytes are pulled before the 1st opening. -->
-<Modals
-	{kind}
-	{mode}
-	onCreate={handleCreate}
-	onCreateFromTemplate={handleCreateFromTemplate}
-	onOpenProperties={modals.openProperties}
-	onOpenComments={modals.openComments}
-	onOpenExportProfiles={modals.openExportProfiles}
-	onOpenLinkedBlocks={modals.openLinkedBlocks}
-	onOpenSemantic={modals.openSemantic}
-	onOpenCollection={modals.openCollection}
-	onOpenOutline={openOutline}
-	{modals}
-	{editorWidth}
-	{prefs}
-	onNew={handleNew}
-	onImport={handleImport}
-	onExport={handleExport}
-	onExportHTML={handleExportHTML}
-	onExportPDF={handleExportPDF}
-	onExportAll={handleExportAll}
-	onSave={handleSave}
-	onSaveAs={handleSaveAs}
-	onEditCopy={handleEditCopy}
-	onEditOriginal={handleEditOriginal}
-	onSaveToDisk={handleSaveToDisk}
-	onToggleSidebar={toggleSidebar}
-	onSetMode={(m) => void requestMode(m)}
-	onOpenInFileSearch={openInFileSearch}
-	onOpenDocsCheck={() => modals.openDocsCheck(filesStore.active?.projectId ?? null)}
-	onOpenDocsSite={() => modals.openDocsSite(filesStore.active?.projectId ?? null)}
-	onOpenDocsCheckIssue={openDocsCheckIssue}
-	onOpenSnippets={() => openSnippetPanel()}
-	onSaveSnippetSelection={() => {
-		const capture = snippetCapture('selection');
-		if (capture) openSnippetPanel(capture);
-	}}
-	onSaveSnippetFile={() => {
-		const capture = snippetCapture('file');
-		if (capture) openSnippetPanel(capture);
-	}}
-	onPresent={() => presentationAction('present')}
-	onAdvancedSource={() => presentationAction('source')}
-/>
+	<Modals
+		{kind}
+		{mode}
+		onCreate={handleCreate}
+		onCreateFromTemplate={handleCreateFromTemplate}
+		onOpenProperties={modals.openProperties}
+		onOpenComments={modals.openComments}
+		onOpenExportProfiles={modals.openExportProfiles}
+		onOpenLinkedBlocks={modals.openLinkedBlocks}
+		onOpenSemantic={modals.openSemantic}
+		onOpenCollection={modals.openCollection}
+		onOpenOutline={openOutline}
+		{modals}
+		{editorWidth}
+		{prefs}
+		onNew={handleNew}
+		onImport={handleImport}
+		onExport={handleExport}
+		onExportHTML={handleExportHTML}
+		onExportPDF={handleExportPDF}
+		onExportAll={handleExportAll}
+		onSave={handleSave}
+		onSaveAs={handleSaveAs}
+		onEditCopy={handleEditCopy}
+		onEditOriginal={handleEditOriginal}
+		onSaveToDisk={handleSaveToDisk}
+		onToggleSidebar={toggleSidebar}
+		onSetMode={(m) => void requestMode(m)}
+		onOpenInFileSearch={openInFileSearch}
+		onOpenDocsCheck={() => modals.openDocsCheck(filesStore.active?.projectId ?? null)}
+		onOpenDocsSite={() => modals.openDocsSite(filesStore.active?.projectId ?? null)}
+		onOpenDocsCheckIssue={openDocsCheckIssue}
+		onOpenSnippets={() => openSnippetPanel()}
+		onSaveSnippetSelection={() => {
+			const capture = snippetCapture('selection');
+			if (capture) openSnippetPanel(capture);
+		}}
+		onSaveSnippetFile={() => {
+			const capture = snippetCapture('file');
+			if (capture) openSnippetPanel(capture);
+		}}
+		onPresent={() => presentationAction('present')}
+		onAdvancedSource={() => presentationAction('source')}
+	/>
 
-<input
-	bind:this={fileInput}
-	type="file"
-	accept=".md,.markdown,.mdx,.txt,text/markdown,text/plain"
-	multiple
-	class="hidden"
-	onchange={handleFileInput}
-/>
+	<input
+		bind:this={fileInput}
+		type="file"
+		accept=".md,.markdown,.mdx,.txt,text/markdown,text/plain"
+		multiple
+		class="hidden"
+		onchange={handleFileInput}
+	/>
+{/if}

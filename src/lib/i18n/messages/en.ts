@@ -12,10 +12,12 @@ import { diffEn } from './diff-en';
 import { backupProjectEn } from './backup-project-en';
 import { slidesEn } from './slides-en';
 import { snippetsEn } from './snippets-en';
+import { captureEn } from './capture-en';
 
 export const en = {
 	...slidesEn,
 	...snippetsEn,
+	...captureEn,
 	...splitEn,
 	...projectEn,
 	...diffEn,

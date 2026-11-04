@@ -1,3 +1,4 @@
+mod capture;
 mod disk;
 #[cfg(feature = "native-smoke")]
 mod disk_gate;
@@ -19,7 +20,7 @@ fn smoke_startup_phase(started: std::time::Instant, phase: &str) {
 }
 
 #[cfg(feature = "native-smoke")]
-fn smoke_data_store_identifier() -> [u8; 16] {
+pub(crate) fn smoke_data_store_identifier() -> [u8; 16] {
     let value = std::env::var("MDSH_SMOKE_DATA_STORE_ID")
         .expect("MDSH_SMOKE_DATA_STORE_ID is required for isolated native smoke data");
     assert_eq!(
@@ -80,8 +81,10 @@ pub fn run() {
         .manage(CapabilityStore::default())
         .manage(projects::ProjectStore::default())
         .manage(shell::CloseState::default())
+        .manage(capture::CaptureStore::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(
             tauri::plugin::Builder::<_, ()>::new("navigation-policy")
                 .on_navigation(|_, url| shell::allowed_navigation(url, cfg!(debug_assertions)))
@@ -117,6 +120,11 @@ pub fn run() {
             printing::desktop_print,
             shell::desktop_smoke_key,
             shell::desktop_smoke_cancel_dialog,
+            capture::desktop_capture_show,
+            capture::desktop_capture_hide,
+            capture::desktop_capture_register,
+            capture::desktop_capture_unregister,
+            capture::desktop_capture_status,
         ])
         .setup(move |app| {
             app.state::<CapabilityStore>()
@@ -176,9 +184,14 @@ pub fn run() {
                     api.prevent_close();
                 }
             }
-            tauri::RunEvent::ExitRequested { api, .. } if shell::request_close(app_handle) => {
-                api.prevent_exit();
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if shell::request_close(app_handle) {
+                    api.prevent_exit();
+                } else {
+                    capture::unregister_on_exit(app_handle);
+                }
             }
+            tauri::RunEvent::Exit => capture::unregister_on_exit(app_handle),
             _ => {}
         }
         #[cfg(any(target_os = "macos", target_os = "ios"))]

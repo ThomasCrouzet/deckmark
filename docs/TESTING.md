@@ -329,6 +329,10 @@ has unequal hardware and a shared CPU.
   samples by default. Treat its p95 as an indication, not a precise percentile.
 - Native export evidence stops before the OS print dialog on Linux and Windows.
   Only the macOS run writes the product PDF.
+- The native capture workflow uses the command API. A successful browser or
+  command result does not prove that an operating-system hotkey is available.
+  Hotkey registration on macOS and Windows is recorded only by the CI runners,
+  and the system can refuse a shortcut that another application owns.
 
 ### Native WebView workflow coverage
 
@@ -341,6 +345,9 @@ WebView. The suite now also records:
 - Focus mode and theme toggles.
 - Built-in template creation and the return to the linked note.
 - Presentation editing and separate menu and shortcut PDF exports.
+- The opt-in quick capture window: command-based opening, a library note, a
+  durable IndexedDB row, a reused window, and a cancel path with no new row.
+  The artifact is `native-capture.json`.
 - Process memory for the application process tree, startup, reload, save, close
   and template timings, and platform identity from the driver capabilities.
 - A failure screenshot, the page state and the last driver response.
