@@ -51,7 +51,7 @@ import {
 } from './export-ops';
 import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
-import { projectWikiCandidates } from './project-paths';
+import { createWikiTargetResolver, projectWikiCandidates } from './project-paths';
 import { SaveQueue } from './save-queue';
 import { reportPersistenceError, resolveDraftSaveError } from './storage';
 import { reportError } from './report';
@@ -1748,13 +1748,18 @@ class FilesStore {
 	backlinks(targetId: string): FileItem[] {
 		const targetFile = this.library.find((file) => file.id === targetId);
 		if (!targetFile || documentKindForFile(targetFile) !== 'note') return [];
+		// Resolve every link against one index. A per-link scan over the project
+		// corpus made a document switch quadratic with hundreds of files.
+		const notes = this.library.filter((file) => documentKindForFile(file) === 'note');
+		const resolve = createWikiTargetResolver(notes);
 		return this.library.filter(
 			(file) =>
 				file.id !== targetId &&
 				documentKindForFile(file) === 'note' &&
-				this.metaIndex
-					.wikiLinkTargets(file.id)
-					.some((target) => this.resolveWikiLink(target, file.id) === targetId)
+				this.metaIndex.wikiLinkTargets(file.id).some((target) => {
+					const candidates = resolve(target, file);
+					return candidates.length === 1 && candidates[0]!.id === targetId;
+				})
 		);
 	}
 	/** Resolves a wiki-link → file id, or `null` if not found. */

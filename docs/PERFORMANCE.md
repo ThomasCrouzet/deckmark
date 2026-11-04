@@ -72,6 +72,7 @@ The native benchmark on Windows, Linux and macOS Apple Silicon runs in CI. A
 native profile of the same scenario is captured with
 `--target native`; the shared web measurements above isolate the frontend part.
 
+EAD
 ## Enforced benchmark gate
 
 `scripts/benchmark-budgets.json` is the reviewed reference for each platform and
@@ -150,3 +151,47 @@ measurements:
 Firefox stayed inside its earlier budget. These changes move a provisional
 development baseline to the actual runner. They do not remove the gate. A later
 run that exceeds the reviewed limit by more than 25 percent still fails.
+
+## Document switch: project backlink scan
+
+Issue #268 reported a slow document switch under load. A Chromium CPU profile of
+the production build with the 300 document library and the 600 document project
+showed that `filesStore.backlinks()` dominated the switch. The method resolved
+every wiki link again on each call. For a project link, each resolution filtered
+the complete project and rebuilt path keys. The cost was quadratic in the corpus
+size, and the sidebar recomputes backlinks when the active document changes.
+
+Reproduction command:
+
+```sh
+BASE_PATH='' npx vite build --sourcemap
+node scripts/profile-switch.mjs
+```
+
+The profile in this work used a 100 microsecond sampling interval. It recorded
+the click on a library document through the updated editor header.
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| Switch profile duration | 2701 ms | 307 ms |
+| `projectPath()` self samples | 1193 ms | 5 ms |
+| `documentSwitch` p95, 5 runs | 2194 ms | 76 ms |
+| `largeDocumentOpen` p95, 5 runs | 2191 ms | 58 ms |
+
+Change: `buildProjectPathIndex()` prepares one path, id and stem lookup for the
+library. `projectWikiCandidatesFromIndex()` reuses that lookup for every link.
+`filesStore.backlinks()` builds one global name lookup and one project lookup per
+call, then resolves each link in constant time. The link rules, ambiguity rules
+and project-relative resolution order do not change.
+
+Verification:
+
+- `npx playwright test e2e/wiki-links.spec.ts --project=chromium`: 4 passed.
+- `npx playwright test e2e/project-explorer.spec.ts --project=chromium`: 7 passed.
+- The Chromium production benchmark stays inside every budget, including
+  `documentSwitch` and `largeDocumentOpen`.
+- Raw benchmark evidence: `/tmp/opencode/bench-after-switch.json` from source
+  revision in this branch, 5 runs, production static build.
+
+The change does not alter save durability, per-file undo, source bytes, focus or
+conflict handling.

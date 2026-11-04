@@ -68,20 +68,65 @@ export function relativeDestination(from: string, to: string): string {
 	].join('/');
 }
 
-/** Resolve wiki paths within the source project before considering a basename. */
-export function projectWikiCandidates<
+export interface ProjectPathIndex<T> {
+	byId: Map<string, T>;
+	byPath: Map<string, T[]>;
+	byStem: Map<string, T[]>;
+	byProject: Map<string, Map<string, T>>;
+}
+
+/**
+ * Build the path lookup once for a library. Backlink resolution calls the
+ * lookup for every link, so a per-link scan over hundreds of project documents
+ * is too slow. The index keeps references to the live file objects.
+ */
+export function buildProjectPathIndex<
+	T extends { id: string; projectId?: string; relativePath?: string }
+>(documents: readonly T[]): ProjectPathIndex<T> {
+	const index: ProjectPathIndex<T> = {
+		byId: new Map(),
+		byPath: new Map(),
+		byStem: new Map(),
+		byProject: new Map()
+	};
+	for (const file of documents) {
+		if (!file.projectId || !file.relativePath) continue;
+		let project = index.byProject.get(file.projectId);
+		if (!project) {
+			project = new Map();
+			index.byProject.set(file.projectId, project);
+		}
+		project.set(file.id, file);
+		index.byId.set(file.id, file);
+		const key = pathKey(file.relativePath);
+		const pathMatches = index.byPath.get(key);
+		if (pathMatches) pathMatches.push(file);
+		else index.byPath.set(key, [file]);
+		const stem = file.relativePath
+			.split('/')
+			.pop()!
+			.replace(/\.(md|markdown|mdx|txt)$/i, '')
+			.toLowerCase();
+		const stemMatches = index.byStem.get(stem);
+		if (stemMatches) stemMatches.push(file);
+		else index.byStem.set(stem, [file]);
+	}
+	return index;
+}
+
+/** Resolve one wiki target against a prepared project path index. */
+export function projectWikiCandidatesFromIndex<
 	T extends { id: string; projectId?: string; relativePath?: string }
 >(
 	source: { projectId?: string; relativePath?: string },
 	target: string,
-	documents: readonly T[]
+	index: ProjectPathIndex<T>
 ): T[] {
 	const value = target.trim().split('#', 1)[0]!;
 	if (!value || !source.projectId || !source.relativePath) return [];
-	const files = documents.filter(
-		(file) => file.projectId === source.projectId && file.relativePath
-	);
-	const byId = files.find((file) => file.id === value);
+	const project = index.byProject.get(source.projectId);
+	if (!project) return [];
+	const byId = project.get(value);
 	if (byId) return [byId];
 	const names = /\.(?:md|markdown|mdx|txt)$/i.test(value) ? [value] : [value, `${value}.md`];
 	for (const name of names) {
@@ -100,27 +145,64 @@ export function projectWikiCandidates<
 			.join('/');
 		const relative = resolveProjectPath(source.relativePath, encodedName);
 		if (relative) {
-			const matches = files.filter((file) => pathKey(file.relativePath!) === pathKey(relative));
-			if (matches.length) return matches;
+			const matches = index.byPath.get(pathKey(relative));
+			if (matches?.length) return matches;
 		}
 		try {
-			const root = pathKey(name);
-			const matches = files.filter((file) => pathKey(file.relativePath!) === root);
-			if (matches.length) return matches;
+			const matches = index.byPath.get(pathKey(name));
+			if (matches?.length) return matches;
 		} catch {
 			/* A relative parent path has no root-relative candidate. */
 		}
 	}
 	if (value.includes('/')) return [];
 	const stem = value.replace(/\.(md|markdown|mdx|txt)$/i, '').toLowerCase();
-	return files.filter(
-		(file) =>
-			file
-				.relativePath!.split('/')
-				.pop()!
-				.replace(/\.(md|markdown|mdx|txt)$/i, '')
-				.toLowerCase() === stem
-	);
+	return index.byStem.get(stem) ?? [];
+}
+
+/**
+ * Build a resolver for backlink scans. The resolver builds the project path
+ * index and the global name index once, then answers every link in constant
+ * time. Call it with note documents only.
+ */
+export function createWikiTargetResolver<
+	T extends { id: string; name: string; projectId?: string; relativePath?: string }
+>(documents: readonly T[]): (target: string, source: T) => T[] {
+	const projectIndex = buildProjectPathIndex(documents);
+	const byId = new Map<string, T>();
+	const byStem = new Map<string, T[]>();
+	for (const file of documents) {
+		byId.set(file.id, file);
+		const stem = stripMarkdownExtension(file.name).toLowerCase();
+		const matches = byStem.get(stem);
+		if (matches) matches.push(file);
+		else byStem.set(stem, [file]);
+	}
+	return (target, source) => {
+		if (source.projectId && source.relativePath) {
+			return projectWikiCandidatesFromIndex(source, target, projectIndex);
+		}
+		const value = target.trim();
+		if (!value) return [];
+		const exact = byId.get(value);
+		if (exact) return [exact];
+		return byStem.get(value.toLowerCase()) ?? [];
+	};
+}
+
+function stripMarkdownExtension(name: string): string {
+	return name.replace(/\.(md|markdown|mdx|txt)$/i, '');
+}
+
+/** Resolve wiki paths within the source project before considering a basename. */
+export function projectWikiCandidates<
+	T extends { id: string; projectId?: string; relativePath?: string }
+>(
+	source: { projectId?: string; relativePath?: string },
+	target: string,
+	documents: readonly T[]
+): T[] {
+	return projectWikiCandidatesFromIndex(source, target, buildProjectPathIndex(documents));
 }
 
 export function imageMime(path: string): string | null {
