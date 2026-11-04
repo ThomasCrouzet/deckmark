@@ -1,8 +1,20 @@
 import { browser } from '$app/env';
-import { AiProviderError, AI_DEFAULT_SETTINGS, type AiChatRequest, type AiSettings } from './types';
+import { IS_DESKTOP_EDITION } from '#lib/edition.js';
+import { isDesktop } from '#lib/desktop.js';
+import { t, type MessageKey } from '#lib/i18n/index.js';
+import {
+	AiProviderError,
+	AI_DEFAULT_SETTINGS,
+	type AiChatRequest,
+	type AiErrorCode,
+	type AiSettings,
+	type NativeAiConfig
+} from './types';
 
 const STORAGE_KEY = 'mdsh:ai';
 const SECRETS_SESSION_KEY = 'mdsh:ai-key';
+const DEFAULT_PROVIDER = 'default';
+const MAX_PROVIDER_LENGTH = 64;
 
 function readSettings(): AiSettings {
 	if (!browser) return { ...AI_DEFAULT_SETTINGS };
@@ -43,21 +55,64 @@ function readSessionKey(): string {
 	}
 }
 
+/** Stable vault identifier for one provider endpoint. */
+export function providerIdFor(baseUrl: string): string {
+	const parsed = URL.parse(baseUrl);
+	if (!parsed) return DEFAULT_PROVIDER;
+	const id = parsed.hostname
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]/g, '-')
+		.slice(0, MAX_PROVIDER_LENGTH);
+	return id || DEFAULT_PROVIDER;
+}
+
+/** Loads the native bridge only when a desktop action needs it. */
+async function nativeBridge() {
+	return import('#lib/ai/native.js');
+}
+
+const NATIVE_ERRORS: Record<string, { code: AiErrorCode; message: MessageKey }> = {
+	auth: { code: 'auth', message: 'ai.errorAuth' },
+	'rate-limit': { code: 'rate-limit', message: 'ai.errorRateLimit' },
+	server: { code: 'server', message: 'ai.errorServer' },
+	network: { code: 'network', message: 'ai.errorNetwork' },
+	'invalid-endpoint': { code: 'invalid-endpoint', message: 'ai.errorInvalidEndpoint' },
+	'missing-key': { code: 'missing-key', message: 'ai.errorMissingKey' },
+	disabled: { code: 'disabled', message: 'ai.errorDisabled' }
+};
+
+/** Converts a native error code to a user-facing provider error. */
+export function nativeAiError(error: unknown): AiProviderError {
+	if (error instanceof AiProviderError) return error;
+	const raw = typeof error === 'string' ? error : '';
+	const known = NATIVE_ERRORS[raw];
+	if (known) return new AiProviderError(known.code, t(known.message));
+	return new AiProviderError('network', t('ai.errorNetwork'));
+}
+
 class AiStore {
 	settings = $state<AiSettings>({ ...AI_DEFAULT_SETTINGS });
-	/** Session-only secret. Never written to localStorage or IndexedDB. */
-	private apiKey = $state('');
+	/** Web Light only. The desktop edition never stores the key in JavaScript. */
+	private browserKey = $state('');
+	/** Desktop Complete only. A boolean from the native vault, never the key. */
+	private vaultKeyPresent = $state(false);
 	loaded = $state(false);
+
+	/** True when the native vault is available in this build and window. */
+	get usesNativeVault(): boolean {
+		return IS_DESKTOP_EDITION && isDesktop();
+	}
 
 	load(): void {
 		if (!browser || this.loaded) return;
 		this.settings = readSettings();
-		this.apiKey = readSessionKey();
+		if (this.usesNativeVault) void this.refreshKeyStatus();
+		else this.browserKey = readSessionKey();
 		this.loaded = true;
 	}
 
 	get keyConfigured(): boolean {
-		return this.apiKey.length > 0;
+		return this.usesNativeVault ? this.vaultKeyPresent : this.browserKey.length > 0;
 	}
 
 	get providerHost(): string {
@@ -68,8 +123,26 @@ class AiStore {
 		}
 	}
 
+	get providerId(): string {
+		return providerIdFor(this.settings.baseUrl);
+	}
+
 	get canUseBrowserKey(): boolean {
 		return this.settings.privacyMode === 'direct' && this.settings.allowBrowserKey;
+	}
+
+	/** Reads the presence of the key from the native vault. */
+	async refreshKeyStatus(): Promise<void> {
+		if (!this.usesNativeVault) {
+			this.vaultKeyPresent = false;
+			return;
+		}
+		try {
+			const { vaultStatus } = await nativeBridge();
+			this.vaultKeyPresent = await vaultStatus(this.providerId);
+		} catch {
+			this.vaultKeyPresent = false;
+		}
 	}
 
 	update(patch: Partial<AiSettings>): void {
@@ -94,51 +167,105 @@ class AiStore {
 				/* A blocked preference store keeps the session configuration only. */
 			}
 		}
+		if (patch.baseUrl !== undefined && this.usesNativeVault) void this.refreshKeyStatus();
 	}
 
-	setApiKey(value: string): void {
-		this.apiKey = value.trim();
+	/** Sends the key to the native vault, or keeps it in session memory for Web Light. */
+	async setApiKey(value: string): Promise<void> {
+		const secret = value.trim();
+		if (this.usesNativeVault) {
+			if (!secret) {
+				await this.clearApiKey();
+				return;
+			}
+			const { vaultSet } = await nativeBridge();
+			await vaultSet(this.providerId, secret);
+			await this.refreshKeyStatus();
+			return;
+		}
+		this.browserKey = secret;
 		if (!browser) return;
 		try {
-			if (this.apiKey) sessionStorage.setItem(SECRETS_SESSION_KEY, this.apiKey);
+			if (this.browserKey) sessionStorage.setItem(SECRETS_SESSION_KEY, this.browserKey);
 			else sessionStorage.removeItem(SECRETS_SESSION_KEY);
 		} catch {
 			/* Session storage can be unavailable in hardened browsers. */
 		}
 	}
 
-	clearApiKey(): void {
-		this.setApiKey('');
+	async clearApiKey(): Promise<void> {
+		if (this.usesNativeVault) {
+			const { vaultDelete } = await nativeBridge();
+			await vaultDelete(this.providerId);
+			this.vaultKeyPresent = false;
+			return;
+		}
+		this.browserKey = '';
+		if (!browser) return;
+		try {
+			sessionStorage.removeItem(SECRETS_SESSION_KEY);
+		} catch {
+			/* Session storage can be unavailable in hardened browsers. */
+		}
 	}
 
 	/** Loads a model list without sending document content. */
 	async listModels(): Promise<string[]> {
 		this.assertUsable(false, false);
+		if (this.usesNativeVault)
+			throw new AiProviderError('disabled', t('settings.aiModelsDesktopUnavailable'));
 		const { listModels } = await import('./openai-compatible');
-		return listModels(this.settings, this.apiKey || null);
+		return listModels(this.settings, this.browserKey || null);
 	}
 
 	/** Streams a completion. The caller owns cancellation through request.signal. */
 	async chat(request: AiChatRequest, onDelta: (text: string) => void): Promise<string> {
 		this.assertUsable(true);
+		if (this.usesNativeVault) {
+			const reply = await this.nativeChat(request);
+			if (reply) onDelta(reply);
+			return reply;
+		}
 		const { streamChat } = await import('./openai-compatible');
-		return streamChat(this.settings, this.apiKey || null, request, onDelta);
+		return streamChat(this.settings, this.browserKey || null, request, onDelta);
 	}
 
 	async testConnection(signal?: AbortSignal): Promise<string> {
 		this.assertUsable(false, false);
-		const { streamChat } = await import('./openai-compatible');
-		const reply = await streamChat(
-			this.settings,
-			this.apiKey || null,
-			{
-				messages: [{ role: 'user', content: 'Reply with OK.' }],
-				maxTokens: 8,
-				...(signal ? { signal } : {})
-			},
-			() => {}
-		);
+		const messages = [{ role: 'user' as const, content: 'Reply with OK.' }];
+		const reply = this.usesNativeVault
+			? await this.nativeChat({ messages, maxTokens: 8, ...(signal ? { signal } : {}) })
+			: await this.browserChat({
+					messages,
+					maxTokens: 8,
+					...(signal ? { signal } : {})
+				});
 		return reply.trim() || 'OK';
+	}
+
+	private async browserChat(request: AiChatRequest): Promise<string> {
+		const { streamChat } = await import('./openai-compatible');
+		return streamChat(this.settings, this.browserKey || null, request, () => {});
+	}
+
+	private async nativeChat(request: AiChatRequest): Promise<string> {
+		const config: NativeAiConfig = {
+			enabled: this.settings.enabled,
+			baseUrl: this.settings.baseUrl,
+			model: this.settings.model,
+			temperature: request.temperature ?? this.settings.temperature,
+			maxTokens: request.maxTokens ?? this.settings.maxTokens,
+			provider: this.providerId
+		};
+		let reply: string;
+		try {
+			const { aiChat } = await nativeBridge();
+			reply = await aiChat(config, request.messages);
+		} catch (error) {
+			throw nativeAiError(error);
+		}
+		if (request.signal?.aborted) throw new AiProviderError('cancelled', t('ai.errorCancelled'));
+		return reply;
 	}
 
 	assertUsable(requiresModel: boolean, requiresEnabled = true): void {
@@ -153,13 +280,16 @@ class AiStore {
 			throw new AiProviderError('invalid-response', 'Set a provider base URL.');
 		if (requiresModel && !this.settings.model.trim())
 			throw new AiProviderError('invalid-response', 'Select a model before sending a request.');
+		if (this.usesNativeVault) {
+			if (!this.vaultKeyPresent) throw new AiProviderError('missing-key', t('ai.errorMissingKey'));
+			return;
+		}
 		if (!this.settings.allowBrowserKey)
 			throw new AiProviderError(
 				'privacy-consent',
 				'Confirm that a browser-resident API key is exposed to this page.'
 			);
-		if (!this.apiKey)
-			throw new AiProviderError('missing-key', 'Enter an API key for this provider.');
+		if (!this.browserKey) throw new AiProviderError('missing-key', t('ai.errorMissingKey'));
 	}
 }
 
@@ -167,6 +297,10 @@ export const aiStore = new AiStore();
 
 /** User-facing action text for each provider error. */
 export function aiErrorMessage(error: unknown): string {
+	if (typeof error === 'string') {
+		const known = NATIVE_ERRORS[error];
+		if (known) return `${known.code}: ${t(known.message)}`;
+	}
 	if (error instanceof AiProviderError) return `${error.code}: ${error.message}`;
 	return error instanceof Error ? error.message : String(error);
 }
