@@ -117,3 +117,23 @@ Native CI still builds the instrumented debug binary. Its measurements are
 diagnostic only. The debug results are not release-build performance and the
 baseline labels say so. An optimized native baseline needs a separate recorded
 reference before it can make a release claim.
+
+## CI calibration record
+
+The first enforced run on 2026-11-04 (Actions run 41933449566, ubuntu-24.04)
+measured the production Web build in each browser. Chromium and WebKit exceeded
+some provisional development baselines. The reviewed budgets now use the CI
+measurements:
+
+| Platform and metric | Measured p95 | Budget p95 |
+| --- | --- | --- |
+| Chromium `heapUsedMb` | 679.8 MB | 800 MB |
+| WebKit `readModeSwitch` | 5742 ms | 6000 ms |
+| WebKit `wysiwygLoad` | 13579 ms | 14000 ms |
+| WebKit `projectTreeRender` | 2516 ms | 2600 ms |
+| WebKit `presentationPresent` | 1420 ms | 1500 ms |
+| WebKit `exportHtml` | 4396 ms | 4500 ms |
+
+Firefox stayed inside its earlier budget. These changes move a provisional
+development baseline to the actual runner. They do not remove the gate. A later
+run that exceeds the reviewed limit by more than 25 percent still fails.

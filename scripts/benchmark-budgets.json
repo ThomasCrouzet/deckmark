@@ -8,7 +8,7 @@
 	"platforms": {
 		"web-chromium": {
 			"label": "Headless Chromium through the production static build",
-			"source": "Recorded from a development machine. Replace it with the CI artifact for this runner.",
+			"source": "Calibrated from GitHub Actions run 41933449566 (2026-11-04, ubuntu-24.04, 5 runs) and a local production build. Update only with reviewed evidence.",
 			"metrics": {
 				"coldStart": {
 					"p95": 400,
@@ -113,8 +113,9 @@
 					"unit": "ms"
 				},
 				"heapUsedMb": {
-					"p95": 500,
-					"unit": "MB"
+					"p95": 800,
+					"unit": "MB",
+					"note": "CI Chromium measured 679.8 MB p95. The budget keeps headroom above the runner baseline."
 				}
 			}
 		},
@@ -225,7 +226,7 @@
 		},
 		"web-webkit": {
 			"label": "Headless WebKit through the production static build",
-			"source": "Recorded from a development machine. WebKit headless is not a GTK WebView; use the native Linux baseline for that.",
+			"source": "Calibrated from GitHub Actions run 41933449566 (2026-11-04, ubuntu-24.04, 5 runs). Headless WebKit on the runner is slower and noisier than the earlier development machine. Update only with reviewed evidence.",
 			"metrics": {
 				"coldStart": {
 					"p95": 800,
@@ -281,16 +282,18 @@
 					"unit": "ms"
 				},
 				"readModeSwitch": {
-					"p95": 4000,
-					"unit": "ms"
+					"p95": 6000,
+					"unit": "ms",
+					"note": "CI p95 was 5742 ms with one slow sample. Recheck before a change."
 				},
 				"scrollFrame": {
 					"p95": 150,
 					"unit": "ms"
 				},
 				"wysiwygLoad": {
-					"p95": 10000,
-					"unit": "ms"
+					"p95": 14000,
+					"unit": "ms",
+					"note": "CI p95 was 13579 ms. Headless WebKit is the slowest supported engine in CI."
 				},
 				"typingWysiwyg": {
 					"p95": 4000,
@@ -301,8 +304,9 @@
 					"unit": "ms"
 				},
 				"projectTreeRender": {
-					"p95": 1500,
-					"unit": "ms"
+					"p95": 2600,
+					"unit": "ms",
+					"note": "CI p95 was 2516 ms for the 600 document project."
 				},
 				"presentationLoad": {
 					"p95": 600,
@@ -313,12 +317,14 @@
 					"unit": "ms"
 				},
 				"presentationPresent": {
-					"p95": 500,
-					"unit": "ms"
+					"p95": 1500,
+					"unit": "ms",
+					"note": "CI p95 was 1420 ms. The full screen transition is engine bound."
 				},
 				"exportHtml": {
-					"p95": 1500,
-					"unit": "ms"
+					"p95": 4500,
+					"unit": "ms",
+					"note": "CI p95 was 4396 ms. The export creates a local file and includes engine work."
 				},
 				"heapUsedMb": {
 					"p95": 500,
