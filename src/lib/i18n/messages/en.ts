@@ -36,6 +36,7 @@ export const en = {
 	'pwa.ready': 'Ready offline',
 	'pwa.preparing': 'Preparing offline access...',
 	'pwa.unavailable': 'Offline cache unavailable',
+	'pwa.retry': 'Retry offline setup',
 	'templates.manage': 'Manage templates',
 	'templates.help':
 		'Save a document as a template from Commands. Use {{date}} for the local calendar date.',
@@ -514,6 +515,7 @@ export const en = {
 
 	// files
 	'files.deletedInOtherTab': '"{name}" was deleted in another tab.',
+	'files.retryLoad': 'Retry storage access',
 	'files.loadError':
 		'Cannot access local storage. Your notes may be unavailable (private browsing? storage disabled?). Try again in a normal window.',
 	'files.alreadyOriginal': '"{name}" is already the linked original.',
