@@ -173,9 +173,83 @@ test('reports and converts line endings without changing the extension', async (
 	await info.attach('line-endings.txt', { body: text, contentType: 'text/plain' });
 });
 
-test('uses plain text for an unknown code language', async ({ page }) => {
+test('uses an explicit plain-text fallback for an unknown code language', async ({ page }) => {
 	await resetAppState(page);
 	await importCode(page, 'script.rb', 'puts "hello"\n');
-	await expect(page.getByTestId('code-language')).toHaveText('Plain text');
+	const label = page.getByTestId('code-language');
+	await expect(label).toHaveText('Texte brut (rb)');
+	await expect(label).toHaveAttribute('data-fallback', 'true');
 	await expect(page.locator('.cm-content')).toContainText('puts');
+});
+
+test('uses accurate grammars for C#, PowerShell and JSON with comments', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles([
+		{
+			name: 'Program.cs',
+			mimeType: 'text/plain',
+			buffer: Buffer.from('public class Program {\n  public static void Main() {}\n}\n')
+		},
+		{
+			name: 'deploy.ps1',
+			mimeType: 'text/plain',
+			buffer: Buffer.from('param([string]$Name)\nWrite-Host "Hello $Name"\n')
+		},
+		{
+			name: 'settings.jsonc',
+			mimeType: 'text/plain',
+			buffer: Buffer.from('{\n  // keep this comment\n  "enabled": true\n}\n')
+		}
+	]);
+	await expect(page.getByTestId('code-language')).toHaveText('JSON with comments');
+	await expect(page.getByTestId('json-status')).toHaveCount(0);
+	await expect(page.getByTestId('json-format')).toHaveCount(0);
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^Program\.cs/ })
+		.first()
+		.click();
+	await expect(page.getByTestId('code-language')).toHaveText('C#');
+	await expect(page.locator('.cm-content')).toContainText('public class Program');
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^deploy\.ps1/ })
+		.first()
+		.click();
+	await expect(page.getByTestId('code-language')).toHaveText('PowerShell');
+	await expect(page.locator('.cm-content')).toContainText('Write-Host');
+
+	await info.attach('language-grammars.json', {
+		body: JSON.stringify({
+			csharp: 'C#',
+			powershell: 'PowerShell',
+			jsonc: 'JSON with comments'
+		}),
+		contentType: 'application/json'
+	});
+});
+
+test('reloads the grammar when the extension changes and preserves text', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await importCode(page, 'script.py', 'value = 1\n');
+	const name = page.locator('header input').first();
+	await name.fill('script.js');
+	await name.press('Enter');
+	await expect(page.getByTestId('code-language')).toHaveText('JavaScript');
+	await expect(page.getByTestId('code-eol')).toHaveText('LF');
+	await expect(page.locator('.cm-content')).toContainText('value = 1');
+	await expect.poll(() => savedContent(page)).toBe('value = 1\n');
+
+	await info.attach('language-switch.json', {
+		body: JSON.stringify({
+			name: await name.inputValue(),
+			language: await page.getByTestId('code-language').innerText(),
+			content: await savedContent(page)
+		}),
+		contentType: 'application/json'
+	});
 });

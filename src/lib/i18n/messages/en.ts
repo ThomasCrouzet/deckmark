@@ -1076,6 +1076,7 @@ export const en = {
 	'code.spaces': 'Spaces',
 	'code.tabs': 'Tabs',
 	'code.indentSize': 'Indent size',
+	'code.plainFallback': 'Plain text ({extension})',
 	'json.valid': 'Valid JSON',
 	'json.invalid': 'Invalid JSON at line {line}, column {column}',
 	'json.duplicates': 'Duplicate keys: {keys}',
