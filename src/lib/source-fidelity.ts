@@ -45,6 +45,24 @@ function equal(a: MarkdownNode, b: MarkdownNode): boolean {
 	);
 }
 
+/**
+ * Returns true when two trees differ only in text leaf values. Such an edit
+ * cannot change block or inline structure, so the source patch does not need
+ * the full normalize and parse verification. The verification remains for
+ * structural edits, code, images, and tables.
+ */
+function onlyTextChanged(a: MarkdownNode, b: MarkdownNode): boolean {
+	if (a.type !== b.type) return false;
+	if (a.type === 'text') return true;
+	if (properties(a) !== properties(b)) return false;
+	const aChildren = a.children ?? [];
+	const bChildren = b.children ?? [];
+	return (
+		aChildren.length === bChildren.length &&
+		aChildren.every((child, index) => onlyTextChanged(child, bChildren[index]!))
+	);
+}
+
 function apply(source: string, patches: Patch[]): string {
 	let result = source;
 	for (const patch of patches.toSorted((a, b) => b.start - a.start)) {
@@ -196,9 +214,65 @@ export class SourceFidelity {
 		this.cachedSource = source;
 	}
 
+	/**
+	 * Applies a small plain-text edit directly to the cached source. The
+	 * unchanged text around the edit anchors it in the source, so no full AST
+	 * parse is necessary. Any ambiguous case returns null and uses the full
+	 * source-fidelity path.
+	 */
+	private restorePlainText(markdown: string): string | null {
+		const previous = this.cachedMarkdown;
+		const range = changeRange(previous, markdown);
+		const removed = previous.slice(range.from, range.oldTo);
+		const inserted = markdown.slice(range.from, range.newTo);
+		if (removed.length > 64 || inserted.length > 64) return null;
+		// Markdown punctuation, entities, and line breaks can change structure.
+		if (/[\r\n\\`*_[\]()<>#|~!&]/.test(removed + inserted)) return null;
+		const lineStart = previous.lastIndexOf('\n', range.from - 1) + 1;
+		if (range.from - lineStart < 4) return null;
+		const crlf = this.cachedSource.includes('\r\n');
+		const context = (value: string) => (crlf ? value.replaceAll('\n', '\r\n') : value);
+		const before = context(previous.slice(Math.max(0, range.from - 80), range.from));
+		const after = context(previous.slice(range.oldTo, range.oldTo + 80));
+		const unique = (value: string): number => {
+			if (!value) return -1;
+			const first = this.cachedSource.indexOf(value);
+			return first >= 0 && this.cachedSource.indexOf(value, first + 1) < 0 ? first : -1;
+		};
+		const beforeIndex = range.from === 0 ? 0 : unique(before);
+		if (beforeIndex < 0) return null;
+		const beforeEnd = beforeIndex + before.length;
+		const afterIndex = range.oldTo === previous.length ? this.cachedSource.length : unique(after);
+		if (afterIndex < beforeEnd) return null;
+		const gap = this.cachedSource.slice(beforeEnd, afterIndex);
+		let result: string;
+		if (!removed) {
+			// Insert only between directly adjacent source text. A syntax gap
+			// needs the full parser to choose the right side of the marker.
+			if (gap.length > 0) return null;
+			result =
+				this.cachedSource.slice(0, beforeEnd) + inserted + this.cachedSource.slice(afterIndex);
+		} else {
+			const at = gap.indexOf(removed);
+			if (at < 0 || gap.indexOf(removed, at + 1) >= 0) return null;
+			result =
+				this.cachedSource.slice(0, beforeEnd) +
+				gap.slice(0, at) +
+				inserted +
+				gap.slice(at + removed.length) +
+				this.cachedSource.slice(afterIndex);
+		}
+		this.cachedMarkdown = markdown;
+		this.cachedSource = result;
+		recordSourceFidelityPath('fastPath');
+		return result;
+	}
+
 	restore(markdown: string): string {
 		if (markdown === this.cachedMarkdown) return this.cachedSource;
 		if (markdown === this.markdown) return this.source;
+		const direct = this.restorePlainText(markdown);
+		if (direct !== null) return direct;
 		const next = this.parse(markdown);
 		const before = this.baseline.children ?? [];
 		let originals = this.mappedOriginals;
@@ -253,16 +327,30 @@ export class SourceFidelity {
 			}
 			this.patchGaps(markdown, next, originals, patches);
 			const candidate = apply(this.source, patches);
+			// Text-only edits cannot change Markdown structure, so the patch is
+			// safe without the expensive parse and normalize verification. The
+			// source block must match the baseline too: reference links, for
+			// example, resolve differently in the editor.
+			const textOnly =
+				oldCount === newCount &&
+				before
+					.slice(prefix, before.length - suffix)
+					.every(
+						(node, index) =>
+							onlyTextChanged(node, after[prefix + index]!) &&
+							onlyTextChanged(originals[prefix + index]!, node)
+					);
 			// Reject a source patch if Markdown syntax changes its meaning.
-			const target = this.parse(this.normalize(markdown));
+			let target: MarkdownNode | null = null;
 			const matches = (value: string) => {
 				try {
+					target ??= this.parse(this.normalize(markdown));
 					return equal(this.parse(this.normalize(value)), target);
 				} catch {
 					return false;
 				}
 			};
-			if (matches(candidate)) {
+			if (textOnly || matches(candidate)) {
 				result = candidate;
 				path = 'fastPath';
 			} else if (oldCount === newCount) {

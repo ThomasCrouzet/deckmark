@@ -7,6 +7,8 @@
 	// (default for onboarding) become instant.
 
 	import type { Crepe as CrepeType } from '@milkdown/crepe';
+	import type { Fragment, Node as ProseNode, Slice } from '@milkdown/kit/prose/model';
+	import type { Transaction } from '@milkdown/kit/prose/state';
 	import type { EditorView } from '@milkdown/kit/prose/view';
 	import { onDestroy, untrack } from 'svelte';
 	import { renderMermaidPreview } from '../milkdown-mermaid-preview';
@@ -37,6 +39,34 @@
 		// keystroke that `markdownUpdated` (asynchronous) has not yet emitted.
 		onFlush?: (fileId: string, markdown: string) => void;
 	}
+
+	const PRESENTATION_MARKER_PREFIX = '<!-- mdsh-presentation';
+	const PRESENTATION_MARKER_LINE = /^[ \t]*<!-- mdsh-presentation[ \t]*\r?$/m;
+	// A Markdown serialization is expensive on a large document. The type guard
+	// only needs it when an edit can introduce a presentation marker, so most
+	// keystrokes avoid the full serializer.
+	const leafText = (leaf: ProseNode): string => {
+		if (leaf.isText) return leaf.text ?? '';
+		const value: unknown = leaf.attrs.value;
+		return typeof value === 'string' ? value : '';
+	};
+	const fragmentText = (fragment: Fragment): string =>
+		fragment.textBetween(0, fragment.size, '\n', leafText);
+	const findPresentationMarker = (doc: ProseNode): boolean =>
+		PRESENTATION_MARKER_LINE.test(doc.textBetween(0, doc.content.size, '\n', leafText));
+	/** Returns true when an edit can change a note into a presentation. */
+	const editCanBecomePresentation = (transaction: Transaction): boolean => {
+		if (!findPresentationMarker(transaction.doc)) return false;
+		if (!findPresentationMarker(transaction.before)) return true;
+		return transaction.steps.some((step) => {
+			const { slice, from, to } = step as { slice?: Slice; from?: number; to?: number };
+			if (slice && fragmentText(slice.content).includes(PRESENTATION_MARKER_PREFIX)) return true;
+			if (typeof from !== 'number' || typeof to !== 'number') return false;
+			return transaction.before
+				.textBetween(from, to, '\n', leafText)
+				.includes(PRESENTATION_MARKER_PREFIX);
+		});
+	};
 
 	let { fileId, content, readonly = false, onChange, onFlush }: Props = $props();
 
@@ -311,9 +341,10 @@
 				new Plugin({
 					filterTransaction(transaction) {
 						if (!transaction.docChanged) return true;
-						// Serialize nodes, including HTML atoms, with the same source restoration
-						// as the save callback. Code blocks must keep their fence context.
-						const markdown = restoreMarkdown(ctx.get(serializerCtx)(transaction.doc));
+						if (!editCanBecomePresentation(transaction)) return true;
+						// Serialize nodes, including HTML atoms. Source restoration
+						// stays on the save path.
+						const markdown = ctx.get(serializerCtx)(transaction.doc);
 						if (documentKind(markdown) === 'note') return true;
 						notify.error(t('documents.noConversion'));
 						return false;

@@ -473,6 +473,23 @@ responsiveness problem and is not an acceptance target. Diagnose the stage
 before you tighten or raise the value. Keep the matching artifact with any
 budget change.
 
+### Large visual document editing
+
+`e2e/large-document-editing.spec.ts` seeds the 600 KB report fixture and types
+in the middle of a plain paragraph in the visual editor. If the local fixture is
+absent, the test generates a corpus with the same byte and line shape. The
+artifact records the fixture path and SHA-256, browser and source identity, raw
+samples, p95 frame latency, long tasks during typing, and long tasks during the
+200 ms update settle. The test fails above 150 ms p95 or a 250 ms long task.
+
+```sh
+E2E_PORT=4287 npx playwright test e2e/large-document-editing.spec.ts --project=chromium --workers=1
+```
+
+Run the same command with `--project=firefox` and `--project=webkit` after an
+editor change. The source restoration fast path and the type guard are pure
+JavaScript, so their cost must stay stable in each engine.
+
 Do not compare these results across platforms, build modes, machines or corpus
 counts. A debug native build is slower than a release build. A hosted CI runner
 has unequal hardware and a shared CPU.
@@ -703,6 +720,7 @@ browser cases check their observable results:
 | `note-type-guard.spec.ts` | A rejected note edit can remain visible with a saved status. Check source and visual input, the caret before and after rejection, undo, export, and reopened bytes. |
 | `read-preview-isolation.spec.ts` | A delayed render can show interactive content from another file. Check the visible preview and link targets during the delay. |
 | `editor-state.spec.ts` | Removing the read article can reset its scroll position before storage. A language change can replace a focused search control and send Undo to another control. Check restored positions, search focus, and exact saved content. |
+| `large-document-editing.spec.ts` | Visual editing can serialize the whole document on each keystroke. Check p95 key-to-frame latency and long tasks while typing and while source fidelity settles. The artifact records the fixture hash, samples, budgets, and environment. |
 | `presentation-review.spec.ts` | Delayed image insertion can replace newer edits. Check edits made during decoding, file drops, and text shortcuts. |
 | `backup-review.spec.ts` | Replace restore can remove trash resources. Repeated merge can duplicate projects or break ID fragments. Check recovery, binary assets, rollback, and downloaded bytes. |
 | `project-link-performance.spec.ts` | Unmatched brackets can block Check links and project export. Record heartbeat gaps and verify nested links and exported Markdown. |
