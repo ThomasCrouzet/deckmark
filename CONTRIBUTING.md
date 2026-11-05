@@ -91,6 +91,13 @@ npm run test:e2e -- visual.spec.ts --update-snapshots
 
 Do not commit snapshots from a platform other than the two already versioned (Linux CI baseline, macOS local baseline) without agreement.
 
+## Portable formats
+
+Read [portable format compatibility](docs/FORMAT-COMPATIBILITY.md) before you
+change a presentation, backup or project manifest format. Add a fixture and the
+expected result before a format version bump. Do not describe a hand-authored
+fixture as a released artifact.
+
 ## Issues
 
 [Bugs / features](https://github.com/ThomasCrouzet/deckmark/issues). For a large PR, open an issue before coding.

@@ -45,3 +45,4 @@ Start with the applicable check. Use the full suite for shared state, storage, e
 - Contribution and writing rules: `CONTRIBUTING.md`.
 - Modules, storage, export, and PWA: `.codex/references/project-map.md`.
 - Architecture decisions: `ARCHITECTURE.md`.
+- Portable format compatibility and version policy: `docs/FORMAT-COMPATIBILITY.md`.
