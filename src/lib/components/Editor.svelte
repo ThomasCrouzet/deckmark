@@ -82,6 +82,7 @@
 	let updateExternalContent: ((markdown: string) => Promise<void>) | null = null;
 	let removeFlushListener: (() => void) | null = null;
 	let removeHistoryListener: (() => void) | null = null;
+	let removePlainPasteListener: (() => void) | null = null;
 	// §C1 - fileId associated with the currently mounted Crepe instance. Captured
 	// at mount to correctly route a late keystroke (flush or asynchronous
 	// `markdownUpdated`) to the right file even after a tab switch.
@@ -158,6 +159,8 @@
 				installTableBreaks,
 				installTableParagraph,
 				installTableClipboard,
+				installPlainPaste,
+				insertPlainText,
 				configureTableTextSelection,
 				replaceAll,
 				sinkListItem,
@@ -386,6 +389,7 @@
 		installTableBreaks(instance.editor);
 		installTableParagraph(instance.editor);
 		installTableClipboard(instance.editor);
+		installPlainPaste(instance.editor);
 		await configureTableTextSelection(instance.editor);
 		instance.editor.use(imageTitlePlugin);
 		instance.editor.use(headingLevelPlugin);
@@ -664,6 +668,30 @@
 			});
 		};
 		crepe = instance;
+		const handlePlainPaste = () => {
+			const read = navigator.clipboard?.readText;
+			if (typeof read !== 'function') {
+				notify.error(t('palette.clipboardUnavailable'));
+				return;
+			}
+			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
+			if (!editorView.editable) return;
+			void read
+				.call(navigator.clipboard)
+				.then((text) => {
+					if (!text || crepe !== instance) return;
+					if (!insertPlainText(editorView, text)) notify.error(t('palette.clipboardUnavailable'));
+					else editorView.focus();
+				})
+				.catch((error) =>
+					reportError('plain paste', error, {
+						notifyUser: t('palette.clipboardUnavailable')
+					})
+				);
+		};
+		window.addEventListener('mdsh:paste-plain', handlePlainPaste);
+		removePlainPasteListener = () =>
+			window.removeEventListener('mdsh:paste-plain', handlePlainPaste);
 		restoreMountedMarkdown = restoreMarkdown;
 		// Milkdown wraps each native list item in a direct child of its list.
 		// Give that wrapper the list item role. Expose its contents only once.
@@ -737,6 +765,8 @@
 		refreshMountedDiagrams = null;
 		removeHistoryListener?.();
 		removeHistoryListener = null;
+		removePlainPasteListener?.();
+		removePlainPasteListener = null;
 		removeFlushListener?.();
 		removeFlushListener = null;
 		updateExternalContent = null;

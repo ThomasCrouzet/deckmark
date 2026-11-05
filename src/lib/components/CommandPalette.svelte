@@ -528,6 +528,14 @@
 			run: () => void copyActive('html')
 		},
 		{
+			id: 'paste-plain',
+			label: t('palette.pastePlain'),
+			kbd: formatKbd('⌘⇧V'),
+			icon: Clipboard,
+			enabled: () => filesStore.active !== null && kind === 'note' && mode === 'wysiwyg',
+			run: () => window.dispatchEvent(new CustomEvent('mdsh:paste-plain'))
+		},
+		{
 			id: 'mode-wysiwyg',
 			label: t('palette.modeWysiwyg'),
 			kbd: formatKbd('⌘E'),
@@ -874,6 +882,7 @@
 			.filter((command) => {
 				if (command.id === 'advanced-source') return kind === 'presentation';
 				if (command.id === 'focus') return kind === 'note' && mode === 'read';
+				if (command.id === 'paste-plain') return kind === 'note' && mode === 'wysiwyg';
 				if (kind === 'note') return true;
 				return (
 					![

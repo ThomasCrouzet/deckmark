@@ -357,6 +357,7 @@
 					exportPdf: t('desktopMenu.exportPdf'),
 					exportHtml: t('desktopMenu.exportHtml'),
 					exportZip: t('desktopMenu.exportZip'),
+					pastePlain: t('palette.pastePlain'),
 					settings: t('desktopMenu.settings')
 				})
 			});
@@ -535,6 +536,9 @@
 				break;
 			case 'export-zip':
 				await handleExportAll();
+				break;
+			case 'paste-plain':
+				window.dispatchEvent(new CustomEvent('mdsh:paste-plain'));
 				break;
 			case 'settings':
 				modals.openSettings();

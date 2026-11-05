@@ -343,6 +343,12 @@
 			shortcuts: [formatKbd('⌘I')]
 		},
 		{
+			id: 'paste-plain',
+			label: t('palette.pastePlain'),
+			context: t('settings.shortcutEditMode'),
+			shortcuts: [formatKbd('⌘⇧V'), formatKbd('⌘⇧⌥V')]
+		},
+		{
 			id: 'inline-code',
 			label: t('settings.shortcutInlineCode'),
 			context: t('settings.shortcutEditMode'),

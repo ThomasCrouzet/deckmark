@@ -18,4 +18,5 @@ export { wikiLinkPlugins } from './milkdown-wiki-links';
 export { installTableBreaks } from './milkdown-table-breaks';
 export { installTableParagraph } from './milkdown-table-paragraph';
 export { installTableClipboard } from './milkdown-table-clipboard';
+export { installPlainPaste, insertPlainText } from './milkdown-plain-paste';
 export { configureTableTextSelection } from './milkdown-table-selection';

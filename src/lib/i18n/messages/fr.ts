@@ -812,6 +812,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.copyMarkdownHint': 'Copie le contenu brut dans le presse-papiers',
 	'palette.copyRichHtml': 'Copier en HTML riche',
 	'palette.copyRichHtmlHint': 'Collable dans un mail, Notion, Slack…',
+	'palette.pastePlain': 'Coller en texte brut',
 	'palette.dialogLabel': 'Palette de commandes',
 	'palette.disableFocusMode': 'Désactiver le mode focus',
 	'palette.disableTypewriter': 'Désactiver le mode typewriter',

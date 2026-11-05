@@ -65,6 +65,7 @@ const labels: DesktopMenuLabels = {
 	exportPdf: 'Export PDF',
 	exportHtml: 'Export HTML',
 	exportZip: 'Export ZIP',
+	pastePlain: 'Paste as plain text',
 	settings: 'Settings'
 };
 

@@ -797,6 +797,7 @@ export const en = {
 	'palette.copyMarkdownHint': 'Copies the raw content to the clipboard',
 	'palette.copyRichHtml': 'Copy as rich HTML',
 	'palette.copyRichHtmlHint': 'Pasteable into an email, Notion, Slack…',
+	'palette.pastePlain': 'Paste as plain text',
 	'palette.dialogLabel': 'Command palette',
 	'palette.disableFocusMode': 'Disable focus mode',
 	'palette.disableTypewriter': 'Disable typewriter mode',

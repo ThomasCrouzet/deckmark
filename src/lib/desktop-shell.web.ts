@@ -9,6 +9,7 @@ export type DesktopMenuAction =
 	| 'export-pdf'
 	| 'export-html'
 	| 'export-zip'
+	| 'paste-plain'
 	| 'settings'
 	| 'close-file';
 
@@ -22,6 +23,7 @@ export interface DesktopMenuLabels {
 	exportPdf: string;
 	exportHtml: string;
 	exportZip: string;
+	pastePlain: string;
 	settings: string;
 }
 

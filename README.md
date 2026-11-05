@@ -287,10 +287,12 @@ all shortcuts, and Settings lets you change application shortcuts.
 | `Cmd+F` / `Cmd+Shift+F` | Find in document / search across documents |
 | `Cmd+S` / `Cmd+Shift+S` | Export Markdown / save to disk |
 | `Cmd+P` / `Cmd+,` | Export PDF / Settings |
+| `Cmd+Shift+V` | Paste as plain text in Edit mode |
 | `Cmd+Shift+L` | Present active presentation |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous open document |
 
-Some browsers reserve these keys. Use **Commands** when a shortcut is unavailable.
+Safari uses `Cmd+Shift+Option+V` for a plain-text paste. Some browsers reserve
+these keys. Use **Commands** when a shortcut is unavailable.
 
 ### Build and contribute
 

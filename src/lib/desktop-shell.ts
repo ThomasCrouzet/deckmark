@@ -23,6 +23,7 @@ export type DesktopMenuAction =
 	| 'export-html'
 	| 'export-zip'
 	| 'close-file'
+	| 'paste-plain'
 	| 'settings';
 
 export interface DesktopMenuLabels {
@@ -37,6 +38,7 @@ export interface DesktopMenuLabels {
 	exportPdf: string;
 	exportHtml: string;
 	exportZip: string;
+	pastePlain: string;
 	settings: string;
 }
 
@@ -193,6 +195,7 @@ async function installAppMenu(
 	// AppKit consumes menu shortcuts. Windows and Linux use the webview handler.
 	const accelerator = (id: DesktopMenuAction) => {
 		if (!mac || capturingShortcut) return {};
+		if (id === 'paste-plain') return { accelerator: 'Cmd+Shift+V' };
 		const binding = keyboardStore.binding(id === 'open' ? 'import' : id);
 		return binding ? { accelerator: `Cmd+${binding.shift ? 'Shift+' : ''}${binding.key}` } : {};
 	};
@@ -261,6 +264,7 @@ async function installAppMenu(
 			await PredefinedMenuItem.new({ item: 'Cut' }),
 			await PredefinedMenuItem.new({ item: 'Copy' }),
 			await PredefinedMenuItem.new({ item: 'Paste' }),
+			await item('paste-plain', labels.pastePlain),
 			await PredefinedMenuItem.new({ item: 'SelectAll' })
 		]
 	});

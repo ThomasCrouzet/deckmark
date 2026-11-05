@@ -52,6 +52,8 @@ The column stays hidden in focus mode and when the document has no headings.
 Source mode keeps a separate undo history for each recently used draft. A change of draft cannot undo content from another draft.
 The current browser session keeps editor positions for up to 32 recently used drafts. Reloading clears undo history, but keeps these positions.
 
+In Edit mode, use **Cmd+Shift+V** to paste as plain text. Use **Ctrl+Shift+V** on Windows and Linux, or **Cmd+Shift+Option+V** in Safari. The text keeps the formatting at the caret. Markdown characters stay literal. A single line break becomes a hard break. A blank line starts a paragraph. In a table, the text stays in the current cell. The command palette also has **Paste as plain text**.
+
 <a id="install-the-pwa"></a>
 
 ## Install the PWA
