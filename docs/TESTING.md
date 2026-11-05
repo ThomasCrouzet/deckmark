@@ -1344,6 +1344,7 @@ real directory is still necessary for the entry traversal branch. The test does
 not reproduce a denied operating system permission or a real storage quota
 failure. The move transaction is the rollback boundary for those failures.
 
+EAD
 ## First-run and storage recovery
 
 `e2e/first-run-recovery.spec.ts` denies IndexedDB, checks the visible blocking
@@ -1369,3 +1370,22 @@ The **Ready offline** label comes from service worker activation. If registratio
 fails, Settings shows **Offline cache unavailable** and a retry action. The retry
 runs the existing registration path. It does not claim that an uncached first visit
 can recover without a network.
+
+## Optional AI privacy and review
+
+`e2e/ai-idle-privacy.spec.ts` configures a mock provider, enables AI, and then
+edits and imports documents. It checks that the request count stays at zero until
+an explicit action. The mock provider uses a loopback-style host name and no real
+credential or paid call.
+
+The other AI requirements reuse existing coverage:
+
+- disabled state, session key lifetime and local storage exclusion:
+  `e2e/ai-settings.spec.ts`
+- reviewed context, streamed reply and cancellation: `e2e/ai-panel.spec.ts`
+- stale patch refusal and scoped application: `e2e/ai-patches.spec.ts`
+- patch parsing and adversarial fixtures: `src/lib/ai/patches.test.ts`
+
+Web keys stay in tab session storage. Desktop keys stay behind the native
+boundary and are tested by the Rust vault suite. A failed provider request must
+leave the editor state intact; the existing error cases assert this.
