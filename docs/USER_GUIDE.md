@@ -79,6 +79,12 @@ On supported systems, opening a file with the installed PWA uses the same import
 
 ## Code, images, and PDFs
 
+Select **New file > Code** to create a local code or text file. Choose a language
+and a file name. The dialog suggests an extension for the selected language and
+refuses a mismatched extension. Select **JSON** to create a valid empty object.
+The new file opens in the code editor with a ready caret. A created file stays a
+local draft until you link or export it; creation does not grant disk access.
+
 Import a supported code or text file to open the code editor. Use its controls
 for indentation, line endings, word wrap, and visible whitespace. JSON files
 have syntax checks, duplicate-key reports, **Format**, and **Minify** actions.
