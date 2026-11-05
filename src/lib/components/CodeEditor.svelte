@@ -3,6 +3,7 @@
 	import type { Compartment } from '@codemirror/state';
 	import type { EditorView } from '@codemirror/view';
 	import { editorStateCache } from '#lib/editor-state.js';
+	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { reportError } from '#lib/report.js';
 	import { t } from '#lib/i18n/index.js';
 	import {
@@ -311,7 +312,7 @@
 				requestAnimationFrame(() => {
 					if (!view) return;
 					if (saved) view.scrollDOM.scrollTop = saved.scrollTop;
-					if (document.activeElement === document.body) view.focus();
+					if (consumeEditorFocus(fileId) || document.activeElement === document.body) view.focus();
 				});
 			} catch (error) {
 				loadError = true;
