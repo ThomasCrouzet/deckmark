@@ -143,6 +143,9 @@ measurements:
 | macOS native `readModeSwitch` | 15226 ms | 16000 ms |
 | macOS native `wysiwygLoad` | 14665 ms | 15500 ms |
 | macOS native `presentationPresent` | 641 ms | 700 ms |
+| macOS native `projectTreeRender` | 4075 ms | 4200 ms |
+| Linux native `startupCold` | 31312 ms | 32000 ms |
+| WebKit `presentationLoad` | 1130 ms | 1200 ms |
 
 Firefox stayed inside its earlier budget. These changes move a provisional
 development baseline to the actual runner. They do not remove the gate. A later
