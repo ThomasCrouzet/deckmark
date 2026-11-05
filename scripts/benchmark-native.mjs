@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
+	budgetGateFailed,
 	budgetReport,
 	environmentIdentity,
 	gitRevision,
@@ -827,7 +828,8 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 				summary: result.summary,
 				budgets: await loadBudgets(options.budgets)
 			});
-			if (options.enforceBudgets && result.passed && result.budget.status === 'over-budget') {
+			result.budgetEnforced = options.enforceBudgets;
+			if (result.passed && budgetGateFailed(result.budget, options.enforceBudgets)) {
 				result.forcedBudgetFailure = true;
 			}
 		} catch (error) {
@@ -860,10 +862,9 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	}
 	if (finalizationError) throw finalizationError;
 	if (result.forcedBudgetFailure) {
-		const over = Object.entries(result.budget.metrics)
-			.filter(([, value]) => value.status === 'over-budget')
-			.map(([name]) => name);
-		throw new Error(`Measured p95 exceeds the configured baseline: ${over.join(', ')}`);
+		throw new Error(
+			`Benchmark budget gate failed for ${result.budget.platformKey}: ${result.budget.failures.join(', ')}`
+		);
 	}
 	return result;
 }

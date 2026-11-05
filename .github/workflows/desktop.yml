@@ -253,7 +253,7 @@ jobs:
         env:
           BASE_PATH: ''
       - name: Measure web benchmark
-        run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
+        run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --enforce-budgets --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
       - name: Retain web benchmark evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -384,13 +384,13 @@ jobs:
       - name: Measure Linux WebKitGTK benchmark
         if: runner.os == 'Linux'
         shell: bash
-        run: dbus-run-session -- xvfb-run -a node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --output "$RUNNER_TEMP/native-benchmark.json"
+        run: dbus-run-session -- xvfb-run -a node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --enforce-budgets --output "$RUNNER_TEMP/native-benchmark.json"
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
       - name: Measure native WebView benchmark
         if: runner.os != 'Linux'
         shell: bash
-        run: node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --output "$RUNNER_TEMP/native-benchmark.json"
+        run: node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --enforce-budgets --output "$RUNNER_TEMP/native-benchmark.json"
       - name: Retain native benchmark evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
