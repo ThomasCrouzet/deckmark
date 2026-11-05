@@ -159,21 +159,6 @@ export const en = {
 	'updates.copied': 'Download link copied.',
 	'updates.manualInstall':
 		'Install the signed package manually. The application never installs an update by itself.',
-	'host.title': 'Host and local data',
-	'host.current': 'You are on {host} ({role}).',
-	'host.role.main': 'main site',
-	'host.role.fallback': 'independent fallback',
-	'host.role.local': 'local development',
-	'host.role.other': 'self-hosted copy',
-	'host.relationship':
-		'Cloudflare Pages is the main site. GitHub Pages is the independent fallback. Both serve a static Web Light build.',
-	'host.originLocal':
-		'Drafts, IndexedDB, service workers, installed PWAs and AI session keys stay on this origin. The other host does not synchronize them. An installed offline copy cannot recover storage from another origin.',
-	'host.backupHint':
-		'Export a portable backup here, then import it on the other host. The backup does not include API keys or disk permission grants. Re-authorize them at the destination.',
-	'host.export': 'Export backup',
-	'host.import': 'Import backup',
-	'host.openOther': 'Open the other host in a new tab',
 	'settings.about': 'About DeckMark',
 	'settings.authorCredit': 'Created by Thomas CROUZET',
 	'sidebar.homeLabel': 'Go to the start page',

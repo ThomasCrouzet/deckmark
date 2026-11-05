@@ -76,6 +76,43 @@
 	let importInput: HTMLInputElement | null = $state(null);
 	let shortcutFeedback = $state('');
 	const host = $derived(publicHostInfo(location.hostname));
+	const hostCopy = {
+		en: {
+			title: 'Host and local data',
+			current: (name: string, role: string) => `You are on ${name} (${role}).`,
+			main: 'main site',
+			fallback: 'independent fallback',
+			local: 'local development',
+			other: 'self-hosted copy',
+			relationship:
+				'Cloudflare Pages is the main site. GitHub Pages is the independent fallback. Both serve a static Web Light build.',
+			originLocal:
+				'Drafts, IndexedDB, service workers, installed PWAs and AI session keys stay on this origin. The other host does not synchronize them. An installed offline copy cannot recover storage from another origin.',
+			backupHint:
+				'Export a portable backup here, then import it on the other host. The backup does not include API keys or disk permission grants. Re-authorize them at the destination.',
+			export: 'Export backup',
+			import: 'Import backup',
+			openOther: 'Open the other host in a new tab'
+		},
+		fr: {
+			title: 'Hôte et données locales',
+			current: (name: string, role: string) => `Vous êtes sur ${name} (${role}).`,
+			main: 'site principal',
+			fallback: 'secours indépendant',
+			local: 'développement local',
+			other: 'copie auto-hébergée',
+			relationship:
+				'Cloudflare Pages est le site principal. GitHub Pages est le secours indépendant. Les deux servent une version Web Light statique.',
+			originLocal:
+				'Les brouillons, IndexedDB, service workers, PWA installées et clés de session IA restent sur cette origine. L’autre hôte ne les synchronise pas. Une copie hors ligne installée ne peut pas récupérer le stockage d’une autre origine.',
+			backupHint:
+				'Exportez une sauvegarde portable ici, puis importez-la sur l’autre hôte. La sauvegarde ne contient pas les clés API ni les autorisations de disque. Autorisez-les de nouveau à destination.',
+			export: 'Exporter une sauvegarde',
+			import: 'Importer une sauvegarde',
+			openOther: 'Ouvrir l’autre hôte dans un nouvel onglet'
+		}
+	} as const;
+	const hc = $derived(hostCopy[i18n.locale === 'fr' ? 'fr' : 'en']);
 	function showShortcutResult(error: ShortcutError | null): void {
 		shortcutFeedback = t(
 			error === 'invalid'
@@ -1267,13 +1304,13 @@
 					class="mt-5 border-t border-border pt-3 text-xs text-fg-muted"
 					data-testid="host-section"
 				>
-					<h3 class="mb-2 font-medium text-fg">{t('host.title')}</h3>
+					<h3 class="mb-2 font-medium text-fg">{hc.title}</h3>
 					<p data-testid="host-identity">
-						{t('host.current', { host: host.hostname, role: t(`host.role.${host.role}`) })}
+						{hc.current(host.hostname, hc[host.role])}
 					</p>
-					<p class="mt-1">{t('host.relationship')}</p>
-					<p class="mt-1 text-warning" role="note">{t('host.originLocal')}</p>
-					<p class="mt-1">{t('host.backupHint')}</p>
+					<p class="mt-1">{hc.relationship}</p>
+					<p class="mt-1 text-warning" role="note">{hc.originLocal}</p>
+					<p class="mt-1">{hc.backupHint}</p>
 					<div class="mt-2 flex flex-wrap gap-2">
 						<button
 							type="button"
@@ -1282,7 +1319,7 @@
 							aria-disabled={backupBusy}
 							onclick={() => void runBackupAction(handleExportBackup)}
 						>
-							{t('host.export')}
+							{hc.export}
 						</button>
 						<button
 							type="button"
@@ -1291,7 +1328,7 @@
 							aria-disabled={backupBusy}
 							onclick={() => chooseBackup(false)}
 						>
-							{t('host.import')}
+							{hc.import}
 						</button>
 						{#if host.otherUrl}
 							<button
@@ -1300,7 +1337,7 @@
 								data-testid="host-other"
 								onclick={() => window.open(host.otherUrl!, '_blank', 'noopener,noreferrer')}
 							>
-								{t('host.openOther')}
+								{hc.openOther}
 							</button>
 						{/if}
 					</div>
