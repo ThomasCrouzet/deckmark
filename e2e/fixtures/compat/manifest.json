@@ -1,0 +1,102 @@
+{
+	"version": 1,
+	"description": "Compatibility corpus for released portable formats. Released entries come from the tag and commit below. Synthetic entries are hand-authored edge cases and are labeled.",
+	"fixtures": [
+		{
+			"file": "presentation-v1-minimal.md",
+			"sha256": "bb649dee4b214d38cf56ce43758f452f2088e49b0056f3a6aca560c7e6e6416b",
+			"bytes": 199,
+			"origin": "released",
+			"expected": "presentation v1, exact bytes",
+			"note": "Minimal deck from the released serializer.",
+			"producer": {
+				"tag": "v2.4.0",
+				"commit": "523a9463ce5ad43b866e135c6a1eb1f1d2b7b085"
+			}
+		},
+		{
+			"file": "presentation-v1-framed.md",
+			"sha256": "64474d9e49331ece153534f59a911b58452abeeeadaa9281f8dbebf5953839d9",
+			"bytes": 873,
+			"origin": "released",
+			"expected": "presentation v1, exact bytes",
+			"note": "Two slides with front matter, a text element, a shape, notes and a background.",
+			"producer": {
+				"tag": "v2.4.0",
+				"commit": "523a9463ce5ad43b866e135c6a1eb1f1d2b7b085"
+			}
+		},
+		{
+			"file": "presentation-future-version.md",
+			"sha256": "741afa923c8786a5075b40538d3f80e772d9cd85b39a4453384cf820d92422ba",
+			"bytes": 199,
+			"origin": "synthetic",
+			"expected": "safe refusal, original bytes kept",
+			"note": "Version 2 metadata must stay in the source error editor."
+		},
+		{
+			"file": "presentation-malformed.md",
+			"sha256": "fce68186e87bf429f08597ef612fdefb1f590898f3c8288e1bba51b7d5f799ef",
+			"bytes": 188,
+			"origin": "synthetic",
+			"expected": "safe refusal, original bytes kept",
+			"note": "Broken JSON must not replace the document."
+		},
+		{
+			"file": "presentation-metadata-not-at-end.md",
+			"sha256": "b43bf92d009f7ffe1c9f337c2978c1a07dbd42b17af7921a4601fe409c55f442",
+			"bytes": 224,
+			"origin": "synthetic",
+			"expected": "safe refusal, original bytes kept",
+			"note": "Marker placement is classified, then parsing refuses the layout."
+		},
+		{
+			"file": "note-frontmatter.md",
+			"sha256": "c65492a11018518096151018c3e0b88ec3b4a76606a635754b6d2c7f2bef29c4",
+			"bytes": 225,
+			"origin": "synthetic",
+			"expected": "note, exact bytes",
+			"note": "Ordinary Markdown with YAML front matter."
+		},
+		{
+			"file": "note-bom-crlf.md",
+			"sha256": "1c4b5496fbf6f3f41268b3acb2a600b77c498d4061e8566f99a01428834b7357",
+			"bytes": 66,
+			"origin": "synthetic",
+			"expected": "note, exact bytes",
+			"note": "UTF-8 BOM and CRLF must survive save and reload."
+		},
+		{
+			"file": "note-literal-markers.md",
+			"sha256": "09048237eaf3c88cb2c7834b0af0f29dd621d96678d8904e4b95ad8cf7e7fc4b",
+			"bytes": 274,
+			"origin": "synthetic",
+			"expected": "note, exact bytes",
+			"note": "Fenced and escaped markers must not classify a presentation."
+		},
+		{
+			"file": "backup-v1-empty.json",
+			"sha256": "e34f0ff16cd083a9ae8728008b89b0d298b012c7178fb846f5de51c1615be81f",
+			"bytes": 138,
+			"origin": "synthetic",
+			"expected": "backup schema 1, accepted",
+			"note": "Empty legacy backup envelope."
+		},
+		{
+			"file": "backup-v2-empty.json",
+			"sha256": "74803b637e90d1ea4e61fc911bfbce5a415dccbee59891dddcccd7130c7807a9",
+			"bytes": 179,
+			"origin": "synthetic",
+			"expected": "backup schema 2, accepted",
+			"note": "Empty current backup envelope with project collections."
+		},
+		{
+			"file": "project-manifest-v1.json",
+			"sha256": "c3976f568699c1b913830916c2c8c1c83cdef9b644ce056d95577b898b52b475",
+			"bytes": 88,
+			"origin": "synthetic",
+			"expected": "project manifest schema 1, accepted",
+			"note": "Manifest used by the project ZIP reader."
+		}
+	]
+}
