@@ -111,13 +111,18 @@
 		onRestore: (text: string) => Promise<void>;
 	}>;
 	let DesktopBackupPanel = $state<DesktopBackupPanelComponent | null>(null);
+	let DiagnosticsPanel = $state<Component | null>(null);
 
 	onMount(() => {
+		void import('#lib/components/DiagnosticsPanel.svelte').then((module) => {
+			DiagnosticsPanel = module.default;
+		});
 		if (import.meta.env.VITE_EDITION !== 'desktop') return;
 		void import('#lib/components/DesktopBackupPanel.svelte').then((module) => {
 			DesktopBackupPanel = module.default as DesktopBackupPanelComponent;
 		});
 	});
+
 	let verifyOnly = false;
 	let editingTemplate = $state<string | null>(null);
 	let templateName = $state('');
@@ -1258,6 +1263,10 @@
 							<p class="text-xs text-fg-muted">{t('settings.desktopBackupLoading')}</p>
 						{/if}
 					</section>
+				{/if}
+
+				{#if DiagnosticsPanel}
+					<DiagnosticsPanel />
 				{/if}
 
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">

@@ -158,6 +158,18 @@ export const en = {
 	'updates.copied': 'Download link copied.',
 	'updates.manualInstall':
 		'Install the signed package manually. The application never installs an update by itself.',
+	'settings.diagnostics': 'Diagnostics',
+	'settings.diagnosticsHint': 'Build a local report. Nothing is sent automatically.',
+	'settings.reportProblem': 'Report a problem',
+	'settings.diagnosticsDescription': 'What happened? Your text is included exactly as written.',
+	'settings.diagnosticsIncludeStats': 'Include document counts and sizes (no text or names)',
+	'settings.diagnosticsPrivacy':
+		'Do not paste secrets. The report excludes documents, paths, keys, prompts and model replies.',
+	'settings.diagnosticsBuild': 'Preview report',
+	'settings.diagnosticsDownload': 'Download report',
+	'settings.diagnosticsCancel': 'Cancel',
+	'settings.diagnosticsFailed': 'The report could not be built.',
+	'palette.reportProblem': 'Report a problem',
 	'settings.about': 'About DeckMark',
 	'settings.authorCredit': 'Created by Thomas CROUZET',
 	'sidebar.homeLabel': 'Go to the start page',

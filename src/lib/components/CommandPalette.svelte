@@ -57,6 +57,7 @@
 		Presentation,
 		AlignVerticalJustifyCenter,
 		Settings,
+		Bug,
 		SunMoon,
 		Sparkles,
 		MessageSquare,
@@ -633,6 +634,15 @@
 			hint: t('palette.settingsHint'),
 			icon: Settings,
 			run: onOpenSettings
+		},
+		{
+			id: 'report-problem',
+			label: t('palette.reportProblem'),
+			icon: Bug,
+			run: () => {
+				onOpenSettings();
+				setTimeout(() => window.dispatchEvent(new CustomEvent('mdsh:report-problem')), 500);
+			}
 		},
 		{
 			id: 'history',

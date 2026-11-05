@@ -1343,3 +1343,20 @@ drag, so the test checks the relative path fallback. A manual desktop drag of a
 real directory is still necessary for the entry traversal branch. The test does
 not reproduce a denied operating system permission or a real storage quota
 failure. The move transaction is the rollback boundary for those failures.
+
+## Local diagnostics report
+
+`src/lib/diagnostics.test.ts` plants sentinels in error messages, unsafe error
+codes and document text. It checks that the automatically collected report keeps
+error names only, keeps structural statistics only, and reports unknown values as
+null. `e2e/diagnostics.spec.ts` plants a file name, document body and API key,
+builds a report from Settings through the command palette, and checks that:
+
+- the preview and the downloaded bytes are identical;
+- all sentinels are absent;
+- no network request occurs while the report is built;
+- Cancel leaves no preview and downloads nothing.
+
+Run `npx playwright test e2e/diagnostics.spec.ts --project=chromium` and keep the
+preview and downloaded JSON attachments. The issue template asks for the optional
+bundle and warns that free text can contain sensitive data.
