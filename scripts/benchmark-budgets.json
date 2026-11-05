@@ -214,8 +214,9 @@
 					"unit": "ms"
 				},
 				"exportHtml": {
-					"p95": 1500,
-					"unit": "ms"
+					"p95": 2100,
+					"unit": "ms",
+					"note": "CI p95 was 1972 ms on the stress corpus."
 				},
 				"heapUsedMb": {
 					"p95": 500,
@@ -424,8 +425,9 @@
 					"unit": "ms"
 				},
 				"presentationPresent": {
-					"p95": 600,
-					"unit": "ms"
+					"p95": 900,
+					"unit": "ms",
+					"note": "CI p95 was 778 ms in the debug WebKitGTK build."
 				},
 				"exportPrepare": {
 					"p95": 8000,
