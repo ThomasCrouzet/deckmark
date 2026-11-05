@@ -136,6 +136,13 @@ measurements:
 | WebKit `presentationPresent` | 1420 ms | 1500 ms |
 | WebKit `exportHtml` | 4396 ms | 4500 ms |
 | Windows native `rssMb` | 1968.8 MB | 2200 MB |
+| Linux native `readModeSwitch` | 16314 ms | 17000 ms |
+| Linux native `rssMb` | 1646.2 MB | 1800 MB |
+| macOS native `documentSwitch` | 6359 ms | 7000 ms |
+| macOS native `largeDocumentOpen` | 5156 ms | 5500 ms |
+| macOS native `readModeSwitch` | 15226 ms | 16000 ms |
+| macOS native `wysiwygLoad` | 14665 ms | 15500 ms |
+| macOS native `presentationPresent` | 641 ms | 700 ms |
 
 Firefox stayed inside its earlier budget. These changes move a provisional
 development baseline to the actual runner. They do not remove the gate. A later
