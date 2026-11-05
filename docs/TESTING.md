@@ -1391,6 +1391,7 @@ Web keys stay in tab session storage. Desktop keys stay behind the native
 boundary and are tested by the Rust vault suite. A failed provider request must
 leave the editor state intact; the existing error cases assert this.
 
+EAD
 ## Benchmark gate tests
 
 `scripts/benchmark-shared.test.mjs` checks the fail-closed benchmark gate. It
@@ -1401,3 +1402,17 @@ checks that valid evidence exits 0 while over-budget or incomplete evidence exit
 nonzero. Run `npm run test:benchmark-gate`. Keep the JSON report and the exit code
 with the run evidence. The gate does not replace a browser or native benchmark
 run. It decides whether the retained measurements permit publication.
+
+## Dual-host transfer
+
+`e2e/host-transfer.spec.ts` starts a second local origin from the same production
+build. It creates a note and an AI session key on the first origin, exports a
+portable backup, imports it on the second origin with **Merge**, and checks that
+the document content arrives while the key stays absent. It also checks the host
+identity text and cancellation path. The artifact records both origins and the
+key result.
+
+`src/lib/host.test.ts` covers the main host, the fallback host, local development
+and an unknown self-hosted copy. The public deployment checks in
+`playwright.production.config.ts` and `verify-deployment.yml` still verify each
+live host independently against its own expected base path and source SHA.

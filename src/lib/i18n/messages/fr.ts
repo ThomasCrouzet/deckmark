@@ -157,6 +157,21 @@ export const fr: Record<MessageKey, string> = {
 	'updates.copied': 'Lien de téléchargement copié.',
 	'updates.manualInstall':
 		'Installez le paquet signé manuellement. L’application n’installe jamais une mise à jour elle-même.',
+	'host.title': 'Hôte et données locales',
+	'host.current': 'Vous êtes sur {host} ({role}).',
+	'host.role.main': 'site principal',
+	'host.role.fallback': 'secours indépendant',
+	'host.role.local': 'développement local',
+	'host.role.other': 'copie auto-hébergée',
+	'host.relationship':
+		'Cloudflare Pages est le site principal. GitHub Pages est le secours indépendant. Les deux servent une version Web Light statique.',
+	'host.originLocal':
+		'Les brouillons, IndexedDB, service workers, PWA installées et clés de session IA restent sur cette origine. L’autre hôte ne les synchronise pas. Une copie hors ligne installée ne peut pas récupérer le stockage d’une autre origine.',
+	'host.backupHint':
+		'Exportez une sauvegarde portable ici, puis importez-la sur l’autre hôte. La sauvegarde ne contient pas les clés API ni les autorisations de disque. Autorisez-les de nouveau à destination.',
+	'host.export': 'Exporter une sauvegarde',
+	'host.import': 'Importer une sauvegarde',
+	'host.openOther': 'Ouvrir l’autre hôte dans un nouvel onglet',
 	'settings.about': 'À propos de deckmark',
 	'settings.authorCredit': 'Créé par Thomas CROUZET',
 	'sidebar.homeLabel': 'Ouvrir la page d’accueil',

@@ -36,6 +36,7 @@
 		serializeBackup
 	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
+	import { publicHostInfo } from '#lib/host.js';
 	import { editionManifest } from '#lib/edition.js';
 	import { captureSettings } from '#lib/capture-settings.svelte.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
@@ -74,6 +75,7 @@
 	let aiKeyDraft = $state('');
 	let importInput: HTMLInputElement | null = $state(null);
 	let shortcutFeedback = $state('');
+	const host = $derived(publicHostInfo(location.hostname));
 	function showShortcutResult(error: ShortcutError | null): void {
 		shortcutFeedback = t(
 			error === 'invalid'
@@ -1261,6 +1263,48 @@
 					</section>
 				{/if}
 
+				<section
+					class="mt-5 border-t border-border pt-3 text-xs text-fg-muted"
+					data-testid="host-section"
+				>
+					<h3 class="mb-2 font-medium text-fg">{t('host.title')}</h3>
+					<p data-testid="host-identity">
+						{t('host.current', { host: host.hostname, role: t(`host.role.${host.role}`) })}
+					</p>
+					<p class="mt-1">{t('host.relationship')}</p>
+					<p class="mt-1 text-warning" role="note">{t('host.originLocal')}</p>
+					<p class="mt-1">{t('host.backupHint')}</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						<button
+							type="button"
+							class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+							data-testid="host-export"
+							aria-disabled={backupBusy}
+							onclick={() => void runBackupAction(handleExportBackup)}
+						>
+							{t('host.export')}
+						</button>
+						<button
+							type="button"
+							class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+							data-testid="host-import"
+							aria-disabled={backupBusy}
+							onclick={() => chooseBackup(false)}
+						>
+							{t('host.import')}
+						</button>
+						{#if host.otherUrl}
+							<button
+								type="button"
+								class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+								data-testid="host-other"
+								onclick={() => window.open(host.otherUrl!, '_blank', 'noopener,noreferrer')}
+							>
+								{t('host.openOther')}
+							</button>
+						{/if}
+					</div>
+				</section>
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
 					<p>

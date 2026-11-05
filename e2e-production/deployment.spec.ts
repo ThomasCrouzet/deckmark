@@ -79,6 +79,17 @@ test('serves the expected Web release and keeps a draft offline', async ({
 		}
 	});
 
+	const unexpectedRequests: string[] = [];
+	page.on('request', (request) => {
+		try {
+			if (new URL(request.url()).origin !== new URL(baseURL).origin) {
+				unexpectedRequests.push(request.url());
+			}
+		} catch {
+			unexpectedRequests.push(request.url());
+		}
+	});
+
 	await test.step('Open the normal page URL and edit a note', async () => {
 		const response = await page.goto(baseURL);
 		expect.soft(response?.status()).toBe(200);
@@ -103,6 +114,7 @@ test('serves the expected Web release and keeps a draft offline', async ({
 		await page.getByTestId('welcome-new').click();
 		await page.getByTestId('create-note').click();
 		await expect(page.locator('input[aria-label^="File name"]')).toBeVisible();
+		expect.soft(unexpectedRequests, 'The page must not request another origin.').toEqual([]);
 		await writeSourceContent(page, fixture);
 		await expect(page.locator('#app-statusbar')).toContainText('Local drafts: saved');
 		await page.locator('button[data-mode="read"]').click();
@@ -140,6 +152,10 @@ test('serves the expected Web release and keeps a draft offline', async ({
 		await testInfo.attach('offline-draft.png', {
 			body: await page.screenshot(),
 			contentType: 'image/png'
+		});
+		await testInfo.attach('network-egress.json', {
+			body: JSON.stringify({ expectedOrigin: new URL(baseURL).origin, unexpectedRequests }),
+			contentType: 'application/json'
 		});
 	});
 });
