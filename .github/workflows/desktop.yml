@@ -221,8 +221,11 @@ jobs:
         run: cargo audit --file src-tauri/Cargo.lock --deny unsound
 
   web-benchmark:
-    needs: [resolve-source, validate-desktop]
-    if: inputs.validated_sha == '' && needs.validate-desktop.result == 'success'
+    # Web measurements depend on the frontend source only. They do not wait
+    # for Rust or native validation. The final desktop-validation gate still
+    # requires every platform result.
+    needs: [resolve-source]
+    if: inputs.validated_sha == ''
     strategy:
       fail-fast: false
       matrix:
@@ -260,8 +263,10 @@ jobs:
           if-no-files-found: warn
 
   native-smoke:
-    needs: [resolve-source, validate-desktop]
-    if: inputs.validated_sha == '' && needs.validate-desktop.result == 'success'
+    # Each OS builds its own debug app. A slow row on another OS must not delay
+    # this row. The final gate waits for the complete matrix.
+    needs: [resolve-source]
+    if: inputs.validated_sha == ''
     strategy:
       fail-fast: false
       matrix:
@@ -328,8 +333,10 @@ jobs:
           if-no-files-found: warn
 
   native-benchmark:
-    needs: [resolve-source, validate-desktop, native-smoke]
-    if: inputs.validated_sha == '' && needs.native-smoke.result == 'success'
+    # The benchmark builds and measures its own app on each OS. It does not wait
+    # for another OS row or for unrelated Rust validation.
+    needs: [resolve-source]
+    if: inputs.validated_sha == ''
     strategy:
       fail-fast: false
       matrix:
