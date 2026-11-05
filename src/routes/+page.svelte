@@ -818,7 +818,13 @@
 			class="fixed inset-x-0 top-0 z-[70] flex items-center justify-center border-b border-danger bg-bg-1 px-4 py-2 text-center text-sm text-danger"
 			role="alert"
 		>
-			{filesStore.loadError}
+			<span>{filesStore.loadError}</span>
+			<button
+				type="button"
+				class="ml-3 underline"
+				data-testid="retry-storage"
+				onclick={() => filesStore.retryLoad()}>{t('files.retryLoad')}</button
+			>
 		</div>
 	{/if}
 

@@ -32,6 +32,7 @@ export const fr: Record<MessageKey, string> = {
 	'pwa.ready': 'Prêt hors ligne',
 	'pwa.preparing': 'Préparation du mode hors ligne...',
 	'pwa.unavailable': 'Cache hors ligne indisponible',
+	'pwa.retry': 'Réessayer la préparation hors ligne',
 	'templates.manage': 'Gérer les modèles',
 	'templates.help':
 		'Enregistrez un document comme modèle depuis les commandes. {{date}} insère la date locale du jour.',
@@ -525,6 +526,7 @@ export const fr: Record<MessageKey, string> = {
 
 	// files
 	'files.deletedInOtherTab': '« {name} » a été supprimé dans un autre onglet.',
+	'files.retryLoad': 'Réessayer l’accès au stockage',
 	'files.loadError':
 		'Impossible d’accéder au stockage local. Tes notes sont peut-être inaccessibles (navigation privée ? stockage désactivé ?). Réessaie dans une fenêtre normale.',
 	'files.alreadyOriginal': '« {name} » est déjà l’original lié.',

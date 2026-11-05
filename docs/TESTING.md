@@ -1343,3 +1343,29 @@ drag, so the test checks the relative path fallback. A manual desktop drag of a
 real directory is still necessary for the entry traversal branch. The test does
 not reproduce a denied operating system permission or a real storage quota
 failure. The move transaction is the rollback boundary for those failures.
+
+## First-run and storage recovery
+
+`e2e/first-run-recovery.spec.ts` denies IndexedDB, checks the visible blocking
+message and the retry action, restores storage access, and verifies that the retry
+loads an empty library without deleting data. The artifact records the retry and
+the row count. This covers a first visit where the storage API fails. The browser
+can recover after the user restores access; the library is not reset.
+
+The other first-run risks reuse existing specs instead of a second harness:
+
+- Quota failure and draft preservation: `e2e/storage-pressure.spec.ts`.
+- Prepared app offline and stale cache: `e2e/offline-review.spec.ts`.
+- Remote media consent: `e2e/media-consent-review.spec.ts`.
+- Reload during a pending save: `e2e/durability.spec.ts`.
+- Corrupt archive refusal: `e2e/format-compat.spec.ts` and
+  `e2e/project-archive-risks.spec.ts`.
+
+A first visit with no cached application and no network cannot show DeckMark's
+own error interface. That case is a browser limitation, not an application test.
+Offline guarantees start after the service worker installs the required assets.
+
+The **Ready offline** label comes from service worker activation. If registration
+fails, Settings shows **Offline cache unavailable** and a retry action. The retry
+runs the existing registration path. It does not claim that an uncached first visit
+can recover without a network.
