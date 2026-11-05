@@ -1,16 +1,21 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { FileText, Presentation, Search } from '@lucide/svelte';
+	import { Braces, Code, FileText, Presentation, Search } from '@lucide/svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { t } from '#lib/i18n/index.js';
 	import type { DocumentKind } from '#lib/document-kind.js';
+	import { stripMdExtension } from '#lib/file-names.js';
+	import type { CodeLanguageDef, CodeLanguageId } from '#lib/code/languages.js';
 	import { templatesStore, type TemplateChoice } from '#lib/templates.svelte.js';
 	let {
 		onCreate,
 		onCreateFromTemplate,
 		onClose
 	}: {
-		onCreate: (kind: DocumentKind) => Promise<void>;
+		onCreate: (
+			kind: DocumentKind,
+			options?: { language?: CodeLanguageId; name?: string }
+		) => Promise<void>;
 		onCreateFromTemplate: (templateId: string) => Promise<void>;
 		onClose: () => void;
 	} = $props();
@@ -18,6 +23,88 @@
 	let busy = $state(false);
 	let ready = $state(false);
 	let query = $state('');
+	let codeOpen = $state(false);
+	let languageId = $state<CodeLanguageId>('plain');
+	let codeName = $state('');
+	let nameEdited = $state(false);
+	let languageSelect = $state<HTMLSelectElement | null>(null);
+	let languages = $state<readonly CodeLanguageDef[]>([]);
+	let languageByExtension = $state<Record<string, CodeLanguageId>>({});
+	let languageModule: typeof import('#lib/code/languages.js') | null = null;
+
+	const selectedLanguage = $derived(
+		languages.find((language) => language.id === languageId) ?? languages[0]
+	);
+	const codeExtension = $derived(/\.([a-z0-9]+)$/i.exec(codeName.trim())?.[1]?.toLowerCase() ?? '');
+	const codeNameValid = $derived(
+		codeExtension === '' ||
+			!selectedLanguage ||
+			(languageByExtension[codeExtension] ?? 'plain') === selectedLanguage.id
+	);
+	const codeNameError = $derived(
+		codeNameValid || !selectedLanguage
+			? ''
+			: t('documents.codeExtensionMismatch', {
+					extension: codeExtension,
+					language: selectedLanguage.label
+				})
+	);
+
+	function suggestedCodeName(language: CodeLanguageDef): string {
+		const extension = language.extensions[0] ?? 'txt';
+		return `${stripMdExtension(t('files.untitledFilename'))}.${extension}`;
+	}
+
+	async function loadLanguages(): Promise<readonly CodeLanguageDef[]> {
+		languageModule ??= await import('#lib/code/languages.js');
+		if (languages.length === 0) {
+			languages = languageModule.CODE_LANGUAGES;
+			const byExtension: Record<string, CodeLanguageId> = {};
+			for (const language of languages) {
+				for (const extension of language.extensions) byExtension[extension] = language.id;
+			}
+			languageByExtension = byExtension;
+		}
+		return languages;
+	}
+
+	async function openCodeForm() {
+		codeOpen = true;
+		const catalog = await loadLanguages();
+		const plain = catalog[0]!;
+		languageId = plain.id;
+		codeName = suggestedCodeName(plain);
+		nameEdited = false;
+		requestAnimationFrame(() => languageSelect?.focus());
+	}
+
+	function chooseLanguage(id: CodeLanguageId) {
+		languageId = id;
+		if (!nameEdited) {
+			const language = languages.find((entry) => entry.id === id) ?? languages[0];
+			if (language) codeName = suggestedCodeName(language);
+		}
+	}
+
+	async function createCode() {
+		if (busy || !codeNameValid || !selectedLanguage) return;
+		const trimmed = codeName.trim() || suggestedCodeName(selectedLanguage);
+		const complete = /\.([a-z0-9]+)$/i.test(trimmed)
+			? trimmed
+			: `${trimmed}.${selectedLanguage.extensions[0] ?? 'txt'}`;
+		await run(() =>
+			onCreate('code', {
+				language: selectedLanguage.id,
+				name: complete
+			})
+		);
+	}
+
+	async function createJson() {
+		const catalog = await loadLanguages();
+		const json = catalog.find((entry) => entry.id === 'json') ?? catalog[0]!;
+		await run(() => onCreate('code', { language: json.id, name: suggestedCodeName(json) }));
+	}
 
 	onMount(() => {
 		void templatesStore
@@ -63,7 +150,9 @@
 			if (event.key === 'Escape') {
 				event.preventDefault();
 				event.stopPropagation();
-				if (!busy) onClose();
+				if (busy) return;
+				if (codeOpen) codeOpen = false;
+				else onClose();
 			}
 		}}
 	>
@@ -89,7 +178,77 @@
 						>{t('documents.presentationDescription')}</span
 					>
 				</button>
+				<button
+					data-testid="create-code"
+					disabled={busy}
+					aria-expanded={codeOpen}
+					onclick={openCodeForm}
+				>
+					<Code size={28} /><strong>{t('documents.createCode')}</strong><span
+						>{t('documents.codeDescription')}</span
+					>
+				</button>
+				<button data-testid="create-json" disabled={busy} onclick={() => void createJson()}>
+					<Braces size={28} /><strong>{t('documents.createJson')}</strong><span
+						>{t('documents.jsonDescription')}</span
+					>
+				</button>
 			</div>
+			{#if codeOpen}
+				<form
+					class="code-form"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void createCode();
+					}}
+				>
+					<label>
+						<span>{t('documents.codeLanguage')}</span>
+						<select
+							bind:this={languageSelect}
+							value={languageId}
+							data-testid="create-code-language"
+							onchange={(event) => chooseLanguage(event.currentTarget.value as CodeLanguageId)}
+						>
+							{#each languages as language (language.id)}
+								<option value={language.id}>{language.label}</option>
+							{/each}
+						</select>
+					</label>
+					<label>
+						<span>{t('documents.codeFileName')}</span>
+						<input
+							type="text"
+							bind:value={codeName}
+							data-testid="create-code-name"
+							aria-label={t('documents.codeFileName')}
+							aria-invalid={!codeNameValid}
+							oninput={() => (nameEdited = true)}
+						/>
+					</label>
+					{#if codeNameError}
+						<p class="code-error" role="alert" data-testid="create-code-error">
+							{codeNameError}
+						</p>
+					{/if}
+					<p class="code-hint">{t('documents.codeNameHint')}</p>
+					<div class="code-actions">
+						<button
+							type="submit"
+							data-testid="create-code-submit"
+							disabled={busy || !codeNameValid}
+						>
+							{t('documents.createCodeFile')}
+						</button>
+						<button
+							type="button"
+							data-testid="create-code-cancel"
+							disabled={busy}
+							onclick={() => (codeOpen = false)}>{t('slides.cancel')}</button
+						>
+					</div>
+				</form>
+			{/if}
 
 			<section class="templates" aria-labelledby="template-choice-title">
 				<h3 id="template-choice-title">{t('templates.choose')}</h3>
@@ -283,6 +442,54 @@
 		flex: none;
 		align-self: flex-start;
 		margin-top: 12px;
+	}
+	.code-form {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: 12px;
+		margin: 4px;
+		padding: 12px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-2);
+	}
+	.code-form label {
+		display: grid;
+		gap: 4px;
+		font-size: 12px;
+		color: var(--color-fg-muted);
+	}
+	.code-form select,
+	.code-form input {
+		min-height: 36px;
+		padding: 6px 8px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-1);
+		color: var(--color-fg);
+	}
+	.code-form input[aria-invalid='true'] {
+		border-color: var(--color-danger, #d33);
+	}
+	.code-hint,
+	.code-error {
+		grid-column: 1 / -1;
+		margin: 0;
+		font-size: 12px;
+	}
+	.code-error {
+		color: var(--color-danger, #d33);
+	}
+	.code-actions {
+		grid-column: 1 / -1;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	@media (max-width: 480px) {
+		.code-form {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 	@media (max-width: 260px) {
 		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels. */

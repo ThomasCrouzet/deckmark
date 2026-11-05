@@ -40,6 +40,7 @@ import {
 } from './disk-sync';
 
 import { normalizeRename, uniqueName, stripMdExtension } from './file-utils';
+import type { CodeLanguageId } from './code/languages';
 
 import {
 	exportMarkdown as exportMarkdownOp,
@@ -619,13 +620,31 @@ class FilesStore {
 		return file;
 	}
 
-	async createDocument(kind: DocumentKind): Promise<FileItem> {
+	async createDocument(
+		kind: DocumentKind,
+		options: { language?: CodeLanguageId; name?: string } = {}
+	): Promise<FileItem> {
 		if (kind === 'note') {
 			this.dispatchEditorFlush();
 			return this.createNew(t('files.untitledFilename'), '', {
 				focusEditor: true,
 				origin: 'created',
 				kind: 'note'
+			});
+		}
+		if (kind === 'code') {
+			const { CODE_LANGUAGES } = await import('./code/languages');
+			const language =
+				CODE_LANGUAGES.find((entry) => entry.id === options.language) ?? CODE_LANGUAGES[0]!;
+			const suggested = `${stripMdExtension(t('files.untitledFilename'))}.${language.extensions[0] ?? 'txt'}`;
+			const raw = options.name?.trim() || suggested;
+			const name = /\.[a-z0-9]+$/i.test(raw) ? raw : `${raw}.${language.extensions[0] ?? 'txt'}`;
+			const content = language.id === 'json' || language.id === 'jsonc' ? '{}\n' : '';
+			this.dispatchEditorFlush();
+			return this.createNew(name, content, {
+				focusEditor: true,
+				origin: 'created',
+				kind: 'code'
 			});
 		}
 		const { createDeck, serializePresentation } = await import('./presentation/model');

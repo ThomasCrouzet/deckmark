@@ -384,16 +384,21 @@
 		if (!canInteract) return;
 		modals.openNewDocument();
 	}
-	async function handleCreate(kind: DocumentKind) {
+	async function handleCreate(
+		kind: DocumentKind,
+		options?: { language?: import('#lib/code/languages.js').CodeLanguageId; name?: string }
+	) {
 		try {
-			await filesStore.createDocument(kind);
+			await filesStore.createDocument(kind, options);
 			modals.newDocumentOpen = false;
 			if (window.innerWidth < 768) sidebarOpen = false;
-			announceContext(
-				t('documents.created', {
-					type: t(kind === 'note' ? 'documents.note' : 'documents.presentation')
-				})
-			);
+			const type =
+				kind === 'code'
+					? 'documents.code'
+					: kind === 'presentation'
+						? 'documents.presentation'
+						: 'documents.note';
+			announceContext(t('documents.created', { type: t(type) }));
 		} catch (error) {
 			reportError('create document', error, { notifyUser: t('page.saveToDiskError') });
 		}
@@ -406,7 +411,13 @@
 		const id = filesStore.newDocumentFocusId;
 		if (!id) return;
 		filesStore.newDocumentFocusId = null;
-		if (kind !== 'note' || !filesStore.files.some((file) => file.id === id)) return;
+		if (!filesStore.files.some((file) => file.id === id)) return;
+		if (kind === 'code') {
+			mode = 'source';
+			requestEditorFocus(id);
+			return;
+		}
+		if (kind !== 'note') return;
 		documentTool = null;
 		mode = 'wysiwyg';
 		requestEditorFocus(id);
