@@ -62,7 +62,7 @@ jobs:
           echo "production_base_path=$production_path" >> "$GITHUB_OUTPUT"
           echo "check_base_path=$check_path" >> "$GITHUB_OUTPUT"
 
-  check:
+  typecheck:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -70,41 +70,95 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
-
-      # §A4.1 - Cache extracted node_modules. setup-node@v5 cache: npm covers ~/.npm tarballs only.
-      # Extraction takes about 10-15 seconds per job across four jobs.
-      # A node_modules cache hit restores files in about 2 seconds.
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
         with:
           path: node_modules
           key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
-
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
-
       - name: Type check
         run: npm run check
 
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
       - name: Lint
         run: npm run lint
-
       - name: Third-party notices
         run: npm run notices:check
 
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
       - name: Isolated failure tests and diagnostic coverage
         run: npm run test:coverage
 
+  check:
+    # Keep the required check name after the fast checks run in parallel.
+    needs: [typecheck, lint, unit]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the fast correctness tier
+        env:
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
+        run: |
+          test "$TYPECHECK_RESULT" = 'success'
+          test "$LINT_RESULT" = 'success'
+          test "$UNIT_RESULT" = 'success'
+
   e2e-shard:
-    needs: check
+    # E2E starts with the build and check jobs. The suite starts its own
+    # preview server, so it does not need the production build artifact.
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -183,7 +237,9 @@ jobs:
         run: test "$SHARD_RESULT" = success
 
   build:
-    needs: [check, pages-config]
+    # The build starts as soon as the Pages paths are known. It does not wait
+    # for type checks or the browser suite. The deploy job is the final gate.
+    needs: [pages-config]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -279,8 +335,8 @@ jobs:
           temporaryPublicStorage: false
 
   deploy:
-    # Publishing requires the build, browser suite, and Lighthouse audit.
-    needs: [build, e2e, lighthouse]
+    # Publishing requires the fast checks, build, browser suite, and Lighthouse.
+    needs: [check, build, e2e, lighthouse]
     # Do not deploy pull requests. Publish code only after merge.
     # Publish merged main code. A manual dispatch lets the drift check repair Pages
     # after a merge made with the workflow token.
