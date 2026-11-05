@@ -36,6 +36,7 @@
 		serializeBackup
 	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
+	import { publicHostInfo } from '#lib/host.js';
 	import { editionManifest } from '#lib/edition.js';
 	import { captureSettings } from '#lib/capture-settings.svelte.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
@@ -74,6 +75,44 @@
 	let aiKeyDraft = $state('');
 	let importInput: HTMLInputElement | null = $state(null);
 	let shortcutFeedback = $state('');
+	const host = $derived(publicHostInfo(location.hostname));
+	const hostCopy = {
+		en: {
+			title: 'Host and local data',
+			current: (name: string, role: string) => `You are on ${name} (${role}).`,
+			main: 'main site',
+			fallback: 'independent fallback',
+			local: 'local development',
+			other: 'self-hosted copy',
+			relationship:
+				'Cloudflare Pages is the main site. GitHub Pages is the independent fallback. Both serve a static Web Light build.',
+			originLocal:
+				'Drafts, IndexedDB, service workers, installed PWAs and AI session keys stay on this origin. The other host does not synchronize them. An installed offline copy cannot recover storage from another origin.',
+			backupHint:
+				'Export a portable backup here, then import it on the other host. The backup does not include API keys or disk permission grants. Re-authorize them at the destination.',
+			export: 'Export this origin’s data',
+			import: 'Import a backup to this origin',
+			openOther: 'Open the other host in a new tab'
+		},
+		fr: {
+			title: 'Hôte et données locales',
+			current: (name: string, role: string) => `Vous êtes sur ${name} (${role}).`,
+			main: 'site principal',
+			fallback: 'secours indépendant',
+			local: 'développement local',
+			other: 'copie auto-hébergée',
+			relationship:
+				'Cloudflare Pages est le site principal. GitHub Pages est le secours indépendant. Les deux servent une version Web Light statique.',
+			originLocal:
+				'Les brouillons, IndexedDB, service workers, PWA installées et clés de session IA restent sur cette origine. L’autre hôte ne les synchronise pas. Une copie hors ligne installée ne peut pas récupérer le stockage d’une autre origine.',
+			backupHint:
+				'Exportez une sauvegarde portable ici, puis importez-la sur l’autre hôte. La sauvegarde ne contient pas les clés API ni les autorisations de disque. Autorisez-les de nouveau à destination.',
+			export: 'Exporter les données de cette origine',
+			import: 'Importer une sauvegarde sur cette origine',
+			openOther: 'Ouvrir l’autre hôte dans un nouvel onglet'
+		}
+	} as const;
+	const hc = $derived(hostCopy[i18n.locale === 'fr' ? 'fr' : 'en']);
 	function showShortcutResult(error: ShortcutError | null): void {
 		shortcutFeedback = t(
 			error === 'invalid'
@@ -1261,6 +1300,48 @@
 					</section>
 				{/if}
 
+				<section
+					class="mt-5 border-t border-border pt-3 text-xs text-fg-muted"
+					data-testid="host-section"
+				>
+					<h3 class="mb-2 font-medium text-fg">{hc.title}</h3>
+					<p data-testid="host-identity">
+						{hc.current(host.hostname, hc[host.role])}
+					</p>
+					<p class="mt-1">{hc.relationship}</p>
+					<p class="mt-1 text-warning" role="note">{hc.originLocal}</p>
+					<p class="mt-1">{hc.backupHint}</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						<button
+							type="button"
+							class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+							data-testid="host-export"
+							aria-disabled={backupBusy}
+							onclick={() => void runBackupAction(handleExportBackup)}
+						>
+							{hc.export}
+						</button>
+						<button
+							type="button"
+							class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+							data-testid="host-import"
+							aria-disabled={backupBusy}
+							onclick={() => chooseBackup(false)}
+						>
+							{hc.import}
+						</button>
+						{#if host.otherUrl}
+							<button
+								type="button"
+								class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+								data-testid="host-other"
+								onclick={() => window.open(host.otherUrl!, '_blank', 'noopener,noreferrer')}
+							>
+								{hc.openOther}
+							</button>
+						{/if}
+					</div>
+				</section>
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
 					<p>
