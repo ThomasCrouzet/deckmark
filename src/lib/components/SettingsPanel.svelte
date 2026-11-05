@@ -90,8 +90,8 @@
 				'Drafts, IndexedDB, service workers, installed PWAs and AI session keys stay on this origin. The other host does not synchronize them. An installed offline copy cannot recover storage from another origin.',
 			backupHint:
 				'Export a portable backup here, then import it on the other host. The backup does not include API keys or disk permission grants. Re-authorize them at the destination.',
-			export: 'Export backup',
-			import: 'Import backup',
+			export: 'Export this origin’s data',
+			import: 'Import a backup to this origin',
 			openOther: 'Open the other host in a new tab'
 		},
 		fr: {
@@ -107,8 +107,8 @@
 				'Les brouillons, IndexedDB, service workers, PWA installées et clés de session IA restent sur cette origine. L’autre hôte ne les synchronise pas. Une copie hors ligne installée ne peut pas récupérer le stockage d’une autre origine.',
 			backupHint:
 				'Exportez une sauvegarde portable ici, puis importez-la sur l’autre hôte. La sauvegarde ne contient pas les clés API ni les autorisations de disque. Autorisez-les de nouveau à destination.',
-			export: 'Exporter une sauvegarde',
-			import: 'Importer une sauvegarde',
+			export: 'Exporter les données de cette origine',
+			import: 'Importer une sauvegarde sur cette origine',
 			openOther: 'Ouvrir l’autre hôte dans un nouvel onglet'
 		}
 	} as const;
