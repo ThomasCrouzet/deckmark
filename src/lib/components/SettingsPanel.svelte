@@ -39,6 +39,7 @@
 	import { editionManifest } from '#lib/edition.js';
 	import { captureSettings } from '#lib/capture-settings.svelte.js';
 	import { offlineState } from '#lib/ui/offline.svelte.js';
+	import { retryOfflineSetup } from '#lib/ui/pwa-update.js';
 	import type { TemplateRow } from '#lib/db.js';
 	import { reportError } from '#lib/report.js';
 	import { spinnerStore } from '#lib/spinner.svelte.js';
@@ -1291,6 +1292,14 @@
 									: 'pwa.unavailable'
 						)}
 					</p>
+					{#if offlineState.status !== 'ready'}
+						<button
+							type="button"
+							class="mt-1 underline"
+							data-testid="retry-offline"
+							onclick={retryOfflineSetup}>{t('pwa.retry')}</button
+						>
+					{/if}
 					<p class="mt-1">{t('welcome.privacy')}</p>
 					<a
 						class="mt-2 inline-block underline"
