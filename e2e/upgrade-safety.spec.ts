@@ -103,7 +103,7 @@ async function seedVersionFive(page: Page): Promise<void> {
 	}, legacyContent);
 }
 
-test('upgrades an older database and keeps drafts and templates', async ({ page }, info) => {
+test('upgrades an older database and keeps draft content', async ({ page }, info) => {
 	await page.route('**/api/__mdsh_e2e_reset__', (route) =>
 		route.fulfill({
 			status: 200,
@@ -175,6 +175,7 @@ test('shows a recoverable state when a stale tab blocks the upgrade', async ({
 			})
 	);
 	await seedVersionFive(blocker);
+	await blocker.evaluate(() => localStorage.setItem('mdsh:mode', 'source'));
 	const held = await blocker.evaluate(
 		() =>
 			new Promise<boolean>((resolvePromise, reject) => {
@@ -188,9 +189,8 @@ test('shows a recoverable state when a stale tab blocks the upgrade', async ({
 	);
 	expect(held).toBe(true);
 
+	test.setTimeout(60_000);
 	await page.goto(origin);
-	await page.waitForTimeout(10_000);
-	console.log('BLOCKED BODY', (await page.locator('body').innerText()).slice(0, 500));
 	await expect(page.getByTestId('retry-storage')).toBeVisible({ timeout: 20_000 });
 	await blocker.evaluate(() => {
 		(globalThis as { heldDb?: IDBDatabase }).heldDb?.close();

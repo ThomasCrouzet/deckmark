@@ -1391,6 +1391,7 @@ Web keys stay in tab session storage. Desktop keys stay behind the native
 boundary and are tested by the Rust vault suite. A failed provider request must
 leave the editor state intact; the existing error cases assert this.
 
+EAD
 ## Benchmark gate tests
 
 `scripts/benchmark-shared.test.mjs` checks the fail-closed benchmark gate. It
@@ -1401,3 +1402,18 @@ checks that valid evidence exits 0 while over-budget or incomplete evidence exit
 nonzero. Run `npm run test:benchmark-gate`. Keep the JSON report and the exit code
 with the run evidence. The gate does not replace a browser or native benchmark
 run. It decides whether the retained measurements permit publication.
+
+## Database upgrade safety
+
+`e2e/upgrade-safety.spec.ts` creates a real IndexedDB version 5 database with a
+draft before the app starts. It checks that the current Dexie schema upgrades to
+version 80, keeps the draft bytes, and renders the content.
+
+A second case holds a version 5 connection open in another tab. The app must not
+stay on an endless loading shell: after the reviewed timeout it shows the storage
+error and the retry action. Closing the stale tab and retrying recovers the draft.
+The artifact records the blocked state and the recovery.
+
+The timeout is a bounded recovery path, not a migration shortcut. A stale tab
+cannot be forced to close, and unsaved text that was never written remains outside
+the durability guarantee.
