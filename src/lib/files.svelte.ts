@@ -417,6 +417,12 @@ class FilesStore {
 		}
 	}
 
+	retryLoad(): void {
+		// Dexie caches a rejected initial open. Reload the client after the user
+		// restores storage access; the durable library stays in IndexedDB.
+		if (typeof window !== 'undefined') window.location.reload();
+	}
+
 	async load(preferredActiveId: string | null = null): Promise<void> {
 		if (!browser || this.loaded) return;
 		try {
