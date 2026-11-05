@@ -17,3 +17,6 @@ src-tauri/vendor
 .codex
 .claude
 .agents
+
+# Compatibility corpus bytes are pinned by SHA-256 in manifest.json.
+e2e/fixtures/compat/
