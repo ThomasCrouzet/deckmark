@@ -51,7 +51,12 @@ import {
 } from './export-ops';
 import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
-import { createWikiTargetResolver, projectWikiCandidates } from './project-paths';
+import {
+	buildProjectPathIndex,
+	createWikiTargetResolver,
+	projectWikiCandidates,
+	projectWikiCandidatesFromIndex
+} from './project-paths';
 import { SaveQueue } from './save-queue';
 import { reportPersistenceError, resolveDraftSaveError } from './storage';
 import { reportError } from './report';
@@ -1767,10 +1772,10 @@ class FilesStore {
 		const source = this.library.find((file) => file.id === sourceId);
 		if (source && documentKindForFile(source) !== 'note') return null;
 		if (source?.projectId) {
-			const candidates = projectWikiCandidates(
+			const candidates = projectWikiCandidatesFromIndex(
 				source,
 				target,
-				this.library.filter((file) => documentKindForFile(file) === 'note')
+				buildProjectPathIndex(this.library.filter((file) => documentKindForFile(file) === 'note'))
 			);
 			return candidates.length === 1 ? candidates[0]!.id : null;
 		}

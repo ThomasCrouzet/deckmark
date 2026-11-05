@@ -72,7 +72,6 @@ export interface ProjectPathIndex<T> {
 	byId: Map<string, T>;
 	byPath: Map<string, T[]>;
 	byStem: Map<string, T[]>;
-	byProject: Map<string, Map<string, T>>;
 }
 
 /**
@@ -86,17 +85,10 @@ export function buildProjectPathIndex<
 	const index: ProjectPathIndex<T> = {
 		byId: new Map(),
 		byPath: new Map(),
-		byStem: new Map(),
-		byProject: new Map()
+		byStem: new Map()
 	};
 	for (const file of documents) {
 		if (!file.projectId || !file.relativePath) continue;
-		let project = index.byProject.get(file.projectId);
-		if (!project) {
-			project = new Map();
-			index.byProject.set(file.projectId, project);
-		}
-		project.set(file.id, file);
 		index.byId.set(file.id, file);
 		const key = pathKey(file.relativePath);
 		const pathMatches = index.byPath.get(key);
@@ -124,10 +116,8 @@ export function projectWikiCandidatesFromIndex<
 ): T[] {
 	const value = target.trim().split('#', 1)[0]!;
 	if (!value || !source.projectId || !source.relativePath) return [];
-	const project = index.byProject.get(source.projectId);
-	if (!project) return [];
-	const byId = project.get(value);
-	if (byId) return [byId];
+	const byId = index.byId.get(value);
+	if (byId && byId.projectId === source.projectId) return [byId];
 	const names = /\.(?:md|markdown|mdx|txt)$/i.test(value) ? [value] : [value, `${value}.md`];
 	for (const name of names) {
 		const encodedName = name
