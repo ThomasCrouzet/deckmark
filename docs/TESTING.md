@@ -1371,6 +1371,7 @@ fails, Settings shows **Offline cache unavailable** and a retry action. The retr
 runs the existing registration path. It does not claim that an uncached first visit
 can recover without a network.
 
+EAD
 ## Optional AI privacy and review
 
 `e2e/ai-idle-privacy.spec.ts` configures a mock provider, enables AI, and then
@@ -1389,3 +1390,14 @@ The other AI requirements reuse existing coverage:
 Web keys stay in tab session storage. Desktop keys stay behind the native
 boundary and are tested by the Rust vault suite. A failed provider request must
 leave the editor state intact; the existing error cases assert this.
+
+## Benchmark gate tests
+
+`scripts/benchmark-shared.test.mjs` checks the fail-closed benchmark gate. It
+covers an over-budget p95, a missing baseline, a missing required metric, too few
+samples, a unit mismatch, a non-finite value, an ungated summary metric, and an
+invalid budget. It also starts `scripts/benchmark-gate.mjs` as a child process and
+checks that valid evidence exits 0 while over-budget or incomplete evidence exits
+nonzero. Run `npm run test:benchmark-gate`. Keep the JSON report and the exit code
+with the run evidence. The gate does not replace a browser or native benchmark
+run. It decides whether the retained measurements permit publication.
