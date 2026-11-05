@@ -79,10 +79,20 @@ On supported systems, opening a file with the installed PWA uses the same import
 
 ## Code, images, and PDFs
 
+Select **New file > Code** to create a local code or text file. Choose a language
+and a file name. The dialog suggests an extension for the selected language and
+refuses a mismatched extension. Select **JSON** to create a valid empty object.
+The new file opens in the code editor with a ready caret. A created file stays a
+local draft until you link or export it; creation does not grant disk access.
+
 Import a supported code or text file to open the code editor. Use its controls
 for indentation, line endings, word wrap, and visible whitespace. JSON files
 have syntax checks, duplicate-key reports, **Format**, and **Minify** actions.
-The editor does not execute imported code.
+JSON with comments (`.jsonc`) keeps comments and does not run the strict JSON
+checks or transformations. C# (`.cs`) and PowerShell (`.ps1`) use their own
+grammars. A code extension without a registered grammar opens as plain text and
+shows the extension, for example **Plain text (rb)**. The editor does not
+execute imported code.
 
 Import an image to open the annotation canvas. Use the pen, highlighter, eraser,
 zoom, and undo controls. Export a flattened PNG to keep the annotations.

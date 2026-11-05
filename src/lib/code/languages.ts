@@ -20,7 +20,10 @@ export type CodeLanguageId =
 	| 'cpp'
 	| 'xml'
 	| 'yaml'
-	| 'shell';
+	| 'shell'
+	| 'csharp'
+	| 'powershell'
+	| 'jsonc';
 
 export interface CodeLanguageDef {
 	id: CodeLanguageId;
@@ -43,13 +46,16 @@ export const CODE_LANGUAGES: readonly CodeLanguageDef[] = [
 	{ id: 'php', label: 'PHP', extensions: ['php'] },
 	{ id: 'html', label: 'HTML', extensions: ['html', 'htm'] },
 	{ id: 'css', label: 'CSS', extensions: ['css', 'scss', 'less'] },
-	{ id: 'json', label: 'JSON', extensions: ['json', 'jsonc'] },
+	{ id: 'json', label: 'JSON', extensions: ['json'] },
+	{ id: 'jsonc', label: 'JSON with comments', extensions: ['jsonc'] },
 	{ id: 'sql', label: 'SQL', extensions: ['sql'] },
 	{ id: 'java', label: 'Java', extensions: ['java'] },
-	{ id: 'cpp', label: 'C and C++', extensions: ['c', 'h', 'cc', 'cpp', 'hpp', 'cs'] },
+	{ id: 'cpp', label: 'C and C++', extensions: ['c', 'h', 'cc', 'cpp', 'hpp'] },
+	{ id: 'csharp', label: 'C#', extensions: ['cs'] },
 	{ id: 'xml', label: 'XML', extensions: ['xml', 'svg'] },
 	{ id: 'yaml', label: 'YAML', extensions: ['yaml', 'yml'] },
-	{ id: 'shell', label: 'Shell', extensions: ['sh', 'bash', 'zsh', 'fish', 'ps1'] }
+	{ id: 'shell', label: 'Shell', extensions: ['sh', 'bash', 'zsh', 'fish'] },
+	{ id: 'powershell', label: 'PowerShell', extensions: ['ps1', 'psm1', 'psd1'] }
 ] as const;
 
 const BY_EXTENSION = new Map<string, CodeLanguageDef>();
@@ -64,6 +70,27 @@ export function codeLanguageForExtension(extension: string): CodeLanguageDef {
 export function codeLanguageForName(name: string): CodeLanguageDef {
 	const match = /\.([a-z0-9]+)$/i.exec(name);
 	return codeLanguageForExtension(match?.[1] ?? '');
+}
+
+export interface CodeLanguageResolution {
+	language: CodeLanguageDef;
+	extension: string;
+	fallback: boolean;
+}
+
+/**
+ * Resolve the language and report whether the extension uses the plain-text
+ * fallback. The caller can then show the real extension instead of claiming
+ * syntax support that the document does not have.
+ */
+export function resolveCodeLanguage(name: string): CodeLanguageResolution {
+	const extension = /\.([a-z0-9]+)$/i.exec(name.trim())?.[1]?.toLowerCase() ?? '';
+	const language = BY_EXTENSION.get(extension);
+	return {
+		language: language ?? CODE_LANGUAGES[0]!,
+		extension,
+		fallback: extension !== '' && !language
+	};
 }
 
 /** Loads one language support. Unknown or plain text returns no extension. */
@@ -135,6 +162,34 @@ export async function loadCodeLanguage(id: CodeLanguageId): Promise<Extension> {
 				import('@codemirror/legacy-modes/mode/shell')
 			]);
 			return StreamLanguage.define(shell);
+		}
+		case 'csharp': {
+			const [{ StreamLanguage }, { csharp }] = await Promise.all([
+				import('@codemirror/language'),
+				import('@codemirror/legacy-modes/mode/clike')
+			]);
+			return StreamLanguage.define(csharp);
+		}
+		case 'powershell': {
+			const [{ StreamLanguage }, { powerShell }] = await Promise.all([
+				import('@codemirror/language'),
+				import('@codemirror/legacy-modes/mode/powershell')
+			]);
+			return StreamLanguage.define(powerShell);
+		}
+		case 'jsonc': {
+			const [{ StreamLanguage }, { json }] = await Promise.all([
+				import('@codemirror/language'),
+				import('@codemirror/legacy-modes/mode/javascript')
+			]);
+			return StreamLanguage.define({
+				...json,
+				name: 'jsonc',
+				languageData: {
+					...json.languageData,
+					commentTokens: { line: '//', block: { open: '/*', close: '*/' } }
+				}
+			});
 		}
 		default:
 			return [];

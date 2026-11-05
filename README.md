@@ -64,20 +64,22 @@ IndexedDB.
 
 ![DeckMark demo: plan a launch with linked notes, diagrams, code, project checks, exports, and a presentation.](docs/demo.gif)
 
-Select **New file**, then choose **Note** or **Presentation**. Each file keeps its
-own type. The app does not convert notes to presentations.
+Select **New file**, then choose **Note**, **Presentation**, **Code**, or **JSON**.
+The Code choice selects a language and suggests a matching extension. Each file
+keeps its own type. The app does not convert notes to presentations or append
+`.md` to a code file.
 
 | Document type | What you can do |
 | --- | --- |
 | **Note** | Use **Edit**, **Source**, and **Read**. Add tables, checklists, images, formulas, and diagrams. Use an outline, tags, and wiki links. |
 | **Presentation** | Edit slides directly in the document area. Arrange text, images, shapes, and connectors. Add presenter notes and select **Present** for full screen. |
-| **Code and JSON** | Import text or code files. Use syntax highlighting, search, indentation controls, and JSON checks, formatting, or minification. |
+| **Code and JSON** | Create or import text and code files. Use syntax highlighting, search, indentation controls, and JSON checks, formatting, or minification. |
 | **Image** | Import an image, draw annotations, and export a flattened PNG. Annotation strokes are temporary until exported. |
 | **PDF** | Import and export PDF files. Viewing depends on the browser PDF viewer and security policy. Use **Open PDF** or download the file when inline viewing is blocked. |
 
-The New dialog creates notes and presentations. Import the other document types.
-PDF support does not include text extraction, OCR, or PDF editing. See
-[code, images, and PDFs](docs/USER_GUIDE.md#code-images-and-pdfs).
+The New dialog creates notes, presentations, code files, and JSON files. Import
+image and PDF files. PDF support does not include text extraction, OCR, or PDF
+editing. See [code, images, and PDFs](docs/USER_GUIDE.md#code-images-and-pdfs).
 
 The toolbar adapts to the available document width. **Edit**, **Source**, and
 **Read** keep their labels on small screens. Use **Actions** for file commands

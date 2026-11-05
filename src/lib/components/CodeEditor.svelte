@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type { Compartment } from '@codemirror/state';
 	import type { EditorView } from '@codemirror/view';
 	import { editorStateCache } from '#lib/editor-state.js';
+	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { reportError } from '#lib/report.js';
 	import { t } from '#lib/i18n/index.js';
 	import {
@@ -9,7 +11,7 @@
 		convertLineEndings,
 		detectLineEnding
 	} from '#lib/code/text-changes.js';
-	import { codeLanguageForName, loadCodeLanguage } from '#lib/code/languages.js';
+	import { loadCodeLanguage, resolveCodeLanguage } from '#lib/code/languages.js';
 	import {
 		analyzeJson,
 		prepareJsonAction,
@@ -37,7 +39,13 @@
 		onCursorLine
 	}: Props = $props();
 
-	const language = $derived(codeLanguageForName(name));
+	const resolution = $derived(resolveCodeLanguage(name));
+	const language = $derived(resolution.language);
+	const languageLabel = $derived(
+		resolution.fallback
+			? t('code.plainFallback', { extension: resolution.extension })
+			: language.label
+	);
 	let host = $state<HTMLDivElement>();
 	let view: EditorView | null = null;
 	let lastEmitted = '';
@@ -54,6 +62,8 @@
 		invisibles: import('@codemirror/state').Compartment;
 	} | null = null;
 	let cm: typeof import('@codemirror/view') | null = null;
+	let languageCompartment: Compartment | null = null;
+	let loadedLanguageId = $state('');
 	let historyFieldRef: import('@codemirror/state').StateField<unknown> | null = null;
 	let indentUnitRef: typeof import('@codemirror/language').indentUnit | null = null;
 	let invisiblesRef: import('@codemirror/state').Extension = [];
@@ -76,6 +86,25 @@
 			]
 		});
 	}
+
+	$effect(() => {
+		const id = language.id;
+		const compartment = languageCompartment;
+		if (!view || !compartment || loadedLanguageId === id) return;
+		let disposed = false;
+		void loadCodeLanguage(id)
+			.then((support) => {
+				if (disposed || !view) return;
+				view.dispatch({ effects: compartment.reconfigure(support) });
+				loadedLanguageId = id;
+			})
+			.catch(() => {
+				// Keep the current grammar and the plain-text editor usable.
+			});
+		return () => {
+			disposed = true;
+		};
+	});
 
 	$effect(() => {
 		void showInvisibles;
@@ -174,6 +203,8 @@
 				historyFieldRef = historyField as import('@codemirror/state').StateField<unknown>;
 				indentUnitRef = indentUnit;
 				invisiblesRef = [highlightWhitespace(), highlightTrailingWhitespace(), invisibleEnds];
+				const compartment = new Compartment();
+				languageCompartment = compartment;
 				optionCompartments = {
 					indent: new Compartment(),
 					wrap: new Compartment(),
@@ -193,7 +224,7 @@
 					optionCompartments.wrap.of(wrap ? EditorView.lineWrapping : []),
 					optionCompartments.invisibles.of([]),
 					syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-					languageSupport,
+					compartment.of(languageSupport),
 					...(readonly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
 					EditorView.updateListener.of((update) => {
 						if (!update.selectionSet && !update.docChanged) return;
@@ -245,6 +276,7 @@
 				}
 				state ??= EditorState.create({ doc: content, extensions });
 				view = new EditorView({ state, parent: mount });
+				loadedLanguageId = language.id;
 				lastEmitted = content;
 				const tabListener = (event: KeyboardEvent) => {
 					if (
@@ -280,7 +312,7 @@
 				requestAnimationFrame(() => {
 					if (!view) return;
 					if (saved) view.scrollDOM.scrollTop = saved.scrollTop;
-					if (document.activeElement === document.body) view.focus();
+					if (consumeEditorFocus(fileId) || document.activeElement === document.body) view.focus();
 				});
 			} catch (error) {
 				loadError = true;
@@ -341,7 +373,12 @@
 {:else}
 	<div class="code-shell">
 		<div class="code-toolbar" role="toolbar" aria-label={t('code.toolbar')}>
-			<span class="code-language" data-testid="code-language">{language.label}</span>
+			<span
+				class="code-language"
+				class:fallback={resolution.fallback}
+				data-testid="code-language"
+				data-fallback={resolution.fallback ? 'true' : undefined}>{languageLabel}</span
+			>
 			<span class="code-eol" data-testid="code-eol">{eol === '\r\n' ? 'CRLF' : 'LF'}</span>
 			<button type="button" onclick={toggleLineEnding} data-testid="code-eol-toggle">
 				{eol === '\r\n' ? t('code.toLf') : t('code.toCrlf')}

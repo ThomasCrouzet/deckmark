@@ -1094,6 +1094,7 @@ export const fr: Record<MessageKey, string> = {
 	'code.spaces': 'Espaces',
 	'code.tabs': 'Tabulations',
 	'code.indentSize': 'Taille d’indentation',
+	'code.plainFallback': 'Texte brut ({extension})',
 	'json.valid': 'JSON valide',
 	'json.invalid': 'JSON invalide à la ligne {line}, colonne {column}',
 	'json.duplicates': 'Clés en double : {keys}',
