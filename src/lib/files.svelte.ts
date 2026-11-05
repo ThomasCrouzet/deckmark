@@ -51,12 +51,7 @@ import {
 } from './export-ops';
 import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
-import {
-	buildProjectPathIndex,
-	createWikiTargetResolver,
-	projectWikiCandidates,
-	projectWikiCandidatesFromIndex
-} from './project-paths';
+import { projectWikiCandidates } from './project-paths';
 import { SaveQueue } from './save-queue';
 import { reportPersistenceError, resolveDraftSaveError } from './storage';
 import { reportError } from './report';
@@ -1753,18 +1748,17 @@ class FilesStore {
 	backlinks(targetId: string): FileItem[] {
 		const targetFile = this.library.find((file) => file.id === targetId);
 		if (!targetFile || documentKindForFile(targetFile) !== 'note') return [];
-		// Resolve every link against one index. A per-link scan over the project
-		// corpus made a document switch quadratic with hundreds of files.
-		const notes = this.library.filter((file) => documentKindForFile(file) === 'note');
-		const resolve = createWikiTargetResolver(notes);
+		// The metadata index already keeps an inverted name and id index. Use it
+		// for library notes. Project-relative links still need the path-aware
+		// scan, so keep that path for a project document only.
+		if (!targetFile.projectId) return this.metaIndex.backlinks(targetId);
 		return this.library.filter(
 			(file) =>
 				file.id !== targetId &&
 				documentKindForFile(file) === 'note' &&
-				this.metaIndex.wikiLinkTargets(file.id).some((target) => {
-					const candidates = resolve(target, file);
-					return candidates.length === 1 && candidates[0]!.id === targetId;
-				})
+				this.metaIndex
+					.wikiLinkTargets(file.id)
+					.some((target) => this.resolveWikiLink(target, file.id) === targetId)
 		);
 	}
 	/** Resolves a wiki-link → file id, or `null` if not found. */
@@ -1772,10 +1766,10 @@ class FilesStore {
 		const source = this.library.find((file) => file.id === sourceId);
 		if (source && documentKindForFile(source) !== 'note') return null;
 		if (source?.projectId) {
-			const candidates = projectWikiCandidatesFromIndex(
+			const candidates = projectWikiCandidates(
 				source,
 				target,
-				buildProjectPathIndex(this.library.filter((file) => documentKindForFile(file) === 'note'))
+				this.library.filter((file) => documentKindForFile(file) === 'note')
 			);
 			return candidates.length === 1 ? candidates[0]!.id : null;
 		}

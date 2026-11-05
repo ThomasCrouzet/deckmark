@@ -175,14 +175,13 @@ the click on a library document through the updated editor header.
 | --- | --- | --- |
 | Switch profile duration | 2701 ms | 307 ms |
 | `projectPath()` self samples | 1193 ms | 5 ms |
-| `documentSwitch` p95, 5 runs | 2194 ms | 76 ms |
-| `largeDocumentOpen` p95, 5 runs | 2191 ms | 58 ms |
+| `documentSwitch` p95, 5 runs | 2194 ms | 54 ms |
+| `largeDocumentOpen` p95, 5 runs | 2191 ms | 31 ms |
 
-Change: `buildProjectPathIndex()` prepares one path, id and stem lookup for the
-library. `projectWikiCandidatesFromIndex()` reuses that lookup for every link.
-`filesStore.backlinks()` builds one global name lookup and one project lookup per
-call, then resolves each link in constant time. The link rules, ambiguity rules
-and project-relative resolution order do not change.
+Change: `filesStore.backlinks()` now uses the inverted name and id index in
+`MetaIndex` for library notes. The previous implementation re-resolved every link
+on each call. Project documents keep the path-aware resolution path. The link
+rules and ambiguity rules do not change.
 
 Verification:
 
