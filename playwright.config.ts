@@ -139,7 +139,7 @@ export default defineConfig({
 	webServer: {
 		env: { VITE_SOURCE_FIDELITY_METRICS: '1' },
 		command: prebuilt
-			? `node scripts/build-provenance.mjs verify --kind e2e --instrumentation source-fidelity && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`
+			? `node scripts/build-provenance.mjs verify --kind e2e --instrumentation source-fidelity && node scripts/preview-build.mjs --host 127.0.0.1 --port ${e2ePort}`
 			: `npm run build && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
 		url: e2eBaseUrl,
 		// Do not reuse an unknown server.
