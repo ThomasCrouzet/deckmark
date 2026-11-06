@@ -330,4 +330,15 @@ describe('retained benchmark gate', () => {
 		assert.equal(report.status, 'invalid');
 		assert.deepEqual(report.failures, ['switchMs:invalid-statistic']);
 	});
+	it('fails when a required metric dropped a sample', () => {
+		const report = budgetReport({
+			platformKey: 'web-test',
+			summary: {
+				switchMs: { measured: true, p50: 120, p95: 140, runs: 3, unit: 'ms', complete: false }
+			},
+			budgets
+		});
+		assert.equal(report.status, 'invalid');
+		assert.deepEqual(report.failures, ['switchMs:incomplete-samples']);
+	});
 });

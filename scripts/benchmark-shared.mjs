@@ -154,7 +154,7 @@ export async function loadBudgets(path = join(import.meta.dirname, 'benchmark-bu
  * expose them.
  * @param {{
  *   platformKey: string,
- *   summary: Record<string, { p50?: number, p95?: number, runs: number, unit: string, measured?: boolean }>,
+ *   summary: Record<string, { p50?: number, p95?: number, runs: number, unit: string, measured?: boolean, complete?: boolean }>,
  *   budgets: Awaited<ReturnType<typeof loadBudgets>>,
  *   toleranceRatio?: number,
  *   minimumRuns?: number
@@ -230,6 +230,10 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 		}
 		if (!Number.isFinite(measured.runs) || measured.runs < metricMinimumRuns) {
 			fail('insufficient-samples', 'too-few-runs');
+			continue;
+		}
+		if (measured.complete === false) {
+			fail('incomplete-samples', 'incomplete-samples');
 			continue;
 		}
 		if (measured.unit !== budget.unit) {

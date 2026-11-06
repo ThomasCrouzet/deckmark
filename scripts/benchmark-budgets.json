@@ -18,6 +18,7 @@
 				"cachedRestart": {
 					"p95": 400,
 					"unit": "ms",
+					"minimumRuns": 20,
 					"note": "Service worker controlled reload."
 				},
 				"firstContentfulPaint": {
@@ -85,11 +86,13 @@
 				"typingWysiwyg": {
 					"p95": 3000,
 					"unit": "ms",
+					"minimumRuns": 20,
 					"note": "Large document in the visual editor."
 				},
 				"typingWysiwygSync": {
 					"p95": 200,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 1500,
@@ -130,7 +133,8 @@
 				},
 				"cachedRestart": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"firstContentfulPaint": {
 					"p95": 800,
@@ -192,11 +196,13 @@
 				},
 				"typingWysiwyg": {
 					"p95": 5000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingWysiwygSync": {
 					"p95": 300,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 1500,
@@ -237,7 +243,8 @@
 				},
 				"cachedRestart": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"firstContentfulPaint": {
 					"p95": 600,
@@ -301,11 +308,13 @@
 				"typingWysiwyg": {
 					"p95": 5500,
 					"unit": "ms",
+					"minimumRuns": 20,
 					"note": "CI p95 was 5359 ms in the visual editor on the stress corpus."
 				},
 				"typingWysiwygSync": {
 					"p95": 300,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 2600,
