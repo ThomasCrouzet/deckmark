@@ -159,6 +159,7 @@ export const en = {
 	'updates.copied': 'Download link copied.',
 	'updates.manualInstall':
 		'Install the signed package manually. The application never installs an update by itself.',
+	'palette.reportProblem': 'Report a problem',
 	'settings.about': 'About DeckMark',
 	'settings.authorCredit': 'Created by Thomas CROUZET',
 	'sidebar.homeLabel': 'Go to the start page',
