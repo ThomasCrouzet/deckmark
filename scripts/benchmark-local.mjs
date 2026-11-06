@@ -1,6 +1,7 @@
 // Measure product performance through a real browser or a real native WebView.
 // The command reads local fixtures, writes one raw JSON report, and sends no
 // telemetry. Run it in two modes: --target web and --target native.
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { readFile, stat, writeFile } from 'node:fs/promises';
@@ -50,7 +51,8 @@ function parseArguments(args) {
 		budgets: join(projectRoot, 'scripts/benchmark-budgets.json'),
 		fixtures: join(projectRoot, 'scripts/benchmark-fixtures'),
 		buildMode: process.env.BENCHMARK_BUILD_MODE ?? 'production-static',
-		enforceBudgets: false
+		enforceBudgets: false,
+		prebuilt: false
 	};
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index];
@@ -63,10 +65,14 @@ function parseArguments(args) {
 		else if (arg === '--fixtures') options.fixtures = resolve(args[++index] ?? '');
 		else if (arg === '--build-mode') options.buildMode = args[++index] ?? options.buildMode;
 		else if (arg === '--enforce-budgets') options.enforceBudgets = true;
+		else if (arg === '--prebuilt') options.prebuilt = true;
 		else throw new Error(`Unknown argument: ${arg}`);
 	}
 	if (!['web', 'native'].includes(options.target)) {
 		throw new Error('--target must be web or native.');
+	}
+	if (options.prebuilt && options.target !== 'web') {
+		throw new Error('--prebuilt applies to the web target only.');
 	}
 	if (!browserTypes[options.browser]) {
 		throw new Error('--browser must be chromium, firefox, or webkit.');
@@ -824,6 +830,20 @@ async function runWebBenchmark(options, fixtures) {
 
 async function main() {
 	const options = parseArguments(process.argv.slice(2));
+	if (options.prebuilt) {
+		execFileSync(
+			process.execPath,
+			[
+				'scripts/build-provenance.mjs',
+				'verify',
+				'--kind',
+				'web-benchmark',
+				'--instrumentation',
+				'none'
+			],
+			{ cwd: projectRoot, stdio: 'inherit' }
+		);
+	}
 	const fixtures = await loadFixtures(options.fixtures);
 	let result;
 	if (options.target === 'native') {

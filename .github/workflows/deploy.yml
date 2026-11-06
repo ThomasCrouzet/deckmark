@@ -156,9 +156,57 @@ jobs:
           test "$LINT_RESULT" = 'success'
           test "$UNIT_RESULT" = 'success'
 
+  e2e-build:
+    # Build one instrumented app for every browser shard. Each shard verifies
+    # this artifact against its source and inputs before it starts the preview
+    # server. The source-fidelity instrumentation is a distinct build input.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      - name: Build instrumented app
+        run: npm run build
+        env:
+          VITE_SOURCE_FIDELITY_METRICS: '1'
+          BASE_PATH: ''
+
+      - name: Record build provenance
+        run: node scripts/build-provenance.mjs write --kind e2e --instrumentation source-fidelity
+
+      - name: Upload test build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-build-${{ github.sha }}
+          path: build/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
   e2e-shard:
-    # E2E starts with the build and check jobs. The suite starts its own
-    # preview server, so it does not need the production build artifact.
+    # E2E uses one verified instrumented build. The shards still check out the
+    # source, install dependencies and browsers, then verify the artifact.
+    needs: e2e-build
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -216,6 +264,13 @@ jobs:
         timeout-minutes: 8
         run: npx playwright install-deps chromium firefox webkit
 
+      - name: Download verified test build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: e2e-build-${{ github.sha }}
+          path: build/
+
+      # Playwright verifies the provenance before it starts the preview server.
       # Visual snapshots: deliberately not a CI gate (local-only policy).
       # Docker Playwright baselines diverge from ubuntu-latest font rendering
       # (see CONTRIBUTING.md). Baselines stay versioned for local comparison;
@@ -223,18 +278,22 @@ jobs:
       - name: E2E tests (without visual snapshots)
         run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/4"
         env:
+          E2E_PREBUILT: '1'
           SHARD: ${{ matrix.shard }}
 
   e2e:
-    needs: e2e-shard
+    needs: [e2e-build, e2e-shard]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require every browser shard
+      - name: Require the verified build and every browser shard
         env:
+          BUILD_RESULT: ${{ needs.e2e-build.result }}
           SHARD_RESULT: ${{ needs.e2e-shard.result }}
-        run: test "$SHARD_RESULT" = success
+        run: |
+          test "$BUILD_RESULT" = success
+          test "$SHARD_RESULT" = success
 
   build:
     # The build starts as soon as the Pages paths are known. It does not wait
