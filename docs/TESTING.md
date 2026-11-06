@@ -1416,6 +1416,20 @@ nonzero. Run `npm run test:benchmark-gate`. Keep the JSON report and the exit co
 with the run evidence. The gate does not replace a browser or native benchmark
 run. It decides whether the retained measurements permit publication.
 
+## Database upgrade safety
+
+`e2e/upgrade-safety.spec.ts` creates a real IndexedDB version 5 database with a
+draft before the app starts. It checks that the current Dexie schema upgrades to
+version 80, keeps the draft bytes, and renders the content.
+
+A second case holds a version 5 connection open in another tab. The app must not
+stay on an endless loading shell: after the reviewed timeout it shows the storage
+error and the retry action. Closing the stale tab and retrying recovers the draft.
+The artifact records the blocked state and the recovery.
+
+The timeout is a bounded recovery path, not a migration shortcut. A stale tab
+cannot be forced to close, and unsaved text that was never written remains outside
+the durability guarantee.
 ## Dual-host transfer
 
 `e2e/host-transfer.spec.ts` starts a second local origin from the same production
