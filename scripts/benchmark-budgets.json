@@ -356,8 +356,8 @@
 				"libraryReload": {
 					"p95": 6000,
 					"unit": "ms",
-					"minimumRuns": 1,
-					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
+					"minimumRuns": 20,
+					"note": "Twenty warm reload samples after one unmeasured reload. The report keeps every sample and the maximum."
 				},
 				"typingSource": {
 					"p95": 300,
@@ -421,11 +421,13 @@
 				},
 				"presentationSlideSwitch": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"presentationPresent": {
 					"p95": 600,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"exportPrepare": {
 					"p95": 8000,
@@ -465,8 +467,8 @@
 				"libraryReload": {
 					"p95": 6000,
 					"unit": "ms",
-					"minimumRuns": 1,
-					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
+					"minimumRuns": 20,
+					"note": "Twenty warm reload samples after one unmeasured reload. The report keeps every sample and the maximum."
 				},
 				"typingSource": {
 					"p95": 300,
@@ -529,11 +531,13 @@
 				},
 				"presentationSlideSwitch": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"presentationPresent": {
 					"p95": 600,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"exportPrepare": {
 					"p95": 8000,
@@ -571,8 +575,8 @@
 				"libraryReload": {
 					"p95": 5000,
 					"unit": "ms",
-					"minimumRuns": 1,
-					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
+					"minimumRuns": 20,
+					"note": "Twenty warm reload samples after one unmeasured reload. The report keeps every sample and the maximum."
 				},
 				"typingSource": {
 					"p95": 200,
@@ -640,11 +644,13 @@
 				},
 				"presentationSlideSwitch": {
 					"p95": 600,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"presentationPresent": {
 					"p95": 700,
 					"unit": "ms",
+					"minimumRuns": 20,
 					"note": "Calibrated from the CI debug run. Measured p95 was close to 700 ms; keep the reviewed limit."
 				},
 				"exportPrepare": {

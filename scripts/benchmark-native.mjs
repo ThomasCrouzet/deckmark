@@ -552,7 +552,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		return values;
 	}
 
-	async function presentation(runs) {
+	async function presentation(actionRuns) {
 		await click('button[data-file-id="bench-presentation"]');
 		const startedAt = performance.now();
 		await until(
@@ -568,7 +568,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		);
 		const load = round(performance.now() - startedAt);
 		const slideSwitch = [];
-		for (let run = 0; run < runs; run += 1) {
+		for (let run = 0; run < actionRuns; run += 1) {
 			const index = (run % 2) + 1;
 			const switchAt = performance.now();
 			await click(`[data-testid="slide-thumbnail"][data-slide-index="${index}"]`);
@@ -584,7 +584,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 			slideSwitch.push(performance.now() - switchAt);
 		}
 		const present = [];
-		for (let run = 0; run < runs; run += 1) {
+		for (let run = 0; run < actionRuns; run += 1) {
 			const presentAt = performance.now();
 			await click('[data-testid="slide-present"]');
 			await until(
@@ -715,16 +715,22 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		runMemory('startup');
 		result.stage = 'library-reload';
 		await seedDatabase();
-		const reloadStartedAt = performance.now();
-		await refresh();
-		// A reload replaces the window, so the probe must be installed after it.
-		await installInputProbe();
-		await waitForContent(
-			`document.querySelector('header input')?.value === 'bench-000'`,
-			'library reload editor',
-			90_000
-		);
-		result.samples.libraryReload = [round(performance.now() - reloadStartedAt)];
+		// Warm up the reload path, then collect enough samples for p95 to be
+		// meaningful. Cold startup is measured separately.
+		const reloadSamples = [];
+		for (let run = 0; run < 21; run += 1) {
+			const reloadStartedAt = performance.now();
+			await refresh();
+			// A reload replaces the window, so the probe must be installed after it.
+			await installInputProbe();
+			await waitForContent(
+				`document.querySelector('header input')?.value === 'bench-000'`,
+				'library reload editor',
+				90_000
+			);
+			if (run > 0) reloadSamples.push(round(performance.now() - reloadStartedAt));
+		}
+		result.samples.libraryReload = reloadSamples;
 		runMemory('library');
 		await screenshot('02-library');
 		result.checks.push('native library reload');
@@ -774,7 +780,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		result.samples.projectTreeRender = await projectTree(Math.min(options.runs, 5));
 		result.checks.push('native project tree');
 		result.stage = 'presentation';
-		const deck = await presentation(Math.min(options.runs, 5));
+		const deck = await presentation(20);
 		result.samples.presentationLoad = deck.load;
 		result.samples.presentationSlideSwitch = deck.slideSwitch;
 		result.samples.presentationPresent = deck.present;

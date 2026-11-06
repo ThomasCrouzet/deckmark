@@ -115,6 +115,16 @@ npm run test:benchmark-gate
 The browser benchmark collects 3 samples for reload and presentation load, and 5
 samples for the other scenarios. A report from fewer runs is not valid evidence.
 
+The native benchmark collects 20 samples for the library reload, slide switch
+and present mode. One unmeasured warm reload precedes the library samples.
+`minimumRuns` is 20 for those metrics, so a short report fails the gate. A p95
+over five samples is the maximum, and one browser or WebView stall failed
+unrelated pull requests on macOS. Twenty samples make p95 the second-worst
+value: a systematic slowdown still fails, one isolated stall stays visible in
+the report, and two stalls fail the gate. Cold startup, warm startup, close and
+presentation load stay one-shot because they require a process or window
+lifecycle.
+
 Native CI still builds the instrumented debug binary. Its measurements are
 diagnostic only. The debug results are not release-build performance and the
 baseline labels say so. An optimized native baseline needs a separate recorded
