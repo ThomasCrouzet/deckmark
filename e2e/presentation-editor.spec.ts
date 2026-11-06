@@ -690,6 +690,64 @@ test('commits text once before applying the redo button', async ({ page }, testI
 	});
 });
 
+test('formats selected slide text, then ends the edit with Escape and one undo step', async ({
+	page
+}, testInfo) => {
+	const pageErrors: string[] = [];
+	page.on('pageerror', (error) => pageErrors.push(error.message));
+	const editor = await createPresentation(page);
+	const text = await addObject(editor, 'text');
+	const rendered = await renderedObject(editor, text);
+	await text.dblclick();
+	const textarea = editor.getByTestId('slide-text-editor');
+	await expect(textarea).toBeFocused();
+	await textarea.fill('Alpha Beta');
+	await textarea.evaluate((element) => {
+		const field = element as HTMLTextAreaElement;
+		field.focus();
+		field.setSelectionRange(6, 10);
+	});
+	await textarea.press('Control+b');
+	await expect(textarea).toHaveValue('Alpha **Beta**');
+	expect(
+		await textarea.evaluate((element) => {
+			const field = element as HTMLTextAreaElement;
+			return {
+				start: field.selectionStart,
+				end: field.selectionEnd,
+				focused: field === document.activeElement
+			};
+		})
+	).toEqual({ start: 8, end: 12, focused: true });
+	await textarea.press('Escape');
+	await expect(editor.getByTestId('slide-text-editor')).toHaveCount(0);
+	await expect(editor).toBeFocused();
+	await expect(rendered).toContainText('Beta');
+	await expect(rendered.locator('strong')).toHaveText('Beta');
+	await openPresentationSource(editor);
+	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(/\*\*Beta\*\*/);
+	await editor.getByTestId('slide-source-cancel').click();
+	await editor.getByTestId('slide-undo').click();
+	await expect(rendered).toContainText('Your text');
+	await expect(rendered).not.toContainText('Alpha');
+	expect(pageErrors).toEqual([]);
+	await testInfo.attach('presentation-text-session.json', {
+		body: JSON.stringify(
+			{
+				selection: [6, 10],
+				formatted: 'Alpha **Beta**',
+				selectionAfterFormat: [8, 12],
+				escapeRestoresEditorFocus: true,
+				undoReturnsPreviousText: 'Your text',
+				pageErrors
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
 test('applies selection, grouping, stacking, connector, and history commands', async ({
 	page
 }, testInfo) => {

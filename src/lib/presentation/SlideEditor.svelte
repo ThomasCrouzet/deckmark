@@ -20,6 +20,7 @@
 	import { templatesStore } from '#lib/templates.svelte.js';
 	import { PresentationEditor } from './editor.svelte';
 	import { createPresentationGestures } from './gestures.svelte';
+	import { createPresentationTextEdit } from './text-edit.svelte';
 	import type { PresentationElementType } from './model';
 	import SlideContent from './SlideContent.svelte';
 	import SlideThumbnail from './SlideThumbnail.svelte';
@@ -71,6 +72,7 @@
 	let canvas = $state<HTMLDivElement | null>(null);
 	let viewport = $state<HTMLDivElement | null>(null);
 	let textInput = $state<HTMLTextAreaElement | null>(null);
+	const textEdit = createPresentationTextEdit(editor, () => textInput);
 	let imageInput = $state<HTMLInputElement | null>(null);
 	let viewportWidth = $state(900);
 	let viewportHeight = $state(600);
@@ -85,7 +87,6 @@
 	let notesOpen = $state(true);
 	let inspectorOpen = $state(true);
 	let multiSelect = $state(false);
-	let editingId = $state<string | null>(null);
 	let presenting = $state(false);
 	let showNotes = $state(false);
 	let busy = $state(false);
@@ -146,7 +147,7 @@
 		editor,
 		() => canvas,
 		() => scale,
-		finishText,
+		() => textEdit.finish(),
 		() => multiSelect
 	);
 	const scale = $derived(
@@ -155,9 +156,7 @@
 			Math.min((viewportWidth - 48) / editor.deck.width, (viewportHeight - 48) / editor.deck.height)
 		) * gestures.zoom
 	);
-	const editingElement = $derived(
-		editor.slide.elements.find((element) => element.id === editingId)
-	);
+	const editingElement = $derived(textEdit.element);
 	const selectedBox = $derived.by(() => {
 		const elements = editor.elements.map((element) => {
 			const box = presentationElementBox(element, editor.slide);
@@ -209,7 +208,7 @@
 		untrack(() => {
 			if (current !== undefined && current !== editor.source) {
 				gestures.cancel();
-				editingId = null;
+				textEdit.discard();
 				const editingSource = sourceOpen || editor.error;
 				editor.receive(current);
 				if (!editingSource) {
@@ -269,14 +268,14 @@
 			else if (action === 'export-html') void exportFile('html');
 			else if (action === 'export-pdf') void exportFile('pdf');
 			else if (action === 'save' || action === 'save-disk') {
-				finishText();
+				textEdit.finish();
 				void filesStore.saveActive().catch((error) =>
 					reportError('save presentation', error, {
 						notifyUser: t('page.saveToDiskError')
 					})
 				);
 			} else if (action === 'save-as') {
-				finishText();
+				textEdit.finish();
 				void filesStore.saveActiveAs().catch((error) =>
 					reportError('save presentation as', error, {
 						notifyUser: t('page.saveToDiskError')
@@ -312,34 +311,18 @@
 		if (event.inputType !== 'historyUndo' && event.inputType !== 'historyRedo') return;
 		event.preventDefault();
 		event.stopPropagation();
-		finishText();
+		textEdit.finish();
 		if (event.inputType === 'historyUndo') editor.undo();
 		else editor.redo();
 	}
 
-	function finishText() {
-		if (!editingId) return;
-		editingId = null;
-		editor.commit();
-	}
-	async function editText(id = editor.primary?.id) {
-		const element = editor.slide.elements.find((entry) => entry.id === id);
-		if (!element || ['image', 'line', 'arrow'].includes(element.type)) return;
-		finishText();
-		editor.select(element.id);
-		editor.begin();
-		editingId = element.id;
-		await tick();
-		textInput?.focus();
-		textInput?.select();
-	}
 	function go(index: number) {
-		finishText();
+		textEdit.finish();
 		editor.selectSlide(index);
 		gestures.resetView();
 	}
 	function add(type: PresentationElementType) {
-		finishText();
+		textEdit.finish();
 		if (type === 'image') {
 			imageInput?.click();
 			return;
@@ -348,7 +331,7 @@
 	}
 	async function insertImages(files: File[]) {
 		if (!files.length) return;
-		finishText();
+		textEdit.finish();
 		const slideId = editor.slide.id;
 		let expectedSource = editor.source;
 		function targetIsCurrent(): boolean {
@@ -397,43 +380,6 @@
 		// Let the window handler clear the overlay without importing these files again.
 		void insertImages(files);
 	}
-	function editKey(event: KeyboardEvent) {
-		if (event.defaultPrevented || event.isComposing) return;
-		if (
-			!event.altKey &&
-			event.metaKey !== event.ctrlKey &&
-			['b', 'i'].includes(event.key.toLowerCase())
-		) {
-			event.preventDefault();
-			event.stopPropagation();
-			formatText(event.key.toLowerCase() === 'b' ? '**' : '*');
-			return;
-		}
-		if (keyboardStore.match(event)) return;
-		event.stopPropagation();
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			finishText();
-			root?.focus();
-		}
-	}
-	function formatText(marker: string) {
-		if (!textInput || !editingElement) return;
-		const start = textInput.selectionStart;
-		const end = textInput.selectionEnd;
-		const content = editingElement.content;
-		editingElement.content =
-			content.slice(0, start) +
-			marker +
-			content.slice(start, end) +
-			(marker === '- ' ? '' : marker) +
-			content.slice(end);
-		editor.publish();
-		void tick().then(() => {
-			textInput?.focus();
-			textInput?.setSelectionRange(start + marker.length, end + marker.length);
-		});
-	}
 	function handleKey(event: KeyboardEvent) {
 		const appShortcut = keyboardStore.match(event) || (event.ctrlKey && event.key === 'Tab');
 		if (appShortcut && !presenting) return;
@@ -469,12 +415,12 @@
 			startClipboardShortcut(event.key.toLowerCase());
 		} else if (modifier && event.key.toLowerCase() === 'z') {
 			event.preventDefault();
-			finishText();
+			textEdit.finish();
 			if (event.shiftKey) editor.redo();
 			else editor.undo();
 		} else if (modifier && event.key.toLowerCase() === 'y') {
 			event.preventDefault();
-			finishText();
+			textEdit.finish();
 			editor.redo();
 		} else if (modifier && event.key.toLowerCase() === 'd') {
 			event.preventDefault();
@@ -487,7 +433,7 @@
 			void exportFile('pdf');
 		} else if (modifier && event.key.toLowerCase() === 's') {
 			event.preventDefault();
-			finishText();
+			textEdit.finish();
 			void filesStore.flushPendingAwait().catch((error) => reportError('save presentation', error));
 		} else if (event.key === 'Delete' || event.key === 'Backspace') {
 			if (editor.selected.length) {
@@ -506,7 +452,7 @@
 			);
 		} else if (event.key === 'Enter' && editor.primary) {
 			event.preventDefault();
-			void editText();
+			void textEdit.begin();
 		}
 	}
 	function focusClickedButton(event: MouseEvent) {
@@ -631,7 +577,7 @@
 	async function saveAsTemplate() {
 		if (busy || editor.error || !filesStore.active) return;
 		advancedOpen = false;
-		finishText();
+		textEdit.finish();
 		const name = await promptStore.prompt({
 			title: t('palette.templateNamePrompt'),
 			confirmLabel: t('templates.save'),
@@ -651,7 +597,7 @@
 	async function exportFile(kind: 'md' | 'html' | 'pdf') {
 		if (busy || editor.error) return;
 		exportOpen = false;
-		finishText();
+		textEdit.finish();
 		busy = true;
 		try {
 			await filesStore.flushPendingAwait();
@@ -667,7 +613,7 @@
 	}
 	function present() {
 		if (editor.error || sourceOpen) return;
-		finishText();
+		textEdit.finish();
 		presenting = true;
 		gestures.resetView();
 		void tick().then(() => root?.focus());
@@ -680,7 +626,7 @@
 		);
 	}
 	function openSource() {
-		finishText();
+		textEdit.finish();
 		advancedOpen = false;
 		if (!sourceOpen && !editor.error) {
 			sourceDraft = editor.source;
@@ -909,7 +855,7 @@
 				aria-label={t('slides.undo')}
 				title={t('slides.undo')}
 				onclick={() => {
-					finishText();
+					textEdit.finish();
 					editor.undo();
 				}}
 				disabled={!editor.undoEntries.length}><Undo2 size={18} /></button
@@ -920,7 +866,7 @@
 				aria-label={t('slides.redo')}
 				title={t('slides.redo')}
 				onclick={() => {
-					finishText();
+					textEdit.finish();
 					editor.redo();
 				}}
 				disabled={!editor.redoEntries.length}><Redo2 size={18} /></button
@@ -1026,7 +972,7 @@
 						<button
 							data-testid="slide-add"
 							onclick={() => {
-								finishText();
+								textEdit.finish();
 								editor.addSlide();
 							}}><Plus size={16} />{t('slides.add')}</button
 						>
@@ -1076,7 +1022,7 @@
 							aria-label={t('slides.duplicateSlide')}
 							title={t('slides.duplicateSlide')}
 							onclick={() => {
-								finishText();
+								textEdit.finish();
 								editor.duplicateSlide();
 							}}><Copy size={16} /></button
 						>
@@ -1085,7 +1031,7 @@
 							aria-label={t('slides.deleteSlide')}
 							title={t('slides.deleteSlide')}
 							onclick={() => {
-								finishText();
+								textEdit.finish();
 								editor.deleteSlide();
 							}}><Trash2 size={16} /></button
 						>
@@ -1153,7 +1099,7 @@
 						{@render action(
 							'edit-text',
 							'slides.editText',
-							() => void editText(),
+							() => void textEdit.begin(),
 							!editor.primary || ['image', 'line', 'arrow'].includes(editor.primary.type),
 							!editor.selected.length ? `${guidanceId}-selection` : undefined,
 							Pencil
@@ -1202,7 +1148,7 @@
 									slide={editor.slide}
 									deck={editor.deck}
 									{fileId}
-									{...editingId ? { hideTextId: editingId } : {}}
+									{...textEdit.editingId ? { hideTextId: textEdit.editingId } : {}}
 								/>
 							</div>
 							{#if !presenting}
@@ -1221,7 +1167,7 @@
 										aria-pressed={editor.selected.includes(element.id)}
 										style={presentationElementStyle(element, editor.slide)}
 										onpointerdown={(event) => {
-											if (editingId !== element.id) gestures.startObject(event, element);
+											if (textEdit.editingId !== element.id) gestures.startObject(event, element);
 										}}
 										onclick={(event) => {
 											if (event.detail === 0) editor.select(element.id, event.shiftKey);
@@ -1234,16 +1180,16 @@
 											} else if (event.key === 'F2') {
 												event.preventDefault();
 												event.stopPropagation();
-												void editText(element.id);
+												void textEdit.begin(element.id);
 											}
 										}}
-										ondblclick={() => void editText(element.id)}
+										ondblclick={() => void textEdit.begin(element.id)}
 									></button>
 								{/each}
 								{#if !editor.slide.elements.length}<p class="empty-slide">
 										{t('slides.empty')}
 									</p>{/if}
-								{#if selectedBox && !editingId}
+								{#if selectedBox && !textEdit.editingId}
 									<div
 										class="selection-box"
 										style:left={`${selectedBox.x}px`}
@@ -1286,12 +1232,9 @@
 										style:color={editingElement.color}
 										style:background={editor.slide.background}
 										style:transform={`rotate(${editingElement.rotation}deg)`}
-										onkeydown={editKey}
+										onkeydown={(event) => textEdit.handleKey(event, () => root?.focus())}
 										onpointerdown={(event) => event.stopPropagation()}
-										oninput={(event) => {
-											if (editingElement) editingElement.content = event.currentTarget.value;
-											editor.publish();
-										}}></textarea>
+										oninput={(event) => textEdit.update(event.currentTarget.value)}></textarea>
 								{/if}
 								{#if gestures.guideX !== null}<div
 										class="guide vertical"
@@ -1312,16 +1255,16 @@
 						</div>
 					</div>
 				</div>
-				{#if editingId}<div class="text-tools">
-						{@render action('text-bold', 'slides.bold', () => formatText('**'))}{@render action(
-							'text-italic',
-							'slides.italic',
-							() => formatText('*')
-						)}{@render action('text-list', 'slides.bulletList', () => formatText('- '))}
+				{#if textEdit.editingId}<div class="text-tools">
+						{@render action('text-bold', 'slides.bold', () =>
+							textEdit.format('**')
+						)}{@render action('text-italic', 'slides.italic', () =>
+							textEdit.format('*')
+						)}{@render action('text-list', 'slides.bulletList', () => textEdit.format('- '))}
 						<span>{t('slides.textHint')}</span><button
 							class="primary"
 							data-testid="slide-text-done"
-							onclick={finishText}>{t('slides.textDone')}</button
+							onclick={() => textEdit.finish()}>{t('slides.textDone')}</button
 						>
 					</div>{/if}
 				{#if overflow && !presenting}<p
@@ -1337,7 +1280,7 @@
 							placeholder={t('slides.notesPlaceholder')}
 							value={editor.slide.notes}
 							onfocus={() => {
-								finishText();
+								textEdit.finish();
 								editor.begin();
 							}}
 							oninput={(event) => {
