@@ -425,13 +425,14 @@ class FilesStore {
 
 	async load(preferredActiveId: string | null = null): Promise<void> {
 		if (!browser || this.loaded) return;
+		let openTimer: ReturnType<typeof setTimeout> | undefined;
 		try {
 			// A stale tab can hold an older database connection and block the
 			// upgrade indefinitely. Surface a recoverable state instead of an
 			// endless loading shell. Dexie keeps the request pending; the user
 			// must close the other tab and retry.
 			const timeout = new Promise<never>((_resolve, reject) => {
-				setTimeout(() => reject(new Error('storage-open-timeout')), 8_000);
+				openTimer = setTimeout(() => reject(new Error('storage-open-timeout')), 8_000);
 			});
 			await Promise.race([this.loadData(preferredActiveId), timeout]);
 		} catch (err) {
@@ -439,6 +440,9 @@ class FilesStore {
 			// blocked upgrade, corrupted profile): surface an actionable message.
 			reportError('load IndexedDB', err);
 			this.loadError = t('files.loadError');
+		} finally {
+			// Do not keep a pending timer after a fast load.
+			if (openTimer !== undefined) clearTimeout(openTimer);
 		}
 	}
 
