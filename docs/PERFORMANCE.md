@@ -121,6 +121,32 @@ systematic slowdown still fails and one isolated stall stays visible without
 becoming the gate decision. A repeated stall also fails, because the
 second-worst value then exceeds the limit.
 
+The native benchmark collects 20 samples for the library reload, WYSIWYG
+typing, slide switch and present mode. One unmeasured warm reload precedes the
+library samples. `minimumRuns` is 20 for those metrics, so a short report fails
+the gate. A p95 over five samples is the maximum, and one browser or WebView
+stall failed unrelated pull requests on macOS. Twenty samples make p95 the
+second-worst value: a systematic slowdown still fails, one isolated stall stays
+visible in the report, and two stalls fail the gate.
+
+The warm startup metric collects three starts and gates on the median
+(`statistic: "p50"`). The report keeps the p95 and the maximum. A single start
+cannot separate a runner stall from a regression, and a 32 s stall on a virtual
+macOS runner failed an unrelated pull request. A median over three starts needs
+two slow starts to fail. Process-tree RSS also gates on the median because a
+WebView helper process can add a transient process; the p95 and maximum stay in
+the report. WYSIWYG typing and present mode also gate on the median over 20
+samples, because the debug WebView tail on the virtual macOS runner moves by
+more than the reviewed budget while the median stays stable. The p95 and
+maximum stay in the report. Cold startup, close and presentation load stay
+one-shot because they require a process or window lifecycle.
+
+The library reload budget is 8000 ms on all three native platforms because the
+20-sample workload measures warm reloads, not the old one-shot cold reload. The
+measured p95 was 4834.9 to 7532.5 ms on Linux, 5408.5 ms on Windows and
+7207.6 ms on macOS on 2026-11-06. The old 5000 ms macOS and 6000 ms Linux and
+Windows values covered one cold reload and are not comparable.
+
 Native CI still builds the instrumented debug binary. Its measurements are
 diagnostic only. The debug results are not release-build performance and the
 baseline labels say so. An optimized native baseline needs a separate recorded
@@ -149,6 +175,9 @@ measurements:
 | macOS native `readModeSwitch` | 15226 ms | 16000 ms |
 | macOS native `wysiwygLoad` | 14665 ms | 15500 ms |
 | macOS native `presentationPresent` | 641 ms | 700 ms |
+| Linux native `libraryReload` (20 warm samples) | 4834.9 to 7532.5 ms | 8000 ms |
+| Windows native `libraryReload` (20 warm samples) | 5408.5 ms | 8000 ms |
+| macOS native `libraryReload` (20 warm samples) | 7207.6 ms | 8000 ms |
 | macOS native `projectTreeRender` | 4075 ms | 4200 ms |
 | Linux native `startupCold` | 31312 ms | 32000 ms |
 | WebKit `presentationLoad` | 1130 ms | 1200 ms |

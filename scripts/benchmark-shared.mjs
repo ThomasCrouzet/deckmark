@@ -154,7 +154,7 @@ export async function loadBudgets(path = join(import.meta.dirname, 'benchmark-bu
  * expose them.
  * @param {{
  *   platformKey: string,
- *   summary: Record<string, { p95?: number, runs: number, unit: string, measured?: boolean }>,
+ *   summary: Record<string, { p50?: number, p95?: number, runs: number, unit: string, measured?: boolean }>,
  *   budgets: Awaited<ReturnType<typeof loadBudgets>>,
  *   toleranceRatio?: number,
  *   minimumRuns?: number
@@ -193,7 +193,7 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 	const budgetDefinitions = platformBudget.metrics ?? {};
 	for (const [metric, definition] of Object.entries(budgetDefinitions)) {
 		const budget =
-			/** @type {{ p95: number, unit: string, note?: string, toleranceRatio?: number, optional?: boolean, minimumRuns?: number }} */ (
+			/** @type {{ p95: number, unit: string, note?: string, toleranceRatio?: number, optional?: boolean, minimumRuns?: number, statistic?: 'p50' | 'p95' }} */ (
 				definition
 			);
 		const measured = summary[metric];
@@ -215,6 +215,15 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 			fail('invalid-budget', 'invalid-budget-p95');
 			continue;
 		}
+		const statistic = budget.statistic ?? 'p95';
+		if (statistic !== 'p95' && statistic !== 'p50') {
+			fail('invalid-budget', 'invalid-statistic');
+			continue;
+		}
+		if (statistic === 'p50' && metricMinimumRuns < 3) {
+			fail('invalid-budget', 'p50-needs-three-runs');
+			continue;
+		}
 		if (!measured?.measured || measured.runs === 0) {
 			fail(budget.optional ? 'unsupported' : 'missing', 'missing-measurement');
 			continue;
@@ -227,16 +236,20 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 			fail('unit-mismatch', 'unit-mismatch');
 			continue;
 		}
-		if (measured.p95 === undefined || !Number.isFinite(measured.p95) || measured.p95 < 0) {
-			fail('invalid-value', 'non-finite-or-negative-p95');
+		const measuredValue = measured[statistic];
+		if (measuredValue === undefined || !Number.isFinite(measuredValue) || measuredValue < 0) {
+			fail('invalid-value', `non-finite-or-negative-${statistic}`);
 			continue;
 		}
 		const limit = Number((budget.p95 * (1 + (budget.toleranceRatio ?? tolerance))).toFixed(3));
-		const over = measured.p95 > limit;
+		const over = measuredValue > limit;
 		metrics[metric] = {
 			budgetP95: budget.p95,
 			limitWithTolerance: limit,
+			statistic,
 			measuredP95: measured.p95,
+			measuredP50: measured.p50,
+			measuredValue,
 			unit: budget.unit,
 			status: over ? 'over-budget' : 'ok',
 			runs: measured.runs,
