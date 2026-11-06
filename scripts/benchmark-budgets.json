@@ -13,7 +13,8 @@
 				"coldStart": {
 					"p95": 400,
 					"unit": "ms",
-					"note": "Includes Playwright command overhead."
+					"note": "Includes Playwright command overhead.",
+					"minimumRuns": 20
 				},
 				"cachedRestart": {
 					"p95": 400,
@@ -23,15 +24,18 @@
 				},
 				"firstContentfulPaint": {
 					"p95": 400,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domInteractive": {
 					"p95": 250,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domContentLoaded": {
 					"p95": 250,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"libraryReload": {
 					"p95": 6000,
@@ -129,7 +133,8 @@
 			"metrics": {
 				"coldStart": {
 					"p95": 1200,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"cachedRestart": {
 					"p95": 800,
@@ -138,15 +143,18 @@
 				},
 				"firstContentfulPaint": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domInteractive": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domContentLoaded": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"libraryReload": {
 					"p95": 8000,
@@ -239,7 +247,8 @@
 			"metrics": {
 				"coldStart": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"cachedRestart": {
 					"p95": 500,
@@ -248,15 +257,18 @@
 				},
 				"firstContentfulPaint": {
 					"p95": 600,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domInteractive": {
 					"p95": 400,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domContentLoaded": {
 					"p95": 400,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"libraryReload": {
 					"p95": 8000,

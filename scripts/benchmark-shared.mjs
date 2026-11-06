@@ -148,10 +148,10 @@ export async function loadBudgets(path = join(import.meta.dirname, 'benchmark-bu
 /**
  * Compare measured p95 values with the configured baseline for one platform.
  * The evaluation fails closed: a missing baseline, an absent required metric,
- * too few samples, a unit mismatch, a non-finite value, an ungated summary
- * metric, or a p95 over the reviewed limit produces a non-ok status. Only
- * metrics marked `optional` may stay unmeasured, because the engine does not
- * expose them.
+ * too few samples, a measured metric without `complete: true`, a unit mismatch,
+ * a non-finite value, an ungated summary metric, or a p95 over the reviewed
+ * limit produces a non-ok status. Only metrics marked `optional` may stay
+ * unmeasured, because the engine does not expose them.
  * @param {{
  *   platformKey: string,
  *   summary: Record<string, { p50?: number, p95?: number, runs: number, unit: string, measured?: boolean, complete?: boolean }>,
@@ -228,11 +228,11 @@ export function budgetReport({ platformKey, summary, budgets, toleranceRatio, mi
 			fail(budget.optional ? 'unsupported' : 'missing', 'missing-measurement');
 			continue;
 		}
-		if (!Number.isFinite(measured.runs) || measured.runs < metricMinimumRuns) {
+		if (!Number.isInteger(measured.runs) || measured.runs < metricMinimumRuns) {
 			fail('insufficient-samples', 'too-few-runs');
 			continue;
 		}
-		if (measured.complete === false) {
+		if (measured.complete !== true) {
 			fail('incomplete-samples', 'incomplete-samples');
 			continue;
 		}
