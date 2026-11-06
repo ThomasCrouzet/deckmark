@@ -34,6 +34,8 @@ dev-dist
 # Playwright test reports and traces (*.png snapshots stay versioned)
 /test-results
 /playwright-report
+/blob-report
+/all-blob-reports
 /production-report
 /production-results
 /playwright/.cache
