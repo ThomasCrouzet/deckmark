@@ -208,12 +208,13 @@ jobs:
 
       - name: Install Playwright browsers (+ system dependencies)
         if: steps.cache-pw.outputs.cache-hit != 'true'
-        timeout-minutes: 8
+        # The Ubuntu apt mirror can be slow on a shared runner.
+        timeout-minutes: 20
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Install Playwright system dependencies (cache hit)
         if: steps.cache-pw.outputs.cache-hit == 'true'
-        timeout-minutes: 8
+        timeout-minutes: 20
         run: npx playwright install-deps chromium firefox webkit
 
       # Visual snapshots: deliberately not a CI gate (local-only policy).
