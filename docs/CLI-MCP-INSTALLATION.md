@@ -87,6 +87,9 @@ node scripts/pack-cli.mjs --out build/cli-pack --archive
 under the `--out` parent. On this host the command writes
 `build/deckmark-cli-2.4.0-linux-x64/` and
 `build/deckmark-cli-2.4.0-linux-x64.tar.gz`. It writes a `.zip` file on Windows.
+On Windows, the packer uses `%SystemRoot%\System32\tar.exe` and ignores `tar`
+on `PATH`: Git for Windows puts GNU tar first, and GNU tar cannot write a ZIP
+archive.
 The archive root directory and the package directory have the same name, so the
 extracted paths match the documented layout and the install examples.
 

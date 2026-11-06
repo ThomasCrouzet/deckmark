@@ -29,7 +29,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCHEMA = 'deckmark-cli-install/1';
@@ -53,6 +53,45 @@ function usage(message) {
 			'         [--expect-platform <platform>] [--expect-arch <arch>]\n'
 	);
 	process.exit(2);
+}
+
+function systemRoot(env) {
+	const key = Object.keys(env).find((name) => name.toLowerCase() === 'systemroot');
+	return key ? String(env[key] ?? '') : '';
+}
+
+// Windows ships bsdtar at a fixed path under SystemRoot. Do not resolve tar
+// through PATH: Git for Windows puts GNU tar first, and GNU tar cannot write a
+// ZIP archive. A missing tool is a clear build failure, not a fallback.
+export function resolveArchiveTool({
+	platform = process.platform,
+	env = process.env,
+	exists = existsSync
+} = {}) {
+	if (platform !== 'win32') return 'tar';
+	const root = systemRoot(env);
+	if (!root) {
+		throw new Error(
+			'Cannot find the Windows archive tool: SystemRoot is not set. ' +
+				'Run the packer from a standard Windows environment.'
+		);
+	}
+	const candidate = join(root, 'System32', 'tar.exe');
+	if (!exists(candidate)) {
+		throw new Error(
+			`Cannot find the Windows archive tool: ${candidate}. ` +
+				'Windows provides bsdtar at System32/tar.exe under SystemRoot.'
+		);
+	}
+	return candidate;
+}
+
+function archiveToolPath() {
+	try {
+		return resolveArchiveTool();
+	} catch (error) {
+		fail(error.message);
+	}
 }
 
 function parseArgs(argv) {
@@ -332,10 +371,28 @@ function cmdArgument(value) {
 	return `"${text}"`;
 }
 
+// cmd.exe /s removes the first and the last quote from the command it receives.
+// Wrap the complete line once so the quoted launcher and its quoted arguments
+// survive that rule. The line is already escaped for cmd.exe, so the spawn must
+// pass it verbatim. Otherwise libuv escapes the quotes again for the C runtime,
+// which cmd.exe does not parse.
+export function windowsLauncherInvocation(
+	command,
+	args,
+	comspec = process.env.ComSpec || 'cmd.exe'
+) {
+	const line = [command, ...args].map(cmdArgument).join(' ');
+	return {
+		command: comspec,
+		args: ['/d', '/s', '/c', `"${line}"`],
+		options: { windowsVerbatimArguments: true }
+	};
+}
+
 function runLauncher(stage, name, args) {
 	if (process.platform === 'win32') {
-		const line = [join(stage, 'bin', `${name}.cmd`), ...args].map(cmdArgument).join(' ');
-		return run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', line]);
+		const invocation = windowsLauncherInvocation(join(stage, 'bin', `${name}.cmd`), args);
+		return run(invocation.command, invocation.args, invocation.options);
 	}
 	return run(join(stage, 'bin', name), args);
 }
@@ -454,10 +511,11 @@ async function pack(options) {
 		if (options.archive) {
 			const archive = `${out}${process.platform === 'win32' ? '.zip' : '.tar.gz'}`;
 			assertArchivePath(archive);
+			const tar = archiveToolPath();
 			if (process.platform === 'win32') {
-				run('tar.exe', ['-a', '-c', '-f', archive, '-C', parent, basename(out)]);
+				run(tar, ['-a', '-c', '-f', archive, '-C', parent, basename(out)]);
 			} else {
-				run('tar', ['-czf', archive, '-C', parent, basename(out)]);
+				run(tar, ['-czf', archive, '-C', parent, basename(out)]);
 			}
 			process.stdout.write(
 				`pack-cli: wrote ${relative(ROOT, archive) || archive} (root ${basename(out)}/, sha256 ${await sha256File(archive)})\n`
@@ -594,6 +652,10 @@ function verify(options) {
 	verifyManifest(dir, manifest, options);
 }
 
-const options = parseArgs(process.argv.slice(2));
-if (options.command === 'verify') verify(options);
-else await pack(options);
+const invokedDirectly =
+	process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (invokedDirectly) {
+	const options = parseArgs(process.argv.slice(2));
+	if (options.command === 'verify') verify(options);
+	else await pack(options);
+}

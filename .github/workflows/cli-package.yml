@@ -199,16 +199,26 @@ jobs:
         timeout-minutes: 2
         run: |
           set -euo pipefail
-          tar.exe --version | head -n 1
-          tar.exe --version | grep -qi 'bsdtar'
-          command -v tar
-          # Exercise the exact archive call that the packer uses.
+          # Select the same archive tool that the packer selects. Git for
+          # Windows puts GNU tar first on PATH, and GNU tar cannot write ZIP.
+          system_root=$(node -p "process.env.SystemRoot || ''")
+          test -n "$system_root"
+          tar_exe=$(cygpath -u "$system_root/System32/tar.exe")
+          test -f "$tar_exe"
+          "$tar_exe" --version | head -n 1
+          "$tar_exe" --version | grep -qi 'bsdtar'
+          # Exercise the exact archive, list, and extract calls that the packer
+          # and the installed-package suite use.
           probe="$RUNNER_TEMP/tar-probe"
           rm -rf "$probe"
           mkdir -p "$probe/payload"
           printf 'probe\n' > "$probe/payload/marker.txt"
-          tar.exe -a -c -f "$RUNNER_TEMP/tar-probe.zip" -C "$probe" payload
-          tar -tf "$RUNNER_TEMP/tar-probe.zip" | grep -q 'payload/marker.txt'
+          "$tar_exe" -a -c -f "$RUNNER_TEMP/tar-probe.zip" -C "$probe" payload
+          "$tar_exe" -tf "$RUNNER_TEMP/tar-probe.zip" | grep -q 'payload/marker.txt'
+          rm -rf "$RUNNER_TEMP/tar-probe-extract"
+          mkdir -p "$RUNNER_TEMP/tar-probe-extract"
+          "$tar_exe" -xf "$RUNNER_TEMP/tar-probe.zip" -C "$RUNNER_TEMP/tar-probe-extract"
+          test -f "$RUNNER_TEMP/tar-probe-extract/payload/marker.txt"
 
       - name: Install repository dependencies
         timeout-minutes: 10

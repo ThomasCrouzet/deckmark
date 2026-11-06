@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
+import { resolveArchiveTool, windowsLauncherInvocation } from './pack-cli.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
@@ -34,7 +35,7 @@ const RELEASE_NAME = `deckmark-cli-${VERSION}-${HOST_OS}-${process.arch}`;
 const PACKAGE = join(ROOT, 'test-results', RELEASE_NAME);
 const ARCHIVE = `${PACKAGE}${process.platform === 'win32' ? '.zip' : '.tar.gz'}`;
 const PACK_SCRIPT = join(ROOT, 'scripts', 'pack-cli.mjs');
-const TAR = process.platform === 'win32' ? 'tar.exe' : 'tar';
+const TAR = resolveArchiveTool();
 const CANARY = 'deckmark-test-secret-4f8a1c';
 const COMMANDS = [];
 const OBSERVED = {};
@@ -80,32 +81,17 @@ function installedEnv(extra = {}) {
 	};
 }
 
-// cmd.exe rejects a direct .cmd start when shell is false. The launcher is
-// therefore started through cmd.exe /d /s /c with one quoted command line.
-// A quote, a percent sign, or a line break cannot pass through a batch file
-// without a second shell expansion, so the helper refuses them instead of
-// guessing.
-const CMD_UNSAFE = /["%\r\n]/;
-
-function quoteCmdArg(value) {
-	const text = String(value);
-	if (CMD_UNSAFE.test(text)) {
-		throw new Error(`Cannot pass ${JSON.stringify(text)} through a Windows .cmd launcher.`);
-	}
-	return `"${text}"`;
-}
-
 function launcherInvocation(name, args, root = packageRoot) {
 	if (process.platform !== 'win32') {
-		return { command: join(root, 'bin', name), args };
+		return { command: join(root, 'bin', name), args, options: {} };
 	}
-	const line = [join(root, 'bin', `${name}.cmd`), ...args].map(quoteCmdArg).join(' ');
-	return { command: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', line] };
+	return windowsLauncherInvocation(join(root, 'bin', `${name}.cmd`), args);
 }
 
 function cli(args, options = {}) {
 	const invocation = launcherInvocation('deckmark', args);
 	return run(invocation.command, invocation.args, {
+		...invocation.options,
 		cwd: fixtureRoot,
 		env: installedEnv(),
 		...options
@@ -127,6 +113,7 @@ function mcp(args, input) {
 	if (process.platform === 'win32') return mcpDirect(args, input);
 	const invocation = launcherInvocation('deckmark-mcp', args);
 	return run(invocation.command, invocation.args, {
+		...invocation.options,
 		cwd: fixtureRoot,
 		env: installedEnv(),
 		input
@@ -218,6 +205,60 @@ before(() => {
 after(() => {
 	if (installRoot) rmSync(installRoot, { recursive: true, force: true });
 	if (projectRoot) rmSync(projectRoot, { recursive: true, force: true });
+});
+
+test('Windows archive tool is resolved from SystemRoot, not from PATH', () => {
+	const root = 'C:\\Windows';
+	const expected = join(root, 'System32', 'tar.exe');
+	const selected = resolveArchiveTool({
+		platform: 'win32',
+		env: {
+			SystemRoot: root,
+			PATH: 'C:\\Program Files\\Git\\mingw64\\bin;C:\\Program Files\\Git\\bin'
+		},
+		exists: (candidate) => candidate === expected
+	});
+	assert.equal(selected, expected);
+	assert.notEqual(selected, 'tar.exe');
+
+	assert.equal(
+		resolveArchiveTool({ platform: 'win32', env: { SYSTEMROOT: root }, exists: () => true }),
+		expected
+	);
+	assert.equal(resolveArchiveTool({ platform: 'linux', env: {}, exists: () => false }), 'tar');
+	assert.equal(resolveArchiveTool({ platform: 'darwin', env: {}, exists: () => false }), 'tar');
+	assert.throws(
+		() => resolveArchiveTool({ platform: 'win32', env: {}, exists: () => true }),
+		/SystemRoot is not set/
+	);
+	assert.throws(
+		() => resolveArchiveTool({ platform: 'win32', env: { SystemRoot: root }, exists: () => false }),
+		/Cannot find the Windows archive tool: .*System32.*tar\.exe/
+	);
+});
+
+test('Windows launcher builds one prequoted cmd.exe line for verbatim spawn', () => {
+	const invocation = windowsLauncherInvocation(
+		'C:\\Program Files\\DeckMark\\bin\\deckmark.cmd',
+		['--version'],
+		'cmd.exe'
+	);
+	assert.equal(invocation.command, 'cmd.exe');
+	assert.deepEqual(invocation.args.slice(0, 3), ['/d', '/s', '/c']);
+	assert.equal(invocation.args.length, 4);
+	assert.equal(
+		invocation.args[3],
+		`""C:\\Program Files\\DeckMark\\bin\\deckmark.cmd" "--version""`
+	);
+	// cmd.exe /s strips the first and the last quote. The line must keep the
+	// quoted launcher and the quoted arguments after that removal.
+	assert.equal(
+		invocation.args[3].slice(1, -1),
+		'"C:\\Program Files\\DeckMark\\bin\\deckmark.cmd" "--version"'
+	);
+	assert.deepEqual(invocation.options, { windowsVerbatimArguments: true });
+	assert.throws(() => windowsLauncherInvocation('x.cmd', ['100%']), /percent sign/);
+	assert.throws(() => windowsLauncherInvocation('x.cmd', ['say "hi"']), /Windows \.cmd launcher/);
 });
 
 test('pack refuses a dangerous or unowned output before it deletes anything', () => {
@@ -576,6 +617,7 @@ test('concurrent CLI and MCP access leaves project documents unchanged', async (
 			([command, commandArgs, input]) =>
 				new Promise((resolveRun) => {
 					const child = spawn(command, commandArgs, {
+						...cliInvocation.options,
 						cwd: fixtureRoot,
 						env: installedEnv()
 					});
