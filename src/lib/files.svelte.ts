@@ -1761,6 +1761,10 @@ class FilesStore {
 	backlinks(targetId: string): FileItem[] {
 		const targetFile = this.library.find((file) => file.id === targetId);
 		if (!targetFile || documentKindForFile(targetFile) !== 'note') return [];
+		// The metadata index already keeps an inverted name and id index. Use it
+		// for library notes. Project-relative links still need the path-aware
+		// scan, so keep that path for a project document only.
+		if (!targetFile.projectId) return this.metaIndex.backlinks(targetId);
 		return this.library.filter(
 			(file) =>
 				file.id !== targetId &&

@@ -112,14 +112,15 @@ that invalid evidence cannot become a successful gate. Run:
 npm run test:benchmark-gate
 ```
 
-The browser benchmark collects 3 samples for reload and presentation load, 5
-samples for the other scenarios, and 20 samples for the project tree render. The
-gate reports every sample and the maximum. The project tree uses 20 samples
+The browser benchmark collects 3 samples for reload, 5 samples for the other
+scenarios, and 20 samples for the project tree render and presentation load. The
+gate reports every sample and the maximum. The 20-sample metrics use that count
 because a p95 over 5 samples is the maximum: one browser garbage-collection
-pause would fail the run. With 20 samples, p95 is the second-worst value, so a
-systematic slowdown still fails and one isolated stall stays visible without
-becoming the gate decision. A repeated stall also fails, because the
-second-worst value then exceeds the limit.
+pause or one cold presentation load would fail the run. With 20 samples, p95 is
+the second-worst value, so a systematic slowdown still fails and one isolated
+stall stays visible without becoming the gate decision. A repeated stall also
+fails, because the second-worst value then exceeds the limit. The first cold
+presentation load stays in the samples.
 
 The native benchmark collects 20 samples for the library reload, WYSIWYG
 typing, slide switch and present mode. One unmeasured warm reload precedes the
@@ -185,6 +186,49 @@ measurements:
 Firefox stayed inside its earlier budget. These changes move a provisional
 development baseline to the actual runner. They do not remove the gate. A later
 run that exceeds the reviewed limit by more than 25 percent still fails.
+
+## Document switch: project backlink scan
+
+Issue #268 reported a slow document switch under load. A Chromium CPU profile of
+the production build with the 300 document library and the 600 document project
+showed that `filesStore.backlinks()` dominated the switch. The method resolved
+every wiki link again on each call. For a project link, each resolution filtered
+the complete project and rebuilt path keys. The cost was quadratic in the corpus
+size, and the sidebar recomputes backlinks when the active document changes.
+
+Reproduction command:
+
+```sh
+BASE_PATH='' npx vite build --sourcemap
+node scripts/profile-switch.mjs
+```
+
+The profile in this work used a 100 microsecond sampling interval. It recorded
+the click on a library document through the updated editor header.
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| Switch profile duration | 2701 ms | 307 ms |
+| `projectPath()` self samples | 1193 ms | 5 ms |
+| `documentSwitch` p95, 5 runs | 2194 ms | 54 ms |
+| `largeDocumentOpen` p95, 5 runs | 2191 ms | 31 ms |
+
+Change: `filesStore.backlinks()` now uses the inverted name and id index in
+`MetaIndex` for library notes. The previous implementation re-resolved every link
+on each call. Project documents keep the path-aware resolution path. The link
+rules and ambiguity rules do not change.
+
+Verification:
+
+- `npx playwright test e2e/wiki-links.spec.ts --project=chromium`: 4 passed.
+- `npx playwright test e2e/project-explorer.spec.ts --project=chromium`: 7 passed.
+- The Chromium production benchmark stays inside every budget, including
+  `documentSwitch` and `largeDocumentOpen`.
+- Raw benchmark evidence: `/tmp/opencode/bench-after-switch.json` from source
+  revision in this branch, 5 runs, production static build.
+
+The change does not alter save durability, per-file undo, source bytes, focus or
+conflict handling.
 
 ## Diagnostics startup budget
 
