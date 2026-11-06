@@ -529,9 +529,9 @@ async function measureProjectTree(page, runs) {
 	return values;
 }
 
-async function measurePresentation(page, runs) {
+async function measurePresentation(page, runs, loadRuns = Math.min(runs, 3)) {
 	const loadSamples = [];
-	for (let run = 0; run < Math.min(runs, 3); run += 1) {
+	for (let run = 0; run < loadRuns; run += 1) {
 		if (run > 0) {
 			await domClick(page, 'button[data-file-id="bench-000"]');
 			await page.waitForFunction(
@@ -704,7 +704,7 @@ async function runWebBenchmark(options, fixtures) {
 		heapSamples.push(await measureHeap(page, options.browser));
 		const projectTree = await measureProjectTree(page, projectTreeRuns);
 		heapSamples.push(await measureHeap(page, options.browser));
-		const presentation = await measurePresentation(page, expensiveRuns);
+		const presentation = await measurePresentation(page, expensiveRuns, 20);
 		heapSamples.push(await measureHeap(page, options.browser));
 		const identityContext = await browser.newContext();
 		const identityPage = await identityContext.newPage();

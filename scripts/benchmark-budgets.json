@@ -98,7 +98,8 @@
 				},
 				"presentationLoad": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"presentationSlideSwitch": {
 					"p95": 200,
@@ -203,7 +204,8 @@
 				},
 				"presentationLoad": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"presentationSlideSwitch": {
 					"p95": 200,
@@ -313,7 +315,8 @@
 				"presentationLoad": {
 					"p95": 1200,
 					"unit": "ms",
-					"note": "CI p95 was 1129.9 ms on a three sample run."
+					"minimumRuns": 20,
+					"note": "Twenty loads. p95 is the second-worst value; the first cold load stays in the samples."
 				},
 				"presentationSlideSwitch": {
 					"p95": 200,
