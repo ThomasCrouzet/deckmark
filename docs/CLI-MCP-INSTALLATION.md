@@ -1,8 +1,9 @@
 # Installed CLI and MCP package
 
 This document defines the installed-user package for the existing DeckMark CLI
-and local MCP server. It does not change the CLI, the MCP server, the Desktop
-application, or the release workflow.
+and local MCP server. It does not change a CLI command or an MCP tool
+permission, the Desktop application, or the release workflow. It adds one usage
+error path to the installed MCP entry point.
 
 ## Decision
 
@@ -55,10 +56,16 @@ deckmark-cli-<version>-windows-<arch>/
   SHA256SUMS
 ```
 
+The directory name in the archive is the release name
+`deckmark-cli-<version>-<os>-<arch>`. Extraction therefore produces the paths
+that the install and MCP examples below use.
+
 The launchers resolve their own directory with shell built-ins. They do not use
 the current working directory and they do not call an external `node`,
 `dirname`, or `readlink` command. Invoke a launcher by path, or add its `bin`
-directory to PATH. Do not replace a launcher with a symbolic link.
+directory to PATH. Do not replace a launcher with a symbolic link. The bundle
+is not signed, and a symbolic link changes the directory that the launcher
+resolves.
 
 `deckmark-build.json` records the package version, the source commit, the source
 dirty state, the Node runtime version, the target platform and architecture,
@@ -76,12 +83,26 @@ npm ci --legacy-peer-deps
 node scripts/pack-cli.mjs --out build/cli-pack --archive
 ```
 
-The `--archive` option writes `build/cli-pack.tar.gz` on Linux and macOS, or
-`build/cli-pack.zip` on Windows. Rename the archive to the release asset name
-that contains the version, operating system, and architecture. Use
+`--archive` writes the package directory and the archive with the release name
+under the `--out` parent. On this host the command writes
+`build/deckmark-cli-2.4.0-linux-x64/` and
+`build/deckmark-cli-2.4.0-linux-x64.tar.gz`. It writes a `.zip` file on Windows.
+The archive root directory and the package directory have the same name, so the
+extracted paths match the documented layout and the install examples.
+
+Use `--name <dir>` to select another package directory name. Use
 `--runtime-node <path>` to bundle a specific official Node binary. The default
 is the Node binary that runs the pack script. Use `--allow-dirty` only for a
 local test build. A release build rejects a dirty source tree.
+
+The packer deletes the output directory before it installs the new build.
+It therefore refuses an output that is a file system root, a path with fewer
+than two segments, the repository root, the user home directory, or the working
+directory, or an ancestor of one of them. It also refuses an existing output
+that is not a directory, a symbolic link, or a non-empty directory without a
+`deckmark-build.json` marker with the expected schema. The check resolves
+symbolic links in the existing part of the path. No flag bypasses it. Remove an
+unowned directory yourself when you are sure that it holds no user data.
 
 The command builds `lib/deckmark.mjs` with the existing
 `scripts/build-cli.mjs` bundle function. It copies `bin/deckmark-mcp.mjs` to
@@ -92,12 +113,20 @@ before it reports success.
 Verify a package later:
 
 ```sh
-node scripts/pack-cli.mjs verify --dir build/cli-pack
+node scripts/pack-cli.mjs verify --dir build/deckmark-cli-<version>-<os>-<arch>
 ```
 
 The verify mode rejects a wrong schema, a missing file, a changed hash, a
 package version that differs from `package.json`, and a platform or
-architecture that differs from the current host.
+architecture that differs from the expected value. It walks `bin/`, `lib/`, and
+`runtime/` and rejects an extra file, an extra directory, a symbolic link, and
+an unlisted top-level entry. On a POSIX target it also requires an executable,
+non-writable mode for `bin/deckmark`, `bin/deckmark-mcp`, and `runtime/node`.
+
+The manifest and `SHA256SUMS` are self-referential and unsigned. They detect
+corruption and an accidental file change. They do not prove that a deliberate
+attacker did not replace the payload and the hashes together. Compare the
+archive hash with the value that the build record gives.
 
 ## Install and uninstall
 
@@ -188,6 +217,10 @@ Windows client entry:
 The Windows form starts the bundled runtime directly. Some clients cannot start
 a `.cmd` file without a shell. The direct form avoids that limit. The
 `bin\deckmark-mcp.cmd` launcher remains available for a terminal.
+
+A missing root, an unknown argument, or a root directory that does not exist
+writes one `deckmark-mcp: <message>` line on standard error and exits with code
+2. The server does not print a stack trace.
 
 Use absolute paths. Repeat `--root` for each approved directory. The server
 rejects a path outside all roots with `outside-root`, a sensitive path with
@@ -289,27 +322,40 @@ Failure risks:
    than the payload.
 7. Help or error output can expose an environment secret.
 8. Two processes can corrupt a document or block each other.
+9. The packer can delete an unrelated directory through `--out`.
+10. Verify can accept an unlisted file, a symbolic link, or a wrong mode.
+11. The MCP usage error can print a stack trace, and the test can accept it.
 
 Planned checks, in `scripts/pack-cli.test.mjs`, using a real package and real
 processes:
 
-1. Build a package with `--allow-dirty` and `--archive` into `test-results/`.
-   Run the verify mode. Change the manifest version and confirm that verify
-   fails. Restore it.
-2. Extract the archive to an isolated temporary directory outside the
+1. Run the packer with six unsafe `--out` values in an isolated fake checkout:
+   the repository root, its parent, the home directory, a non-empty unowned
+   directory, an existing file, and a directory with a foreign marker. Confirm
+   a non-zero exit and that each directory and file is unchanged.
+2. Build a package with `--allow-dirty` and `--archive` into `test-results/`.
+   Confirm the release directory name and the archive root. Run the verify
+   mode. Change the manifest version and confirm that verify fails. Restore it.
+3. Add an unlisted file, an extra top-level entry, a nested directory, a
+   symbolic link, and a launcher without an executable mode. Confirm that
+   verify rejects each one and passes again after the restore.
+4. Extract the archive to an isolated temporary directory outside the
    repository. Run it with an empty PATH, an isolated HOME, and a canary
    environment variable. Check `--version`, `--help`, exit codes, and absence
    of the canary.
-3. Run `check` on a temporary project with one good note and one missing link.
+5. Run `check` on a temporary project with one good note and one missing link.
    Expect exit 5 and the documented issue code. Run `export` to HTML and ZIP and
    compare the output bytes.
-4. Start the MCP launcher with one approved root. Check `initialize`,
-   `tools/list`, and `read_file` for an approved file. Request a symlink that
-   resolves outside the root and expect `outside-root`. Start with no `--root`
-   and expect a clear failure.
-5. Start two CLI checks and one MCP read at the same time. Compare the project
+6. Start the POSIX `bin/deckmark-mcp` launcher with one approved root. Check
+   `initialize`, `tools/list`, and `read_file` for an approved file. Request
+   `../outside/secret.md` and an absolute path outside the root on every
+   platform and expect `unsafe-path`. Request a symlink that resolves outside
+   the root on POSIX and expect `outside-root`. Start with no `--root`, a
+   missing value, an unknown argument, and a root that does not exist; expect
+   exit 2 and one line on standard error.
+7. Start two CLI checks and one MCP read at the same time. Compare the project
    hash before and after.
-6. Remove the installed directory. Confirm that the temporary documents remain
+8. Remove the installed directory. Confirm that the temporary documents remain
    unchanged and that the isolated HOME is empty.
 
 A browser test cannot start an installed native process or inspect its file
@@ -319,12 +365,13 @@ descriptor and root boundary. This is the isolated test exception recorded in
 ## Current evidence
 
 Linux x64 evidence was recorded on 2026-11-06 on the Lenovo host. The source
-tree was clean at commit `f6d6a45660e152db6abbd51f8c9d216baaeba98a`.
+tree was clean at the recorded commit. The evidence file records the commit
+SHA, the archive SHA-256, the archive size, each command, and each exit code.
 
 ```text
 Command: node --test scripts/pack-cli.test.mjs
 Exit: 0
-Tests: 6 passed, 0 failed
+Tests: 9 passed, 0 failed
 Package version: 2.4.0
 Runtime: Node 26.13.0 linux-x64
 ```
@@ -332,17 +379,19 @@ Runtime: Node 26.13.0 linux-x64
 Absolute artifact paths:
 
 ```text
-Package:  /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-clean-pack
-Archive:  /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-clean-pack.tar.gz
-Manifest: /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-clean-pack/deckmark-build.json
+Package:  /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/deckmark-cli-2.4.0-linux-x64
+Archive:  /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/deckmark-cli-2.4.0-linux-x64.tar.gz
+Manifest: /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/deckmark-cli-2.4.0-linux-x64/deckmark-build.json
 Evidence: /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-cli-pack-evidence.json
 ```
 
-Release-candidate archive SHA-256:
-`85778b0b961e14dc38a5bc5f870267c39f7b6d39dccea649cfe78d62cc8d2f30`.
+The archive SHA-256 is `packageArchiveSha256` in that evidence file. A rebuild
+gives a different archive hash because the archive records file modification
+times. Verify a package with the verify mode and compare the payload hashes,
+not only the archive hash.
 
 The package tree contains `runtime/node` at 150319296 bytes. The compressed
-archive is 48 MiB. The manifest records the source SHA, clean state, runtime
+archive is about 48 MiB. The manifest records the source SHA, clean state, runtime
 version, target `linux-x64`, and one SHA-256 for each payload file.
 
 Run the installed proof with:
@@ -361,12 +410,18 @@ set to an isolated directory outside the repository:
 bin/deckmark --version          exit 0  deckmark 2.4.0
 bin/deckmark --help             exit 0  DeckMark CLI, five commands listed
 bin/deckmark check . --json     exit 5  mdsh-docs-check/1, one link-missing
-bin/deckmark export ... --json  exit 0  HTML 2378 bytes
-bin/deckmark export ... --json  exit 0  ZIP, 2 documents, 1 asset, 2003 bytes
-bin/deckmark-mcp --root ...     exit 0  initialize, tools/list, read_file
-bin/deckmark-mcp --root ...     result  outside-root for the escape path
-bin/deckmark-mcp (no root)      exit 1  clear usage error
+bin/deckmark export ... --json  exit 0  HTML, schema deckmark-export/1
+bin/deckmark export ... --json  exit 0  ZIP, 2 documents, 1 asset
+bin/deckmark-mcp --root ...     exit 0  initialize, tools/list, read_file (POSIX launcher)
+bin/deckmark-mcp --root ...     result  unsafe-path for ../outside and an absolute path
+bin/deckmark-mcp --root ...     result  outside-root for the symbolic link (POSIX)
+bin/deckmark-mcp (no root)      exit 2  one deckmark-mcp line, no stack trace
 ```
+
+The recorded run also proves these refusals: six unsafe `--out` values exit 1
+and leave their files intact; five payload mutations make verify exit 1; and
+four MCP usage cases exit 2 with one line. The evidence file records each
+command and exit code in `negativeChecks`.
 
 The test extracted the tar archive into an isolated temporary directory. It
 started two CLI checks and one MCP read at the same time. The project hash was
@@ -391,12 +446,14 @@ to the existing `build-desktop` job in `.github/workflows/desktop.yml`, after
   uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
   with:
     name: deckmark-cli-${{ runner.os }}-${{ runner.arch }}
-    path: |
-      build/cli-pack.tar.gz
-      build/cli-pack.zip
+    path: build/deckmark-cli-*
     if-no-files-found: error
     retention-days: 14
 ```
+
+The glob matches one archive on each runner: `deckmark-cli-<version>-linux-x64.tar.gz`,
+`...-windows-x64.zip`, or `...-darwin-arm64.tar.gz`. Attach the archive of the
+run operating system only. Do not upload both suffixes.
 
 The existing Node 22 setup is sufficient. The matrix already uses
 `ubuntu-24.04` x64, `windows-2022` x64, and `macos-15` arm64. The pack step
@@ -414,6 +471,9 @@ Windows 11 x64 clean virtual machine or GitHub `windows-2022` runner:
    source checkout.
 2. Extract `deckmark-cli-<version>-windows-x64.zip`.
 3. Run `bin\deckmark.cmd --version` and compare the output with the release tag.
+   The batch launcher passes arguments through `cmd.exe`. Quote an argument that
+   contains a space or a shell metacharacter. Use the direct `runtime\node.exe`
+   form for a path that contains a double quote or a percent sign.
 4. Run `bin\deckmark.cmd --help` and the `check` and `export` cases from a
    temporary project.
 5. Start the MCP server with the `runtime\node.exe` and `lib\deckmark-mcp.mjs`

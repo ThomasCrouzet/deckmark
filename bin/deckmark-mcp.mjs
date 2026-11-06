@@ -4,7 +4,7 @@
 // shell, no network listener, and no external agent account.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, statSync, writeSync } from 'node:fs';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -41,10 +41,18 @@ function parseRoots(argv) {
 	const roots = [];
 	for (let index = 0; index < argv.length; index++) {
 		if (argv[index] !== '--root')
-			fail('Usage: deckmark-mcp --root <directory> [--root ...]', 'usage');
+			fail(
+				`Unknown argument: ${argv[index]}. Usage: deckmark-mcp --root <directory> [--root ...]`,
+				'usage'
+			);
 		const value = argv[++index];
-		if (!value) fail('Missing --root value', 'usage');
-		const real = realpathSync(value);
+		if (!value) fail('Missing --root value.', 'usage');
+		let real;
+		try {
+			real = realpathSync(value);
+		} catch {
+			fail(`Root directory does not exist: ${value}`, 'usage');
+		}
 		if (!statSync(real).isDirectory()) fail(`Not a directory: ${value}`, 'usage');
 		roots.push(real);
 	}
@@ -52,7 +60,19 @@ function parseRoots(argv) {
 	return [...new Set(roots)].slice(0, 8);
 }
 
-const roots = parseRoots(process.argv.slice(2));
+// A usage error is one line on standard error and exit code 2. It must not
+// print a stack trace and it must not start the protocol loop.
+let roots;
+try {
+	roots = parseRoots(process.argv.slice(2));
+} catch (error) {
+	const message =
+		error?.code === 'usage'
+			? error.message
+			: `Cannot use the approved roots: ${error?.message ?? error}`;
+	writeSync(2, `deckmark-mcp: ${message}\n`);
+	process.exit(2);
+}
 
 function safePath(requested) {
 	if (typeof requested !== 'string' || requested.length === 0) fail('Path is required');
