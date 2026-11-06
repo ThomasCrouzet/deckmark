@@ -17,6 +17,7 @@ function report(...specs) {
 				file: 'example.spec.ts',
 				line: 1,
 				specs: specs.map(([title, line, projects]) => ({
+					id: `${title}:${line}`,
 					title,
 					line,
 					tests: projects.map((projectName) => ({ projectName }))

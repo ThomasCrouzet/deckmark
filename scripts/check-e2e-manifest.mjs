@@ -15,12 +15,12 @@ function collect(report) {
 						for (const result of test.results ?? []) {
 							if ((result.retry ?? 0) > 0) retried += 1;
 						}
-						const key = [
-							suite.file ?? spec.file ?? '',
-							spec.line ?? 0,
-							test.projectName ?? '',
-							spec.title ?? ''
-						].join('::');
+						// The spec id separates parameterized tests that share a title
+						// and line. Fall back to the title path for older reports.
+						const specId =
+							spec.id ??
+							[suite.file ?? spec.file ?? '', spec.line ?? 0, spec.title ?? ''].join('::');
+						const key = `${specId}::${test.projectName ?? ''}`;
 						counts.set(key, (counts.get(key) ?? 0) + 1);
 					}
 				}
