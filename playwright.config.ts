@@ -3,6 +3,10 @@ import { testSource } from './scripts/test-source.mjs';
 
 const e2ePort = process.env.E2E_PORT ?? '4173';
 const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
+// A prebuilt run reuses one verified instrumented build across shards.
+// The provenance check fails before the preview server starts when the
+// artifact, its inputs or its source do not match this checkout.
+const prebuilt = process.env.E2E_PREBUILT === '1';
 
 /**
  * Playwright end-to-end tests for user workflows.
@@ -22,6 +26,7 @@ export default defineConfig({
 	metadata: {
 		...testSource(),
 		nodeVersion: process.version,
+		prebuilt,
 		repeatCommand: 'npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"'
 	},
 	reporter: [
@@ -133,7 +138,9 @@ export default defineConfig({
 	],
 	webServer: {
 		env: { VITE_SOURCE_FIDELITY_METRICS: '1' },
-		command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
+		command: prebuilt
+			? `node scripts/build-provenance.mjs verify --kind e2e --instrumentation source-fidelity && node scripts/preview-build.mjs --host 127.0.0.1 --port ${e2ePort}`
+			: `npm run build && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
 		url: e2eBaseUrl,
 		// Do not reuse an unknown server.
 		// Another project on this port would make the tests check the wrong application.

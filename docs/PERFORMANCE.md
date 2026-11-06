@@ -112,14 +112,15 @@ that invalid evidence cannot become a successful gate. Run:
 npm run test:benchmark-gate
 ```
 
-The browser benchmark collects 3 samples for reload and presentation load, 5
-samples for the other scenarios, and 20 samples for the project tree render. The
-gate reports every sample and the maximum. The project tree uses 20 samples
+The browser benchmark collects 3 samples for reload, 5 samples for the other
+scenarios, and 20 samples for the project tree render and presentation load. The
+gate reports every sample and the maximum. The 20-sample metrics use that count
 because a p95 over 5 samples is the maximum: one browser garbage-collection
-pause would fail the run. With 20 samples, p95 is the second-worst value, so a
-systematic slowdown still fails and one isolated stall stays visible without
-becoming the gate decision. A repeated stall also fails, because the
-second-worst value then exceeds the limit.
+pause or one cold presentation load would fail the run. With 20 samples, p95 is
+the second-worst value, so a systematic slowdown still fails and one isolated
+stall stays visible without becoming the gate decision. A repeated stall also
+fails, because the second-worst value then exceeds the limit. The first cold
+presentation load stays in the samples.
 
 The native benchmark collects 20 samples for the library reload, WYSIWYG
 typing, slide switch and present mode. One unmeasured warm reload precedes the

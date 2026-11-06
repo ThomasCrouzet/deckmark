@@ -220,11 +220,47 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo audit --file src-tauri/Cargo.lock --deny unsound
 
+  web-build:
+    # One production Web build for every browser benchmark. The benchmark
+    # verifies provenance before it serves these exact bytes. A root build is a
+    # different configuration from the public project-path build.
+    needs: [resolve-source]
+    if: inputs.validated_sha == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Build production web app
+        run: npm run build
+        env:
+          BASE_PATH: ''
+      - name: Record build provenance
+        run: node scripts/build-provenance.mjs write --kind web-benchmark --instrumentation none
+      - name: Upload web benchmark build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-build-${{ needs.resolve-source.outputs.sha }}
+          path: build/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
   web-benchmark:
-    # Web measurements depend on the frontend source only. They do not wait
+    # Web measurements depend on one verified frontend build. They do not wait
     # for Rust or native validation. The final desktop-validation gate still
     # requires every platform result.
-    needs: [resolve-source]
+    needs: [resolve-source, web-build]
     if: inputs.validated_sha == ''
     strategy:
       fail-fast: false
@@ -250,12 +286,13 @@ jobs:
         # failed unrelated pull requests while the download was still progressing.
         timeout-minutes: 20
         run: npx playwright install --with-deps ${{ matrix.browser }}
-      - name: Build production web app
-        run: npm run build
-        env:
-          BASE_PATH: ''
+      - name: Download verified web build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-build-${{ needs.resolve-source.outputs.sha }}
+          path: build/
       - name: Measure web benchmark
-        run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --enforce-budgets --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
+        run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
       - name: Retain web benchmark evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -408,7 +445,15 @@ jobs:
   desktop-validation:
     name: desktop-validation
     needs:
-      [changes, resolve-source, validate-desktop, web-benchmark, native-smoke, native-benchmark]
+      [
+        changes,
+        resolve-source,
+        validate-desktop,
+        web-build,
+        web-benchmark,
+        native-smoke,
+        native-benchmark
+      ]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -420,6 +465,7 @@ jobs:
           RESOLVE_RESULT: ${{ needs.resolve-source.result }}
           VALIDATE_RESULT: ${{ needs.validate-desktop.result }}
           SMOKE_RESULT: ${{ needs.native-smoke.result }}
+          WEB_BUILD_RESULT: ${{ needs.web-build.result }}
           WEB_BENCHMARK_RESULT: ${{ needs.web-benchmark.result }}
           NATIVE_BENCHMARK_RESULT: ${{ needs.native-benchmark.result }}
         run: |
@@ -432,6 +478,7 @@ jobs:
           elif [ -n "$VALIDATED_SHA" ]; then
             test "$RESOLVE_RESULT" = 'success'
             test "$VALIDATE_RESULT" = 'skipped'
+            test "$WEB_BUILD_RESULT" = 'skipped'
             test "$WEB_BENCHMARK_RESULT" = 'skipped'
             test "$SMOKE_RESULT" = 'skipped'
             test "$NATIVE_BENCHMARK_RESULT" = 'skipped'
@@ -439,6 +486,7 @@ jobs:
           else
             test "$RESOLVE_RESULT" = 'success'
             test "$VALIDATE_RESULT" = 'success'
+            test "$WEB_BUILD_RESULT" = 'success'
             test "$WEB_BENCHMARK_RESULT" = 'success'
             test "$SMOKE_RESULT" = 'success'
             test "$NATIVE_BENCHMARK_RESULT" = 'success'
