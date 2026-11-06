@@ -40,6 +40,9 @@ for (const fixture of [
 
 test('a delayed note editor does not interrupt file-name input', async ({ page }, info) => {
 	await resetAppState(page);
+	// Wait for the welcome screen before the CSS gate. The gate must delay the
+	// editor load, not the first render of the screen that starts the action.
+	await page.locator('main [data-testid="welcome-new"]').waitFor({ state: 'visible' });
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => (release = resolve));
 	let delayed = 0;
