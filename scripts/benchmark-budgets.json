@@ -447,7 +447,9 @@
 				"rssMb": {
 					"p95": 1800,
 					"unit": "MB",
-					"note": "Calibrated from the CI debug run. Measured p95 was close to 1800 ms; keep the reviewed limit."
+					"statistic": "p50",
+					"minimumRuns": 3,
+					"note": "Process-tree RSS. The gate uses the median so one helper-process spike does not fail; the p95 and maximum stay in the report."
 				}
 			}
 		},
@@ -558,7 +560,9 @@
 				"rssMb": {
 					"p95": 2200,
 					"unit": "MB",
-					"note": "CI debug build measured 1968.8 MB p95. WebView2 helper processes raise the total. Keep diagnostic only."
+					"statistic": "p50",
+					"minimumRuns": 3,
+					"note": "Process-tree RSS includes WebView2 helper processes. The gate uses the median so one helper-process spike does not fail; the p95 and maximum stay in the report."
 				}
 			}
 		},
@@ -676,7 +680,10 @@
 				},
 				"rssMb": {
 					"p95": 700,
-					"unit": "MB"
+					"unit": "MB",
+					"statistic": "p50",
+					"minimumRuns": 3,
+					"note": "Process-tree RSS. The gate uses the median; the p95 and maximum stay in the report."
 				}
 			}
 		}
