@@ -594,30 +594,35 @@ test('installed MCP prints one usage line and exits 2 for a missing or bad root'
 });
 
 test('concurrent CLI and MCP access leaves project documents unchanged', async () => {
-	const cliInvocation = launcherInvocation('deckmark', []);
+	const brokenCheck = launcherInvocation('deckmark', ['check', 'broken.md', '--json']);
+	const projectCheck = launcherInvocation('deckmark', ['check', '.', '--json']);
 	const node = join(packageRoot, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node');
 	const server = join(packageRoot, 'lib', 'deckmark-mcp.mjs');
 	const hashBefore = treeHash(fixtureRoot);
-	const args = [
-		[
-			node,
-			[server, '--root', fixtureRoot],
-			mcpMessages({
+	// The .cmd launcher needs verbatim arguments for its prequoted cmd.exe line.
+	// The direct runtime is a plain Node process, so it must keep default quoting;
+	// otherwise libuv leaves a root path that contains a space unquoted.
+	const jobs = [
+		{
+			command: node,
+			args: [server, '--root', fixtureRoot],
+			options: {},
+			input: mcpMessages({
 				jsonrpc: '2.0',
 				id: 1,
 				method: 'tools/call',
 				params: { name: 'read_file', arguments: { path: 'notes/good.md' } }
 			})
-		],
-		[cliInvocation.command, [...cliInvocation.args, 'check', 'broken.md', '--json']],
-		[cliInvocation.command, [...cliInvocation.args, 'check', '.', '--json']]
+		},
+		brokenCheck,
+		projectCheck
 	];
 	const results = await Promise.all(
-		args.map(
-			([command, commandArgs, input]) =>
+		jobs.map(
+			({ command, args, options, input }) =>
 				new Promise((resolveRun) => {
-					const child = spawn(command, commandArgs, {
-						...cliInvocation.options,
+					const child = spawn(command, args, {
+						...options,
 						cwd: fixtureRoot,
 						env: installedEnv()
 					});
