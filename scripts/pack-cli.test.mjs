@@ -172,7 +172,7 @@ before(() => {
 	assert.equal(basename(PACKAGE), RELEASE_NAME);
 	manifest = JSON.parse(readFileSync(join(PACKAGE, 'deckmark-build.json'), 'utf8'));
 
-	installRoot = mkdtempSync(join(tmpdir(), 'deckmark-install-'));
+	installRoot = mkdtempSync(join(tmpdir(), 'deckmark install & smoke-'));
 	archiveSha256 = createHash('sha256').update(readFileSync(ARCHIVE)).digest('hex');
 	const extract = run(TAR, ['-xf', ARCHIVE, '-C', installRoot], { cwd: ROOT, env: process.env });
 	assert.equal(extract.status, 0, `extract failed:\n${extract.stderr}`);
@@ -183,7 +183,7 @@ before(() => {
 	mkdirSync(emptyPath, { recursive: true });
 	mkdirSync(join(installRoot, 'tmp'), { recursive: true });
 
-	projectRoot = mkdtempSync(join(tmpdir(), 'deckmark-project-'));
+	projectRoot = mkdtempSync(join(tmpdir(), 'deckmark project & smoke-'));
 	fixtureRoot = join(projectRoot, 'project');
 	mkdirSync(join(fixtureRoot, 'notes'), { recursive: true });
 	writeFileSync(
