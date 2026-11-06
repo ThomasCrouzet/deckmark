@@ -30,6 +30,7 @@ const CANARY = 'deckmark-test-secret-4f8a1c';
 const COMMANDS = [];
 const OBSERVED = {};
 let installRoot;
+let projectRoot;
 let packageRoot;
 let archivePath;
 let archiveSha256;
@@ -142,17 +143,18 @@ before(() => {
 	mkdirSync(emptyPath, { recursive: true });
 	mkdirSync(join(installRoot, 'tmp'), { recursive: true });
 
-	fixtureRoot = join(installRoot, 'project');
+	projectRoot = mkdtempSync(join(tmpdir(), 'deckmark-project-'));
+	fixtureRoot = join(projectRoot, 'project');
 	mkdirSync(join(fixtureRoot, 'notes'), { recursive: true });
 	writeFileSync(
 		join(fixtureRoot, 'notes', 'good.md'),
 		'---\ntitle: Installed Note\n---\n\n# Installed Note\n\nHello DeckMark.\n'
 	);
 	writeFileSync(join(fixtureRoot, 'broken.md'), '# Broken\n\nA [missing target](missing.md).\n');
-	mkdirSync(join(installRoot, 'outside'), { recursive: true });
-	writeFileSync(join(installRoot, 'outside', 'secret.md'), 'OUTSIDE SECRET\n');
+	mkdirSync(join(projectRoot, 'outside'), { recursive: true });
+	writeFileSync(join(projectRoot, 'outside', 'secret.md'), 'OUTSIDE SECRET\n');
 	try {
-		symlinkSync(join(installRoot, 'outside', 'secret.md'), join(fixtureRoot, 'notes', 'escape.md'));
+		symlinkSync(join(projectRoot, 'outside', 'secret.md'), join(fixtureRoot, 'notes', 'escape.md'));
 	} catch {
 		// Windows without symlink privilege uses a missing path for the root test.
 	}
@@ -160,6 +162,7 @@ before(() => {
 
 after(() => {
 	if (installRoot) rmSync(installRoot, { recursive: true, force: true });
+	if (projectRoot) rmSync(projectRoot, { recursive: true, force: true });
 });
 
 test('package reproduces source identity and passes hash verification', () => {
@@ -374,9 +377,12 @@ test('concurrent CLI and MCP access leaves project documents unchanged', async (
 
 test('uninstall removes only the package and keeps documents', () => {
 	assert.ok(existsSync(packageRoot));
-	rmSync(installRoot, { recursive: true, force: true });
+	const projectHash = treeHash(fixtureRoot);
+	rmSync(packageRoot, { recursive: true, force: true });
 	assert.equal(existsSync(packageRoot), false);
-	assert.equal(existsSync(fixtureRoot), false);
+	assert.equal(existsSync(fixtureRoot), true);
+	assert.equal(treeHash(fixtureRoot), projectHash);
+	assert.deepEqual(readdirSync(homeRoot), []);
 
 	const evidence = {
 		schema: 'deckmark-cli-install-evidence/1',

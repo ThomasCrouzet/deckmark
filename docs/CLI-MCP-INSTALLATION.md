@@ -317,9 +317,55 @@ descriptor and root boundary. This is the isolated test exception recorded in
 
 ## Current evidence
 
-Linux x64 evidence is recorded in the final section after the test run. Windows
-and macOS ARM64 validation is not executed here. This host is Linux x64. The
-required clean-machine procedure is in the next section.
+Linux x64 evidence was recorded on 2026-11-06 on the Lenovo host. The source
+tree was clean at commit `c68896a40b39ebb5cc32b0c315ed70a01c4c8cce`.
+
+```text
+Command: node --test scripts/pack-cli.test.mjs
+Exit: 0
+Tests: 6 passed, 0 failed
+Package version: 2.4.0
+Runtime: Node 26.13.0 linux-x64
+```
+
+Absolute artifact paths:
+
+```text
+Package:  /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-clean-pack
+Archive:  /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-clean-pack.tar.gz
+Manifest: /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-clean-pack/deckmark-build.json
+Evidence: /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-cli-pack-evidence.json
+```
+
+Release-candidate archive SHA-256:
+`508f43dd0470c7a5ad6476ba91b7a0c494c3078bca387f020b114d79e095cf88`.
+
+The package tree contains `runtime/node` at 150319296 bytes. The compressed
+archive is 48 MiB. The manifest records the source SHA, clean state, runtime
+version, target `linux-x64`, and one SHA-256 for each payload file.
+
+Observed installed-like results, with `PATH` containing no `node` and `HOME`
+set to an isolated directory outside the repository:
+
+```text
+bin/deckmark --version          exit 0  deckmark 2.4.0
+bin/deckmark --help             exit 0  DeckMark CLI, five commands listed
+bin/deckmark check . --json     exit 5  mdsh-docs-check/1, one link-missing
+bin/deckmark export ... --json  exit 0  HTML 2378 bytes
+bin/deckmark export ... --json  exit 0  ZIP, 2 documents, 1 asset, 2003 bytes
+bin/deckmark-mcp --root ...     exit 0  initialize, tools/list, read_file
+bin/deckmark-mcp --root ...     result  outside-root for the escape path
+bin/deckmark-mcp (no root)      exit 1  clear usage error
+```
+
+The test extracted the tar archive into an isolated temporary directory. It
+started two CLI checks and one MCP read at the same time. The project hash was
+equal before and after. It removed the installed directory and confirmed that
+the temporary project stayed unchanged. A canary environment value did not
+appear in help, error, or protocol output.
+
+Windows x64 and macOS arm64 clean-install evidence is not available. Do not
+mark issue 272 complete until the procedure below passes on those targets.
 
 ## Release integration request, not applied
 
