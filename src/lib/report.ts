@@ -12,6 +12,42 @@
 
 import { notify } from './notify.svelte';
 
+// Small in-memory diagnostic event ring. Keep it tiny: this module is in the
+// startup graph. The report builder loads on demand from Settings.
+export interface DiagnosticEvent {
+	at: string;
+	level: 'error' | 'warning';
+	scope: string;
+	code: string;
+}
+
+const diagnosticLog: DiagnosticEvent[] = [];
+const safeText = (value: string, fallback: string) =>
+	/^[A-Za-z0-9_.:-]{1,80}$/.test(value) ? value : fallback;
+
+function pushDiagnostic(level: 'error' | 'warning', scope: string, error?: unknown): void {
+	if (diagnosticLog.length >= 80) diagnosticLog.shift();
+	diagnosticLog.push({
+		at: new Date().toISOString(),
+		level,
+		scope: safeText(scope.replaceAll(' ', '_'), 'unknown_operation'),
+		code:
+			typeof error === 'object' && error !== null && 'code' in error
+				? safeText(String((error as { code?: unknown }).code ?? ''), 'unknown_error')
+				: error instanceof Error
+					? safeText(error.name, 'unknown_error')
+					: 'unknown_error'
+	});
+}
+
+export function diagnosticEvents(): readonly DiagnosticEvent[] {
+	return diagnosticLog;
+}
+
+export function clearDiagnostics(): void {
+	diagnosticLog.length = 0;
+}
+
 export interface ReportOptions {
 	/**
 	 * Message to show in a toast. If absent, log only to the console.
@@ -30,6 +66,7 @@ export interface ReportOptions {
  */
 export function reportError(scope: string, err: unknown, opts: ReportOptions = {}): void {
 	console.error(`[mdsh] ${scope} :`, err);
+	pushDiagnostic('error', scope, err);
 	if (opts.notifyUser) {
 		if (opts.level === 'info') notify.info(opts.notifyUser);
 		else notify.error(opts.notifyUser);
@@ -46,4 +83,5 @@ export function reportError(scope: string, err: unknown, opts: ReportOptions = {
 export function reportWarning(scope: string, detail?: unknown): void {
 	if (detail !== undefined) console.warn(`[mdsh] ${scope} :`, detail);
 	else console.warn(`[mdsh] ${scope}`);
+	pushDiagnostic('warning', scope, detail);
 }
