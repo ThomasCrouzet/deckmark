@@ -405,9 +405,13 @@ describe('retained artifact evidence contract', () => {
 	});
 	const runGate = (report, extra = []) => {
 		writeFileSync(reportPath, `${JSON.stringify(report)}\n`);
-		return spawnSync(process.execPath, [gatePath, '--report', reportPath, '--budgets', budgetsPath, ...extra], {
-			encoding: 'utf8'
-		});
+		return spawnSync(
+			process.execPath,
+			[gatePath, '--report', reportPath, '--budgets', budgetsPath, ...extra],
+			{
+				encoding: 'utf8'
+			}
+		);
 	};
 
 	it('requires the twenty startup samples generated for every web platform', () => {
