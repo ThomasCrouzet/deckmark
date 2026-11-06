@@ -22,7 +22,10 @@ function run(repository, ...args) {
 			output: execFileSync(process.execPath, [script, ...args], {
 				cwd: repository,
 				encoding: 'utf8',
-				stdio: ['ignore', 'pipe', 'pipe']
+				stdio: ['ignore', 'pipe', 'pipe'],
+				// A CI runner exports the workflow commit. The fixture repository
+				// has its own commit, so the test must not inherit that value.
+				env: { ...process.env, GITHUB_SHA: '' }
 			})
 		};
 	} catch (error) {
