@@ -157,6 +157,7 @@ export const fr: Record<MessageKey, string> = {
 	'updates.copied': 'Lien de téléchargement copié.',
 	'updates.manualInstall':
 		'Installez le paquet signé manuellement. L’application n’installe jamais une mise à jour elle-même.',
+	'palette.reportProblem': 'Signaler un problème',
 	'settings.about': 'À propos de deckmark',
 	'settings.authorCredit': 'Créé par Thomas CROUZET',
 	'sidebar.homeLabel': 'Ouvrir la page d’accueil',

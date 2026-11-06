@@ -1344,7 +1344,22 @@ real directory is still necessary for the entry traversal branch. The test does
 not reproduce a denied operating system permission or a real storage quota
 failure. The move transaction is the rollback boundary for those failures.
 
-EAD
+## Local diagnostics report
+
+`src/lib/diagnostics.test.ts` plants sentinels in error messages, unsafe error
+codes and document text. It checks that the automatically collected report keeps
+error names only, keeps structural statistics only, and reports unknown values as
+null. `e2e/diagnostics.spec.ts` plants a file name, document body and API key,
+builds a report from Settings through the command palette, and checks that:
+
+- the preview and the downloaded bytes are identical;
+- all sentinels are absent;
+- no network request occurs while the report is built;
+- Cancel leaves no preview and downloads nothing.
+
+Run `npx playwright test e2e/diagnostics.spec.ts --project=chromium` and keep the
+preview and downloaded JSON attachments. The issue template asks for the optional
+bundle and warns that free text can contain sensitive data.
 ## First-run and storage recovery
 
 `e2e/first-run-recovery.spec.ts` denies IndexedDB, checks the visible blocking
@@ -1371,7 +1386,6 @@ fails, Settings shows **Offline cache unavailable** and a retry action. The retr
 runs the existing registration path. It does not claim that an uncached first visit
 can recover without a network.
 
-EAD
 ## Optional AI privacy and review
 
 `e2e/ai-idle-privacy.spec.ts` configures a mock provider, enables AI, and then
@@ -1391,7 +1405,6 @@ Web keys stay in tab session storage. Desktop keys stay behind the native
 boundary and are tested by the Rust vault suite. A failed provider request must
 leave the editor state intact; the existing error cases assert this.
 
-EAD
 ## Benchmark gate tests
 
 `scripts/benchmark-shared.test.mjs` checks the fail-closed benchmark gate. It
@@ -1403,6 +1416,20 @@ nonzero. Run `npm run test:benchmark-gate`. Keep the JSON report and the exit co
 with the run evidence. The gate does not replace a browser or native benchmark
 run. It decides whether the retained measurements permit publication.
 
+## Database upgrade safety
+
+`e2e/upgrade-safety.spec.ts` creates a real IndexedDB version 5 database with a
+draft before the app starts. It checks that the current Dexie schema upgrades to
+version 80, keeps the draft bytes, and renders the content.
+
+A second case holds a version 5 connection open in another tab. The app must not
+stay on an endless loading shell: after the reviewed timeout it shows the storage
+error and the retry action. Closing the stale tab and retrying recovers the draft.
+The artifact records the blocked state and the recovery.
+
+The timeout is a bounded recovery path, not a migration shortcut. A stale tab
+cannot be forced to close, and unsaved text that was never written remains outside
+the durability guarantee.
 ## Dual-host transfer
 
 `e2e/host-transfer.spec.ts` starts a second local origin from the same production
