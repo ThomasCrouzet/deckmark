@@ -112,17 +112,17 @@ that invalid evidence cannot become a successful gate. Run:
 npm run test:benchmark-gate
 ```
 
-The browser benchmark collects 20 samples for startup, cached restart, project
-tree render and presentation load, and 5 samples for the other scenarios. The
+The browser benchmark collects 3 samples for reload, 5 samples for the other
+scenarios, and 20 samples for the project tree render and presentation load. The
 gate reports every sample and the maximum. The 20-sample metrics use that count
 because a p95 over 5 samples is the maximum: one browser garbage-collection
-pause, one slow cached restart or one cold presentation load would fail the run.
-With 20 samples, p95 is the second-worst value, so a systematic slowdown still
-fails and one isolated stall stays visible without becoming the gate decision. A
-repeated stall also fails, because the second-worst value then exceeds the
-limit. The first cold presentation load stays in the samples. The startup
-measurement installs a paint observer before navigation because a headless
-engine does not always keep the first-contentful-paint entry in the buffer.
+pause or one cold presentation load would fail the run. With 20 samples, p95 is
+the second-worst value, so a systematic slowdown still fails and one isolated
+stall stays visible without becoming the gate decision. A repeated stall also
+fails, because the second-worst value then exceeds the limit. The first cold
+presentation load stays in the samples. The startup measurement installs a
+paint observer before navigation because a headless engine does not always keep
+the first-contentful-paint entry in the buffer.
 
 The native benchmark collects 20 samples for the library reload, WYSIWYG
 typing, slide switch and present mode. One unmeasured warm reload precedes the
@@ -136,15 +136,13 @@ The warm startup metric collects three starts and gates on the median
 (`statistic: "p50"`). The report keeps the p95 and the maximum. A single start
 cannot separate a runner stall from a regression, and a 32 s stall on a virtual
 macOS runner failed an unrelated pull request. A median over three starts needs
-two slow starts to fail. Cold startup uses the same three-start median; a 32 s
-Linux cold start and a 15 s macOS cold start failed unrelated runs while the
-median was normal. Process-tree RSS also gates on the median because a WebView
-helper process can add a transient process; the p95 and maximum stay in the
-report. WYSIWYG typing and present mode also gate on the median over 20 samples,
-because the debug WebView tail on the virtual macOS runner moves by more than
-the reviewed budget while the median stays stable. The p95 and maximum stay in
-the report. Close and presentation load stay one-shot because they require a
-window lifecycle and have wide reviewed headroom.
+two slow starts to fail. Process-tree RSS also gates on the median because a
+WebView helper process can add a transient process; the p95 and maximum stay in
+the report. WYSIWYG typing and present mode also gate on the median over 20
+samples, because the debug WebView tail on the virtual macOS runner moves by
+more than the reviewed budget while the median stays stable. The p95 and
+maximum stay in the report. Cold startup, close and presentation load stay
+one-shot because they require a process or window lifecycle.
 
 The library reload budget is 8000 ms on all three native platforms because the
 20-sample workload measures warm reloads, not the old one-shot cold reload. The

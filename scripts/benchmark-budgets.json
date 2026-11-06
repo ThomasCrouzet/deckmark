@@ -18,7 +18,6 @@
 				"cachedRestart": {
 					"p95": 400,
 					"unit": "ms",
-					"minimumRuns": 20,
 					"note": "Service worker controlled reload."
 				},
 				"firstContentfulPaint": {
@@ -131,8 +130,7 @@
 				},
 				"cachedRestart": {
 					"p95": 800,
-					"unit": "ms",
-					"minimumRuns": 20
+					"unit": "ms"
 				},
 				"firstContentfulPaint": {
 					"p95": 800,
@@ -239,8 +237,7 @@
 				},
 				"cachedRestart": {
 					"p95": 500,
-					"unit": "ms",
-					"minimumRuns": 20
+					"unit": "ms"
 				},
 				"firstContentfulPaint": {
 					"p95": 600,
@@ -350,9 +347,8 @@
 				"startupCold": {
 					"p95": 32000,
 					"unit": "ms",
-					"minimumRuns": 3,
-					"statistic": "p50",
-					"note": "Three cold starts. The gate uses the median and the report keeps the p95 and the maximum. The shared Linux runner measured one 31311.9 ms outlier."
+					"note": "One lifecycle sample on a shared runner measured 31311.9 ms. This is diagnostic only; keep the reviewed limit above that outlier.",
+					"minimumRuns": 1
 				},
 				"startupWarm": {
 					"p95": 12000,
@@ -469,9 +465,8 @@
 				"startupCold": {
 					"p95": 15000,
 					"unit": "ms",
-					"minimumRuns": 3,
-					"statistic": "p50",
-					"note": "Three cold starts. The gate uses the median and the report keeps the p95 and the maximum."
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"startupWarm": {
 					"p95": 12000,
@@ -585,9 +580,8 @@
 				"startupCold": {
 					"p95": 12000,
 					"unit": "ms",
-					"minimumRuns": 3,
-					"statistic": "p50",
-					"note": "Three cold starts. The gate uses the median and the report keeps the p95 and the maximum."
+					"minimumRuns": 1,
+					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
 				},
 				"startupWarm": {
 					"p95": 9000,

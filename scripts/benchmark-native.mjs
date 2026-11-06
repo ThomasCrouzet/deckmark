@@ -707,16 +707,8 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	let finalizationError;
 	try {
 		result.stage = 'cold-startup';
-		// A single cold start cannot separate a runner stall from a regression.
-		// Collect three starts and gate on the median, with the p95 and max kept.
-		const coldSamples = [];
-		let cold;
-		for (let run = 0; run < 3; run += 1) {
-			cold = await launch();
-			coldSamples.push(cold.spawnToShellMs);
-			if (run < 2) await closeApp();
-		}
-		result.samples.startupCold = coldSamples;
+		const cold = await launch();
+		result.samples.startupCold = [cold.spawnToShellMs];
 		result.runtime = cold.capabilities;
 		result.checks.push('native cold startup');
 		await screenshot('01-startup');

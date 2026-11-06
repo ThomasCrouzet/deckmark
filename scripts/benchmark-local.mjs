@@ -671,10 +671,8 @@ async function runWebBenchmark(options, fixtures) {
 	// gate. Twenty samples make p95 the second-worst value: a systematic slowdown
 	// still fails, and the report keeps every sample and the maximum.
 	const projectTreeRuns = Math.max(options.runs, 20);
-	// Startup and cached restart also need enough samples for a meaningful p95.
-	const startupRuns = Math.max(options.runs, 20);
 	try {
-		const startup = await measureStartup(browser, url, startupRuns);
+		const startup = await measureStartup(browser, url, options.runs);
 		const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
 		page = await context.newPage();
 		page.on('pageerror', (error) => browserErrors.push(error.stack ?? error.message));
