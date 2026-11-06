@@ -1,6 +1,22 @@
 import { test, expect } from '@playwright/test';
 import { resetAppState, seedFiles } from './helpers';
 
+test('closing the active tab returns to the previously viewed tab', async ({ page }) => {
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'first', content: 'First document' },
+		{ name: 'second', content: 'Second document' },
+		{ name: 'third', content: 'Third document' }
+	]);
+	const tabs = page.locator('aside button[data-file-id]');
+	await tabs.nth(0).click();
+	await tabs.nth(2).click();
+	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toHaveValue('third');
+	await page.locator('aside').getByRole('button', { name: 'Fermer third', exact: true }).click();
+	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toHaveValue('first');
+	await expect(page.locator('.cm-content')).toContainText('First document');
+});
+
 test('cycles through workspace files and preserves the final editor input', async ({ page }) => {
 	await resetAppState(page);
 	await seedFiles(page, [
