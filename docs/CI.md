@@ -32,6 +32,13 @@ Rust, WebView or packaging regression in that shared frontend. The script and
 the workflow conditions are the source of truth. A skipped Desktop matrix is a
 path decision, not a passed native test.
 
+`CLI package` uses path filters for CLI sources, shared library modules, bundle
+and package scripts, dependency files, and runtime configuration. It also runs
+by hand. It validates the installed companion on Linux x64, Windows x64 and
+macOS ARM64. The workflow does not publish a release. See
+`.github/workflows/cli-package.yml` for the exact filters. A filtered-out run
+does not prove that the installed-package tests ran.
+
 ## Web workflow
 
 The `Deploy to GitHub Pages` workflow has these independent paths:
@@ -162,11 +169,13 @@ empty result fails. `e2e-manifest` compares the shard lists with the full
 The comparison covers every project, including Firefox and WebKit, so a shard
 cannot silently drop a browser project. The expected and actual E2E reports stay
 in the runner temp directory or in the ignored `test-results` directory. This
-workflow does not upload those reports. Other jobs keep their existing build,
-native-smoke, native-benchmark and deployment-evidence artifacts. Do not add a
-new test-report upload. The check also compares source, tree, projects, filters,
-shard and prebuilt identity, so a list and a run are only compared under the
-same effective inputs.
+workflow does not upload those reports. Reusable build artifacts are separate
+from reports. Legacy native-smoke, native-benchmark and deployment-evidence
+report uploads still exist. They conflict with the repository's local-only
+report rule. This is an unresolved compliance gap, not a storage exception or
+permission for new report uploads. The check also compares source, tree,
+projects, filters, shard and prebuilt identity, so a list and a run are only
+compared under the same effective inputs.
 
 Stage 1 and stage 2 own the scheduling and build reuse. Stage 3 does not remove
 a check, a browser project, a benchmark or a native platform.
@@ -194,8 +203,8 @@ as a distribution or as a promise for another runner or cache state.
 | Job setup | Checkout, toolchain, dependency restore and build reuse |
 | Test execution | One shard run, including any retry |
 | Native jobs | Rust checks, native smoke and native benchmark in `Desktop` |
-| Full workflow | Every job from workflow start to the last job end |
-| End to end | Full workflow plus deployment and public-origin verification |
+| Full workflow | Every job from workflow start to the last job end, including deployment and verification jobs in that workflow |
+| End to end | The event-to-verified-public-target interval, including runner queues, all required workflows, deployment and public-origin verification |
 
 Only the test execution row matches the shard figures. A retry adds to that
 time and the shard report prints the retry count. Cache state changes setup

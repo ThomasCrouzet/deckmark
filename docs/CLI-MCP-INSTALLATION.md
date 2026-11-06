@@ -432,8 +432,16 @@ equal before and after. It removed the installed directory and confirmed that
 the temporary project stayed unchanged. A canary environment value did not
 appear in help, error, or protocol output.
 
-Windows x64 and macOS arm64 clean-install evidence is not available. Do not
-mark issue 272 complete until the procedure below passes on those targets.
+Hosted isolated artifact verification covers Linux x64, macOS ARM64 and Windows
+x64. Run `42306710039` tested merge commit `d29d4f3`. Its tree `65799b42`
+matches the tree of PR head `a2610bc`. Each target ran 11 installed-package
+tests with Node 22.23.4: 11 passed, 0 failed and 0 skipped. This is CI artifact
+verification on hosted runners, not a manual clean-OS audit. It does not replace
+the procedures below.
+
+The hosted validation does not publish a CLI package. Companion archive
+publication follows the existing release process and is separate from this
+test evidence. Signing remains deferred.
 
 ## Release integration request, not applied
 
