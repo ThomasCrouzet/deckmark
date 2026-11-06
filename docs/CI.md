@@ -4,6 +4,34 @@ This page records the dependency choices for the Web and Desktop workflows.
 The goal is earlier feedback without weaker checks. The final gates still require
 every result.
 
+## Triggers and skip rules
+
+`Deploy to GitHub Pages` starts on a push to `main`, on a pull request to
+`main`, and by hand. It has no path filter, so a documentation-only change
+still runs the browser and Lighthouse gates.
+
+`Desktop` starts on the same push and pull request events. It also runs weekly
+and by hand. Its `changes` job runs `scripts/desktop-changes.mjs` as the single
+path filter. The filter requests native coverage for these paths:
+
+| Path group | Current patterns |
+| --- | --- |
+| Web source and assets | `src/`, `src-tauri/`, `static/`, `patches/` |
+| Build and test scripts | `scripts/` |
+| Desktop workflow | `.github/workflows/desktop.yml` |
+| Toolchain and build configuration | `.node-version`, `.npmrc`, `package.json`, `package-lock.json`, `rust-toolchain.toml`, `svelte.config.js`, `tsconfig.json`, `vite.config.ts` |
+
+`src/**/*.test.*`, `src/**/*.spec.*` and `src/**/__tests__/` do not request
+native coverage. A manual run, a release tag and a push with no previous commit
+request the full Desktop matrix. A pull request compares its base and head
+commits. A normal push compares the previous and new commits.
+
+A change under `src/` or `static/` needs Desktop coverage because the same
+frontend is compiled into the native WebView. A Web-only run cannot detect a
+Rust, WebView or packaging regression in that shared frontend. The script and
+the workflow conditions are the source of truth. A skipped Desktop matrix is a
+path decision, not a passed native test.
+
 ## Web workflow
 
 The `Deploy to GitHub Pages` workflow has these independent paths:
@@ -132,14 +160,51 @@ declare `expectedStatus: "skipped"` and carry a skip reason. An interrupted or
 empty result fails. `e2e-manifest` compares the shard lists with the full
 `npx playwright test --list` output and rejects a list report in execution mode.
 The comparison covers every project, including Firefox and WebKit, so a shard
-cannot silently drop a browser project. The expected and actual reports stay in
-the runner temp directory or in the ignored `test-results` directory. No report
-is uploaded or archived on GitHub, as the project storage rule requires. The
-check also compares source, tree, projects, filters, shard and prebuilt identity,
-so a list and a run are only compared under the same effective inputs.
+cannot silently drop a browser project. The expected and actual E2E reports stay
+in the runner temp directory or in the ignored `test-results` directory. This
+workflow does not upload those reports. Other jobs keep their existing build,
+native-smoke, native-benchmark and deployment-evidence artifacts. Do not add a
+new test-report upload. The check also compares source, tree, projects, filters,
+shard and prebuilt identity, so a list and a run are only compared under the
+same effective inputs.
 
 Stage 1 and stage 2 own the scheduling and build reuse. Stage 3 does not remove
 a check, a browser project, a benchmark or a native platform.
+
+## Timing boundaries
+
+The 3 minute fast-feedback target and the 10 minute ordinary pull-request
+target are targets. They are not guarantees. Runner queue time, dependency
+setup, cache state, retries, native builds and final publication checks change
+the result.
+
+One measured Web example: run `42289127802` on `main` commit `d64ffee` used
+eight E2E shards on 2026-11-06. The shards ran from 6 minutes 02 seconds to
+13 minutes 04 seconds. The slowest shard set the critical path. The workflow
+ran 15 minutes 55 seconds from start to the final public-origin check. The
+first jobs started 3 seconds after the workflow, and deployment plus public
+verification took about 2 minutes after the E2E gate.
+
+This is one execution example. It is not a p50 or p95 statistic. Do not use it
+as a distribution or as a promise for another runner or cache state.
+
+| Boundary | What it includes |
+| --- | --- |
+| Runner queue | Wait before a hosted runner starts the job |
+| Job setup | Checkout, toolchain, dependency restore and build reuse |
+| Test execution | One shard run, including any retry |
+| Native jobs | Rust checks, native smoke and native benchmark in `Desktop` |
+| Full workflow | Every job from workflow start to the last job end |
+| End to end | Full workflow plus deployment and public-origin verification |
+
+Only the test execution row matches the shard figures. A retry adds to that
+time and the shard report prints the retry count. Cache state changes setup
+time. The native jobs are in the separate `Desktop` workflow and are not part
+of the Web E2E figure.
+
+The earlier four-shard sample of about 11 to 25 minutes per shard is historical
+data from 2026-11-06. Keep it as the reason for the eight-shard change. Do not
+read it as a current result.
 
 ## Rules for later stages
 

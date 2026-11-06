@@ -257,9 +257,11 @@ Enable AI features to use the assistant. A connection test contacts the provider
 with a test prompt, without document content.
 
 Web Light requires consent to use a browser-resident key. It keeps the key in
-memory and tab session storage. That storage is accessible to page scripts and
-is not a secure vault. **Forget key** removes it. Provider CORS rules and the
-app's connection policy can prevent browser requests.
+page memory and tab session storage. That storage is accessible to page scripts
+and is not a secure vault. Session storage survives a reload. A normal tab
+close clears it, but a browser session restore can restore it. **Forget key**
+removes the key from both places for explicit cleanup. Provider CORS rules and
+the app's connection policy can prevent browser requests.
 
 Desktop stores the key in the operating-system credential store. The key passes
 from the entry field to the vault. Stored keys are not returned to the WebView.
@@ -273,10 +275,21 @@ That action sends the prompt and context to the configured provider. Review
 proposed changes before applying them. A reply does not run commands or apply
 edits automatically.
 
+**Stop** aborts a reply that is still arriving. The panel keeps the text that
+already arrived and adds `[Request stopped]`. On Desktop, the reply is
+discarded when the native request returns and the same marker appears. A
+partial reply is not added to the conversation history. **Stop** never applies
+a patch. A proposal still needs your review and **Apply selected changes**.
+
+The abort stops this app's request. It does not prove that the remote provider
+stopped processing or billing. A provider can continue work after the
+connection closes.
+
 No local inference engine is bundled. A separately installed compatible provider
 can use a local endpoint where the edition's network policy permits it.
 The app requires no backend or cloud storage and sends no telemetry or crash
 reports. Remote images still require a separate fetch action.
+The project has no measured figure for AI startup time or streaming overhead.
 
 <a id="backups-and-storage-health"></a>
 
