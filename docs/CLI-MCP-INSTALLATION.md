@@ -318,7 +318,7 @@ descriptor and root boundary. This is the isolated test exception recorded in
 ## Current evidence
 
 Linux x64 evidence was recorded on 2026-11-06 on the Lenovo host. The source
-tree was clean at commit `c68896a40b39ebb5cc32b0c315ed70a01c4c8cce`.
+tree was clean at commit `f6d6a45660e152db6abbd51f8c9d216baaeba98a`.
 
 ```text
 Command: node --test scripts/pack-cli.test.mjs
@@ -338,11 +338,20 @@ Evidence: /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-c
 ```
 
 Release-candidate archive SHA-256:
-`508f43dd0470c7a5ad6476ba91b7a0c494c3078bca387f020b114d79e095cf88`.
+`85778b0b961e14dc38a5bc5f870267c39f7b6d39dccea649cfe78d62cc8d2f30`.
 
 The package tree contains `runtime/node` at 150319296 bytes. The compressed
 archive is 48 MiB. The manifest records the source SHA, clean state, runtime
 version, target `linux-x64`, and one SHA-256 for each payload file.
+
+Run the installed proof with:
+
+```sh
+node --test scripts/pack-cli.test.mjs
+```
+
+The test writes `test-results/272-cli-pack-evidence.json`. It uses the ignored
+`test-results/` directory and does not change the repository source.
 
 Observed installed-like results, with `PATH` containing no `node` and `HOME`
 set to an isolated directory outside the repository:
