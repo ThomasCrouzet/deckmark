@@ -203,17 +203,35 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  e2e-config:
+    # One source for the shard count. The matrix, both denominators, the list
+    # loop and the partition check read these outputs.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.config.outputs.shards }}
+      count: ${{ steps.config.outputs.count }}
+    steps:
+      - name: Define the shard count
+        id: config
+        run: |
+          echo 'shards=[1,2,3,4,5,6,7,8]' >> "$GITHUB_OUTPUT"
+          echo 'count=8' >> "$GITHUB_OUTPUT"
+
   e2e-shard:
     # E2E uses one verified instrumented build. The shards still check out the
     # source, install dependencies and browsers, then verify the artifact.
-    needs: e2e-build
+    needs: [e2e-build, e2e-config]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: ${{ fromJSON(needs.e2e-config.outputs.shards) }}
     # Each shard retains one worker and the complete browser project selection.
-    # Four shards keep the growing suite inside the job timeout.
+    # Eight shards reduce the critical path without increasing the worker count
+    # on one runner. The shard check compares the local report with the expected
+    # shard list. It prints executed, justified skip and retry counts. Reports
+    # stay on the runner and are not uploaded.
     timeout-minutes: 40
     steps:
       - name: Checkout
@@ -276,25 +294,78 @@ jobs:
       # Docker Playwright baselines diverge from ubuntu-latest font rendering
       # (see CONTRIBUTING.md). Baselines stay versioned for local comparison;
       # do not remove --ignore-snapshots without regenerating on CI.
-      - name: E2E tests (without visual snapshots)
-        run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/4"
+      - name: List the expected shard tests
+        run: npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/$SHARD_COUNT" --reporter=json > "$RUNNER_TEMP/expected-shard.json"
         env:
           E2E_PREBUILT: '1'
           SHARD: ${{ matrix.shard }}
+          SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
+
+      - name: E2E tests (without visual snapshots)
+        run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/$SHARD_COUNT"
+        env:
+          E2E_PREBUILT: '1'
+          SHARD: ${{ matrix.shard }}
+          SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
+
+      - name: Check the shard manifest
+        if: always()
+        run: node scripts/check-e2e-manifest.mjs execution "$RUNNER_TEMP/expected-shard.json" test-results/results.json
+
+  e2e-manifest:
+    # Prove that the shard lists partition the full test list. Every list stays
+    # on this runner. No report is uploaded or archived on GitHub. This job
+    # proves the partition, not execution; each shard proves its own execution.
+    needs: e2e-config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+      - name: List the full test set and every shard
+        env:
+          E2E_PREBUILT: '1'
+          SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
+        run: |
+          npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --reporter=json > "$RUNNER_TEMP/all-tests.json"
+          files=()
+          for shard in $(seq 1 "$SHARD_COUNT"); do
+            npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$shard/$SHARD_COUNT" --reporter=json > "$RUNNER_TEMP/shard-$shard.json"
+            files+=("$RUNNER_TEMP/shard-$shard.json")
+          done
+          node scripts/check-e2e-manifest.mjs partition "$SHARD_COUNT" "$RUNNER_TEMP/all-tests.json" "${files[@]}"
 
   e2e:
-    needs: [e2e-build, e2e-shard]
+    needs: [e2e-build, e2e-shard, e2e-manifest]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require the verified build and every browser shard
+      - name: Require the verified build, every browser shard and the complete test partition
         env:
           BUILD_RESULT: ${{ needs.e2e-build.result }}
           SHARD_RESULT: ${{ needs.e2e-shard.result }}
+          MANIFEST_RESULT: ${{ needs.e2e-manifest.result }}
         run: |
           test "$BUILD_RESULT" = success
           test "$SHARD_RESULT" = success
+          test "$MANIFEST_RESULT" = success
 
   build:
     # The build starts as soon as the Pages paths are known. It does not wait

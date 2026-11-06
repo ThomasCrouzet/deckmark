@@ -281,9 +281,13 @@ jobs:
           cache: npm
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
+      - name: Configure Ubuntu APT
+        # Prefer the archive mirror and bound each network wait. The azure mirror
+        # took more than 20 minutes for the WebKit packages on run 42277784501.
+        run: bash .github/scripts/configure-ubuntu-apt.sh
       - name: Install Playwright browser
-        # The Ubuntu apt mirror can be slow on a shared runner. A 10 minute limit
-        # failed unrelated pull requests while the download was still progressing.
+        # Keep the reviewed limit. The mirror configuration above addresses the
+        # slow download without raising the timeout.
         timeout-minutes: 20
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Download verified web build

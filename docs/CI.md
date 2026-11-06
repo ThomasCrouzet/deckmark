@@ -15,12 +15,18 @@ The `Deploy to GitHub Pages` workflow has these independent paths:
 | `unit` | Checkout | Isolated failure tests and diagnostic coverage |
 | `check` | `typecheck`, `lint`, `unit` | Required stable aggregate name |
 | `e2e-build` | Checkout | One instrumented Web build with provenance |
-| `e2e-shard` (4 shards) | `e2e-build` | Browser suite on Chromium, Firefox and WebKit |
+| `e2e-shard` (8 shards) | `e2e-build` | Browser suite on Chromium, Firefox and WebKit |
 | `pages-config` | Checkout | Expected base path for each host |
 | `build (root)` and `build (/deckmark)` | `pages-config` | Production artifacts and bundle budgets |
 | `lighthouse` | `build` | Performance and accessibility gate |
 
-`e2e` waits for the verified build and all four shards. `deploy` waits for
+`e2e-config` is the single source for the shard count. The shard matrix, both
+`--shard` denominators, the list loop and the partition check read its outputs.
+Each shard compares its local JSON report with its expected shard test list and
+prints executed, justified skip and retry counts. `e2e-manifest` lists the full
+test set and every shard, then checks that the shard lists partition the full
+set. A list report is not accepted as execution proof. `e2e` waits for the
+verified build, all shards and the complete test partition. `deploy` waits for
 `check`, `build`, `e2e` and `lighthouse`. A failure in any path blocks
 publication. The required check names stay the same.
 
@@ -99,8 +105,41 @@ $ node scripts/build-provenance.mjs verify --kind e2e --instrumentation source-f
 build-provenance: The build tree does not match the recorded artifact.
 ```
 
-Stage 3 still owns the shard and worker comparison. The four-shard setting and
-the two CI retries are unchanged in stage 2.
+## Shard and report balance
+
+Stage 3 changes the browser suite from four shards to eight. The measured
+four-shard runs on 2026-11-06 had shard durations of about 11, 14, 17 and 25
+minutes in one sample. The slowest shard set the critical path, and the other
+three runners were idle when it finished. Eight shards halve the tests per
+shard and use eight standard runners instead of four.
+
+The worker count stays at `1` in CI. Each shard already has a dedicated runner.
+Extra workers would put several browsers and their memory on one runner, and
+the suite includes CPU-sensitive timing and drag checks. The stage 3 PR records
+the eight-shard critical path next to the four-shard sample. If eight shards do
+not reduce the maximum, this setting returns to four.
+
+Retries stay at `2` for temporary runner failures. The manifest check prints the
+number of retried results, so a flaky success is visible and is not counted as a
+clean first attempt. A missing, duplicated or unexpected test fails the shard
+check or `e2e-manifest`; a failed shard still fails `e2e` even when the manifest
+contains every test.
+
+Each shard writes its Playwright JSON report to the runner and compares it with
+`npx playwright test --list --shard=<n>/<count> --reporter=json`. The execution
+check requires at least one result for each expected test. A skipped test must
+declare `expectedStatus: "skipped"` and carry a skip reason. An interrupted or
+empty result fails. `e2e-manifest` compares the shard lists with the full
+`npx playwright test --list` output and rejects a list report in execution mode.
+The comparison covers every project, including Firefox and WebKit, so a shard
+cannot silently drop a browser project. The expected and actual reports stay in
+the runner temp directory or in the ignored `test-results` directory. No report
+is uploaded or archived on GitHub, as the project storage rule requires. The
+check also compares source, tree, projects, filters, shard and prebuilt identity,
+so a list and a run are only compared under the same effective inputs.
+
+Stage 1 and stage 2 own the scheduling and build reuse. Stage 3 does not remove
+a check, a browser project, a benchmark or a native platform.
 
 ## Rules for later stages
 

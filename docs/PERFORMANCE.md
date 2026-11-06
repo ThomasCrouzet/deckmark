@@ -120,7 +120,9 @@ pause or one cold presentation load would fail the run. With 20 samples, p95 is
 the second-worst value, so a systematic slowdown still fails and one isolated
 stall stays visible without becoming the gate decision. A repeated stall also
 fails, because the second-worst value then exceeds the limit. The first cold
-presentation load stays in the samples.
+presentation load stays in the samples. The startup measurement installs a
+paint observer before navigation because a headless engine does not always keep
+the first-contentful-paint entry in the buffer.
 
 The native benchmark collects 20 samples for the library reload, WYSIWYG
 typing, slide switch and present mode. One unmeasured warm reload precedes the
