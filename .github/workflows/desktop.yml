@@ -246,7 +246,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
       - name: Install Playwright browser
-        timeout-minutes: 10
+        # The Ubuntu apt mirror can be slow on a shared runner. A 10 minute limit
+        # failed unrelated pull requests while the download was still progressing.
+        timeout-minutes: 20
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Build production web app
         run: npm run build
