@@ -40,6 +40,16 @@ for (const fixture of [
 
 test('a delayed note editor does not interrupt file-name input', async ({ page }, info) => {
 	await resetAppState(page);
+	// Open the creation menu before the CSS gate. The gate must delay the editor
+	// load, not the menu that starts the action.
+	const welcomeNew = page.locator('main [data-testid="welcome-new"]');
+	if (await welcomeNew.count()) await welcomeNew.click();
+	else
+		await page
+			.locator('main')
+			.getByRole('button', { name: /Nouveau fichier/ })
+			.click();
+	await page.getByTestId('create-note').waitFor({ state: 'visible' });
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => (release = resolve));
 	let delayed = 0;
@@ -49,9 +59,10 @@ test('a delayed note editor does not interrupt file-name input', async ({ page }
 		await route.continue();
 	});
 	try {
-		await createFirstFile(page);
+		await page.getByTestId('create-note').click();
 		await expect.poll(() => delayed).toBeGreaterThan(0);
 		const input = page.locator('#app-toolbar input');
+		await expect(input).toBeVisible({ timeout: 10_000 });
 		await input.fill('A name entered during load');
 		release();
 		await expect(page.locator('.ProseMirror')).toBeVisible();

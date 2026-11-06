@@ -425,55 +425,69 @@ class FilesStore {
 
 	async load(preferredActiveId: string | null = null): Promise<void> {
 		if (!browser || this.loaded) return;
+		let openTimer: ReturnType<typeof setTimeout> | undefined;
 		try {
-			const rows = await db.drafts.orderBy('order').toArray();
-			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Transient local Set, never $state
-			const linkedIds = new Set<string>();
-			if (isFSASupported() || isDesktop()) {
-				const links = await listDiskLinks();
-				for (const link of links) {
-					if (link.kind === 'path' || isFSASupported()) linkedIds.add(link.id);
-				}
-			}
-			const items = rows.map((r) => ({
-				id: r.id,
-				name: r.name,
-				content: r.content,
-				...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
-				...(r.origin ? { origin: r.origin } : {}),
-				...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
-				...(r.kind ? { kind: r.kind } : {}),
-				...(r.mime ? { mime: r.mime } : {}),
-				...(r.data ? { data: r.data } : {}),
-				createdAt: r.createdAt,
-				updatedAt: r.updatedAt,
-				dirty: false,
-				linkedToDisk: linkedIds.has(r.id)
-			}));
-			for (const row of rows) this.saveQueue.trackPersisted(row);
-			this.files = items.filter((_file, index) => rows[index]?.open !== false);
-			this.closedFiles = items.filter((_file, index) => rows[index]?.open === false);
-			const savedActiveId =
-				preferredActiveId && this.files.some((file) => file.id === preferredActiveId)
-					? preferredActiveId
-					: readPreference(ACTIVE_ID_KEY);
-			if (savedActiveId && this.files.some((f) => f.id === savedActiveId)) {
-				this.activeId = savedActiveId;
-			} else if (this.files.length > 0) {
-				// invariant: files[0] is guaranteed non-undefined since length > 0.
-				this.activeId = this.files[0]!.id;
-			}
-			await this.loadTrash();
-			this.loaded = true;
-			// Background FSA check - no await (must not block the display).
-			void this.refreshBrokenLinks();
+			// A stale tab can hold an older database connection and block the
+			// upgrade indefinitely. Surface a recoverable state instead of an
+			// endless loading shell. Dexie keeps the request pending; the user
+			// must close the other tab and retry.
+			const timeout = new Promise<never>((_resolve, reject) => {
+				openTimer = setTimeout(() => reject(new Error('storage-open-timeout')), 8_000);
+			});
+			await Promise.race([this.loadData(preferredActiveId), timeout]);
 		} catch (err) {
 			// §J1 - IndexedDB inaccessible (private browsing, storage disabled,
-			// corrupted profile): we do not abandon the app on a misleading empty
-			// screen ("no files"), we surface an actionable message.
+			// blocked upgrade, corrupted profile): surface an actionable message.
 			reportError('load IndexedDB', err);
 			this.loadError = t('files.loadError');
+		} finally {
+			// Do not keep a pending timer after a fast load.
+			if (openTimer !== undefined) clearTimeout(openTimer);
 		}
+	}
+
+	private async loadData(preferredActiveId: string | null): Promise<void> {
+		const rows = await db.drafts.orderBy('order').toArray();
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Transient local Set, never $state
+		const linkedIds = new Set<string>();
+		if (isFSASupported() || isDesktop()) {
+			const links = await listDiskLinks();
+			for (const link of links) {
+				if (link.kind === 'path' || isFSASupported()) linkedIds.add(link.id);
+			}
+		}
+		const items = rows.map((r) => ({
+			id: r.id,
+			name: r.name,
+			content: r.content,
+			...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
+			...(r.origin ? { origin: r.origin } : {}),
+			...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
+			...(r.kind ? { kind: r.kind } : {}),
+			...(r.mime ? { mime: r.mime } : {}),
+			...(r.data ? { data: r.data } : {}),
+			createdAt: r.createdAt,
+			updatedAt: r.updatedAt,
+			dirty: false,
+			linkedToDisk: linkedIds.has(r.id)
+		}));
+		for (const row of rows) this.saveQueue.trackPersisted(row);
+		this.files = items.filter((_file, index) => rows[index]?.open !== false);
+		this.closedFiles = items.filter((_file, index) => rows[index]?.open === false);
+		const savedActiveId =
+			preferredActiveId && this.files.some((file) => file.id === preferredActiveId)
+				? preferredActiveId
+				: readPreference(ACTIVE_ID_KEY);
+		if (savedActiveId && this.files.some((f) => f.id === savedActiveId)) {
+			this.activeId = savedActiveId;
+		} else if (this.files.length > 0) {
+			// invariant: files[0] is guaranteed non-undefined since length > 0.
+			this.activeId = this.files[0]!.id;
+		}
+		await this.loadTrash();
+		this.loaded = true;
+		// Background FSA check - no await (must not block the display).
+		void this.refreshBrokenLinks();
 	}
 
 	/**
@@ -507,7 +521,6 @@ class FilesStore {
 		if (broadcast) this.crossTab.post({ type: 'backup-applied' });
 	}
 
-	/** Reloads the durable trash and purges entries past the retention period. */
 	private async loadTrash(): Promise<void> {
 		const results = await loadTrashRows();
 		for (const { entry } of results) {
