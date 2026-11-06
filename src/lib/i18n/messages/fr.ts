@@ -157,18 +157,6 @@ export const fr: Record<MessageKey, string> = {
 	'updates.copied': 'Lien de téléchargement copié.',
 	'updates.manualInstall':
 		'Installez le paquet signé manuellement. L’application n’installe jamais une mise à jour elle-même.',
-	'settings.diagnostics': 'Diagnostic',
-	'settings.diagnosticsHint': 'Créez un rapport local. Rien n’est envoyé automatiquement.',
-	'settings.reportProblem': 'Signaler un problème',
-	'settings.diagnosticsDescription': 'Que s’est-il passé ? Votre texte est inclus tel quel.',
-	'settings.diagnosticsIncludeStats':
-		'Inclure le nombre et la taille des documents (sans texte ni noms)',
-	'settings.diagnosticsPrivacy':
-		'Ne collez pas de secrets. Le rapport exclut les documents, chemins, clés, invites et réponses du modèle.',
-	'settings.diagnosticsBuild': 'Prévisualiser le rapport',
-	'settings.diagnosticsDownload': 'Télécharger le rapport',
-	'settings.diagnosticsCancel': 'Annuler',
-	'settings.diagnosticsFailed': 'Le rapport n’a pas pu être créé.',
 	'palette.reportProblem': 'Signaler un problème',
 	'settings.about': 'À propos de deckmark',
 	'settings.authorCredit': 'Créé par Thomas CROUZET',

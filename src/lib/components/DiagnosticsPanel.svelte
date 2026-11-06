@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { t } from '#lib/i18n/index.js';
+	import { i18n } from '#lib/i18n/index.js';
+	import { diagnosticsEn, type DiagnosticsMessageKey } from '#lib/i18n/messages/diagnostics-en.js';
+	import { diagnosticsFr } from '#lib/i18n/messages/diagnostics-fr.js';
 	import { version } from '../../../package.json';
 	import { editionManifest } from '#lib/edition.js';
 	import { isDesktop } from '#lib/desktop.js';
@@ -13,6 +15,14 @@
 		downloadDiagnosticReport,
 		type DiagnosticMetadata
 	} from '#lib/diagnostics.js';
+
+	const diagnosticsMessages: Record<string, Record<string, string>> = {
+		en: diagnosticsEn,
+		fr: diagnosticsFr
+	};
+	function td(key: DiagnosticsMessageKey): string {
+		return diagnosticsMessages[i18n.locale]?.[key] ?? diagnosticsEn[key] ?? key;
+	}
 
 	let open = $state(false);
 	let description = $state('');
@@ -64,7 +74,7 @@
 				description
 			});
 		} catch {
-			status = t('settings.diagnosticsFailed');
+			status = td('settings.diagnosticsFailed');
 		}
 	}
 
@@ -94,20 +104,20 @@
 	data-testid="diagnostics-section"
 	bind:this={section}
 >
-	<h3 class="mb-2 font-medium text-fg">{t('settings.diagnostics')}</h3>
-	<p class="mb-2">{t('settings.diagnosticsHint')}</p>
+	<h3 class="mb-2 font-medium text-fg">{td('settings.diagnostics')}</h3>
+	<p class="mb-2">{td('settings.diagnosticsHint')}</p>
 	<button
 		type="button"
-		class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+		class="min-h-11 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
 		data-testid="diagnostics-open"
 		onclick={() => (open = !open)}
 	>
-		{t('settings.reportProblem')}
+		{td('settings.reportProblem')}
 	</button>
 	{#if open}
 		<div class="mt-2 grid gap-2">
 			<label class="grid gap-1">
-				<span>{t('settings.diagnosticsDescription')}</span>
+				<span>{td('settings.diagnosticsDescription')}</span>
 				<textarea
 					class="min-h-20 rounded-md border border-border bg-bg-2 p-2 text-fg"
 					bind:value={description}
@@ -119,34 +129,34 @@
 					bind:checked={includeStats}
 					data-testid="diagnostics-include-stats"
 				/>
-				<span>{t('settings.diagnosticsIncludeStats')}</span>
+				<span>{td('settings.diagnosticsIncludeStats')}</span>
 			</label>
-			<p class="text-warning" role="note">{t('settings.diagnosticsPrivacy')}</p>
+			<p class="text-warning" role="note">{td('settings.diagnosticsPrivacy')}</p>
 			<div class="flex flex-wrap gap-2">
 				<button
 					type="button"
-					class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+					class="min-h-11 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
 					data-testid="diagnostics-build"
 					onclick={() => void buildPreview()}
 				>
-					{t('settings.diagnosticsBuild')}
+					{td('settings.diagnosticsBuild')}
 				</button>
 				<button
 					type="button"
-					class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+					class="min-h-11 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
 					data-testid="diagnostics-download"
 					disabled={!preview}
 					onclick={download}
 				>
-					{t('settings.diagnosticsDownload')}
+					{td('settings.diagnosticsDownload')}
 				</button>
 				<button
 					type="button"
-					class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
+					class="min-h-11 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
 					data-testid="diagnostics-cancel"
 					onclick={cancel}
 				>
-					{t('settings.diagnosticsCancel')}
+					{td('settings.diagnosticsCancel')}
 				</button>
 			</div>
 			{#if status}
