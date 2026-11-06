@@ -80,6 +80,12 @@ function trackInstallation(worker: ServiceWorker): void {
 	handleState();
 }
 
+/** Retry service worker registration after a failed offline preparation. */
+export function retryOfflineSetup(): void {
+	offlineState.status = 'preparing';
+	registerPwaUpdates();
+}
+
 export function registerPwaUpdates(): void {
 	if (!browser) return;
 	if (isDesktop()) {

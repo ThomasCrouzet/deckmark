@@ -221,8 +221,11 @@ jobs:
         run: cargo audit --file src-tauri/Cargo.lock --deny unsound
 
   web-benchmark:
-    needs: [resolve-source, validate-desktop]
-    if: inputs.validated_sha == '' && needs.validate-desktop.result == 'success'
+    # Web measurements depend on the frontend source only. They do not wait
+    # for Rust or native validation. The final desktop-validation gate still
+    # requires every platform result.
+    needs: [resolve-source]
+    if: inputs.validated_sha == ''
     strategy:
       fail-fast: false
       matrix:
@@ -250,7 +253,7 @@ jobs:
         env:
           BASE_PATH: ''
       - name: Measure web benchmark
-        run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
+        run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --enforce-budgets --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
       - name: Retain web benchmark evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -260,8 +263,10 @@ jobs:
           if-no-files-found: warn
 
   native-smoke:
-    needs: [resolve-source, validate-desktop]
-    if: inputs.validated_sha == '' && needs.validate-desktop.result == 'success'
+    # Each OS builds its own debug app. A slow row on another OS must not delay
+    # this row. The final gate waits for the complete matrix.
+    needs: [resolve-source]
+    if: inputs.validated_sha == ''
     strategy:
       fail-fast: false
       matrix:
@@ -328,8 +333,10 @@ jobs:
           if-no-files-found: warn
 
   native-benchmark:
-    needs: [resolve-source, validate-desktop, native-smoke]
-    if: inputs.validated_sha == '' && needs.native-smoke.result == 'success'
+    # The benchmark builds and measures its own app on each OS. It does not wait
+    # for another OS row or for unrelated Rust validation.
+    needs: [resolve-source]
+    if: inputs.validated_sha == ''
     strategy:
       fail-fast: false
       matrix:
@@ -377,13 +384,13 @@ jobs:
       - name: Measure Linux WebKitGTK benchmark
         if: runner.os == 'Linux'
         shell: bash
-        run: dbus-run-session -- xvfb-run -a node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --output "$RUNNER_TEMP/native-benchmark.json"
+        run: dbus-run-session -- xvfb-run -a node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --enforce-budgets --output "$RUNNER_TEMP/native-benchmark.json"
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
       - name: Measure native WebView benchmark
         if: runner.os != 'Linux'
         shell: bash
-        run: node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --output "$RUNNER_TEMP/native-benchmark.json"
+        run: node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --enforce-budgets --output "$RUNNER_TEMP/native-benchmark.json"
       - name: Retain native benchmark evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

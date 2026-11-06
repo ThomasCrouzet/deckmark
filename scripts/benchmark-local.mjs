@@ -7,6 +7,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { chromium, firefox, webkit } from '@playwright/test';
 import {
+	budgetGateFailed,
 	budgetReport,
 	environmentIdentity,
 	gitRevision,
@@ -508,17 +509,29 @@ async function measureProjectTree(page, runs) {
 }
 
 async function measurePresentation(page, runs) {
-	await domClick(page, 'button[data-file-id="bench-presentation"]');
-	const loadStartedAt = performance.now();
-	await page.locator('[data-testid="presentation-editor"]').waitFor({
-		state: 'visible',
-		timeout: 60_000
-	});
-	await page
-		.locator('[data-testid="slide-thumbnail"]')
-		.first()
-		.waitFor({ state: 'visible', timeout: 60_000 });
-	const load = performance.now() - loadStartedAt;
+	const loadSamples = [];
+	for (let run = 0; run < Math.min(runs, 3); run += 1) {
+		if (run > 0) {
+			await domClick(page, 'button[data-file-id="bench-000"]');
+			await page.waitForFunction(
+				() => document.querySelector('header input')?.value === 'bench-000',
+				undefined,
+				{ timeout: 30_000 }
+			);
+			await waitForIdle(page);
+		}
+		const loadStartedAt = performance.now();
+		await domClick(page, 'button[data-file-id="bench-presentation"]');
+		await page.locator('[data-testid="presentation-editor"]').waitFor({
+			state: 'visible',
+			timeout: 60_000
+		});
+		await page
+			.locator('[data-testid="slide-thumbnail"]')
+			.first()
+			.waitFor({ state: 'visible', timeout: 60_000 });
+		loadSamples.push(performance.now() - loadStartedAt);
+	}
 	const slideSwitch = [];
 	for (let run = 0; run < runs; run += 1) {
 		const index = (run % 2) + 1;
@@ -549,7 +562,7 @@ async function measurePresentation(page, runs) {
 			timeout: 30_000
 		});
 	}
-	return { load: [load], slideSwitch, present };
+	return { load: loadSamples, slideSwitch, present };
 }
 
 async function measureExport(page, runs) {
@@ -629,11 +642,13 @@ async function runWebBenchmark(options, fixtures) {
 		await waitForShell(page);
 		await seedDatabase(page);
 		const libraryReload = [];
-		const libraryReloadAt = performance.now();
-		await page.reload();
-		await waitForShell(page);
-		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
-		libraryReload.push(performance.now() - libraryReloadAt);
+		for (let run = 0; run < Math.min(options.runs, 3); run += 1) {
+			const libraryReloadAt = performance.now();
+			await page.reload();
+			await waitForShell(page);
+			await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
+			libraryReload.push(performance.now() - libraryReloadAt);
+		}
 
 		await waitForIdle(page);
 		await installInputProbe(page);
@@ -749,7 +764,8 @@ async function runWebBenchmark(options, fixtures) {
 				'Input latency uses a synthetic execCommand path, not a physical keyboard driver.'
 			],
 			budget,
-			forcedBudgetFailure: options.enforceBudgets && budget.status === 'over-budget',
+			budgetEnforced: options.enforceBudgets,
+			forcedBudgetFailure: budgetGateFailed(budget, options.enforceBudgets),
 			summary,
 			samples,
 			exportDownloads: exportHtml.downloads,
@@ -832,10 +848,9 @@ async function main() {
 		console.log(`Wrote benchmark data to ${options.output}.`);
 	}
 	if (result.forcedBudgetFailure) {
-		const over = Object.entries(result.budget.metrics)
-			.filter(([, value]) => /** @type {{status: string}} */ (value).status === 'over-budget')
-			.map(([name]) => name);
-		throw new Error(`Measured p95 exceeds the configured baseline: ${over.join(', ')}`);
+		throw new Error(
+			`Benchmark budget gate failed for ${result.budget.platformKey}: ${result.budget.failures.join(', ')}`
+		);
 	}
 }
 

@@ -146,57 +146,131 @@ export async function loadBudgets(path = join(import.meta.dirname, 'benchmark-bu
 }
 
 /**
- * Compare measured p95 values with the configurable baseline for one platform.
- * A budget is a recorded baseline, not a claim that two platforms are equal.
+ * Compare measured p95 values with the configured baseline for one platform.
+ * The evaluation fails closed: a missing baseline, an absent required metric,
+ * too few samples, a unit mismatch, a non-finite value, an ungated summary
+ * metric, or a p95 over the reviewed limit produces a non-ok status. Only
+ * metrics marked `optional` may stay unmeasured, because the engine does not
+ * expose them.
  * @param {{
  *   platformKey: string,
- *   summary: Record<string, { p95?: number, runs: number, unit: string }>,
+ *   summary: Record<string, { p95?: number, runs: number, unit: string, measured?: boolean }>,
  *   budgets: Awaited<ReturnType<typeof loadBudgets>>,
- *   toleranceRatio?: number
+ *   toleranceRatio?: number,
+ *   minimumRuns?: number
  * }} input
  */
-export function budgetReport({ platformKey, summary, budgets, toleranceRatio }) {
-	const platformBudget = budgets.platforms[platformKey];
-	const tolerance = toleranceRatio ?? budgets.defaults?.toleranceRatio ?? 0.5;
+export function budgetReport({ platformKey, summary, budgets, toleranceRatio, minimumRuns }) {
+	const defaults = budgets.defaults ?? {};
+	const tolerance = toleranceRatio ?? defaults.toleranceRatio ?? 0.5;
+	const requiredRuns = minimumRuns ?? defaults.minimumRuns ?? 3;
+	const platformBudget = budgets.platforms?.[platformKey];
 	if (!platformBudget) {
 		return {
 			platformKey,
 			status: 'no-baseline',
 			toleranceRatio: tolerance,
+			minimumRuns: requiredRuns,
+			failures: ['missing-platform-baseline'],
 			metrics: {}
 		};
 	}
-	/** @type {Record<string, unknown>} */
+	if (!Number.isFinite(tolerance) || tolerance < 0) {
+		return {
+			platformKey,
+			label: platformBudget.label,
+			status: 'invalid',
+			toleranceRatio: tolerance,
+			minimumRuns: requiredRuns,
+			failures: ['invalid-tolerance-ratio'],
+			metrics: {}
+		};
+	}
+	/** @type {Record<string, Record<string, unknown>>} */
 	const metrics = {};
-	let status = 'ok';
-	for (const [metric, definition] of Object.entries(platformBudget.metrics ?? {})) {
-		const measured = summary[metric];
+	/** @type {string[]} */
+	const failures = [];
+	const budgetDefinitions = platformBudget.metrics ?? {};
+	for (const [metric, definition] of Object.entries(budgetDefinitions)) {
 		const budget =
-			/** @type {{ p95: number, unit: string, note?: string, toleranceRatio?: number }} */ (
+			/** @type {{ p95: number, unit: string, note?: string, toleranceRatio?: number, optional?: boolean, minimumRuns?: number }} */ (
 				definition
 			);
-		const limit = Number((budget.p95 * (1 + (budget.toleranceRatio ?? tolerance))).toFixed(3));
-		if (!measured?.measured || measured.runs === 0) {
+		const measured = summary[metric];
+		const metricMinimumRuns = budget.minimumRuns ?? requiredRuns;
+		const fail = (status, reason) => {
+			if (!budget.optional) failures.push(`${metric}:${reason}`);
 			metrics[metric] = {
 				budgetP95: budget.p95,
 				unit: budget.unit,
-				status: 'unmeasured',
+				status,
+				reason,
+				runs: measured?.runs ?? 0,
+				minimumRuns: metricMinimumRuns,
 				note: budget.note
 			};
+			return;
+		};
+		if (!Number.isFinite(budget.p95) || budget.p95 < 0) {
+			fail('invalid-budget', 'invalid-budget-p95');
 			continue;
 		}
-		const over = measured.p95 !== undefined && measured.p95 > limit;
-		if (over) status = 'over-budget';
+		if (!measured?.measured || measured.runs === 0) {
+			fail(budget.optional ? 'unsupported' : 'missing', 'missing-measurement');
+			continue;
+		}
+		if (!Number.isFinite(measured.runs) || measured.runs < metricMinimumRuns) {
+			fail('insufficient-samples', 'too-few-runs');
+			continue;
+		}
+		if (measured.unit !== budget.unit) {
+			fail('unit-mismatch', 'unit-mismatch');
+			continue;
+		}
+		if (measured.p95 === undefined || !Number.isFinite(measured.p95) || measured.p95 < 0) {
+			fail('invalid-value', 'non-finite-or-negative-p95');
+			continue;
+		}
+		const limit = Number((budget.p95 * (1 + (budget.toleranceRatio ?? tolerance))).toFixed(3));
+		const over = measured.p95 > limit;
 		metrics[metric] = {
 			budgetP95: budget.p95,
 			limitWithTolerance: limit,
 			measuredP95: measured.p95,
 			unit: budget.unit,
 			status: over ? 'over-budget' : 'ok',
+			runs: measured.runs,
+			minimumRuns: metricMinimumRuns,
 			note: budget.note
 		};
+		if (over) failures.push(`${metric}:over-budget`);
 	}
-	return { platformKey, label: platformBudget.label, status, toleranceRatio: tolerance, metrics };
+	for (const metric of Object.keys(summary)) {
+		if (Object.hasOwn(budgetDefinitions, metric)) continue;
+		if (platformBudget.allowUngated?.includes(metric)) continue;
+		failures.push(`${metric}:ungated-metric`);
+	}
+	const overBudget = failures.some((failure) => failure.endsWith(':over-budget'));
+	const status = failures.length === 0 ? 'ok' : overBudget ? 'over-budget' : 'invalid';
+	return {
+		platformKey,
+		label: platformBudget.label,
+		status,
+		toleranceRatio: tolerance,
+		minimumRuns: requiredRuns,
+		failures,
+		metrics
+	};
+}
+
+/**
+ * True when an enforcing run must exit nonzero. Reporting-only runs can still
+ * write the same report, but they do not change the process status.
+ * @param {ReturnType<typeof budgetReport>} report
+ * @param {boolean} enforce
+ */
+export function budgetGateFailed(report, enforce) {
+	return enforce && report.status !== 'ok';
 }
 
 /** @param {string} name */

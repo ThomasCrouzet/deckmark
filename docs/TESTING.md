@@ -1360,3 +1360,72 @@ builds a report from Settings through the command palette, and checks that:
 Run `npx playwright test e2e/diagnostics.spec.ts --project=chromium` and keep the
 preview and downloaded JSON attachments. The issue template asks for the optional
 bundle and warns that free text can contain sensitive data.
+## First-run and storage recovery
+
+`e2e/first-run-recovery.spec.ts` denies IndexedDB, checks the visible blocking
+message and the retry action, restores storage access, and verifies that the retry
+loads an empty library without deleting data. The artifact records the retry and
+the row count. This covers a first visit where the storage API fails. The browser
+can recover after the user restores access; the library is not reset.
+
+The other first-run risks reuse existing specs instead of a second harness:
+
+- Quota failure and draft preservation: `e2e/storage-pressure.spec.ts`.
+- Prepared app offline and stale cache: `e2e/offline-review.spec.ts`.
+- Remote media consent: `e2e/media-consent-review.spec.ts`.
+- Reload during a pending save: `e2e/durability.spec.ts`.
+- Corrupt archive refusal: `e2e/format-compat.spec.ts` and
+  `e2e/project-archive-risks.spec.ts`.
+
+A first visit with no cached application and no network cannot show DeckMark's
+own error interface. That case is a browser limitation, not an application test.
+Offline guarantees start after the service worker installs the required assets.
+
+The **Ready offline** label comes from service worker activation. If registration
+fails, Settings shows **Offline cache unavailable** and a retry action. The retry
+runs the existing registration path. It does not claim that an uncached first visit
+can recover without a network.
+
+## Optional AI privacy and review
+
+`e2e/ai-idle-privacy.spec.ts` configures a mock provider, enables AI, and then
+edits and imports documents. It checks that the request count stays at zero until
+an explicit action. The mock provider uses a loopback-style host name and no real
+credential or paid call.
+
+The other AI requirements reuse existing coverage:
+
+- disabled state, session key lifetime and local storage exclusion:
+  `e2e/ai-settings.spec.ts`
+- reviewed context, streamed reply and cancellation: `e2e/ai-panel.spec.ts`
+- stale patch refusal and scoped application: `e2e/ai-patches.spec.ts`
+- patch parsing and adversarial fixtures: `src/lib/ai/patches.test.ts`
+
+Web keys stay in tab session storage. Desktop keys stay behind the native
+boundary and are tested by the Rust vault suite. A failed provider request must
+leave the editor state intact; the existing error cases assert this.
+
+## Benchmark gate tests
+
+`scripts/benchmark-shared.test.mjs` checks the fail-closed benchmark gate. It
+covers an over-budget p95, a missing baseline, a missing required metric, too few
+samples, a unit mismatch, a non-finite value, an ungated summary metric, and an
+invalid budget. It also starts `scripts/benchmark-gate.mjs` as a child process and
+checks that valid evidence exits 0 while over-budget or incomplete evidence exits
+nonzero. Run `npm run test:benchmark-gate`. Keep the JSON report and the exit code
+with the run evidence. The gate does not replace a browser or native benchmark
+run. It decides whether the retained measurements permit publication.
+
+## Dual-host transfer
+
+`e2e/host-transfer.spec.ts` starts a second local origin from the same production
+build. It creates a note and an AI session key on the first origin, exports a
+portable backup, imports it on the second origin with **Merge**, and checks that
+the document content arrives while the key stays absent. It also checks the host
+identity text and cancellation path. The artifact records both origins and the
+key result.
+
+`src/lib/host.test.ts` covers the main host, the fallback host, local development
+and an unknown self-hosted copy. The public deployment checks in
+`playwright.production.config.ts` and `verify-deployment.yml` still verify each
+live host independently against its own expected base path and source SHA.

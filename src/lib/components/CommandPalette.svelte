@@ -29,7 +29,8 @@
 	import { EDITOR } from '#lib/config.js';
 	import type { EditorWidth } from '#lib/ui/editor-width.svelte.js';
 	import { PRINT_PAGE, PRINT_TEXT_WIDTH_MM } from '#lib/render/print-geometry.js';
-	import { coreCommands, normalizeCommandSearch } from '#lib/ui/commands.js';
+	import { coreCommands } from '#lib/ui/commands.js';
+	import { filterCommands } from '#lib/palette-rank.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
@@ -906,9 +907,7 @@
 				const kbd = keyboardStore.label(command.id);
 				return kbd ? { ...rest, kbd } : rest;
 			});
-		const q = normalizeCommandSearch(query.trim());
-		if (!q) return all;
-		return all.filter((c) => normalizeCommandSearch(`${c.label} ${c.keywords ?? ''}`).includes(q));
+		return [...filterCommands(all, query)];
 	});
 	const actionGroups = $derived(
 		[
