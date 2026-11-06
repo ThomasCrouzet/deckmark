@@ -485,8 +485,8 @@ async function measureModeSwitch(page, runs) {
 async function measureProjectTree(page, runs) {
 	const panel = page.locator('[role="dialog"][aria-labelledby="projects-title"]');
 	const values = [];
-	for (let run = 0; run < runs; run += 1) {
-		const startedAt = performance.now();
+
+	async function openPanel() {
 		await domClick(page, '[data-testid="projects-open"]');
 		await panel.waitFor({ state: 'visible', timeout: 30_000 });
 		await page.waitForFunction(
@@ -495,7 +495,9 @@ async function measureProjectTree(page, runs) {
 			projectFixture.documents.length,
 			{ timeout: 60_000 }
 		);
-		values.push(performance.now() - startedAt);
+	}
+
+	async function closePanel() {
 		// The close control stays disabled while the panel is busy. Wait for the
 		// idle state before the close click, otherwise slower engines drop it.
 		await page.waitForFunction(
@@ -510,6 +512,19 @@ async function measureProjectTree(page, runs) {
 		);
 		await domClick(page, '[role="dialog"][aria-labelledby="projects-title"] header button');
 		await panel.waitFor({ state: 'hidden', timeout: 30_000 });
+	}
+
+	// Warm up the lazy panel chunk and the first render before the measured
+	// samples. Cold startup is measured separately. Idle waits keep a pending
+	// save or export from inflating one render sample.
+	await openPanel();
+	await closePanel();
+	for (let run = 0; run < runs; run += 1) {
+		await waitForIdle(page);
+		const startedAt = performance.now();
+		await openPanel();
+		values.push(performance.now() - startedAt);
+		await closePanel();
 	}
 	return values;
 }
@@ -636,6 +651,10 @@ async function runWebBenchmark(options, fixtures) {
 	const browserErrors = [];
 	let page;
 	const expensiveRuns = Math.min(options.runs, 5);
+	// A p95 over five samples is the maximum, so one browser stall fails the
+	// gate. Twenty samples make p95 the second-worst value: a systematic slowdown
+	// still fails, and the report keeps every sample and the maximum.
+	const projectTreeRuns = Math.max(options.runs, 20);
 	try {
 		const startup = await measureStartup(browser, url, options.runs);
 		const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
@@ -683,7 +702,7 @@ async function runWebBenchmark(options, fixtures) {
 		await page.waitForFunction(() => document.querySelector('header input')?.value === 'bench-000');
 		const exportHtml = await measureExport(page, expensiveRuns);
 		heapSamples.push(await measureHeap(page, options.browser));
-		const projectTree = await measureProjectTree(page, expensiveRuns);
+		const projectTree = await measureProjectTree(page, projectTreeRuns);
 		heapSamples.push(await measureHeap(page, options.browser));
 		const presentation = await measurePresentation(page, expensiveRuns);
 		heapSamples.push(await measureHeap(page, options.browser));

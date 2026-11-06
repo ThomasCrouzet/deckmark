@@ -45,6 +45,22 @@ body:
       required: true
 
   - type: input
+    id: version
+    attributes:
+      label: DeckMark version and edition
+      description: 'Find them in Settings > About. Example: 2.4.0, Web Light.'
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: 'Operating system and browser or native WebView. Example: Windows 11, WebView2.'
+    validations:
+      required: true
+
+  - type: input
     id: browser
     attributes:
       label: Browser + version
@@ -69,8 +85,11 @@ body:
   - type: textarea
     id: console
     attributes:
-      label: Console errors
-      description: Paste any error visible in the DevTools console.
+      label: Local diagnostics report (optional)
+      description: |
+        Settings > Report a problem builds the report locally. Review it and attach
+        the downloaded JSON only if you choose to share it. Do not include API keys,
+        document text or private paths.
       render: text
 
   - type: checkboxes
