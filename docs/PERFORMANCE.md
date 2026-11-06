@@ -82,6 +82,8 @@ metric. `scripts/benchmark-shared.mjs` evaluates a report as follows:
 - Fewer runs than `defaults.minimumRuns` fails the gate. A metric can set a
   reviewed `minimumRuns` value. One-shot lifecycle metrics such as cold start
   and close use 1 sample, and the report shows `runs: 1`.
+- A measured metric must record `complete: true`. A missing field, a non-boolean
+  value, or a false value fails the gate.
 - A unit mismatch, a non-finite value, or a negative value fails the gate.
 - A measured summary field with no budget entry fails the gate. Add a reviewed
   budget or an explicit `optional` entry instead of dropping the metric.
@@ -113,19 +115,21 @@ npm run test:benchmark-gate
 ```
 
 The browser benchmark collects 20 samples for startup, cached restart, project
-tree render, presentation load and visual typing, and 5 samples for the other
-scenarios. The gate reports every sample and the maximum. The 20-sample metrics
-use that count because a p95 over 5 samples is the maximum: one browser
-garbage-collection pause, one slow cached restart, one cold presentation load or
-one slow visual typing sample would fail the run. With 20 samples, p95 is the
-second-worst value, so a systematic slowdown still fails and one isolated stall
-stays visible without becoming the gate decision. A repeated stall also fails,
-because the second-worst value then exceeds the limit. The first cold
-presentation load stays in the samples. The startup measurement installs a paint
-observer before navigation, waits a bounded time for either the observer or the
-timeline entry, and records which source supplied the value. A required metric
-with a missing sample fails the gate, so a partial report cannot pass on its
-remaining samples.
+tree render, presentation load and visual typing, 3 samples for the library
+reload, and up to 5 samples for the remaining scenarios. Heap collects four
+samples. The five startup metrics on each web platform set `minimumRuns` to 20,
+which matches the 20 samples that the generator collects. The gate reports every
+sample and the maximum. The 20-sample metrics use that count because a p95 over
+5 samples is the maximum: one browser garbage-collection pause, one slow cached
+restart, one cold presentation load or one slow visual typing sample would fail
+the run. With 20 samples, p95 is the second-worst value, so a systematic
+slowdown still fails and one isolated stall stays visible without becoming the
+gate decision. A repeated stall also fails, because the second-worst value then
+exceeds the limit. The first cold presentation load stays in the samples. The
+startup measurement installs a paint observer before navigation, waits a
+bounded time for either the observer or the timeline entry, and records which
+source supplied the value. A required metric with a missing sample fails the
+gate, so a partial report cannot pass on its remaining samples.
 
 The native benchmark collects 20 samples for the library reload, WYSIWYG
 typing, slide switch and present mode. One unmeasured warm reload precedes the
