@@ -1,0 +1,385 @@
+name: CLI package
+
+# Validate the installed-user CLI and MCP package on the three supported
+# targets: Linux x64, Windows x64, and macOS ARM64. Each row builds a package
+# with its own bundled Node runtime, then runs the installed-package suite from
+# outside the checkout with an empty PATH. This workflow does not sign,
+# publish, or change a release. It uploads nothing: the evidence stays in the
+# runner temporary directory.
+#
+# The path filters name every input that changes the package bytes: the CLI
+# sources, the shared library modules that the CLI bundle imports, the MCP
+# source, the pack and bundle scripts, the installed-package suite, the
+# dependency and version files, and this workflow. A change outside this list
+# cannot change a package, so a skipped run is not a false proof.
+#
+# The job installs no APT package, so it does not configure the Ubuntu mirror.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cli/**'
+      - 'bin/deckmark.mjs'
+      - 'bin/deckmark-mcp.mjs'
+      - 'src/lib/**'
+      - 'scripts/build-cli.mjs'
+      - 'scripts/pack-cli.mjs'
+      - 'scripts/pack-cli.test.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.node-version'
+      - '.npmrc'
+      - 'tsconfig.json'
+      - '.github/workflows/cli-package.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'cli/**'
+      - 'bin/deckmark.mjs'
+      - 'bin/deckmark-mcp.mjs'
+      - 'src/lib/**'
+      - 'scripts/build-cli.mjs'
+      - 'scripts/pack-cli.mjs'
+      - 'scripts/pack-cli.test.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.node-version'
+      - '.npmrc'
+      - 'tsconfig.json'
+      - '.github/workflows/cli-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-package-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  installed-cli:
+    name: installed-cli (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            node_platform: linux
+            node_arch: x64
+          - runner: windows-2022
+            node_platform: win32
+            node_arch: x64
+          - runner: macos-15
+            node_platform: darwin
+            node_arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          # The repository declares the supported Node major in .node-version.
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Verify hosted runner OS and architecture
+        shell: bash
+        timeout-minutes: 2
+        env:
+          NODE_PLATFORM: ${{ matrix.node_platform }}
+          NODE_ARCH: ${{ matrix.node_arch }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Linux)
+              test "$(uname -s)" = 'Linux'
+              platform='linux'
+              machine='x86_64'
+              ;;
+            Windows)
+              platform='win32'
+              machine='x86_64'
+              ;;
+            macOS)
+              test "$(uname -s)" = 'Darwin'
+              platform='darwin'
+              machine='arm64'
+              ;;
+            *)
+              echo "Unsupported runner operating system: $RUNNER_OS" >&2
+              exit 1
+              ;;
+          esac
+          actual_machine=$(uname -m)
+          test "$actual_machine" = "$machine"
+          case "$actual_machine" in
+            x86_64) arch='x64' ;;
+            arm64) arch='arm64' ;;
+            *)
+              echo "Unsupported runner machine: $actual_machine" >&2
+              exit 1
+              ;;
+          esac
+          case "$RUNNER_ARCH" in
+            X64) test "$arch" = 'x64' ;;
+            ARM64) test "$arch" = 'arm64' ;;
+          esac
+          test "$platform" = "$NODE_PLATFORM"
+          test "$arch" = "$NODE_ARCH"
+          echo "Runner: $RUNNER_OS $actual_machine -> $platform-$arch"
+
+      - name: Stage the declared Node runtime with its license
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          runtime="$RUNNER_TEMP/cli-runtime"
+          rm -rf "$runtime"
+          mkdir -p "$runtime/bin"
+          node_bin=$(command -v node)
+          test -n "$node_bin"
+          binary='node'
+          if [ "$RUNNER_OS" = 'Windows' ]; then binary='node.exe'; fi
+          cp "$node_bin" "$runtime/bin/$binary"
+
+          # The packer copies the LICENSE beside the binary it bundles. Stage the
+          # official Node license at the path the packer reads, so every target
+          # has the same layout whatever the setup-node tool cache contains.
+          node_dir=$(dirname "$node_bin")
+          license_file=''
+          for candidate in "$node_dir/../LICENSE" "$node_dir/LICENSE"; do
+            if [ -f "$candidate" ]; then license_file=$candidate; break; fi
+          done
+          if [ -z "$license_file" ]; then
+            license_file=$(find "$node_dir" -maxdepth 2 -type f -iname 'LICENSE*' 2>/dev/null | head -n 1 || true)
+          fi
+          if [ -z "$license_file" ] || [ ! -s "$license_file" ]; then
+            echo "No Node LICENSE file near $node_bin. The packer requires it." >&2
+            exit 1
+          fi
+          grep -qi 'node\.js' "$license_file"
+          cp "$license_file" "$runtime/LICENSE"
+          test -f "$runtime/bin/../LICENSE"
+          echo "Bundled runtime license source: $license_file"
+
+          sha256sum "$node_bin" "$runtime/bin/$binary"
+          "$runtime/bin/$binary" -p "'runtime: ' + process.version + ' ' + process.platform + '-' + process.arch"
+
+      - name: Verify the macOS ARM64 runtime without signing
+        if: runner.os == 'macOS'
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          binary="$RUNNER_TEMP/cli-runtime/bin/node"
+          test "$(uname -m)" = 'arm64'
+          file "$binary"
+          file "$binary" | grep -q 'Mach-O 64-bit executable arm64'
+          lipo -archs "$binary" | grep -qw 'arm64'
+          if lipo -archs "$binary" | grep -qw 'x86_64'; then
+            echo 'The bundled runtime is not a pure ARM64 binary.' >&2
+            exit 1
+          fi
+          # Verify the existing signature of the official binary. Do not sign.
+          codesign --verify --strict --verbose=2 "$binary"
+          codesign -dv "$binary" 2>&1 | sed -n '1,5p'
+
+      - name: Verify the Windows archive tool
+        if: runner.os == 'Windows'
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          # Select the same archive tool that the packer selects. Git for
+          # Windows puts GNU tar first on PATH, and GNU tar cannot write ZIP.
+          system_root=$(node -p "process.env.SystemRoot || ''")
+          test -n "$system_root"
+          tar_exe=$(cygpath -u "$system_root/System32/tar.exe")
+          test -f "$tar_exe"
+          "$tar_exe" --version | head -n 1
+          "$tar_exe" --version | grep -qi 'bsdtar'
+          # Exercise the exact archive, list, and extract calls that the packer
+          # and the installed-package suite use.
+          probe="$RUNNER_TEMP/tar-probe"
+          rm -rf "$probe"
+          mkdir -p "$probe/payload"
+          printf 'probe\n' > "$probe/payload/marker.txt"
+          "$tar_exe" -a -c -f "$RUNNER_TEMP/tar-probe.zip" -C "$probe" payload
+          "$tar_exe" -tf "$RUNNER_TEMP/tar-probe.zip" | grep -q 'payload/marker.txt'
+          rm -rf "$RUNNER_TEMP/tar-probe-extract"
+          mkdir -p "$RUNNER_TEMP/tar-probe-extract"
+          "$tar_exe" -xf "$RUNNER_TEMP/tar-probe.zip" -C "$RUNNER_TEMP/tar-probe-extract"
+          test -f "$RUNNER_TEMP/tar-probe-extract/payload/marker.txt"
+
+      - name: Install repository dependencies
+        timeout-minutes: 10
+        env:
+          # Keep the local Git hook installation out of the runner work tree.
+          CI: 'true'
+        run: npm ci --legacy-peer-deps
+
+      - name: Record the source state before validation
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > "$RUNNER_TEMP/source-head.txt"
+          git status --porcelain --untracked-files=all > "$RUNNER_TEMP/source-status-before.txt"
+
+      - name: Run the installed-package suite
+        shell: bash
+        timeout-minutes: 8
+        env:
+          TMPDIR: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          binary='node'
+          if [ "$RUNNER_OS" = 'Windows' ]; then binary='node.exe'; fi
+          # The suite bundles process.execPath. Run it under the staged runtime so
+          # the bundled runtime, its license, and the suite have one identity.
+          "$RUNNER_TEMP/cli-runtime/bin/$binary" --test scripts/pack-cli.test.mjs
+
+      - name: Verify the package version and target
+        shell: bash
+        timeout-minutes: 2
+        env:
+          NODE_PLATFORM: ${{ matrix.node_platform }}
+          NODE_ARCH: ${{ matrix.node_arch }}
+        run: |
+          set -euo pipefail
+          binary='node'
+          if [ "$RUNNER_OS" = 'Windows' ]; then binary='node.exe'; fi
+          runtime_binary="$RUNNER_TEMP/cli-runtime/bin/$binary"
+
+          # The suite builds a release-named directory and records its absolute
+          # path in the evidence file. Read that path with Node: a Windows drive
+          # path is not safe as a hand-built Bash string. Refuse a path outside
+          # test-results/, a directory name that differs from the recorded
+          # release name, and a missing directory.
+          "$runtime_binary" --input-type=module <<'JS' > "$RUNNER_TEMP/package-dir.txt"
+          import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+          import { basename, dirname, resolve, sep } from 'node:path';
+
+          // Fail closed with one line: a stack trace hides the cause in a log.
+          const resolvePackageDir = () => {
+            const evidenceFile = resolve('test-results', '272-cli-pack-evidence.json');
+            if (!existsSync(evidenceFile)) throw new Error(`Missing evidence file: ${evidenceFile}`);
+            const evidence = JSON.parse(readFileSync(evidenceFile, 'utf8'));
+            if (typeof evidence.packagePath !== 'string' || evidence.packagePath.length === 0) {
+              throw new Error('The evidence file records no package path.');
+            }
+            if (typeof evidence.releaseName !== 'string' || evidence.releaseName.length === 0) {
+              throw new Error('The evidence file records no release name.');
+            }
+            const results = resolve('test-results');
+            if (!existsSync(results)) throw new Error(`Missing results directory: ${results}`);
+            let packageDir;
+            try {
+              packageDir = realpathSync(resolve(evidence.packagePath));
+            } catch {
+              throw new Error(`The recorded package path does not exist: ${evidence.packagePath}`);
+            }
+            const fold = (value) => (process.platform === 'win32' ? value.toLowerCase() : value);
+            if (fold(dirname(packageDir)) !== fold(realpathSync(results))) {
+              throw new Error(`The package is outside test-results: ${packageDir}`);
+            }
+            if (fold(basename(packageDir)) !== fold(evidence.releaseName)) {
+              throw new Error(`The package directory differs from the release name: ${packageDir}`);
+            }
+            if (!statSync(packageDir).isDirectory()) {
+              throw new Error(`The package path is not a directory: ${packageDir}`);
+            }
+            return packageDir;
+          };
+          let packageDir;
+          try {
+            packageDir = resolvePackageDir();
+          } catch (error) {
+            process.stderr.write(`package-path: ${error.message}\n`);
+            process.exit(1);
+          }
+          // One path with forward slashes. The caller uses it as one quoted
+          // argument, never as an unquoted shell word.
+          process.stdout.write(packageDir.split(sep).join('/'));
+          JS
+          test -s "$RUNNER_TEMP/package-dir.txt"
+          package_dir=$(cat "$RUNNER_TEMP/package-dir.txt")
+          test -n "$package_dir"
+          printf 'package: %s\n' "$package_dir"
+
+          "$runtime_binary" scripts/pack-cli.mjs verify \
+            --dir "$package_dir" \
+            --expect-platform "$NODE_PLATFORM" \
+            --expect-arch "$NODE_ARCH"
+
+      - name: Verify the packaged macOS ARM64 runtime without signing
+        if: runner.os == 'macOS'
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/package-dir.txt"
+          package_dir=$(cat "$RUNNER_TEMP/package-dir.txt")
+          binary="$package_dir/runtime/node"
+          file "$binary" | grep -q 'Mach-O 64-bit executable arm64'
+          lipo -archs "$binary" | grep -qw 'arm64'
+          codesign --verify --strict --verbose=2 "$binary"
+
+      - name: Prove the source tree is unchanged
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all > "$RUNNER_TEMP/source-status-after.txt"
+          diff -u "$RUNNER_TEMP/source-status-before.txt" "$RUNNER_TEMP/source-status-after.txt"
+          test "$(git rev-parse HEAD)" = "$(cat "$RUNNER_TEMP/source-head.txt")"
+          git diff --quiet
+          git diff --cached --quiet
+
+      - name: Print the validation identity
+        shell: bash
+        timeout-minutes: 1
+        env:
+          NODE_PLATFORM: ${{ matrix.node_platform }}
+          NODE_ARCH: ${{ matrix.node_arch }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const evidence = JSON.parse(readFileSync('test-results/272-cli-pack-evidence.json', 'utf8'));
+          const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const fail = (message) => {
+            throw new Error(message);
+          };
+          if (evidence.schema !== 'deckmark-cli-install-evidence/1') fail(`Unexpected evidence schema: ${evidence.schema}`);
+          if (evidence.sourceSha !== head) fail('The package source differs from HEAD.');
+          if (evidence.sourceDirty !== false) fail('The package recorded a dirty source tree.');
+          if (evidence.target.platform !== process.env.NODE_PLATFORM) fail('The package platform differs from the matrix.');
+          if (evidence.target.arch !== process.env.NODE_ARCH) fail('The package architecture differs from the matrix.');
+          if (evidence.runtime.arch !== process.env.NODE_ARCH) fail('The bundled runtime architecture differs from the matrix.');
+          if (evidence.runtime.platform !== process.env.NODE_PLATFORM) fail('The bundled runtime platform differs from the matrix.');
+          if (Number(evidence.runtime.nodeVersion.split('.')[0]) < 22) fail('The bundled runtime is older than Node 22.');
+          process.stdout.write([
+            'result: PASS',
+            `package version: ${evidence.packageVersion}`,
+            `source: ${evidence.sourceSha}`,
+            `target: ${evidence.target.platform}-${evidence.target.arch}`,
+            `bundled runtime: Node ${evidence.runtime.nodeVersion} ${evidence.runtime.platform}-${evidence.runtime.arch}`,
+            `package tree sha256: ${evidence.packageTreeSha256}`,
+            `archive: ${evidence.packageArchive} sha256 ${evidence.packageArchiveSha256}`,
+            `recorded checks: ${evidence.checks.length}`,
+            ''
+          ].join('\n'));
+          JS
