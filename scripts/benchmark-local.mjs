@@ -330,6 +330,12 @@ async function installInputProbe(page) {
 			selection.addRange(range);
 			const before = editor.textContent ?? '';
 			const startedAt = performance.now();
+			// A parallel timeout separates a blocked main thread from throttled
+			// animation frames. Both late means the main thread was blocked.
+			let timerAt = null;
+			setTimeout(() => {
+				timerAt = performance.now();
+			}, 0);
 			let supported = true;
 			try {
 				supported = document.execCommand('insertText', false, text);
@@ -340,11 +346,16 @@ async function installInputProbe(page) {
 			return new Promise((resolvePromise) =>
 				requestAnimationFrame(() => {
 					const after = editor.textContent ?? '';
+					// Keep the reviewed frame timestamp after the text read.
+					const frameMs = performance.now() - startedAt;
 					resolvePromise({
 						supported,
 						changed: after !== before,
 						syncMs: updatedAt - startedAt,
-						frameMs: performance.now() - startedAt
+						frameMs,
+						timerMs: timerAt === null ? null : timerAt - startedAt,
+						visibilityState: document.visibilityState,
+						nodeCount: editor.querySelectorAll('*').length
 					});
 				})
 			);
@@ -355,6 +366,7 @@ async function installInputProbe(page) {
 async function measureInput(page, selector, runs, label) {
 	const values = [];
 	const sync = [];
+	const diagnostics = [];
 	let supported = true;
 	for (let run = 0; run < runs; run += 1) {
 		const result = await page.evaluate(
@@ -365,17 +377,25 @@ async function measureInput(page, selector, runs, label) {
 			supported = false;
 			values.push(null);
 			sync.push(null);
+			diagnostics.push(null);
 			if (run >= 1) break;
 			continue;
 		}
 		values.push(round(result.frameMs));
 		sync.push(round(result.syncMs));
+		diagnostics.push({
+			frameMs: round(result.frameMs),
+			timerMs: Number.isFinite(result.timerMs) ? round(result.timerMs) : null,
+			visibilityState: result.visibilityState ?? null,
+			nodeCount: result.nodeCount ?? null
+		});
 	}
 	while (values.length < runs) {
 		values.push(null);
 		sync.push(null);
+		diagnostics.push(null);
 	}
-	return { values, sync, supported };
+	return { values, sync, diagnostics, supported };
 }
 
 async function measureDriverTyping(page, runs, label) {
@@ -482,6 +502,7 @@ async function measureModeSwitch(page, runs) {
 	const wysiwygLoad = [];
 	const typing = [];
 	const typingSync = [];
+	const diagnostics = [];
 	for (let run = 0; run < runs; run += 1) {
 		const startedAt = performance.now();
 		await domClick(page, 'button[data-mode="wysiwyg"]');
@@ -492,10 +513,11 @@ async function measureModeSwitch(page, runs) {
 		const result = await measureInput(page, '.milkdown .ProseMirror', 1, `visual${run}`);
 		typing.push(result.values[0]);
 		typingSync.push(result.sync[0]);
+		diagnostics.push(result.diagnostics[0] ?? null);
 		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
 	}
-	return { wysiwygLoad, typing, typingSync };
+	return { wysiwygLoad, typing, typingSync, diagnostics };
 }
 
 async function measureProjectTree(page, runs) {
@@ -809,6 +831,9 @@ async function runWebBenchmark(options, fixtures) {
 			forcedBudgetFailure: budgetGateFailed(budget, options.enforceBudgets),
 			summary,
 			samples,
+			diagnostics: {
+				typingWysiwyg: modeSwitch.diagnostics
+			},
 			exportDownloads: exportHtml.downloads,
 			failures
 		};
