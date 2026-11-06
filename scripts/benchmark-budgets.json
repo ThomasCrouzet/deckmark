@@ -347,8 +347,9 @@
 				"startupCold": {
 					"p95": 32000,
 					"unit": "ms",
-					"note": "One lifecycle sample on a shared runner measured 31311.9 ms. This is diagnostic only; keep the reviewed limit above that outlier.",
-					"minimumRuns": 1
+					"minimumRuns": 3,
+					"statistic": "p50",
+					"note": "Three cold starts. The gate uses the median and the report keeps the p95 and the maximum. The shared Linux runner measured one 31311.9 ms outlier."
 				},
 				"startupWarm": {
 					"p95": 12000,
@@ -465,8 +466,9 @@
 				"startupCold": {
 					"p95": 15000,
 					"unit": "ms",
-					"minimumRuns": 1,
-					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
+					"minimumRuns": 3,
+					"statistic": "p50",
+					"note": "Three cold starts. The gate uses the median and the report keeps the p95 and the maximum."
 				},
 				"startupWarm": {
 					"p95": 12000,
@@ -580,8 +582,9 @@
 				"startupCold": {
 					"p95": 12000,
 					"unit": "ms",
-					"minimumRuns": 1,
-					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
+					"minimumRuns": 3,
+					"statistic": "p50",
+					"note": "Three cold starts. The gate uses the median and the report keeps the p95 and the maximum."
 				},
 				"startupWarm": {
 					"p95": 9000,

@@ -134,13 +134,15 @@ The warm startup metric collects three starts and gates on the median
 (`statistic: "p50"`). The report keeps the p95 and the maximum. A single start
 cannot separate a runner stall from a regression, and a 32 s stall on a virtual
 macOS runner failed an unrelated pull request. A median over three starts needs
-two slow starts to fail. Process-tree RSS also gates on the median because a
-WebView helper process can add a transient process; the p95 and maximum stay in
-the report. WYSIWYG typing and present mode also gate on the median over 20
-samples, because the debug WebView tail on the virtual macOS runner moves by
-more than the reviewed budget while the median stays stable. The p95 and
-maximum stay in the report. Cold startup, close and presentation load stay
-one-shot because they require a process or window lifecycle.
+two slow starts to fail. Cold startup uses the same three-start median; a 32 s
+Linux cold start and a 15 s macOS cold start failed unrelated runs while the
+median was normal. Process-tree RSS also gates on the median because a WebView
+helper process can add a transient process; the p95 and maximum stay in the
+report. WYSIWYG typing and present mode also gate on the median over 20 samples,
+because the debug WebView tail on the virtual macOS runner moves by more than
+the reviewed budget while the median stays stable. The p95 and maximum stay in
+the report. Close and presentation load stay one-shot because they require a
+window lifecycle and have wide reviewed headroom.
 
 The library reload budget is 8000 ms on all three native platforms because the
 20-sample workload measures warm reloads, not the old one-shot cold reload. The
