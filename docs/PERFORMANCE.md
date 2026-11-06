@@ -72,7 +72,6 @@ The native benchmark on Windows, Linux and macOS Apple Silicon runs in CI. A
 native profile of the same scenario is captured with
 `--target native`; the shared web measurements above isolate the frontend part.
 
-EAD
 ## Enforced benchmark gate
 
 `scripts/benchmark-budgets.json` is the reviewed reference for each platform and
@@ -113,8 +112,14 @@ that invalid evidence cannot become a successful gate. Run:
 npm run test:benchmark-gate
 ```
 
-The browser benchmark collects 3 samples for reload and presentation load, and 5
-samples for the other scenarios. A report from fewer runs is not valid evidence.
+The browser benchmark collects 3 samples for reload and presentation load, 5
+samples for the other scenarios, and 20 samples for the project tree render. The
+gate reports every sample and the maximum. The project tree uses 20 samples
+because a p95 over 5 samples is the maximum: one browser garbage-collection
+pause would fail the run. With 20 samples, p95 is the second-worst value, so a
+systematic slowdown still fails and one isolated stall stays visible without
+becoming the gate decision. A repeated stall also fails, because the
+second-worst value then exceeds the limit.
 
 Native CI still builds the instrumented debug binary. Its measurements are
 diagnostic only. The debug results are not release-build performance and the
