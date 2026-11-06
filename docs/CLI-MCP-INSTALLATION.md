@@ -293,23 +293,24 @@ Failure risks:
 Planned checks, in `scripts/pack-cli.test.mjs`, using a real package and real
 processes:
 
-1. Build a package with `--allow-dirty` into `test-results/`. Run the verify
-   mode. Change the manifest version and confirm that verify fails. Restore it.
-2. Copy the package to an isolated temporary directory outside the repository.
-   Run it with an empty PATH, an isolated HOME, and a canary environment
-   variable. Check `--version`, `--help`, exit codes, and absence of the canary.
+1. Build a package with `--allow-dirty` and `--archive` into `test-results/`.
+   Run the verify mode. Change the manifest version and confirm that verify
+   fails. Restore it.
+2. Extract the archive to an isolated temporary directory outside the
+   repository. Run it with an empty PATH, an isolated HOME, and a canary
+   environment variable. Check `--version`, `--help`, exit codes, and absence
+   of the canary.
 3. Run `check` on a temporary project with one good note and one missing link.
    Expect exit 5 and the documented issue code. Run `export` to HTML and ZIP and
    compare the output bytes.
 4. Start the MCP launcher with one approved root. Check `initialize`,
-   `tools/list`, and `read_file` for an approved file. Request `../outside.md`
-   and expect `outside-root`. Start with no `--root` and expect a clear failure.
+   `tools/list`, and `read_file` for an approved file. Request a symlink that
+   resolves outside the root and expect `outside-root`. Start with no `--root`
+   and expect a clear failure.
 5. Start two CLI checks and one MCP read at the same time. Compare the project
    hash before and after.
 6. Remove the installed directory. Confirm that the temporary documents remain
-   unchanged and that no file remains outside the removed directory.
-7. Run the Web boundary check by confirming that the package files are under
-   `build/` and that no source file changed outside the packaging scope.
+   unchanged and that the isolated HOME is empty.
 
 A browser test cannot start an installed native process or inspect its file
 descriptor and root boundary. This is the isolated test exception recorded in
