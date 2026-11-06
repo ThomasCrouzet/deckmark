@@ -289,7 +289,9 @@ No local inference engine is bundled. A separately installed compatible provider
 can use a local endpoint where the edition's network policy permits it.
 The app requires no backend or cloud storage and sends no telemetry or crash
 reports. Remote images still require a separate fetch action.
-The project has no measured figure for AI startup time or streaming overhead.
+See the [Web AI client cost snapshot](PERFORMANCE.md#web-ai-client-cost-snapshot)
+for local measurements of startup, first activation and a controlled text
+stream. These figures do not measure a real provider's latency or billing.
 
 <a id="backups-and-storage-health"></a>
 
