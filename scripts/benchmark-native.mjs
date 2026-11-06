@@ -770,7 +770,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		await click('button[data-mode="source"]');
 		result.readModeProgress.phase = 'complete';
 		result.stage = 'wysiwyg';
-		const visual = await modeSwitch(Math.min(options.runs, 5));
+		const visual = await modeSwitch(Math.max(options.runs, 20));
 		result.samples.wysiwygLoad = visual.wysiwygLoad;
 		result.samples.typingWysiwyg = visual.typing;
 		result.samples.typingWysiwygSync = visual.typingSync;
@@ -795,8 +795,15 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		const warm = await closeApp();
 		result.samples.closeMs = [warm];
 		result.stage = 'warm-startup';
-		const restarted = await launch();
-		result.samples.startupWarm = [restarted.spawnToShellMs];
+		// A single warm start cannot separate a runner stall from a regression.
+		// Collect three starts and gate on the median, with the p95 and max kept.
+		const warmSamples = [];
+		for (let run = 0; run < 3; run += 1) {
+			const restarted = await launch();
+			warmSamples.push(restarted.spawnToShellMs);
+			if (run < 2) await closeApp();
+		}
+		result.samples.startupWarm = warmSamples;
 		runMemory('warm-startup');
 		await screenshot('05-warm-startup');
 		result.checks.push('native warm startup');

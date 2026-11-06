@@ -30,6 +30,7 @@ const budgets = {
 };
 
 const measured = (p95, runs = 5, unit = 'ms') => ({ measured: true, p95, runs, unit });
+const measuredBoth = (p50, p95, runs = 3) => ({ measured: true, p50, p95, runs, unit: 'ms' });
 
 describe('benchmark budget gate', () => {
 	it('passes when required metrics meet the tolerance', () => {
@@ -274,4 +275,59 @@ describe('retained benchmark gate', () => {
 	});
 
 	it.after(() => rmSync(directory, { recursive: true, force: true }));
+	it('gates a lifecycle metric on its median and reports the p95', () => {
+		const report = budgetReport({
+			platformKey: 'web-test',
+			summary: { switchMs: measuredBoth(90, 400) },
+			budgets: {
+				...budgets,
+				platforms: {
+					'web-test': {
+						label: 'Lifecycle',
+						metrics: { switchMs: { p95: 100, unit: 'ms', statistic: 'p50', minimumRuns: 3 } }
+					}
+				}
+			}
+		});
+		assert.equal(report.status, 'ok');
+		assert.equal(report.metrics.switchMs.statistic, 'p50');
+		assert.equal(report.metrics.switchMs.measuredValue, 90);
+		assert.equal(report.metrics.switchMs.measuredP95, 400);
+	});
+
+	it('rejects a median gate with fewer than three runs', () => {
+		const report = budgetReport({
+			platformKey: 'web-test',
+			summary: { switchMs: measuredBoth(90, 90, 1) },
+			budgets: {
+				...budgets,
+				platforms: {
+					'web-test': {
+						label: 'Lifecycle',
+						metrics: { switchMs: { p95: 100, unit: 'ms', statistic: 'p50', minimumRuns: 1 } }
+					}
+				}
+			}
+		});
+		assert.equal(report.status, 'invalid');
+		assert.deepEqual(report.failures, ['switchMs:p50-needs-three-runs']);
+	});
+
+	it('rejects an unknown statistic', () => {
+		const report = budgetReport({
+			platformKey: 'web-test',
+			summary: { switchMs: measured(90) },
+			budgets: {
+				...budgets,
+				platforms: {
+					'web-test': {
+						label: 'Bad statistic',
+						metrics: { switchMs: { p95: 100, unit: 'ms', statistic: 'mean' } }
+					}
+				}
+			}
+		});
+		assert.equal(report.status, 'invalid');
+		assert.deepEqual(report.failures, ['switchMs:invalid-statistic']);
+	});
 });

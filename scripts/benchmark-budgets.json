@@ -350,8 +350,9 @@
 				"startupWarm": {
 					"p95": 12000,
 					"unit": "ms",
-					"minimumRuns": 1,
-					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
+					"minimumRuns": 3,
+					"statistic": "p50",
+					"note": "Three warm starts. The gate uses the median and the report keeps the p95 and the maximum."
 				},
 				"libraryReload": {
 					"p95": 6000,
@@ -403,11 +404,13 @@
 				},
 				"typingWysiwyg": {
 					"p95": 4000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingWysiwygSync": {
 					"p95": 300,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 4000,
@@ -461,8 +464,9 @@
 				"startupWarm": {
 					"p95": 12000,
 					"unit": "ms",
-					"minimumRuns": 1,
-					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
+					"minimumRuns": 3,
+					"statistic": "p50",
+					"note": "Three warm starts. The gate uses the median and the report keeps the p95 and the maximum."
 				},
 				"libraryReload": {
 					"p95": 6000,
@@ -513,11 +517,13 @@
 				},
 				"typingWysiwyg": {
 					"p95": 4000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingWysiwygSync": {
 					"p95": 300,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 4000,
@@ -569,8 +575,9 @@
 				"startupWarm": {
 					"p95": 9000,
 					"unit": "ms",
-					"minimumRuns": 1,
-					"note": "One lifecycle sample per run is the reviewed minimum; the report discloses runs=1."
+					"minimumRuns": 3,
+					"statistic": "p50",
+					"note": "Three warm starts. The gate uses the median and the report keeps the p95 and the maximum."
 				},
 				"libraryReload": {
 					"p95": 8000,
@@ -625,11 +632,13 @@
 				},
 				"typingWysiwyg": {
 					"p95": 3000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingWysiwygSync": {
 					"p95": 250,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 4200,

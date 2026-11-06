@@ -115,15 +115,20 @@ npm run test:benchmark-gate
 The browser benchmark collects 3 samples for reload and presentation load, and 5
 samples for the other scenarios. A report from fewer runs is not valid evidence.
 
-The native benchmark collects 20 samples for the library reload, slide switch
-and present mode. One unmeasured warm reload precedes the library samples.
-`minimumRuns` is 20 for those metrics, so a short report fails the gate. A p95
-over five samples is the maximum, and one browser or WebView stall failed
-unrelated pull requests on macOS. Twenty samples make p95 the second-worst
-value: a systematic slowdown still fails, one isolated stall stays visible in
-the report, and two stalls fail the gate. Cold startup, warm startup, close and
-presentation load stay one-shot because they require a process or window
-lifecycle.
+The native benchmark collects 20 samples for the library reload, WYSIWYG
+typing, slide switch and present mode. One unmeasured warm reload precedes the
+library samples. `minimumRuns` is 20 for those metrics, so a short report fails
+the gate. A p95 over five samples is the maximum, and one browser or WebView
+stall failed unrelated pull requests on macOS. Twenty samples make p95 the
+second-worst value: a systematic slowdown still fails, one isolated stall stays
+visible in the report, and two stalls fail the gate.
+
+The warm startup metric collects three starts and gates on the median
+(`statistic: "p50"`). The report keeps the p95 and the maximum. A single start
+cannot separate a runner stall from a regression, and a 32 s stall on a virtual
+macOS runner failed an unrelated pull request. A median over three starts needs
+two slow starts to fail. Cold startup, close and presentation load stay one-shot
+because they require a process or window lifecycle.
 
 The macOS library reload budget is 8000 ms because the 20-sample workload
 measures warm reloads, not the old one-shot cold reload. The measured p95 was
