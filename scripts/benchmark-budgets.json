@@ -18,6 +18,7 @@
 				"cachedRestart": {
 					"p95": 400,
 					"unit": "ms",
+					"minimumRuns": 20,
 					"note": "Service worker controlled reload."
 				},
 				"firstContentfulPaint": {
@@ -130,7 +131,8 @@
 				},
 				"cachedRestart": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"firstContentfulPaint": {
 					"p95": 800,
@@ -237,7 +239,8 @@
 				},
 				"cachedRestart": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"firstContentfulPaint": {
 					"p95": 600,

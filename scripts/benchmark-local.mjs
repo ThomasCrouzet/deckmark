@@ -210,6 +210,22 @@ async function measureStartup(browser, url, runs) {
 	for (let run = 0; run < runs; run += 1) {
 		const context = await browser.newContext({ locale: 'en-US' });
 		const page = await context.newPage();
+		// Headless engines do not always keep the paint entry in the buffer.
+		// Observe it before navigation and keep the first value.
+		await page.addInitScript(() => {
+			window.__mdshFcp = null;
+			try {
+				new PerformanceObserver((list) => {
+					for (const entry of list.getEntries()) {
+						if (entry.name === 'first-contentful-paint') {
+							window.__mdshFcp = entry.startTime;
+						}
+					}
+				}).observe({ type: 'paint', buffered: true });
+			} catch {
+				// The engine does not expose paint timing.
+			}
+		});
 		const coldStartAt = performance.now();
 		await page.goto(url);
 		await waitForShell(page);
@@ -218,7 +234,7 @@ async function measureStartup(browser, url, runs) {
 			const navigation = performance.getEntriesByType('navigation')[0];
 			const paint = performance.getEntriesByName('first-contentful-paint')[0];
 			return {
-				fcp: paint?.startTime ?? null,
+				fcp: paint?.startTime ?? window.__mdshFcp ?? null,
 				domInteractive: navigation?.domInteractive ?? null,
 				domContentLoaded: navigation?.domContentLoadedEventEnd ?? null
 			};
@@ -655,8 +671,10 @@ async function runWebBenchmark(options, fixtures) {
 	// gate. Twenty samples make p95 the second-worst value: a systematic slowdown
 	// still fails, and the report keeps every sample and the maximum.
 	const projectTreeRuns = Math.max(options.runs, 20);
+	// Startup and cached restart also need enough samples for a meaningful p95.
+	const startupRuns = Math.max(options.runs, 20);
 	try {
-		const startup = await measureStartup(browser, url, options.runs);
+		const startup = await measureStartup(browser, url, startupRuns);
 		const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
 		page = await context.newPage();
 		page.on('pageerror', (error) => browserErrors.push(error.stack ?? error.message));
