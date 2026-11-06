@@ -31,6 +31,9 @@ export default defineConfig({
 	},
 	reporter: [
 		...(process.env.CI ? ([['github']] as const) : []),
+		...(process.env.PLAYWRIGHT_BLOB_REPORT === '1'
+			? ([['blob', { outputDir: 'blob-report' }]] as const)
+			: []),
 		['list'],
 		['html', { outputFolder: 'playwright-report', open: 'never' }],
 		['json', { outputFile: 'test-results/results.json' }],
