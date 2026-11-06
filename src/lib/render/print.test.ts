@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach, type Mock } from 'vitest';
-import {
-	buildPrintDocument,
-	buildStandaloneHtmlDocument,
-	printInIframe,
-	PrintImageError,
-	waitForPrintImages
-} from './print';
+import { buildPrintDocument, printInIframe, PrintImageError, waitForPrintImages } from './print';
 
 describe('image decoding before print', () => {
 	it('rejects an unreadable image before it opens an incomplete PDF', async () => {
@@ -62,6 +56,15 @@ describe('buildPrintDocument - security', () => {
 });
 
 describe('buildStandaloneHtmlDocument', () => {
+	let buildStandaloneHtmlDocument: typeof import('./print').buildStandaloneHtmlDocument;
+
+	// The standalone stylesheet cache lives for one module instance. Reload the
+	// module for each case so a successful load cannot satisfy a later failure case.
+	beforeEach(async () => {
+		vi.resetModules();
+		({ buildStandaloneHtmlDocument } = await import('./print'));
+	});
+
 	afterEach(() => {
 		vi.unstubAllGlobals();
 	});
