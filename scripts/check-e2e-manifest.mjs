@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Compare the tests that the shards executed with the tests that the current
-// configuration defines. A missing, duplicated or extra test fails the merge.
-// Usage: node scripts/check-e2e-manifest.mjs expected.json merged.json
+// Compare executed tests with the tests that the current configuration defines.
+// A missing, duplicated or extra test fails the check. Pass one actual report
+// or several local shard reports; their counts are combined without a network
+// upload.
+// Usage: node scripts/check-e2e-manifest.mjs expected.json actual.json [actual.json ...]
 import { readFileSync } from 'node:fs';
 
 function collect(report) {
@@ -32,15 +34,24 @@ function collect(report) {
 	return { counts, retried };
 }
 
-const [expectedPath, mergedPath] = process.argv.slice(2);
-if (!expectedPath || !mergedPath) {
-	console.error('Usage: node scripts/check-e2e-manifest.mjs expected.json merged.json');
+const [expectedPath, ...actualPaths] = process.argv.slice(2);
+if (!expectedPath || actualPaths.length === 0) {
+	console.error(
+		'Usage: node scripts/check-e2e-manifest.mjs expected.json actual.json [actual.json ...]'
+	);
 	process.exit(2);
 }
 
 const expected = collect(JSON.parse(readFileSync(expectedPath, 'utf8'))).counts;
-const merged = collect(JSON.parse(readFileSync(mergedPath, 'utf8')));
-const actual = merged.counts;
+const actual = new Map();
+let retried = 0;
+for (const actualPath of actualPaths) {
+	const report = collect(JSON.parse(readFileSync(actualPath, 'utf8')));
+	for (const [key, count] of report.counts) {
+		actual.set(key, (actual.get(key) ?? 0) + count);
+	}
+	retried += report.retried;
+}
 const missing = [...expected.keys()].filter((key) => !actual.has(key));
 const extra = [...actual.keys()].filter((key) => !expected.has(key));
 const duplicates = [...actual.entries()].filter(([, count]) => count > 1);
@@ -62,5 +73,5 @@ if (missing.length || extra.length || duplicates.length || incomplete.length) {
 	process.exit(1);
 }
 console.log(
-	`Merged report covers every expected test exactly once (${expected.size} tests). Retried results: ${merged.retried}.`
+	`Report covers every expected test exactly once (${expected.size} tests). Retried results: ${retried}.`
 );

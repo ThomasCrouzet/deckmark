@@ -20,10 +20,12 @@ The `Deploy to GitHub Pages` workflow has these independent paths:
 | `build (root)` and `build (/deckmark)` | `pages-config` | Production artifacts and bundle budgets |
 | `lighthouse` | `build` | Performance and accessibility gate |
 
-`e2e-report` merges the shard reports and checks the union against the expected
-test list. `e2e` waits for the verified build, all eight shards and the merged
-report. `deploy` waits for `check`, `build`, `e2e` and `lighthouse`. A failure
-in any path blocks publication. The required check names stay the same.
+Each shard compares its local JSON report with its expected shard test list.
+`e2e-manifest` lists the full test set and every shard, then checks that the
+eight lists partition the full set. `e2e` waits for the verified build, all
+eight shards and the complete test partition. `deploy` waits for `check`,
+`build`, `e2e` and `lighthouse`. A failure in any path blocks publication. The
+required check names stay the same.
 
 Before this change, the type check, lint, notices and unit tests ran in one
 `check` job, every browser shard waited for `check`, and `build` waited for both
@@ -114,17 +116,19 @@ the suite includes CPU-sensitive timing and drag checks. The stage 3 PR records
 the eight-shard critical path next to the four-shard sample. If eight shards do
 not reduce the maximum, this setting returns to four.
 
-Retries stay at `2` for temporary runner failures. The merged report prints the
+Retries stay at `2` for temporary runner failures. The manifest check prints the
 number of retried results, so a flaky success is visible and is not counted as a
-clean first attempt. A missing, duplicated or unexpected test fails
-`e2e-report`; a failed shard still fails `e2e` even when the merged report
+clean first attempt. A missing, duplicated or unexpected test fails the shard
+check or `e2e-manifest`; a failed shard still fails `e2e` even when the manifest
 contains every test.
 
-The shards upload Playwright blob reports. `e2e-report` merges them with
-`npx playwright merge-reports --reporter=json`, compares the result with
-`npx playwright test --list --reporter=json`, and keeps both reports as the
-`e2e-merged-report` artifact. The comparison covers every project, including
-Firefox and WebKit, so a shard cannot silently drop a browser project.
+Each shard writes its Playwright JSON report to the runner and compares it with
+`npx playwright test --list --shard=<n>/8 --reporter=json`. `e2e-manifest`
+compares the eight shard lists with the full `npx playwright test --list`
+output. The comparison covers every project, including Firefox and WebKit, so a
+shard cannot silently drop a browser project. The reports stay on the runner.
+No report is uploaded or archived on GitHub, as the project storage rule
+requires.
 
 Stage 1 and stage 2 own the scheduling and build reuse. Stage 3 does not remove
 a check, a browser project, a benchmark or a native platform.

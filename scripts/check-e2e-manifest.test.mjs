@@ -27,23 +27,31 @@ function report(...specs) {
 	};
 }
 
-function run(expected, merged) {
+function runMany(expected, actuals) {
 	const root = mkdtempSync(join(tmpdir(), 'deckmark-manifest-'));
 	roots.push(root);
 	writeFileSync(join(root, 'expected.json'), JSON.stringify(expected));
-	writeFileSync(join(root, 'merged.json'), JSON.stringify(merged));
+	const actualPaths = actuals.map((actual, index) => {
+		const path = join(root, `actual-${index}.json`);
+		writeFileSync(path, JSON.stringify(actual));
+		return path;
+	});
 	try {
 		return {
 			status: 0,
 			output: execFileSync(
 				process.execPath,
-				[script, join(root, 'expected.json'), join(root, 'merged.json')],
+				[script, join(root, 'expected.json'), ...actualPaths],
 				{ encoding: 'utf8' }
 			)
 		};
 	} catch (error) {
 		return { status: error.status ?? 1, output: `${error.stdout ?? ''}${error.stderr ?? ''}` };
 	}
+}
+
+function run(expected, merged) {
+	return runMany(expected, [merged]);
 }
 
 afterEach(() => {
@@ -79,4 +87,24 @@ test('rejects an unexpected extra test', () => {
 	const result = run(expected, merged);
 	assert.notEqual(result.status, 0);
 	assert.match(result.output, /Unexpected tests/);
+});
+
+test('accepts a complete partition across multiple shard reports', () => {
+	const expected = report(['first', 3, ['chromium']], ['second', 9, ['firefox']]);
+	const result = runMany(expected, [
+		report(['first', 3, ['chromium']]),
+		report(['second', 9, ['firefox']])
+	]);
+	assert.equal(result.status, 0, result.output);
+	assert.match(result.output, /2 tests/);
+});
+
+test('rejects a test present in two shard reports', () => {
+	const expected = report(['first', 3, ['chromium']], ['second', 9, ['firefox']]);
+	const result = runMany(expected, [
+		report(['first', 3, ['chromium']]),
+		report(['first', 3, ['chromium']], ['second', 9, ['firefox']])
+	]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /Duplicate tests/);
 });
