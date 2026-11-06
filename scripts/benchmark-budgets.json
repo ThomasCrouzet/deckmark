@@ -13,24 +13,29 @@
 				"coldStart": {
 					"p95": 400,
 					"unit": "ms",
-					"note": "Includes Playwright command overhead."
+					"note": "Includes Playwright command overhead.",
+					"minimumRuns": 20
 				},
 				"cachedRestart": {
 					"p95": 400,
 					"unit": "ms",
+					"minimumRuns": 20,
 					"note": "Service worker controlled reload."
 				},
 				"firstContentfulPaint": {
 					"p95": 400,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domInteractive": {
 					"p95": 250,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domContentLoaded": {
 					"p95": 250,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"libraryReload": {
 					"p95": 6000,
@@ -85,11 +90,13 @@
 				"typingWysiwyg": {
 					"p95": 3000,
 					"unit": "ms",
+					"minimumRuns": 20,
 					"note": "Large document in the visual editor."
 				},
 				"typingWysiwygSync": {
 					"p95": 200,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 1500,
@@ -126,23 +133,28 @@
 			"metrics": {
 				"coldStart": {
 					"p95": 1200,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"cachedRestart": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"firstContentfulPaint": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domInteractive": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domContentLoaded": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"libraryReload": {
 					"p95": 8000,
@@ -192,11 +204,13 @@
 				},
 				"typingWysiwyg": {
 					"p95": 5000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingWysiwygSync": {
 					"p95": 300,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 1500,
@@ -233,23 +247,28 @@
 			"metrics": {
 				"coldStart": {
 					"p95": 800,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"cachedRestart": {
 					"p95": 500,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"firstContentfulPaint": {
 					"p95": 600,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domInteractive": {
 					"p95": 400,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"domContentLoaded": {
 					"p95": 400,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"libraryReload": {
 					"p95": 8000,
@@ -301,11 +320,13 @@
 				"typingWysiwyg": {
 					"p95": 5500,
 					"unit": "ms",
+					"minimumRuns": 20,
 					"note": "CI p95 was 5359 ms in the visual editor on the stress corpus."
 				},
 				"typingWysiwygSync": {
 					"p95": 300,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"projectTreeRender": {
 					"p95": 2600,

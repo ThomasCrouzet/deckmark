@@ -205,6 +205,7 @@ async function measureStartup(browser, url, runs) {
 	const coldStart = [];
 	const cachedRestart = [];
 	const firstContentfulPaint = [];
+	const fcpSources = [];
 	const domContentLoaded = [];
 	const domInteractive = [];
 	for (let run = 0; run < runs; run += 1) {
@@ -230,16 +231,29 @@ async function measureStartup(browser, url, runs) {
 		await page.goto(url);
 		await waitForShell(page);
 		coldStart.push(performance.now() - coldStartAt);
+		// A paint entry can arrive after the shell is visible. Wait a bounded
+		// time for either source, then record which one supplied the value.
+		await page
+			.waitForFunction(
+				() =>
+					window.__mdshFcp !== null ||
+					performance.getEntriesByName('first-contentful-paint').length > 0,
+				undefined,
+				{ timeout: 5_000 }
+			)
+			.catch(() => undefined);
 		const navigations = await page.evaluate(() => {
 			const navigation = performance.getEntriesByType('navigation')[0];
 			const paint = performance.getEntriesByName('first-contentful-paint')[0];
 			return {
 				fcp: paint?.startTime ?? window.__mdshFcp ?? null,
+				fcpSource: paint ? 'timeline' : window.__mdshFcp !== null ? 'observer' : 'missing',
 				domInteractive: navigation?.domInteractive ?? null,
 				domContentLoaded: navigation?.domContentLoadedEventEnd ?? null
 			};
 		});
 		firstContentfulPaint.push(navigations.fcp);
+		fcpSources.push(navigations.fcpSource);
 		domInteractive.push(navigations.domInteractive);
 		domContentLoaded.push(navigations.domContentLoaded);
 
@@ -255,7 +269,14 @@ async function measureStartup(browser, url, runs) {
 		cachedRestart.push(performance.now() - cachedStartAt);
 		await context.close();
 	}
-	return { coldStart, cachedRestart, firstContentfulPaint, domInteractive, domContentLoaded };
+	return {
+		coldStart,
+		cachedRestart,
+		firstContentfulPaint,
+		fcpSources,
+		domInteractive,
+		domContentLoaded
+	};
 }
 
 async function seedDatabase(page) {
@@ -693,8 +714,10 @@ async function runWebBenchmark(options, fixtures) {
 	// gate. Twenty samples make p95 the second-worst value: a systematic slowdown
 	// still fails, and the report keeps every sample and the maximum.
 	const projectTreeRuns = Math.max(options.runs, 20);
+	// Startup and cached restart also need enough samples for a meaningful p95.
+	const startupRuns = Math.max(options.runs, 20);
 	try {
-		const startup = await measureStartup(browser, url, options.runs);
+		const startup = await measureStartup(browser, url, startupRuns);
 		const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
 		page = await context.newPage();
 		page.on('pageerror', (error) => browserErrors.push(error.stack ?? error.message));
@@ -732,7 +755,9 @@ async function runWebBenchmark(options, fixtures) {
 		const scrollFrame = await measureScroll(page, options.runs);
 		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
-		const modeSwitch = await measureModeSwitch(page, expensiveRuns);
+		// Twenty samples make p95 the second-worst value for the visual typing
+		// metrics, which have a noisy tail on shared runners.
+		const modeSwitch = await measureModeSwitch(page, Math.max(expensiveRuns, 20));
 		const heapSamples = [await measureHeap(page, options.browser)];
 		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
@@ -776,6 +801,7 @@ async function runWebBenchmark(options, fixtures) {
 			exportHtml: exportHtml.values,
 			heapUsedMb: heapSamples
 		};
+		const startupDiagnostics = { firstContentfulPaintSource: startup.fcpSources };
 		const summary = Object.fromEntries(
 			Object.entries(samples).map(([name, values]) => [
 				name,
@@ -831,6 +857,7 @@ async function runWebBenchmark(options, fixtures) {
 			forcedBudgetFailure: budgetGateFailed(budget, options.enforceBudgets),
 			summary,
 			samples,
+			startupDiagnostics,
 			diagnostics: {
 				typingWysiwyg: modeSwitch.diagnostics
 			},
