@@ -125,6 +125,12 @@ the report, and two stalls fail the gate. Cold startup, warm startup, close and
 presentation load stay one-shot because they require a process or window
 lifecycle.
 
+The macOS library reload budget is 8000 ms because the 20-sample workload
+measures warm reloads, not the old one-shot cold reload. The measured p95 was
+7207.6 ms on 2026-11-06. The Linux and Windows baselines stay at 6000 ms and
+measured p95 4834.9 ms and 5408.5 ms in the same run. The old 5000 ms macOS
+value is not comparable because the workload changed.
+
 Native CI still builds the instrumented debug binary. Its measurements are
 diagnostic only. The debug results are not release-build performance and the
 baseline labels say so. An optimized native baseline needs a separate recorded
@@ -153,6 +159,7 @@ measurements:
 | macOS native `readModeSwitch` | 15226 ms | 16000 ms |
 | macOS native `wysiwygLoad` | 14665 ms | 15500 ms |
 | macOS native `presentationPresent` | 641 ms | 700 ms |
+| macOS native `libraryReload` (20 warm samples) | 7207.6 ms | 8000 ms |
 | macOS native `projectTreeRender` | 4075 ms | 4200 ms |
 | Linux native `startupCold` | 31312 ms | 32000 ms |
 | WebKit `presentationLoad` | 1130 ms | 1200 ms |
