@@ -223,13 +223,13 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 
 	// Readiness is observed through the driver's server-bounded direct eval.
 	// `/wdio/eval` takes `{ script, window_label, timeout_ms }`; the plugin
-	// builds a fresh executor whose script budget is `timeout_ms`, and the
-	// handler answers from that deadline (HTTP 500 `script timeout`) instead of
-	// waiting for a completion that may never arrive. The client keeps the
-	// shared 60 s transport bound on every request, so a stalled attempt ends on
-	// the server's clock and leaves no client-aborted request behind. Only this
-	// readiness probe uses the channel: the predicate, the 90 s readiness
-	// budget, the poll counter, the clock marks and the 15 s gate stay unchanged.
+	// builds a fresh executor whose script budget is `timeout_ms`. That budget
+	// is an upper bound: a stalled attempt can end at the deadline with HTTP 500
+	// `script timeout`, or earlier with an HTTP 500 reclamation error when the
+	// page drops the callback. The client keeps the shared 60 s transport bound,
+	// which stays above this 2 s server deadline. Only this readiness probe uses
+	// the channel: the predicate, the 90 s readiness budget, the poll counter,
+	// the clock marks and the 15 s gate stay unchanged.
 	const READY_PROBE_MS = 2_000;
 	const READY_PROBE_SCRIPT =
 		'const done = arguments[arguments.length - 1];' +
