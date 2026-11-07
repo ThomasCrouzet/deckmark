@@ -1,10 +1,6 @@
 import type { SlidesMessageKey } from './slides-en';
 
 export const slidesFr: Record<SlidesMessageKey, string> = {
-	'slides.saveError':
-		'Les dernières modifications des diapositives ne sont pas enregistrées. Gardez cette vue ouverte et réessayez.',
-	'slides.editConflict':
-		'Ce fichier a changé ailleurs. Vos modifications locales sont conservées ici. Modifiez une copie pour garder les deux versions.',
 	'slides.loading': 'Chargement de la présentation...',
 	'documents.new': 'Créer un document',
 	'documents.files': 'Fichiers',

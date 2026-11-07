@@ -74,7 +74,7 @@
 				filesStore.updateContent(fileId, source);
 			},
 			(error) =>
-				reportError('save presentation snapshot', error, { notifyUser: t('slides.saveError') })
+				reportError('save presentation snapshot', error, { notifyUser: t('storage.saveFailed') })
 		);
 	let root = $state<HTMLDivElement | null>(null);
 	let canvas = $state<HTMLDivElement | null>(null);
@@ -216,7 +216,7 @@
 		untrack(() => {
 			if (current !== undefined && current !== editor.source) {
 				if (editor.pending && !editor.flush()) {
-					userMessage = t('slides.editConflict');
+					userMessage = t('files.otherTabChanges');
 					return;
 				}
 				gestures.cancel();
@@ -697,7 +697,7 @@
 				{ kind: 'presentation' }
 			);
 		} catch (error) {
-			reportError('recover presentation copy', error, { notifyUser: t('slides.saveError') });
+			reportError('recover presentation copy', error, { notifyUser: t('storage.saveFailed') });
 		}
 	}
 	function thumbnailPointerDown(event: PointerEvent, index: number) {
