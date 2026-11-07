@@ -57,6 +57,51 @@ function smokeEnvironment(home, dataStoreId, port, pdfPath) {
 	};
 }
 
+// Keep the phase split that launch() already measured. Both values must exist.
+// This is diagnostic metadata, not a sample, summary, or budget value.
+function launchPhaseSplit(launched) {
+	if (!Number.isFinite(launched.spawnToDriverMs) || !Number.isFinite(launched.spawnToShellMs)) {
+		return {};
+	}
+	return {
+		spawnToDriverMs: launched.spawnToDriverMs,
+		driverReadyToShellMs: round(launched.spawnToShellMs - launched.spawnToDriverMs)
+	};
+}
+
+// Build the bounded suffix for a startup budget failure. It shows the measured
+// value, the configured limit, and the split of the launch that produced the
+// measured sample. It selects one metric in a fixed order. A split is added
+// only when one recorded sample matches the measured value. The grammar is
+// fixed names, finite numbers, and `ms`; no path, URL, capability, or report
+// body can enter the string.
+export function startupErrorContext(result) {
+	const metrics = result.budget?.metrics ?? {};
+	const metricName = ['startupCold', 'startupWarm'].find(
+		(name) => metrics[name]?.status === 'over-budget'
+	);
+	if (!metricName) return '';
+	const metric = metrics[metricName];
+	const samples = result.samples?.[metricName];
+	const records = result.diagnostics?.[metricName];
+	const matches = Array.isArray(samples)
+		? samples.reduce((indexes, value, index) => {
+				if (value === metric.measuredValue) indexes.push(index);
+				return indexes;
+			}, [])
+		: [];
+	const phases =
+		matches.length === 1 ? ((Array.isArray(records) ? records[matches[0]] : records) ?? {}) : {};
+	const fields = [
+		['observed', metric.measuredValue],
+		['limit', metric.limitWithTolerance],
+		['spawnToDriver', phases.spawnToDriverMs],
+		['driverReadyToShell', phases.driverReadyToShellMs]
+	].filter(([, value]) => Number.isFinite(value));
+	if (fields.length === 0) return '';
+	return ` [${fields.map(([name, value]) => `${name}=${value}ms`).join(' ')}]`;
+}
+
 export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	const binary = binaryPath(projectRoot, options);
 	const bytes = readFileSync(binary);
@@ -709,6 +754,8 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		result.stage = 'cold-startup';
 		const cold = await launch();
 		result.samples.startupCold = [cold.spawnToShellMs];
+		// Keep the split that launch() already measured as diagnostic metadata.
+		result.diagnostics = { startupCold: launchPhaseSplit(cold) };
 		result.runtime = cold.capabilities;
 		result.checks.push('native cold startup');
 		await screenshot('01-startup');
@@ -798,12 +845,15 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		// A single warm start cannot separate a runner stall from a regression.
 		// Collect three starts and gate on the median, with the p95 and max kept.
 		const warmSamples = [];
+		const warmPhases = [];
 		for (let run = 0; run < 3; run += 1) {
 			const restarted = await launch();
 			warmSamples.push(restarted.spawnToShellMs);
+			warmPhases.push(launchPhaseSplit(restarted));
 			if (run < 2) await closeApp();
 		}
 		result.samples.startupWarm = warmSamples;
+		result.diagnostics.startupWarm = warmPhases;
 		runMemory('warm-startup');
 		await screenshot('05-warm-startup');
 		result.checks.push('native warm startup');
@@ -876,7 +926,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	if (finalizationError) throw finalizationError;
 	if (result.forcedBudgetFailure) {
 		throw new Error(
-			`Benchmark budget gate failed for ${result.budget.platformKey}: ${result.budget.failures.join(', ')}`
+			`Benchmark budget gate failed for ${result.budget.platformKey}: ${result.budget.failures.join(', ')}${startupErrorContext(result)}`
 		);
 	}
 	return result;
