@@ -160,7 +160,11 @@ a future signed release. See [Desktop updates](UPDATES.md) and the
 Use **Settings > Export a backup** to keep a JSON copy outside browser storage.
 A backup includes open and closed documents, projects, assets, workspaces, and
 custom templates. It excludes trash, version history, browser file handles, and
-Desktop path permissions. Optional encryption uses AES-GCM and PBKDF2. An
+Desktop path permissions. Provider keys and native disk permission grants are
+not backup fields. Web provider keys stay in the origin's session storage, and
+Desktop provider keys stay in the Desktop credential store. Native disk grants
+stay on the desktop that created them. A backup never transfers any of them to
+another host or origin. Optional encryption uses AES-GCM and PBKDF2. An
 encrypted backup cannot be recovered without its passphrase.
 
 Markdown, HTML, PDF, library ZIP, and project ZIP exports are separate portable
@@ -188,8 +192,10 @@ file browser.
 ## AI and network privacy
 
 - AI is optional and disabled by default in both editions.
-- Web Light keeps the provider key in the tab session only. Browser storage is
-  not a protected secret store, so do not reuse a provider key elsewhere.
+- Web Light keeps the provider key in page memory and tab session storage. A
+  reload restores it, and a browser session restore can restore it. Browser
+  storage is not a protected secret store, so do not reuse a provider key
+  elsewhere. **Forget key** removes the stored key.
 - Desktop Complete writes the provider key to the operating-system credential
   store after entry in Settings. Stored keys are not returned to the WebView.
   Rust binds each key to the full canonical endpoint and reads it for each
