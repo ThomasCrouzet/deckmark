@@ -18,6 +18,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	readlinkSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync
@@ -148,6 +149,91 @@ function mcpMessages(...messages) {
 	return `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`;
 }
 
+// Windows holds the image of a running executable. The uninstall proof must
+// name a live process as a process leak. It must not report a delete race.
+// One polling step is 100 ms. The deadline, not the step, bounds the wait.
+const PACKAGE_PROCESS_POLL_MS = 100;
+
+function packageProcessIds(root) {
+	const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+	if (process.platform === 'linux') {
+		const ids = [];
+		for (const entry of readdirSync('/proc')) {
+			if (!/^[0-9]+$/.test(entry)) continue;
+			let executable;
+			try {
+				executable = readlinkSync(`/proc/${entry}/exe`);
+			} catch {
+				continue;
+			}
+			if (executable === root || executable.startsWith(prefix)) ids.push(Number(entry));
+		}
+		return ids;
+	}
+	if (process.platform === 'win32') {
+		const script = [
+			"$ErrorActionPreference = 'SilentlyContinue'",
+			'$root = $env:DECKMARK_PACKAGE_ROOT',
+			'Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.Id }'
+		].join('\n');
+		const result = spawnSync(
+			'powershell.exe',
+			['-NoProfile', '-NonInteractive', '-Command', script],
+			{
+				encoding: 'utf8',
+				timeout: 15_000,
+				env: { ...process.env, DECKMARK_PACKAGE_ROOT: prefix }
+			}
+		);
+		if (result.status !== 0) {
+			throw new Error(
+				`Cannot inspect package processes: ${result.stderr || result.error?.message || result.status}`
+			);
+		}
+		return result.stdout
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter(Boolean)
+			.map(Number);
+	}
+	// macOS unlinks a running image. There is no lock to wait for.
+	return [];
+}
+
+async function waitForPackageProcess(root, pid, timeoutMs) {
+	const deadline = Date.now() + timeoutMs;
+	while (!packageProcessIds(root).includes(pid)) {
+		if (Date.now() >= deadline) {
+			throw new Error(`Package process ${pid} did not appear in the process table`);
+		}
+		await new Promise((resolveWait) => setTimeout(resolveWait, PACKAGE_PROCESS_POLL_MS));
+	}
+}
+
+async function waitForPackageProcessesToExit(root, timeoutMs) {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const ids = packageProcessIds(root);
+		if (ids.length === 0) return;
+		if (Date.now() >= deadline) {
+			throw new Error(`Package process still running: ${ids.join(', ')}`);
+		}
+		await new Promise((resolveWait) => setTimeout(resolveWait, PACKAGE_PROCESS_POLL_MS));
+	}
+}
+
+// A just-terminated image can stay locked for a moment while Windows releases
+// it. Retry only after the process wait above proves that no process runs from
+// the package. A lock that outlasts the retries still fails the call.
+function removePackageTree(directory) {
+	rmSync(directory, {
+		recursive: true,
+		force: true,
+		maxRetries: 10,
+		retryDelay: 100
+	});
+}
+
 function verifyPackage() {
 	return run(process.execPath, [PACK_SCRIPT, 'verify', '--dir', PACKAGE], {
 		cwd: ROOT,
@@ -202,8 +288,11 @@ before(() => {
 	}
 });
 
-after(() => {
-	if (installRoot) rmSync(installRoot, { recursive: true, force: true });
+after(async () => {
+	if (installRoot) {
+		await waitForPackageProcessesToExit(installRoot, 5_000);
+		removePackageTree(installRoot);
+	}
 	if (projectRoot) rmSync(projectRoot, { recursive: true, force: true });
 });
 
@@ -646,10 +735,44 @@ test('concurrent CLI and MCP access leaves project documents unchanged', async (
 	assert.equal(treeHash(fixtureRoot), hashBefore);
 });
 
-test('uninstall removes only the package and keeps documents', () => {
+test('uninstall removes only the package and keeps documents', async () => {
 	assert.ok(existsSync(packageRoot));
 	const projectHash = treeHash(fixtureRoot);
-	rmSync(packageRoot, { recursive: true, force: true });
+
+	// A real installed process holds the runtime open. The uninstall guard must
+	// name it and refuse to delete the package under it. Linux and Windows run
+	// this proof; macOS unlinks a running image, so it has no lock to detect.
+	if (process.platform === 'linux' || process.platform === 'win32') {
+		const runtime = join(
+			packageRoot,
+			'runtime',
+			process.platform === 'win32' ? 'node.exe' : 'node'
+		);
+		const holder = spawn(runtime, ['-e', 'setInterval(() => {}, 1000)'], {
+			cwd: fixtureRoot,
+			env: installedEnv()
+		});
+		await new Promise((resolveSpawn, rejectSpawn) => {
+			holder.once('spawn', resolveSpawn);
+			holder.once('error', rejectSpawn);
+		});
+		try {
+			await waitForPackageProcess(packageRoot, holder.pid, 10_000);
+			await assert.rejects(
+				waitForPackageProcessesToExit(packageRoot, 400),
+				/Package process still running/
+			);
+			assert.equal(existsSync(packageRoot), true);
+			OBSERVED.uninstallWait = { liveProcess: holder.pid, refused: true };
+		} finally {
+			const closed = new Promise((resolveClose) => holder.once('close', resolveClose));
+			holder.kill('SIGKILL');
+			await closed;
+		}
+	}
+
+	await waitForPackageProcessesToExit(packageRoot, 5_000);
+	removePackageTree(packageRoot);
 	assert.equal(existsSync(packageRoot), false);
 	assert.equal(existsSync(fixtureRoot), true);
 	assert.equal(treeHash(fixtureRoot), projectHash);
