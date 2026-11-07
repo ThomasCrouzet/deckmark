@@ -550,6 +550,15 @@ The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
 browser pass is not a native desktop pass, and a headless WebKit pass is not a
 WebKitGTK pass.
 
+### CI tier workflow failure risks
+
+Browser tests cannot observe Actions event routing or aggregate process exits.
+The CLI workflow tests retain these failures: a deferred draft becomes green,
+a failed tier decision starts heavy work, a ready transition does not rerun,
+or a failed, skipped, cancelled or absent shard passes the final aggregate.
+Run `node --test scripts/ci-web-workflow.test.mjs` to exercise the aggregate
+shell from the actual workflow and check its heavy-job dependency guards.
+
 ### Benchmark and native CI evidence
 
 `.github/workflows/desktop.yml` runs these jobs for a Desktop change:

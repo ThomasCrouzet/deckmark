@@ -82,7 +82,7 @@ percentages are diagnostic, not a release gate.
 
 Each standard browser run writes an HTML report, a JSON result file, and run
 metadata. Keep the command, source revision, environment, fixtures, and results
-with the artifact. Desktop CI uploads native workflow and benchmark evidence.
+with the artifact. CI evidence stays on the runner and is not uploaded to GitHub.
 See [docs/TESTING.md](docs/TESTING.md) for commands and artifact paths.
 
 ## Visual tests (snapshots)
