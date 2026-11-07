@@ -152,7 +152,6 @@
 		Transaction: typeof import('@codemirror/state').Transaction;
 		Compartment: typeof import('@codemirror/state').Compartment;
 		EditorView: typeof import('@codemirror/view').EditorView;
-		ViewPlugin: typeof import('@codemirror/view').ViewPlugin;
 		keymap: typeof import('@codemirror/view').keymap;
 		lineNumbers: typeof import('@codemirror/view').lineNumbers;
 		highlightActiveLine: typeof import('@codemirror/view').highlightActiveLine;
@@ -173,66 +172,8 @@
 		setSearchQuery: typeof import('@codemirror/search').setSearchQuery;
 		SearchQuery: typeof import('@codemirror/search').SearchQuery;
 		imageData: typeof import('../source-extensions').imageData;
+		typewriterCentering: typeof import('../source-extensions').typewriterCentering;
 	};
-
-	function makeTypewriterExtension(cm: CMModule) {
-		return cm.ViewPlugin.define((currentView) => {
-			const win = currentView.dom.ownerDocument.defaultView;
-			let active = true;
-			let frame: number | null = null;
-			let generation = 0;
-			const measure = {
-				key: {},
-				read: (measuredView: EditorView) => {
-					if (!active) return null;
-					const head = measuredView.state.selection.main.head;
-					const caret = measuredView.coordsAtPos(head);
-					if (caret) {
-						const scroller = measuredView.scrollDOM;
-						const bounds = scroller.getBoundingClientRect();
-						const center =
-							bounds.top + (scroller.clientTop + scroller.clientHeight / 2) * measuredView.scaleY;
-						const delta = ((caret.top + caret.bottom) / 2 - center) / measuredView.scaleY;
-						const target = Math.max(
-							0,
-							Math.min(scroller.scrollHeight - scroller.clientHeight, scroller.scrollTop + delta)
-						);
-						if (Math.abs(target - scroller.scrollTop) <= 2) return null;
-					}
-					return { head, generation };
-				},
-				write: (target: { head: number; generation: number } | null) => {
-					if (!active || !target) return;
-					// CodeMirror does not permit dispatch inside its measure or update phase.
-					queueMicrotask(() => {
-						if (!active || target.generation !== generation) return;
-						currentView.dispatch({
-							effects: cm.EditorView.scrollIntoView(target.head, { y: 'center' })
-						});
-					});
-				}
-			};
-			function schedule() {
-				if (!win || frame !== null) return;
-				frame = win.requestAnimationFrame(() => {
-					frame = null;
-					if (active) currentView.requestMeasure(measure);
-				});
-			}
-			schedule();
-			return {
-				update(update: ViewUpdate) {
-					if (!update.selectionSet && !update.docChanged) return;
-					generation += 1;
-					schedule();
-				},
-				destroy() {
-					active = false;
-					if (frame !== null) win?.cancelAnimationFrame(frame);
-				}
-			};
-		});
-	}
 
 	function codeMirrorPhrases(): Record<string, string> {
 		return {
@@ -306,10 +247,10 @@
 				return {
 					EditorState: state.EditorState,
 					imageData: lang.imageData,
+					typewriterCentering: lang.typewriterCentering,
 					Transaction: state.Transaction,
 					Compartment: state.Compartment,
 					EditorView: viewMod.EditorView,
-					ViewPlugin: viewMod.ViewPlugin,
 					keymap: viewMod.keymap,
 					lineNumbers: viewMod.lineNumbers,
 					highlightActiveLine: viewMod.highlightActiveLine,
@@ -538,7 +479,7 @@
 					}
 				}
 			}),
-			typewriterCompartment.of(pendingTypewriter ? [makeTypewriterExtension(cm)] : []),
+			typewriterCompartment.of(pendingTypewriter ? [cm.typewriterCentering()] : []),
 			theme
 		];
 		const cached = editorStateCache.getSourceState(fileId);
@@ -760,7 +701,7 @@
 		void loadCM()
 			.then((cm) => {
 				if (!view || !typewriterCompartmentRef) return;
-				const ext = active ? [makeTypewriterExtension(cm)] : [];
+				const ext = active ? [cm.typewriterCentering()] : [];
 				view.dispatch({
 					effects: typewriterCompartmentRef.reconfigure(ext)
 				});
