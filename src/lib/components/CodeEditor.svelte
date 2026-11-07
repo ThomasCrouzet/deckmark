@@ -196,6 +196,7 @@
 		clearTimeout(jsonTimer);
 		const revision = jsonRevision;
 		jsonAction = true;
+		jsonPending = false;
 		jsonError = '';
 		const reply = await client.request({
 			kind: action,

@@ -22,6 +22,7 @@ export async function installJsonProbe(page: Page) {
 			}[],
 			longTasks: [] as { start: number; duration: number }[],
 			hold: false,
+			failNextAction: false,
 			release: [] as (() => void)[]
 		};
 		Object.assign(window, { jsonProbe: probe });
@@ -52,6 +53,10 @@ export async function installJsonProbe(page: Page) {
 						length: data.text?.length ?? 0,
 						at: performance.now()
 					});
+					if (data.kind !== 'analyze' && probe.failNextAction) {
+						probe.failNextAction = false;
+						throw new DOMException('Injected JSON action transport failure', 'DataCloneError');
+					}
 					post(data);
 				};
 				const listen = this.addEventListener.bind(this);
@@ -91,6 +96,7 @@ export interface JsonProbe {
 	replies: { kind: string; documentId: string; requestId: number; revision: number; at: number }[];
 	longTasks: { start: number; duration: number }[];
 	hold: boolean;
+	failNextAction: boolean;
 	release: (() => void)[];
 }
 

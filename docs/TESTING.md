@@ -31,6 +31,16 @@ The optional schema callback is not exposed by a browser workflow. Isolated JSON
 tests retain callback output and exception semantics and check parsed-value reuse.
 This bridge cannot move an arbitrary caller closure into a Worker.
 
+The JSON workflow also holds revalidation while an unchanged minify action or an
+injected action transport failure replaces it. Both paths must clear Checking,
+preserve saved bytes and permit Validate to retry. The formatting workflow checks
+a reversed noncollapsed selection and single undo. The JSON offline case uses a
+private production-asset server. WebKit stops that origin and proves access fails;
+Chromium and Firefox use browser offline emulation. Each case confirms service
+worker control, reload, exact formatted bytes and undo, and attaches request and
+response evidence. The fixture changes only its test root precache revision and
+release marker. This is not native or production-CSP acceptance.
+
 `e2e/review-regressions.spec.ts` checks these failures through the application:
 
 - A rename can replace a code or image extension with `.md`. Compare downloaded
