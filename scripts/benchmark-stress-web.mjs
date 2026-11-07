@@ -5,6 +5,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { chromium, firefox, webkit } from '@playwright/test';
 import { stressFixture, stressLibrary } from './benchmark-fixtures/stress.mjs';
+import { canonical, sentinelText } from './benchmark-stress-contract.mjs';
 
 const root = resolve(import.meta.dirname, '..', 'build');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -53,8 +54,7 @@ async function shell(page) {
 }
 
 async function seed(page, fixture, entry) {
-	const sentinelContent =
-		entry.mode === 'json' ? '{"payload":"sentinel"}' : 'Stable sentinel content.\n';
+	const sentinelContent = sentinelText(entry.mode);
 	const extension = fixture.name.split('.').at(-1);
 	const rows = [
 		{ id: mainId, name: fixture.name, content: fixture.content },
@@ -67,11 +67,11 @@ async function seed(page, fixture, entry) {
 		createdAt: 1_700_000_000_000,
 		updatedAt: 1_700_000_000_000
 	}));
-	await page.evaluate(
+	const observed = await page.evaluate(
 		async ({ rows, mode }) => {
 			if (!globalThis.indexedDB || !globalThis.localStorage)
 				throw new Error('Browser storage is unavailable.');
-			await new Promise((resolvePromise, reject) => {
+			const saved = await new Promise((resolvePromise, reject) => {
 				const request = indexedDB.open('mdsh');
 				request.onerror = () => reject(request.error);
 				request.onsuccess = () => {
@@ -79,9 +79,10 @@ async function seed(page, fixture, entry) {
 					const tx = db.transaction('drafts', 'readwrite');
 					tx.objectStore('drafts').clear();
 					for (const row of rows) tx.objectStore('drafts').put(row);
+					const read = tx.objectStore('drafts').getAll();
 					tx.oncomplete = () => {
 						db.close();
-						resolvePromise();
+						resolvePromise(read.result);
 					};
 					tx.onabort = () => {
 						db.close();
@@ -93,10 +94,22 @@ async function seed(page, fixture, entry) {
 			localStorage.setItem('mdsh:mode', 'source');
 			localStorage.setItem('mdsh:locale', 'en');
 			localStorage.setItem('mdsh:split-view', mode === 'split' ? '1' : '0');
+			return saved;
 		},
 		{ rows, mode: entry.mode }
 	);
-	return sentinelContent;
+	const background = observed
+		.filter((row) => row.id !== mainId && row.id !== sentinelId)
+		.sort((a, b) => a.id.localeCompare(b.id));
+	return {
+		sentinelContent,
+		library: {
+			count: background.length,
+			totalRows: observed.length,
+			idsSha256: hash(JSON.stringify(background.map((row) => row.id))),
+			rowsSha256: hash(canonical(background))
+		}
+	};
 }
 
 async function stored(page, id = mainId) {
@@ -154,10 +167,43 @@ async function waitEditor(page, expected) {
 	}, expected);
 }
 
+async function observedState(page, id = mainId) {
+	return {
+		editorSha256: hash(await editorState(page)),
+		storedSha256: hash(await stored(page, id)),
+		editorOrigin: 'codemirror-state-doc',
+		storedOrigin: 'indexeddb-drafts-row'
+	};
+}
+
+async function historyKey(page, shortcut) {
+	await page.evaluate(() => {
+		window.__stressHistoryKeys = [];
+		window.__stressHistoryListener = (event) =>
+			window.__stressHistoryKeys.push({
+				key: event.key,
+				code: event.code,
+				ctrl: event.ctrlKey,
+				meta: event.metaKey,
+				shift: event.shiftKey,
+				trusted: event.isTrusted,
+				targetIsEditor: event.target instanceof Element && !!event.target.closest('.cm-content')
+			});
+		document.addEventListener('keydown', window.__stressHistoryListener, true);
+	});
+	await page.keyboard.press(shortcut);
+	return page.evaluate(() => {
+		document.removeEventListener('keydown', window.__stressHistoryListener, true);
+		return window.__stressHistoryKeys;
+	});
+}
+
 async function arm(page, delay) {
-	await page.evaluate((delay) => {
+	return page.evaluate((delay) => {
 		const element = document.querySelector('.cm-content');
 		if (!element) throw new Error('Missing input target.');
+		const view = element.cmView?.view ?? element.cmTile?.root?.view;
+		if (!view?.state?.doc) throw new Error('Missing CodeMirror input observation.');
 		const state = {
 			started: null,
 			dispatch: null,
@@ -170,6 +216,8 @@ async function arm(page, delay) {
 			state.started = performance.now();
 			state.trusted = event.isTrusted;
 			state.inputType = event.inputType;
+			state.targetIsEditor =
+				event.target instanceof Element && event.target.closest('.cm-content') === element;
 			while (performance.now() - state.started < delay) {
 				/* Explicit browser-local negative control. */
 			}
@@ -191,17 +239,22 @@ async function arm(page, delay) {
 			);
 			state.observer.observe({ entryTypes: ['longtask'] });
 		}
+		return {
+			sourceLength: view.state.doc.length,
+			selection: { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head }
+		};
 	}, delay);
 }
 
 async function sample(page, expected, index, mode, delay) {
 	const ratios = [0.02, 0.5, 0.98];
 	const offset = Math.round(expected.length * ratios[index % 3]);
-	assert.equal(await editorState(page, offset), expected);
+	const beforeEditor = await editorState(page, offset);
+	assert.equal(beforeEditor, expected);
 	await page.evaluate(
 		() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
 	);
-	await arm(page, delay);
+	const selected = await arm(page, delay);
 	const insertion = 'x';
 	const next = expected.slice(0, offset) + insertion + expected.slice(offset);
 	const result = {
@@ -209,6 +262,9 @@ async function sample(page, expected, index, mode, delay) {
 		status: 'started',
 		position: ['start', 'middle', 'end'][index % 3],
 		operation: 'insert',
+		insertedText: insertion,
+		sourceLength: selected.sourceLength,
+		selection: selected.selection,
 		offset,
 		metrics: {},
 		fidelity: {},
@@ -224,11 +280,17 @@ async function sample(page, expected, index, mode, delay) {
 			frame: window.__stressInput.frame,
 			dispatch: window.__stressInput.dispatch,
 			trusted: window.__stressInput.trusted,
-			inputType: window.__stressInput.inputType
+			inputType: window.__stressInput.inputType,
+			targetIsEditor: window.__stressInput.targetIsEditor
 		}));
 		assert.equal(value.trusted, true, 'No trusted beforeinput event was observed.');
 		assert.equal(value.inputType, 'insertText');
-		result.input = { trusted: value.trusted, type: value.inputType };
+		assert.equal(value.targetIsEditor, true);
+		result.input = {
+			trusted: value.trusted,
+			type: value.inputType,
+			targetIsEditor: value.targetIsEditor
+		};
 		assert.equal(
 			await editorState(page),
 			next,
@@ -242,9 +304,12 @@ async function sample(page, expected, index, mode, delay) {
 			saveObservedMs: await page.evaluate((started) => performance.now() - started, value.started)
 		};
 		result.fidelity = {
+			beforeEditorSha256: hash(beforeEditor),
 			expectedSha256: hash(next),
 			editorSha256: hash(await editorState(page)),
-			storedSha256: hash(await stored(page))
+			storedSha256: hash(await stored(page)),
+			editorOrigin: 'codemirror-state-doc',
+			storedOrigin: 'indexeddb-drafts-row'
 		};
 		result.optional = await page.evaluate(() => {
 			const state = window.__stressInput;
@@ -260,6 +325,7 @@ async function sample(page, expected, index, mode, delay) {
 					? {
 							supported: true,
 							unit: 'bytes',
+							origin: 'performance.memory-estimate',
 							value: performance.memory.usedJSHeapSize,
 							note: 'Engine estimate. Not process RSS.'
 						}
@@ -267,7 +333,7 @@ async function sample(page, expected, index, mode, delay) {
 				transactionCpu: {
 					supported: false,
 					reason:
-						'No pure transaction CPU boundary is exposed. inputDispatchMs measures the event task.'
+						'No pure transaction CPU boundary is exposed. inputDispatchMs is only a queued microtask observation.'
 				},
 				preview: {
 					supported: false,
@@ -288,6 +354,7 @@ async function sample(page, expected, index, mode, delay) {
 			};
 		});
 		result.resources = await page.evaluate(() => ({
+			units: { domNodes: 'count', canvasDimensions: 'backing-pixels' },
 			domNodes: document.querySelectorAll('*').length,
 			canvases: [...document.querySelectorAll('canvas')].map((canvas) => ({
 				width: canvas.width,
@@ -334,13 +401,22 @@ async function runCase(browser, url, entry, report, options) {
 	try {
 		await page.goto(url);
 		await shell(page);
-		const sentinel = await seed(page, fixture, entry);
+		const seeded = await seed(page, fixture, entry);
+		const sentinel = seeded.sentinelContent;
 		await page.reload();
 		await shell(page);
 		await page.locator('.cm-content').first().waitFor();
 		if (entry.mode === 'split') await page.getByTestId('split-view').waitFor();
 		else if (entry.mode === 'code' || entry.mode === 'json')
 			await page.getByTestId('code-editor').waitFor();
+		const observedMode = await page.evaluate(() => {
+			if (document.querySelector('[data-testid="code-editor"]'))
+				return document.querySelector('[data-testid="json-format"]') ? 'json' : 'code';
+			if (document.querySelector('[data-testid="split-view"]')) return 'split';
+			return document.querySelector('.mdsh-source-mode .cm-content') ? 'source' : 'unavailable';
+		});
+		assert.equal(observedMode, entry.mode);
+		result.workload = { mode: observedMode, library: seeded.library };
 		assert.equal(await editorState(page), fixture.content);
 		let expected = fixture.content;
 		let previous = expected;
@@ -357,6 +433,7 @@ async function runCase(browser, url, entry, report, options) {
 		const otherButton = page.locator(`aside button[data-file-id="${sentinelId}"]`);
 		await otherButton.click();
 		await waitEditor(page, sentinel);
+		const sentinelInitial = await observedState(page, sentinelId);
 		const sentinelOffset = entry.mode === 'json' ? sentinel.length - 2 : sentinel.length;
 		await editorState(page, sentinelOffset);
 		await page.keyboard.insertText('x');
@@ -367,44 +444,29 @@ async function runCase(browser, url, entry, report, options) {
 			'The second file must accept its edit before undo.'
 		);
 		await waitStored(page, sentinelEdited, sentinelId);
-		await page.keyboard.press('ControlOrMeta+z');
+		const sentinelInserted = await observedState(page, sentinelId);
+		const sentinelUndoKeys = await historyKey(page, 'ControlOrMeta+z');
 		assert.equal(await editorState(page), sentinel);
 		await waitStored(page, sentinel, sentinelId);
+		const sentinelUndone = await observedState(page, sentinelId);
 		await mainButton.click();
 		await waitEditor(page, expected);
+		const fileReturn = await observedState(page);
 		await editorState(page, 0);
-		await page.keyboard.press('ControlOrMeta+z');
+		const beforeUndo = await observedState(page);
+		const mainUndoKeys = await historyKey(page, 'ControlOrMeta+z');
 		assert.equal(
 			await editorState(page),
 			previous,
 			'Undo must affect the last edit in this file only.'
 		);
 		await waitStored(page, previous);
+		const afterUndo = await observedState(page);
 		result.fidelity.perFileUndo = true;
 		const redoShortcut = await page.evaluate(() =>
 			/Mac/.test(navigator.platform) ? 'Meta+Shift+Z' : 'Control+y'
 		);
-		await page.evaluate(() => {
-			window.__stressRedoKeys = [];
-			const listener = (event) => {
-				window.__stressRedoKeys.push({
-					key: event.key,
-					code: event.code,
-					ctrl: event.ctrlKey,
-					meta: event.metaKey,
-					shift: event.shiftKey,
-					trusted: event.isTrusted,
-					targetIsEditor: event.target instanceof Element && !!event.target.closest('.cm-content')
-				});
-			};
-			window.__stressRedoListener = listener;
-			document.addEventListener('keydown', listener, true);
-		});
-		await page.keyboard.press(redoShortcut);
-		const redoKeys = await page.evaluate(() => {
-			document.removeEventListener('keydown', window.__stressRedoListener, true);
-			return window.__stressRedoKeys;
-		});
+		const redoKeys = await historyKey(page, redoShortcut);
 		const redoKey = redoShortcut === 'Control+y' ? 'y' : 'Z';
 		assert.ok(
 			redoKeys.some(
@@ -415,10 +477,26 @@ async function runCase(browser, url, entry, report, options) {
 					(redoShortcut === 'Control+y' ? event.ctrl && !event.shift : event.meta && event.shift)
 			)
 		);
-		result.history = { undoShortcut: 'ControlOrMeta+z', redoShortcut, redoKeys };
 		assert.equal(await editorState(page), expected);
 		result.fidelity.redo = true;
 		await waitStored(page, expected);
+		result.finalExpected = { bytes: Buffer.byteLength(expected), sha256: hash(expected) };
+		result.history = {
+			platform: await page.evaluate(() => navigator.platform),
+			mainId,
+			undoShortcut: 'ControlOrMeta+z',
+			redoShortcut,
+			redoKeys,
+			fileReturn,
+			sentinel: {
+				id: sentinelId,
+				initial: sentinelInitial,
+				afterInsert: sentinelInserted,
+				afterUndo: sentinelUndone,
+				undoKeys: sentinelUndoKeys
+			},
+			main: { beforeUndo, afterUndo, afterRedo: await observedState(page), undoKeys: mainUndoKeys }
+		};
 		const pending = page.waitForEvent('download');
 		await page.keyboard.press('ControlOrMeta+Shift+e');
 		const download = await pending;
@@ -439,6 +517,12 @@ async function runCase(browser, url, entry, report, options) {
 		await page.locator('.cm-content').first().waitFor();
 		assert.equal(await editorState(page), expected);
 		assert.equal(await stored(page, sentinelId), sentinel);
+		result.reload = {
+			activeId: await page.evaluate(() => localStorage.getItem('mdsh:activeId')),
+			main: await observedState(page),
+			sentinelStoredSha256: hash(await stored(page, sentinelId)),
+			storedOrigin: 'indexeddb-drafts-row'
+		};
 		result.fidelity.recovered = true;
 		assert.deepEqual(result.errors, []);
 		result.status = 'passed';

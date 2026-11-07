@@ -7,6 +7,7 @@ import { environmentIdentity } from './benchmark-shared.mjs';
 import { testSource } from './test-source.mjs';
 import { stressFixture, stressMatrix } from './benchmark-fixtures/stress.mjs';
 import { auditStress } from './benchmark-stress-audit.mjs';
+import { sourceIdentity, stressMethod } from './benchmark-stress-contract.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 
@@ -82,7 +83,8 @@ export async function stressMain(args) {
 	if (!profile) throw new Error(`Unknown profile: ${options.profile}`);
 	const source = testSource();
 	const report = {
-		schema: 'deckmark-stress/1',
+		schema: 'deckmark-stress/2',
+		evidenceKind: 'browser-run',
 		generatedAt: new Date().toISOString(),
 		profile: options.profile,
 		target: profile.target,
@@ -102,17 +104,12 @@ export async function stressMain(args) {
 		command: [process.execPath, ...process.argv.slice(1)],
 		plan: { caseIds: options.caseIds, runs: options.runs },
 		injectedDelayMs: options.injectedDelayMs,
-		method: {
-			inputToFrameMs:
-				'Trusted browser beforeinput capture to the second animation frame. Includes one paint opportunity, not a compositor pixel timestamp. Excludes driver round trip.',
-			inputDispatchMs:
-				'Trusted beforeinput capture to its queued microtask. Browser microtask checkpoints can precede later event listeners. Not pure transaction CPU or guaranteed full dispatch duration.',
-			saveObservedMs:
-				'Input capture to observation of exact stored bytes through IndexedDB. Includes polling and driver overhead. The product save delay stays 400 ms.',
-			sampling:
-				'No discarded warmups. One insert per sample, positions rotate start/middle/end. Samples aggregate those positions. Undo/redo are fidelity checks, not latency samples.'
-		},
+		method: structuredClone(stressMethod),
 		limits: [
+			'Target-capture beforeinput to the second animation frame is a paint opportunity, not compositor paint.',
+			'The queued microtask can precede later listeners. It is not transaction CPU or guaranteed full dispatch duration.',
+			'Save observation includes polling and driver/hash overhead. The product save delay stays 400 ms.',
+			'Independent post-collection artifact trust is required. This producer does not attest its own browser execution.',
 			'Only Source, Code, JSON and Split have browser stress adapters in this delivery.',
 			'Other modes and all native stress adapters are explicit unavailable cases, not passes.',
 			'New profiles are report-only until platform budgets receive reviewed evidence.',
@@ -164,7 +161,8 @@ export async function stressMain(args) {
 			});
 		}
 	}
-	report.audit = auditStress(report, budgets, options.caseIds, options.enforce);
+	report.source.after = sourceIdentity(testSource());
+	report.audit = await auditStress(report, budgets, options.caseIds, options.enforce);
 	await writeFile(options.output, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
 	console.log(
 		JSON.stringify(

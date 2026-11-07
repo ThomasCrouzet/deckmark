@@ -877,6 +877,25 @@ E2E cannot exercise malformed report files or verify audit process exits. The
 CLI tests start the real audit process and retain those risks. They also check
 the listed mode/size tiers and deterministic exact-size fixture output.
 
+The version 2 contract retains these additional concrete false-green risks:
+missing method/input evidence, untrusted or wrong input type, an invalid position
+schedule/selection/offset, a relabeled fixture/library/mode, dirty or inconsistent
+source/provenance, absent external artifact trust, missing capabilities/resources,
+invalid supported units/values, ignored resource limits and booleans that hide
+missing export/history/reload observations. The parent reproduced G1-G4 through
+the real frozen CLI before hardening. New process controls precede validator code.
+Each semantic mutation uses a fresh synthetic receipt, so rejection cannot rely
+only on a stale report digest. A separate control checks a wrong receipt pin.
+One unsupported heap sample must fail a configured heap limit even when other
+samples have supported values. A partial maximum is not complete resource evidence.
+
+Controls use real deterministic fixture/export bytes but explicitly synthetic
+timings, keyboard records and build identities. They prove the CLI's structural,
+replay, artifact-binding and process-exit behavior, not execution of the browser
+producer. An independent external receipt is a stated trust input, not browser
+attestation. Old version 1 reports remain historical and cannot be promoted by
+inventing missing observations. Preserve original controls and failed attempts.
+
 Each browser case checks a trusted input event, exact editor and saved bytes
 after each measured edit, a second file's undo isolation, redo, downloaded bytes
 and saved reload. Its external JSON report retains raw samples, fixture hashes,

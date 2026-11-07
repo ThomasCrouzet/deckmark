@@ -50,7 +50,7 @@ instrumentation. Provenance rejects a different source, dirty tree, changed
 input or changed build byte. Browser contexts block service workers so that an
 old cache cannot replace the verified build.
 
-The `deckmark-stress/1` report retains every attempted sample and terminal case.
+The `deckmark-stress/2` report retains every attempted sample and terminal case.
 It records the source commit/tree/diff, untracked hashes, verified build tree,
 fixture hashes, OS, renderer version, host or CI runner and exact command.
 Samples rotate start, middle and end offsets. Each sample inserts one character
@@ -69,7 +69,7 @@ this check.
 | `inputDispatchMs` | Input capture to its queued microtask. A browser checkpoint can precede later listeners. This is not pure transaction CPU or guaranteed full dispatch duration. |
 | `saveObservedMs` | Input capture to the observed matching IndexedDB bytes, including poll and driver overhead. The 400 ms product delay stays unchanged. |
 
-Optional metrics state support and a reason. Long tasks and engine heap are
+Required capability records state support and a reason. Long tasks and engine heap are
 recorded when exposed. Pure transaction CPU, preview completion, validation
 completion, post-idle CPU and attributable process RSS remain unavailable.
 Each successful sample also records DOM count and canvas dimensions. These
@@ -77,10 +77,12 @@ resources have no calibrated stress limit yet.
 Fixture and export sidecars stay beside the JSON report. Failed cases also try
 to retain a screenshot. The JSON lists their paths and byte hashes.
 
-Audit independently with the expected case selection:
+Audit independently with the expected case selection and an external byte-review
+receipt. `RECEIPT_SHA256` is the trusted receipt's raw-file SHA-256:
 
 ```sh
 node scripts/benchmark-gate.mjs --suite stress --report "$OUT/stress-chromium.json" \
+  --receipt "$OUT/external-trust.json" --receipt-sha256 "$RECEIPT_SHA256" \
   --cases source/markdown-1mb/lib-0,code/code-1mb/lib-0,json/json-1mb/lib-0,split/markdown-1mb/lib-0
 ```
 
@@ -91,6 +93,83 @@ profiles, missing identities and failed byte/history/reload checks. At least
 `tail-estimate-insufficient`. Twenty aggregate samples do not supply twenty
 samples per position. Read the raw samples; do not claim a stable per-position
 tail. There is no minimum-of-three stress statistic.
+
+### Version 2 report contract
+
+`scripts/benchmark-stress-contract.mjs` defines method `codemirror-insert/1`.
+It preserves target-capture beforeinput, the second animation frame, queued
+microtask and exact IndexedDB observation clocks. It also preserves two frames
+before input, no discarded warmup, the 550 ms wait after each sample, raw count,
+nearest-rank statistics and three-decimal summaries. These names do not turn a
+frame opportunity into compositor paint or a microtask into transaction CPU.
+
+The audit requires trusted editor-target `insertText`, operation `insert`, text
+`x`, actual collapsed selection and source length. It replays the deterministic
+fixture at rotating start/middle/end offsets `Math.round(length * ratio)`, with
+ratios 0.02/0.5/0.98. It checks before/after and final hashes against that replay.
+Case mode, fixture name/bytes/hash/generator/arguments, actual library row count,
+membership and background-row hashes must match the selected catalog entry.
+
+Source must be clean before and after collection, with the same commit/tree.
+Source, build digest, provenance, edition/profile, root base path, instrumentation,
+builder/runtime identity and all provenance input hashes must agree. Version 1
+reports remain historical evidence. Missing version 2 observations must not be
+invented or filled into an old measured report to make it pass.
+
+Each sample must retain all seven capability records: longTasks, heap,
+transactionCpu, preview, validation, postIdleCpu and rss. Supported long tasks
+need finite nonnegative ms values. Supported heap needs a finite nonnegative
+byte value with `performance.memory-estimate` origin. This method cannot claim
+the other five stages are supported; each needs an explicit unsupported reason,
+not a zero value. DOM count and canvas backing dimensions require valid counts
+and units. Missing maps or arrays fail.
+
+Strict resource comparison requires configured domNodes and canvasPixels limits.
+Configured heapBytes/rssBytes limits are also enforced against observed maxima.
+A configured unsupported resource, an unknown limit or an invalid value fails.
+Null resource limits remain an unreviewed requirement. No product limit is
+calibrated or approved by these checks.
+
+Fidelity booleans are not enough. The report records separately read CodeMirror
+document and IndexedDB origins/hashes for sentinel insert/undo, main file return,
+main undo/redo and reload. It retains real trusted history key events. Export
+name/count/hash and actual sidecar bytes must equal the final replayed source.
+This contract does not define a visual editor source snapshot or visual history.
+
+### External artifact trust receipt
+
+The producer does not issue its own trust receipt. After collection, an independent
+reviewer must check the source/build/provenance inputs and local fixture/export
+bytes, then issue `deckmark-stress-artifact-trust/1`. Pass its path and pinned
+digest explicitly to the audit. A report-embedded receipt is not authoritative.
+
+The receipt has these fields:
+
+- `scope: "external-artifact-byte-review"`, a named `reviewer`, ISO `reviewedAt`,
+  and `evidenceKind` equal to `browser-run` or `synthetic-control`.
+- `reportSha256`, the exact report-file byte digest.
+- `source: { revision, tree }`, the independently checked source identity.
+- `provenanceSha256`, the SHA-256 of recursively key-sorted canonical JSON for
+  the embedded provenance. Sorting uses the contract module's localeCompare
+  ordering, not an unstated JSON canonicalization standard.
+- `buildTree: { files, sha256 }` and `inputs`, equal to the independently checked
+  provenance tree and complete input-hash map.
+- `files`, an absolute-path map of `{ bytes, sha256 }` for each case's fixture
+  and export sidecars.
+
+The CLI checks the receipt's pinned raw-byte digest, report binding and internal
+agreement, rehashes sidecar bytes and compares them with deterministic replay.
+The caller explicitly trusts the external review of build/input bytes. This is
+not a signature or proof that claimed browser work actually ran. A coordinated
+invented report and invented trusted receipt is outside this JSON check's proof.
+
+The collector's embedded audit cannot be strict success before independent trust
+exists. Without enforcement it can finish functional collection but retains the
+failed audit. `--enforce-budgets` does not bypass receipt or resource requirements.
+Use the separate strict post-collection audit for acceptance. Synthetic CLI
+controls declare `synthetic-control` in report, receipt and test-only budget
+profile. They contain synthetic times, not new browser measurements or product
+references. Preserve original positive/negative reports without rewriting them.
 
 The new `stress` section in `scripts/benchmark-budgets.json` separates Web Light
 production from Desktop Complete release and debug profiles. All new profiles
