@@ -505,6 +505,7 @@ test('clears all ink and exposes tools to the keyboard', async ({ page }) => {
 	await drawOnCanvas(page);
 	expect(await inkPixels(page)).toBeGreaterThan(0);
 	await page.getByTestId('annotation-clear').click();
+	await inkFrame(page);
 	expect(await inkPixels(page)).toBe(0);
 
 	await page.getByTestId('annotation-toggle').focus();

@@ -558,6 +558,13 @@ browser-context setting. Existing cases keep Clear, print, reload and keyboard
 coverage. `e2e/image-annotations.spec.ts` retains flattened PNG export and original
 image byte checks. Read-view strokes remain temporary and do not enter exports.
 
+Clear removes stroke data immediately and clears the bitmap in the queued animation
+frame. A completed button click does not confirm that this frame has run. Use the
+existing `inkFrame()` helper before the Clear pixel check. Require exactly zero
+nontransparent pixels. Do not use a fixed delay or a pixel tolerance. A browser
+probe must distinguish pixels before and after the queued clear. A missing canvas
+clear must still fail the zero-pixel check after the frame wait.
+
 Run the focused checks against the production preview:
 
 ```sh
