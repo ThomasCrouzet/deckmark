@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { resetAppState, seedFiles, openPalette } from './helpers';
+import { resetAppState, seedFiles, openPalette, writeSourceContent } from './helpers';
 
 test.describe('Exports MD / HTML / PDF', () => {
 	test.beforeEach(async ({ page }) => {
@@ -66,6 +66,45 @@ test.describe('Exports MD / HTML / PDF', () => {
 		await expect(offlinePage.locator('.katex')).toBeVisible();
 		expect(requests).toEqual([]);
 		await context.close();
+	});
+
+	test('reuses standalone assets across HTML exports without caching document content', async ({
+		page
+	}, testInfo) => {
+		await seedFiles(page, [{ name: 'asset-reuse', content: '# Math\n\n$e^{i\\pi}+1=0$\n' }]);
+		const assetRequests: string[] = [];
+		page.on('request', (request) => {
+			const url = request.url();
+			if (/\/print\/print\.css$/.test(url) || /\/katex\//.test(url)) assetRequests.push(url);
+		});
+
+		const exportHtml = async (name: string) => {
+			await openPalette(page);
+			await page.keyboard.type('Exporter en HTML');
+			const before = assetRequests.length;
+			const downloadPromise = page.waitForEvent('download');
+			await page.keyboard.press('Enter');
+			const download = await downloadPromise;
+			const output = testInfo.outputPath(name);
+			await download.saveAs(output);
+			return { html: await readFile(output, 'utf8'), fetched: assetRequests.length - before };
+		};
+
+		const first = await exportHtml('asset-reuse-first.html');
+		expect(first.fetched).toBeGreaterThan(0);
+		expect(first.html).toContain('data:font/woff2;base64,');
+		expect(first.html).toMatch(/<meta http-equiv="Content-Security-Policy"/);
+		expect(first.html).toMatch(/script-src 'none'/);
+
+		const second = await exportHtml('asset-reuse-second.html');
+		expect(second.fetched).toBe(0);
+		expect(second.html).toBe(first.html);
+
+		await writeSourceContent(page, '# Math edited\n\n$e^{i\\pi}+2=1$\n');
+		const third = await exportHtml('asset-reuse-third.html');
+		expect(third.html).toContain('Math edited');
+		expect(third.html).not.toBe(first.html);
+		expect(third.fetched).toBe(0);
 	});
 
 	test('real PDF contains author content only', async ({ page, browser }, testInfo) => {
