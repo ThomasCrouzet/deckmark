@@ -70,7 +70,6 @@ import { reportPersistenceError, resolveDraftSaveError } from './storage';
 import { reportError } from './report';
 import { recordVersion, createCheckpoint, createCheckpoints } from './version-history';
 import type { ReplaceOptions } from './replace';
-import { replaceInFilesAsync } from './replace-worker';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
 import { handleCrossTabPolicy } from './cross-tab-policy';
 import { t } from '#lib/i18n/index.js';
@@ -1700,6 +1699,7 @@ class FilesStore {
 				content: f.content,
 				revision: this.documentRevision(f.id)!
 			}));
+		const { replaceInFilesAsync } = await import('./replace-worker');
 		const { results, total, regexError } = await replaceInFilesAsync(
 			slices,
 			query,
