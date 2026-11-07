@@ -58,6 +58,10 @@ through the browser text-input channel. It requires a trusted `beforeinput`,
 the exact full editor value and the exact saved value. Downloaded bytes, per-file
 undo, redo and saved reload are checked after the samples. These checks do not
 prove crash recovery, failed-write recovery, bursts or clipboard paste.
+History checks use real keyboard actions. Redo uses CodeMirror's primary binding:
+Ctrl+Y on non-Mac platforms and Cmd+Shift+Z on Mac. The report retains the actual
+trusted key event and its editor target. Synthetic history events do not replace
+this check.
 
 | Raw metric | Boundary |
 | --- | --- |

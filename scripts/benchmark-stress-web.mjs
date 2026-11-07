@@ -381,7 +381,41 @@ async function runCase(browser, url, entry, report, options) {
 		);
 		await waitStored(page, previous);
 		result.fidelity.perFileUndo = true;
-		await page.keyboard.press('ControlOrMeta+Shift+z');
+		const redoShortcut = await page.evaluate(() =>
+			/Mac/.test(navigator.platform) ? 'Meta+Shift+Z' : 'Control+y'
+		);
+		await page.evaluate(() => {
+			window.__stressRedoKeys = [];
+			const listener = (event) => {
+				window.__stressRedoKeys.push({
+					key: event.key,
+					code: event.code,
+					ctrl: event.ctrlKey,
+					meta: event.metaKey,
+					shift: event.shiftKey,
+					trusted: event.isTrusted,
+					targetIsEditor: event.target instanceof Element && !!event.target.closest('.cm-content')
+				});
+			};
+			window.__stressRedoListener = listener;
+			document.addEventListener('keydown', listener, true);
+		});
+		await page.keyboard.press(redoShortcut);
+		const redoKeys = await page.evaluate(() => {
+			document.removeEventListener('keydown', window.__stressRedoListener, true);
+			return window.__stressRedoKeys;
+		});
+		const redoKey = redoShortcut === 'Control+y' ? 'y' : 'Z';
+		assert.ok(
+			redoKeys.some(
+				(event) =>
+					event.key === redoKey &&
+					event.trusted &&
+					event.targetIsEditor &&
+					(redoShortcut === 'Control+y' ? event.ctrl && !event.shift : event.meta && event.shift)
+			)
+		);
+		result.history = { undoShortcut: 'ControlOrMeta+z', redoShortcut, redoKeys };
 		assert.equal(await editorState(page), expected);
 		result.fidelity.redo = true;
 		await waitStored(page, expected);
