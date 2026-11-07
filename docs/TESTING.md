@@ -207,10 +207,12 @@ Missing metadata, an old source SHA, or a wrong version or base path fails the
 check. Check normal public URLs, not only a deployment preview or a URL with a
 cache-bypass query. A metadata match alone does not prove that the app works.
 
-Keep `production-report/` and `production-results/` for each run, including failed
-runs. Retain the command, expected and observed source revisions, environment,
-browser version, public URLs, fixture content, results, and browser evidence.
-These artifacts must permit another maintainer to repeat the same checks.
+For local runs, keep `production-report/` and `production-results/`, including
+failed runs. Retain the command, expected and observed source revisions,
+environment, browser version, public URLs, fixture content, results and browser
+evidence. These files must permit another maintainer to repeat the same checks.
+Hosted CI creates these files on its runner without uploading them. They are
+temporary and are lost when the runner VM is destroyed.
 
 ### Daily drift detection and repair
 
@@ -548,24 +550,33 @@ The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
 browser pass is not a native desktop pass, and a headless WebKit pass is not a
 WebKitGTK pass.
 
-### Benchmark and native CI artifacts
+### Benchmark and native CI evidence
 
 `.github/workflows/desktop.yml` runs these jobs for a Desktop change:
 
-- `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. Artifact:
-  `web-benchmark-<browser>`.
-- `native-smoke` on Ubuntu, Windows and macOS with the built test binary.
-  Artifact: `native-smoke-<platform>`.
-- `native-benchmark` on Ubuntu, Windows and macOS with the same built test
-  binary. Artifact: `native-benchmark-<platform>`, which contains the raw JSON,
-  screenshots and the application log. The macOS jobs assert an ARM64 runner
-  before they run.
-- `desktop-validation` requires every job above to succeed. A reused validation
-  run must contain one successful job for each browser and each platform.
+- `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. Local report:
+  `$RUNNER_TEMP/web-benchmark-<browser>.json`.
+- `native-smoke` on Ubuntu, Windows and macOS with an equivalent test binary
+  that its own job builds. Local results: `native-test-results/`.
+- `native-benchmark` on Ubuntu, Windows and macOS with an equivalent test
+  binary that its own job builds. Local report:
+  `$RUNNER_TEMP/native-benchmark.json`, with screenshots and the application
+  log beside it. The macOS jobs assert an ARM64 runner before they run.
+- `desktop-validation` requires every requested job above to succeed. A reused
+  validation run must contain one successful job for each browser and platform.
 
-The performance jobs record budgets but do not fail on a budget difference. A
-shared runner is too noisy for that gate. A harness failure, a missing result or
-a functional native check failure does fail the job.
+The performance jobs pass `--enforce-budgets` and fail on a non-ok budget
+result. A harness failure, missing result or functional native check failure
+also fails the job. Shared-runner variance does not turn a failed budget into
+a passing result. See [PERFORMANCE.md](PERFORMANCE.md) for the metric contract.
+
+These reports are not GitHub Actions artifacts. Hosted-runner cleanup discards
+them; no report download remains after the VM is destroyed. Keep local
+reproduction reports outside Git. Build inputs transferred between jobs and
+release deliverables remain separate from test reports.
+Lighthouse CI writes its output to the filesystem at `test-results/lighthouse`
+on the hosted runner, not to temporary public storage. That output is discarded
+with the runner. The existing collection and assertion settings stay unchanged.
 
 ## Command-line interface checks
 
@@ -870,8 +881,9 @@ Keep both exports under `native-test-results/presentation-pdf/menu/` and
 `native-test-results/presentation-pdf/shortcut/`. Inspect the menu result before
 the shortcut export starts. macOS checks the native print operation and its PDF
 pixels. Linux and Windows use driver capture of the prepared print document; this
-does not prove an operating system print dialog. The CI artifacts are named
-`native-smoke-<platform>`.
+does not prove an operating system print dialog. The workflow writes these
+results to `native-test-results/` on the runner and does not upload them, so
+they disappear when the runner is destroyed.
 
 The native presentation color gate must reject white slide backgrounds and white
 shape interiors even when borders remain visible. It must also reject missing
@@ -1153,11 +1165,12 @@ Open the HTML report with `npx playwright show-report playwright-report`. Inspec
 failed trace with `npx playwright show-trace <trace.zip>`. Use the report's file,
 test title, and browser project to repeat one case with `--project` and `--grep`.
 
-CI runs two browser shards with one worker each. The protected `e2e` check requires both shards to succeed.
+CI runs eight browser shards with one worker each. The protected `e2e` check requires all shards to succeed.
 Chromium runs all scenarios. Firefox and WebKit run engine-sensitive persistence, editing, layout, and source checks.
-Append `--shard=1/2` or `--shard=2/2` to repeat one shard.
+Append `--shard=1/8` through `--shard=8/8` to repeat one shard.
 CI runs the browser and native tests without uploading reports to GitHub.
-Keep repeatable evidence in local storage. Compare its source commit with the release tag before using it.
+Hosted-runner files are temporary. Keep repeatable local-run evidence in local
+storage. Compare its source commit with the release tag before using it.
 
 Source fidelity and library export limits use [source-fidelity.md](testing/source-fidelity.md).
 The source comparison algorithm also needs isolated checks. Browser exports cannot

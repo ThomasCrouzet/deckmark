@@ -95,16 +95,21 @@ metric. `scripts/benchmark-shared.mjs` evaluates a report as follows:
 The CI Desktop workflow passes `--enforce-budgets`. The process exits nonzero on
 any non-ok status, and the `desktop-validation` aggregate job requires the
 benchmark job to succeed. A failed benchmark therefore prevents release
-publication. Reporting-only runs can use `--report-only` through the retained
-artifact gate:
+publication. Audit a retained local JSON report with the same gate:
 
 ```sh
-node scripts/benchmark-gate.mjs --report /tmp/bench.json --budgets scripts/benchmark-budgets.json
+node scripts/benchmark-gate.mjs --report "$PWD/test-results/bench.json" --budgets scripts/benchmark-budgets.json
 ```
+
+`--report` must be an absolute path; the gate rejects a relative value before it
+reads the file. The generator has the same rule for `--output`, and it also
+rejects an output path inside the repository.
 
 `scripts/benchmark-gate.mjs` measures nothing. It validates the report schema,
 source identity, build mode, platform identity, sample counts, units, and budget
-values. Use it to audit a retained artifact or to repeat a gate decision.
+values. Use it to audit a retained local artifact or to repeat a gate decision.
+CI does not upload benchmark reports. Hosted-runner cleanup discards its
+temporary files; repeat a failing case locally when a full report is needed.
 
 The negative cases for each rule run in `scripts/benchmark-shared.test.mjs`. The
 test starts the gate as a child process and checks the exit code. This proves
@@ -248,3 +253,42 @@ the report. The production Web build measured 210349 gzip bytes for boot before
 the limit review, against the earlier 210000 limit with 93 bytes of headroom. The
 reviewed limit is now 211000. The bundle graph check still fails above that value,
 and the panel stays outside the startup graph.
+
+## Web AI client cost snapshot
+
+A local diagnostic used the immutable production Web build from source
+`98547b49e09b70367915a142f2624809935519c2`, version 2.4.0. It ran on one
+Linux host with Node 22.23.4 and headless Chromium 156.0.8078.4, at a
+1280 by 800 viewport with the French locale. Each case has ten samples.
+Each sample opens a fresh page in a reused browser context. This is not a
+cold browser-process or cold-cache benchmark. Service workers were blocked.
+
+| Measured boundary | p50, ms | p95, ms |
+| --- | ---: | ---: |
+| Navigation to default app-ready state, AI disabled | 134.2 | 148.3 |
+| First AI activation click to panel DOM mount | 20.3 | 20.8 |
+| Stream action click to first non-empty output mutation | 18.7 | 19.6 |
+| Stream action click to final text mutation | 319.3 | 320.9 |
+| Last complete content frame delivered to the reader to final text mutation | 0.2 | 0.3 |
+
+With ten samples, nearest-rank p95 is the maximum. These are observations,
+not new budgets or cross-browser guarantees. No CI threshold or sample count
+changed.
+
+The provider was a labelled loopback mock, not a real model service. It
+received a 4595-byte fixture document and returned six content frames with
+60 ms spacing. The final text has 85 characters. The total stream time
+includes that deliberate pacing. No external host request was observed.
+
+The click timestamp comes from a capture listener on the actual clicked
+element. A pass-through stream records content delivery before it gives the
+bytes to the app reader. The final boundary uses the text marker's DOM
+mutation on the same page clock. It excludes the trailing protocol terminator
+and does not measure request completion or painted pixels. The stream wrapper
+and observer add instrumentation cost; the sub-millisecond result is not a
+claim of pure CPU cost.
+
+This snapshot does not measure provider queueing, token generation, TLS, DNS,
+billing, long replies or behavior on other hosts and browsers. The command,
+fixture, raw samples and source identity remain in local diagnostic storage,
+not in a GitHub report artifact.
