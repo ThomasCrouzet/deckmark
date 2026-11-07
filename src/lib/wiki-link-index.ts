@@ -1,6 +1,6 @@
 import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-names';
-import { pathKey, resolveProjectPath } from './project-paths';
+import { pathKey, projectWikiPathKeys } from './project-paths';
 import type { FileItem } from './types';
 
 const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
@@ -33,29 +33,7 @@ function query(source: Entry | undefined, target: string): string[] {
 	const value = target.trim().split('#', 1)[0]!;
 	if (!value || !source.path) return [];
 	const keys = [key(project, 'id', value)];
-	const names = /\.(?:md|markdown|mdx|txt)$/i.test(value) ? [value] : [value, `${value}.md`];
-	for (const name of names) {
-		const encoded = name
-			.split('/')
-			.map((part) => {
-				try {
-					const decoded = decodeURIComponent(part);
-					return encodeURIComponent(
-						decoded.includes('/') || decoded.includes('\\') ? part : decoded
-					);
-				} catch {
-					return encodeURIComponent(part);
-				}
-			})
-			.join('/');
-		const relative = resolveProjectPath(source.path, encoded);
-		if (relative) keys.push(key(project, 'path', pathKey(relative)));
-		try {
-			keys.push(key(project, 'path', pathKey(name)));
-		} catch {
-			// Parent paths have no root-relative candidate.
-		}
-	}
+	for (const path of projectWikiPathKeys(source.path, value)) keys.push(key(project, 'path', path));
 	if (!value.includes('/'))
 		keys.push(key(project, 'stem', value.replace(/\.(md|markdown|mdx|txt)$/i, '').toLowerCase()));
 	return [...new Set(keys)];
@@ -108,7 +86,7 @@ export class WikiLinkIndex {
 	private published = new Map<string, readonly string[]>();
 	private incoming = new Map<string, Set<string>>();
 	private cached = new Map<string, { version: number; files: FileItem[] }>();
-	private versions = new Map<string, number>();
+	private version = 0;
 	private referencesReady = false;
 	private orderSource: readonly FileItem[] | null = null;
 	private orderLength = -1;
@@ -142,7 +120,7 @@ export class WikiLinkIndex {
 		this.orderLength = files.length;
 		this.ranks.clear();
 		files.forEach((file, index) => this.ranks.set(file.id, index));
-		this.cached.clear();
+		this.version++;
 	}
 
 	private sorted(ids: Iterable<string>): FileItem[] {
@@ -175,21 +153,13 @@ export class WikiLinkIndex {
 		for (const key of previous.dependencies) remove(this.dependents, key, id);
 		for (const target of previous.destinations) {
 			remove(this.incoming, target, id);
-			this.touch(target);
 		}
 		this.references.delete(id);
-	}
-
-	private touch(id: string): void {
-		this.cached.delete(id);
-		if (this.entries.has(id)) this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
-		else this.versions.delete(id);
 	}
 
 	private resolveReferences(id: string, refs: References): void {
 		for (const target of refs.destinations) {
 			remove(this.incoming, target, id);
-			this.touch(target);
 		}
 		refs.destinations.clear();
 		for (const keys of refs.queries) {
@@ -198,7 +168,6 @@ export class WikiLinkIndex {
 		}
 		for (const target of refs.destinations) {
 			add(this.incoming, target, id);
-			this.touch(target);
 		}
 	}
 
@@ -211,12 +180,17 @@ export class WikiLinkIndex {
 			dependencies: new Set(queries.flat()),
 			destinations: new Set()
 		};
+		for (const target of targets) {
+			refs.dependencies.add(key('', 'raw', target.toLowerCase()));
+			refs.dependencies.add(key('', 'exact', target));
+		}
 		this.references.set(entry.file.id, refs);
 		for (const key of refs.dependencies) add(this.dependents, key, entry.file.id);
 		this.resolveReferences(entry.file.id, refs);
 	}
 
 	updateLocation(id: string, file: FileItem | undefined, isNote?: boolean): void {
+		this.version++;
 		const before = this.entries.get(id);
 		// Pending content keeps its last complete classification unless the producer supplies one.
 		const eligible = file
@@ -242,7 +216,6 @@ export class WikiLinkIndex {
 		} else {
 			this.entries.delete(id);
 			this.cached.delete(id);
-			this.versions.delete(id);
 			this.published.delete(id);
 		}
 		const targets = this.published.get(id);
@@ -257,6 +230,7 @@ export class WikiLinkIndex {
 	publishTargets(id: string, targets: readonly string[] | null): void {
 		const entry = this.entries.get(id);
 		if (!entry) return;
+		this.version++;
 		if (targets === null) {
 			this.published.delete(id);
 			this.dropReferences(id);
@@ -267,9 +241,9 @@ export class WikiLinkIndex {
 		if (this.referencesReady) this.addReferences(entry, complete);
 	}
 
-	backlinks(targetId: string): FileItem[] {
-		if (!this.entries.get(targetId)?.note) return [];
+	private ensureReferences(): void {
 		if (!this.referencesReady) {
+			if (METRICS) performance.mark('meta-index-rebuild');
 			this.referencesReady = true;
 			for (const entry of this.entries.values()) {
 				if (entry.note)
@@ -279,8 +253,25 @@ export class WikiLinkIndex {
 					);
 			}
 		}
+	}
+
+	rawBacklinks(targetId: string): FileItem[] {
+		this.ensureReferences();
+		const target = this.entries.get(targetId);
+		if (!target?.note) return [];
+		const ids = new Set(
+			this.dependents.get(key('', 'raw', stripMdExtension(target.file.name).toLowerCase()))
+		);
+		for (const id of this.dependents.get(key('', 'exact', targetId)) ?? []) ids.add(id);
+		ids.delete(targetId);
+		return this.sorted(ids);
+	}
+
+	backlinks(targetId: string): FileItem[] {
+		if (!this.entries.get(targetId)?.note) return [];
+		this.ensureReferences();
 		this.order();
-		const version = this.versions.get(targetId) ?? 0;
+		const version = this.version;
 		let cached = this.cached.get(targetId);
 		if (!cached || cached.version !== version) {
 			cached = {

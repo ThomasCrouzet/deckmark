@@ -68,21 +68,8 @@ export function relativeDestination(from: string, to: string): string {
 	].join('/');
 }
 
-/** Resolve wiki paths within the source project before considering a basename. */
-export function projectWikiCandidates<
-	T extends { id: string; projectId?: string; relativePath?: string }
->(
-	source: { projectId?: string; relativePath?: string },
-	target: string,
-	documents: readonly T[]
-): T[] {
-	const value = target.trim().split('#', 1)[0]!;
-	if (!value || !source.projectId || !source.relativePath) return [];
-	const files = documents.filter(
-		(file) => file.projectId === source.projectId && file.relativePath
-	);
-	const byId = files.find((file) => file.id === value);
-	if (byId) return [byId];
+export function projectWikiPathKeys(from: string, value: string): string[] {
+	const keys: string[] = [];
 	const names = /\.(?:md|markdown|mdx|txt)$/i.test(value) ? [value] : [value, `${value}.md`];
 	for (const name of names) {
 		const encodedName = name
@@ -98,18 +85,35 @@ export function projectWikiCandidates<
 				}
 			})
 			.join('/');
-		const relative = resolveProjectPath(source.relativePath, encodedName);
-		if (relative) {
-			const matches = files.filter((file) => pathKey(file.relativePath!) === pathKey(relative));
-			if (matches.length) return matches;
-		}
+		const relative = resolveProjectPath(from, encodedName);
+		if (relative) keys.push(pathKey(relative));
 		try {
-			const root = pathKey(name);
-			const matches = files.filter((file) => pathKey(file.relativePath!) === root);
-			if (matches.length) return matches;
+			keys.push(pathKey(name));
 		} catch {
 			/* A relative parent path has no root-relative candidate. */
 		}
+	}
+	return keys;
+}
+
+/** Resolve wiki paths within the source project before considering a basename. */
+export function projectWikiCandidates<
+	T extends { id: string; projectId?: string; relativePath?: string }
+>(
+	source: { projectId?: string; relativePath?: string },
+	target: string,
+	documents: readonly T[]
+): T[] {
+	const value = target.trim().split('#', 1)[0]!;
+	if (!value || !source.projectId || !source.relativePath) return [];
+	const files = documents.filter(
+		(file) => file.projectId === source.projectId && file.relativePath
+	);
+	const byId = files.find((file) => file.id === value);
+	if (byId) return [byId];
+	for (const candidate of projectWikiPathKeys(source.relativePath, value)) {
+		const matches = files.filter((file) => pathKey(file.relativePath!) === candidate);
+		if (matches.length) return matches;
 	}
 	if (value.includes('/')) return [];
 	const stem = value.replace(/\.(md|markdown|mdx|txt)$/i, '').toLowerCase();
