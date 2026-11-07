@@ -2,14 +2,18 @@
 // Compare tests defined by the current configuration with tests that ran, or
 // prove that the shard lists partition the full list. A missing, duplicated or
 // extra test fails both modes. A list report is never accepted as execution
-// proof.
+// proof. When a shard report carries partition metadata, its planned test
+// digest binds the --test-list selection, so a wrong list cannot pass.
 // Usage:
 //   node scripts/check-e2e-manifest.mjs partition <shard-count> <full-list.json> <shard-list.json>...
+//   node scripts/check-e2e-manifest.mjs plan <shard-count> <full-list.json> <plan.json> <shard-list.json>...
 //   node scripts/check-e2e-manifest.mjs execution <expected-list.json> <actual-report.json>
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const USAGE = `Usage:
   node scripts/check-e2e-manifest.mjs partition <shard-count> <full-list.json> <shard-list.json>...
+  node scripts/check-e2e-manifest.mjs plan <shard-count> <full-list.json> <plan.json> <shard-list.json>...
   node scripts/check-e2e-manifest.mjs execution <expected-list.json> <actual-report.json>`;
 
 function readReport(path) {
@@ -60,7 +64,45 @@ function isListReport(entries) {
 	return entries.every(({ test }) => (test.results ?? []).length === 0);
 }
 
-function effectiveInputs(report, { includeShard = true } = {}) {
+const DIGEST = /^[0-9a-f]{64}$/;
+
+function testsDigest(keys) {
+	return createHash('sha256')
+		.update(JSON.stringify([...keys].sort()))
+		.digest('hex');
+}
+
+// Return the partition identity of a report, or null when the run is local and
+// unpartitioned. A present identity must be complete and well formed.
+function partitionMetadata(report, label) {
+	const partition = report.config?.metadata?.partition ?? null;
+	if (partition === null) return null;
+	if (typeof partition !== 'object' || Array.isArray(partition)) {
+		console.error(`The partition metadata is malformed: ${label}.`);
+		process.exit(1);
+	}
+	const problems = [];
+	if (!Number.isInteger(partition.shard) || partition.shard < 1) {
+		problems.push('shard must be a positive integer');
+	}
+	if (!Number.isInteger(partition.count) || partition.count < 1) {
+		problems.push('count must be a positive integer');
+	} else if (Number.isInteger(partition.shard) && partition.shard > partition.count) {
+		problems.push('shard must not exceed count');
+	}
+	for (const field of ['partitionSha256', 'fullListSha256', 'testsSha256']) {
+		if (typeof partition[field] !== 'string' || !DIGEST.test(partition[field])) {
+			problems.push(`${field} must be a 64-character lowercase hex digest`);
+		}
+	}
+	if (problems.length > 0) {
+		console.error(`The partition metadata is malformed (${label}): ${problems.join('; ')}.`);
+		process.exit(1);
+	}
+	return partition;
+}
+
+function effectiveInputs(report, { includeShard = true, includePartition = true } = {}) {
 	const config = report.config ?? {};
 	const metadata = config.metadata ?? {};
 	return {
@@ -69,6 +111,7 @@ function effectiveInputs(report, { includeShard = true } = {}) {
 		grep: config.grep ?? null,
 		grepInvert: config.grepInvert ?? null,
 		...(includeShard ? { shard: config.shard ?? null } : {}),
+		...(includePartition ? { partition: metadata.partition ?? null } : {}),
 		workers: config.workers ?? null,
 		projects: (config.projects ?? []).map((project) => ({
 			name: project.name ?? null,
@@ -184,6 +227,123 @@ if (mode === 'partition') {
 	process.exit(0);
 }
 
+if (mode === 'plan') {
+	const [declaredShards, expectedPath, planPath, ...actualPaths] = args;
+	const shardCount = Number(declaredShards);
+	if (
+		!expectedPath ||
+		!planPath ||
+		actualPaths.length === 0 ||
+		!Number.isInteger(shardCount) ||
+		shardCount < 1
+	) {
+		console.error(USAGE);
+		process.exit(2);
+	}
+	const fullReport = readReport(expectedPath);
+	const expectedReport = collect(fullReport);
+	if (!isListReport(expectedReport.entries)) {
+		console.error('Plan mode requires a --list full report.');
+		process.exit(1);
+	}
+	if (fullReport.config?.shard) {
+		console.error('The full expected list must not declare a shard.');
+		process.exit(1);
+	}
+	const expectedKeys = [...countsFrom(expectedReport.entries).keys()].sort();
+	const fullListSha256 = createHash('sha256').update(JSON.stringify(expectedKeys)).digest('hex');
+	const plan = readReport(planPath);
+	if (plan?.version !== 1 || plan.shardCount !== shardCount || !Array.isArray(plan.shards)) {
+		console.error(`The plan does not declare ${shardCount} shards.`);
+		process.exit(1);
+	}
+	if (plan.fullListSha256 !== fullListSha256) {
+		console.error('The plan does not match the full test list hash.');
+		process.exit(1);
+	}
+	if (plan.shards.length !== shardCount) {
+		console.error(`The plan has ${plan.shards.length} shard entries, expected ${shardCount}.`);
+		process.exit(1);
+	}
+	if (plan.shards.some((shard, index) => shard.shard !== index + 1)) {
+		console.error('The plan shard entries are not ordered from 1 to the shard count.');
+		process.exit(1);
+	}
+	const planHash = createHash('sha256')
+		.update(
+			JSON.stringify({
+				version: plan.version,
+				shardCount: plan.shardCount,
+				fullListSha256: plan.fullListSha256,
+				weightsSha256: plan.weightsSha256,
+				shards: plan.shards.map((shard) => ({ shard: shard.shard, groups: shard.groups }))
+			})
+		)
+		.digest('hex');
+	if (plan.partitionSha256 !== planHash) {
+		console.error('The plan partition hash does not match its shard groups.');
+		process.exit(1);
+	}
+	const planKeys = plan.shards.flatMap((shard) => shard.tests ?? []);
+	const planCounts = new Map();
+	for (const key of planKeys) planCounts.set(key, (planCounts.get(key) ?? 0) + 1);
+	reportDifferences(new Map(expectedKeys.map((key) => [key, 1])), planCounts);
+	if (planKeys.length !== expectedKeys.length) {
+		console.error('The plan does not cover the full test list exactly once.');
+		process.exit(1);
+	}
+	if (actualPaths.length !== shardCount) {
+		console.error(
+			`Shard count: expected ${shardCount} shard lists, received ${actualPaths.length}.`
+		);
+		process.exit(1);
+	}
+	for (let index = 0; index < actualPaths.length; index += 1) {
+		const actualPath = actualPaths[index];
+		const shardReport = readReport(actualPath);
+		const report = collect(shardReport);
+		if (!isListReport(report.entries)) {
+			console.error(`Plan mode requires a list report for each shard: ${actualPath}`);
+			process.exit(1);
+		}
+		if (
+			JSON.stringify(
+				effectiveInputs(fullReport, { includeShard: false, includePartition: false })
+			) !==
+			JSON.stringify(effectiveInputs(shardReport, { includeShard: false, includePartition: false }))
+		) {
+			console.error(`Expected and actual reports used different effective inputs: ${actualPath}.`);
+			process.exit(1);
+		}
+		const partition = partitionMetadata(shardReport, actualPath);
+		const expectedShard = plan.shards[index];
+		if (!partition) {
+			console.error(`Shard list ${actualPath} has no partition metadata; the plan requires it.`);
+			process.exit(1);
+		}
+		if (
+			partition.shard !== expectedShard.shard ||
+			partition.count !== shardCount ||
+			partition.partitionSha256 !== plan.partitionSha256 ||
+			partition.fullListSha256 !== plan.fullListSha256
+		) {
+			console.error(`Shard list ${actualPath} does not match the plan partition identity.`);
+			process.exit(1);
+		}
+		if (partition.testsSha256 !== testsDigest(expectedShard.tests ?? [])) {
+			console.error(`Shard list ${actualPath} does not match the planned shard test digest.`);
+			process.exit(1);
+		}
+		const actualCounts = countsFrom(report.entries);
+		const planned = new Map((expectedShard.tests ?? []).map((key) => [key, 1]));
+		reportDifferences(planned, actualCounts);
+	}
+	console.log(
+		`Plan partition covers every expected test exactly once (${expectedKeys.length} tests) across ${shardCount} shard lists. No execution is claimed.`
+	);
+	process.exit(0);
+}
+
 if (mode === 'execution') {
 	const [expectedPath, actualPath] = args;
 	if (!expectedPath || !actualPath || args.length !== 2) {
@@ -202,10 +362,24 @@ if (mode === 'execution') {
 		console.error('Expected test list is empty.');
 		process.exit(1);
 	}
+	const expectedBinding = partitionMetadata(expectedRaw, expectedPath);
+	const actualBinding = partitionMetadata(actualRaw, actualPath);
 	requireSameInputs(expectedRaw, actualRaw, actualPath);
 	const expected = countsFrom(expectedReport.entries);
 	const actual = countsFrom(actualReport.entries);
+	if (expectedBinding && expectedBinding.testsSha256 !== testsDigest(expected.keys())) {
+		console.error(
+			'The expected list does not match the bound shard test digest. The --test-list selection differs from the planned shard.'
+		);
+		process.exit(1);
+	}
 	reportDifferences(expected, actual);
+	if (actualBinding && actualBinding.testsSha256 !== testsDigest(actual.keys())) {
+		console.error(
+			'The actual results do not match the bound shard test digest. The executed selection differs from the planned shard.'
+		);
+		process.exit(1);
+	}
 
 	const notExecuted = [];
 	const unexpectedSkips = [];

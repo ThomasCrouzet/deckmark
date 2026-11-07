@@ -550,6 +550,15 @@ The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
 browser pass is not a native desktop pass, and a headless WebKit pass is not a
 WebKitGTK pass.
 
+### CI tier workflow failure risks
+
+Browser tests cannot observe Actions event routing or aggregate process exits.
+The CLI workflow tests retain these failures: a deferred draft becomes green,
+a failed tier decision starts heavy work, a ready transition does not rerun,
+or a failed, skipped, cancelled or absent shard passes the final aggregate.
+Run `node --test scripts/ci-web-workflow.test.mjs` to exercise the aggregate
+shell from the actual workflow and check its heavy-job dependency guards.
+
 ### Benchmark and native CI evidence
 
 `.github/workflows/desktop.yml` runs these jobs for a Desktop change:
@@ -1417,6 +1426,29 @@ The other AI requirements reuse existing coverage:
 Web keys stay in tab session storage. Desktop keys stay behind the native
 boundary and are tested by the Rust vault suite. A failed provider request must
 leave the editor state intact; the existing error cases assert this.
+
+## CI tier policy tests
+
+`scripts/ci-tier.mjs` classifies a workflow run as full or draft from the event
+identity. The browser suite cannot observe this decision. These failure risks
+need an isolated test:
+
+- A pull request event with a missing or non-boolean `draft` field can start the
+  full matrix or skip it. The script must exit nonzero instead.
+- A `ready_for_review` event with `draft: true`, or a `converted_to_draft` event
+  with `draft: false`, is contradictory. A stale payload must not select the tier.
+- A `synchronize` event on a ready pull request must stay full. An action-name
+  only rule would defer it.
+- Push, schedule, workflow_dispatch, workflow_call and release runs have no draft
+  state. They must always be full.
+- A malformed event file, a missing event name and an unknown event name must not
+  fall back to the fast tier.
+- A label, a workflow input or a missing output must not select the fast tier.
+
+`scripts/ci-tier.test.mjs` starts the real CLI as a child process. It checks
+stdout and the exit code for each case. Run `node --test scripts/ci-tier.test.mjs`.
+A nonzero exit on a malformed event is the expected result, not a test failure.
+Keep the command, the source revision and the exit codes with the run evidence.
 
 ## Benchmark gate tests
 

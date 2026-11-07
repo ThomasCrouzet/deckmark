@@ -13,6 +13,12 @@ This file records settings that a maintainer must apply manually. Repository aut
 
 ## Main branch protection
 
+This checklist is the intended policy, not proof of the live settings. A read on
+2026-11-07 found the Web and security checks below configured, but not
+`desktop-validation`. Conversation resolution was also not required. Inspect
+Desktop results explicitly until the maintainer applies and verifies that policy.
+The draft-tier scheduling change does not modify these repository settings.
+
 - Require a pull request before merging.
 - Require the branch to be up to date before merging.
 - Require conversation resolution.

@@ -7,12 +7,14 @@ every result.
 ## Triggers and skip rules
 
 `Deploy to GitHub Pages` starts on a push to `main`, on a pull request to
-`main`, and by hand. It has no path filter, so a documentation-only change
-still runs the browser and Lighthouse gates.
+`main`, and by hand. It has no path filter. A ready documentation-only pull
+request still runs the browser and Lighthouse gates. Drafts use the fast tier.
 
-`Desktop` starts on the same push and pull request events. It also runs weekly
-and by hand. Its `changes` job runs `scripts/desktop-changes.mjs` as the single
-path filter. The filter requests native coverage for these paths:
+`Desktop` starts on the same push and pull request events. The pull request
+trigger includes `opened`, `synchronize`, `reopened`, `ready_for_review` and
+`converted_to_draft`. It also runs weekly and by hand. Its `changes` job runs
+`scripts/desktop-changes.mjs` as the single path filter. The filter requests
+native coverage for these paths:
 
 | Path group | Current patterns |
 | --- | --- |
@@ -55,8 +57,8 @@ The `Deploy to GitHub Pages` workflow has these independent paths:
 | `build (root)` and `build (/deckmark)` | `pages-config` | Production artifacts and bundle budgets |
 | `lighthouse` | `build` | Performance and accessibility gate |
 
-`e2e-config` is the single source for the shard count. The shard matrix, both
-`--shard` denominators, the list loop and the partition check read its outputs.
+`e2e-config` is the single source for the shard count. The shard matrix,
+duration planner, list loop and partition check read its outputs.
 Each shard compares its local JSON report with its expected shard test list and
 prints executed, justified skip and retry counts. `e2e-manifest` lists the full
 test set and every shard, then checks that the shard lists partition the full
@@ -76,7 +78,7 @@ does not let a failure pass.
 
 | Path | Starts after | Notes |
 | --- | --- | --- |
-| `changes` | Checkout | Path filter |
+| `changes` | Checkout | Path filter and tier policy |
 | `resolve-source` | `changes` | Source SHA and tag identity |
 | `validate-desktop` (Linux, Windows, macOS) | `resolve-source` | Rust checks on each OS |
 | `native-smoke` (Linux, Windows, macOS) | `resolve-source` | Builds and exercises its own app |
@@ -94,6 +96,61 @@ Each OS now reaches its own build, smoke and benchmark steps without waiting for
 another OS. The aggregate `desktop-validation` job still checks that every
 matrix result is `success`. Reused validation runs also keep the same job-name
 checks.
+
+## Draft and ready tiers
+
+A draft pull request gets a fast correctness path. It does not get the full
+native or browser matrix. `scripts/ci-tier.mjs` is the single policy input. It
+reads the event identity and prints three workflow outputs:
+
+```sh
+node scripts/ci-tier.mjs --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
+full=false
+tier=draft
+reason=event:pull_request:synchronize:draft
+```
+
+The script accepts these event names: `pull_request`, `push`, `schedule`,
+`workflow_dispatch`, `workflow_call` and `release`. Only a `pull_request` event
+with `draft: true` selects `full=false`. Every other valid event selects
+`full=true`, including `ready_for_review` and a later `synchronize` on a ready
+pull request. A `converted_to_draft` event returns to `full=false`.
+
+The script fails closed. It exits 2 and prints no tier when the event name is
+missing, the event file is malformed, the `draft` field is absent or not a
+boolean, the pull request identity is incomplete, or the action contradicts the
+`draft` flag. A failed step fails the `changes` job. The workflow never falls
+back to the fast tier.
+
+The script also accepts explicit environment input for a pull request without an
+event file: `CI_TIER_ACTION`, `CI_TIER_DRAFT`, `CI_TIER_PR_NUMBER`,
+`CI_TIER_HEAD_SHA` and `CI_TIER_BASE_SHA`. A missing value fails closed.
+
+The Web workflow retains types, lint, isolated tests and both production builds
+on drafts. It defers the instrumented build, browser matrix, partition check and
+Lighthouse. The required `e2e` aggregate fails with an explicit deferred message.
+This intentional red prevents a skipped matrix from satisfying merge protection.
+Mark the final head ready to replace it with a full execution result. Security
+and installed CLI workflows retain their existing checks and triggers.
+
+`Desktop` applies the tier in `changes` and keeps the existing path filter. A
+draft run keeps the `changes` job and defers `resolve-source`, `validate-desktop`,
+`web-build`, `web-benchmark`, `native-smoke` and `native-benchmark`. The
+`desktop-validation` aggregate then exits 1 with an incomplete message. A draft
+run is never reported as a pass. The same job reports a path decision when the
+path filter does not require Desktop coverage.
+
+`ready_for_review`, and every later `synchronize` on the ready pull request,
+starts a new run at the exact head commit. That run uses the full matrix on all
+three operating systems, all browsers and all benchmarks. The Desktop aggregate
+still requires every requested result. The live branch rules require the Web and
+security checks, but do not currently require `desktop-validation`. Maintainers
+must also inspect Desktop before accepting a shared frontend or native change.
+This scheduling change does not alter branch protection.
+
+A workflow that uses this script must gate each expensive job on `full` and must
+fail its required aggregate when the tier is not `full`. Do not use labels,
+workflow inputs or missing outputs to select the fast tier.
 
 ## Verified build reuse
 
@@ -161,7 +218,7 @@ check or `e2e-manifest`; a failed shard still fails `e2e` even when the manifest
 contains every test.
 
 Each shard writes its Playwright JSON report to the runner and compares it with
-`npx playwright test --list --shard=<n>/<count> --reporter=json`. The execution
+`npx playwright test --list --test-list=<selection> --reporter=json`. The execution
 check requires at least one result for each expected test. A skipped test must
 declare `expectedStatus: "skipped"` and carry a skip reason. An interrupted or
 empty result fails. `e2e-manifest` compares the shard lists with the full
@@ -180,6 +237,42 @@ under the same effective inputs.
 
 Stage 1 and stage 2 own the scheduling and build reuse. Stage 3 does not remove
 a check, a browser project, a benchmark or a native platform.
+
+### Duration-balanced partitions
+
+`scripts/e2e-shards.mjs` groups the full current list by browser project and
+test file. It assigns the heaviest group to the least-loaded shard until every
+group is assigned. The eight runners still use one worker each. New groups use
+the documented fallback weight and remain in the full test list.
+
+`scripts/e2e-shard-weights.json` contains scheduling weights from Web run
+`42338368121`. These are inputs to scheduling, not test reports or budgets.
+The estimate reduces the slowest shard from 712.9 seconds to 457.5 seconds for
+that recorded workload. This estimate excludes setup and is not a measured CI
+speedup. Refresh weights when the measured distribution changes.
+
+Each runner creates the same deterministic plan from the current source. Its
+`--test-list` selection drives both listing and execution. Report metadata
+records the partition identity and a digest of that shard's planned test keys.
+Execution mode recomputes that digest from both the expected and actual test
+sets. Substituting the same wrong selection into both reports fails.
+`check-e2e-manifest.mjs plan` rejects missing,
+duplicated or different selections and proves full-suite membership. Execution
+mode still rejects list-only, incomplete and unjustifiably skipped results.
+Stale weights for renamed or deleted files produce a warning, not a CI failure.
+The current discovered suite, never the weights file, defines test membership.
+
+## Verification and rollback
+
+The CI tier and partition checks run in `npm test` and `npm run test:coverage`.
+Use `npm run test:benchmark-gate` for the targeted CLI checks. Validate workflow
+expressions with `actionlint` before publication. Exercise a real draft run,
+then its `ready_for_review` transition on the same head before acceptance.
+
+To roll back this scheduling change, revert its commits through a pull request.
+Keep the existing required check names and branch protection. Rollback restores
+full validation on every pull request and the previous count-based partition.
+It does not change performance thresholds, release signing or runner ownership.
 
 ## Timing boundaries
 

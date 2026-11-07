@@ -3,6 +3,7 @@
 // skip must carry an explicit reason.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -77,6 +78,113 @@ function withSource(reportValue, source) {
 			metadata: { ...reportValue.config.metadata, source }
 		}
 	};
+}
+
+function withPartition(reportValue, partition) {
+	return {
+		...reportValue,
+		config: {
+			...reportValue.config,
+			metadata: { ...reportValue.config.metadata, partition }
+		}
+	};
+}
+
+function keysOf(reportValue) {
+	const keys = [];
+	function walk(suites) {
+		for (const suite of suites ?? []) {
+			for (const spec of suite.specs ?? []) {
+				for (const test of spec.tests ?? []) {
+					keys.push(`${spec.id}::${test.projectName}`);
+				}
+			}
+			walk(suite.suites);
+		}
+	}
+	walk(reportValue.suites);
+	return keys.sort();
+}
+
+function sha256(value) {
+	return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function planFor(expected, shardGroups, shardCount = shardGroups.length) {
+	const fullListSha256 = sha256(keysOf(expected));
+	const shards = shardGroups.map((specs, index) => ({
+		shard: index + 1,
+		seconds: 10,
+		groups: specs.flatMap((item) => item.tests.map((test) => `${test.projectName}::${item.file}`)),
+		tests: specs.flatMap((item) => item.tests.map((test) => `${item.id}::${test.projectName}`))
+	}));
+	const plan = {
+		version: 1,
+		shardCount,
+		fullListSha256,
+		weightsSha256: 'e'.repeat(64),
+		unknownGroups: [],
+		shards
+	};
+	plan.partitionSha256 = sha256({
+		version: plan.version,
+		shardCount: plan.shardCount,
+		fullListSha256: plan.fullListSha256,
+		weightsSha256: plan.weightsSha256,
+		shards: plan.shards.map((shard) => ({ shard: shard.shard, groups: shard.groups }))
+	});
+	return plan;
+}
+
+function boundPartition(plan, index, declaredShards, overrides = {}) {
+	return {
+		shard: index + 1,
+		count: declaredShards,
+		partitionSha256: plan.partitionSha256,
+		fullListSha256: plan.fullListSha256,
+		testsSha256: sha256([...(plan.shards[index].tests ?? [])].sort()),
+		...overrides
+	};
+}
+
+function runPlan(
+	expected,
+	plan,
+	shards,
+	declaredShards = shards.length,
+	partitionFor = boundPartition
+) {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-plan-'));
+	roots.push(root);
+	const expectedPath = join(root, 'expected.json');
+	const planPath = join(root, 'plan.json');
+	writeFileSync(expectedPath, JSON.stringify(expected));
+	writeFileSync(planPath, JSON.stringify(plan));
+	const actualPaths = shards.map((shard, index) => {
+		const path = join(root, `shard-${index + 1}.json`);
+		writeFileSync(
+			path,
+			JSON.stringify(
+				withPartition(
+					withShard(shard, index + 1, declaredShards),
+					partitionFor(plan, index, declaredShards)
+				)
+			)
+		);
+		return path;
+	});
+	try {
+		return {
+			status: 0,
+			output: execFileSync(
+				process.execPath,
+				[script, 'plan', String(declaredShards), expectedPath, planPath, ...actualPaths],
+				{ encoding: 'utf8' }
+			)
+		};
+	} catch (error) {
+		return { status: error.status ?? 1, output: `${error.stdout ?? ''}${error.stderr ?? ''}` };
+	}
 }
 
 function writeReports(expected, actuals, prefix = 'actual') {
@@ -338,4 +446,160 @@ test('accepts two specs with the same title and line and different ids', () => {
 	const result = runExecution(expected, actual);
 	assert.equal(result.status, 0, result.output);
 	assert.match(result.output, /Executed: 2/);
+});
+
+test('accepts a plan partition with matching shard lists and identity', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const result = runPlan(expected, plan, [listReport(first), listReport(second)]);
+	assert.equal(result.status, 0, result.output);
+	assert.match(result.output, /Plan partition covers every expected test exactly once \(2 tests\)/);
+});
+
+test('rejects a plan shard list with a different test', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const result = runPlan(expected, plan, [listReport(second), listReport(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /Missing|Unexpected/);
+});
+
+test('rejects a plan with a different full list hash', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	plan.fullListSha256 = 'a'.repeat(64);
+	const result = runPlan(expected, plan, [listReport(first), listReport(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /full test list/i);
+});
+
+test('rejects a plan with a tampered partition hash', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	plan.partitionSha256 = 'a'.repeat(64);
+	const result = runPlan(expected, plan, [listReport(first), listReport(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /partition hash/i);
+});
+
+test('rejects a shard list with a different partition identity', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const result = runPlan(
+		expected,
+		plan,
+		[listReport(first), listReport(second)],
+		2,
+		(planValue, index, declaredShards) =>
+			boundPartition(planValue, index, declaredShards, { partitionSha256: 'b'.repeat(64) })
+	);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /partition/i);
+});
+
+test('rejects a plan with a missing test', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	plan.shards[1].tests = [];
+	const result = runPlan(expected, plan, [listReport(first), listReport(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /Missing/);
+});
+
+test('rejects an execution report in plan mode', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const result = runPlan(expected, plan, [report(first), report(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /list report/);
+});
+
+test('accepts a bound shard execution that matches the planned test digest', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const bound = boundPartition(plan, 0, 2);
+	const result = runExecution(
+		withPartition(listReport(first), bound),
+		withPartition(report(first), bound)
+	);
+	assert.equal(result.status, 0, result.output);
+	assert.match(result.output, /Executed: 1/);
+});
+
+test('rejects a substituted shard list with unchanged bound metadata', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const full = listReport(first, second);
+	const plan = planFor(full, [[first], [second]]);
+	// The bound metadata describes shard 1. A wrong --test-list selects shard 2
+	// for both the expected list and the execution, so only the digest can fail.
+	const bound = boundPartition(plan, 0, 2);
+	const result = runExecution(
+		withPartition(listReport(second), bound),
+		withPartition(report(second), bound)
+	);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /shard test digest/i);
+});
+
+test('rejects bound metadata without the shard test digest', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const { testsSha256: _testsSha256, ...unbound } = boundPartition(plan, 0, 2);
+	const result = runExecution(
+		withPartition(listReport(first), unbound),
+		withPartition(report(first), unbound)
+	);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /malformed/i);
+	assert.match(result.output, /testsSha256/);
+});
+
+test('rejects bound metadata with a non-digest full list hash', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const bound = boundPartition(plan, 0, 2, { fullListSha256: 'not-a-digest' });
+	const result = runExecution(
+		withPartition(listReport(first), bound),
+		withPartition(report(first), bound)
+	);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /malformed/i);
+});
+
+test('rejects a plan shard list whose bound test digest differs from the plan', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const result = runPlan(
+		expected,
+		plan,
+		[listReport(first), listReport(second)],
+		2,
+		(planValue, index, declaredShards) =>
+			boundPartition(planValue, index, declaredShards, { testsSha256: 'a'.repeat(64) })
+	);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /shard test digest/i);
 });
