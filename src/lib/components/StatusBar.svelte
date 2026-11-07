@@ -1,12 +1,9 @@
 <script lang="ts">
 	import { filesStore } from '#lib/files.svelte.js';
-	import {
-		computeSelectionStats,
-		computeStats,
-		createStatsCache,
-		formatSaveAge,
-		type DocStats
-	} from '#lib/stats.js';
+	import { formatSaveAge } from '#lib/stats-ui.js';
+	import type { DocStats, SelectionStats } from '#lib/stats-count.js';
+	import type { StatsRuntime } from '#lib/stats-runtime.js';
+	import { reportError } from '#lib/report.js';
 	import { t } from '#lib/i18n/index.js';
 	import { onMount } from 'svelte';
 	import {
@@ -71,112 +68,71 @@
 		};
 	});
 
-	// Keep the last complete count during edits. A switch publishes immediately.
-	// Cache exact strings, not editor-local counters or future store revisions.
-	const cached = createStatsCache();
-	let stats = $state<DocStats>(computeStats(''));
-	let statsActiveId: string | null = null;
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-	let workerTimer: ReturnType<typeof setTimeout> | null = null;
-	let worker: Worker | null = null;
-	let workerBusy = false;
-	let workerUnavailable = false;
-	let sequence = 0;
+	// The empty shell needs save status, not the counter and Worker runtime.
+	const emptyStats: DocStats = { chars: 0, words: 0, lines: 0, readMinutes: 0 };
+	let stats = $state<DocStats | null>(emptyStats);
+	let selectionStats = $state<SelectionStats | null>(null);
+	let loadFailed = $state(false);
+	let runtime: StatsRuntime | null = null;
+	let runtimeLoad: Promise<StatsRuntime | null> | null = null;
+	let requestedId: string | null = null;
+	let disposed = false;
 
-	function cancelPending() {
-		sequence += 1;
-		if (debounceTimer) clearTimeout(debounceTimer);
-		if (workerTimer) clearTimeout(workerTimer);
-		debounceTimer = null;
-		workerTimer = null;
-		if (workerBusy) {
-			worker?.terminate();
-			worker = null;
-			workerBusy = false;
-		}
-	}
-
-	function publish(id: string | null, content: string, value: DocStats) {
-		cached.set(id, content, value);
-		stats = value;
-	}
-
-	function measure(id: string, content: string, token: number) {
-		const current = () =>
-			token === sequence && filesStore.activeId === id && filesStore.active?.content === content;
-		if (!current()) return;
-		if (content.length < 256 * 1024 || workerUnavailable || typeof Worker === 'undefined') {
-			publish(id, content, computeStats(content));
-			return;
-		}
-		const fallback = () => {
-			if (!current()) return;
-			worker?.terminate();
-			worker = null;
-			workerBusy = false;
-			workerUnavailable = true;
-			if (workerTimer) clearTimeout(workerTimer);
-			workerTimer = null;
-			if (current()) publish(id, content, computeStats(content));
-		};
-		try {
-			worker ??= new Worker(new URL('../workers/stats.worker.ts', import.meta.url), {
-				type: 'module'
-			});
-			workerBusy = true;
-			worker.onmessage = (event: MessageEvent<{ token: number; stats: DocStats }>) => {
-				if (!current() || event.data.token !== token) return;
-				if (workerTimer) clearTimeout(workerTimer);
-				workerTimer = null;
-				workerBusy = false;
-				worker!.onmessage = null;
-				worker!.onerror = null;
-				worker!.onmessageerror = null;
-				publish(id, content, event.data.stats);
-			};
-			worker.onerror = fallback;
-			worker.onmessageerror = fallback;
-			workerTimer = setTimeout(fallback, 5000);
-			worker.postMessage({ token, text: content });
-		} catch {
-			fallback();
-		}
+	function getRuntime(): Promise<StatsRuntime | null> {
+		return (runtimeLoad ??= import('#lib/stats-runtime.js')
+			.then((module) => {
+				if (disposed) return null;
+				runtime = module.createStatsRuntime((id, content, value) => {
+					if (disposed || filesStore.activeId !== id || filesStore.active?.content !== content)
+						return;
+					stats = value;
+				});
+				// One pending load reads current state, not one retained text closure per edit.
+				const active = filesStore.active;
+				if (kind === 'note' && active) runtime.setDocument(active.id, active.content);
+				selectionStats = kind === 'note' && selectedText ? runtime.selection(selectedText) : null;
+				return runtime;
+			})
+			.catch((error) => {
+				if (!disposed) {
+					loadFailed = true;
+					reportError('statistics module', error, { notifyUser: t('panels.loadFailed') });
+				}
+				return null;
+			}));
 	}
 
 	$effect(() => {
 		const active = filesStore.active;
 		const id = active?.id ?? null;
 		const content = kind === 'note' ? (active?.content ?? '') : '';
-		cancelPending();
-		const switched = id !== statsActiveId;
-		statsActiveId = id;
-		const hit = cached.get(id, content);
-		if (hit) {
-			stats = hit;
+		if (!id || kind !== 'note') {
+			runtime?.setDocument(null, '');
+			requestedId = null;
+			stats = emptyStats;
 			return;
 		}
-		if (switched || !id) {
-			publish(id, content, computeStats(content));
+		if (id !== requestedId || !runtime) stats = content.length === 0 ? emptyStats : null;
+		requestedId = id;
+		if (runtime) runtime.setDocument(id, content);
+		else void getRuntime();
+	});
+
+	$effect(() => {
+		const text = selectedText;
+		if (!text || kind !== 'note') {
+			selectionStats = null;
 			return;
 		}
-		const token = sequence;
-		debounceTimer = setTimeout(() => {
-			debounceTimer = null;
-			measure(id, content, token);
-		}, 200);
-		return cancelPending;
+		if (runtime) selectionStats = runtime.selection(text);
+		else void getRuntime();
 	});
 
 	onMount(() => () => {
-		cancelPending();
-		worker?.terminate();
-		worker = null;
-		cached.clear();
+		disposed = true;
+		runtime?.dispose();
+		runtime = null;
 	});
-
-	let selectionStats = $derived(
-		selectedText.length > 0 ? computeSelectionStats(selectedText) : null
-	);
 	let saveLabel = $derived.by(() => {
 		if (!filesStore.active) return '';
 		// Restored drafts are durable before this session records a save time.
@@ -200,7 +156,7 @@
 					<span>{t('statusBar.chars', { n: selectionStats.chars })}</span>
 					<span class="hidden sm:inline text-fg-dim/60">·</span>
 					<span class="hidden sm:inline">{t('statusBar.lines', { n: selectionStats.lines })}</span>
-				{:else}
+				{:else if stats}
 					<span>{t('statusBar.words', { n: stats.words })}</span>
 					<span class="text-fg-dim/60">·</span>
 					<span>{t('statusBar.chars', { n: stats.chars })}</span>
@@ -210,6 +166,10 @@
 					<span class="hidden md:inline"
 						>{t('statusBar.readMinutes', { n: stats.readMinutes })}</span
 					>
+				{:else}
+					<span aria-busy={!loadFailed} data-testid={loadFailed ? 'stats-load-error' : undefined}>
+						{t(loadFailed ? 'panels.loadFailed' : 'diskLinks.loading')}
+					</span>
 				{/if}
 			</div>{/if}
 		<!-- §B3.2 - Ephemeral "saving" state during the debounce + IDB write.

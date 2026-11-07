@@ -1,6 +1,8 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createFirstFile, resetAppState, seedFiles, writeSourceContent } from './helpers';
 import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { baselineStats, statsFixture } from './fixtures/stats';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
@@ -354,6 +356,93 @@ test('stats reject superseded large-note edits after a file switch', async ({ pa
 	await info.attach('stats-superseded.json', {
 		body: JSON.stringify({ expected, status: await status.innerText(), smallNotePreserved: true }),
 		contentType: 'application/json'
+	});
+});
+
+test.describe('stats module lifecycle', () => {
+	test.use({ serviceWorkers: 'block' });
+
+	function runtimeRoute(): string {
+		const directory = 'build/_app/immutable/chunks';
+		const candidates = readdirSync(directory).filter(
+			(name) =>
+				name.endsWith('.js') &&
+				/export\s*\{[^}]*\bcreateStatsRuntime\b/.test(readFileSync(join(directory, name), 'utf8'))
+		);
+		expect(candidates).toHaveLength(1);
+		return `**/_app/immutable/chunks/${candidates[0]}`;
+	}
+
+	test('stats wait for their deferred module and keep the latest file', async ({ page }, info) => {
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let requested = false;
+		const asset = runtimeRoute();
+		await page.route(asset, async (route) => {
+			requested = true;
+			await held;
+			await route.continue();
+		});
+		try {
+			await resetAppState(page);
+			expect(requested).toBe(false);
+			await seedStatsFiles(page, [
+				{ name: 'Stats delayed first', content: 'First only.' },
+				{ name: 'Stats delayed second', content: 'Second has three.' }
+			]);
+			await expect.poll(() => requested, { timeout: 2000 }).toBe(true);
+			const status = page.getByTestId('document-stats');
+			await expect(status.locator('[aria-busy="true"]')).toBeVisible();
+			await page
+				.locator('aside')
+				.getByRole('button', { name: /^Stats delayed first/ })
+				.first()
+				.click();
+			release();
+			await expect(status).toContainText('2 mots');
+			await expect(status).toContainText('11 car.');
+			const source = page.locator('.cm-content').first();
+			await source.click();
+			await page.keyboard.press('ControlOrMeta+End');
+			await page.keyboard.insertText(' final');
+			await expect(status).toContainText('3 mots');
+			await expect(source).toBeFocused();
+			await info.attach('stats-deferred.json', {
+				body: JSON.stringify({ requested, latestFileKept: true, status: await status.innerText() }),
+				contentType: 'application/json'
+			});
+		} finally {
+			release();
+		}
+	});
+
+	test('stats load failure keeps edits recoverable after reload', async ({ page }, info) => {
+		const asset = runtimeRoute();
+		await page.route(asset, (route) => route.abort());
+		await resetAppState(page);
+		await seedStatsFiles(page, [{ name: 'Stats recovery', content: 'One two.' }]);
+		await expect(page.getByTestId('stats-load-error')).toBeVisible();
+		const source = page.locator('.cm-content').first();
+		await source.click();
+		await page.keyboard.press('ControlOrMeta+End');
+		await page.keyboard.insertText(' final');
+		await expect(source).toBeFocused();
+		await page.waitForTimeout(600);
+		await page.unroute(asset);
+		await page.reload();
+		await page.locator('button[data-mode="source"]').click();
+		await expect(source).toContainText('final');
+		await expect(page.getByTestId('document-stats')).toContainText('3 mots');
+		await info.attach('stats-load-recovery.json', {
+			body: JSON.stringify({
+				editedWhileUnavailable: true,
+				recovered: true,
+				status: await page.getByTestId('document-stats').innerText()
+			}),
+			contentType: 'application/json'
+		});
 	});
 });
 
