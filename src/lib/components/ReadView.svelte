@@ -15,7 +15,7 @@
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { ReadInkIndex, strokeWidth, type InkPoint, type InkStroke } from '#lib/read-ink.js';
 
 	interface Props {
 		fileId: string;
@@ -31,24 +31,6 @@
 	let readScroller: HTMLDivElement | null = $state(null);
 	let positionFileId: string | null = null;
 
-	interface InkPoint {
-		x: number;
-		y: number;
-	}
-	interface InkStroke {
-		order: number;
-		tool: 'pen' | 'highlighter' | 'eraser';
-		color: string;
-		size: number;
-		points: InkPoint[];
-		left: number;
-		top: number;
-		right: number;
-		bottom: number;
-		firstBand: number;
-		lastBand: number;
-		wide: boolean;
-	}
 	let annotate = $state(false);
 	let hasInk = $state(false);
 	let tool = $state<'pen' | 'highlighter' | 'eraser'>('pen');
@@ -59,10 +41,7 @@
 	let activePointer: number | null = null;
 	let nextStroke = 0;
 	let inkFrame = 0;
-	const inkBands = new SvelteMap<number, SvelteSet<InkStroke>>();
-	const wideStrokes = new SvelteSet<InkStroke>();
-	const INK_BAND_HEIGHT = 1024;
-	const MAX_STROKE_BANDS = 64;
+	const inkIndex = new ReadInkIndex();
 	const MAX_INK_SIDE = 4096;
 	const MAX_INK_PIXELS = 4 * 1024 * 1024;
 	const ANNOTATION_COLORS = ['#f5c542', '#ff6b6b', '#4dabf7', '#51cf66'];
@@ -79,40 +58,6 @@
 			inkFrame = 0;
 			renderInk();
 		});
-	}
-
-	function strokeWidth(stroke: InkStroke) {
-		return stroke.size * (stroke.tool === 'highlighter' ? 4 : stroke.tool === 'eraser' ? 5 : 1);
-	}
-
-	function indexInk(stroke: InkStroke, point: InkPoint) {
-		const radius = strokeWidth(stroke) / 2 + 1;
-		stroke.left = Math.min(stroke.left, point.x - radius);
-		stroke.top = Math.min(stroke.top, point.y - radius);
-		stroke.right = Math.max(stroke.right, point.x + radius);
-		stroke.bottom = Math.max(stroke.bottom, point.y + radius);
-		if (stroke.wide) return;
-		const first = Math.floor(stroke.top / INK_BAND_HEIGHT);
-		const last = Math.floor(stroke.bottom / INK_BAND_HEIGHT);
-		// Captured input can cross a large scroll jump. Bound index entries per stroke.
-		if (last - first + 1 > MAX_STROKE_BANDS) {
-			for (let band = stroke.firstBand; band <= stroke.lastBand; band++) {
-				const entries = inkBands.get(band);
-				entries?.delete(stroke);
-				if (entries?.size === 0) inkBands.delete(band);
-			}
-			stroke.wide = true;
-			wideStrokes.add(stroke);
-			return;
-		}
-		for (let band = first; band <= last; band++) {
-			if (band >= stroke.firstBand && band <= stroke.lastBand) continue;
-			let entries = inkBands.get(band);
-			if (!entries) inkBands.set(band, (entries = new SvelteSet()));
-			entries.add(stroke);
-		}
-		stroke.firstBand = first;
-		stroke.lastBand = last;
 	}
 
 	function renderInk() {
@@ -145,15 +90,7 @@
 		const scaleX = pixelWidth / width;
 		const scaleY = pixelHeight / height;
 		context.setTransform(scaleX, 0, 0, scaleY, -left * scaleX, -top * scaleY);
-		const visible = new SvelteSet(wideStrokes);
-		for (
-			let band = Math.floor(top / INK_BAND_HEIGHT);
-			band <= Math.floor((top + height) / INK_BAND_HEIGHT);
-			band++
-		) {
-			for (const stroke of inkBands.get(band) ?? []) visible.add(stroke);
-		}
-		for (const stroke of [...visible].sort((a, b) => a.order - b.order)) {
+		for (const stroke of inkIndex.visible(top, height)) {
 			if (
 				stroke.right >= left &&
 				stroke.left <= left + width &&
@@ -221,7 +158,7 @@
 			lastBand: -Infinity,
 			wide: false
 		};
-		indexInk(current, point);
+		inkIndex.update(current, point);
 		scheduleInk();
 	}
 
@@ -230,7 +167,7 @@
 		event.preventDefault();
 		const point = pointFrom(event);
 		current.points.push(point);
-		indexInk(current, point);
+		inkIndex.update(current, point);
 		scheduleInk();
 	}
 
@@ -247,8 +184,7 @@
 		current = null;
 		if (pointer !== null && canvas?.hasPointerCapture(pointer))
 			canvas.releasePointerCapture(pointer);
-		inkBands.clear();
-		wideStrokes.clear();
+		inkIndex.clear();
 		nextStroke = 0;
 		hasInk = false;
 		scheduleInk();
