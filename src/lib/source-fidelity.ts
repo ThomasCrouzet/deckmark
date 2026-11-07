@@ -1,4 +1,5 @@
 import { recordSourceFidelityPath, type SourceFidelityPath } from './source-fidelity-diagnostics';
+import { measureEditorStage, recordEditorCounter } from './editor-perf';
 
 interface MarkdownNode {
 	type: string;
@@ -206,6 +207,93 @@ export class SourceFidelity {
 	restore(markdown: string, commit = true): string {
 		if (markdown === this.cachedMarkdown) return this.cachedSource;
 		if (markdown === this.markdown) return this.source;
+		const scoped = measureEditorStage('sourceFidelityScopeAttempt', () =>
+			this.restoreParagraph(markdown)
+		);
+		if (scoped !== null) {
+			if (commit) {
+				this.cachedMarkdown = markdown;
+				this.cachedSource = scoped;
+			}
+			recordEditorCounter('sourceFidelityScoped');
+			recordSourceFidelityPath('fastPath');
+			return scoped;
+		}
+		recordEditorCounter('sourceFidelityFull');
+		return measureEditorStage('sourceFidelityFull', () => this.restoreFull(markdown, commit));
+	}
+
+	private restoreParagraph(markdown: string): string | null {
+		const before = this.baseline.children ?? [];
+		const range = changeRange(this.markdown, markdown);
+		let from = 0;
+		let to = before.length;
+		while (from < to) {
+			const middle = (from + to) >>> 1;
+			if (end(before[middle]!) < range.from) from = middle + 1;
+			else to = middle;
+		}
+		const block = before[from];
+		if (
+			!block?.position ||
+			block.type !== 'paragraph' ||
+			range.from < start(block) ||
+			range.oldTo > end(block) ||
+			block.children?.length !== 1 ||
+			block.children[0]?.type !== 'text'
+		)
+			return null;
+		const originals =
+			this.mappedOriginals ??
+			(this.original.children ?? []).filter((node) => node.type !== 'definition');
+		if (originals.length !== before.length) return null;
+		this.mappedOriginals = originals;
+		const original = originals[from]!;
+		if (
+			!original.position ||
+			original.type !== 'paragraph' ||
+			original.children?.length !== 1 ||
+			original.children[0]?.type !== 'text' ||
+			!original.children[0].position ||
+			original.children[0].value?.replaceAll('\r\n', '\n') !==
+				block.children[0].value?.replaceAll('\r\n', '\n')
+		)
+			return null;
+		const raw = this.source.slice(start(original), end(original));
+		const next = markdown.slice(start(block), end(block) + markdown.length - this.markdown.length);
+		// References can resolve against definitions outside this paragraph.
+		if (raw.length > 32_768 || next.length > 32_768 || /[[\]]/.test(raw + next)) return null;
+		const tree = this.parse(next);
+		const after = tree.children?.[0];
+		if (
+			tree.children?.length !== 1 ||
+			after?.type !== 'paragraph' ||
+			after.children?.length !== 1 ||
+			after.children[0]?.type !== 'text' ||
+			start(after) !== 0 ||
+			end(after) !== next.length
+		)
+			return null;
+		const patches: Patch[] = [];
+		this.patchNode(original, block, after, next, patches);
+		const candidate = apply(
+			raw,
+			patches.map((patch) => ({
+				...patch,
+				start: patch.start - start(original),
+				end: patch.end - start(original)
+			}))
+		);
+		try {
+			if (!equal(this.parse(this.normalize(candidate)), this.parse(this.normalize(next))))
+				return null;
+		} catch {
+			return null;
+		}
+		return apply(this.source, patches);
+	}
+
+	private restoreFull(markdown: string, commit: boolean): string {
 		const next = this.parse(markdown);
 		const before = this.baseline.children ?? [];
 		let originals = this.mappedOriginals;

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { resetAppState, seedFiles, openPalette, createFirstFile } from './helpers';
 import { fidelityFixtures, sentence, replacement } from './fixtures/source-fidelity';
 import { openPresentationSource, presentationFixture } from './presentation-helpers';
+import { noteContent } from '../scripts/benchmark-fixtures/corpus.mjs';
 import {
 	editSentence,
 	editCodeLine,
@@ -61,6 +62,44 @@ test('a visual editor visit preserves the exact Markdown source without an edit'
 	expect(await zip.file('fidelity.md')!.async('string')).toBe(source);
 	await info.attach('source.md', { body: source, contentType: 'text/markdown' });
 	await info.attach('unchanged-source.zip', { body: bytes, contentType: 'application/zip' });
+});
+
+test('rich visual paragraph edits keep exact source and use scoped reconciliation', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await page.addInitScript(() => {
+		window.addEventListener('deckmark:editor-perf', (event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+			if (detail.kind === 'counter' && detail.name === 'sourceFidelityScoped') {
+				const key = 'deckmark:scoped-reconciliation';
+				sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) ?? 0) + 1));
+			}
+		});
+	});
+	await resetAppState(page);
+	const source = noteContent(777, 240_000);
+	await importSource(page, source, 'rich-incremental');
+	await page.locator('[data-mode=wysiwyg]').click();
+	const before = 'Local benchmark text keeps the same words in every run.';
+	const after = 'Local benchmark text keeps exact words in every run.';
+	await editSentence(page, before, after);
+	await recordFidelity(
+		info,
+		page,
+		'rich-incremental',
+		source,
+		source.replace(before, after),
+		await exportSource(page, 'rich-incremental.md')
+	);
+	const scoped = await page.evaluate(() =>
+		Number(sessionStorage.getItem('deckmark:scoped-reconciliation') ?? 0)
+	);
+	await info.attach('scoped-reconciliation.json', {
+		body: JSON.stringify({ scoped }),
+		contentType: 'application/json'
+	});
+	expect(scoped, 'the visual source restoration must exercise the scoped path').toBeGreaterThan(0);
 });
 
 test('library export rejects more than 300 documents before a download', async ({ page }, info) => {
