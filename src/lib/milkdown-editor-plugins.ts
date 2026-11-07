@@ -11,6 +11,8 @@ export {
 } from '@milkdown/kit/core';
 export { remarkPreserveEmptyLinePlugin } from '@milkdown/kit/preset/commonmark';
 export { Plugin, TextSelection } from '@milkdown/kit/prose/state';
+export { AddMarkStep, RemoveMarkStep, ReplaceStep } from '@milkdown/kit/prose/transform';
+export { isHistoryTransaction } from '@milkdown/kit/prose/history';
 export { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 export { $prose as prosePlugin, $remark as remarkPlugin, replaceAll } from '@milkdown/kit/utils';
 export { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list';

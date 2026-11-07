@@ -196,7 +196,14 @@ export class SourceFidelity {
 		this.cachedSource = source;
 	}
 
-	restore(markdown: string): string {
+	/**
+	 * Restore original syntax for `markdown`.
+	 *
+	 * `commit` is false for a transaction that the note guard may reject. In that
+	 * case the caches stay on the last accepted document, so a later flush cannot
+	 * serve source text for a document that was never applied.
+	 */
+	restore(markdown: string, commit = true): string {
 		if (markdown === this.cachedMarkdown) return this.cachedSource;
 		if (markdown === this.markdown) return this.source;
 		const next = this.parse(markdown);
@@ -283,8 +290,10 @@ export class SourceFidelity {
 				}
 			}
 		}
-		this.cachedMarkdown = markdown;
-		this.cachedSource = result;
+		if (commit) {
+			this.cachedMarkdown = markdown;
+			this.cachedSource = result;
+		}
 		recordSourceFidelityPath(path);
 		return result;
 	}

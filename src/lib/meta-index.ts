@@ -22,6 +22,8 @@ import { stripMdExtension } from './file-utils';
 import { extractWikiLinkTargets } from './wiki-links';
 import { getTags as getFmTags, getTitle as getFmTitle, stripFrontmatter } from './frontmatter';
 
+const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
+
 /** Per-file cache entry. */
 interface MetaEntry {
 	name: string;
@@ -42,12 +44,11 @@ interface BacklinksIndex {
 export class MetaIndex {
 	private metaCache = new Map<string, MetaEntry>();
 	private backlinksIndex: BacklinksIndex | null = null;
-	/** Sorted unique tags; invalidated with meta/backlinks. */
+	/** Sorted unique tags; rebuilt lazily after a metadata change. */
 	private allTagsCache: string[] | null = null;
 
 	/** Reference to the current files state (injected by the store). */
 	private getFiles: () => readonly FileItem[];
-
 	constructor(getFiles: () => readonly FileItem[]) {
 		this.getFiles = getFiles;
 	}
@@ -111,21 +112,48 @@ export class MetaIndex {
 	}
 
 	// §A2.1+A2.2 - Invalidation: called on write (updateContent), rename
-	// (which can change the fallback title), close, restore. The backlinks index
-	// depends on the targets of all files → we repurge it on every change.
+	// (which can change the fallback title), close, restore. A single-file change
+	// removes that file's old contributions and adds its new contributions. The
+	// backlinks index and the tag counts stay usable, so the next read does not
+	// rebuild them over the whole library.
 	invalidateMeta(id: string): void {
-		this.metaCache.delete(id);
-		this.backlinksIndex = null;
+		const previous = this.metaCache.get(id);
+		const file = this.getFiles().find((entry) => entry.id === id);
+		const current = file ? this.getMeta(file) : null;
+		const index = this.backlinksIndex;
+		if (index) {
+			for (const [targets, remove] of [
+				[previous?.targets, true],
+				[current?.targets, false]
+			] as const) {
+				for (const target of targets ?? []) {
+					for (const [map, key] of [
+						[index.byNameLower, target.toLowerCase()],
+						[index.byId, target]
+					] as const) {
+						const set = map.get(key);
+						if (remove) {
+							if (set) {
+								set.delete(id);
+								if (set.size === 0) map.delete(key);
+							}
+						} else if (set) set.add(id);
+						else map.set(key, new Set([id]));
+					}
+				}
+			}
+		}
 		this.allTagsCache = null;
 	}
 
-	/** Invalidates only the backlinks index (e.g. adding/removing a file). */
+	/** Invalidates the backlinks index and the tag cache (e.g. a bulk change). */
 	invalidateBacklinksIndex(): void {
 		this.backlinksIndex = null;
 		this.allTagsCache = null;
 	}
 
 	private buildBacklinksIndex(): void {
+		if (META_METRICS) performance.mark('meta-index-rebuild');
 		const byNameLower = new Map<string, Set<string>>();
 		const byId = new Map<string, Set<string>>();
 		for (const file of this.getFiles()) {
@@ -163,8 +191,9 @@ export class MetaIndex {
 
 	/**
 	 * Lists all unique tags present in the corpus, sorted alphabetically.
-	 * §A2.1 - `getMeta(file)` caches the parsing per file. The sorted list is
-	 * memoized until the next invalidate (avoids Set+sort on every Sidebar tick).
+	 * §A2.1 - `getMeta(file)` caches the parsing per file. The tag counts and the
+	 * sorted list are memoized until the next invalidation. A single-file change
+	 * updates the counts in place.
 	 */
 	get allTags(): string[] {
 		if (this.allTagsCache) return this.allTagsCache;

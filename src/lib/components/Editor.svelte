@@ -8,6 +8,7 @@
 
 	import type { Crepe as CrepeType } from '@milkdown/crepe';
 	import type { EditorView } from '@milkdown/kit/prose/view';
+	import type { Transaction } from '@milkdown/kit/prose/state';
 	import { onDestroy, untrack } from 'svelte';
 	import { renderMermaidPreview } from '../milkdown-mermaid-preview';
 	import { reportError } from '#lib/report.js';
@@ -25,6 +26,7 @@
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
+	import { measureEditorStage, recordEditorCounter } from '#lib/editor-perf.js';
 
 	interface Props {
 		fileId: string;
@@ -52,6 +54,8 @@
 	let updateExternalContent: ((markdown: string) => Promise<void>) | null = null;
 	let removeFlushListener: (() => void) | null = null;
 	let removeHistoryListener: (() => void) | null = null;
+	let cancelPendingMarkdown: (() => void) | null = null;
+	let removeImageListeners: (() => void) | null = null;
 	// §C1 - fileId associated with the currently mounted Crepe instance. Captured
 	// at mount to correctly route a late keystroke (flush or asynchronous
 	// `markdownUpdated`) to the right file even after a tab switch.
@@ -59,6 +63,21 @@
 	let refreshMountedLocale: (() => void) | null = null;
 	let saveMountedPosition: (() => void) | null = null;
 	let refreshMountedDiagrams: (() => void) | null = null;
+
+	// These tokens can start a presentation marker, an escaped line or a framed
+	// presentation element. A change that touches one of them must keep the full
+	// note/presentation validation.
+	const PRESENTATION_TOKENS = ['mdsh-presentation', 'mdsh-element', 'mdsh-literal'] as const;
+	const STRUCTURAL_TOKENS = /[`~]|<!--|mdsh-/i;
+
+	function includesPresentationToken(value: string): boolean {
+		const lower = value.toLowerCase();
+		return PRESENTATION_TOKENS.some((token) => lower.includes(token));
+	}
+
+	function touchesStructuralSyntax(value: string): boolean {
+		return STRUCTURAL_TOKENS.test(value);
+	}
 
 	// Module cache: loaded on first call, reused afterwards.
 	// CSS import order is critical: Crepe defaults -> frame-dark -> our overrides.
@@ -115,6 +134,10 @@
 				commandsCtx,
 				Plugin,
 				TextSelection,
+				AddMarkStep,
+				RemoveMarkStep,
+				ReplaceStep,
+				isHistoryTransaction,
 				Decoration,
 				DecorationSet,
 				prosePlugin,
@@ -140,35 +163,267 @@
 			import('#lib/render/image-media.js')
 		]);
 		if (token !== mountToken) return;
+		// A note may not become a presentation while the visual editor holds it.
+		// Ordinary text edits take this fast path. Structural edits, HTML atoms,
+		// delimiter changes, paste and history replacements keep full validation.
+		const couldAffectPresentationBoundary = (transaction: Transaction): boolean => {
+			if (transaction.getMeta('uiEvent') === 'paste') return true;
+			if (isHistoryTransaction(transaction)) return true;
+			for (const [index, step] of transaction.steps.entries()) {
+				if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) continue;
+				if (!(step instanceof ReplaceStep)) return true;
+				let structural = false;
+				step.slice.content.descendants((node) => {
+					if (!node.isText) structural = true;
+				});
+				if (structural) return true;
+				const inserted = step.slice.content.textBetween(0, step.slice.content.size, '\n');
+				if (includesPresentationToken(inserted) || touchesStructuralSyntax(inserted)) return true;
+				const beforeDoc = transaction.docs[index] ?? transaction.before;
+				const removed = step.to > step.from ? beforeDoc.textBetween(step.from, step.to, '\n') : '';
+				if (touchesStructuralSyntax(removed)) return true;
+			}
+			const ranges: { from: number; to: number }[] = [];
+			transaction.mapping.maps.forEach((map) => {
+				map.forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+					ranges.push({ from: newStart, to: newEnd });
+				});
+			});
+			const size = transaction.doc.content.size;
+			for (const range of ranges) {
+				for (const position of [range.from, range.to]) {
+					const resolved = transaction.doc.resolve(Math.max(0, Math.min(position, size)));
+					for (let depth = resolved.depth; depth >= 0; depth--) {
+						const node = resolved.node(depth);
+						if (!node.isTextblock && node.type.name !== 'html') continue;
+						if (includesPresentationToken(node.textContent)) return true;
+						const value = node.attrs.value;
+						if (
+							node.type.name === 'html' &&
+							typeof value === 'string' &&
+							touchesStructuralSyntax(value)
+						)
+							return true;
+						break;
+					}
+				}
+			}
+			return false;
+		};
 		// Keep YAML outside the Markdown editor so it cannot become headings or links.
 		let frontmatter = stripFrontmatter(initial);
 		let roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);
 		let sourceMarkdown = initial;
 		let editorBaseline: string | null = null;
 		let fidelity: SourceFidelity | null = null;
-		const restoreMarkdown = (markdown: string) =>
-			editorBaseline === null || markdown === editorBaseline
-				? sourceMarkdown
-				: frontmatter.raw +
-					(fidelity?.restore(roundTrip.restore(markdown)) ?? roundTrip.restore(markdown));
+		const restoreMarkdown = (markdown: string, commit = true) =>
+			measureEditorStage('restoreMarkdown', () =>
+				editorBaseline === null || markdown === editorBaseline
+					? sourceMarkdown
+					: frontmatter.raw +
+						(fidelity?.restore(roundTrip.restore(markdown, commit), commit) ??
+							roundTrip.restore(markdown, commit))
+			);
 		lastEditorMarkdown = initial;
-		const applyImageAlternatives = () => {
-			const alternatives = roundTrip.alternatives;
-			container
-				.querySelectorAll<HTMLImageElement>('.milkdown-image-block img')
-				.forEach((image, index) => {
-					const alt = alternatives[index] ?? '';
-					if (image.alt !== alt) image.alt = alt;
-					image.referrerPolicy = 'no-referrer';
-					image.crossOrigin = 'anonymous';
-					const block = image.closest<HTMLElement>('.milkdown-image-block');
-					if (!block || !image.naturalWidth) return;
-					const ratio = Number(image.dataset.height) / Number(image.dataset.origin) || 1;
-					const width = Math.min(image.naturalWidth, block.clientWidth) * ratio;
-					const value = `${width}px`;
-					if (image.style.width !== value) image.style.width = value;
-				});
+		let alternativesSignature = '';
+		let imageFrame = 0;
+		let needsImageMapping = false;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local non-reactive observer queues
+		let pendingImages = new Set<HTMLImageElement>();
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local non-reactive observer queues
+		let pendingListNodes = new Set<Element>();
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local non-reactive observer state
+		let observedImageBlocks = new Set<HTMLElement>();
+		let imageAlternatives = new WeakMap<HTMLImageElement, string>();
+		const scheduleImageWork = () => {
+			if (imageFrame) return;
+			imageFrame = requestAnimationFrame(() => {
+				imageFrame = 0;
+				flushImageWork();
+			});
 		};
+		const observeImageBlock = (block: HTMLElement | null) => {
+			if (!block || observedImageBlocks.has(block)) return;
+			observedImageBlocks.add(block);
+			imageResizeObserver?.observe(block);
+		};
+		const applyImageSize = (
+			image: HTMLImageElement,
+			block: HTMLElement | null,
+			alt: string | undefined
+		): { image: HTMLImageElement; alt: string | undefined; width: string | null } => {
+			let width: string | null = null;
+			if (block && image.naturalWidth) {
+				const ratio = Number(image.dataset.height) / Number(image.dataset.origin) || 1;
+				width = `${Math.min(image.naturalWidth, block.clientWidth) * ratio}px`;
+			}
+			return { image, alt, width };
+		};
+		const writeImageSize = (update: {
+			image: HTMLImageElement;
+			alt: string | undefined;
+			width: string | null;
+		}) => {
+			const { image, alt, width } = update;
+			if (alt !== undefined && image.alt !== alt) image.alt = alt;
+			image.referrerPolicy = 'no-referrer';
+			image.crossOrigin = 'anonymous';
+			if (width !== null && image.style.width !== width) image.style.width = width;
+		};
+		const fullImageScan = () => {
+			const alternatives = roundTrip.alternatives;
+			const images = [...container.querySelectorAll<HTMLImageElement>('.milkdown-image-block img')];
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local scan result
+			const liveBlocks = new Set<HTMLElement>();
+			for (const image of images) {
+				const block = image.closest<HTMLElement>('.milkdown-image-block');
+				if (block) liveBlocks.add(block);
+			}
+			for (const block of observedImageBlocks) {
+				if (!liveBlocks.has(block)) {
+					imageResizeObserver?.unobserve(block);
+					observedImageBlocks.delete(block);
+				}
+			}
+			imageAlternatives = new WeakMap();
+			const next = images.map((image, index) => {
+				const block = image.closest<HTMLElement>('.milkdown-image-block');
+				observeImageBlock(block);
+				const alt = alternatives[index] ?? '';
+				imageAlternatives.set(image, alt);
+				return applyImageSize(image, block, alt);
+			});
+			// Read every size before writing any style.
+			for (const update of next) writeImageSize(update);
+			alternativesSignature = alternatives.join('\u0000');
+			needsImageMapping = false;
+		};
+		const applyListRolesIn = (node: Element) => {
+			const items: Element[] = [];
+			if (node.matches('.milkdown-list-item-block > li:not([role="none"])')) items.push(node);
+			items.push(...node.querySelectorAll('.milkdown-list-item-block > li:not([role="none"])'));
+			for (const item of items) {
+				item.parentElement?.setAttribute('role', 'listitem');
+				item.setAttribute('role', 'none');
+			}
+		};
+		const flushImageWork = () => {
+			for (const node of pendingListNodes) {
+				if (node.isConnected) applyListRolesIn(node);
+			}
+			pendingListNodes = new Set();
+			if (needsImageMapping) {
+				fullImageScan();
+				pendingImages = new Set();
+				return;
+			}
+			const updates: { image: HTMLImageElement; alt: string | undefined; width: string | null }[] =
+				[];
+			for (const image of pendingImages) {
+				if (!image.isConnected) continue;
+				const block = image.closest<HTMLElement>('.milkdown-image-block');
+				observeImageBlock(block);
+				updates.push(applyImageSize(image, block, imageAlternatives.get(image)));
+			}
+			// Read every size before writing any style.
+			for (const update of updates) writeImageSize(update);
+			pendingImages = new Set();
+		};
+		const applyImageAlternatives = () => {
+			const signature = roundTrip.alternatives.join('\u0000');
+			if (signature === alternativesSignature) return;
+			needsImageMapping = true;
+			flushImageWork();
+		};
+		const collectImageNode = (node: Node): boolean => {
+			if (node.nodeType !== Node.ELEMENT_NODE) return false;
+			const element = node as Element;
+			if (element.tagName === 'IMG') pendingImages.add(element as HTMLImageElement);
+			for (const image of element.querySelectorAll<HTMLImageElement>('img'))
+				pendingImages.add(image);
+			if (element.matches('img') || element.querySelector('img')) return true;
+			return false;
+		};
+		const collectListNodes = (node: Node): boolean => {
+			if (node.nodeType !== Node.ELEMENT_NODE) return false;
+			const element = node as Element;
+			if (!element.matches('li, .milkdown-list-item-block') && !element.querySelector('li'))
+				return false;
+			pendingListNodes.add(element);
+			return true;
+		};
+		// Milkdown emits markdownUpdated after its own 200 ms debounce. We own the
+		// same delay so the emitted snapshot carries an exact applied revision.
+		// Source fidelity runs when the main thread is idle, and a newer revision
+		// cancels the older result before it can reach the store.
+		let markdownRevision = 0;
+		let markdownTimer: ReturnType<typeof setTimeout> | null = null;
+		let idleHandle: number | null = null;
+		let idleKind: 'idle' | 'timeout' | null = null;
+		const cancelIdleWork = () => {
+			if (idleHandle === null) return;
+			if (idleKind === 'idle' && typeof window.cancelIdleCallback === 'function')
+				window.cancelIdleCallback(idleHandle);
+			else clearTimeout(idleHandle);
+			idleHandle = null;
+			idleKind = null;
+		};
+		const cancelPendingWork = () => {
+			if (markdownTimer !== null) {
+				clearTimeout(markdownTimer);
+				markdownTimer = null;
+			}
+			cancelIdleWork();
+		};
+		const publishMarkdown = () => {
+			const revision = markdownRevision;
+			const emit = () => {
+				if (token !== mountToken || revision !== markdownRevision) return;
+				let markdown: string;
+				try {
+					markdown = instance.editor.action((ctx) =>
+						ctx.get(serializerCtx)(ctx.get(editorViewCtx).state.doc)
+					);
+				} catch {
+					return;
+				}
+				if (token !== mountToken || revision !== markdownRevision) return;
+				recordEditorCounter('markdownUpdated');
+				const portableMarkdown = restoreMarkdown(markdown);
+				if (token !== mountToken || revision !== markdownRevision) return;
+				lastEditorMarkdown = portableMarkdown;
+				queueMicrotask(applyImageAlternatives);
+				if (token === mountToken) onChange(portableMarkdown);
+				else onFlush?.(idForMount, portableMarkdown);
+			};
+			if (typeof window.requestIdleCallback === 'function') {
+				idleKind = 'idle';
+				idleHandle = window.requestIdleCallback(
+					() => {
+						idleHandle = null;
+						idleKind = null;
+						emit();
+					},
+					{ timeout: 1_000 }
+				);
+			} else {
+				idleKind = 'timeout';
+				idleHandle = window.setTimeout(() => {
+					idleHandle = null;
+					idleKind = null;
+					emit();
+				}, 0) as unknown as number;
+			}
+		};
+		const scheduleMarkdownUpdate = () => {
+			cancelIdleWork();
+			if (markdownTimer !== null) clearTimeout(markdownTimer);
+			markdownTimer = setTimeout(() => {
+				markdownTimer = null;
+				publishMarkdown();
+			}, 200);
+		};
+		cancelPendingMarkdown = cancelPendingWork;
 		const blockEditConfig = blockEditLabels();
 		const toolbarConfig = toolbarLabels();
 		const linkTooltipConfig = { inputPlaceholder: t('editor.linkPlaceholder') };
@@ -311,12 +566,34 @@
 				new Plugin({
 					filterTransaction(transaction) {
 						if (!transaction.docChanged) return true;
-						// Serialize nodes, including HTML atoms, with the same source restoration
-						// as the save callback. Code blocks must keep their fence context.
-						const markdown = restoreMarkdown(ctx.get(serializerCtx)(transaction.doc));
-						if (documentKind(markdown) === 'note') return true;
-						notify.error(t('documents.noConversion'));
-						return false;
+						return measureEditorStage('filterTransaction', () => {
+							if (!couldAffectPresentationBoundary(transaction)) {
+								recordEditorCounter('noteTypeFast');
+								return true;
+							}
+							recordEditorCounter('noteTypeFallback');
+							// Validate with a restore that does not commit its caches. A rejected
+							// transaction must not leave source-fidelity or image state on a
+							// document that the editor never applied.
+							const markdown = restoreMarkdown(ctx.get(serializerCtx)(transaction.doc), false);
+							if (documentKind(markdown) === 'note') return true;
+							notify.error(t('documents.noConversion'));
+							return false;
+						});
+					}
+				})
+		);
+		const markdownRevisionPlugin = prosePlugin(
+			() =>
+				new Plugin({
+					state: {
+						init: () => markdownRevision,
+						apply: (transaction) => {
+							if (!transaction.docChanged) return markdownRevision;
+							markdownRevision += 1;
+							scheduleMarkdownUpdate();
+							return markdownRevision;
+						}
 					}
 				})
 		);
@@ -360,25 +637,7 @@
 		instance.editor.use(headingLevelPlugin);
 		instance.editor.use(tabIndentPlugin);
 		instance.editor.use(noteTypePlugin);
-		instance.on((listener) => {
-			listener.markdownUpdated((_ctx, md) => {
-				// A queued event must not replace a newer editor document.
-				try {
-					if (md !== instance.getMarkdown()) return;
-				} catch {
-					return;
-				}
-				const portableMarkdown = restoreMarkdown(md);
-				if (token === mountToken) lastEditorMarkdown = portableMarkdown;
-				queueMicrotask(applyImageAlternatives);
-				// §C1 - If the instance is still the current one, normal keystroke ->
-				// onChange (writes to the active file). Otherwise (a late event
-				// arriving after a remount), we explicitly route to the file
-				// associated with THIS instance so we do not drop the last keystroke.
-				if (token === mountToken) onChange(portableMarkdown);
-				else onFlush?.(idForMount, portableMarkdown);
-			});
-		});
+		instance.editor.use(markdownRevisionPlugin);
 		try {
 			await instance.create();
 			editorBaseline = instance.getMarkdown();
@@ -645,9 +904,37 @@
 			}
 		};
 		applyListRoles();
+		imageResizeObserver = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				const image = entry.target.querySelector('img');
+				if (image) pendingImages.add(image);
+			}
+			if (entries.length) scheduleImageWork();
+		});
 		imageObserver = new MutationObserver((records) => {
-			if (records.some((record) => record.type === 'childList')) applyListRoles();
-			applyImageAlternatives();
+			let imageDirty = false;
+			let listDirty = false;
+			for (const record of records) {
+				if (record.type === 'childList') {
+					for (const node of record.addedNodes) {
+						if (collectImageNode(node)) imageDirty = true;
+						if (collectListNodes(node)) listDirty = true;
+					}
+					for (const node of record.removedNodes) {
+						if (node.nodeType !== Node.ELEMENT_NODE) continue;
+						const element = node as Element;
+						if (element.tagName === 'IMG' || element.querySelector('img')) {
+							needsImageMapping = true;
+							imageDirty = true;
+						}
+					}
+				} else if (record.type === 'attributes' && record.target instanceof HTMLImageElement) {
+					if (record.attributeName === 'src') needsImageMapping = true;
+					pendingImages.add(record.target);
+					imageDirty = true;
+				}
+			}
+			if (imageDirty || listDirty) scheduleImageWork();
 		});
 		imageObserver.observe(container, {
 			childList: true,
@@ -655,9 +942,19 @@
 			attributes: true,
 			attributeFilter: ['src', 'alt', 'data-height', 'data-origin']
 		});
-		imageResizeObserver = new ResizeObserver(applyImageAlternatives);
-		if (proseMirror) imageResizeObserver.observe(proseMirror);
-		applyImageAlternatives();
+		const handleImageLoad = (event: Event) => {
+			const target = event.target;
+			if (!(target instanceof HTMLImageElement)) return;
+			pendingImages.add(target);
+			scheduleImageWork();
+		};
+		container.addEventListener('load', handleImageLoad, true);
+		removeImageListeners = () => {
+			container.removeEventListener('load', handleImageLoad, true);
+			if (imageFrame) cancelAnimationFrame(imageFrame);
+			imageFrame = 0;
+		};
+		fullImageScan();
 		mountedFileId = idForMount;
 		await restoreEditorPosition(instance, idForMount, token);
 		// A new note waits for the lazy editor before it can take the caret.
@@ -704,11 +1001,15 @@
 
 	async function unmount() {
 		refreshMountedDiagrams = null;
+		cancelPendingMarkdown?.();
+		cancelPendingMarkdown = null;
 		removeHistoryListener?.();
 		removeHistoryListener = null;
 		removeFlushListener?.();
 		removeFlushListener = null;
 		updateExternalContent = null;
+		removeImageListeners?.();
+		removeImageListeners = null;
 		imageObserver?.disconnect();
 		imageObserver = null;
 		imageResizeObserver?.disconnect();
