@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { filesStore } from '#lib/files.svelte.js';
-	import { computeSelectionStats, computeStats, formatSaveAge } from '#lib/stats.js';
+	import {
+		computeSelectionStats,
+		computeStats,
+		createStatsCache,
+		formatSaveAge,
+		type DocStats
+	} from '#lib/stats.js';
 	import { t } from '#lib/i18n/index.js';
 	import { onMount } from 'svelte';
 	import {
@@ -65,46 +71,109 @@
 		};
 	});
 
-	// §A2.4 - `computeStats` runs 6 regexes over the full doc; called on every
-	// keystroke it is measurable beyond 50 KB. We debounce the content snapshot
-	// to 200 ms - the status-bar does not need to react to each individual
-	// keystroke, otherwise the counter flickers visibly.
-	//
-	// A tab switch (change of the active file's identity) writes
-	// immediately to avoid a "0 words" flash for 200 ms; only successive
-	// keystrokes on the same file are coalesced.
-	let debouncedContent = $state('');
-	let debouncedActiveId = $state<string | null>(null);
+	// Keep the last complete count during edits. A switch publishes immediately.
+	// Cache exact strings, not editor-local counters or future store revisions.
+	const cached = createStatsCache();
+	let stats = $state<DocStats>(computeStats(''));
+	let statsActiveId: string | null = null;
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	let workerTimer: ReturnType<typeof setTimeout> | null = null;
+	let worker: Worker | null = null;
+	let workerBusy = false;
+	let workerUnavailable = false;
+	let sequence = 0;
+
+	function cancelPending() {
+		sequence += 1;
+		if (debounceTimer) clearTimeout(debounceTimer);
+		if (workerTimer) clearTimeout(workerTimer);
+		debounceTimer = null;
+		workerTimer = null;
+		if (workerBusy) {
+			worker?.terminate();
+			worker = null;
+			workerBusy = false;
+		}
+	}
+
+	function publish(id: string | null, content: string, value: DocStats) {
+		cached.set(id, content, value);
+		stats = value;
+	}
+
+	function measure(id: string, content: string, token: number) {
+		const current = () =>
+			token === sequence && filesStore.activeId === id && filesStore.active?.content === content;
+		if (!current()) return;
+		if (content.length < 256 * 1024 || workerUnavailable || typeof Worker === 'undefined') {
+			publish(id, content, computeStats(content));
+			return;
+		}
+		const fallback = () => {
+			if (!current()) return;
+			worker?.terminate();
+			worker = null;
+			workerBusy = false;
+			workerUnavailable = true;
+			if (workerTimer) clearTimeout(workerTimer);
+			workerTimer = null;
+			if (current()) publish(id, content, computeStats(content));
+		};
+		try {
+			worker ??= new Worker(new URL('../workers/stats.worker.ts', import.meta.url), {
+				type: 'module'
+			});
+			workerBusy = true;
+			worker.onmessage = (event: MessageEvent<{ token: number; stats: DocStats }>) => {
+				if (!current() || event.data.token !== token) return;
+				if (workerTimer) clearTimeout(workerTimer);
+				workerTimer = null;
+				workerBusy = false;
+				worker!.onmessage = null;
+				worker!.onerror = null;
+				worker!.onmessageerror = null;
+				publish(id, content, event.data.stats);
+			};
+			worker.onerror = fallback;
+			worker.onmessageerror = fallback;
+			workerTimer = setTimeout(fallback, 5000);
+			worker.postMessage({ token, text: content });
+		} catch {
+			fallback();
+		}
+	}
 
 	$effect(() => {
 		const active = filesStore.active;
 		const id = active?.id ?? null;
-		const c = kind === 'note' ? (active?.content ?? '') : '';
-		if (id !== debouncedActiveId) {
-			// File switch or opening: immediate flush of the snapshot.
-			if (debounceTimer) {
-				clearTimeout(debounceTimer);
-				debounceTimer = null;
-			}
-			debouncedActiveId = id;
-			debouncedContent = c;
+		const content = kind === 'note' ? (active?.content ?? '') : '';
+		cancelPending();
+		const switched = id !== statsActiveId;
+		statsActiveId = id;
+		const hit = cached.get(id, content);
+		if (hit) {
+			stats = hit;
 			return;
 		}
-		if (debounceTimer) clearTimeout(debounceTimer);
+		if (switched || !id) {
+			publish(id, content, computeStats(content));
+			return;
+		}
+		const token = sequence;
 		debounceTimer = setTimeout(() => {
-			debouncedContent = c;
 			debounceTimer = null;
+			measure(id, content, token);
 		}, 200);
-		return () => {
-			if (debounceTimer) {
-				clearTimeout(debounceTimer);
-				debounceTimer = null;
-			}
-		};
+		return cancelPending;
 	});
 
-	let stats = $derived(computeStats(debouncedContent));
+	onMount(() => () => {
+		cancelPending();
+		worker?.terminate();
+		worker = null;
+		cached.clear();
+	});
+
 	let selectionStats = $derived(
 		selectedText.length > 0 ? computeSelectionStats(selectedText) : null
 	);

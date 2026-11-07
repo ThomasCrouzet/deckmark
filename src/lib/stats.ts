@@ -1,48 +1,44 @@
-import { READING } from './config';
 import { t } from '#lib/i18n/index.js';
+import type { DocStats } from './stats-count';
+export {
+	computeStats,
+	computeSelectionStats,
+	type DocStats,
+	type SelectionStats
+} from './stats-count';
 
-export interface DocStats {
-	chars: number;
-	words: number;
-	lines: number;
-	readMinutes: number;
-}
-
-const WPM = READING.wpm;
-
-export interface SelectionStats {
-	chars: number;
-	words: number;
-	lines: number;
-}
-
-/**
- * Counts selected plain text. Characters are Unicode code points, so a
- * surrogate pair counts once. Lines follow LF, CRLF and CR breaks.
- */
-export function computeSelectionStats(text: string): SelectionStats {
-	const chars = Array.from(text).length;
-	const trimmed = text.trim();
-	const words = trimmed.length === 0 ? 0 : trimmed.split(/\s+/u).length;
-	const lines = text.length === 0 ? 0 : text.split(/\r\n|\r|\n/u).length;
-	return { chars, words, lines };
-}
-
-export function computeStats(markdown: string): DocStats {
-	const stripped = markdown
-		.replace(/```[\s\S]*?```/g, ' ')
-		.replace(/`[^`]*`/g, ' ')
-		.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-		.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-		.replace(/^#+\s+/gm, '')
-		.replace(/[*_~>]/g, ' ');
-
-	const chars = markdown.length;
-	const words = stripped.trim().length === 0 ? 0 : stripped.trim().split(/\s+/).length;
-	const lines = markdown.length === 0 ? 0 : markdown.split('\n').length;
-	const readMinutes = words === 0 ? 0 : Math.max(1, Math.round(words / WPM));
-
-	return { chars, words, lines, readMinutes };
+// Cache bookkeeping must not become an effect dependency.
+export function createStatsCache() {
+	const cached = new Map<string, { content: string; stats: DocStats }>();
+	let cachedChars = 0;
+	return {
+		get(id: string | null, content: string): DocStats | null {
+			if (!id) return null;
+			const hit = cached.get(id);
+			if (!hit || hit.content !== content) return null;
+			cached.delete(id);
+			cached.set(id, hit);
+			return hit.stats;
+		},
+		set(id: string | null, content: string, value: DocStats): void {
+			if (!id) return;
+			cachedChars -= cached.get(id)?.content.length ?? 0;
+			cached.delete(id);
+			if (content.length > 10_000_000) return;
+			cached.set(id, { content, stats: value });
+			cachedChars += content.length;
+			while (cached.size > 8 || cachedChars > 10_000_000) {
+				const oldest = cached.keys().next().value;
+				if (oldest === undefined) break;
+				cachedChars -= cached.get(oldest)!.content.length;
+				cached.delete(oldest);
+			}
+		},
+		clear(): void {
+			cached.clear();
+			cachedChars = 0;
+		}
+	};
 }
 
 export function formatSaveAge(savedAt: number, now = Date.now()): string {
