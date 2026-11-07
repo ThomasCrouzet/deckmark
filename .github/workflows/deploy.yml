@@ -294,17 +294,30 @@ jobs:
       # Docker Playwright baselines diverge from ubuntu-latest font rendering
       # (see CONTRIBUTING.md). Baselines stay versioned for local comparison;
       # do not remove --ignore-snapshots without regenerating on CI.
-      - name: List the expected shard tests
-        run: npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/$SHARD_COUNT" --reporter=json > "$RUNNER_TEMP/expected-shard.json"
+      - name: Plan the balanced shards
+        # The plan lists the full suite once, balances browser and file groups
+        # by measured durations and writes this shard's test-list selection.
+        # The same selection drives the expected list and the execution.
+        run: |
+          npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --reporter=json > "$RUNNER_TEMP/all-tests.json"
+          node scripts/e2e-shards.mjs plan --list "$RUNNER_TEMP/all-tests.json" --weights scripts/e2e-shard-weights.json --shards "$SHARD_COUNT" --out "$RUNNER_TEMP/e2e-plan"
         env:
           E2E_PREBUILT: '1'
+          SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
+
+      - name: List the expected shard tests
+        run: npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --test-list="$RUNNER_TEMP/e2e-plan/shard-$SHARD.list" --reporter=json > "$RUNNER_TEMP/expected-shard.json"
+        env:
+          E2E_PREBUILT: '1'
+          E2E_SHARD_META: ${{ runner.temp }}/e2e-plan/shard-${{ matrix.shard }}.meta.json
           SHARD: ${{ matrix.shard }}
           SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
 
       - name: E2E tests (without visual snapshots)
-        run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$SHARD/$SHARD_COUNT"
+        run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --test-list="$RUNNER_TEMP/e2e-plan/shard-$SHARD.list"
         env:
           E2E_PREBUILT: '1'
+          E2E_SHARD_META: ${{ runner.temp }}/e2e-plan/shard-${{ matrix.shard }}.meta.json
           SHARD: ${{ matrix.shard }}
           SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
 
@@ -344,12 +357,13 @@ jobs:
           SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
         run: |
           npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --reporter=json > "$RUNNER_TEMP/all-tests.json"
+          node scripts/e2e-shards.mjs plan --list "$RUNNER_TEMP/all-tests.json" --weights scripts/e2e-shard-weights.json --shards "$SHARD_COUNT" --out "$RUNNER_TEMP/e2e-plan"
           files=()
           for shard in $(seq 1 "$SHARD_COUNT"); do
-            npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --shard="$shard/$SHARD_COUNT" --reporter=json > "$RUNNER_TEMP/shard-$shard.json"
+            E2E_SHARD_META="$RUNNER_TEMP/e2e-plan/shard-$shard.meta.json" npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --test-list="$RUNNER_TEMP/e2e-plan/shard-$shard.list" --reporter=json > "$RUNNER_TEMP/shard-$shard.json"
             files+=("$RUNNER_TEMP/shard-$shard.json")
           done
-          node scripts/check-e2e-manifest.mjs partition "$SHARD_COUNT" "$RUNNER_TEMP/all-tests.json" "${files[@]}"
+          node scripts/check-e2e-manifest.mjs plan "$SHARD_COUNT" "$RUNNER_TEMP/all-tests.json" "$RUNNER_TEMP/e2e-plan/plan.json" "${files[@]}"
 
   e2e:
     needs: [e2e-build, e2e-shard, e2e-manifest]

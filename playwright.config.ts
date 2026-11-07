@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, devices } from '@playwright/test';
 import { testSource } from './scripts/test-source.mjs';
 
@@ -7,6 +8,11 @@ const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
 // The provenance check fails before the preview server starts when the
 // artifact, its inputs or its source do not match this checkout.
 const prebuilt = process.env.E2E_PREBUILT === '1';
+// A balanced shard records the partition identity in its reports. The
+// manifest check compares this identity with the planned shard list, so a
+// stale selection cannot pass as the current partition.
+const shardMetaPath = process.env.E2E_SHARD_META;
+const partition = shardMetaPath ? JSON.parse(readFileSync(shardMetaPath, 'utf8')) : null;
 
 /**
  * Playwright end-to-end tests for user workflows.
@@ -27,6 +33,7 @@ export default defineConfig({
 		...testSource(),
 		nodeVersion: process.version,
 		prebuilt,
+		partition,
 		repeatCommand: 'npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"'
 	},
 	reporter: [

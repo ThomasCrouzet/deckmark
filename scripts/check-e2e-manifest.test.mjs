@@ -3,6 +3,7 @@
 // skip must carry an explicit reason.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -77,6 +78,97 @@ function withSource(reportValue, source) {
 			metadata: { ...reportValue.config.metadata, source }
 		}
 	};
+}
+
+function withPartition(reportValue, partition) {
+	return {
+		...reportValue,
+		config: {
+			...reportValue.config,
+			metadata: { ...reportValue.config.metadata, partition }
+		}
+	};
+}
+
+function keysOf(reportValue) {
+	const keys = [];
+	function walk(suites) {
+		for (const suite of suites ?? []) {
+			for (const spec of suite.specs ?? []) {
+				for (const test of spec.tests ?? []) {
+					keys.push(`${spec.id}::${test.projectName}`);
+				}
+			}
+			walk(suite.suites);
+		}
+	}
+	walk(reportValue.suites);
+	return keys.sort();
+}
+
+function sha256(value) {
+	return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function planFor(expected, shardGroups, shardCount = shardGroups.length) {
+	const fullListSha256 = sha256(keysOf(expected));
+	const shards = shardGroups.map((specs, index) => ({
+		shard: index + 1,
+		seconds: 10,
+		groups: specs.flatMap((item) => item.tests.map((test) => `${test.projectName}::${item.file}`)),
+		tests: specs.flatMap((item) => item.tests.map((test) => `${item.id}::${test.projectName}`))
+	}));
+	const plan = {
+		version: 1,
+		shardCount,
+		fullListSha256,
+		weightsSha256: 'e'.repeat(64),
+		unknownGroups: [],
+		shards
+	};
+	plan.partitionSha256 = sha256({
+		version: plan.version,
+		shardCount: plan.shardCount,
+		fullListSha256: plan.fullListSha256,
+		weightsSha256: plan.weightsSha256,
+		shards: plan.shards.map((shard) => ({ shard: shard.shard, groups: shard.groups }))
+	});
+	return plan;
+}
+
+function runPlan(expected, plan, shards, declaredShards = shards.length) {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-plan-'));
+	roots.push(root);
+	const expectedPath = join(root, 'expected.json');
+	const planPath = join(root, 'plan.json');
+	writeFileSync(expectedPath, JSON.stringify(expected));
+	writeFileSync(planPath, JSON.stringify(plan));
+	const actualPaths = shards.map((shard, index) => {
+		const path = join(root, `shard-${index + 1}.json`);
+		writeFileSync(
+			path,
+			JSON.stringify(
+				withPartition(withShard(shard, index + 1, declaredShards), {
+					shard: index + 1,
+					count: declaredShards,
+					partitionSha256: plan.partitionSha256
+				})
+			)
+		);
+		return path;
+	});
+	try {
+		return {
+			status: 0,
+			output: execFileSync(
+				process.execPath,
+				[script, 'plan', String(declaredShards), expectedPath, planPath, ...actualPaths],
+				{ encoding: 'utf8' }
+			)
+		};
+	} catch (error) {
+		return { status: error.status ?? 1, output: `${error.stdout ?? ''}${error.stderr ?? ''}` };
+	}
 }
 
 function writeReports(expected, actuals, prefix = 'actual') {
@@ -338,4 +430,102 @@ test('accepts two specs with the same title and line and different ids', () => {
 	const result = runExecution(expected, actual);
 	assert.equal(result.status, 0, result.output);
 	assert.match(result.output, /Executed: 2/);
+});
+
+test('accepts a plan partition with matching shard lists and identity', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const result = runPlan(expected, plan, [listReport(first), listReport(second)]);
+	assert.equal(result.status, 0, result.output);
+	assert.match(result.output, /Plan partition covers every expected test exactly once \(2 tests\)/);
+});
+
+test('rejects a plan shard list with a different test', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const result = runPlan(expected, plan, [listReport(second), listReport(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /Missing|Unexpected/);
+});
+
+test('rejects a plan with a different full list hash', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	plan.fullListSha256 = 'a'.repeat(64);
+	const result = runPlan(expected, plan, [listReport(first), listReport(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /full test list/i);
+});
+
+test('rejects a plan with a tampered partition hash', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	plan.partitionSha256 = 'a'.repeat(64);
+	const result = runPlan(expected, plan, [listReport(first), listReport(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /partition hash/i);
+});
+
+test('rejects a shard list with a different partition identity', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-plan-'));
+	roots.push(root);
+	const expectedPath = join(root, 'expected.json');
+	const planPath = join(root, 'plan.json');
+	writeFileSync(expectedPath, JSON.stringify(expected));
+	writeFileSync(planPath, JSON.stringify(plan));
+	const paths = [first, second].map((item, index) => {
+		const path = join(root, `shard-${index + 1}.json`);
+		writeFileSync(
+			path,
+			JSON.stringify(
+				withPartition(withShard(listReport(item), index + 1, 2), {
+					shard: index + 1,
+					count: 2,
+					partitionSha256: 'b'.repeat(64)
+				})
+			)
+		);
+		return path;
+	});
+	try {
+		execFileSync(process.execPath, [script, 'plan', '2', expectedPath, planPath, ...paths]);
+		assert.fail('the command must fail');
+	} catch (error) {
+		const output = `${error.stdout ?? ''}${error.stderr ?? ''}`;
+		assert.notEqual(error.status, 0);
+		assert.match(output, /partition/i);
+	}
+});
+
+test('rejects a plan with a missing test', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	plan.shards[1].tests = [];
+	const result = runPlan(expected, plan, [listReport(first), listReport(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /Missing/);
+});
+
+test('rejects an execution report in plan mode', () => {
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('second', 9, [entry('firefox')]);
+	const expected = listReport(first, second);
+	const plan = planFor(expected, [[first], [second]]);
+	const result = runPlan(expected, plan, [report(first), report(second)]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /list report/);
 });
