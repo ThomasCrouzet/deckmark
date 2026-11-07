@@ -95,16 +95,17 @@ metric. `scripts/benchmark-shared.mjs` evaluates a report as follows:
 The CI Desktop workflow passes `--enforce-budgets`. The process exits nonzero on
 any non-ok status, and the `desktop-validation` aggregate job requires the
 benchmark job to succeed. A failed benchmark therefore prevents release
-publication. Reporting-only runs can use `--report-only` through the retained
-artifact gate:
+publication. Audit a retained local JSON report with the same gate:
 
 ```sh
-node scripts/benchmark-gate.mjs --report /tmp/bench.json --budgets scripts/benchmark-budgets.json
+node scripts/benchmark-gate.mjs --report test-results/bench.json --budgets scripts/benchmark-budgets.json
 ```
 
 `scripts/benchmark-gate.mjs` measures nothing. It validates the report schema,
 source identity, build mode, platform identity, sample counts, units, and budget
-values. Use it to audit a retained artifact or to repeat a gate decision.
+values. Use it to audit a retained local artifact or to repeat a gate decision.
+CI does not upload benchmark reports. Hosted-runner cleanup discards its
+temporary files; repeat a failing case locally when a full report is needed.
 
 The negative cases for each rule run in `scripts/benchmark-shared.test.mjs`. The
 test starts the gate as a child process and checks the exit code. This proves

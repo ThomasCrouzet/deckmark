@@ -169,13 +169,14 @@ empty result fails. `e2e-manifest` compares the shard lists with the full
 The comparison covers every project, including Firefox and WebKit, so a shard
 cannot silently drop a browser project. The expected and actual E2E reports stay
 in the runner temp directory or in the ignored `test-results` directory. This
-workflow does not upload those reports. Reusable build artifacts are separate
-from reports. Legacy native-smoke, native-benchmark and deployment-evidence
-report uploads still exist. They conflict with the repository's local-only
-report rule. This is an unresolved compliance gap, not a storage exception or
-permission for new report uploads. The check also compares source, tree,
-projects, filters, shard and prebuilt identity, so a list and a run are only
-compared under the same effective inputs.
+workflow does not upload those reports. Web benchmark, native smoke, native
+benchmark and public-deployment reports also stay on the runner. Hosted-runner
+cleanup discards those temporary files; they cannot be downloaded after the VM
+is destroyed. Retain reports from local reproductions in ignored local storage.
+Reusable build artifacts and release deliverables are separate and still pass
+to their required consumers. The check also compares source, tree, projects,
+filters, shard and prebuilt identity, so a list and a run are only compared
+under the same effective inputs.
 
 Stage 1 and stage 2 own the scheduling and build reuse. Stage 3 does not remove
 a check, a browser project, a benchmark or a native platform.
