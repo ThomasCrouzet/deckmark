@@ -11,6 +11,32 @@ constant values, or mocked call sequences alone.
 
 ## Release review regressions
 
+### Source typewriter centering
+
+Retain these risks for issue 328: a key burst can queue obsolete scroll targets;
+an already centered caret can cause a redundant scroll transaction; a disabled or
+destroyed extension can dispatch against the old view; wrapped text can change
+caret geometry; selection, composition, undo, accessible input and saved bytes
+can change while the mode is active.
+
+Run `npx playwright test navigation-stats-scroll.spec.ts editor-input-latency.spec.ts
+--grep typewriter --project=chromium --workers=1 --retries=0 --trace=on`.
+Keep the standard source metadata, trace, screenshots and attached JSON files.
+The performance cases record raw frame intervals, p50, p95, pending frame counts,
+center scroll targets and fixture hashes for small, 1 MB and 5 MB notes. Counts
+include the CodeMirror measure frame. The probe uses real editor key handlers.
+It does not prove physical key repeat, a native IME or screen-reader output.
+The existing strict performance budgets stay unchanged.
+Run `npx playwright test keyboard-platform.spec.ts --grep typewriter --workers=1`
+for the accessible input, synthetic composition, selection, undo and save case.
+This spec is in the Chromium, Firefox and WebKit project lists. The navigation
+cases also check repeated disable and re-enable, mode exit and a file switch.
+Construct `InputEvent` explicitly for a synthetic `beforeinput` history action.
+Playwright's generic event driver does not retain `inputType`. The keyboard case
+checks the constructor, target, input type and cancellation before it checks redo.
+Use `CompositionEvent` for the synthetic composition boundaries. These events do
+not reproduce an operating-system input method.
+
 `e2e/review-regressions.spec.ts` checks these failures through the application:
 
 - A rename can replace a code or image extension with `.md`. Compare downloaded
