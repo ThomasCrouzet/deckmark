@@ -917,7 +917,12 @@
 			for (const record of records) {
 				if (record.type === 'childList') {
 					for (const node of record.addedNodes) {
-						if (collectImageNode(node)) imageDirty = true;
+						if (collectImageNode(node)) {
+							// Alt text follows document order. Any image membership change
+							// needs a full remap; ordinary text edits never take this path.
+							needsImageMapping = true;
+							imageDirty = true;
+						}
 						if (collectListNodes(node)) listDirty = true;
 					}
 					for (const node of record.removedNodes) {
