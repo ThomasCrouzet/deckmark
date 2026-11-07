@@ -156,6 +156,71 @@ more than the reviewed budget while the median stays stable. The p95 and
 maximum stay in the report. Cold startup, close and presentation load stay
 one-shot because they require a process or window lifecycle.
 
+### Native readiness observation
+
+The macOS cold-start job on 2026-11-07 measured 33013.015 ms against the
+15000 ms limit. Its shell phase took 30161.885 ms over two polls. This
+localizes the delay to readiness observation, but does not identify its cause.
+A lost completion and delayed application readiness can both fit that log.
+Linux protocol controls also observed one preliminary `execute/sync` shell
+check that used a 30 s script budget: spawn to driver took 27747 ms and shell
+readiness 57941 ms, while another Linux run needed 333 ms for the same phase.
+Fast later responses do not disprove the earlier stall. No macOS root cause or
+performance repair follows from the Linux controls.
+
+Readiness now uses `POST /wdio/eval` with a per-request server script deadline
+of 2000 ms. The plugin creates an executor for the request. The deadline is an
+upper bound, not a minimum response time. An unretained JS callback can produce
+an earlier HTTP 500 reclamation error (`Completion handler for function call is
+no longer reachable`) at about 477 ms. A rooted script that never calls back
+ends at the server deadline with HTTP 500 `script timeout` at about 2003 ms. On
+macOS the plugin also removes the pending result registration when the
+operation ends. Linux drops the waiting receiver; page-side state can remain
+until collection or window closure. The shared client transport bound remains
+60 s. With a responsive driver, the server ends the attempt before that client
+bound; transport failure is still an error, not readiness.
+
+Only the readiness probe uses the new channel. The other requests, readiness
+predicate, 90 s readiness budget, 100 ms retry delay, poll counter, clock marks,
+sample counts, statistics and 15000 ms startupCold limit do not change. The
+predicate must produce a strict boolean. Only `true` establishes readiness. An
+HTTP error, malformed result or absent boolean cannot establish readiness.
+
+This is an observation-method change, not neutral instrumentation:
+
+- The controls observed stalled attempts between about 0.5 s and 2.1 s, ending
+  at the server deadline or with an earlier reclamation error. These observations
+  do not establish a minimum duration. Each attempt still counts as a poll. The
+  retry count is not capped at 43: a faster error can allow more attempts within
+  the existing readiness budget, and 43 is only the nominal upper bound for
+  full-deadline attempts.
+- Healthy observations also use a different channel. The former synchronous
+  executor polled its result at 50 ms intervals. Direct evaluation and its
+  platform fallback have different delivery overhead. Do not assume equal
+  transport cost or compare old and new startup baselines without noting the
+  method change.
+- Server completion does not prove that all page-side promise state has been
+  collected. The read-only probe has no application timer or mutation. The
+  protocol controls distinguish completed HTTP operations from client aborts;
+  they cannot inspect the driver's private result registry.
+- A 16051 ms hold on a real `aria-busy` attribute kept both channels and the
+  production `appReady()` pending at the 8 s marker. That hold used a 50 ms
+  polling script, so its 16051 ms figure carries 50 ms control quantization;
+  the 8 s marker is the stronger pending proof.
+- A genuinely late shell must still exceed the unchanged startup budget. The
+  complete run also fails if readiness never arrives within its existing wait.
+  Workloads measured after readiness are not changed by this correction.
+
+Local protocol controls use a real Linux native-smoke binary from an older
+source tree. They verify the endpoint contract and error handling, not current
+frontend parity or macOS behavior. An unretained-callback control ended at
+477 ms with an early reclamation error and failed an expectation of a full
+deadline wait. Keep that failure: that fault model is not a deterministic
+deadline fixture. A separate budget-consumer fixture still rejects a 16000 ms
+startupCold sample at the unchanged 15000 ms limit. It is not a full native
+benchmark result. Fresh hosted checks on the candidate, including macOS and
+Windows, remain required before acceptance.
+
 The library reload budget is 8000 ms on all three native platforms because the
 20-sample workload measures warm reloads, not the old one-shot cold reload. The
 measured p95 was 4834.9 to 7532.5 ms on Linux, 5408.5 ms on Windows and

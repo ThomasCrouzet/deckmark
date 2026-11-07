@@ -57,6 +57,86 @@ function smokeEnvironment(home, dataStoreId, port, pdfPath) {
 	};
 }
 
+// Keep the phase split that launch() already measured. Both original values
+// must exist. The session boundary and the poll count are added only when
+// launch() supplied complete valid values, so older or partial data keeps its
+// original shape. This is diagnostic metadata, not a sample, summary, or
+// budget value.
+function launchPhaseSplit(launched) {
+	if (!Number.isFinite(launched.spawnToDriverMs) || !Number.isFinite(launched.spawnToShellMs)) {
+		return {};
+	}
+	const split = {
+		spawnToDriverMs: launched.spawnToDriverMs,
+		driverReadyToShellMs: round(launched.spawnToShellMs - launched.spawnToDriverMs)
+	};
+	if (
+		Number.isFinite(launched.driverReadyToSessionMs) &&
+		Number.isFinite(launched.sessionReadyToShellMs) &&
+		Number.isInteger(launched.readyPolls) &&
+		launched.readyPolls > 0
+	) {
+		split.driverReadyToSessionMs = launched.driverReadyToSessionMs;
+		split.sessionReadyToShellMs = launched.sessionReadyToShellMs;
+		split.readyPolls = launched.readyPolls;
+	}
+	return split;
+}
+
+// Build the bounded suffix for a startup budget failure. It shows the measured
+// value, the configured limit, and the split of the launch that produced the
+// measured sample. It selects one metric in a fixed order. A split is added
+// only when one recorded sample matches the measured value. The release
+// format names the slow phase, its duration, and the readiness poll count.
+// The older format remains the fallback when the new metadata is absent or
+// invalid. The grammar is fixed names, finite numbers, integers, and `ms`; no
+// path, URL, capability, or report body can enter the string.
+export function startupErrorContext(result) {
+	const metrics = result.budget?.metrics ?? {};
+	const metricName = ['startupCold', 'startupWarm'].find(
+		(name) => metrics[name]?.status === 'over-budget'
+	);
+	if (!metricName) return '';
+	const metric = metrics[metricName];
+	const samples = result.samples?.[metricName];
+	const records = result.diagnostics?.[metricName];
+	const matches = Array.isArray(samples)
+		? samples.reduce((indexes, value, index) => {
+				if (value === metric.measuredValue) indexes.push(index);
+				return indexes;
+			}, [])
+		: [];
+	const phases =
+		matches.length === 1 ? ((Array.isArray(records) ? records[matches[0]] : records) ?? {}) : {};
+	const measuredValue = metric.measuredValue;
+	const limit = metric.limitWithTolerance;
+	const phaseValues = [
+		['driver', phases.spawnToDriverMs],
+		['session', phases.driverReadyToSessionMs],
+		['shell', phases.sessionReadyToShellMs]
+	];
+	const complete =
+		Number.isFinite(measuredValue) &&
+		Number.isFinite(limit) &&
+		phaseValues.every(([, value]) => Number.isFinite(value)) &&
+		Number.isInteger(phases.readyPolls) &&
+		phases.readyPolls > 0;
+	if (complete) {
+		const [slowPhase, slowPhaseMs] = phaseValues.reduce((slow, entry) =>
+			entry[1] > slow[1] ? entry : slow
+		);
+		return ` [slowPhase=${slowPhase} observed=${measuredValue}ms limit=${limit}ms slowPhaseMs=${slowPhaseMs}ms readyPolls=${phases.readyPolls}]`;
+	}
+	const fields = [
+		['observed', measuredValue],
+		['limit', limit],
+		['spawnToDriver', phases.spawnToDriverMs],
+		['driverReadyToShell', phases.driverReadyToShellMs]
+	].filter(([, value]) => Number.isFinite(value));
+	if (fields.length === 0) return '';
+	return ` [${fields.map(([name, value]) => `${name}=${value}ms`).join(' ')}]`;
+}
+
 export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	const binary = binaryPath(projectRoot, options);
 	const bytes = readFileSync(binary);
@@ -141,15 +221,57 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		throw new Error(`Timeout ${label}: ${last ? String(last) : 'condition false'}`);
 	}
 
+	// Readiness is observed through the driver's server-bounded direct eval.
+	// `/wdio/eval` takes `{ script, window_label, timeout_ms }`; the plugin
+	// builds a fresh executor whose script budget is `timeout_ms`. That budget
+	// is an upper bound: a stalled attempt can end at the deadline with HTTP 500
+	// `script timeout`, or earlier with an HTTP 500 reclamation error when the
+	// page drops the callback. The client keeps the shared 60 s transport bound,
+	// which stays above this 2 s server deadline. Only this readiness probe uses
+	// the channel: the predicate, the 90 s readiness budget, the poll counter,
+	// the clock marks and the 15 s gate stay unchanged.
+	const READY_PROBE_MS = 2_000;
+	const READY_PROBE_SCRIPT =
+		'const done = arguments[arguments.length - 1];' +
+		'try { done({ ok: true, value: document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false" }); }' +
+		'catch (error) { done({ ok: false, error: String(error) }); }';
+
+	// A probe resolves only on a strict boolean. A non-2xx answer, a missing
+	// `value` or any other shape is not readiness: it throws, `until` records it,
+	// and a persistent contract break fails the run after the 90 s budget.
+	async function readinessProbe() {
+		const response = await fetch(`${endpoint}/wdio/eval`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				script: READY_PROBE_SCRIPT,
+				window_label: 'main',
+				timeout_ms: READY_PROBE_MS
+			}),
+			signal: AbortSignal.timeout(60_000)
+		});
+		const data = await response.json().catch(() => null);
+		if (!response.ok) {
+			throw new Error(`POST /wdio/eval: HTTP ${response.status} ${JSON.stringify(data)}`);
+		}
+		if (typeof data?.value !== 'boolean') {
+			throw new Error(`POST /wdio/eval: unexpected result ${JSON.stringify(data)}`);
+		}
+		return data.value;
+	}
+
 	async function appReady() {
+		let polls = 0;
 		await until(
-			() =>
-				execute(
-					'return document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false";'
-				),
+			() => {
+				// Count every readiness attempt, including one that rejects.
+				polls += 1;
+				return readinessProbe();
+			},
 			'native shell ready',
 			90_000
 		);
+		return polls;
 	}
 
 	async function launch() {
@@ -170,10 +292,18 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 			capabilities: { alwaysMatch: { 'wdio:tauriServiceOptions': { windowLabel: 'main' } } }
 		});
 		session = created.sessionId;
-		await appReady();
+		// One diagnostic clock mark per launch. It splits the existing
+		// POST /session from the existing readiness polling. It adds no
+		// request, wait, or retry.
+		const sessionReady = performance.now();
+		const readyPolls = await appReady();
+		const shellReady = performance.now();
 		return {
 			spawnToDriverMs: round(driverReady - startedAt),
-			spawnToShellMs: round(performance.now() - startedAt),
+			driverReadyToSessionMs: round(sessionReady - driverReady),
+			sessionReadyToShellMs: round(shellReady - sessionReady),
+			spawnToShellMs: round(shellReady - startedAt),
+			readyPolls,
 			capabilities: created.capabilities
 		};
 	}
@@ -709,6 +839,8 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		result.stage = 'cold-startup';
 		const cold = await launch();
 		result.samples.startupCold = [cold.spawnToShellMs];
+		// Keep the split that launch() already measured as diagnostic metadata.
+		result.diagnostics = { startupCold: launchPhaseSplit(cold) };
 		result.runtime = cold.capabilities;
 		result.checks.push('native cold startup');
 		await screenshot('01-startup');
@@ -798,12 +930,15 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		// A single warm start cannot separate a runner stall from a regression.
 		// Collect three starts and gate on the median, with the p95 and max kept.
 		const warmSamples = [];
+		const warmPhases = [];
 		for (let run = 0; run < 3; run += 1) {
 			const restarted = await launch();
 			warmSamples.push(restarted.spawnToShellMs);
+			warmPhases.push(launchPhaseSplit(restarted));
 			if (run < 2) await closeApp();
 		}
 		result.samples.startupWarm = warmSamples;
+		result.diagnostics.startupWarm = warmPhases;
 		runMemory('warm-startup');
 		await screenshot('05-warm-startup');
 		result.checks.push('native warm startup');
@@ -876,7 +1011,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	if (finalizationError) throw finalizationError;
 	if (result.forcedBudgetFailure) {
 		throw new Error(
-			`Benchmark budget gate failed for ${result.budget.platformKey}: ${result.budget.failures.join(', ')}`
+			`Benchmark budget gate failed for ${result.budget.platformKey}: ${result.budget.failures.join(', ')}${startupErrorContext(result)}`
 		);
 	}
 	return result;
