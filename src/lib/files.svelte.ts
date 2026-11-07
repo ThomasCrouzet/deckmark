@@ -182,6 +182,8 @@ class FilesStore {
 	private pendingCrossTabSyncs = new Map<string, symbol>();
 	private diskOperations = new Map<string, Promise<unknown>>();
 	private renameTail: Promise<void> | null = null;
+	/** Bumped when one file's metadata changes so derived reads rerun. */
+	private metaRev = $state(0);
 	private metaIndex = new MetaIndex(() => this.library);
 	// §M3 - Ids with a local keystroke not yet persisted ("dirty") in the
 	// cross-tab sense: a draft is dirty as long as a write is pending OR its
@@ -327,6 +329,7 @@ class FilesStore {
 				const closed = this.closedFiles.findIndex((file) => file.id === id);
 				if (closed >= 0) this.closedFiles.splice(closed, 1);
 				this.saveQueue.discard(id);
+				this.metaIndex.invalidateMeta(id);
 			},
 			reloadQuiet: () => this.reload(false),
 			reloadSiblings: () => {
@@ -825,7 +828,8 @@ class FilesStore {
 			next.delete(id);
 			this.selectedIds = next;
 		}
-		this.metaIndex.invalidateMeta(id);
+		// The file can stay in the library (a closed tab keeps its index entries).
+		// Callers that remove it completely invalidate the meta index after removal.
 		return { file, index: idx };
 	}
 
@@ -945,7 +949,6 @@ class FilesStore {
 				}
 				removed.add(file.id);
 				this.saveQueue.discard(file.id);
-				this.metaIndex.invalidateMeta(file.id);
 			}
 			const nextActiveId = nextActiveAfterRemoval(
 				this.files.map((file) => file.id),
@@ -972,8 +975,9 @@ class FilesStore {
 			];
 			for (const row of result.variants) {
 				this.closedFiles.push({ ...row, dirty: false });
-				this.metaIndex.invalidateMeta(row.id);
 			}
+			// A bulk removal is cheaper to index from scratch than per file.
+			this.metaIndex.invalidateBacklinksIndex();
 		});
 	}
 
@@ -1219,6 +1223,7 @@ class FilesStore {
 		file.updatedAt = Date.now();
 		file.dirty = true;
 		this.metaIndex.invalidateMeta(id);
+		this.metaRev += 1;
 		this.scheduleSave(id);
 	}
 
@@ -1374,8 +1379,9 @@ class FilesStore {
 			this.saveQueue.trackPersisted(row);
 			if (changed) this.scheduleSave(row.id);
 			else applied.push(row.id);
-			this.metaIndex.invalidateMeta(row.id);
 		}
+		// A bulk row update is cheaper to index from scratch than per file.
+		if (rows.length > 0) this.metaIndex.invalidateBacklinksIndex();
 		this.crossTab.post({ type: 'reorder' });
 		return applied;
 	}
@@ -1485,6 +1491,7 @@ class FilesStore {
 			onImportRollback: (id: string) => {
 				this.detachFromView(id);
 				this.saveQueue.discard(id);
+				this.metaIndex.invalidateMeta(id);
 			}
 		};
 	}
@@ -1731,6 +1738,7 @@ class FilesStore {
 	}
 	/** All unique tags of the corpus, sorted alphabetically. */
 	get allTags(): string[] {
+		void this.metaRev;
 		return this.metaIndex.allTags;
 	}
 	/** Title: front-matter `title` > first H1 (if FM present) > filename without extension. */
@@ -1742,6 +1750,7 @@ class FilesStore {
 	}
 	/** Files that contain a wiki-link pointing to `targetId`. */
 	backlinks(targetId: string): FileItem[] {
+		void this.metaRev;
 		const targetFile = this.library.find((file) => file.id === targetId);
 		if (!targetFile || documentKindForFile(targetFile) !== 'note') return [];
 		// The metadata index already keeps an inverted name and id index. Use it

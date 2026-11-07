@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import type { ChangeSet, Transaction } from '@codemirror/state';
 	import type { EditorView, ViewUpdate } from '@codemirror/view';
 	import { i18n, t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
@@ -44,10 +45,85 @@
 	let host: HTMLDivElement;
 	let view: EditorView | null = null;
 	let lastEmitted = '';
+	// Local compile-time instrumentation. A production build removes it, so the
+	// boot budget does not include test counters.
+	const SOURCE_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
+	function sourceMark(name: string): void {
+		if (SOURCE_METRICS) performance.mark(name);
+	}
+	function sourceMeasure<T>(name: string, run: () => T): T {
+		if (!SOURCE_METRICS) return run();
+		const startedAt = performance.now();
+		try {
+			return run();
+		} finally {
+			performance.measure(name, { start: startedAt, end: performance.now() });
+		}
+	}
+
 	let applyingExternal = false;
+	// True when the last accepted source contains the presentation marker
+	// substring. A marker-free note can only become a presentation by creating
+	// that substring, which the fast path tests locally.
+	let sourceHasPresentationMarker = false;
+	// Full source that the change filter computed for an accepted risky
+	// transaction. The update listener reuses it when the ChangeSet identity
+	// matches, so one accepted risky change converts once.
+	let pendingGuard: { changes: ChangeSet; source: string } | null = null;
+
+	const PRESENTATION_MARKER = '<!-- mdsh-presentation';
+	const MAX_GUARD_LINE = 4096;
 
 	function sourceChanges(update: Pick<ViewUpdate, 'startState' | 'changes'>): string {
 		return applySourceChanges(lastEmitted, update.startState, update.changes);
+	}
+
+	/**
+	 * Returns true when the change cannot alter the note/presentation boundary
+	 * and does not need a full source rebuild. The check is deliberately
+	 * conservative: marker, fence, and escape tokens, paste, drop, undo and
+	 * redo, and every document that already contains the presentation marker
+	 * still take the full validation path.
+	 */
+	function ordinarySourceChange(transaction: Transaction): boolean {
+		if (sourceHasPresentationMarker) return false;
+		if (
+			transaction.isUserEvent('undo') ||
+			transaction.isUserEvent('redo') ||
+			transaction.isUserEvent('input.paste') ||
+			transaction.isUserEvent('input.drop')
+		)
+			return false;
+		const doc = transaction.startState.doc;
+		let ordinary = true;
+		transaction.changes.iterChanges((from, to, _newFrom, _newTo, inserted) => {
+			if (!ordinary) return;
+			const insertedText = inserted.sliceString(0, inserted.length, '\n');
+			// A new marker, fence, or literal escape needs one of these tokens.
+			// Refuse them in inserted text so two insertions in one transaction
+			// cannot assemble a token that neither part contains alone.
+			if (/[<!`~\\-]/.test(insertedText)) {
+				ordinary = false;
+				return;
+			}
+			const lineFrom = doc.lineAt(from).from;
+			const lineTo = doc.lineAt(to).to;
+			if (lineTo - lineFrom > MAX_GUARD_LINE) {
+				ordinary = false;
+				return;
+			}
+			const joined = doc.sliceString(lineFrom, from) + insertedText + doc.sliceString(to, lineTo);
+			const fence = /^[ \t]{0,3}(?:`{3,}|~{3,})/m;
+			// A deletion can join two line fragments into a marker or fence.
+			// A change on an existing fence line can open or close a region.
+			if (
+				joined.includes('<!--') ||
+				fence.test(joined) ||
+				fence.test(doc.sliceString(lineFrom, lineTo))
+			)
+				ordinary = false;
+		});
+		return ordinary;
 	}
 	// Failure state of the CodeMirror lazy-load (chunk unavailable: first
 	// offline opening, or stale PWA cache after deployment). Shows an in-place
@@ -374,13 +450,21 @@
 			cm.EditorView.editable.of(!readonly),
 			cm.EditorState.readOnly.of(readonly),
 			cm.EditorState.changeFilter.of((transaction) => {
-				if (
-					plainText ||
-					!transaction.docChanged ||
-					applyingExternal ||
-					documentKind(sourceChanges(transaction)) === 'note'
-				)
+				if (plainText || !transaction.docChanged || applyingExternal) return true;
+				if (ordinarySourceChange(transaction)) {
+					sourceMark('mdsh:source-guard-fast');
+					pendingGuard = null;
 					return true;
+				}
+				const source = SOURCE_METRICS
+					? sourceMeasure('mdsh:source-guard', () => sourceChanges(transaction))
+					: sourceChanges(transaction);
+				if (documentKind(source) === 'note') {
+					sourceHasPresentationMarker = source.includes(PRESENTATION_MARKER);
+					pendingGuard = { changes: transaction.changes, source };
+					return true;
+				}
+				pendingGuard = null;
 				notify.error(t('documents.noConversion'));
 				// Reject the change before the document, history, or saved source can diverge.
 				return false;
@@ -393,7 +477,18 @@
 					onViewportLine?.(update.state.doc.lineAt(update.view.viewport.from).number);
 				}
 				if (update.docChanged && !applyingExternal) {
-					const v = sourceChanges(update);
+					const cached = pendingGuard;
+					pendingGuard = null;
+					let v: string;
+					if (cached && cached.changes === update.changes) {
+						v = cached.source;
+						sourceMark('mdsh:source-change-reuse');
+					} else {
+						v = SOURCE_METRICS
+							? sourceMeasure('mdsh:source-change', () => sourceChanges(update))
+							: sourceChanges(update);
+						sourceHasPresentationMarker = v.includes(PRESENTATION_MARKER);
+					}
 					if (v !== lastEmitted) {
 						lastEmitted = v;
 						onChange(v);
@@ -438,6 +533,7 @@
 		onCursorLine?.(view.state.doc.lineAt(view.state.selection.main.head).number);
 		onViewportLine?.(view.state.doc.lineAt(view.viewport.from).number);
 		lastEmitted = content;
+		sourceHasPresentationMarker = content.includes(PRESENTATION_MARKER);
 		if (savedPosition?.scrollTop) {
 			const mountedView = view;
 			mountedView.requestMeasure({
@@ -493,6 +589,8 @@
 		const c = content;
 		if (view && activeCM && c !== lastEmitted) {
 			lastEmitted = c;
+			sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
+			pendingGuard = null;
 			applyingExternal = true;
 			try {
 				view.dispatch({

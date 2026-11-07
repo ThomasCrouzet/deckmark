@@ -138,7 +138,7 @@ export class ImageMarkdownRoundTrip {
 		return [...this.state.values()].map((image) => image.alt);
 	}
 
-	restore(markdown: string): string {
+	restore(markdown: string, commit = true): string {
 		const lines = markdown.split('\n');
 		const output: string[] = [];
 		const occurrences = new Map<string, number>();
@@ -168,7 +168,7 @@ export class ImageMarkdownRoundTrip {
 			if (IMAGE_META_LINE.test(lines[index + 1] ?? '')) index++;
 		}
 
-		this.state = nextState;
+		if (commit) this.state = nextState;
 		return output.join('\n');
 	}
 }
