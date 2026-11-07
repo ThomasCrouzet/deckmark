@@ -253,9 +253,14 @@ speedup. Refresh weights when the measured distribution changes.
 
 Each runner creates the same deterministic plan from the current source. Its
 `--test-list` selection drives both listing and execution. Report metadata
-records the partition identity. `check-e2e-manifest.mjs plan` rejects missing,
+records the partition identity and a digest of that shard's planned test keys.
+Execution mode recomputes that digest from both the expected and actual test
+sets. Substituting the same wrong selection into both reports fails.
+`check-e2e-manifest.mjs plan` rejects missing,
 duplicated or different selections and proves full-suite membership. Execution
 mode still rejects list-only, incomplete and unjustifiably skipped results.
+Stale weights for renamed or deleted files produce a warning, not a CI failure.
+The current discovered suite, never the weights file, defines test membership.
 
 ## Verification and rollback
 
