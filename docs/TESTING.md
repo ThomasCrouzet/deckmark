@@ -366,6 +366,19 @@ CI=1 xvfb-run -a npm run test:e2e -- table-editing.spec.ts --workers=1 --retries
 
 ## Retained isolated risks
 
+### Incremental source bytes
+
+`src/lib/code/source-text.test.ts` checks the raw separator map before editor
+integration. Normalized CodeMirror positions differ from raw positions at CRLF
+and bare CR. Multi-range changes can shift a later separator, and a delayed
+snapshot can read a later edit. Browser export cases cannot inspect an immutable
+pending revision or prove that applying a change does not read a full raw string.
+The isolated cases compare exact mixed-EOL and BOM bytes, retained snapshots,
+multi-range edits, and boundary edits in 1 MB and 5 MB documents. A seeded change
+sequence compares the new buffer with the existing raw conversion function.
+Run `npx vitest run src/lib/code/source-text.test.ts --maxWorkers=1`.
+This check does not establish editor, persistence, or native integration.
+
 The test review removed duplicate creation, selection, rendering, export, and
 preference tests. Browser workflows verify those results. The remaining isolated
 tests cover these additional risks:
