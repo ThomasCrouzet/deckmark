@@ -5,6 +5,35 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.5.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.4.0...v2.5.0) (2026-11-07)
+
+
+### Features
+
+* **cli:** package the installed CLI and MCP with a bundled runtime ([#298](https://github.com/ThomasCrouzet/deckmark/issues/298)) ([98547b4](https://github.com/ThomasCrouzet/deckmark/commit/98547b49e09b70367915a142f2624809935519c2))
+* **creation:** create code and JSON files from New File ([#276](https://github.com/ThomasCrouzet/deckmark/issues/276)) ([c4a755d](https://github.com/ThomasCrouzet/deckmark/commit/c4a755d33a1f5fcba5554ff85d0285cafbfab28e))
+* **diagnostics:** add opt-in local reports with secret-safe events ([#281](https://github.com/ThomasCrouzet/deckmark/issues/281)) ([1d9c547](https://github.com/ThomasCrouzet/deckmark/commit/1d9c5478e92550496332171077e6cbb7fc9239d4))
+
+
+### Bug Fixes
+
+* **bench:** enforce complete and fail-closed performance evidence ([#274](https://github.com/ThomasCrouzet/deckmark/issues/274)) ([1e0e825](https://github.com/ThomasCrouzet/deckmark/commit/1e0e825f83e2d19e7bb2bbd5e4f2a90680bd7c65))
+* **bench:** fail on missing samples and widen noisy metrics ([#294](https://github.com/ThomasCrouzet/deckmark/issues/294)) ([3759872](https://github.com/ThomasCrouzet/deckmark/commit/3759872cd37beaf987c67958407b9fbd3aa49d45))
+* **bench:** reject incomplete and truncated benchmark evidence ([#297](https://github.com/ThomasCrouzet/deckmark/issues/297)) ([5430245](https://github.com/ThomasCrouzet/deckmark/commit/5430245b23c14de1bbcbd2ea6480123b20496fff))
+* **ci:** allow slow apt mirrors to finish the browser install ([#290](https://github.com/ThomasCrouzet/deckmark/issues/290)) ([32aa6b5](https://github.com/ThomasCrouzet/deckmark/commit/32aa6b54e95612bf1358e8624d4854e0173bfbd2))
+* **cli:** wait for package runtime images before test cleanup ([#301](https://github.com/ThomasCrouzet/deckmark/issues/301)) ([7620da0](https://github.com/ThomasCrouzet/deckmark/commit/7620da0da86871bbd295f5ea7ecd6c05aaa79c7c))
+* **code:** use accurate C#, PowerShell and JSONC language handling ([#275](https://github.com/ThomasCrouzet/deckmark/issues/275)) ([2557ec2](https://github.com/ThomasCrouzet/deckmark/commit/2557ec2157ea522e8981f4e56e9c6b06b3e32cae))
+* **first-run:** add storage and offline setup retries with honest status ([#280](https://github.com/ThomasCrouzet/deckmark/issues/280)) ([617b365](https://github.com/ThomasCrouzet/deckmark/commit/617b36560339664fc99cefda0dfc4cb7da1b8e2b))
+* preserve Cloudflare response integrity ([#265](https://github.com/ThomasCrouzet/deckmark/issues/265)) ([746afc6](https://github.com/ThomasCrouzet/deckmark/commit/746afc63db16ecb021dafcb2c3cc72a2f438f34d))
+* restore verified Cloudflare mirror publishing ([#257](https://github.com/ThomasCrouzet/deckmark/issues/257)) ([49eb29d](https://github.com/ThomasCrouzet/deckmark/commit/49eb29ddeba4f2fad4d842608165003de79dc1fb))
+* reuse HTML export assets and keep CI reports local ([#299](https://github.com/ThomasCrouzet/deckmark/issues/299)) ([61b5a36](https://github.com/ThomasCrouzet/deckmark/commit/61b5a36c2d23af6f56328cd2cf5e8e5d396060e6))
+
+
+### Performance Improvements
+
+* **editor:** index project links once for backlink resolution ([#278](https://github.com/ThomasCrouzet/deckmark/issues/278)) ([c945546](https://github.com/ThomasCrouzet/deckmark/commit/c945546e461d7bf39ebeb096cd1cc98bc5e6227a))
+* **editor:** remove full-document work from ordinary input ([#303](https://github.com/ThomasCrouzet/deckmark/issues/303)) ([1fedfd8](https://github.com/ThomasCrouzet/deckmark/commit/1fedfd8ed2480fa9a526e22ae5c63bd379b382af))
+
 ## [2.4.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.3.0...v2.4.0) (2026-11-04)
 
 
