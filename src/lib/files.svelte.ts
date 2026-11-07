@@ -584,7 +584,8 @@ class FilesStore {
 	}
 
 	private dispatchEditorFlush(): void {
-		if (browser) window.dispatchEvent(new Event('mdsh:flush-editor'));
+		if (browser && !window.dispatchEvent(new Event('mdsh:flush-editor', { cancelable: true })))
+			throw new Error('Editor snapshot failed');
 	}
 
 	/** Shared draft-row builder for flush paths (history snapshot side-effect). */
@@ -838,6 +839,7 @@ class FilesStore {
 			this.delete(id);
 			return;
 		}
+		this.dispatchEditorFlush();
 		const detached = this.detachFromView(id);
 		if (!detached) return;
 		this.closedFiles.push(detached.file);

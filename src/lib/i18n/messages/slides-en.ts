@@ -147,6 +147,9 @@ export const slidesEn = {
 	'slides.exportError': 'The presentation could not be exported.',
 	'slides.changedElsewhere':
 		'This document changed in another view. The editor loaded the current version.',
+	'slides.saveError': 'The latest slide edits are not saved. Keep this view open and retry saving.',
+	'slides.editConflict':
+		'This file changed elsewhere. Your local edits are still here. Edit a copy to keep both versions.',
 	'slides.overflow':
 		'Some text does not fit. Enlarge its box or reduce the font size before export.',
 	'slides.resetView': 'Reset view',
