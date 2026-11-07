@@ -2,6 +2,13 @@ import { expect, test, type Locator, type Page, type TestInfo } from '@playwrigh
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resetAppState } from './helpers';
+import { createPresentation, openPresentationSource } from './presentation-helpers';
+import {
+	createDeck,
+	createElement,
+	createSlide,
+	serializePresentation
+} from '../src/lib/presentation/model';
 
 const widths = [320, 360, 390, 768, 1024, 1280, 1440];
 const productFiles = [
@@ -29,6 +36,108 @@ type Evidence = Cell & {
 	error?: string;
 	export?: { bytes: number; expectedSha256: string; actualSha256: string };
 };
+
+test('gesture guides clear at pointer cancel, undo and slide switch', async ({
+	page,
+	context,
+	hasTouch
+}, info) => {
+	test.setTimeout(60000);
+	await resetAppState(page);
+	await page.evaluate(() => localStorage.setItem('mdsh:locale', 'en'));
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	const editor = await createPresentation(page);
+	const fixture = serializePresentation(
+		createDeck({
+			slides: [
+				createSlide({
+					elements: [
+						createElement('rectangle', { id: 'moving', x: 100, y: 100, width: 20, height: 20 }),
+						createElement('rectangle', { id: 'fixed', x: 147, y: 400, width: 20, height: 20 })
+					]
+				}),
+				createSlide()
+			]
+		})
+	);
+	await openPresentationSource(editor);
+	await editor.getByTestId('slide-source-editor').fill(fixture);
+	await editor.getByTestId('slide-source-apply').click();
+	const target = editor.locator('[data-object-id="moving"]');
+	await target.click({ trial: true });
+	const client = hasTouch ? await context.newCDPSession(page) : null;
+	const guides = editor.locator('.guide');
+	const samples: unknown[] = [];
+	for (const boundary of ['cancel', 'undo', 'slide'] as const) {
+		const box = (await target.boundingBox())!;
+		const factor = box.width / 20;
+		const x = box.x + box.width / 2;
+		const y = box.y + box.height / 2;
+		if (client) {
+			await client.send('Input.dispatchTouchEvent', {
+				type: 'touchStart',
+				touchPoints: [{ x, y }]
+			});
+			await client.send('Input.dispatchTouchEvent', {
+				type: 'touchMove',
+				touchPoints: [{ x: x + 40 * factor, y: y + 13 * factor }]
+			});
+		} else {
+			await page.mouse.move(x, y);
+			await page.mouse.down();
+			await page.mouse.move(x + 40 * factor, y + 13 * factor);
+		}
+		await expect(guides.first()).toBeVisible();
+		samples.push({
+			boundary,
+			guides: await guides.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('style')))
+		});
+		if (boundary === 'cancel') {
+			if (client)
+				await client.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+			else
+				await target.dispatchEvent('pointercancel', {
+					pointerId: 1,
+					pointerType: 'mouse',
+					clientX: x,
+					clientY: y
+				});
+		} else if (boundary === 'undo') {
+			await page.keyboard.press('ControlOrMeta+z');
+		} else {
+			await editor.getByTestId('slide-thumbnail').last().dispatchEvent('click');
+		}
+		if (client && boundary !== 'cancel')
+			await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+		if (!client) await page.mouse.up();
+		await expect(guides).toHaveCount(0);
+		if (boundary === 'slide') await editor.getByTestId('slide-thumbnail').first().click();
+	}
+	await editor.getByTestId('slide-object-list-item').first().click();
+	const beforeKey = (await target.boundingBox())!;
+	await page.keyboard.press('ArrowRight');
+	const afterKey = (await target.boundingBox())!;
+	expect(afterKey.x - beforeKey.x).toBeCloseTo(beforeKey.width / 20, 1);
+	await info.attach('gesture-lifecycle.json', {
+		body: JSON.stringify(
+			{
+				fixture,
+				fixtureSha256: hash(fixture),
+				input: hasTouch
+					? 'Trusted Chromium CDP touch'
+					: 'Trusted mouse with synthetic pointercancel',
+				samples,
+				keyboardDelta: afterKey.x - beforeKey.x,
+				limits: 'Emulated input, not a physical device.'
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	await screenshot(page, info, 'gesture-lifecycle');
+});
 
 test.afterEach(async ({ browser }, info) => {
 	if (info.status === 'skipped') return;
