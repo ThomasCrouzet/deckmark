@@ -156,6 +156,57 @@ more than the reviewed budget while the median stays stable. The p95 and
 maximum stay in the report. Cold startup, close and presentation load stay
 one-shot because they require a process or window lifecycle.
 
+### Native readiness observation
+
+Readiness is the only native measurement that waits on a condition. The macOS
+cold-start job on 2026-11-07 measured 33013.015 ms against the 15000 ms limit.
+Its shell phase took 30161.885 ms over two polls, so one attempt used the 30 s
+script budget before the next attempt observed the shell. The wait belongs to
+the observation channel, not to the measured workload: on a Linux host the same
+predicate answers a healthy shell in 2 ms, and it answers `script timeout` only
+when the driver's script budget ends. The macOS cause stays unproven. A lost
+completion and a blocked main thread both match the log, and the new deadline
+bounds both. Linux evidence is not macOS proof.
+
+The benchmark now reads readiness through the driver's direct-eval endpoint,
+`POST /wdio/eval`, with `timeout_ms: 2000`. The plugin builds a fresh executor
+for that request and stops waiting at that deadline. It answers HTTP 500
+`script timeout` when no completion arrives. macOS also drops its pending result
+registration and stops dispatching at that deadline. Linux drops its waiting
+receiver; a page promise can stay unresolved. The client keeps the shared 60 s
+transport bound, so no client abort leaves a request that outlives its caller.
+
+Only the readiness probe uses that channel. Every other request keeps its
+previous signature and the 60 s transport bound. The predicate, the 90 s
+readiness budget, the 100 ms retry delay, the poll counter, the clock marks, the
+sample counts, the statistics and the 15000 ms startupCold limit do not change.
+
+The consequences, stated plainly:
+
+- The observation is quantized at about 2.1 s per stalled attempt instead of the
+  30 s session script budget. A stalled attempt counts as one unready poll, and
+  a new attempt follows. `readyPolls` can be higher than before on a stalled
+  start, and each count is cheaper.
+- The probe script is smaller than the shared `execute/sync` wrapper. It reads
+  one DOM attribute and calls the callback. The measured workload after
+  readiness is unchanged, but this probe is not a byte-identical request. Do not
+  claim equal transport cost.
+- A probe that ends at the server deadline leaves one unresolved page promise.
+  The server stops waiting for it. The 90 s budget bounds that residue to about
+  43 attempts.
+- A busy app still fails. The predicate must return `true` before the 90 s
+  budget ends, and the gate still applies the 15000 ms startupCold limit. This
+  correction changes how readiness is observed, not what counts as ready.
+
+The local protocol control (private maintenance evidence, not in this
+repository) checks that contract against the real Linux native-smoke binary. It
+measured a 2 ms boolean `true`, a 16051 ms hold on a real `aria-busy` attribute
+where both observation channels stayed pending, a 2004 ms HTTP 500 at the server
+deadline for a script that never calls back, and a 30033 ms HTTP 500 on the
+standard `execute/sync` channel for the same fault. A 16000 ms startupCold
+fixture still fails the reviewed 15000 ms limit. macOS CI remains the only proof
+for macOS.
+
 The library reload budget is 8000 ms on all three native platforms because the
 20-sample workload measures warm reloads, not the old one-shot cold reload. The
 measured p95 was 4834.9 to 7532.5 ms on Linux, 5408.5 ms on Windows and

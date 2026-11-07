@@ -182,13 +182,13 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		}
 	};
 
-	/** @param {string} path @param {unknown} [body] @param {string} [method] @param {number} [timeoutMs] */
-	async function request(path, body, method = 'POST', timeoutMs = 60_000) {
+	/** @param {string} path @param {unknown} [body] @param {string} [method] */
+	async function request(path, body, method = 'POST') {
 		const response = await fetch(`${endpoint}${path}`, {
 			method,
 			headers: { 'content-type': 'application/json' },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
-			signal: AbortSignal.timeout(timeoutMs)
+			signal: AbortSignal.timeout(60_000)
 		});
 		const data = await response.json();
 		if (!response.ok || data.value?.error) {
@@ -198,9 +198,9 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		}
 		return data.value;
 	}
-	/** @param {string} script @param {unknown[]} [args] @param {number} [timeoutMs] */
-	const execute = (script, args = [], timeoutMs = 60_000) =>
-		request(`/session/${session}/execute/sync`, { script, args }, 'POST', timeoutMs);
+	/** @param {string} script @param {unknown[]} [args] */
+	const execute = (script, args = []) =>
+		request(`/session/${session}/execute/sync`, { script, args });
 	/** @param {string} script @param {unknown[]} [args] */
 	const executeAsync = (script, args = []) =>
 		request(`/session/${session}/execute/async`, { script, args });
@@ -221,24 +221,52 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		throw new Error(`Timeout ${label}: ${last ? String(last) : 'condition false'}`);
 	}
 
-	// One readiness attempt can stall inside the driver for its whole script
-	// budget and only then answer `script timeout`, while a second request on the
-	// same session answers in milliseconds. Bound each attempt so a lost
-	// completion costs one short attempt instead of the readiness budget. The
-	// predicate, the 90 s readiness budget, and the budget gate stay unchanged.
-	const READY_ATTEMPT_MS = 2_000;
+	// Readiness is observed through the driver's server-bounded direct eval.
+	// `/wdio/eval` takes `{ script, window_label, timeout_ms }`; the plugin
+	// builds a fresh executor whose script budget is `timeout_ms`, and the
+	// handler answers from that deadline (HTTP 500 `script timeout`) instead of
+	// waiting for a completion that may never arrive. The client keeps the
+	// shared 60 s transport bound on every request, so a stalled attempt ends on
+	// the server's clock and leaves no client-aborted request behind. Only this
+	// readiness probe uses the channel: the predicate, the 90 s readiness
+	// budget, the poll counter, the clock marks and the 15 s gate stay unchanged.
+	const READY_PROBE_MS = 2_000;
+	const READY_PROBE_SCRIPT =
+		'const done = arguments[arguments.length - 1];' +
+		'try { done({ ok: true, value: document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false" }); }' +
+		'catch (error) { done({ ok: false, error: String(error) }); }';
+
+	// A probe resolves only on a strict boolean. A non-2xx answer, a missing
+	// `value` or any other shape is not readiness: it throws, `until` records it,
+	// and a persistent contract break fails the run after the 90 s budget.
+	async function readinessProbe() {
+		const response = await fetch(`${endpoint}/wdio/eval`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				script: READY_PROBE_SCRIPT,
+				window_label: 'main',
+				timeout_ms: READY_PROBE_MS
+			}),
+			signal: AbortSignal.timeout(60_000)
+		});
+		const data = await response.json().catch(() => null);
+		if (!response.ok) {
+			throw new Error(`POST /wdio/eval: HTTP ${response.status} ${JSON.stringify(data)}`);
+		}
+		if (typeof data?.value !== 'boolean') {
+			throw new Error(`POST /wdio/eval: unexpected result ${JSON.stringify(data)}`);
+		}
+		return data.value;
+	}
 
 	async function appReady() {
 		let polls = 0;
 		await until(
 			() => {
-				// Count every existing readiness attempt, including one that rejects.
+				// Count every readiness attempt, including one that rejects.
 				polls += 1;
-				return execute(
-					'return document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false";',
-					[],
-					READY_ATTEMPT_MS
-				);
+				return readinessProbe();
 			},
 			'native shell ready',
 			90_000
