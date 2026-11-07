@@ -369,6 +369,7 @@ async function runCase(browser, url, entry, report, options) {
 		await waitStored(page, sentinelEdited, sentinelId);
 		await page.keyboard.press('ControlOrMeta+z');
 		assert.equal(await editorState(page), sentinel);
+		await waitStored(page, sentinel, sentinelId);
 		await mainButton.click();
 		await waitEditor(page, expected);
 		await editorState(page, 0);
@@ -378,6 +379,7 @@ async function runCase(browser, url, entry, report, options) {
 			previous,
 			'Undo must affect the last edit in this file only.'
 		);
+		await waitStored(page, previous);
 		result.fidelity.perFileUndo = true;
 		await page.keyboard.press('ControlOrMeta+Shift+z');
 		assert.equal(await editorState(page), expected);
