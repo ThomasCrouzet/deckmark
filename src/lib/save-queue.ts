@@ -10,6 +10,8 @@ import type { DraftRow } from './db';
 import { TIMERS } from './config';
 import { uniqueName } from './file-utils';
 import { projectConflictVariant } from './project-conflicts';
+import type { DocumentRevision } from './document-revisions';
+import { recordEditorDuration } from './editor-perf';
 
 const SAVE_SUPERSEDED = Symbol('save-superseded');
 
@@ -30,7 +32,7 @@ export interface SaveQueueCallbacks {
 	 * Optional. Used by the store to publish the write to the other tabs
 	 * (BroadcastChannel) to avoid silent last-writer-wins.
 	 */
-	onDraftSaved?: (id: string, updatedAt: number) => void;
+	onDraftSaved?: (id: string, updatedAt: number, revision?: DocumentRevision) => void;
 	/** Called when a concurrent durable branch was copied to version history. */
 	onConflictPreserved?: (id: string, variant: DraftRow) => void;
 	/** Called when a write adopts a newer durable project location. */
@@ -112,10 +114,28 @@ export class SaveQueue {
 	private invalidatedIds = new Set<string>();
 	private cb: SaveQueueCallbacks;
 	private writeRow: ((row: DraftRow) => Promise<unknown>) | undefined;
+	private capturedRevisions = new WeakMap<DraftRow, DocumentRevision>();
 
 	constructor(cb: SaveQueueCallbacks, writeRow?: (row: DraftRow) => Promise<unknown>) {
 		this.cb = cb;
 		this.writeRow = writeRow;
+	}
+
+	/** Revisions stay outside the durable row and portable formats. */
+	captureRevision(row: DraftRow, revision: DocumentRevision): void {
+		if (row.id !== revision.fileId) throw new Error('document-revision-file-mismatch');
+		this.capturedRevisions.set(row, revision);
+	}
+
+	private readRow(id: string, getRow: () => DraftRow | null): DraftRow | null {
+		try {
+			return getRow();
+		} catch (error) {
+			this.durabilityFailures.set(id, error);
+			this.cb.onError(error);
+			this.updateFlag();
+			return null;
+		}
 	}
 
 	private updateFlag(): void {
@@ -260,6 +280,7 @@ export class SaveQueue {
 	 */
 	private enqueuePut(row: DraftRow): void {
 		const id = row.id;
+		const revision = this.capturedRevisions.get(row);
 		// A live schedule re-arms a discarded / invalidated id (e.g. restored
 		// from trash, or edited again after a cross-tab toast).
 		this.discardedIds.delete(id);
@@ -272,6 +293,7 @@ export class SaveQueue {
 			// Superseded by a newer enqueue, invalidate, or discard - skip write.
 			if (this.generations.get(id) !== gen) return;
 
+			const started = performance.now();
 			try {
 				const written = await this.putPreservingConflict(row, gen);
 				if (!written) return;
@@ -287,6 +309,8 @@ export class SaveQueue {
 					this.cb.onError(err);
 				}
 				return;
+			} finally {
+				recordEditorDuration('documentStorage', performance.now() - started);
 			}
 			// Put finished: trash discard must reverse a resurrection.
 			if (this.discardedIds.has(id)) {
@@ -303,7 +327,8 @@ export class SaveQueue {
 			this.durabilityFailures.delete(id);
 			this.cb.onSaved(Date.now());
 			// §M3 - Notifies the other tabs of the successful write.
-			this.cb.onDraftSaved?.(row.id, row.updatedAt);
+			if (revision) this.cb.onDraftSaved?.(row.id, row.updatedAt, revision);
+			else this.cb.onDraftSaved?.(row.id, row.updatedAt);
 		};
 
 		const prev = this.chains.get(id);
@@ -336,7 +361,7 @@ export class SaveQueue {
 			id,
 			setTimeout(() => {
 				this.timers.delete(id);
-				const row = getRow();
+				const row = this.readRow(id, getRow);
 				if (!row) {
 					this.updateFlag();
 					return;
@@ -462,7 +487,7 @@ export class SaveQueue {
 			if (!t) continue;
 			clearTimeout(t);
 			this.timers.delete(id);
-			const row = getRow(id);
+			const row = this.readRow(id, () => getRow(id));
 			if (!row) continue;
 			this.enqueuePut(row);
 		}
@@ -497,7 +522,7 @@ export class SaveQueue {
 			const t = this.timers.get(id);
 			if (t) clearTimeout(t);
 			this.timers.delete(id);
-			const row = getRow(id);
+			const row = this.readRow(id, () => getRow(id));
 			if (!row) continue;
 			// §m3 - `onSaved` ONLY after the write succeeds (like the `schedule`
 			// path). Previously `onSaved(Date.now())` was called unconditionally at
@@ -521,7 +546,7 @@ export class SaveQueue {
 		// This lets a temporary quota/IDB outage recover without another keystroke.
 		for (const id of [...this.durabilityFailures.keys()]) {
 			if (this.isActivelySaving(id)) continue;
-			const row = getRow(id);
+			const row = this.readRow(id, () => getRow(id));
 			if (row) this.enqueuePut(row);
 		}
 		// Bound the loop so a pathological continuous schedule cannot hang forever.

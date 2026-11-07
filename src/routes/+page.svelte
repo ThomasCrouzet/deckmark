@@ -123,6 +123,7 @@
 			if (!accepted || filesStore.activeId !== activeId) return;
 			filesStore.allowDocumentRendering(activeId);
 		}
+		filesStore.flushDocumentEdits();
 		mode = nextMode;
 	}
 	$effect(() => {
@@ -564,13 +565,15 @@
 		input.value = '';
 	}
 
-	function handleEditorChange(text: string) {
-		if (!filesStore.active) return;
-		if (kind === 'note' && documentKind(text) !== 'note') {
+	function handleEditorChange(id: string, text: string) {
+		const file = filesStore.library.find((entry) => entry.id === id);
+		if (!file) return;
+		const fileKind = documentKindForFile(file);
+		if (fileKind === 'note' && documentKind(text) !== 'note') {
 			notify.error(t('documents.noConversion'));
 			return;
 		}
-		if (kind === 'note' || kind === 'code') filesStore.updateContent(filesStore.active.id, text);
+		if (fileKind === 'note' || fileKind === 'code') filesStore.queueEditorContent(id, text);
 	}
 
 	// §C1 - WYSIWYG flush: explicitly writes to the file `id` provided by the

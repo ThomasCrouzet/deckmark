@@ -14,6 +14,43 @@ function createQueue(callbacks: SaveQueueCallbacks): SaveQueue {
 }
 
 describe('SaveQueue', () => {
+	it('retries a failed snapshot reader without losing the pending draft', async () => {
+		const saved: DraftRow[] = [];
+		const queue = new SaveQueue(noopCb, async (row) => {
+			saved.push(row);
+		});
+		queue.schedule('revision-reader', () => {
+			throw new Error('snapshot-unavailable');
+		});
+		await expect(
+			queue.flushAwait(() => {
+				throw new Error('snapshot-unavailable');
+			})
+		).rejects.toBeInstanceOf(SaveQueueFlushError);
+		expect(queue.hasDurabilityFailure('revision-reader')).toBe(true);
+		const latest = { ...row('revision-reader'), content: 'Retained latest edit.' };
+		await queue.flushAwait(() => latest);
+		expect(saved).toEqual([latest]);
+		expect(queue.has('revision-reader')).toBe(false);
+	});
+
+	it('reports the captured revision without adding it to the durable row', async () => {
+		const file = row('revision-save');
+		const revision = { fileId: file.id, generation: 7 };
+		const saved: unknown[] = [];
+		const queue = new SaveQueue(
+			{ ...noopCb, onDraftSaved: (_id, _updatedAt, captured) => saved.push(captured) },
+			async (written) => {
+				expect(written).toEqual(file);
+				expect(Object.keys(written)).not.toContain('revision');
+			}
+		);
+		queue.captureRevision(file, revision);
+		queue.persist(file);
+		await queue.flushAwait(() => file);
+		expect(saved).toEqual([revision]);
+	});
+
 	beforeEach(() => {
 		vi.useFakeTimers();
 	});
