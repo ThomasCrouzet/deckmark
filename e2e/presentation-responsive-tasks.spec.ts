@@ -52,12 +52,13 @@ test('gesture guides clear at pointer cancel, undo and slide switch', async ({
 		createDeck({
 			slides: [
 				createSlide({
+					id: 'lifecycle-first',
 					elements: [
-						createElement('rectangle', { id: 'moving', x: 100, y: 100, width: 20, height: 20 }),
-						createElement('rectangle', { id: 'fixed', x: 147, y: 400, width: 20, height: 20 })
+						createElement('rectangle', { id: 'moving', x: 100, y: 100, width: 160, height: 100 }),
+						createElement('rectangle', { id: 'fixed', x: 307, y: 400, width: 80, height: 80 })
 					]
 				}),
-				createSlide()
+				createSlide({ id: 'lifecycle-second' })
 			]
 		})
 	);
@@ -71,9 +72,15 @@ test('gesture guides clear at pointer cancel, undo and slide switch', async ({
 	const samples: unknown[] = [];
 	for (const boundary of ['cancel', 'undo', 'slide'] as const) {
 		const box = (await target.boundingBox())!;
-		const factor = box.width / 20;
+		const factor = (await editor.getByTestId('slide-canvas').boundingBox())!.width / 1280;
 		const x = box.x + box.width / 2;
 		const y = box.y + box.height / 2;
+		const hit = await page.evaluate(
+			({ x, y }) => document.elementFromPoint(x, y)?.getAttribute('data-object-id'),
+			{ x, y }
+		);
+		expect(hit, `${boundary} must start on the object, not a resize handle`).toBe('moving');
+		samples.push({ boundary, stage: 'pointer-start', box, factor, hit });
 		if (client) {
 			await client.send('Input.dispatchTouchEvent', {
 				type: 'touchStart',
@@ -108,17 +115,22 @@ test('gesture guides clear at pointer cancel, undo and slide switch', async ({
 		} else {
 			await editor.getByTestId('slide-thumbnail').last().dispatchEvent('click');
 		}
+		await expect(guides).toHaveCount(0);
 		if (client && boundary !== 'cancel')
 			await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 		if (!client) await page.mouse.up();
 		await expect(guides).toHaveCount(0);
 		if (boundary === 'slide') await editor.getByTestId('slide-thumbnail').first().click();
 	}
-	await editor.getByTestId('slide-object-list-item').first().click();
+	await target.press('Enter');
+	await expect(target).toHaveAttribute('aria-pressed', 'true');
 	const beforeKey = (await target.boundingBox())!;
 	await page.keyboard.press('ArrowRight');
 	const afterKey = (await target.boundingBox())!;
-	expect(afterKey.x - beforeKey.x).toBeCloseTo(beforeKey.width / 20, 1);
+	expect(afterKey.x - beforeKey.x).toBeCloseTo(
+		(await editor.getByTestId('slide-canvas').boundingBox())!.width / 1280,
+		1
+	);
 	await info.attach('gesture-lifecycle.json', {
 		body: JSON.stringify(
 			{
