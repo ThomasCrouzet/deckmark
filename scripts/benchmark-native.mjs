@@ -182,13 +182,13 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		}
 	};
 
-	/** @param {string} path @param {unknown} [body] @param {string} [method] */
-	async function request(path, body, method = 'POST') {
+	/** @param {string} path @param {unknown} [body] @param {string} [method] @param {number} [timeoutMs] */
+	async function request(path, body, method = 'POST', timeoutMs = 60_000) {
 		const response = await fetch(`${endpoint}${path}`, {
 			method,
 			headers: { 'content-type': 'application/json' },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
-			signal: AbortSignal.timeout(60_000)
+			signal: AbortSignal.timeout(timeoutMs)
 		});
 		const data = await response.json();
 		if (!response.ok || data.value?.error) {
@@ -198,9 +198,9 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		}
 		return data.value;
 	}
-	/** @param {string} script @param {unknown[]} [args] */
-	const execute = (script, args = []) =>
-		request(`/session/${session}/execute/sync`, { script, args });
+	/** @param {string} script @param {unknown[]} [args] @param {number} [timeoutMs] */
+	const execute = (script, args = [], timeoutMs = 60_000) =>
+		request(`/session/${session}/execute/sync`, { script, args }, 'POST', timeoutMs);
 	/** @param {string} script @param {unknown[]} [args] */
 	const executeAsync = (script, args = []) =>
 		request(`/session/${session}/execute/async`, { script, args });
@@ -221,6 +221,13 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		throw new Error(`Timeout ${label}: ${last ? String(last) : 'condition false'}`);
 	}
 
+	// One readiness attempt can stall inside the driver for its whole script
+	// budget and only then answer `script timeout`, while a second request on the
+	// same session answers in milliseconds. Bound each attempt so a lost
+	// completion costs one short attempt instead of the readiness budget. The
+	// predicate, the 90 s readiness budget, and the budget gate stay unchanged.
+	const READY_ATTEMPT_MS = 2_000;
+
 	async function appReady() {
 		let polls = 0;
 		await until(
@@ -228,7 +235,9 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 				// Count every existing readiness attempt, including one that rejects.
 				polls += 1;
 				return execute(
-					'return document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false";'
+					'return document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false";',
+					[],
+					READY_ATTEMPT_MS
 				);
 			},
 			'native shell ready',
