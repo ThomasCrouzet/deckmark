@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # Draft and ready transitions must rerun the tier decision. A draft run
+    # defers the heavy matrix. A ready run must rerun the full matrix.
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   # The changes job uses scripts/desktop-changes.mjs as the single path filter.
   # Rebuild weekly so an upstream toolchain change cannot rot the installers.
   schedule:
@@ -52,6 +55,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       required: ${{ steps.filter.outputs.required }}
+      full: ${{ steps.tier.outputs.full }}
+      tier: ${{ steps.tier.outputs.tier }}
     steps:
       - name: Checkout change range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,10 +82,15 @@ jobs:
           else
             echo 'required=true' >> "$GITHUB_OUTPUT"
           fi
+      - name: Classify CI tier
+        id: tier
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: node scripts/ci-tier.mjs --event-name "$EVENT_NAME" --event "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
 
   resolve-source:
     needs: changes
-    if: needs.changes.outputs.required == 'true'
+    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -165,8 +175,8 @@ jobs:
           JS
 
   validate-desktop:
-    needs: resolve-source
-    if: inputs.validated_sha == ''
+    needs: [changes, resolve-source]
+    if: inputs.validated_sha == '' && needs.changes.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -224,8 +234,8 @@ jobs:
     # One production Web build for every browser benchmark. The benchmark
     # verifies provenance before it serves these exact bytes. A root build is a
     # different configuration from the public project-path build.
-    needs: [resolve-source]
-    if: inputs.validated_sha == ''
+    needs: [changes, resolve-source]
+    if: inputs.validated_sha == '' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -260,8 +270,8 @@ jobs:
     # Web measurements depend on one verified frontend build. They do not wait
     # for Rust or native validation. The final desktop-validation gate still
     # requires every platform result.
-    needs: [resolve-source, web-build]
-    if: inputs.validated_sha == ''
+    needs: [changes, resolve-source, web-build]
+    if: inputs.validated_sha == '' && needs.changes.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -301,8 +311,8 @@ jobs:
   native-smoke:
     # Each OS builds its own debug app. A slow row on another OS must not delay
     # this row. The final gate waits for the complete matrix.
-    needs: [resolve-source]
-    if: inputs.validated_sha == ''
+    needs: [changes, resolve-source]
+    if: inputs.validated_sha == '' && needs.changes.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -364,8 +374,8 @@ jobs:
   native-benchmark:
     # The benchmark builds and measures its own app on each OS. It does not wait
     # for another OS row or for unrelated Rust validation.
-    needs: [resolve-source]
-    if: inputs.validated_sha == ''
+    needs: [changes, resolve-source]
+    if: inputs.validated_sha == '' && needs.changes.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -441,6 +451,8 @@ jobs:
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           VALIDATION_REQUIRED: ${{ needs.changes.outputs.required }}
+          FULL: ${{ needs.changes.outputs.full }}
+          TIER: ${{ needs.changes.outputs.tier }}
           RESOLVE_RESULT: ${{ needs.resolve-source.result }}
           VALIDATE_RESULT: ${{ needs.validate-desktop.result }}
           SMOKE_RESULT: ${{ needs.native-smoke.result }}
@@ -454,6 +466,11 @@ jobs:
           fi
           if [ "$VALIDATION_REQUIRED" != 'true' ]; then
             echo 'Desktop validation is not required for these paths.'
+          elif [ "$FULL" != 'true' ] || [ "$TIER" != 'full' ]; then
+            echo "Desktop validation tier is '$TIER' (full='$FULL')." >&2
+            echo 'Draft runs defer the native and benchmark matrix. This check is incomplete and is not a pass.' >&2
+            echo 'Mark the pull request ready for review to run the full matrix on the exact HEAD.' >&2
+            exit 1
           elif [ -n "$VALIDATED_SHA" ]; then
             test "$RESOLVE_RESULT" = 'success'
             test "$VALIDATE_RESULT" = 'skipped'

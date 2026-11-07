@@ -10,9 +10,11 @@ every result.
 `main`, and by hand. It has no path filter, so a documentation-only change
 still runs the browser and Lighthouse gates.
 
-`Desktop` starts on the same push and pull request events. It also runs weekly
-and by hand. Its `changes` job runs `scripts/desktop-changes.mjs` as the single
-path filter. The filter requests native coverage for these paths:
+`Desktop` starts on the same push and pull request events. The pull request
+trigger includes `opened`, `synchronize`, `reopened`, `ready_for_review` and
+`converted_to_draft`. It also runs weekly and by hand. Its `changes` job runs
+`scripts/desktop-changes.mjs` as the single path filter. The filter requests
+native coverage for these paths:
 
 | Path group | Current patterns |
 | --- | --- |
@@ -76,7 +78,7 @@ does not let a failure pass.
 
 | Path | Starts after | Notes |
 | --- | --- | --- |
-| `changes` | Checkout | Path filter |
+| `changes` | Checkout | Path filter and tier policy |
 | `resolve-source` | `changes` | Source SHA and tag identity |
 | `validate-desktop` (Linux, Windows, macOS) | `resolve-source` | Rust checks on each OS |
 | `native-smoke` (Linux, Windows, macOS) | `resolve-source` | Builds and exercises its own app |
@@ -94,6 +96,51 @@ Each OS now reaches its own build, smoke and benchmark steps without waiting for
 another OS. The aggregate `desktop-validation` job still checks that every
 matrix result is `success`. Reused validation runs also keep the same job-name
 checks.
+
+## Draft and ready tiers
+
+A draft pull request gets a fast correctness path. It does not get the full
+native or browser matrix. `scripts/ci-tier.mjs` is the single policy input. It
+reads the event identity and prints three workflow outputs:
+
+```sh
+node scripts/ci-tier.mjs --event-name "$GITHUB_EVENT_NAME" --event "$GITHUB_EVENT_PATH"
+full=false
+tier=draft
+reason=event:pull_request:synchronize:draft
+```
+
+The script accepts these event names: `pull_request`, `push`, `schedule`,
+`workflow_dispatch`, `workflow_call` and `release`. Only a `pull_request` event
+with `draft: true` selects `full=false`. Every other valid event selects
+`full=true`, including `ready_for_review` and a later `synchronize` on a ready
+pull request. A `converted_to_draft` event returns to `full=false`.
+
+The script fails closed. It exits 2 and prints no tier when the event name is
+missing, the event file is malformed, the `draft` field is absent or not a
+boolean, the pull request identity is incomplete, or the action contradicts the
+`draft` flag. A failed step fails the `changes` job. The workflow never falls
+back to the fast tier.
+
+The script also accepts explicit environment input for a pull request without an
+event file: `CI_TIER_ACTION`, `CI_TIER_DRAFT`, `CI_TIER_PR_NUMBER`,
+`CI_TIER_HEAD_SHA` and `CI_TIER_BASE_SHA`. A missing value fails closed.
+
+`Desktop` applies the tier in `changes` and keeps the existing path filter. A
+draft run keeps the `changes` job and defers `resolve-source`, `validate-desktop`,
+`web-build`, `web-benchmark`, `native-smoke` and `native-benchmark`. The
+`desktop-validation` aggregate then exits 1 with an incomplete message. A draft
+run is never reported as a pass. The same job reports a path decision when the
+path filter does not require Desktop coverage.
+
+`ready_for_review`, and every later `synchronize` on the ready pull request,
+starts a new run at the exact head commit. That run uses the full matrix on all
+three operating systems, all browsers and all benchmarks. Branch protection and
+the aggregate still require every result.
+
+A workflow that uses this script must gate each expensive job on `full` and must
+fail its required aggregate when the tier is not `full`. Do not use labels,
+workflow inputs or missing outputs to select the fast tier.
 
 ## Verified build reuse
 

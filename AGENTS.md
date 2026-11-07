@@ -26,6 +26,16 @@ Keep this Markdown PWA offline, private, and on the client. Do not add a require
 - Do not add tests for coverage percentages, type contracts, dependency behavior, or mocked call sequences alone.
 - Use `docs/TESTING.md` for the retained failure risks, browser commands, and report artifacts.
 
+## Iteration workflow
+
+- Reproduce the failure first. Use the smallest command that shows it.
+- Run targeted tests while you edit. Do not run the full matrix for each edit.
+- Freeze the change after the targeted tests pass. Do not reformat or refactor after the final local run.
+- Mark the pull request ready only when the head commit is final. The ready run executes the full required checks on that exact commit.
+- Do not update from `main` only to clear a `BEHIND` state. Rebase only for a real conflict, a required dependency change, or a branch protection rule that requires an up-to-date branch.
+- Do not bypass a required check. Do not change a workflow to accept a draft, deferred or missing result.
+- Read `docs/CI.md` for the tier protocol and `docs/TESTING.md` for the failure risks.
+
 ## Commands
 
 ```bash

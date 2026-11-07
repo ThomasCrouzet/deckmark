@@ -53,6 +53,26 @@ CI runs check, lint, tests, builds, accessibility audits, dependency review, sec
 
 `npm install` installs lefthook hooks. `pre-commit` runs Prettier and ESLint on staged files. `pre-push` runs check and tests.
 
+## Draft pull requests and CI tiers
+
+Open a draft pull request for fast feedback. Draft runs defer the Desktop native
+matrix and the heavy browser and benchmark gates. A deferred gate is not a pass.
+
+Use this loop for each change:
+
+1. Reproduce the failure with the smallest command.
+2. Run only the targeted tests while you edit.
+3. Freeze the change when the local targeted tests pass.
+4. Mark the pull request ready for review. The ready run uses the full matrix on
+   the exact head commit. Keep the head commit fixed while it runs.
+
+Do not update from `main` only to clear a `BEHIND` state. Rebase only for a real
+conflict or a required dependency change. When branch protection requires an
+up-to-date branch, update once after the change is final.
+
+Do not bypass a required check. Do not edit a workflow to accept a draft result
+or a deferred job. A green draft check does not prove the full matrix.
+
 ## Test policy
 
 Prefer E2E tests for complex features. Never write unit tests after implementation.
