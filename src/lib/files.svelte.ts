@@ -41,6 +41,13 @@ import {
 
 import { normalizeRename, uniqueName, stripMdExtension } from './file-utils';
 import type { CodeLanguageId } from './code/languages';
+import {
+	cycleOpenTab,
+	nextActiveAfterDetach,
+	nextActiveAfterRemoval,
+	rememberActiveTab,
+	reorderedOpenIds
+} from './file-tabs';
 
 import {
 	exportMarkdown as exportMarkdownOp,
@@ -773,19 +780,7 @@ class FilesStore {
 
 	/** Records the document that is about to lose the active state. */
 	private rememberActive(): void {
-		const current = this.activeId;
-		if (!current) return;
-		this.activeHistory = [...this.activeHistory.filter((id) => id !== current), current].slice(-20);
-	}
-
-	/** Returns the most recent active document that is still open. */
-	private previousActive(exclude: string): string | null {
-		for (let index = this.activeHistory.length - 1; index >= 0; index--) {
-			const candidate = this.activeHistory[index]!;
-			if (candidate !== exclude && this.files.some((file) => file.id === candidate))
-				return candidate;
-		}
-		return null;
+		this.activeHistory = rememberActiveTab(this.activeHistory, this.activeId);
 	}
 
 	/**
@@ -799,11 +794,12 @@ class FilesStore {
 	}
 
 	navigateFile(direction: 1 | -1): void {
-		if (this.files.length < 2) return;
-		const index = this.files.findIndex((file) => file.id === this.activeId);
-		if (index < 0) return;
-		const next = this.files[(index + direction + this.files.length) % this.files.length]!;
-		this.setActive(next.id);
+		const nextId = cycleOpenTab(
+			this.files.map((file) => file.id),
+			this.activeId,
+			direction
+		);
+		if (nextId) this.setActive(nextId);
 	}
 
 	private detachFromView(
@@ -815,8 +811,12 @@ class FilesStore {
 		const file = knownFile ?? this.files[idx]!;
 		this.files.splice(idx, 1);
 		if (this.activeId === id) {
-			this.activeId =
-				this.previousActive(id) ?? this.files[Math.min(idx, this.files.length - 1)]?.id ?? null;
+			this.activeId = nextActiveAfterDetach(
+				this.files.map((entry) => entry.id),
+				this.activeHistory,
+				id,
+				{ id, index: idx }
+			);
 			this.persistActiveId();
 		}
 		if (this.selectedIds.has(id)) {
@@ -947,16 +947,17 @@ class FilesStore {
 				this.saveQueue.discard(file.id);
 				this.metaIndex.invalidateMeta(file.id);
 			}
-			const activeIndex = this.files.findIndex((file) => file.id === this.activeId);
-			const nextActive =
-				this.files.slice(activeIndex + 1).find((file) => !removed.has(file.id)) ??
-				this.files.slice(0, activeIndex).findLast((file) => !removed.has(file.id));
+			const nextActiveId = nextActiveAfterRemoval(
+				this.files.map((file) => file.id),
+				this.activeId,
+				removed
+			);
 			this.files = this.files.filter((file) => !removed.has(file.id));
 			this.closedFiles = this.closedFiles.filter((file) => !removed.has(file.id));
 			this.selectedIds = new Set([...this.selectedIds].filter((id) => !removed.has(id)));
 			this.renderAllowedIds = this.renderAllowedIds.filter((id) => !removed.has(id));
 			if (this.activeId && removed.has(this.activeId)) {
-				this.activeId = nextActive?.id ?? null;
+				this.activeId = nextActiveId;
 				this.persistActiveId();
 			}
 			const movedIds = new Set(entries.map((entry) => entry.file.id));
@@ -1065,31 +1066,13 @@ class FilesStore {
 	 * relative tail order after the matched prefix.
 	 */
 	reorderToIds(orderedIds: readonly string[]): void {
-		if (orderedIds.length === 0 || this.files.length <= 1) return;
-		const byId = new Map(this.files.map((f) => [f.id, f]));
-		const next: typeof this.files = [];
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local transient Set, not $state
-		const seen = new Set<string>();
-		for (const id of orderedIds) {
-			const f = byId.get(id);
-			if (!f || seen.has(id)) continue;
-			next.push(f);
-			seen.add(id);
-		}
-		for (const f of this.files) {
-			if (!seen.has(f.id)) next.push(f);
-		}
-		// Only mutate when order actually changes (avoids needless meta churn).
-		if (next.length !== this.files.length) return;
-		let same = true;
-		for (let i = 0; i < next.length; i++) {
-			if (next[i]!.id !== this.files[i]!.id) {
-				same = false;
-				break;
-			}
-		}
-		if (same) return;
-		this.files = next;
+		const nextIds = reorderedOpenIds(
+			this.files.map((file) => file.id),
+			orderedIds
+		);
+		if (!nextIds) return;
+		const byId = new Map(this.files.map((file) => [file.id, file]));
+		this.files = nextIds.map((id) => byId.get(id)!);
 	}
 
 	restore(id: string): FileItem | null {
