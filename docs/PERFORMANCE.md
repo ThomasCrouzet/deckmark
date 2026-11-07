@@ -188,8 +188,9 @@ HTTP error, malformed result or absent boolean cannot establish readiness.
 
 This is an observation-method change, not neutral instrumentation:
 
-- Stalled attempts end between about 0.5 s and 2.1 s: at the server deadline or
-  with an earlier reclamation error. Each attempt still counts as a poll. The
+- The controls observed stalled attempts between about 0.5 s and 2.1 s, ending
+  at the server deadline or with an earlier reclamation error. These observations
+  do not establish a minimum duration. Each attempt still counts as a poll. The
   retry count is not capped at 43: a faster error can allow more attempts within
   the existing readiness budget, and 43 is only the nominal upper bound for
   full-deadline attempts.
