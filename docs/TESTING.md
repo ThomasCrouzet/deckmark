@@ -859,6 +859,36 @@ not replace the existing strict performance assertions or native acceptance.
 Run the `gesture guides` case in `presentation-responsive-tasks.spec.ts` for
 visible pointer cancellation, undo, slide changes and exact keyboard nudges.
 Keep all reports local with the standard JSON and HTML run artifacts.
+### Cross-mode stress checks
+
+The separate stress matrix and commands are in
+[PERFORMANCE.md](PERFORMANCE.md#cross-mode-stress-evidence). Run
+`node --test scripts/benchmark-stress.test.mjs` for the focused CLI contract.
+Run a selected production browser set with
+`node scripts/benchmark-local.mjs --suite stress --prebuilt --runs 20 --cases source/markdown-1mb/lib-0,code/code-1mb/lib-0,json/json-1mb/lib-0 --output "$OUT/stress.json"`.
+`OUT` must exist outside the repository. Record clean build provenance first.
+
+Before isolated checks, retain these failure risks: absent cases, duplicate or
+dropped samples, aborted input, missing required stages, negative values, low
+counts, mismatched profiles, missing source/build identities, lost bytes,
+missing export/history/reload assertions, unknown optional metric support,
+unreviewed limits, and a forged summary that hides a raw regression. Browser
+E2E cannot exercise malformed report files or verify audit process exits. The
+CLI tests start the real audit process and retain those risks. They also check
+the listed mode/size tiers and deterministic exact-size fixture output.
+
+Each browser case checks a trusted input event, exact editor and saved bytes
+after each measured edit, a second file's undo isolation, redo, downloaded bytes
+and saved reload. Its external JSON report retains raw samples, fixture hashes,
+source/build identity, command, environment, renderer, support limits, resource
+sizes and failures. Preserve failed reports as well as passing cases. A low-count
+diagnostic, an unavailable case or an unreviewed profile is not a strict pass.
+
+This first delivery implements Source, Code, JSON and Split browser adapters.
+The listed remaining modes, bursts/paste timing, failed-save/crash recovery,
+native stress transport and calibrated release/resource limits remain open.
+Existing browser and native suites still own their existing checks. A catalog
+entry does not replace them. Reports remain local and are not uploaded.
 
 Use `scripts/benchmark-local.mjs` for repeatable performance evidence. It is one
 command with two separate targets. A web run and a native run never share a

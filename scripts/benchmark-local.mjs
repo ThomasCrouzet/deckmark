@@ -916,6 +916,10 @@ async function runWebBenchmark(options, fixtures) {
 }
 
 async function main() {
+	if (process.argv[2] === '--suite' && process.argv[3] === 'stress') {
+		const { stressMain } = await import('./benchmark-stress.mjs');
+		return stressMain(process.argv.slice(4));
+	}
 	const options = parseArguments(process.argv.slice(2));
 	if (options.prebuilt) {
 		execFileSync(

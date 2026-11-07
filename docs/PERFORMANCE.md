@@ -1,5 +1,113 @@
 # Desktop performance work
 
+## Cross-mode stress evidence
+
+Issue [#327](https://github.com/ThomasCrouzet/deckmark/issues/327) adds a separate
+stress contract. The closed baseline work in
+[#208](https://github.com/ThomasCrouzet/deckmark/issues/208),
+[#260](https://github.com/ThomasCrouzet/deckmark/issues/260) and
+[#268](https://github.com/ThomasCrouzet/deckmark/issues/268) remains the baseline.
+The existing summary gate, its samples and its limits do not change.
+
+List the complete planned matrix without a build or browser:
+
+```sh
+npm run benchmark:stress -- --list
+node scripts/benchmark-stress.mjs --fixture json-1mb
+```
+
+`scripts/benchmark-fixtures/stress.mjs` defines deterministic Markdown at 50 KB,
+240 KB, 1 MB and 5 MB, a 1 MB line, 1,000 headings, repeated Mermaid/math/tables,
+Code at 50 KB/1 MB/5 MB, JSON at 50 KB/1 MB/5 MB/10 MB, and decks with
+20/100/300 slides and ten objects per slide. Library tiers contain
+0/300/900/3,000 background documents, plus the measured file and a history
+sentinel. Sizes use decimal bytes. The fixture command returns exact content,
+byte count and SHA-256. Decks use the existing version 1 format.
+
+Source, Code, JSON and Split have Web browser adapters. The matrix also lists
+WYSIWYG, Read, annotation, slide canvas, slide text, slide notes and Advanced
+Presentation Source. Those stress adapters are not implemented. A selected
+unavailable case fails and stays in the report. Listing a case is not execution
+or coverage proof. Native stress transport is also not implemented.
+
+Build and record a clean committed root production build, then select a bounded
+set of cases. Set `OUT` to an existing local directory outside the repository.
+Each output file must be new. Do not run the whole matrix on a shared host.
+
+```sh
+BASE_PATH='' npm run build
+node scripts/build-provenance.mjs write --kind web-benchmark --instrumentation none
+node scripts/benchmark-local.mjs --suite stress --prebuilt --runs 20 \
+  --cases source/markdown-1mb/lib-0,code/code-1mb/lib-0,json/json-1mb/lib-0,split/markdown-1mb/lib-0 \
+  --output "$OUT/stress-chromium.json"
+```
+
+The typing runner also accepts `--suite stress` with the same arguments.
+Select Firefox or WebKit with `--profile web-light-firefox-production` or
+`--profile web-light-webkit-production`. The default is
+`web-light-chromium-production`. The verified build must have no source-fidelity
+instrumentation. Provenance rejects a different source, dirty tree, changed
+input or changed build byte. Browser contexts block service workers so that an
+old cache cannot replace the verified build.
+
+The `deckmark-stress/1` report retains every attempted sample and terminal case.
+It records the source commit/tree/diff, untracked hashes, verified build tree,
+fixture hashes, OS, renderer version, host or CI runner and exact command.
+Samples rotate start, middle and end offsets. Each sample inserts one character
+through the browser text-input channel. It requires a trusted `beforeinput`,
+the exact full editor value and the exact saved value. Downloaded bytes, per-file
+undo, redo and saved reload are checked after the samples. These checks do not
+prove crash recovery, failed-write recovery, bursts or clipboard paste.
+
+| Raw metric | Boundary |
+| --- | --- |
+| `inputToFrameMs` | Trusted `beforeinput` capture to the second animation frame, with one paint opportunity. This is not an observed compositor paint. |
+| `inputDispatchMs` | Input capture to its queued microtask. A browser checkpoint can precede later listeners. This is not pure transaction CPU or guaranteed full dispatch duration. |
+| `saveObservedMs` | Input capture to the observed matching IndexedDB bytes, including poll and driver overhead. The 400 ms product delay stays unchanged. |
+
+Optional metrics state support and a reason. Long tasks and engine heap are
+recorded when exposed. Pure transaction CPU, preview completion, validation
+completion, post-idle CPU and attributable process RSS remain unavailable.
+Each successful sample also records DOM count and canvas dimensions. These
+resources have no calibrated stress limit yet.
+Fixture and export sidecars stay beside the JSON report. Failed cases also try
+to retain a screenshot. The JSON lists their paths and byte hashes.
+
+Audit independently with the expected case selection:
+
+```sh
+node scripts/benchmark-gate.mjs --suite stress --report "$OUT/stress-chromium.json" \
+  --cases source/markdown-1mb/lib-0,code/code-1mb/lib-0,json/json-1mb/lib-0,split/markdown-1mb/lib-0
+```
+
+The audit recomputes p50/p95 from raw values. It rejects absent or duplicated
+cases, missing stages, aborted samples, wrong counts, non-finite values, wrong
+profiles, missing identities and failed byte/history/reload checks. At least
+20 aggregate samples are required for strict evidence. Fewer samples emit
+`tail-estimate-insufficient`. Twenty aggregate samples do not supply twenty
+samples per position. Read the raw samples; do not claim a stable per-position
+tail. There is no minimum-of-three stress statistic.
+
+The new `stress` section in `scripts/benchmark-budgets.json` separates Web Light
+production from Desktop Complete release and debug profiles. All new profiles
+are **report-only and uncalibrated**. A strict stress audit therefore fails until
+limits and a review reference are supplied. `--enforce-budgets` makes that audit
+result govern the measurement command exit. Without enforcement, functional
+failures still exit nonzero. An audit with `--report-only` can exit zero but
+retains `enforced: false` and its failed status. It is not a strict gate pass.
+
+Parent review must approve platform latency and resource limits, full native
+adapters, remaining modes and CI workload selection before #327 is accepted.
+This delivery does not change release workflows or claim full cross-mode CI.
+Do not copy debug native limits into a release profile or auto-raise a limit.
+
+The CLI controls run in `npm run test:benchmark-gate` and the standard Node test
+phase. They use labelled synthetic limits, not product baselines. They reject
+a deliberate raw latency increase even when a forged summary reports a lower
+p95. `--inject-delay-ms 250` also adds a labelled delay inside the measured
+browser event task for a local negative control. It changes only that browser
+context. Keep injected evidence separate from normal evidence.
+
 This document records the measured desktop scenarios, the confirmed root
 causes, and the changes made for issue #224.
 

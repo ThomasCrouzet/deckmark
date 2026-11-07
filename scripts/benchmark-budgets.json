@@ -5,6 +5,103 @@
 		"toleranceRatio": 0.25,
 		"minimumRuns": 3
 	},
+	"stress": {
+		"version": 1,
+		"minimumRuns": 20,
+		"description": "Separate cross-mode profiles. No stress budget is calibrated or reviewed yet. Report-only is not a strict pass. Existing platform metrics below do not change.",
+		"profiles": {
+			"web-light-chromium-production": {
+				"target": "web",
+				"edition": "web",
+				"renderer": "chromium",
+				"buildMode": "production-static",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"web-light-firefox-production": {
+				"target": "web",
+				"edition": "web",
+				"renderer": "firefox",
+				"buildMode": "production-static",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"web-light-webkit-production": {
+				"target": "web",
+				"edition": "web",
+				"renderer": "webkit",
+				"buildMode": "production-static",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-linux-webkitgtk-release": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "webkitgtk",
+				"buildMode": "release",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-windows-webview2-release": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "webview2",
+				"buildMode": "release",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-macos-wkwebview-release": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "wkwebview",
+				"buildMode": "release",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-linux-webkitgtk-debug": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "webkitgtk",
+				"buildMode": "debug",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-windows-webview2-debug": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "webview2",
+				"buildMode": "debug",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-macos-wkwebview-debug": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "wkwebview",
+				"buildMode": "debug",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			}
+		}
+	},
 	"platforms": {
 		"web-chromium": {
 			"label": "Headless Chromium through the production static build",
