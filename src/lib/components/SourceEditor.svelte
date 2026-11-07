@@ -152,6 +152,7 @@
 		Transaction: typeof import('@codemirror/state').Transaction;
 		Compartment: typeof import('@codemirror/state').Compartment;
 		EditorView: typeof import('@codemirror/view').EditorView;
+		ViewPlugin: typeof import('@codemirror/view').ViewPlugin;
 		keymap: typeof import('@codemirror/view').keymap;
 		lineNumbers: typeof import('@codemirror/view').lineNumbers;
 		highlightActiveLine: typeof import('@codemirror/view').highlightActiveLine;
@@ -174,16 +175,62 @@
 		imageData: typeof import('../source-extensions').imageData;
 	};
 
-	// Factored-out typewriter extension: dispatched in rAF to avoid
-	// reentrancy in the CodeMirror transaction cycle (console warning).
 	function makeTypewriterExtension(cm: CMModule) {
-		return cm.EditorView.updateListener.of((update) => {
-			if (!update.selectionSet && !update.docChanged) return;
-			const head = update.state.selection.main.head;
-			const v = update.view;
-			requestAnimationFrame(() => {
-				v.dispatch({ effects: cm.EditorView.scrollIntoView(head, { y: 'center' }) });
-			});
+		return cm.ViewPlugin.define((currentView) => {
+			const win = currentView.dom.ownerDocument.defaultView;
+			let active = true;
+			let frame: number | null = null;
+			let generation = 0;
+			const measure = {
+				key: {},
+				read: (measuredView: EditorView) => {
+					if (!active) return null;
+					const head = measuredView.state.selection.main.head;
+					const caret = measuredView.coordsAtPos(head);
+					if (caret) {
+						const scroller = measuredView.scrollDOM;
+						const bounds = scroller.getBoundingClientRect();
+						const center =
+							bounds.top + (scroller.clientTop + scroller.clientHeight / 2) * measuredView.scaleY;
+						const delta = ((caret.top + caret.bottom) / 2 - center) / measuredView.scaleY;
+						const target = Math.max(
+							0,
+							Math.min(scroller.scrollHeight - scroller.clientHeight, scroller.scrollTop + delta)
+						);
+						if (Math.abs(target - scroller.scrollTop) <= 2) return null;
+					}
+					return { head, generation };
+				},
+				write: (target: { head: number; generation: number } | null) => {
+					if (!active || !target) return;
+					// CodeMirror does not permit dispatch inside its measure or update phase.
+					queueMicrotask(() => {
+						if (!active || target.generation !== generation) return;
+						currentView.dispatch({
+							effects: cm.EditorView.scrollIntoView(target.head, { y: 'center' })
+						});
+					});
+				}
+			};
+			function schedule() {
+				if (!win || frame !== null) return;
+				frame = win.requestAnimationFrame(() => {
+					frame = null;
+					if (active) currentView.requestMeasure(measure);
+				});
+			}
+			schedule();
+			return {
+				update(update: ViewUpdate) {
+					if (!update.selectionSet && !update.docChanged) return;
+					generation += 1;
+					schedule();
+				},
+				destroy() {
+					active = false;
+					if (frame !== null) win?.cancelAnimationFrame(frame);
+				}
+			};
 		});
 	}
 
@@ -262,6 +309,7 @@
 					Transaction: state.Transaction,
 					Compartment: state.Compartment,
 					EditorView: viewMod.EditorView,
+					ViewPlugin: viewMod.ViewPlugin,
 					keymap: viewMod.keymap,
 					lineNumbers: viewMod.lineNumbers,
 					highlightActiveLine: viewMod.highlightActiveLine,
@@ -407,12 +455,7 @@
 			'.cm-search br': { display: 'none' }
 		});
 
-		// Typewriter mode - an extension that re-centers the caret line on every
-		// selection change. Wrapped in a Compartment so we can enable/disable it
-		// on the fly without recreating the EditorState (cf.
-		// https://codemirror.net/examples/config/#dynamic-configuration).
-		// The scroll is dispatched in rAF to avoid re-entering CodeMirror's
-		// transaction cycle (console warning + reentrancy risk).
+		// The compartment removes the plugin and cancels its work without replacing history.
 		const typewriterCompartment = new cm.Compartment();
 		typewriterCompartmentRef = typewriterCompartment;
 		const localeCompartment = new cm.Compartment();
@@ -570,15 +613,7 @@
 				cm.openSearchPanel(view);
 			}
 		}
-		// If typewriter mode was requested during the lazy-load and the
-		// initial caret is not already at the bottom of the doc, force a
-		// centering on entry to immediately align the caret.
-		if (pendingTypewriter) {
-			pendingTypewriter = false;
-			view.dispatch({
-				effects: cm.EditorView.scrollIntoView(view.state.selection.main.head, { y: 'center' })
-			});
-		}
+		pendingTypewriter = false;
 	}
 
 	/*
@@ -729,13 +764,6 @@
 				view.dispatch({
 					effects: typewriterCompartmentRef.reconfigure(ext)
 				});
-				// Immediate centering on activation to settle the caret without
-				// waiting for the next interaction.
-				if (active) {
-					view.dispatch({
-						effects: cm.EditorView.scrollIntoView(view.state.selection.main.head, { y: 'center' })
-					});
-				}
 			})
 			.catch((err) => reportError('typewriter mode (source editor)', err));
 	}
