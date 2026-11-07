@@ -57,24 +57,40 @@ function smokeEnvironment(home, dataStoreId, port, pdfPath) {
 	};
 }
 
-// Keep the phase split that launch() already measured. Both values must exist.
-// This is diagnostic metadata, not a sample, summary, or budget value.
+// Keep the phase split that launch() already measured. Both original values
+// must exist. The session boundary and the poll count are added only when
+// launch() supplied complete valid values, so older or partial data keeps its
+// original shape. This is diagnostic metadata, not a sample, summary, or
+// budget value.
 function launchPhaseSplit(launched) {
 	if (!Number.isFinite(launched.spawnToDriverMs) || !Number.isFinite(launched.spawnToShellMs)) {
 		return {};
 	}
-	return {
+	const split = {
 		spawnToDriverMs: launched.spawnToDriverMs,
 		driverReadyToShellMs: round(launched.spawnToShellMs - launched.spawnToDriverMs)
 	};
+	if (
+		Number.isFinite(launched.driverReadyToSessionMs) &&
+		Number.isFinite(launched.sessionReadyToShellMs) &&
+		Number.isInteger(launched.readyPolls) &&
+		launched.readyPolls > 0
+	) {
+		split.driverReadyToSessionMs = launched.driverReadyToSessionMs;
+		split.sessionReadyToShellMs = launched.sessionReadyToShellMs;
+		split.readyPolls = launched.readyPolls;
+	}
+	return split;
 }
 
 // Build the bounded suffix for a startup budget failure. It shows the measured
 // value, the configured limit, and the split of the launch that produced the
 // measured sample. It selects one metric in a fixed order. A split is added
-// only when one recorded sample matches the measured value. The grammar is
-// fixed names, finite numbers, and `ms`; no path, URL, capability, or report
-// body can enter the string.
+// only when one recorded sample matches the measured value. The release
+// format names the slow phase, its duration, and the readiness poll count.
+// The older format remains the fallback when the new metadata is absent or
+// invalid. The grammar is fixed names, finite numbers, integers, and `ms`; no
+// path, URL, capability, or report body can enter the string.
 export function startupErrorContext(result) {
 	const metrics = result.budget?.metrics ?? {};
 	const metricName = ['startupCold', 'startupWarm'].find(
@@ -92,9 +108,28 @@ export function startupErrorContext(result) {
 		: [];
 	const phases =
 		matches.length === 1 ? ((Array.isArray(records) ? records[matches[0]] : records) ?? {}) : {};
+	const measuredValue = metric.measuredValue;
+	const limit = metric.limitWithTolerance;
+	const phaseValues = [
+		['driver', phases.spawnToDriverMs],
+		['session', phases.driverReadyToSessionMs],
+		['shell', phases.sessionReadyToShellMs]
+	];
+	const complete =
+		Number.isFinite(measuredValue) &&
+		Number.isFinite(limit) &&
+		phaseValues.every(([, value]) => Number.isFinite(value)) &&
+		Number.isInteger(phases.readyPolls) &&
+		phases.readyPolls > 0;
+	if (complete) {
+		const [slowPhase, slowPhaseMs] = phaseValues.reduce((slow, entry) =>
+			entry[1] > slow[1] ? entry : slow
+		);
+		return ` [slowPhase=${slowPhase} observed=${measuredValue}ms limit=${limit}ms slowPhaseMs=${slowPhaseMs}ms readyPolls=${phases.readyPolls}]`;
+	}
 	const fields = [
-		['observed', metric.measuredValue],
-		['limit', metric.limitWithTolerance],
+		['observed', measuredValue],
+		['limit', limit],
 		['spawnToDriver', phases.spawnToDriverMs],
 		['driverReadyToShell', phases.driverReadyToShellMs]
 	].filter(([, value]) => Number.isFinite(value));
@@ -187,14 +222,19 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 	}
 
 	async function appReady() {
+		let polls = 0;
 		await until(
-			() =>
-				execute(
+			() => {
+				// Count every existing readiness attempt, including one that rejects.
+				polls += 1;
+				return execute(
 					'return document.querySelector(".mdsh-shell")?.getAttribute("aria-busy") === "false";'
-				),
+				);
+			},
 			'native shell ready',
 			90_000
 		);
+		return polls;
 	}
 
 	async function launch() {
@@ -215,10 +255,18 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 			capabilities: { alwaysMatch: { 'wdio:tauriServiceOptions': { windowLabel: 'main' } } }
 		});
 		session = created.sessionId;
-		await appReady();
+		// One diagnostic clock mark per launch. It splits the existing
+		// POST /session from the existing readiness polling. It adds no
+		// request, wait, or retry.
+		const sessionReady = performance.now();
+		const readyPolls = await appReady();
+		const shellReady = performance.now();
 		return {
 			spawnToDriverMs: round(driverReady - startedAt),
-			spawnToShellMs: round(performance.now() - startedAt),
+			driverReadyToSessionMs: round(sessionReady - driverReady),
+			sessionReadyToShellMs: round(shellReady - sessionReady),
+			spawnToShellMs: round(shellReady - startedAt),
+			readyPolls,
 			capabilities: created.capabilities
 		};
 	}
