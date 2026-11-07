@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { load } from 'js-yaml';
+const { load } = await import('js-yaml');
 
 const workflow = load(
 	readFileSync(new URL('../.github/workflows/deploy.yml', import.meta.url), 'utf8')
