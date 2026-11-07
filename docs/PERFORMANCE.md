@@ -98,8 +98,12 @@ benchmark job to succeed. A failed benchmark therefore prevents release
 publication. Audit a retained local JSON report with the same gate:
 
 ```sh
-node scripts/benchmark-gate.mjs --report test-results/bench.json --budgets scripts/benchmark-budgets.json
+node scripts/benchmark-gate.mjs --report "$PWD/test-results/bench.json" --budgets scripts/benchmark-budgets.json
 ```
+
+`--report` must be an absolute path; the gate rejects a relative value before it
+reads the file. The generator has the same rule for `--output`, and it also
+rejects an output path inside the repository.
 
 `scripts/benchmark-gate.mjs` measures nothing. It validates the report schema,
 source identity, build mode, platform identity, sample counts, units, and budget

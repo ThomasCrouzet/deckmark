@@ -143,7 +143,7 @@ build-provenance: The build tree does not match the recorded artifact.
 ## Shard and report balance
 
 Stage 3 changes the browser suite from four shards to eight. The measured
-four-shard runs on 2026-11-06 had shard durations of about 11, 14, 17 and 25
+four-shard runs on 2026-11-06 had shard durations of about 13, 14, 17 and 25
 minutes in one sample. The slowest shard set the critical path, and the other
 three runners were idle when it finished. Eight shards halve the tests per
 shard and use eight standard runners instead of four.
@@ -184,9 +184,10 @@ a check, a browser project, a benchmark or a native platform.
 ## Timing boundaries
 
 The 3 minute fast-feedback target and the 10 minute ordinary pull-request
-target are targets. They are not guarantees. Runner queue time, dependency
-setup, cache state, retries, native builds and final publication checks change
-the result.
+target are targets. They are not guarantees. Issue #263 defines the 10 minute
+target with warm caches and excludes the runner allocation queue. Dependency
+setup, cache state, retries, native builds and final publication checks also
+change the result.
 
 One measured Web example: run `42289127802` on `main` commit `d64ffee` used
 eight E2E shards on 2026-11-06. The shards ran from 6 minutes 02 seconds to
@@ -207,12 +208,12 @@ as a distribution or as a promise for another runner or cache state.
 | Full workflow | Every job from workflow start to the last job end, including deployment and verification jobs in that workflow |
 | End to end | The event-to-verified-public-target interval, including runner queues, all required workflows, deployment and public-origin verification |
 
-Only the test execution row matches the shard figures. A retry adds to that
-time and the shard report prints the retry count. Cache state changes setup
-time. The native jobs are in the separate `Desktop` workflow and are not part
-of the Web E2E figure.
+The shard figures above are whole job durations, including checkout and setup,
+not the test step alone. A retry adds to that time and the shard report prints
+the retry count. Cache state changes setup time. The native jobs are in the
+separate `Desktop` workflow and are not part of the Web E2E figure.
 
-The earlier four-shard sample of about 11 to 25 minutes per shard is historical
+The earlier four-shard sample of about 13 to 25 minutes per shard is historical
 data from 2026-11-06. Keep it as the reason for the eight-shard change. Do not
 read it as a current result.
 

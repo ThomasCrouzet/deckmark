@@ -439,9 +439,10 @@ tests with Node 22.23.4: 11 passed, 0 failed and 0 skipped. This is CI artifact
 verification on hosted runners, not a manual clean-OS audit. It does not replace
 the procedures below.
 
-The hosted validation does not publish a CLI package. Companion archive
-publication follows the existing release process and is separate from this
-test evidence. Signing remains deferred.
+The hosted validation does not publish a CLI package. No current workflow
+creates, uploads or signs a CLI archive; `CLI package` runs the installed
+checks only. Adding a CLI archive needs the unapplied integration below and a
+separate decision by the release owner. Signing remains deferred.
 
 ## Release integration request, not applied
 

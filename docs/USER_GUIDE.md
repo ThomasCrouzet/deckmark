@@ -276,14 +276,17 @@ proposed changes before applying them. A reply does not run commands or apply
 edits automatically.
 
 **Stop** aborts a reply that is still arriving. The panel keeps the text that
-already arrived and adds `[Request stopped]`. On Desktop, the reply is
-discarded when the native request returns and the same marker appears. A
-partial reply is not added to the conversation history. **Stop** never applies
-a patch. A proposal still needs your review and **Apply selected changes**.
+already arrived and adds the localized stopped marker, for example
+`[Request stopped]` in English and `[Requête arrêtée]` in French. On Desktop,
+the reply is discarded when the native request returns and the same marker
+appears. A partial reply is not added to the conversation history. **Stop**
+never applies a patch. A proposal still needs your review and **Apply selected
+changes**.
 
-The abort stops this app's request. It does not prove that the remote provider
-stopped processing or billing. A provider can continue work after the
-connection closes.
+In the Web edition, **Stop** aborts the local request. In the Desktop edition,
+the abort does not reach the native request. The provider can therefore finish
+the work and bill it, even though the app ignores the reply. A closed
+connection does not prove that the remote provider stopped.
 
 No local inference engine is bundled. A separately installed compatible provider
 can use a local endpoint where the edition's network policy permits it.

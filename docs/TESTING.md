@@ -556,12 +556,12 @@ WebKitGTK pass.
 
 - `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. Local report:
   `$RUNNER_TEMP/web-benchmark-<browser>.json`.
-- `native-smoke` on Ubuntu, Windows and macOS with the built test binary.
-  Local results: `native-test-results/`.
-- `native-benchmark` on Ubuntu, Windows and macOS with the same built test
-  binary. Local report: `$RUNNER_TEMP/native-benchmark.json`, with screenshots
-  and the application log beside it. The macOS jobs assert an ARM64 runner
-  before they run.
+- `native-smoke` on Ubuntu, Windows and macOS with an equivalent test binary
+  that its own job builds. Local results: `native-test-results/`.
+- `native-benchmark` on Ubuntu, Windows and macOS with an equivalent test
+  binary that its own job builds. Local report:
+  `$RUNNER_TEMP/native-benchmark.json`, with screenshots and the application
+  log beside it. The macOS jobs assert an ARM64 runner before they run.
 - `desktop-validation` requires every requested job above to succeed. A reused
   validation run must contain one successful job for each browser and platform.
 
@@ -574,9 +574,9 @@ These reports are not GitHub Actions artifacts. Hosted-runner cleanup discards
 them; no report download remains after the VM is destroyed. Keep local
 reproduction reports outside Git. Build inputs transferred between jobs and
 release deliverables remain separate from test reports.
-Local Lighthouse uploads use the filesystem at `test-results/lighthouse`, not
-temporary public storage. The existing collection and assertion settings stay
-unchanged.
+Lighthouse CI writes its output to the filesystem at `test-results/lighthouse`
+on the hosted runner, not to temporary public storage. That output is discarded
+with the runner. The existing collection and assertion settings stay unchanged.
 
 ## Command-line interface checks
 
@@ -881,8 +881,9 @@ Keep both exports under `native-test-results/presentation-pdf/menu/` and
 `native-test-results/presentation-pdf/shortcut/`. Inspect the menu result before
 the shortcut export starts. macOS checks the native print operation and its PDF
 pixels. Linux and Windows use driver capture of the prepared print document; this
-does not prove an operating system print dialog. The CI artifacts are named
-`native-smoke-<platform>`.
+does not prove an operating system print dialog. The workflow writes these
+results to `native-test-results/` on the runner and does not upload them, so
+they disappear when the runner is destroyed.
 
 The native presentation color gate must reject white slide backgrounds and white
 shape interiors even when borders remain visible. It must also reject missing
