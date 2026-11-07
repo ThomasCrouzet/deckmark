@@ -3,6 +3,30 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { t } from './i18n';
 export { markdown } from '@codemirror/lang-markdown';
 
+export function codeMirrorPhrases(): Record<string, string> {
+	return {
+		Find: t('source.cmFind'),
+		Replace: t('source.cmReplace'),
+		next: t('source.cmNext'),
+		previous: t('source.cmPrevious'),
+		all: t('source.cmAll'),
+		'match case': t('source.cmMatchCase'),
+		regexp: t('source.cmRegexp'),
+		'by word': t('source.cmByWord'),
+		replace: t('source.cmReplaceAction'),
+		'replace all': t('source.cmReplaceAll'),
+		close: t('source.cmClose'),
+		'Go to line': t('source.cmGoToLine'),
+		go: t('source.cmGo'),
+		'replaced match on line $': t('source.cmReplacedOne'),
+		'replaced $ matches': t('source.cmReplacedMany'),
+		'current match': t('source.cmCurrentMatch'),
+		'on line': t('source.cmOnLine'),
+		'Control character': t('source.cmControlCharacter'),
+		'Selection deleted': t('source.cmSelectionDeleted')
+	};
+}
+
 // Keep image bytes in the document. Decorations change only their display.
 export function imageData(): Extension {
 	const reveal = StateEffect.define<number>();

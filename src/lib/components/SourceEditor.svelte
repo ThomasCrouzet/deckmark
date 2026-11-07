@@ -172,6 +172,7 @@
 		setSearchQuery: typeof import('@codemirror/search').setSearchQuery;
 		SearchQuery: typeof import('@codemirror/search').SearchQuery;
 		imageData: typeof import('../source-extensions').imageData;
+		codeMirrorPhrases: typeof import('../source-extensions').codeMirrorPhrases;
 	};
 
 	// Factored-out typewriter extension: dispatched in rAF to avoid
@@ -187,33 +188,9 @@
 		});
 	}
 
-	function codeMirrorPhrases(): Record<string, string> {
-		return {
-			Find: t('source.cmFind'),
-			Replace: t('source.cmReplace'),
-			next: t('source.cmNext'),
-			previous: t('source.cmPrevious'),
-			all: t('source.cmAll'),
-			'match case': t('source.cmMatchCase'),
-			regexp: t('source.cmRegexp'),
-			'by word': t('source.cmByWord'),
-			replace: t('source.cmReplaceAction'),
-			'replace all': t('source.cmReplaceAll'),
-			close: t('source.cmClose'),
-			'Go to line': t('source.cmGoToLine'),
-			go: t('source.cmGo'),
-			'replaced match on line $': t('source.cmReplacedOne'),
-			'replaced $ matches': t('source.cmReplacedMany'),
-			'current match': t('source.cmCurrentMatch'),
-			'on line': t('source.cmOnLine'),
-			'Control character': t('source.cmControlCharacter'),
-			'Selection deleted': t('source.cmSelectionDeleted')
-		};
-	}
-
 	function localeExtensions(cm: CMModule) {
 		return [
-			cm.EditorState.phrases.of(codeMirrorPhrases()),
+			cm.EditorState.phrases.of(cm.codeMirrorPhrases()),
 			cm.imageData(),
 			cm.EditorView.contentAttributes.of({ 'aria-label': t('editor.ariaLabel') })
 		];
@@ -259,6 +236,7 @@
 				return {
 					EditorState: state.EditorState,
 					imageData: lang.imageData,
+					codeMirrorPhrases: lang.codeMirrorPhrases,
 					Transaction: state.Transaction,
 					Compartment: state.Compartment,
 					EditorView: viewMod.EditorView,
