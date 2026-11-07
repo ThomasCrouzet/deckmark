@@ -773,6 +773,40 @@ It also cancels one outgoing capture, checks that the view and dirty input remai
 and retries close. Cancellation must not write a stale closed snapshot or claim a save.
 Run `npx playwright test e2e/document-revisions.spec.ts --project=chromium --workers=1 --retries=0`.
 Keep the JSON report, source identity, fixture bytes, and trace with the run.
+### Deferred note metadata
+
+An edit queues its file ID. The next task sends the current source to one
+persistent worker. Reads keep the last complete per-file snapshot until the
+worker returns the current revision. Publication changes the snapshot, tag
+counts, and backlink contributions together, then updates reactive consumers.
+Closing a tab does not remove its library metadata. Removal cancels queued work.
+Reload disposes the old worker. Bulk changes keep the lazy index rebuild.
+
+The worker keeps only its last document for the plain-line fast path. Other
+edits use the same full parser as cold reads. If workers are unavailable or fail,
+the queue processes one file per task on the main thread. This recovery path
+preserves correctness, but does not establish nonblocking large-note performance.
+The initial library read can still parse cold documents synchronously.
+
+`metadata-index-incremental.spec.ts` checks one MB input tasks, visible tag and
+backlink parity through seeded structural edits, and a delayed worker result
+after a newer edit and tab close. Keep the input CPU profile, raw samples,
+fixture content, source identity, screenshot, and standard browser reports.
+
+The retained risks are a reader that forces a full parse during input, stale
+publication after replacement or removal, mismatched tags and backlinks,
+unbounded queued source copies, and changed code or front matter boundaries.
+`meta-index.test.ts` compares the conservative worker fast path with full
+derivation through 600 seeded edits. The short visible browser sequence cannot
+exhaust these parser-state combinations. Keep full recomputation as the oracle.
+
+```sh
+npm exec -- vitest run src/lib/meta-index.test.ts src/lib/wiki-links.test.ts --maxWorkers=1
+E2E_PORT=4307 npm exec -- playwright test e2e/metadata-index-incremental.spec.ts e2e/wiki-links.spec.ts e2e/cross-window-review.spec.ts --project=chromium --workers=1
+```
+
+Browser results do not establish native WebView performance. Keep native and
+large-library resource acceptance separate from the short browser workflows.
 
 The test review removed duplicate creation, selection, rendering, export, and
 preference tests. Browser workflows verify those results. The remaining isolated

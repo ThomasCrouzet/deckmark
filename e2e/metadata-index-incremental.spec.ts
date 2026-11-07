@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
+import { extractWikiLinkTargets } from '../src/lib/wiki-links';
 
 const buildCounter = 'meta-index-rebuild';
 const noteCount = 30;
@@ -108,6 +109,211 @@ test.describe('Metadata index incremental update', () => {
 
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page, { mode: 'source' });
+	});
+
+	test('ordinary one MB input does not parse metadata in the input task', async ({
+		page,
+		context
+	}, info) => {
+		test.setTimeout(120_000);
+		const content = '# Large note\n\nordinary body\n\n' + 'Plain body text.\n'.repeat(65_536);
+		await seedLibrary(page, [{ id: 'large', name: 'large.md', content, order: 0 }]);
+		await page.reload();
+		const source = page.locator('.cm-content').first();
+		await expect(source).toBeVisible({ timeout: 30_000 });
+		await source.click();
+		await page.keyboard.press('ControlOrMeta+Home');
+		await page.keyboard.press('ArrowDown');
+		await page.keyboard.press('ArrowDown');
+		await page.keyboard.press('End');
+		const cdp = await context.newCDPSession(page);
+		await cdp.send('Profiler.enable');
+		await cdp.send('Profiler.start');
+		const samples = [];
+		for (let i = 0; i < 3; i++) {
+			samples.push(
+				await page.evaluate(async () => {
+					performance.clearMarks('meta-index-parse');
+					const started = performance.now();
+					document.execCommand('insertText', false, 'x');
+					await Promise.resolve();
+					await Promise.resolve();
+					return {
+						durationMs: performance.now() - started,
+						parses: performance.getEntriesByName('meta-index-parse').length
+					};
+				})
+			);
+		}
+		const profile = await cdp.send('Profiler.stop');
+		await info.attach('metadata-input.cpuprofile', {
+			body: JSON.stringify(profile.profile),
+			contentType: 'application/json'
+		});
+		await attachEvidence(info, { fixture: { content }, samples }, page);
+		expect(samples.map((sample) => sample.parses)).toEqual([0, 0, 0]);
+		await expect(source).toContainText('ordinary bodyxxx');
+	});
+
+	test('seeded structural edits keep visible tags and backlinks equal to full parsing', async ({
+		page
+	}, info) => {
+		test.setTimeout(120_000);
+		const fixture = libraryFixture().slice(0, 3);
+		fixture[0]!.content = '# Start\n';
+		await seedLibrary(page, fixture);
+		await page.reload();
+		const source = page.locator('.cm-content').first();
+		await expect(source).toBeVisible({ timeout: 30_000 });
+		const fragments = [
+			'[[note-01]]',
+			'```md\n[[note-01]]\n```',
+			'`[[note-01]]`',
+			'[[note-02|alias]]',
+			'    [[note-01]]',
+			'\\[[note-01]]',
+			'[[note-01]] and [[note-02]]'
+		];
+		let seed = 307;
+		const results = [];
+		for (let step = 0; step < 12; step++) {
+			seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+			const body = fragments[seed % fragments.length]!;
+			const content = `---\ntitle: Title ${step}\ntags: [edit-${step}]\n---\n# H1 ${step}\n\n${body}\n`;
+			await page.locator('aside button[data-file-id="note-00"]').click();
+			await source.click();
+			await page.keyboard.press('ControlOrMeta+a');
+			await page.keyboard.insertText(content);
+			await expect(
+				page
+					.locator('aside')
+					.getByRole('button', { name: `Filter by tag edit-${step}`, exact: true })
+			).toBeVisible();
+			const targets = extractWikiLinkTargets(content);
+			for (const target of ['note-01', 'note-02']) {
+				await page.locator(`aside button[data-file-id="${target}"]`).click();
+				const links = page.locator('aside [aria-label="Backlinks"]');
+				if (targets.includes(target)) await expect(links).toContainText(`Title ${step}`);
+				else
+					await expect(
+						links.getByRole('button', { name: `Open Title ${step}`, exact: true })
+					).toHaveCount(0);
+			}
+			results.push({ seed, content, targets });
+		}
+		await attachEvidence(info, { seed: 307, results }, page);
+	});
+
+	test('a delayed worker result cannot replace newer edits after tab close', async ({
+		page
+	}, info) => {
+		test.setTimeout(120_000);
+		await page.addInitScript(() => {
+			const state = {
+				hold: false,
+				messages: [] as MessageEvent[],
+				workers: [] as Worker[],
+				observations: [] as unknown[]
+			};
+			Object.assign(window, { metadataRace: state });
+			const NativeWorker = window.Worker;
+			window.Worker = class extends NativeWorker {
+				constructor(url: string | URL, options?: WorkerOptions) {
+					super(url, options);
+					if (!String(url).includes('metadata')) return;
+					state.workers.push(this);
+					this.addEventListener('message', (event) => {
+						state.observations.push({ event: 'result', data: event.data, held: state.hold });
+						if (!state.hold) return;
+						event.stopImmediatePropagation();
+						state.messages.push(event);
+					});
+				}
+				override postMessage(message: unknown): void {
+					state.observations.push({ event: 'request', data: message });
+					super.postMessage(message);
+				}
+			};
+		});
+		const fixture = libraryFixture().slice(0, 3);
+		await seedLibrary(page, fixture);
+		await page.reload();
+		const source = page.locator('.cm-content').first();
+		await expect(source).toBeVisible({ timeout: 30_000 });
+		await page.evaluate(() => {
+			(window as unknown as { metadataRace: { hold: boolean } }).metadataRace.hold = true;
+		});
+		const edit = async (tag: string, target: string) => {
+			await source.click();
+			await page.keyboard.press('ControlOrMeta+a');
+			await page.keyboard.insertText(`---\ntags: [${tag}]\n---\n# note-00\n\n[[${target}]]\n`);
+		};
+		await edit('obsolete', 'note-01');
+		await expect
+			.poll(() =>
+				page.evaluate(
+					() =>
+						(window as unknown as { metadataRace: { messages: unknown[] } }).metadataRace.messages
+							.length
+				)
+			)
+			.toBeGreaterThan(0);
+		await edit('latest', 'note-02');
+		await page
+			.locator('aside button[data-file-id="note-00"]')
+			.locator('..')
+			.getByRole('button', { name: /Close/ })
+			.click();
+		await page.evaluate(() => {
+			const state = (
+				window as unknown as {
+					metadataRace: { hold: boolean; workers: Worker[]; messages: MessageEvent[] };
+				}
+			).metadataRace;
+			state.hold = false;
+			for (const event of state.messages.splice(0))
+				state.workers[0]!.dispatchEvent(new MessageEvent('message', { data: event.data }));
+		});
+		await page.locator('aside button[data-file-id="note-02"]').click();
+		await expect(page.locator('aside [aria-label="Backlinks"]')).toContainText('note-00');
+		await page.locator('aside summary').filter({ hasText: 'Saved documents' }).click();
+		await page.locator('aside').getByRole('button', { name: 'note-00.md', exact: true }).click();
+		await expect(
+			page.locator('aside').getByRole('button', { name: 'Filter by tag latest', exact: true })
+		)
+			.toBeVisible()
+			.catch(async (error: unknown) => {
+				const diagnostic = await page.evaluate(async () => {
+					const state = (
+						window as unknown as { metadataRace: { observations: unknown[]; messages: unknown[] } }
+					).metadataRace;
+					const stored = await new Promise<unknown>((resolve) => {
+						const request = indexedDB.open('mdsh');
+						request.onsuccess = () => {
+							const db = request.result;
+							const read = db.transaction('drafts').objectStore('drafts').get('note-00');
+							read.onsuccess = () => {
+								resolve(read.result);
+								db.close();
+							};
+						};
+					});
+					return { observations: state.observations, held: state.messages.length, stored };
+				});
+				await info.attach('metadata-race-diagnostic.json', {
+					body: JSON.stringify(diagnostic, null, 2),
+					contentType: 'application/json'
+				});
+				throw error;
+			});
+		await expect(
+			page.locator('aside').getByRole('button', { name: 'Filter by tag obsolete', exact: true })
+		).toHaveCount(0);
+		await attachEvidence(
+			info,
+			{ fixture, expected: { tag: 'latest', target: 'note-02', closedThenReopened: 'note-00' } },
+			page
+		);
 	});
 
 	test('a single note edit updates tags and backlinks without a full rebuild', async ({

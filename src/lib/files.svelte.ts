@@ -590,6 +590,7 @@ class FilesStore {
 		this.trash = [];
 		this.activeId = null;
 		this.selectedIds = new Set();
+		this.metaIndex.dispose();
 		this.metaIndex = new MetaIndex(
 			() => this.library,
 			() => {
@@ -1973,6 +1974,7 @@ class FilesStore {
 
 	/** Front-matter tags of file `id`. */
 	getTags(id: string): string[] {
+		void this.metaRev;
 		return this.metaIndex.getTags(id);
 	}
 	/** All unique tags of the corpus, sorted alphabetically. */
@@ -1982,9 +1984,11 @@ class FilesStore {
 	}
 	/** Title: front-matter `title` > first H1 (if FM present) > filename without extension. */
 	displayTitle(id: string): string {
+		void this.metaRev;
 		return this.metaIndex.displayTitle(id);
 	}
 	documentTitle(id: string): string {
+		void this.metaRev;
 		return this.metaIndex.documentTitle(id);
 	}
 	/** Files that contain a wiki-link pointing to `targetId`. */
@@ -2033,6 +2037,7 @@ class FilesStore {
 	}
 	/** @internal - outgoing wiki-link targets of file `id`. */
 	wikiLinkTargets(id: string): string[] {
+		void this.metaRev;
 		return this.metaIndex.wikiLinkTargets(id);
 	}
 
