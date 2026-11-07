@@ -21,6 +21,7 @@ import { stripMdExtension } from './file-utils';
 import { deriveMetadata, type MetadataSource, type MetadataValues } from './metadata-derive';
 import type { MetadataRequest, MetadataResponse } from './metadata.worker';
 import type { WikiLinkIndex } from './wiki-link-index';
+import type { MetadataRunner } from './metadata-runner';
 import { reportWarning } from './report';
 
 const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
@@ -48,11 +49,9 @@ export class MetaIndex {
 	private tagCounts: Map<string, number> | null = null;
 	private pending = new Map<string, number>();
 	private revision = 0;
-	private worker: Worker | null = null;
-	private workerUnavailable = false;
+	private runner: MetadataRunner | null = null;
 	private disposed = false;
 	private timer: ReturnType<typeof setTimeout> | undefined;
-	private deadline: ReturnType<typeof setTimeout> | undefined;
 	private active: (MetadataRequest & { sourceKind: FileItem['kind'] }) | null = null;
 
 	/** Reference to the current files state (injected by the store). */
@@ -179,44 +178,24 @@ export class MetaIndex {
 		}
 		const request = { id, revision, source: this.source(file) };
 		this.active = { ...request, sourceKind: file.kind };
-		if (!this.worker && !this.workerUnavailable && typeof Worker !== 'undefined') {
-			try {
-				this.worker = new Worker(new URL('./metadata.worker.ts', import.meta.url), {
-					type: 'module'
-				});
-				this.worker.onmessage = (event: MessageEvent<MetadataResponse>) => this.finish(event.data);
-				this.worker.onerror = (event) => {
-					event.preventDefault();
-					this.failWorker();
-				};
-				this.worker.onmessageerror = () => this.failWorker();
-			} catch {
-				this.workerUnavailable = true;
-			}
-		}
-		if (this.worker) {
-			try {
-				this.deadline = setTimeout(() => this.failWorker(), 10_000);
-				this.worker.postMessage(request);
-				return;
-			} catch {
-				this.failWorker();
-				return;
-			}
-		}
-		// Worker restrictions must not prevent metadata from becoming current.
-		if (META_METRICS) performance.mark('meta-index-parse');
-		this.finish({ id, revision, values: deriveMetadata(request.source), incremental: false });
-	}
-
-	private failWorker(): void {
-		reportWarning('metadata worker unavailable');
-		this.worker?.terminate();
-		this.worker = null;
-		this.workerUnavailable = true;
-		clearTimeout(this.deadline);
-		this.active = null;
-		this.schedule();
+		void import('./metadata-runner')
+			.then(({ MetadataRunner }) => {
+				if (this.disposed) return null;
+				this.runner ??= new MetadataRunner();
+				return this.runner.run(request);
+			})
+			.then((response) => {
+				if (response) this.finish(response);
+			})
+			.catch(() => {
+				if (this.disposed) return;
+				reportWarning('metadata runner unavailable');
+				this.timer = setTimeout(() => {
+					this.timer = undefined;
+					if (META_METRICS) performance.mark('meta-index-parse');
+					this.finish({ id, revision, values: deriveMetadata(request.source), incremental: false });
+				}, 0);
+			});
 	}
 
 	private finish(response: MetadataResponse): void {
@@ -228,7 +207,6 @@ export class MetaIndex {
 			request.revision !== response.revision
 		)
 			return;
-		clearTimeout(this.deadline);
 		this.active = null;
 		const file = this.getFiles().find((file) => file.id === request.id);
 		if (this.pending.get(request.id) === request.revision) {
@@ -253,9 +231,8 @@ export class MetaIndex {
 	dispose(): void {
 		this.disposed = true;
 		clearTimeout(this.timer);
-		clearTimeout(this.deadline);
-		this.worker?.terminate();
-		this.worker = null;
+		this.runner?.dispose();
+		this.runner = null;
 		this.active = null;
 		this.pending.clear();
 		this.metaCache.clear();
