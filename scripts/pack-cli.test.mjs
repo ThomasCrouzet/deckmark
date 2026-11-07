@@ -19,6 +19,7 @@ import {
 	readFileSync,
 	readdirSync,
 	readlinkSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync
@@ -149,13 +150,39 @@ function mcpMessages(...messages) {
 	return `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`;
 }
 
-// Windows holds the image of a running executable. The uninstall proof must
-// name a live process as a process leak. It must not report a delete race.
-// One polling step is 100 ms. The deadline, not the step, bounds the wait.
+// Windows holds the image of a running executable. The package process scan
+// names a live process as a process leak. It must not report a delete race.
+// On Windows each scan is a blocking PowerShell call with its own 15 s cap, so
+// the deadline is checked between scans. The wait can overshoot the deadline
+// by one scan. The 400 ms refusal below proves detection, not promptness.
 const PACKAGE_PROCESS_POLL_MS = 100;
 
+function normalizePackageRoot(root) {
+	const absolute = resolve(root);
+	try {
+		return realpathSync(absolute);
+	} catch {
+		// Cleanup can run after the package is gone. Do not add an error then.
+		return absolute;
+	}
+}
+
+function parseWindowsProcessIds(stdout) {
+	return stdout
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean)
+		.map((line) => {
+			if (!/^[1-9][0-9]*$/.test(line)) {
+				throw new Error(`Cannot parse package process ID: ${JSON.stringify(line)}`);
+			}
+			return Number(line);
+		});
+}
+
 function packageProcessIds(root) {
-	const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+	const normalizedRoot = normalizePackageRoot(root);
+	const prefix = normalizedRoot.endsWith(sep) ? normalizedRoot : `${normalizedRoot}${sep}`;
 	if (process.platform === 'linux') {
 		const ids = [];
 		for (const entry of readdirSync('/proc')) {
@@ -166,7 +193,9 @@ function packageProcessIds(root) {
 			} catch {
 				continue;
 			}
-			if (executable === root || executable.startsWith(prefix)) ids.push(Number(entry));
+			if (executable === normalizedRoot || executable.startsWith(prefix)) {
+				ids.push(Number(entry));
+			}
 		}
 		return ids;
 	}
@@ -190,11 +219,7 @@ function packageProcessIds(root) {
 				`Cannot inspect package processes: ${result.stderr || result.error?.message || result.status}`
 			);
 		}
-		return result.stdout
-			.split(/\r?\n/)
-			.map((line) => line.trim())
-			.filter(Boolean)
-			.map(Number);
+		return parseWindowsProcessIds(result.stdout);
 	}
 	// macOS unlinks a running image. There is no lock to wait for.
 	return [];
@@ -220,6 +245,23 @@ async function waitForPackageProcessesToExit(root, timeoutMs) {
 		}
 		await new Promise((resolveWait) => setTimeout(resolveWait, PACKAGE_PROCESS_POLL_MS));
 	}
+}
+
+// Own a child and its close promise together. Attach the listener before any
+// await so an early exit cannot leave cleanup waiting on an event that already
+// fired. stopTracked kills the child and awaits that same promise.
+function spawnTracked(command, args, options) {
+	const child = spawn(command, args, options);
+	const closed = new Promise((resolveClose) => {
+		child.once('close', resolveClose);
+		child.once('error', resolveClose);
+	});
+	return { child, closed };
+}
+
+async function stopTracked({ child, closed }) {
+	child.kill('SIGKILL');
+	await closed;
 }
 
 // A just-terminated image can stay locked for a moment while Windows releases
@@ -682,6 +724,10 @@ test('installed MCP prints one usage line and exits 2 for a missing or bad root'
 	}
 });
 
+// Limitation, not fixed here: on Windows the .cmd launcher is cmd.exe and the
+// node.exe grandchild owns the runtime image. This test awaits close on the
+// launcher only. A grandchild that outlives stdio can still pass this test and
+// then fail the package process scan below. The original locker is unknown.
 test('concurrent CLI and MCP access leaves project documents unchanged', async () => {
 	const brokenCheck = launcherInvocation('deckmark', ['check', 'broken.md', '--json']);
 	const projectCheck = launcherInvocation('deckmark', ['check', '.', '--json']);
@@ -739,35 +785,41 @@ test('uninstall removes only the package and keeps documents', async () => {
 	assert.ok(existsSync(packageRoot));
 	const projectHash = treeHash(fixtureRoot);
 
-	// A real installed process holds the runtime open. The uninstall guard must
-	// name it and refuse to delete the package under it. Linux and Windows run
-	// this proof; macOS unlinks a running image, so it has no lock to detect.
+	// A real installed process holds the runtime open. The scanner must name it
+	// and the harness wait must reject while it runs. This is harness behavior
+	// only: no product uninstall command deletes the package. Linux and Windows
+	// run this canary; macOS unlinks a running image, so it has no lock.
 	if (process.platform === 'linux' || process.platform === 'win32') {
 		const runtime = join(
 			packageRoot,
 			'runtime',
 			process.platform === 'win32' ? 'node.exe' : 'node'
 		);
-		const holder = spawn(runtime, ['-e', 'setInterval(() => {}, 1000)'], {
+		const holder = spawnTracked(runtime, ['-e', 'setInterval(() => {}, 1000)'], {
 			cwd: fixtureRoot,
 			env: installedEnv()
 		});
 		await new Promise((resolveSpawn, rejectSpawn) => {
-			holder.once('spawn', resolveSpawn);
-			holder.once('error', rejectSpawn);
+			holder.child.once('spawn', resolveSpawn);
+			holder.child.once('error', rejectSpawn);
 		});
 		try {
-			await waitForPackageProcess(packageRoot, holder.pid, 10_000);
+			await waitForPackageProcess(packageRoot, holder.child.pid, 10_000);
 			await assert.rejects(
 				waitForPackageProcessesToExit(packageRoot, 400),
 				/Package process still running/
 			);
 			assert.equal(existsSync(packageRoot), true);
-			OBSERVED.uninstallWait = { liveProcess: holder.pid, refused: true };
+			// This canary records scanner detection and the harness wait. It does
+			// not test a product uninstall guard, and nothing deletes the package
+			// while the holder runs.
+			OBSERVED.packageProcessScan = {
+				liveProcess: holder.child.pid,
+				detected: true,
+				waitRejected: true
+			};
 		} finally {
-			const closed = new Promise((resolveClose) => holder.once('close', resolveClose));
-			holder.kill('SIGKILL');
-			await closed;
+			await stopTracked(holder);
 		}
 	}
 
