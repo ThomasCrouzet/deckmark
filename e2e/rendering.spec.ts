@@ -187,4 +187,176 @@ test.describe('KaTeX and Mermaid rendering in read mode', () => {
 		await expect(taskItems.first()).toHaveCSS('list-style-type', 'none');
 		await expect(page.locator('.mdsh-preview .mdsh-anchor')).toHaveCount(1);
 	});
+
+	test('keeps unchanged diagram and code DOM after a split section edit', async ({
+		page
+	}, info) => {
+		const source = [
+			'# Stable preview',
+			'Edit this paragraph.',
+			'```mermaid\nflowchart LR\nA[First] --> B[Second]\n```',
+			'```js\nconst stable = 42;\n```',
+			'```mermaid\nflowchart LR\nA[First] --> B[Second]\n```',
+			'## Final heading',
+			'Complete tail.'
+		].join('\n\n');
+		await seedFiles(page, [{ name: 'stable-preview', content: source }]);
+		await page.getByTestId('split-view-toggle').click();
+		await expect(page.locator('.mdsh-preview svg')).toHaveCount(2);
+		const diagram = await page.locator('.mdsh-preview svg').first().elementHandle();
+		const code = await page.locator('.mdsh-preview pre').first().elementHandle();
+		const editor = page.locator('.cm-content').first();
+		await editor.click();
+		await page.keyboard.press('ControlOrMeta+End');
+		await page.keyboard.insertText('\n\nA changed section.');
+		await expect(page.locator('.mdsh-preview')).toContainText('A changed section.');
+		const retained = {
+			diagram: await diagram!.evaluate((node) => node.isConnected),
+			code: await code!.evaluate((node) => node.isConnected),
+			ids: await page.locator('.mdsh-preview [id]').evaluateAll((nodes) => nodes.map((n) => n.id)),
+			stages: await page.evaluate(() =>
+				performance
+					.getEntriesByType('measure')
+					.filter((entry) => entry.name.startsWith('mdsh:render:'))
+					.map((entry) => ({
+						name: entry.name,
+						duration: entry.duration,
+						detail: (entry as PerformanceMeasure).detail
+					}))
+			)
+		};
+		await info.attach('section-edit.json', {
+			body: JSON.stringify({ source, retained }),
+			contentType: 'application/json'
+		});
+		expect(retained.diagram).toBe(true);
+		expect(retained.code).toBe(true);
+		expect(new Set(retained.ids).size).toBe(retained.ids.length);
+		const diagrams = retained.stages.filter((stage) => stage.name === 'mdsh:render:diagrams');
+		expect(diagrams.at(-1)?.detail.cacheMisses).toBe(0);
+		expect(diagrams.at(-1)?.detail.cacheHits).toBe(2);
+	});
+
+	test('renders and exports all 101 diagrams and 1000 headings with distinct SVG references', async ({
+		page
+	}, info) => {
+		test.setTimeout(120_000);
+		const source = Array.from({ length: 1000 }, (_, index) =>
+			[
+				`## Section ${index}`,
+				index < 101 ? `\`\`\`mermaid\nflowchart LR\nA[Item ${index}] --> B[Diagram]\n\`\`\`` : '',
+				index % 100 === 0 ? '```js\nconst answer = 42;\n```\n\n$x^2$' : '',
+				index === 999 ? 'Complete offscreen sentinel.' : 'Section content.'
+			].join('\n\n')
+		).join('\n\n');
+		await page.evaluate(async (content) => {
+			await new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts', 'readwrite');
+					transaction.objectStore('drafts').put({
+						id: 'complete-preview',
+						name: 'complete-preview.md',
+						content,
+						createdAt: 1700000000000,
+						updatedAt: 1700000000000,
+						order: 0,
+						open: true
+					});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			});
+			localStorage.setItem('mdsh:activeId', 'complete-preview');
+			localStorage.setItem('mdsh:mode', 'source');
+		}, source);
+		await page.reload();
+		await expect(page.locator('#app-toolbar input')).toHaveValue('complete-preview');
+		await page.locator('[data-mode=read]').click();
+		await expect(page.locator('.mdsh-preview svg')).toHaveCount(101, { timeout: 90_000 });
+		await expect(page.locator('.mdsh-preview h2')).toHaveCount(1000);
+		const references = await page.locator('.mdsh-preview').evaluate((article) => {
+			const ids = Array.from(article.querySelectorAll('[id]'), (node) => node.id);
+			const missing: string[] = [];
+			for (const node of article.querySelectorAll('svg *')) {
+				for (const attr of Array.from(node.attributes)) {
+					for (const match of attr.value.matchAll(/url\(#([^)]+)\)/g)) {
+						if (!ids.includes(match[1]!)) missing.push(match[1]!);
+					}
+				}
+			}
+			return { count: ids.length, unique: new Set(ids).size, missing };
+		});
+		expect(references.unique).toBe(references.count);
+		expect(references.missing).toEqual([]);
+		let printable = '';
+		await page.exposeFunction('captureCompletePrint', (html: string) => {
+			printable = html;
+		});
+		await page.evaluate(() => {
+			const capture = (
+				window as typeof window & { captureCompletePrint: (html: string) => Promise<void> }
+			).captureCompletePrint;
+			new MutationObserver((records) => {
+				for (const record of records)
+					for (const node of record.addedNodes) {
+						if (node instanceof HTMLIFrameElement && node.contentWindow) {
+							node.contentWindow.print = () => {
+								void capture(node.contentDocument?.documentElement.outerHTML ?? '');
+							};
+						}
+					}
+			}).observe(document.body, { childList: true, subtree: true });
+		});
+		await page.getByRole('button', { name: 'Exporter en PDF' }).click();
+		await expect
+			.poll(() => printable.includes('Complete offscreen sentinel.'), { timeout: 30_000 })
+			.toBe(true);
+		expect(printable.match(/class="mermaid-block"/g)).toHaveLength(101);
+		expect(printable.match(/<h2 /g)).toHaveLength(1000);
+		await info.attach('complete-print.html', { body: printable, contentType: 'text/html' });
+		await openPalette(page);
+		await page.keyboard.type('Exporter en HTML');
+		const download = page.waitForEvent('download');
+		await page.keyboard.press('Enter');
+		const path = info.outputPath('complete.html');
+		await (await download).saveAs(path);
+		const exported = await readFile(path, 'utf8');
+		expect(exported).toContain('Complete offscreen sentinel.');
+		expect(exported.match(/class="mermaid-block"/g)).toHaveLength(101);
+		expect(exported.match(/<h2 /g)).toHaveLength(1000);
+		await info.attach('complete.html', { path, contentType: 'text/html' });
+		await info.attach('complete-fixture.json', {
+			body: JSON.stringify({ source, references }),
+			contentType: 'application/json'
+		});
+	});
+
+	test('keeps complete Markdown semantics when Workers are unavailable', async ({ page }, info) => {
+		await page.addInitScript(() => {
+			Object.defineProperty(window, 'Worker', { value: undefined, configurable: true });
+		});
+		await resetAppState(page);
+		const source =
+			'\uFEFF---\r\ntitle: Local fallback\r\n---\r\n\r\n# Same\r\n\r\n[Reference][local]\r\n\r\n# Same\r\n\r\n$x^2$\r\n\r\n```js\r\nconst answer = 42;\r\n```\r\n\r\n[local]: #same-2\r\n\r\n<script>window.renderInjection = true</script>\r\n\r\nComplete tail.';
+		await seedFiles(page, [{ name: 'fallback', content: source }]);
+		await page.locator('[data-mode=read]').click();
+		await expect(page.locator('.mdsh-preview #same')).toHaveText('Same');
+		await expect(page.locator('.mdsh-preview #same-2')).toHaveText('Same');
+		await expect(page.locator('.mdsh-preview a').filter({ hasText: 'Reference' })).toHaveAttribute(
+			'href',
+			'#same-2'
+		);
+		await expect(page.locator('.mdsh-preview .katex')).toHaveCount(1);
+		await expect(page.locator('.mdsh-preview code .hljs-keyword')).toHaveText('const');
+		await expect(page.locator('.mdsh-preview')).toContainText('Complete tail.');
+		await expect(page.locator('.mdsh-preview script')).toHaveCount(0);
+		expect(await page.evaluate(() => 'renderInjection' in window)).toBe(false);
+		await info.attach('fallback-source.md', { body: source, contentType: 'text/markdown' });
+	});
 });

@@ -15,6 +15,8 @@
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
+	import { createRenderInstanceId, nextRenderGeneration } from '../render/render-identity';
+	import { mountPreview, type PreviewMount } from '../render/preview-dom';
 
 	interface Props {
 		fileId: string;
@@ -23,9 +25,10 @@
 		 *  Lets a consumer (e.g. TOC) target this container without
 		 *  digging through the DOM itself. */
 		onArticleRef?: (el: HTMLElement | null) => void;
+		onRendered?: (article: HTMLElement, content: string, generation: number) => void;
 	}
 
-	let { fileId, content, onArticleRef }: Props = $props();
+	let { fileId, content, onArticleRef, onRendered }: Props = $props();
 	let articleEl: HTMLElement | null = $state(null);
 	let readScroller: HTMLDivElement | null = $state(null);
 	let positionFileId: string | null = null;
@@ -290,6 +293,9 @@
 	});
 
 	let html = $state('');
+	let previewMount = $state<PreviewMount | null>(null);
+	const instanceId = createRenderInstanceId();
+	let renderController: AbortController | null = null;
 	// Keep the HTML owner while a same-file refresh is pending.
 	let htmlFileId = $state<string | null>(null);
 	let renderedFileId = $state<string | null>(null);
@@ -319,8 +325,29 @@
 	let retryVersion = $state(0);
 	let renderSeq = 0;
 
-	async function doRender(md: string, fid: string) {
+	async function doRender(md: string, fid: string, projectId?: string, relativePath?: string) {
+		renderController?.abort();
+		const controller = new AbortController();
+		renderController = controller;
 		const seq = ++renderSeq;
+		const member = filesStore.library.find((file) => file.id === fid);
+		const theme = themeStore.effective;
+		const isCurrent = () =>
+			!!member &&
+			!controller.signal.aborted &&
+			seq === renderSeq &&
+			fid === fileId &&
+			content === md &&
+			themeStore.effective === theme &&
+			filesStore.library.find((file) => file.id === fid) === member &&
+			member.projectId === projectId &&
+			member.relativePath === relativePath;
+		if (!member) {
+			htmlFileId = null;
+			previewMount = null;
+			loading = false;
+			return;
+		}
 		renderedFileId = null;
 		err = null;
 		const loadingTimer = setTimeout(() => {
@@ -328,25 +355,39 @@
 		}, 200);
 		try {
 			const { renderMarkdown } = await import('../render/markdown');
+			if (!isCurrent()) return;
 			// Mermaid palette follows the live UI theme (same rule as presentation mode).
 			const mermaidTheme = mermaidThemeFromDataTheme(
 				document.documentElement.getAttribute('data-theme')
 			);
 			const out = await renderMarkdown(md, {
 				fileId: fid,
+				projectContext: projectId && relativePath ? { projectId, relativePath } : null,
+				signal: controller.signal,
+				instanceId,
 				mermaidTheme,
 				headingPermalinks: true,
 				allowRemoteImages: false
 			});
-			if (seq !== renderSeq) return; // a more recent render has started
-			if (fid !== fileId) return; // the file changed in the meantime
+			if (!isCurrent()) return;
 			html = out;
+			previewMount = {
+				fileId: fid,
+				content: md,
+				html: out,
+				generation: nextRenderGeneration(),
+				isCurrent,
+				onRendered: (article, source, generation) => {
+					if (!isCurrent()) return;
+					renderedFileId = fid;
+					hasBlockedRemoteImages = out.includes('data-mdsh-remote-');
+					if (filesStore.projectAnchor?.id !== fid) restoreReadPosition(fid);
+					onRendered?.(article, source, generation);
+				}
+			};
 			htmlFileId = fid;
-			renderedFileId = fid;
-			hasBlockedRemoteImages = out.includes('data-mdsh-remote-');
-			if (filesStore.projectAnchor?.id !== fid) restoreReadPosition(fid);
 		} catch (e) {
-			if (seq !== renderSeq) return;
+			if (!isCurrent()) return;
 			err = e instanceof Error ? e.message : String(e);
 		} finally {
 			clearTimeout(loadingTimer);
@@ -408,13 +449,19 @@
 	$effect(() => {
 		const c = content;
 		const f = fileId;
+		const member = filesStore.library.find((file) => file.id === f);
+		const projectId = member?.projectId;
+		const relativePath = member?.relativePath;
 		void retryVersion;
 		// Subscribe to theme pref so light/dark toggles re-run Mermaid.
 		void themeStore.effective;
-		void doRender(c, f);
+		void doRender(c, f, projectId, relativePath);
+		return () => renderController?.abort();
 	});
 
 	onDestroy(() => {
+		renderController?.abort();
+		renderSeq++;
 		if (positionFileId) saveReadPosition(positionFileId);
 	});
 </script>
@@ -437,7 +484,7 @@
 				<pre>{err}</pre>
 				<button type="button" onclick={() => retryVersion++}>{t('source.retry')}</button>
 			</div>
-		{:else if htmlFileId === fileId}
+		{:else if htmlFileId === fileId && previewMount}
 			{#if hasBlockedRemoteImages}
 				<div class="mdsh-remote-images-notice" role="status">
 					<span>{t('read.remoteImagesBlocked')}</span>
@@ -468,13 +515,11 @@
 				tabindex="-1"
 				class="mdsh-preview"
 				bind:this={articleEl}
+				use:mountPreview={previewMount}
 				aria-busy={loading}
 				onclick={handleWikiLinkClick}
 				onkeydown={handleWikiLinkKeydown}
-			>
-				<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-				{@html html}
-			</article>
+			></article>
 			{#if annotate || hasInk}
 				<canvas
 					bind:this={canvas}
