@@ -185,6 +185,35 @@ async function fetchCssText(path: string, signal?: AbortSignal): Promise<string>
 	return res.text();
 }
 
+/**
+ * Completed standalone stylesheet text, keyed by resolved asset URL.
+ *
+ * Only the two fixed export assets can enter this map. It holds no document
+ * content, images, or remote resources, and it resets when the page reloads.
+ * A cache entry is written after the full text is available and the call is
+ * still active. A failed or aborted load is never cached, and concurrent cold
+ * callers do not share a request, so one caller's abort cannot affect another.
+ */
+const standaloneStyleCache = new Map<string, string>();
+
+async function cachedStandaloneStyle(
+	path: string,
+	signal?: AbortSignal,
+	transform?: (css: string) => Promise<string>
+): Promise<string> {
+	checkAborted(signal);
+	const key = assetUrl(path);
+	const completed = standaloneStyleCache.get(key);
+	if (completed !== undefined) return completed;
+
+	const css = await fetchCssText(path, signal);
+	checkAborted(signal);
+	const finalCss = transform ? await transform(css) : css;
+	checkAborted(signal);
+	standaloneStyleCache.set(key, finalCss);
+	return finalCss;
+}
+
 /** Assembles the standalone document with the CSS INLINED into <style> tags. */
 function renderStandaloneDoc(
 	title: string,
@@ -232,10 +261,13 @@ export async function buildStandaloneHtmlDocument(
 ): Promise<string> {
 	const needsKatex = source ? hasMath(source) : /class="math-block"|class="katex/.test(bodyHtml);
 
-	const styles: string[] = [await fetchCssText('/print/print.css', signal)];
+	const styles: string[] = [await cachedStandaloneStyle('/print/print.css', signal)];
 	if (needsKatex) {
-		const katexCss = await fetchCssText('/katex/katex.min.css', signal);
-		styles.push(await inlineKatexFonts(katexCss, signal));
+		styles.push(
+			await cachedStandaloneStyle('/katex/katex.min.css', signal, (css) =>
+				inlineKatexFonts(css, signal)
+			)
+		);
 	}
 	checkAborted(signal);
 	return renderStandaloneDoc(title, bodyHtml, styles, lang);
