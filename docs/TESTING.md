@@ -11,6 +11,26 @@ constant values, or mocked call sequences alone.
 
 ## Release review regressions
 
+### Versioned JSON worker risks
+
+The JSON browser workflows retain these risks: a full parse on the input thread,
+unbounded snapshots, stale diagnostics after edits or file changes, a cancelled
+action that changes source, lost number or escape tokens, grouped undo, deep input,
+invalid large input, and duplicate-key loss. Run the JSON and code editor specs with
+one Chromium worker. The JSON profile attaches raw paint samples, fixture hashes,
+request and response times, and main-thread long tasks. Chromium attempts a CDP
+worker heap measurement. Other engines report an unavailable counter. This profile
+does not replace the benchmark gate or native checks.
+
+Run `npx playwright test e2e/json-tools.spec.ts e2e/code-editor.spec.ts --project=chromium --workers=1 --retries=0`.
+The standard report retains fixtures, traces on failure, source metadata, and the
+`json-worker-profile.json` attachment. Firefox and WebKit include these specs in
+their remote project lists. No existing performance budget changes.
+
+The optional schema callback is not exposed by a browser workflow. Isolated JSON
+tests retain callback output and exception semantics and check parsed-value reuse.
+This bridge cannot move an arbitrary caller closure into a Worker.
+
 `e2e/review-regressions.spec.ts` checks these failures through the application:
 
 - A rename can replace a code or image extension with `.md`. Compare downloaded
