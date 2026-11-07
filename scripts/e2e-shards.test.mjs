@@ -1,8 +1,10 @@
 // Fail-closed fixtures for the measured E2E shard planner. The planner must
 // keep every listed test, include unknown files with a conservative weight and
-// refuse a missing, duplicated or stale weight entry.
+// refuse a missing or duplicated weight entry. A stale weight entry is a
+// scheduling hint for a removed file: warn and ignore it, never block CI.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -63,6 +65,10 @@ function writeJson(path, value) {
 	writeFileSync(path, JSON.stringify(value));
 }
 
+function sha256(value) {
+	return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
 function plan({ list, weightFile, shards = 2, dir = root() }) {
 	const listPath = join(dir, 'all-tests.json');
 	const weightsPath = join(dir, 'weights.json');
@@ -81,17 +87,15 @@ function plan({ list, weightFile, shards = 2, dir = root() }) {
 		'--out',
 		out
 	];
-	try {
-		const output = execFileSync(process.execPath, args, { encoding: 'utf8' });
-		return { status: 0, output, out, dir };
-	} catch (error) {
-		return {
-			status: error.status ?? 1,
-			output: `${error.stdout ?? ''}${error.stderr ?? ''}`,
-			out,
-			dir
-		};
-	}
+	const result = spawnSync(process.execPath, args, { encoding: 'utf8' });
+	return {
+		status: result.status ?? 1,
+		output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
+		stdout: result.stdout ?? '',
+		stderr: result.stderr ?? '',
+		out,
+		dir
+	};
 }
 
 function readPlan(out) {
@@ -237,15 +241,52 @@ test('rejects a duplicate weight entry', () => {
 	assert.match(result.output, /duplicate/i);
 });
 
-test('rejects a stale weight entry that matches no listed file', () => {
-	const list = listReport([['a.spec.ts', 1, [['chromium']]]]);
+test('warns and ignores a stale weight entry instead of blocking the plan', () => {
+	const list = listReport([
+		['a.spec.ts', 1, [['chromium']]],
+		['a.spec.ts', 2, [['chromium']]],
+		['b.spec.ts', 1, [['chromium']]]
+	]);
 	const weightFile = weights([
 		['chromium', 'a.spec.ts', 10, 1],
 		['chromium', 'removed.spec.ts', 10, 1]
 	]);
-	const result = plan({ list, weightFile, shards: 1 });
-	assert.notEqual(result.status, 0);
-	assert.match(result.output, /removed\.spec\.ts/);
+	const result = plan({ list, weightFile, shards: 2 });
+	assert.equal(result.status, 0, result.output);
+	assert.match(result.stderr, /removed\.spec\.ts/);
+	assert.match(result.stderr, /remove|refresh/i);
+	const value = readPlan(result.out);
+	assert.deepEqual(value.staleWeightGroups, ['chromium::removed.spec.ts']);
+	assert.deepEqual(
+		value.shards.flatMap((shard) => shard.tests).sort(),
+		['a.spec.ts:1::chromium', 'a.spec.ts:2::chromium', 'b.spec.ts:1::chromium'].sort()
+	);
+});
+
+test('records the planned shard test digest in each shard metadata', () => {
+	const list = listReport([
+		['a.spec.ts', 1, [['chromium']]],
+		['b.spec.ts', 1, [['chromium']]],
+		['c.spec.ts', 1, [['firefox']]]
+	]);
+	const weightFile = weights([
+		['chromium', 'a.spec.ts', 10, 1],
+		['chromium', 'b.spec.ts', 20, 1],
+		['firefox', 'c.spec.ts', 30, 1]
+	]);
+	const result = plan({ list, weightFile, shards: 2 });
+	assert.equal(result.status, 0, result.output);
+	const value = readPlan(result.out);
+	for (const shard of value.shards) {
+		const meta = JSON.parse(
+			readFileSync(join(result.out, `shard-${shard.shard}.meta.json`), 'utf8')
+		);
+		assert.equal(meta.shard, shard.shard);
+		assert.equal(meta.count, 2);
+		assert.equal(meta.partitionSha256, value.partitionSha256);
+		assert.equal(meta.fullListSha256, value.fullListSha256);
+		assert.equal(meta.testsSha256, sha256([...shard.tests].sort()));
+	}
 });
 
 test('rejects more shards than groups', () => {

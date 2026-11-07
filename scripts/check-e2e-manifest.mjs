@@ -2,7 +2,8 @@
 // Compare tests defined by the current configuration with tests that ran, or
 // prove that the shard lists partition the full list. A missing, duplicated or
 // extra test fails both modes. A list report is never accepted as execution
-// proof.
+// proof. When a shard report carries partition metadata, its planned test
+// digest binds the --test-list selection, so a wrong list cannot pass.
 // Usage:
 //   node scripts/check-e2e-manifest.mjs partition <shard-count> <full-list.json> <shard-list.json>...
 //   node scripts/check-e2e-manifest.mjs plan <shard-count> <full-list.json> <plan.json> <shard-list.json>...
@@ -61,6 +62,44 @@ function countsFrom(entries) {
 
 function isListReport(entries) {
 	return entries.every(({ test }) => (test.results ?? []).length === 0);
+}
+
+const DIGEST = /^[0-9a-f]{64}$/;
+
+function testsDigest(keys) {
+	return createHash('sha256')
+		.update(JSON.stringify([...keys].sort()))
+		.digest('hex');
+}
+
+// Return the partition identity of a report, or null when the run is local and
+// unpartitioned. A present identity must be complete and well formed.
+function partitionMetadata(report, label) {
+	const partition = report.config?.metadata?.partition ?? null;
+	if (partition === null) return null;
+	if (typeof partition !== 'object' || Array.isArray(partition)) {
+		console.error(`The partition metadata is malformed: ${label}.`);
+		process.exit(1);
+	}
+	const problems = [];
+	if (!Number.isInteger(partition.shard) || partition.shard < 1) {
+		problems.push('shard must be a positive integer');
+	}
+	if (!Number.isInteger(partition.count) || partition.count < 1) {
+		problems.push('count must be a positive integer');
+	} else if (Number.isInteger(partition.shard) && partition.shard > partition.count) {
+		problems.push('shard must not exceed count');
+	}
+	for (const field of ['partitionSha256', 'fullListSha256', 'testsSha256']) {
+		if (typeof partition[field] !== 'string' || !DIGEST.test(partition[field])) {
+			problems.push(`${field} must be a 64-character lowercase hex digest`);
+		}
+	}
+	if (problems.length > 0) {
+		console.error(`The partition metadata is malformed (${label}): ${problems.join('; ')}.`);
+		process.exit(1);
+	}
+	return partition;
 }
 
 function effectiveInputs(report, { includeShard = true, includePartition = true } = {}) {
@@ -276,14 +315,23 @@ if (mode === 'plan') {
 			console.error(`Expected and actual reports used different effective inputs: ${actualPath}.`);
 			process.exit(1);
 		}
-		const partition = shardReport.config?.metadata?.partition;
+		const partition = partitionMetadata(shardReport, actualPath);
 		const expectedShard = plan.shards[index];
+		if (!partition) {
+			console.error(`Shard list ${actualPath} has no partition metadata; the plan requires it.`);
+			process.exit(1);
+		}
 		if (
-			partition?.shard !== expectedShard.shard ||
-			partition?.count !== shardCount ||
-			partition?.partitionSha256 !== plan.partitionSha256
+			partition.shard !== expectedShard.shard ||
+			partition.count !== shardCount ||
+			partition.partitionSha256 !== plan.partitionSha256 ||
+			partition.fullListSha256 !== plan.fullListSha256
 		) {
 			console.error(`Shard list ${actualPath} does not match the plan partition identity.`);
+			process.exit(1);
+		}
+		if (partition.testsSha256 !== testsDigest(expectedShard.tests ?? [])) {
+			console.error(`Shard list ${actualPath} does not match the planned shard test digest.`);
 			process.exit(1);
 		}
 		const actualCounts = countsFrom(report.entries);
@@ -314,10 +362,24 @@ if (mode === 'execution') {
 		console.error('Expected test list is empty.');
 		process.exit(1);
 	}
+	const expectedBinding = partitionMetadata(expectedRaw, expectedPath);
+	const actualBinding = partitionMetadata(actualRaw, actualPath);
 	requireSameInputs(expectedRaw, actualRaw, actualPath);
 	const expected = countsFrom(expectedReport.entries);
 	const actual = countsFrom(actualReport.entries);
+	if (expectedBinding && expectedBinding.testsSha256 !== testsDigest(expected.keys())) {
+		console.error(
+			'The expected list does not match the bound shard test digest. The --test-list selection differs from the planned shard.'
+		);
+		process.exit(1);
+	}
 	reportDifferences(expected, actual);
+	if (actualBinding && actualBinding.testsSha256 !== testsDigest(actual.keys())) {
+		console.error(
+			'The actual results do not match the bound shard test digest. The executed selection differs from the planned shard.'
+		);
+		process.exit(1);
+	}
 
 	const notExecuted = [];
 	const unexpectedSkips = [];

@@ -2,7 +2,9 @@
 // Build a deterministic duration-balanced partition of the Playwright E2E
 // suite. Groups are browser and file pairs. Every listed test stays in exactly
 // one shard. The planner emits Playwright --test-list selections, one meta file
-// per shard for report identity, and a plan with the partition hash.
+// per shard for report identity, and a plan with the partition hash. A weight
+// entry is a scheduling hint only: a stale entry for a removed file warns and
+// never blocks the plan.
 // Usage:
 //   node scripts/e2e-shards.mjs plan --list <full-list.json> --weights <weights.json> --shards <count> --out <dir>
 import { createHash } from 'node:crypto';
@@ -143,9 +145,10 @@ if (new Set(collected.keys).size !== collected.keys.length) {
 }
 
 const weights = loadWeights(options.weights);
+const staleGroups = [];
 for (const key of weights.entries.keys()) {
 	if (!collected.groups.has(key)) {
-		fail(`Stale weight entry ${key} matches no listed test file.`);
+		staleGroups.push(key);
 	}
 }
 
@@ -177,6 +180,7 @@ const partition = {
 	fullListSha256,
 	weightsSha256,
 	unknownGroups: unknownGroups.sort(),
+	staleWeightGroups: staleGroups.sort(),
 	shards
 };
 partition.partitionSha256 = sha256({
@@ -201,12 +205,18 @@ for (const shard of shards) {
 			shard: shard.shard,
 			count: shardCount,
 			partitionSha256: partition.partitionSha256,
-			fullListSha256
+			fullListSha256,
+			testsSha256: sha256([...shard.tests].sort())
 		})}\n`
 	);
 }
 
 for (const key of unknownGroups) console.error(`Unmeasured group ${key} uses the fallback weight.`);
+for (const key of staleGroups.sort()) {
+	console.error(
+		`Stale weight entry ${key} matches no listed test file. Remove it from ${options.weights} or refresh it from a measured run; the plan ignores it.`
+	);
+}
 console.log(
 	`Planned ${collected.keys.length} tests in ${measured.size} groups across ${shardCount} shards (partition ${partition.partitionSha256.slice(0, 12)}).`
 );
