@@ -142,8 +142,11 @@ path filter does not require Desktop coverage.
 
 `ready_for_review`, and every later `synchronize` on the ready pull request,
 starts a new run at the exact head commit. That run uses the full matrix on all
-three operating systems, all browsers and all benchmarks. Branch protection and
-the aggregate still require every result.
+three operating systems, all browsers and all benchmarks. The Desktop aggregate
+still requires every requested result. The live branch rules require the Web and
+security checks, but do not currently require `desktop-validation`. Maintainers
+must also inspect Desktop before accepting a shared frontend or native change.
+This scheduling change does not alter branch protection.
 
 A workflow that uses this script must gate each expensive job on `full` and must
 fail its required aggregate when the tier is not `full`. Do not use labels,
