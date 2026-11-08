@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
+import { importSource } from './source-fidelity-harness';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -58,7 +59,7 @@ async function draftData(page: Page): Promise<string> {
 					rows.onerror = () => reject(rows.error);
 					rows.onsuccess = () => {
 						request.result.close();
-						resolve(rows.result.find((row) => row.open !== false)?.data ?? '');
+						resolve(rows.result.find((row) => row.name === 'plan.png')?.data ?? '');
 					};
 				};
 			})
@@ -127,4 +128,32 @@ test('offers pan and tool controls on a narrow viewport', async ({ page }) => {
 	await expect(page.getByTestId('image-highlighter')).toHaveAttribute('aria-pressed', 'true');
 	await draw(page);
 	await expect(page.getByTestId('image-clear')).toBeVisible();
+});
+
+test('keeps read-view ink out of image exports', async ({ page }, info) => {
+	await resetAppState(page);
+	await importImage(page);
+	await expect.poll(() => draftData(page)).not.toBe('');
+	const original = await draftData(page);
+	await importSource(page, '# Read ink\n\nSeparate annotation surface.', 'read-ink');
+	await page.locator('[data-mode="read"]').click();
+	await expect(page.locator('.mdsh-preview')).toBeVisible();
+	await page.getByTestId('annotation-toggle').click();
+	await page.getByTestId('annotation-color-1').click();
+	const box = await page.getByTestId('annotation-canvas').boundingBox();
+	if (!box) throw new Error('Read canvas has no box');
+	await page.mouse.move(box.x + 100, box.y + 160);
+	await page.mouse.down();
+	await page.mouse.move(box.x + 280, box.y + 160, { steps: 12 });
+	await page.mouse.up();
+	await page.locator('aside button[data-file-id]').filter({ hasText: 'plan.png' }).click();
+	await expect(page.getByTestId('image-document')).toBeVisible();
+	await expect(page.getByTestId('annotation-canvas')).toHaveCount(0);
+	const download = page.waitForEvent('download');
+	await page.getByTestId('image-export').click();
+	const exported = await readFile((await (await download).path())!);
+	expect(await redPixels(page, exported)).toBe(0);
+	expect(await draftData(page)).toBe(original);
+	await info.attach('read-image-isolation.png', { body: await page.screenshot() });
+	await info.attach('image-export.png', { body: exported, contentType: 'image/png' });
 });
