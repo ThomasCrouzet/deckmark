@@ -1098,6 +1098,7 @@ export const fr: Record<MessageKey, string> = {
 	'code.tabs': 'Tabulations',
 	'code.indentSize': 'Taille d’indentation',
 	'code.plainFallback': 'Texte brut ({extension})',
+	'code.longLineDegraded': 'Ligne longue : aides syntaxiques réduites',
 	'json.valid': 'JSON valide',
 	'json.invalid': 'JSON invalide à la ligne {line}, colonne {column}',
 	'json.duplicates': 'Clés en double : {keys}',

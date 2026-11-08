@@ -1080,6 +1080,7 @@ export const en = {
 	'code.tabs': 'Tabs',
 	'code.indentSize': 'Indent size',
 	'code.plainFallback': 'Plain text ({extension})',
+	'code.longLineDegraded': 'Long line: syntax aids reduced',
 	'json.valid': 'Valid JSON',
 	'json.invalid': 'Invalid JSON at line {line}, column {column}',
 	'json.duplicates': 'Duplicate keys: {keys}',

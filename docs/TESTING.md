@@ -1186,6 +1186,39 @@ reload. A second case checks initial focus when no control has focus.
 Run `npx playwright test e2e/code-focus-review.spec.ts e2e/snippets.spec.ts e2e/code-editor.spec.ts --project=chromium --workers=1 --retries=0`.
 Keep the JSON values, screenshots, source revision, environment, and fixtures.
 
+### Pathological long lines in the code and source editors
+
+One physical line above 16,384 UTF-16 code units selects a reduced editor
+configuration. The guard suspends the language grammar, folding, bracket
+matching, automatic indentation, image-data decorations and effective line
+wrapping. Text, selection, search, undo, manual indentation, save and exact byte
+export stay active. A visible status reports the reduced highlighting and the
+paused wrapping. The guard removes itself after the content shrinks and a
+debounced full scan finds only short lines.
+
+The retained failure risks are a late grammar reply that restores syntax on an
+unsafe document, a guard scan that itself blocks input, a stale risk state after
+undo or an external replacement, and a fallback that hides lost content. The
+browser cases compare stored and exported bytes, keep the selection usable, and
+check that ordinary files keep syntax tokens.
+
+The Chromium fixtures are generated in the spec. They cover a 1,000,000-byte
+JavaScript line, a 1,000,000-byte minified JSON document, a 100,000-column log
+line and a Markdown note with 20,000-character fence lines. Each case attaches
+the fixture byte count, UTF-16 length, maximum line length and SHA-256. The
+measurement case keeps raw synchronous and next-frame input samples for four
+named scenarios: long line, requested wrapping, invisibles and ordinary
+grammar. Those samples are diagnostic. The strict platform budgets stay under
+the common benchmark owner.
+
+```sh
+E2E_PORT=4398 npx playwright test e2e/code-editor.spec.ts e2e/editor-input-latency.spec.ts e2e/json-tools.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the HTML and JSON reports, the attached fixture metadata and measurement
+samples, downloads and failure traces. A browser result does not prove native
+WebView performance. The JSON worker boundary remains a separate dependency.
+
 ### Whole-application review
 
 The presentation-file review found failures in shared workflows. These retained
