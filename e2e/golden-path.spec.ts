@@ -78,12 +78,10 @@ test.describe('Golden path - persistence lifecycle', () => {
 			sessionStorage.setItem('mdsh:test:read-gate', 'used');
 			const gate = { blocked: false, release: () => {} };
 			(window as typeof window & { mdshReadGate: typeof gate }).mdshReadGate = gate;
-			const original = IDBIndex.prototype.getAll;
-			IDBIndex.prototype.getAll = function (...args: Parameters<IDBIndex['getAll']>) {
+			const original = IDBObjectStore.prototype.count;
+			IDBObjectStore.prototype.count = function (...args: Parameters<IDBObjectStore['count']>) {
 				const request = original.apply(this, args);
-				if (this.name !== 'order' || this.objectStore.name !== 'drafts' || gate.blocked)
-					return request;
-				const store = this.objectStore;
+				if (this.name !== 'drafts' || gate.blocked) return request;
 				request.addEventListener(
 					'success',
 					(event) => {
@@ -91,7 +89,7 @@ test.describe('Golden path - persistence lifecycle', () => {
 						gate.blocked = true;
 						let released = false;
 						const keepAlive = () => {
-							store.count().onsuccess = () => {
+							this.count().onsuccess = () => {
 								if (!released) keepAlive();
 							};
 						};

@@ -725,12 +725,17 @@
 				const length = view.state.doc.length;
 				const anchor = Math.min(saved.anchor, length);
 				const head = Math.min(saved.head, length);
-				// Always dispatch: the DOM selection may not be synced after a
-				// deferred mount even when the state coordinates already match.
-				view.dispatch({
-					selection: { anchor, head },
-					effects: view.scrollDOM.scrollTop === 0 ? cm.EditorView.scrollIntoView(head) : []
-				});
+				// Re-sync only the restored position. A deliberate navigation
+				// (outline, search, undo) already moved the selection.
+				const main = view.state.selection.main;
+				const restored = main.anchor === anchor && main.head === head;
+				const untouched = main.empty && main.from === 0 && (anchor > 0 || head > 0);
+				if (restored || untouched) {
+					view.dispatch({
+						selection: { anchor, head },
+						effects: view.scrollDOM.scrollTop === 0 ? cm.EditorView.scrollIntoView(head) : []
+					});
+				}
 			}
 			view?.focus();
 		});
@@ -780,6 +785,8 @@
 		if (pendingGoTo) {
 			const { line, query } = pendingGoTo;
 			pendingGoTo = null;
+			pendingSavedPosition = null;
+			restoringPosition = false;
 			const doc = view.state.doc;
 			const safeLine = Math.max(1, Math.min(doc.lines, line));
 			const target = doc.line(safeLine);
@@ -914,6 +921,8 @@
 	 * and applied at the end of `mount()`.
 	 */
 	export function goToLine(line: number, query?: string): void {
+		pendingSavedPosition = null;
+		restoringPosition = false;
 		if (!view) {
 			pendingGoTo = { line, query: query ?? '' };
 			return;
@@ -941,6 +950,8 @@
 
 	/** Scrolls to a source line without changing the document or undo history. */
 	export function scrollToLine(line: number, focus = false): void {
+		pendingSavedPosition = null;
+		restoringPosition = false;
 		if (!view) {
 			pendingGoTo = { line, query: '' };
 			return;
