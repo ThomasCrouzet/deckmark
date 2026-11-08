@@ -556,19 +556,6 @@
 				onclick={handleWikiLinkClick}
 				onkeydown={handleWikiLinkKeydown}
 			></article>
-			{#if annotate || hasInk}
-				<canvas
-					bind:this={canvas}
-					class="annotation-canvas"
-					class:drawing={annotate}
-					aria-hidden="true"
-					data-testid="annotation-canvas"
-					onpointerdown={startInk}
-					onpointermove={moveInk}
-					onpointerup={endInk}
-					onpointercancel={endInk}
-				></canvas>
-			{/if}
 		{/if}
 	</div>
 	<div class="annotation-bar" role="toolbar" aria-label={t('annotations.toolbar')}>
