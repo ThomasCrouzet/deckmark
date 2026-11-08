@@ -173,20 +173,8 @@
 		SearchQuery: typeof import('@codemirror/search').SearchQuery;
 		imageData: typeof import('../source-extensions').imageData;
 		codeMirrorPhrases: typeof import('../source-extensions').codeMirrorPhrases;
+		typewriterCentering: typeof import('../source-extensions').typewriterCentering;
 	};
-
-	// Factored-out typewriter extension: dispatched in rAF to avoid
-	// reentrancy in the CodeMirror transaction cycle (console warning).
-	function makeTypewriterExtension(cm: CMModule) {
-		return cm.EditorView.updateListener.of((update) => {
-			if (!update.selectionSet && !update.docChanged) return;
-			const head = update.state.selection.main.head;
-			const v = update.view;
-			requestAnimationFrame(() => {
-				v.dispatch({ effects: cm.EditorView.scrollIntoView(head, { y: 'center' }) });
-			});
-		});
-	}
 
 	function localeExtensions(cm: CMModule) {
 		return [
@@ -237,6 +225,7 @@
 					EditorState: state.EditorState,
 					imageData: lang.imageData,
 					codeMirrorPhrases: lang.codeMirrorPhrases,
+					typewriterCentering: lang.typewriterCentering,
 					Transaction: state.Transaction,
 					Compartment: state.Compartment,
 					EditorView: viewMod.EditorView,
@@ -385,12 +374,7 @@
 			'.cm-search br': { display: 'none' }
 		});
 
-		// Typewriter mode - an extension that re-centers the caret line on every
-		// selection change. Wrapped in a Compartment so we can enable/disable it
-		// on the fly without recreating the EditorState (cf.
-		// https://codemirror.net/examples/config/#dynamic-configuration).
-		// The scroll is dispatched in rAF to avoid re-entering CodeMirror's
-		// transaction cycle (console warning + reentrancy risk).
+		// The compartment removes the plugin and cancels its work without replacing history.
 		const typewriterCompartment = new cm.Compartment();
 		typewriterCompartmentRef = typewriterCompartment;
 		const localeCompartment = new cm.Compartment();
@@ -473,7 +457,7 @@
 					}
 				}
 			}),
-			typewriterCompartment.of(pendingTypewriter ? [makeTypewriterExtension(cm)] : []),
+			typewriterCompartment.of(pendingTypewriter ? [cm.typewriterCentering()] : []),
 			theme
 		];
 		const cached = editorStateCache.getSourceState(fileId);
@@ -548,15 +532,7 @@
 				cm.openSearchPanel(view);
 			}
 		}
-		// If typewriter mode was requested during the lazy-load and the
-		// initial caret is not already at the bottom of the doc, force a
-		// centering on entry to immediately align the caret.
-		if (pendingTypewriter) {
-			pendingTypewriter = false;
-			view.dispatch({
-				effects: cm.EditorView.scrollIntoView(view.state.selection.main.head, { y: 'center' })
-			});
-		}
+		pendingTypewriter = false;
 	}
 
 	/*
@@ -703,17 +679,10 @@
 		void loadCM()
 			.then((cm) => {
 				if (!view || !typewriterCompartmentRef) return;
-				const ext = active ? [makeTypewriterExtension(cm)] : [];
+				const ext = active ? [cm.typewriterCentering()] : [];
 				view.dispatch({
 					effects: typewriterCompartmentRef.reconfigure(ext)
 				});
-				// Immediate centering on activation to settle the caret without
-				// waiting for the next interaction.
-				if (active) {
-					view.dispatch({
-						effects: cm.EditorView.scrollIntoView(view.state.selection.main.head, { y: 'center' })
-					});
-				}
 			})
 			.catch((err) => reportError('typewriter mode (source editor)', err));
 	}

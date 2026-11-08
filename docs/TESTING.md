@@ -11,6 +11,32 @@ constant values, or mocked call sequences alone.
 
 ## Release review regressions
 
+### Source typewriter centering
+
+Retain these risks for issue 328: a key burst can queue obsolete scroll targets;
+an already centered caret can cause a redundant scroll transaction; a disabled or
+destroyed extension can dispatch against the old view; wrapped text can change
+caret geometry; selection, composition, undo, accessible input and saved bytes
+can change while the mode is active.
+
+Run `npx playwright test navigation-stats-scroll.spec.ts editor-input-latency.spec.ts
+--grep typewriter --project=chromium --workers=1 --retries=0 --trace=on`.
+Keep the standard source metadata, trace, screenshots and attached JSON files.
+The performance cases record raw frame intervals, p50, p95, pending frame counts,
+center scroll targets and fixture hashes for small, 1 MB and 5 MB notes. Counts
+include the CodeMirror measure frame. The probe uses real editor key handlers.
+It does not prove physical key repeat, a native IME or screen-reader output.
+The existing strict performance budgets stay unchanged.
+Run `npx playwright test keyboard-platform.spec.ts --grep typewriter --workers=1`
+for the accessible input, synthetic composition, selection, undo and save case.
+This spec is in the Chromium, Firefox and WebKit project lists. The navigation
+cases also check repeated disable and re-enable, mode exit and a file switch.
+Construct `InputEvent` explicitly for a synthetic `beforeinput` history action.
+Playwright's generic event driver does not retain `inputType`. The keyboard case
+checks the constructor, target, input type and cancellation before it checks redo.
+Use `CompositionEvent` for the synthetic composition boundaries. These events do
+not reproduce an operating-system input method.
+
 `e2e/review-regressions.spec.ts` checks these failures through the application:
 
 - A rename can replace a code or image extension with `.md`. Compare downloaded
@@ -528,6 +554,66 @@ has unequal hardware and a shared CPU.
   command result does not prove that an operating-system hotkey is available.
   Hotkey registration on macOS and Windows is recorded only by the CI runners,
   and the system can refuse a shortcut that another application owns.
+
+### Viewport annotation risks
+
+`e2e/read-annotations.spec.ts` checks active ink on 1 MB and 5 MB notes at DPR 2.
+The bitmap must fit the read viewport, with a 4096 pixel side limit and a 16 MiB
+RGBA area limit. Keep document dimensions separate from bitmap dimensions.
+The generated notes use repeated plain paragraphs and record exact fixture hashes.
+
+The projection workflow checks pen, transparent highlighter and eraser pixels after
+vertical and horizontal scroll, resize, offscreen culling and a file switch. It
+forces article width to exercise horizontal overflow. A separate workflow injects
+DPR 16 to test the allocation cap, then checks pointer input at CSS zoom 1.25.
+This is not physical-device or native browser zoom evidence. DPR 2 is a real
+browser-context setting. Existing cases keep Clear, print, reload and keyboard
+coverage. `e2e/image-annotations.spec.ts` retains flattened PNG export and original
+image byte checks. Read-view strokes remain temporary and do not enter exports.
+
+The canvas must stay at the same viewport position in the task that changes native
+scroll offsets. A delayed scroll event or ink frame must not move the surface.
+The same-task scroll regression records the actual offset change, canvas identity,
+scroller identity and scroller rectangle before it checks exact canvas coordinates.
+It does not replace the original workflow or add a wait before its position check.
+An absent scroll, changed surface or changed layout is not position-failure proof.
+
+A viewport overlay can cover scrollbars, escape the scroll viewport or break pointer
+input. Keep both canvas dimensions within the scroller client area and keep clipping.
+A stationary box can still hold wrongly projected ink. Keep the point-specific
+scroll, resize, DPR, pen, highlighter and eraser checks. Keep pointer capture, file
+switch, reload, keyboard and print checks. Same-task geometry does not prove correct
+stroke projection before a queued redraw or establish a past remote callback order.
+
+The zero-size sticky anchor keeps the canvas in the native scroller for clipping
+and wheel input. It must not add document width or height. Canvas position does
+not depend on the queued ink renderer. Raster redraw still uses the current scroll
+offsets and the existing animation-frame scheduler.
+
+Clear removes stroke data immediately and clears the bitmap in the queued animation
+frame. A completed button click does not confirm that this frame has run. Use the
+existing `inkFrame()` helper before the Clear pixel check. Require exactly zero
+nontransparent pixels. Do not use a fixed delay or a pixel tolerance. A browser
+probe must distinguish pixels before and after the queued clear. A missing canvas
+clear must still fail the zero-pixel check after the frame wait.
+
+Run the focused checks against the production preview:
+
+```sh
+npm run test:e2e -- e2e/read-annotations.spec.ts e2e/image-annotations.spec.ts --project=chromium --workers=1 --retries=0
+npm run test:e2e -- e2e/read-annotations.spec.ts --project=webkit --workers=1 --retries=0
+npm run test:e2e -- e2e/read-annotations.spec.ts --project=chromium --workers=1 --retries=0 --grep 'keeps the ink viewport fixed in the native scroll task' --trace=on
+```
+
+Keep JSON and HTML reports, source snapshots, command exits, screenshots, engine
+versions, OS, build mode and fixture hashes. Long-note cases retain raw intervals
+from a scroll change to two animation frames, p50 and p95, estimated canvas bytes
+and Chromium heap usage. Other engines report heap measurement as unavailable.
+These timings are diagnostic, not a new performance budget or a strict gate pass.
+Native Desktop and physical display checks remain separate acceptance work.
+The same-task case attaches `native-scroll-position.json` and a screenshot even
+when its position assertion fails. Keep that first failure and its trace. A later
+green run does not remove the original remote flake or complete issue acceptance.
 
 ### Native WebView workflow coverage
 
