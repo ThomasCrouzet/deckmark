@@ -15,6 +15,18 @@ interface Patch {
 	value: string;
 }
 
+interface ScopedRestore {
+	result: string;
+	blockIndex: number;
+	sourceIndex: number;
+	markdownStart: number;
+	sourceStart: number;
+	markdownDelta: number;
+	sourceDelta: number;
+	markdownNode: MarkdownNode;
+	sourceNode: MarkdownNode;
+}
+
 type Parse = (markdown: string) => MarkdownNode;
 
 function start(node: MarkdownNode): number {
@@ -23,6 +35,17 @@ function start(node: MarkdownNode): number {
 
 function end(node: MarkdownNode): number {
 	return node.position?.end.offset ?? 0;
+}
+
+/** Move a parsed subtree to its place in a newer document snapshot. */
+function shift(node: MarkdownNode, delta: number): MarkdownNode {
+	if (!delta) return node;
+	const startOffset = node.position?.start.offset;
+	const endOffset = node.position?.end.offset;
+	if (startOffset !== undefined) node.position!.start.offset = startOffset + delta;
+	if (endOffset !== undefined) node.position!.end.offset = endOffset + delta;
+	for (const child of node.children ?? []) shift(child, delta);
+	return node;
 }
 
 function properties(node: MarkdownNode): string {
@@ -213,17 +236,18 @@ export class SourceFidelity {
 		if (scoped !== null) {
 			if (commit) {
 				this.cachedMarkdown = markdown;
-				this.cachedSource = scoped;
+				this.cachedSource = scoped.result;
+				this.acceptScoped(markdown, scoped);
 			}
 			recordEditorCounter('sourceFidelityScoped');
 			recordSourceFidelityPath('fastPath');
-			return scoped;
+			return scoped.result;
 		}
 		recordEditorCounter('sourceFidelityFull');
 		return measureEditorStage('sourceFidelityFull', () => this.restoreFull(markdown, commit));
 	}
 
-	private restoreParagraph(markdown: string): string | null {
+	private restoreParagraph(markdown: string): ScopedRestore | null {
 		const before = this.baseline.children ?? [];
 		const range = changeRange(this.markdown, markdown);
 		let from = 0;
@@ -290,7 +314,56 @@ export class SourceFidelity {
 		} catch {
 			return null;
 		}
-		return apply(this.source, patches);
+		const sourceTree = this.parse(candidate);
+		const sourceNode = sourceTree.children?.[0];
+		if (
+			sourceTree.children?.length !== 1 ||
+			sourceNode?.type !== 'paragraph' ||
+			start(sourceNode) !== 0 ||
+			end(sourceNode) !== candidate.length
+		)
+			return null;
+		const result = apply(this.source, patches);
+		const sourceIndex = (this.original.children ?? []).indexOf(original);
+		if (sourceIndex < 0) return null;
+		return {
+			result,
+			blockIndex: from,
+			sourceIndex,
+			markdownStart: start(block),
+			sourceStart: start(original),
+			markdownDelta: markdown.length - this.markdown.length,
+			sourceDelta: result.length - this.source.length,
+			markdownNode: after,
+			sourceNode
+		};
+	}
+
+	/** Advance both baselines by the one bounded paragraph this edit replaced. */
+	private acceptScoped(markdown: string, scoped: ScopedRestore): void {
+		if (scoped.sourceIndex < 0) return;
+		const baseline = this.baseline.children ?? [];
+		baseline[scoped.blockIndex] = shift(scoped.markdownNode, scoped.markdownStart);
+		for (let index = scoped.blockIndex + 1; index < baseline.length; index++)
+			shift(baseline[index]!, scoped.markdownDelta);
+		const original = this.original.children ?? [];
+		original[scoped.sourceIndex] = shift(scoped.sourceNode, scoped.sourceStart);
+		for (let index = scoped.sourceIndex + 1; index < original.length; index++)
+			shift(original[index]!, scoped.sourceDelta);
+		this.baseline = { ...this.baseline, children: baseline };
+		this.original = { ...this.original, children: original };
+		this.markdown = markdown;
+		this.source = scoped.result;
+		this.mappedOriginals = null;
+	}
+
+	/** Replace the accepted baselines after a whole-document reconciliation. */
+	private acceptFull(markdown: string, result: string, next: MarkdownNode): void {
+		this.baseline = next;
+		this.original = result === markdown ? next : this.parse(result);
+		this.markdown = markdown;
+		this.source = result;
+		this.mappedOriginals = null;
 	}
 
 	private restoreFull(markdown: string, commit: boolean): string {
@@ -381,6 +454,7 @@ export class SourceFidelity {
 		if (commit) {
 			this.cachedMarkdown = markdown;
 			this.cachedSource = result;
+			this.acceptFull(markdown, result, next);
 		}
 		recordSourceFidelityPath(path);
 		return result;

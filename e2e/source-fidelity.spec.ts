@@ -102,6 +102,27 @@ test('rich visual paragraph edits keep exact source and use scoped reconciliatio
 	expect(scoped, 'the visual source restoration must exercise the scoped path').toBeGreaterThan(0);
 });
 
+test('two plain paragraph edits in one mount keep the scoped path', async ({ page }, info) => {
+	await resetAppState(page);
+	const source = fidelityFixtures[0]!.source;
+	await importSource(page, source);
+	await page.locator('[data-mode=wysiwyg]').click();
+	await editSentence(page, sentence, replacement);
+	await expect.poll(async () => (await readFidelityCounters(page)).fastPath).toBeGreaterThan(0);
+	await editSentence(page, 'Keep the final paragraph.', 'Keep the last paragraph.');
+	const expected = source
+		.replace(sentence, replacement)
+		.replace('Keep the final paragraph.', 'Keep the last paragraph.');
+	await recordFidelity(
+		info,
+		page,
+		'two-paragraph-edits',
+		source,
+		expected,
+		await exportSource(page)
+	);
+});
+
 test('library export rejects more than 300 documents before a download', async ({ page }, info) => {
 	await resetAppState(page);
 	await page.evaluate(

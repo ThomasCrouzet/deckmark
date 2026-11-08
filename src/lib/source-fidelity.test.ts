@@ -132,7 +132,8 @@ describe('source span preservation', () => {
 		expect(fidelity.restore('A **bright** bird.\n')).toBe('A __bright__ bird.');
 		expect(fidelity.restore('A **bright** bird.\n')).toBe('A __bright__ bird.');
 		expect(fidelity.restore('A **small** bird.\n')).toBe('A __small__ bird.');
-		expect(paths).toEqual(['fastPath']);
+		// Both the accepted edit and the undo stay on the scoped path.
+		expect(paths).toEqual(['fastPath', 'fastPath']);
 	});
 });
 
@@ -197,6 +198,51 @@ describe('bounded paragraph reconciliation', () => {
 		);
 		expect(fidelity.restore(baseline)).toBe(source);
 		expect(Math.max(...parsed)).toBeLessThan(64 * 1024);
+	});
+
+	it('keeps consecutive plain-text edits in separate paragraphs scoped', () => {
+		const source = `First paragraph.\n\n${'Pad text '.repeat(12_000)}\n\nThird paragraph.\n`;
+		const { fidelity, baseline, parsed } = observed(source);
+		const first = baseline.replace('First paragraph.', 'Bright paragraph.');
+		expect(fidelity.restore(first)).toBe(source.replace('First paragraph.', 'Bright paragraph.'));
+		const second = first.replace('Third paragraph.', 'Last paragraph.');
+		expect(fidelity.restore(second)).toBe(
+			source
+				.replace('First paragraph.', 'Bright paragraph.')
+				.replace('Third paragraph.', 'Last paragraph.')
+		);
+		expect(paths).toEqual(['fastPath', 'fastPath']);
+		expect(
+			Math.max(...parsed),
+			'consecutive text edits must parse only a bounded region'
+		).toBeLessThan(64 * 1024);
+	});
+
+	it('rebases after a whole-document fallback so the next text edit stays scoped', () => {
+		const source = `First paragraph.\n\n${'Pad text '.repeat(12_000)}\n\nThird paragraph.\n`;
+		const { fidelity, baseline, parsed } = observed(source);
+		const changed = baseline
+			.replace('First paragraph.', 'Bright paragraph.')
+			.replace('Third paragraph.', 'Last paragraph.');
+		expect(fidelity.restore(changed)).toBe(
+			source
+				.replace('First paragraph.', 'Bright paragraph.')
+				.replace('Third paragraph.', 'Last paragraph.')
+		);
+		expect(
+			Math.max(...parsed),
+			'the multi-block edit needs the whole-document check'
+		).toBeGreaterThan(64 * 1024);
+		parsed.length = 0;
+		const next = changed.replace('Bright paragraph.', 'Brisk paragraph.');
+		expect(fidelity.restore(next)).toBe(
+			source
+				.replace('First paragraph.', 'Brisk paragraph.')
+				.replace('Third paragraph.', 'Last paragraph.')
+		);
+		expect(Math.max(...parsed), 'a later text edit must reuse the accepted baseline').toBeLessThan(
+			64 * 1024
+		);
 	});
 
 	it('keeps a whole-document fallback for changed block structure and multiple blocks', () => {
