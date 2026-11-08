@@ -38,8 +38,7 @@ export function createPresentationTextEdit(
 
 	function finish(): void {
 		if (!editingId) return;
-		editingId = null;
-		editor.commit();
+		if (editor.commit()) editingId = null;
 	}
 
 	function discard(): void {
@@ -52,6 +51,7 @@ export function createPresentationTextEdit(
 		);
 		if (!target || TEXT_BLOCKED.has(target.type)) return;
 		finish();
+		if (editingId) return;
 		editor.select(target.id);
 		editor.begin();
 		editingId = target.id;
@@ -63,8 +63,9 @@ export function createPresentationTextEdit(
 
 	function update(value: string): void {
 		const target = current();
-		if (target) target.content = value;
-		editor.publish();
+		if (!target || target.content === value) return;
+		target.content = value;
+		editor.markChanged();
 	}
 
 	function format(marker: string): void {
@@ -80,7 +81,7 @@ export function createPresentationTextEdit(
 			content.slice(start, end) +
 			(marker === '- ' ? '' : marker) +
 			content.slice(end);
-		editor.publish();
+		editor.markChanged();
 		void tick().then(() => {
 			const field = getInput();
 			field?.focus();

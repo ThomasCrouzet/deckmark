@@ -1,7 +1,10 @@
 <script module lang="ts">
 	import { SvelteMap } from 'svelte/reactivity';
+	import { PresentationEditor } from './editor.svelte';
 	// Keep unapplied source input when a file view is remounted.
 	const sourceDrafts = new SvelteMap<string, { draft: string; base: string }>();
+	// Retain failed local input if an external lifecycle removes its view.
+	const pendingEditors = new SvelteMap<string, PresentationEditor>();
 </script>
 
 <script lang="ts">
@@ -18,10 +21,9 @@
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { isFilesDrag } from '#lib/ui/image-drop.svelte.js';
 	import { templatesStore } from '#lib/templates.svelte.js';
-	import { PresentationEditor } from './editor.svelte';
 	import { createPresentationGestures } from './gestures.svelte';
 	import { createPresentationTextEdit } from './text-edit.svelte';
-	import type { PresentationElementType } from './model';
+	import { serializePresentation, type PresentationElementType } from './model';
 	import SlideContent from './SlideContent.svelte';
 	import SlideThumbnail from './SlideThumbnail.svelte';
 	import { presentationElementStyle, presentationElementBox } from './render';
@@ -58,16 +60,22 @@
 	let { onPresentingChange = () => {} }: { onPresentingChange?: (value: boolean) => void } =
 		$props();
 	const fileId = filesStore.active!.id;
+	const fileIdentity = filesStore.active!;
 	const guidanceId = $props.id();
-	const editor = new PresentationEditor(filesStore.active?.content ?? '', (source) => {
-		const file = filesStore.files.find((entry) => entry.id === fileId);
-		if (
-			file &&
-			documentKind(file.content) === 'presentation' &&
-			documentKind(source) === 'presentation'
-		)
-			filesStore.updateContent(fileId, source);
-	});
+	const editor =
+		pendingEditors.get(fileId) ??
+		new PresentationEditor(
+			filesStore.active?.content ?? '',
+			(source, base) => {
+				const file = filesStore.library.find((entry) => entry.id === fileId);
+				if (file !== fileIdentity || file.content !== base)
+					throw new Error('Presentation source changed');
+				if (documentKind(source) !== 'presentation') throw new Error('Presentation data missing');
+				filesStore.updateContent(fileId, source);
+			},
+			(error) =>
+				reportError('save presentation snapshot', error, { notifyUser: t('storage.saveFailed') })
+		);
 	let root = $state<HTMLDivElement | null>(null);
 	let canvas = $state<HTMLDivElement | null>(null);
 	let viewport = $state<HTMLDivElement | null>(null);
@@ -207,6 +215,10 @@
 		const current = filesStore.files.find((file) => file.id === fileId)?.content;
 		untrack(() => {
 			if (current !== undefined && current !== editor.source) {
+				if (editor.pending && !editor.flush()) {
+					userMessage = t('files.otherTabChanges');
+					return;
+				}
 				gestures.cancel();
 				textEdit.discard();
 				const editingSource = sourceOpen || editor.error;
@@ -244,6 +256,7 @@
 	});
 	$effect(() => {
 		void editor.source;
+		void editor.revision;
 		void editor.index;
 		const timer = setTimeout(() => {
 			overflow = Array.from(
@@ -284,6 +297,10 @@
 			}
 		};
 		window.addEventListener('mdsh:presentation-action', nativeAction);
+		const flush = (event: Event) => {
+			if (!editor.flush()) event.preventDefault();
+		};
+		window.addEventListener('mdsh:flush-editor', flush);
 		const visualViewport = window.visualViewport;
 		const resizeObserver = new ResizeObserver(keepFocusedControlVisible);
 		if (root) resizeObserver.observe(root);
@@ -292,11 +309,14 @@
 		root?.addEventListener('focusin', keepFocusedControlVisible);
 		root?.addEventListener('focusout', keepFocusedControlVisible);
 		return () => {
+			if (editor.flush()) pendingEditors.delete(fileId);
+			else pendingEditors.set(fileId, editor);
 			onPresentingChange(false);
 			disposed = true;
 			clipboardShortcut = null;
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
+			window.removeEventListener('mdsh:flush-editor', flush);
 			resizeObserver.disconnect();
 			window.removeEventListener('resize', keepFocusedControlVisible);
 			visualViewport?.removeEventListener('resize', keepFocusedControlVisible);
@@ -318,6 +338,7 @@
 
 	function go(index: number) {
 		textEdit.finish();
+		if (!editor.commit()) return;
 		editor.selectSlide(index);
 		gestures.resetView();
 	}
@@ -627,6 +648,7 @@
 	}
 	function openSource() {
 		textEdit.finish();
+		if (!editor.flush()) return;
 		advancedOpen = false;
 		if (!sourceOpen && !editor.error) {
 			sourceDraft = editor.source;
@@ -661,6 +683,22 @@
 			return;
 		}
 		void tick().then(() => sourceAlert?.focus());
+	}
+	function saveCopy() {
+		const file = filesStore.library.find((entry) => entry.id === fileId);
+		if (!file) return;
+		try {
+			const source = serializePresentation(editor.deck);
+			editor.receive(file.content, true);
+			pendingEditors.delete(fileId);
+			filesStore.createNew(
+				`${file.name.replace(/\.md$/i, '')} ${t('files.copySuffix')}.md`,
+				source,
+				{ kind: 'presentation' }
+			);
+		} catch (error) {
+			reportError('recover presentation copy', error, { notifyUser: t('storage.saveFailed') });
+		}
 	}
 	function thumbnailPointerDown(event: PointerEvent, index: number) {
 		if (event.pointerType === 'touch')
@@ -1284,8 +1322,9 @@
 								editor.begin();
 							}}
 							oninput={(event) => {
+								if (editor.slide.notes === event.currentTarget.value) return;
 								editor.slide.notes = event.currentTarget.value;
-								editor.publish();
+								editor.markChanged();
 							}}
 							onblur={() => editor.commit()}></textarea></label
 					>
@@ -1336,19 +1375,22 @@
 		{:else}
 			<span>{t('slides.slide', { n: editor.index + 1 })} / {editor.deck.slides.length}</span>
 			<span class="save-state" role="status"
-				>{filesStore.saveErrorIds.includes(fileId)
+				>{editor.saveError || filesStore.saveErrorIds.includes(fileId)
 					? t('statusBar.saveFailed')
-					: filesStore.hasPendingSave
+					: editor.pending || filesStore.hasPendingSave
 						? t('statusBar.saving')
 						: t('stats.saved')}</span
 			>
-			{#if filesStore.saveErrorIds.includes(fileId)}<button
+			{#if editor.saveError || filesStore.saveErrorIds.includes(fileId)}<button
 					data-testid="slide-retry-save"
 					onclick={() =>
 						void filesStore
 							.flushPendingAwait()
 							.catch((error) => reportError('retry slide save', error))}
 					>{t('statusBar.retrySave')}</button
+				>{/if}
+			{#if editor.saveError}<button data-testid="slide-save-copy" onclick={saveCopy}
+					>{t('palette.editCopy')}</button
 				>{/if}
 			<span class="footer-hint" title={t('slides.shortcuts')}>{t('slides.selectionHint')}</span>
 			<div class="zoom-controls">

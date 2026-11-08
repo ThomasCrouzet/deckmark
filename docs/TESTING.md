@@ -472,6 +472,36 @@ Keep each run in separate local storage. The campaign report names the exact
 command, revision, working diff, OS, browser, build mode, fixtures, and results.
 A Chromium result does not establish native Desktop or other browser acceptance.
 
+### Presentation input snapshot risks
+
+`presentation-performance.spec.ts` inserts 24 characters into text and notes in
+100- and 300-slide decks. It records model serialization and parse counters,
+raw input-to-frame and synchronous samples, p50/p95, CPU profiles, frame gaps,
+heap metrics, browser identity, and fixture hashes. These are local diagnostics,
+not a replacement for the existing performance budgets. Net heap size is not
+an allocated-byte measurement.
+
+`presentation-editor.spec.ts` checks idle publication without textarea or
+selection replacement, continuous notes input with a maximum wait, idempotent
+flushes, undo/redo, slide switches, immediate Markdown export, close followed by
+backup, concurrent external revisions, and failed serialization followed by retry.
+A materialization failure must stop a backup or detach and keep local input.
+Generic flush must not apply an advanced-source draft.
+`presentation-format.spec.ts` compares stored and exported bytes after idle edits.
+It keeps BOM/CRLF frontmatter, comments, IDs, notes, and literal marker framing.
+Textarea values normalize CRLF, so exact byte checks use downloads and IndexedDB.
+
+Run focused Chromium evidence with:
+
+```sh
+npm run test:e2e -- presentation-editor.spec.ts presentation-format.spec.ts presentation-performance.spec.ts --project=chromium --workers=1
+```
+
+Keep the command, revision and diff hash, environment, fixtures, JSON and HTML
+reports, downloads, and failure traces locally. Native WebView close and abrupt
+process termination need separate evidence. A synchronous source snapshot does
+not confirm an IndexedDB commit. Keep the existing 400 ms draft save delay.
+
 ### Incremental source bytes
 
 `src/lib/code/source-text.test.ts` checks the raw separator map before editor

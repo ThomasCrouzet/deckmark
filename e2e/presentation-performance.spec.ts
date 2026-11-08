@@ -7,7 +7,13 @@ import {
 	serializePresentation
 } from '../src/lib/presentation/model';
 import { resetAppState } from './helpers';
-import { createPresentation, openPresentationSource } from './presentation-helpers';
+import {
+	createPresentation,
+	importMarkdown,
+	openPresentationSource,
+	presentationFixture,
+	waitForPresentation
+} from './presentation-helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -16,6 +22,102 @@ async function resetEnglishApp(page: Page): Promise<void> {
 	await page.evaluate(() => localStorage.setItem('mdsh:locale', 'en'));
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+}
+
+for (const slideCount of [100, 300]) {
+	for (const inputKind of ['text', 'notes']) {
+		test(`coalesces large deck ${slideCount} ${inputKind} typing`, async ({ page }, info) => {
+			test.setTimeout(90_000);
+			await resetEnglishApp(page);
+			const fixture = presentationFixture(
+				Array.from({ length: slideCount }, (_, index) => `# Slide ${index + 1}\n\nLocal text.`)
+			);
+			await importMarkdown(page, fixture);
+			const editor = await waitForPresentation(page);
+			if (inputKind === 'text') await editor.getByTestId('slide-object').first().dblclick();
+			const input = editor.getByTestId(inputKind === 'text' ? 'slide-text-editor' : 'slide-notes');
+			await input.focus();
+			await input.press('End');
+			const initial = await input.inputValue();
+			const session = await page.context().newCDPSession(page);
+			await session.send('Performance.enable');
+			const before = await session.send('Performance.getMetrics');
+			await session.send('Profiler.enable');
+			await session.send('Profiler.start');
+			const samples = await input.evaluate(async (field: HTMLTextAreaElement) => {
+				const counts: Record<string, number> = {};
+				const count = (event: Event) => {
+					const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+					if (detail.kind === 'counter') counts[detail.name] = (counts[detail.name] ?? 0) + 1;
+				};
+				window.addEventListener('deckmark:editor-perf', count);
+				const paint: number[] = [];
+				const synchronous: number[] = [];
+				const frames: number[] = [];
+				let lastFrame = performance.now();
+				for (const character of 'abcdefghijklmnopqrstuvwx') {
+					const start = performance.now();
+					field.setRangeText(character, field.selectionStart, field.selectionEnd, 'end');
+					field.dispatchEvent(new InputEvent('input', { bubbles: true, data: character }));
+					synchronous.push(performance.now() - start);
+					await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+					paint.push(performance.now() - start);
+					frames.push(performance.now() - lastFrame);
+					lastFrame = performance.now();
+				}
+				window.removeEventListener('deckmark:editor-perf', count);
+				return {
+					paint,
+					synchronous,
+					frames,
+					counts,
+					value: field.value,
+					focused: document.activeElement === field
+				};
+			});
+			const profile = await session.send('Profiler.stop');
+			const after = await session.send('Performance.getMetrics');
+			await info.attach('typing-cpu-profile.json', {
+				body: JSON.stringify(profile),
+				contentType: 'application/json'
+			});
+			const percentile = (values: number[], fraction: number) =>
+				[...values].sort((a, b) => a - b)[Math.ceil(values.length * fraction) - 1];
+			await info.attach('large-deck-typing.json', {
+				body: JSON.stringify(
+					{
+						slideCount,
+						inputKind,
+						fixtureSha256: createHash('sha256').update(fixture).digest('hex'),
+						browser: await page.context().browser()!.version(),
+						samples,
+						before,
+						after,
+						p50: percentile(samples.paint, 0.5),
+						p95: percentile(samples.paint, 0.95),
+						method:
+							'24 in-page textarea insertions, each followed by one animation frame; excludes driver IPC'
+					},
+					null,
+					2
+				),
+				contentType: 'application/json'
+			});
+			await info.attach('large-deck-fixture.md', { body: fixture, contentType: 'text/markdown' });
+			expect(samples.value).toBe(initial + 'abcdefghijklmnopqrstuvwx');
+			expect(samples.focused).toBe(true);
+			expect(samples.counts['presentation.serialize'] ?? 0).toBeLessThan(12);
+			expect(samples.counts['presentation.parse'] ?? 0).toBeLessThan(12);
+			await expect(editor.locator('.save-state')).toHaveText('saved');
+			await expect(input).toBeFocused();
+			await expect(input).toHaveValue(samples.value);
+			await page.reload();
+			if (inputKind === 'text') {
+				await editor.getByTestId('slide-object').first().dblclick();
+				await expect(editor.getByTestId('slide-text-editor')).toHaveValue(samples.value);
+			} else await expect(editor.getByTestId('slide-notes')).toHaveValue(samples.value);
+		});
+	}
 }
 
 test('keeps a representative 20-slide deck responsive during a real drag', async ({
