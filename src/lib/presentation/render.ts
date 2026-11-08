@@ -18,9 +18,89 @@ export interface RenderedPresentation {
 	source: string;
 }
 
-const contentCache = new Map<string, Promise<string>>();
-const MAX_CONTENT_CACHE_ENTRIES = 256;
+interface ContentCacheEntry {
+	html: string;
+	bytes: number;
+}
+
+export interface PresentationContentCacheStats {
+	entries: number;
+	bytes: number;
+	limitBytes: number;
+	limitEntries: number;
+	hits: number;
+	misses: number;
+	evictions: number;
+	oversized: number;
+	inFlight: number;
+}
+
+const contentCache = new Map<string, ContentCacheEntry>();
+const inFlightContent = new Map<string, Promise<string>>();
+const CONTENT_CACHE_LIMIT_BYTES = 8 * 1024 * 1024;
+const CONTENT_CACHE_LIMIT_ENTRIES = 512;
 const MAX_CACHED_CONTENT_CHARS = 512 * 1024;
+let contentCacheBytes = 0;
+let contentCacheHits = 0;
+let contentCacheMisses = 0;
+let contentCacheEvictions = 0;
+let contentCacheOversized = 0;
+
+function estimatedContentBytes(key: string, source: string, html: string): number {
+	return 2 * (key.length + source.length + html.length) + 128;
+}
+
+function evictContentCache(): void {
+	while (
+		contentCache.size > 0 &&
+		(contentCacheBytes > CONTENT_CACHE_LIMIT_BYTES ||
+			contentCache.size > CONTENT_CACHE_LIMIT_ENTRIES)
+	) {
+		const oldest = contentCache.keys().next().value;
+		if (oldest === undefined) return;
+		const entry = contentCache.get(oldest);
+		contentCache.delete(oldest);
+		if (entry) contentCacheBytes -= entry.bytes;
+		contentCacheEvictions++;
+	}
+}
+
+function cacheContent(key: string, source: string, html: string): void {
+	const bytes = estimatedContentBytes(key, source, html);
+	if (bytes > CONTENT_CACHE_LIMIT_BYTES) {
+		contentCacheOversized++;
+		return;
+	}
+	const previous = contentCache.get(key);
+	if (previous) {
+		contentCache.delete(key);
+		contentCacheBytes -= previous.bytes;
+	}
+	contentCache.set(key, { html, bytes });
+	contentCacheBytes += bytes;
+	evictContentCache();
+}
+
+/** Returns local cache occupancy and reuse counters for tests and diagnostics. */
+export function presentationContentCacheStats(): PresentationContentCacheStats {
+	return {
+		entries: contentCache.size,
+		bytes: contentCacheBytes,
+		limitBytes: CONTENT_CACHE_LIMIT_BYTES,
+		limitEntries: CONTENT_CACHE_LIMIT_ENTRIES,
+		hits: contentCacheHits,
+		misses: contentCacheMisses,
+		evictions: contentCacheEvictions,
+		oversized: contentCacheOversized,
+		inFlight: inFlightContent.size
+	};
+}
+
+if (typeof window !== 'undefined' && import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1') {
+	(
+		window as unknown as { __MDSH_PRESENTATION_CACHE__?: () => PresentationContentCacheStats }
+	).__MDSH_PRESENTATION_CACHE__ = presentationContentCacheStats;
+}
 
 function finite(value: number, fallback = 0): number {
 	return Number.isFinite(value) ? value : fallback;
@@ -86,17 +166,35 @@ export function renderPresentationElementContentCached(
 	options: PresentationRenderOptions = {}
 ): Promise<string> {
 	if (options.signal || element.content.length > MAX_CACHED_CONTENT_CHARS) {
+		contentCacheOversized++;
 		return renderPresentationElementContent(element, options);
 	}
 	const key = `${element.type}\u0000${element.content}\u0000${element.id === options.hideTextId ? 'hidden' : 'shown'}\u0000${contextKey(options)}`;
 	const existing = contentCache.get(key);
-	if (existing) return existing;
-	if (contentCache.size >= MAX_CONTENT_CACHE_ENTRIES) contentCache.clear();
-	const rendered = renderPresentationElementContent(element, options).catch((error) => {
+	if (existing) {
+		contentCacheHits++;
 		contentCache.delete(key);
-		throw error;
-	});
-	contentCache.set(key, rendered);
+		contentCache.set(key, existing);
+		return Promise.resolve(existing.html);
+	}
+	const active = inFlightContent.get(key);
+	if (active) {
+		contentCacheHits++;
+		return active;
+	}
+	contentCacheMisses++;
+	const rendered = renderPresentationElementContent(element, options).then(
+		(html) => {
+			inFlightContent.delete(key);
+			cacheContent(key, element.content, html);
+			return html;
+		},
+		(error: unknown) => {
+			inFlightContent.delete(key);
+			throw error;
+		}
+	);
+	inFlightContent.set(key, rendered);
 	return rendered;
 }
 
