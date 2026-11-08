@@ -525,6 +525,7 @@ async function refreshNativeProjectFromDiskInternal(
 	providedSnapshot?: NativeProjectSnapshot
 ): Promise<NativeProjectReport> {
 	await filesStore.flushPendingAwait();
+	await filesStore.ensureProjectContent(projectId);
 	const snapshot = providedSnapshot ?? (await currentSnapshot(projectId));
 	const session = sessions.get(projectId);
 	if (!session) throw new Error('Native project session is unavailable');
@@ -632,6 +633,7 @@ async function reviewMissingAsset(row: ProjectAssetRow): Promise<'overwrite' | '
 
 async function saveNativeProjectInternal(projectId: string): Promise<NativeProjectReport> {
 	await filesStore.flushPendingAwait();
+	await filesStore.ensureProjectContent(projectId);
 	const snapshot = await currentSnapshot(projectId);
 	const session = sessions.get(projectId)!;
 	const disk = new Map<string, NativeProjectEntry>();

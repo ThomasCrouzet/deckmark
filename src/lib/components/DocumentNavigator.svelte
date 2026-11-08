@@ -5,6 +5,7 @@
 		completeRenderedHeadings,
 		documentMatches,
 		focusDocumentHeading,
+		invalidateDocumentTextIndex,
 		sourceHeadingIndex,
 		type DocumentHeading
 	} from '#lib/document-navigation.js';
@@ -102,7 +103,10 @@
 			clearTimeout(timer);
 			timer = setTimeout(update, 120);
 		};
-		const observer = new MutationObserver(schedule);
+		const observer = new MutationObserver(() => {
+			invalidateDocumentTextIndex(target());
+			schedule();
+		});
 		const preserveCaret = () => {
 			selectionRequested = false;
 		};

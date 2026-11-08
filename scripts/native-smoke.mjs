@@ -1207,7 +1207,10 @@ try {
 					const db = request.result; const tx = db.transaction(table, 'readwrite');
 					for (const owner of values) {
 						if (keyed) tx.objectStore(table).put(link, owner.id);
-						else tx.objectStore(table).put(owner);
+						else {
+							owner.manifest = JSON.stringify([1, owner.id, owner.name, owner.projectId ?? '', owner.relativePath ?? '', owner.createdAt, owner.updatedAt, owner.order, owner.kind ?? '', owner.mime ?? '', owner.origin ?? '', owner.sourceFileId ?? '', owner.open === false ? 0 : 1, owner.content.length, owner.data ? 1 : 0]);
+							tx.objectStore(table).put(owner);
+						}
 					}
 					tx.oncomplete = () => { db.close(); resolve(); };
 					tx.onabort = () => { db.close(); reject(tx.error); };

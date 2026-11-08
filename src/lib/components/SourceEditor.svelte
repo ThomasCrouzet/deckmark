@@ -4,7 +4,7 @@
 	import type { EditorView } from '@codemirror/view';
 	import { i18n, t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
-	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
+	import { editorStateCache } from '#lib/editor-state.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import type { SourceText } from '#lib/code/source-text.js';
@@ -113,6 +113,11 @@
 
 	const PRESENTATION_MARKER = '<!-- mdsh-presentation';
 	const MAX_GUARD_LINE = 4096;
+	// A physical line above the guard limit suspends the Markdown parser, the
+	// image-data decoration and line wrapping. Text, history, search and the
+	// document-kind guard stay active.
+	let degraded = false;
+	let monitor: ReturnType<LongLineSupport['createLongLineMonitor']> | null = null;
 
 	function createSourceText(source: string, doc: import('@codemirror/state').Text): SourceText {
 		if (!SourceTextImpl) throw new Error('source text module is not loaded');
@@ -335,6 +340,12 @@
 	let localeCompartmentRef: import('@codemirror/state').Compartment | null = null;
 	let activeCM: CMModule | null = null;
 	let removeFlushListener: (() => void) | null = null;
+	// Keep the guard outside the boot chunk. The source editor is statically
+	// imported by the page, so the guard arrives with the lazy source bundle.
+	type LongLineSupport = typeof import('../source-extensions');
+	let longLineSupport: LongLineSupport | null = null;
+	// Lazy charge tracker for the resident native history.
+	let historyTracker: import('../editor-history-cache').HistoryTracker | null = null;
 
 	/*
 	 * CodeMirror is heavy (~150 KB). Lazy-loaded on the first mount of source
@@ -370,40 +381,97 @@
 		patch: typeof import('#lib/code/external-changes.js').externalDocumentChange;
 		codeMirrorPhrases: typeof import('../source-extensions').codeMirrorPhrases;
 		typewriterCentering: typeof import('../source-extensions').typewriterCentering;
+		longLineStatus: typeof import('../source-extensions').longLineStatus;
+		sourceTheme: typeof import('../source-extensions').sourceTheme;
+		sourceLocaleExtensions: typeof import('../source-extensions').sourceLocaleExtensions;
+		historyCache: import('../editor-history-cache').EditorHistoryCache;
+		support: typeof import('../source-extensions');
+		restoreHistoryState: typeof import('../editor-history-cache').restoreHistoryState;
+		captureHistoryState: typeof import('../editor-history-cache').captureHistoryState;
 	};
 
 	function localeExtensions(cm: CMModule) {
 		return [
-			cm.EditorState.phrases.of(cm.codeMirrorPhrases()),
-			cm.imageData(),
-			cm.EditorView.contentAttributes.of({ 'aria-label': t('editor.ariaLabel') })
+			cm.sourceLocaleExtensions(t('editor.ariaLabel')),
+			...(longLineSupport
+				? [
+						longLineSupport.sourceSupportExtensions(degraded, plainText, {
+							markdown: cm.markdown,
+							imageData: cm.imageData,
+							longLineStatus: cm.longLineStatus,
+							lineWrapping: cm.EditorView.lineWrapping
+						})
+					]
+				: [])
 		];
 	}
 
-	function safePosition(position: EditorPosition | undefined, documentLength: number) {
-		if (!position) return undefined;
-		return {
-			anchor: Math.min(position.anchor, documentLength),
-			head: Math.min(position.head, documentLength)
+	function reconfigureLocale() {
+		if (!view || !activeCM || !localeCompartmentRef) return;
+		const reopenSearch = activeCM.closeSearchPanel(view);
+		view.dispatch({ effects: localeCompartmentRef.reconfigure(localeExtensions(activeCM)) });
+		if (reopenSearch) activeCM.openSearchPanel(view);
+	}
+
+	let positionTimer: ReturnType<typeof setTimeout> | undefined;
+	let pendingSavedPosition: { anchor: number; head: number; scrollTop: number } | null = null;
+	// The first mount reads the saved position. Ignore the view's initial
+	// zero scroll and selection until the saved scroll is applied.
+	let restoringPosition = false;
+	let userInteracted = false;
+	let lastPosition: { anchor: number; head: number; scrollTop: number } | null = null;
+
+	function rememberPosition(): void {
+		if (!view) return;
+		const selection = view.state.selection.main;
+		lastPosition = {
+			anchor: selection.anchor,
+			head: selection.head,
+			scrollTop: view.scrollDOM.scrollTop
 		};
 	}
 
+	function savePosition(): void {
+		if (!view || restoringPosition) return;
+		// A detached view reports zero selection and scroll. Keep the last
+		// connected navigation point instead of erasing it during teardown.
+		if (!view.scrollDOM.isConnected) {
+			if (lastPosition) editorStateCache.setPosition(fileId, 'source', lastPosition);
+			return;
+		}
+		// A deferred body mounts with empty content before hydration. Keep the
+		// last real navigation point instead of overwriting it with offset 0.
+		const previous = editorStateCache.getPosition(fileId, 'source');
+		if (content.length === 0 && previous) return;
+		const selection = view.state.selection.main;
+		const scrollTop = view.scrollDOM.scrollTop;
+		if (
+			!userInteracted &&
+			previous &&
+			(previous.anchor > 0 || previous.head > 0 || previous.scrollTop > 0) &&
+			selection.empty &&
+			scrollTop === 0
+		)
+			return;
+		lastPosition = { anchor: selection.anchor, head: selection.head, scrollTop };
+		editorStateCache.setPosition(fileId, 'source', lastPosition);
+	}
+
+	function schedulePosition(): void {
+		clearTimeout(positionTimer);
+		positionTimer = setTimeout(savePosition, 100);
+	}
+
 	function saveSourceState(): void {
-		if (!view || !activeCM) return;
+		if (!view || !activeCM || !historyTracker) return;
+		clearTimeout(positionTimer);
+		savePosition();
+		if (content.length === 0 && editorStateCache.getPosition(fileId, 'source')) return;
 		if (!nativeActive()) flushPublish();
 		const cachedText = buffer ? buffer.getText() : lastEmitted;
-		const selection = view.state.selection.main;
-		editorStateCache.setSourceState(
+		activeCM.historyCache.set(
 			fileId,
-			{
-				content: cachedText,
-				state: view.state.toJSON({ history: activeCM.historyField })
-			},
-			{
-				anchor: selection.anchor,
-				head: selection.head,
-				scrollTop: view.scrollDOM.scrollTop
-			}
+			activeCM.captureHistoryState(view, activeCM.historyField, cachedText, historyTracker.bytes)
 		);
 	}
 
@@ -411,13 +479,14 @@
 	function loadCM(): Promise<CMModule> {
 		if (!cmModulePromise) {
 			cmModulePromise = (async () => {
-				const [state, viewMod, lang, cmds, language, searchMod] = await Promise.all([
+				const [state, viewMod, lang, cmds, language, searchMod, editorHistory] = await Promise.all([
 					import('@codemirror/state'),
 					import('@codemirror/view'),
 					import('../source-extensions'),
 					import('@codemirror/commands'),
 					import('@codemirror/language'),
-					import('@codemirror/search')
+					import('@codemirror/search'),
+					import('../editor-history-cache')
 				]);
 				SourceTextImpl = lang.SourceText;
 				return {
@@ -425,6 +494,9 @@
 					imageData: lang.imageData,
 					codeMirrorPhrases: lang.codeMirrorPhrases,
 					typewriterCentering: lang.typewriterCentering,
+					longLineStatus: lang.longLineStatus,
+					sourceTheme: lang.sourceTheme,
+					sourceLocaleExtensions: lang.sourceLocaleExtensions,
 					Transaction: state.Transaction,
 					Compartment: state.Compartment,
 					EditorView: viewMod.EditorView,
@@ -467,7 +539,11 @@
 					searchKeymap: searchMod.searchKeymap,
 					setSearchQuery: searchMod.setSearchQuery,
 					SearchQuery: searchMod.SearchQuery,
-					patch: lang.patch
+					patch: lang.patch,
+					historyCache: editorHistory.editorHistoryCache,
+					support: lang,
+					restoreHistoryState: editorHistory.restoreHistoryState,
+					captureHistoryState: editorHistory.captureHistoryState
 				};
 			})();
 		}
@@ -479,6 +555,7 @@
 		let cm: CMModule;
 		try {
 			cm = await loadCM();
+			longLineSupport = cm.support;
 			loadError = false;
 		} catch (err) {
 			// The chunk failed: we discard the memoized promise to allow a
@@ -494,87 +571,20 @@
 		// Double-call protection (mount + onDestroy race possible on HMR / fast switch).
 		if (view || !host) return;
 
-		// Minimal theme inheriting the project's CSS vars (cf. app.css).
-		const theme = cm.EditorView.theme({
-			'&': {
-				height: '100%',
-				fontSize: '14.5px',
-				fontFamily: 'var(--font-mono)',
-				backgroundColor: 'transparent',
-				color: 'var(--color-fg)'
-			},
-			'.cm-scroller': {
-				fontFamily: 'var(--font-mono)',
-				lineHeight: '1.7',
-				overflow: 'auto'
-			},
-			'.cm-content': {
-				padding: '2rem 5vw 15vh',
-				caretColor: 'var(--color-accent)'
-			},
-			'.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--color-accent)' },
-			'.cm-gutters': {
-				backgroundColor: 'transparent',
-				color: 'var(--color-fg-dim)',
-				border: 'none'
-			},
-			'.cm-activeLine': {
-				backgroundColor: 'color-mix(in oklab, var(--color-accent) 5%, transparent)',
-				boxShadow: 'inset 1px 0 var(--color-accent-dim)'
-			},
-			'.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-fg)' },
-			'.mdsh-image-data': {
-				font: 'inherit',
-				color: 'var(--color-fg-muted)',
-				backgroundColor: 'var(--color-bg-2)',
-				border: '1px solid var(--color-border)',
-				borderRadius: '4px',
-				padding: '0 0.4em',
-				cursor: 'pointer'
-			},
-			'.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-				backgroundColor: 'rgba(127,127,127,0.25)'
-			},
-			// Override the native styling of the search/replace panel so it
-			// matches the project's dark theme (by default CM uses
-			// white/light gray, hard to read on a dark background).
-			'.cm-panels': {
-				backgroundColor: 'var(--color-bg-1)',
-				color: 'var(--color-fg)',
-				borderTop: '1px solid var(--color-border)'
-			},
-			'.cm-panels.cm-panels-bottom': { borderTop: '1px solid var(--color-border)' },
-			'.cm-panels.cm-panels-top': {
-				borderTop: 'none',
-				borderBottom: '1px solid var(--color-border)'
-			},
-			'.cm-search': { padding: '6px 8px' },
-			'.cm-search input': {
-				backgroundColor: 'var(--color-bg-2)',
-				color: 'var(--color-fg)',
-				border: '1px solid var(--color-border)',
-				borderRadius: '1px',
-				padding: '2px 6px'
-			},
-			'.cm-search input:focus': {
-				outline: 'none',
-				borderColor: 'var(--color-accent)'
-			},
-			'.cm-search button': {
-				backgroundColor: 'transparent',
-				color: 'var(--color-fg-muted)',
-				border: '1px solid var(--color-border)',
-				borderRadius: '1px',
-				padding: '2px 8px',
-				marginLeft: '4px',
-				cursor: 'pointer'
-			},
-			'.cm-search button:hover': { color: 'var(--color-fg)' },
-			'.cm-search label': { color: 'var(--color-fg-dim)', fontSize: '12px' },
-			'.cm-search br': { display: 'none' }
-		});
+		// Theme and phrases load with the CodeMirror chunk, not at boot.
+		const theme = cm.sourceTheme();
 
 		// The compartment removes the plugin and cancels its work without replacing history.
+		// A physical line above the guard limit selects the reduced-aid layout.
+		monitor = cm.support.createLongLineMonitor({
+			initial: content,
+			getDocument: () => view?.state.doc ?? null,
+			onChange: (next) => {
+				degraded = next;
+				reconfigureLocale();
+			}
+		});
+		degraded = monitor.initial;
 		const typewriterCompartment = new cm.Compartment();
 		typewriterCompartmentRef = typewriterCompartment;
 		const localeCompartment = new cm.Compartment();
@@ -595,7 +605,6 @@
 			cm.lineNumbers(),
 			cm.highlightActiveLine(),
 			cm.history(),
-			...(plainText ? [] : [cm.markdown()]),
 			cm.syntaxHighlighting(cm.defaultHighlightStyle, { fallback: true }),
 			// `search()` adds the state fields + the panel widget. The
 			// keymap is merged into the `keymap.of()` below (mod-f ->
@@ -607,7 +616,6 @@
 				...cm.defaultKeymap,
 				...cm.historyKeymap
 			]),
-			cm.EditorView.lineWrapping,
 			localeCompartment.of(localeExtensions(cm)),
 			cm.EditorView.editable.of(!readonly),
 			cm.EditorState.readOnly.of(readonly),
@@ -635,7 +643,12 @@
 				return false;
 			}),
 			cm.EditorView.updateListener.of((update) => {
+				if (update.docChanged && !applyingExternal) {
+					monitor?.track(update.state.doc, update.changes);
+				}
 				if (update.selectionSet || update.docChanged) {
+					rememberPosition();
+					schedulePosition();
 					onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 				}
 				if (update.viewportChanged || update.docChanged) {
@@ -676,26 +689,22 @@
 			typewriterCompartment.of(pendingTypewriter ? [cm.typewriterCentering()] : []),
 			theme
 		];
-		const cached = editorStateCache.getSourceState(fileId);
+		const cached = cm.historyCache.get(fileId);
 		const savedPosition = editorStateCache.getPosition(fileId, 'source');
-		let startState: import('@codemirror/state').EditorState | undefined;
-		if (cached?.content === content) {
-			try {
-				startState = cm.EditorState.fromJSON(
-					cached.state,
-					{ extensions },
-					{ history: cm.historyField }
-				);
-			} catch {
-				// Ignore an incompatible cache after a dependency update.
-			}
-		}
-		const initialSelection = safePosition(savedPosition, content.length);
-		startState ??= cm.EditorState.create({
-			doc: content,
-			extensions,
-			...(initialSelection ? { selection: initialSelection } : {})
+		// A deferred body mounts empty before its exact text arrives. Applying a
+		// saved offset to that empty document would collapse the selection.
+		pendingSavedPosition = content.length === 0 ? (savedPosition ?? null) : null;
+		restoringPosition = Boolean(savedPosition || pendingSavedPosition);
+		const restored = cm.restoreHistoryState({
+			EditorState: cm.EditorState,
+			historyField: cm.historyField,
+			content,
+			cached,
+			savedPosition: pendingSavedPosition ? undefined : savedPosition,
+			extensions
 		});
+		const startState = restored.state;
+		historyTracker = restored.tracker;
 
 		view = new cm.EditorView({
 			state: startState,
@@ -706,7 +715,31 @@
 				: {})
 		});
 		view.scrollDOM.tabIndex = 0;
-		view.scrollDOM.addEventListener('focus', () => view?.focus());
+		view.contentDOM.addEventListener('pointerdown', () => (userInteracted = true));
+		view.contentDOM.addEventListener('keydown', () => (userInteracted = true));
+		view.contentDOM.addEventListener('focus', () => {
+			restoringPosition = false;
+			userInteracted = true;
+			const saved = editorStateCache.getPosition(fileId, 'source');
+			if (saved && view) {
+				const length = view.state.doc.length;
+				const anchor = Math.min(saved.anchor, length);
+				const head = Math.min(saved.head, length);
+				// Re-sync only the restored position. A deliberate navigation
+				// (outline, search, undo) already moved the selection.
+				const main = view.state.selection.main;
+				const restored = main.anchor === anchor && main.head === head;
+				const untouched = main.empty && main.from === 0 && (anchor > 0 || head > 0);
+				if (restored || untouched) {
+					view.dispatch({
+						selection: { anchor, head },
+						effects: view.scrollDOM.scrollTop === 0 ? cm.EditorView.scrollIntoView(head) : []
+					});
+				}
+			}
+			view?.focus();
+		});
+		view.scrollDOM.addEventListener('scroll', schedulePosition, { passive: true });
 		activeCM = cm;
 		onCursorLine?.(view.state.doc.lineAt(view.state.selection.main.head).number);
 		onViewportLine?.(view.state.doc.lineAt(view.viewport.from).number);
@@ -735,8 +768,11 @@
 				write: (maxScrollTop, measuredView) => {
 					if (view !== mountedView || measuredView !== mountedView) return;
 					measuredView.scrollDOM.scrollTop = Math.min(savedPosition.scrollTop, maxScrollTop);
+					restoringPosition = false;
 				}
 			});
+		} else {
+			restoringPosition = false;
 		}
 
 		// Honor a request to open the search panel issued before the lazy-load
@@ -749,6 +785,8 @@
 		if (pendingGoTo) {
 			const { line, query } = pendingGoTo;
 			pendingGoTo = null;
+			pendingSavedPosition = null;
+			restoringPosition = false;
 			const doc = view.state.doc;
 			const safeLine = Math.max(1, Math.min(doc.lines, line));
 			const target = doc.line(safeLine);
@@ -773,6 +811,7 @@
 	 */
 	$effect(() => {
 		const c = content;
+		monitor?.external(c);
 		if (!view || !activeCM) return;
 		if (nativeActive()) {
 			// A blocked conflict keeps the rejected local work. Do not replace it.
@@ -796,17 +835,31 @@
 			return;
 		}
 		applyExternalSource(c, activeCM, view);
+		const pending = pendingSavedPosition;
+		if (pending) {
+			pendingSavedPosition = null;
+			const length = view.state.doc.length;
+			const anchor = Math.min(pending.anchor, length);
+			const head = Math.min(pending.head, length);
+			view.dispatch({
+				selection: { anchor, head },
+				effects: activeCM.EditorView.scrollIntoView(head)
+			});
+			if (pending.scrollTop) {
+				view.requestMeasure({
+					read: (measuredView) =>
+						Math.max(0, measuredView.scrollDOM.scrollHeight - measuredView.scrollDOM.clientHeight),
+					write: (maxScrollTop, measuredView) => {
+						measuredView.scrollDOM.scrollTop = Math.min(pending.scrollTop, maxScrollTop);
+					}
+				});
+			}
+		}
 	});
 
 	$effect(() => {
 		void i18n.locale;
-		const currentView = view;
-		const cm = activeCM;
-		const compartment = localeCompartmentRef;
-		if (!currentView || !cm || !compartment) return;
-		const reopenSearch = cm.closeSearchPanel(currentView);
-		currentView.dispatch({ effects: compartment.reconfigure(localeExtensions(cm)) });
-		if (reopenSearch) cm.openSearchPanel(currentView);
+		reconfigureLocale();
 	});
 
 	onMount(() => {
@@ -814,7 +867,10 @@
 	});
 
 	onDestroy(() => {
+		clearTimeout(positionTimer);
 		flushOutgoing();
+		monitor?.dispose();
+		monitor = null;
 		saveSourceState();
 		removeFlushListener?.();
 		removeFlushListener = null;
@@ -865,6 +921,8 @@
 	 * and applied at the end of `mount()`.
 	 */
 	export function goToLine(line: number, query?: string): void {
+		pendingSavedPosition = null;
+		restoringPosition = false;
 		if (!view) {
 			pendingGoTo = { line, query: query ?? '' };
 			return;
@@ -892,6 +950,8 @@
 
 	/** Scrolls to a source line without changing the document or undo history. */
 	export function scrollToLine(line: number, focus = false): void {
+		pendingSavedPosition = null;
+		restoringPosition = false;
 		if (!view) {
 			pendingGoTo = { line, query: '' };
 			return;
@@ -995,6 +1055,13 @@
 	}
 	.mdsh-source-error button:hover {
 		border-color: var(--color-accent);
+	}
+	.mdsh-source-cm :global(.mdsh-long-line-status) {
+		padding: 0.35rem 0.65rem;
+		border-bottom: 1px solid var(--color-border);
+		background: color-mix(in oklab, var(--color-warning, #d19a66) 12%, transparent);
+		color: var(--color-warning, #d19a66);
+		font: 500 12px/1.4 var(--font-mono);
 	}
 	.mdsh-source-cm :global(.cm-editor) {
 		height: 100%;

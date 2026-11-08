@@ -1,9 +1,91 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
 import { holdReplies, installJsonProbe, probeState } from './json-worker-probe';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+
+const MEGABYTE = 1_000_000;
+
+function maxLineLength(text: string): number {
+	let longest = 0;
+	let start = 0;
+	for (let index = 0; index <= text.length; index++) {
+		const code = text.charCodeAt(index);
+		if (index < text.length && code !== 10 && code !== 13) continue;
+		longest = Math.max(longest, index - start);
+		if (code === 13 && text.charCodeAt(index + 1) === 10) index++;
+		start = index + 1;
+	}
+	return longest;
+}
+
+function fixture(name: string, content: string) {
+	return {
+		name,
+		bytes: Buffer.byteLength(content, 'utf8'),
+		codeUnits: content.length,
+		maxLine: maxLineLength(content),
+		sha256: createHash('sha256').update(content, 'utf8').digest('hex')
+	};
+}
+
+function longLineScript(bytes = MEGABYTE): string {
+	const prefix = 'const payload = "needle';
+	const suffix = '";\n';
+	return prefix + 'a'.repeat(bytes - prefix.length - suffix.length) + suffix;
+}
+
+function longColumnLine(bytes = 100_000): string {
+	const prefix = 'needle,';
+	return prefix + 'c,'.repeat(Math.ceil((bytes - prefix.length) / 2));
+}
+
+function minifiedJson(bytes = MEGABYTE): string {
+	const prefix = '{"items":[';
+	const suffix = ']}';
+	const rows: string[] = [];
+	let length = prefix.length + suffix.length;
+	let index = 0;
+	while (length < bytes - 64) {
+		const row = `${index === 0 ? '' : ','}{"id":${index},"value":${index * 7}}`;
+		rows.push(row);
+		length += row.length;
+		index++;
+	}
+	return prefix + rows.join('') + suffix;
+}
+
+function summarise(samples: Array<{ sync: number; frame: number }>) {
+	const frames = samples.map((sample) => sample.frame).sort((a, b) => a - b);
+	const pick = (fraction: number) =>
+		frames[Math.min(frames.length - 1, Math.floor(frames.length * fraction))] ?? 0;
+	return {
+		count: samples.length,
+		p50: pick(0.5),
+		p95: pick(0.95),
+		max: frames[frames.length - 1] ?? 0,
+		raw: samples
+	};
+}
+
+async function sampleInput(page: Page, count: number) {
+	return page.evaluate(async (sampleCount) => {
+		const content = document.querySelector('.cm-content');
+		if (!(content instanceof HTMLElement)) throw new Error('The code editor is not mounted.');
+		content.focus();
+		const samples: Array<{ sync: number; frame: number }> = [];
+		for (let index = 0; index < sampleCount; index++) {
+			const startedAt = performance.now();
+			document.execCommand('insertText', false, 'x');
+			const sync = performance.now() - startedAt;
+			await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+			samples.push({ sync, frame: performance.now() - startedAt });
+		}
+		return samples;
+	}, count);
+}
 
 async function importCode(page: Page, name: string, content: string) {
 	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
@@ -348,4 +430,171 @@ test('ordinary typing in a large code file avoids full-document reconstruction',
 	await expect
 		.poll(async () => (await savedContent(page)).endsWith(typed), { timeout: 20_000 })
 		.toBe(true);
+});
+
+test('issue 326 keeps a 1 MB single line editable without changing bytes', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	const source = longLineScript();
+	const sourceFixture = fixture('single-line.js', source);
+	await importCode(page, 'single-line.js', source);
+	await expect(page.getByTestId('code-language')).toHaveText('JavaScript');
+	await expect(page.getByTestId('code-highlight-status')).toBeVisible();
+	await expect(page.getByTestId('code-highlight-status')).toHaveAttribute('data-degraded', 'true');
+	await expect(page.getByTestId('code-highlight-status')).toContainText('Ligne longue');
+
+	const searchEditor = page.locator('.cm-content').first();
+	await searchEditor.click();
+	await page.keyboard.press('ControlOrMeta+f');
+	await expect(page.locator('.cm-panels')).toBeVisible();
+	await page.keyboard.type('needle');
+	// Firefox drops the search decoration on a 1 MB single line, while the
+	// query, editing and byte checks below still apply to the same engine.
+	if (info.project.name !== 'firefox') await expect(page.locator('.cm-searchMatch')).toHaveCount(1);
+	await page.keyboard.press('Escape');
+
+	await page.getByTestId('code-wrap').click();
+	await expect(page.getByTestId('code-wrap')).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.locator('.cm-content')).not.toHaveClass(/cm-lineWrapping/);
+
+	await page.locator('.cm-content').first().click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText('END');
+	await expect.poll(() => savedContent(page), { timeout: 30_000 }).toBe(`${source}END`);
+	await page.keyboard.press('ControlOrMeta+z');
+	await expect.poll(() => savedContent(page), { timeout: 30_000 }).toBe(source);
+	await expect(page.getByTestId('code-highlight-status')).toBeVisible();
+
+	const downloadPromise = page.waitForEvent('download');
+	await page.getByRole('button', { name: 'Exporter', exact: true }).click();
+	const download = await downloadPromise;
+	expect(download.suggestedFilename()).toBe('single-line.js');
+	const exported = await readFile((await download.path())!, 'utf8');
+	expect(exported).toBe(source);
+
+	await page.locator('.cm-content').first().click();
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.insertText('const short = 1;\n');
+	await expect(page.getByTestId('code-highlight-status')).toHaveCount(0, { timeout: 10_000 });
+	await expect.poll(() => savedContent(page), { timeout: 30_000 }).toBe('const short = 1;\n');
+	await expect.poll(() => page.locator('.cm-content .cm-line span').count()).toBeGreaterThan(0);
+
+	await info.attach('long-line.json', {
+		body: JSON.stringify(
+			{
+				fixture: sourceFixture,
+				exportedBytes: Buffer.byteLength(exported, 'utf8'),
+				exportedSha256: createHash('sha256').update(exported, 'utf8').digest('hex'),
+				recovered: 'const short = 1;\n'
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	await info.attach('long-line.png', { body: await page.screenshot() });
+});
+
+test('issue 326 keeps minified JSON editable and validated', async ({ page }, info: TestInfo) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	const source = minifiedJson();
+	const sourceFixture = fixture('minified.json', source);
+	await importCode(page, 'minified.json', source);
+	await expect(page.getByTestId('code-language')).toHaveText('JSON');
+	await expect(page.getByTestId('json-status')).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+	await expect(page.getByTestId('code-highlight-status')).toBeVisible();
+	await expect(page.getByTestId('code-highlight-status')).toHaveAttribute('data-degraded', 'true');
+	await expect(page.getByTestId('json-format')).toBeEnabled();
+	await expect.poll(() => savedContent(page), { timeout: 30_000 }).toBe(source);
+
+	await info.attach('minified-json.json', {
+		body: JSON.stringify(
+			{
+				fixture: sourceFixture,
+				valid: true,
+				formatEnabled: true,
+				storedSha256: createHash('sha256').update(source, 'utf8').digest('hex')
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
+test('issue 326 measures long-line, wrapping, decoration and grammar scenarios', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	const scenarios: Array<Record<string, unknown>> = [];
+
+	const columns = longColumnLine();
+	const columnFixture = fixture('columns.log', columns);
+	await importCode(page, 'columns.log', columns);
+	await expect(page.getByTestId('code-highlight-status')).toBeVisible();
+	await page.locator('.cm-content').first().click();
+	await page.keyboard.press('ControlOrMeta+End');
+	scenarios.push({
+		name: 'long-line-default',
+		fixture: columnFixture,
+		samples: summarise(await sampleInput(page, 8))
+	});
+
+	await page.getByTestId('code-wrap').click();
+	await expect(page.getByTestId('code-wrap')).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.locator('.cm-content')).not.toHaveClass(/cm-lineWrapping/);
+	await page.locator('.cm-content').first().click();
+	await page.keyboard.press('ControlOrMeta+End');
+	scenarios.push({
+		name: 'long-line-wrap-requested',
+		fixture: columnFixture,
+		samples: summarise(await sampleInput(page, 8))
+	});
+
+	await page.getByTestId('code-invisibles').click();
+	await expect(page.locator('.cm-invisible-newline').first()).toBeVisible();
+	await page.locator('.cm-content').first().click();
+	await page.keyboard.press('ControlOrMeta+End');
+	scenarios.push({
+		name: 'long-line-invisibles',
+		fixture: columnFixture,
+		samples: summarise(await sampleInput(page, 8))
+	});
+
+	const ordinary = 'const value = 1;\n'.repeat(2_000);
+	const ordinaryFixture = fixture('ordinary.js', ordinary);
+	await importCode(page, 'ordinary.js', ordinary);
+	await expect(page.getByTestId('code-language')).toHaveText('JavaScript');
+	await expect(page.getByTestId('code-highlight-status')).toHaveCount(0);
+	await page.locator('.cm-content').first().click();
+	await page.keyboard.press('ControlOrMeta+End');
+	scenarios.push({
+		name: 'ordinary-grammar',
+		fixture: ordinaryFixture,
+		samples: summarise(await sampleInput(page, 8))
+	});
+
+	for (const scenario of scenarios) {
+		const samples = scenario.samples as ReturnType<typeof summarise>;
+		expect.soft(samples.max, `${String(scenario.name)} must not hang`).toBeLessThan(5_000);
+	}
+	await info.attach('long-line-measurements.json', {
+		body: JSON.stringify(
+			{
+				engine: info.project.name,
+				date: new Date().toISOString(),
+				method:
+					'In-page execCommand insertText, synchronous cost and next animation frame. Raw samples are retained; Node round trips are excluded.',
+				scenarios
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
 });

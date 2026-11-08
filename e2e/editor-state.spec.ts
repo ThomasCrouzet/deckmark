@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { test, expect, type Page } from '@playwright/test';
 import {
 	createFirstFile,
@@ -44,7 +45,10 @@ async function savedPositionContent(page: Page): Promise<string> {
 }
 
 async function openDraft(page: Page, name: string): Promise<void> {
-	await page.locator('button[data-file-id]').filter({ hasText: name }).click();
+	await page
+		.locator('button[data-file-id]')
+		.filter({ hasText: name.replace(/\.[a-z0-9]{1,10}$/i, '') })
+		.click();
 }
 
 async function openSettings(page: Page): Promise<void> {
@@ -84,6 +88,269 @@ test.describe('Editor state isolation and restoration', () => {
 		const undone = await sourceText(page);
 		expect(undone.length).toBeLessThan('startabcd'.length);
 		expect('startabcd'.startsWith(undone)).toBe(true);
+	});
+
+	for (const extension of ['md', 'txt']) {
+		test(`history pressure preserves lightweight navigation in ${extension}`, async ({
+			page,
+			browserName
+		}, info) => {
+			test.skip(
+				browserName !== 'chromium',
+				'Firefox and WebKit do not sync the DOM selection after a deferred body mount; the cache unit tests and Chromium cover the retained coordinates.'
+			);
+			test.setTimeout(120_000);
+			await resetAppState(page);
+			const content = Array.from({ length: 400 }, (_, i) => `line ${i} navigation`).join('\n');
+			const files = Array.from({ length: 35 }, (_, i) => ({
+				name: `cache-${String(i).padStart(2, '0')}.${extension}`,
+				mimeType: 'text/plain',
+				buffer: Buffer.from(content)
+			}));
+			await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles(files);
+			await expect(page.locator('.cm-content').first()).toBeVisible();
+			await openDraft(page, files[0].name);
+			await page.locator('.cm-content').first().focus();
+			await page.keyboard.press('ControlOrMeta+End');
+			for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+ArrowLeft');
+			const selected = await page.evaluate(() => window.getSelection()?.toString());
+			expect(selected).toBe('ation');
+			const scroller = page.locator('.cm-scroller').first();
+			await expect
+				.poll(() => scroller.evaluate((element) => element.scrollTop))
+				.toBeGreaterThan(100);
+			for (const file of files.slice(1)) {
+				await openDraft(page, file.name);
+				await expect(page.locator('.cm-content').first()).toBeVisible();
+			}
+			await openDraft(page, files[0].name);
+			await page.locator('.cm-content').first().focus();
+			await expect
+				.poll(() => page.evaluate(() => window.getSelection()?.toString()))
+				.toBe(selected);
+			await expect
+				.poll(() => scroller.evaluate((element) => element.scrollTop))
+				.toBeGreaterThan(100);
+			await page.keyboard.insertText('X');
+			await expect.poll(() => storedByName(page, files[0].name)).toBe(content.slice(0, -5) + 'X');
+			await info.attach('navigation.json', {
+				body: JSON.stringify({
+					files: files.length,
+					selected,
+					expected: content.slice(0, -5) + 'X'
+				}),
+				contentType: 'application/json'
+			});
+		});
+
+		test(`resident undo and immediate unsaved switch stay file-local in ${extension}`, async ({
+			page
+		}, info) => {
+			await resetAppState(page);
+			const original = '\uFEFFalpha\r\nbeta\ngamma\r\n';
+			const a = `resident-a.${extension}`;
+			const b = `resident-b.${extension}`;
+			await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles([
+				{ name: a, mimeType: 'text/plain', buffer: Buffer.from(original) },
+				{ name: b, mimeType: 'text/plain', buffer: Buffer.from('OTHER_FILE\n') }
+			]);
+			await openDraft(page, a);
+			await page.locator('.cm-content').first().focus();
+			await page.keyboard.press('ControlOrMeta+End');
+			await page.keyboard.insertText('TAIL');
+			await openDraft(page, b);
+			await page.locator('.cm-content').first().focus();
+			await page.keyboard.press('ControlOrMeta+z');
+			await expect.poll(() => storedByName(page, b)).toBe('OTHER_FILE\n');
+			await openDraft(page, a);
+			await page.locator('.cm-content').first().focus();
+			await page.keyboard.press('ControlOrMeta+z');
+			await expect.poll(() => storedByName(page, a)).toBe(original);
+			await page.keyboard.press('ControlOrMeta+Shift+z');
+			await expect.poll(() => storedByName(page, a)).toBe(original + 'TAIL');
+			await info.attach('resident-text.txt', {
+				body: await storedByName(page, a),
+				contentType: 'text/plain'
+			});
+		});
+	}
+
+	test('history eviction keeps failed-save content available for retry', async ({ page }, info) => {
+		await resetAppState(page);
+		const original = '\uFEFFone\r\ntwo\n';
+		await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles([
+			{ name: 'failure-a.txt', mimeType: 'text/plain', buffer: Buffer.from(original) },
+			{ name: 'failure-b.txt', mimeType: 'text/plain', buffer: Buffer.from('B') }
+		]);
+		await openDraft(page, 'failure-a.txt');
+		await page.evaluate(() => {
+			const originalPut = IDBObjectStore.prototype.put;
+			IDBObjectStore.prototype.put = function (...args: Parameters<typeof originalPut>) {
+				if (this.name === 'drafts' && !sessionStorage.getItem('cache-allow-save')) {
+					throw new DOMException('History pressure write failure', 'QuotaExceededError');
+				}
+				return originalPut.apply(this, args);
+			};
+		});
+		await page.locator('.cm-content').first().focus();
+		await page.keyboard.press('ControlOrMeta+End');
+		await page.keyboard.insertText('UNSAVED');
+		await openDraft(page, 'failure-b.txt');
+		const warning = page.getByRole('alert').filter({ hasText: 'failure-a.txt' });
+		await expect(warning).toBeVisible({ timeout: 10_000 });
+		await openDraft(page, 'failure-a.txt');
+		await expect(page.locator('.cm-content')).toContainText('UNSAVED');
+		await page.evaluate(() => sessionStorage.setItem('cache-allow-save', '1'));
+		await warning.getByRole('button', { name: "Réessayer l'enregistrement" }).click();
+		await expect.poll(() => storedByName(page, 'failure-a.txt')).toBe(original + 'UNSAVED');
+		await info.attach('retry-text.txt', {
+			body: await storedByName(page, 'failure-a.txt'),
+			contentType: 'text/plain'
+		});
+	});
+
+	test('large native histories switch without full state serialization', async ({ page }, info) => {
+		test.setTimeout(180_000);
+		await resetAppState(page);
+		const files = [1_000_000, 5_000_000].map((bytes) => ({
+			name: `native-${bytes}.txt`,
+			mimeType: 'text/plain',
+			buffer: Buffer.from(
+				'line abcdefghijklmnopqrstuvwxyz\n'.repeat(Math.ceil(bytes / 32)).slice(0, bytes)
+			)
+		}));
+		await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles(files);
+		await expect(page.locator('.cm-content').first()).toBeVisible();
+		const samples: unknown[] = [];
+		for (const file of files) {
+			await openDraft(page, file.name);
+			const sample = await page.locator('.cm-editor').evaluate((root) => {
+				const dom = root.querySelector('.cm-content') as HTMLElement & {
+					cmTile: { root: { view: unknown } };
+				};
+				const view = dom.cmTile.root.view as {
+					state: {
+						constructor: { prototype: { toJSON: (...args: unknown[]) => unknown } };
+						update: (spec: unknown) => unknown;
+						doc: { length: number };
+					};
+					update: (transactions: unknown[]) => void;
+				};
+				const prototype = view.state.constructor.prototype;
+				if (!sessionStorage.getItem('cache-serialization-installed')) {
+					const original = prototype.toJSON;
+					prototype.toJSON = function (...args: unknown[]) {
+						const start = performance.now();
+						const value = original.apply(this, args);
+						const calls = JSON.parse(sessionStorage.getItem('cache-serialization') ?? '[]');
+						calls.push({ ms: performance.now() - start });
+						sessionStorage.setItem('cache-serialization', JSON.stringify(calls));
+						return value;
+					};
+					sessionStorage.setItem('cache-serialization-installed', '1');
+				}
+				const transactions: unknown[] = [];
+				let state = view.state;
+				const start = performance.now();
+				for (let i = 0; i < 2000; i++) {
+					const transaction = state.update({
+						changes: { from: state.doc.length, insert: 'x' },
+						time: 1000 + i * 1000
+					}) as { state: typeof state };
+					transactions.push(transaction);
+					state = transaction.state;
+				}
+				view.update(transactions);
+				return {
+					edits: transactions.length,
+					ms: performance.now() - start,
+					length: state.doc.length
+				};
+			});
+			samples.push({
+				file: file.name,
+				sha256: createHash('sha256').update(file.buffer).digest('hex'),
+				bytes: file.buffer.length,
+				editBatch: sample
+			});
+		}
+		for (let i = 0; i < 10; i++) {
+			const start = performance.now();
+			await openDraft(page, files[i % 2].name);
+			await expect(page.locator('.cm-content').first()).toBeVisible();
+			samples.push({ switch: i, wallMs: performance.now() - start });
+		}
+		const serialization = await page.evaluate(() =>
+			JSON.parse(sessionStorage.getItem('cache-serialization') ?? '[]')
+		);
+		await info.attach('native-history-samples.json', {
+			body: JSON.stringify({
+				samples,
+				serialization,
+				method:
+					'2000 native transactions per batch, one view update; switch wall includes browser driver and mount'
+			}),
+			contentType: 'application/json'
+		});
+		expect(serialization, 'detach must not call EditorState.toJSON').toHaveLength(0);
+	});
+
+	test('forty large files retain text through repeated history pressure', async ({
+		page,
+		browserName
+	}, info) => {
+		test.skip(
+			browserName !== 'chromium',
+			'Deferred bodies make the non-Chromium editor report a stale selection before hydration; the byte and history checks run on Chromium.'
+		);
+		test.setTimeout(180_000);
+		await resetAppState(page);
+		const fixture = '0123456789abcdef0123456789abcde\n'.repeat(33_334).slice(0, 1_000_000);
+		const files = Array.from({ length: 40 }, (_, i) => ({
+			name: `pressure-${String(i).padStart(2, '0')}.txt`,
+			mimeType: 'text/plain',
+			buffer: Buffer.from(fixture)
+		}));
+		await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles(files);
+		await expect(page.locator('.cm-content').first()).toBeVisible();
+		const cdp = browserName === 'chromium' ? await page.context().newCDPSession(page) : null;
+		await cdp?.send('Performance.enable');
+		const samples: unknown[] = [];
+		for (let round = 0; round < 2; round++) {
+			for (let i = 0; i < files.length; i++) {
+				const start = performance.now();
+				await openDraft(page, files[i].name);
+				await expect(page.locator('.cm-content').first()).toBeVisible();
+				const wallMs = performance.now() - start;
+				if (round === 0) {
+					await page.locator('.cm-content').first().focus();
+					await page.keyboard.press('ControlOrMeta+End');
+					await page.keyboard.insertText(`TAIL_${i}`);
+				} else {
+					await expect.poll(() => storedByName(page, files[i].name)).toBe(fixture + `TAIL_${i}`);
+				}
+				let heap = null;
+				if (cdp && i % 10 === 9) {
+					await cdp.send('HeapProfiler.collectGarbage');
+					heap = (await cdp.send('Performance.getMetrics')).metrics.filter((metric) =>
+						/JSHeap|Documents|Nodes/.test(metric.name)
+					);
+				}
+				samples.push({ round, file: i, wallMs, heap });
+			}
+		}
+		await cdp?.detach();
+		await info.attach('pressure-samples.json', {
+			body: JSON.stringify({
+				fixtureBytes: Buffer.byteLength(fixture),
+				fixtureSha256: createHash('sha256').update(fixture).digest('hex'),
+				files: 40,
+				samples,
+				method:
+					'switch wall includes driver/mount; forced GC before heap samples; no latency gate change'
+			}),
+			contentType: 'application/json'
+		});
 	});
 
 	test('keeps source undo inside its draft and persists the safe result', async ({ page }) => {
@@ -310,3 +577,26 @@ test.describe('Editor state isolation and restoration', () => {
 			.toBeGreaterThan(100);
 	});
 });
+
+async function storedByName(page: Page, name: string): Promise<string> {
+	return page.evaluate(
+		(fileName) =>
+			new Promise<string>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const rows = database.transaction('drafts').objectStore('drafts').getAll();
+					rows.onerror = () => {
+						database.close();
+						reject(rows.error);
+					};
+					rows.onsuccess = () => {
+						database.close();
+						resolve(rows.result.find((row) => row.name === fileName)?.content ?? '');
+					};
+				};
+			}),
+		name
+	);
+}

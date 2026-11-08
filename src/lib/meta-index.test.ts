@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { MetaIndex } from './meta-index';
 import { WikiLinkIndex } from './wiki-link-index';
 import type { FileItem } from './types';
+import { deriveMetadata, updateMetadata, type MetadataSnapshot } from './metadata-derive';
 
 function makeFile(partial: Partial<FileItem> & { id: string; name: string }): FileItem {
 	return {
@@ -18,6 +19,113 @@ function makeIndex(initial: FileItem[] = []) {
 	const index = new MetaIndex(() => files, undefined, WikiLinkIndex);
 	return { index, files };
 }
+
+describe('Metadata worker derivation parity', () => {
+	it('reuses plain body edits but fully parses structural edits', () => {
+		const source = {
+			name: 'note.md',
+			isNote: true,
+			content: '---\ntitle: Title\ntags: [one]\n---\n# Heading\n\nPlain body.\n[[Target]]\n'
+		};
+		const previous = deriveMetadata(source);
+		const plain = { ...source, content: source.content.replace('Plain body.', 'Plain body text.') };
+		const reused = updateMetadata(previous, plain);
+		expect(reused.incremental).toBe(true);
+		expect(reused.snapshot).toEqual(deriveMetadata(plain));
+		for (const [before, after] of [
+			['Title', 'Next'],
+			['[one]', '[two]'],
+			['Heading', 'Changed'],
+			['Target', 'Other'],
+			['Plain body.', '`[[Other]]`'],
+			['Plain body.', '```\n[[Other]]']
+		]) {
+			const changed = { ...source, content: source.content.replace(before!, after!) };
+			const result = updateMetadata(previous, changed);
+			expect(result.incremental).toBe(false);
+			expect(result.snapshot).toEqual(deriveMetadata(changed));
+		}
+	});
+
+	it('matches full recomputation through seeded edits at parser boundaries', () => {
+		const fragments = [
+			'Plain body.',
+			'[[Target|alias]]',
+			'`[[Hidden]]`',
+			'```md\n[[Hidden]]\n```',
+			'~~~\n[[Hidden]]\n~~~',
+			'    [[Code]]',
+			'- item\n    [[Target]]',
+			'\\[[Escaped]]',
+			'# Heading',
+			'[[../Target#anchor]]',
+			'---\ntitle: YAML\ntags: [one, two]\n---',
+			'\uFEFF',
+			'\r\n'
+		];
+		let seed = 307;
+		let content = 'Plain body.\n';
+		let previous: MetadataSnapshot | undefined;
+		for (let step = 0; step < 600; step++) {
+			seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+			const at = seed % (content.length + 1);
+			const fragment = fragments[(seed >>> 8) % fragments.length]!;
+			content = content.slice(0, at) + fragment + content.slice(at + (seed % 9));
+			if (content.length > 4_000) content = content.slice(seed % 1_000);
+			const source = { name: 'note.md', content, isNote: step % 17 !== 0 };
+			const result = updateMetadata(previous, source);
+			expect(result.snapshot, `seed=${seed}, step=${step}`).toEqual(deriveMetadata(source));
+			previous = result.snapshot;
+		}
+	});
+});
+
+describe('Deferred metadata snapshots', () => {
+	it('keeps tags and backlinks coherent until the latest revision is published', async () => {
+		const files = [
+			makeFile({ id: 't', name: 'Target.md' }),
+			makeFile({ id: 's', name: 'Source.md', content: '---\ntags: [old]\n---\n[[Target]]' })
+		];
+		let published = 0;
+		const index = new MetaIndex(
+			() => files,
+			() => published++,
+			WikiLinkIndex
+		);
+		expect(index.allTags).toEqual(['old']);
+		expect(index.backlinks('t').map((file) => file.id)).toEqual(['s']);
+		files[1]!.content = '---\ntags: [obsolete]\n---\n';
+		index.invalidateMeta('s');
+		files[1]!.content = '---\ntags: [latest]\n---\n';
+		index.invalidateMeta('s');
+		expect(index.getTags('s')).toEqual(['old']);
+		expect(index.allTags).toEqual(['old']);
+		expect(index.backlinks('t').map((file) => file.id)).toEqual(['s']);
+		await vi.waitFor(() => expect(index.getTags('s')).toEqual(['latest']));
+		expect(index.allTags).toEqual(['latest']);
+		expect(index.backlinks('t')).toEqual([]);
+		expect(published).toBe(1);
+		index.dispose();
+	});
+
+	it('drops removed and disposed work without restoring its contributions', async () => {
+		const files = [makeFile({ id: 's', name: 'Source.md', content: '---\ntags: [old]\n---\n' })];
+		const index = new MetaIndex(
+			() => files,
+			() => {},
+			WikiLinkIndex
+		);
+		expect(index.allTags).toEqual(['old']);
+		files[0]!.content = '---\ntags: [obsolete]\n---\n';
+		index.invalidateMeta('s');
+		files.splice(0);
+		index.invalidateMeta('s');
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(index.allTags).toEqual([]);
+		expect(index.getTags('s')).toEqual([]);
+		index.dispose();
+	});
+});
 
 describe('MetaIndex - displayTitle', () => {
 	it('returns the file name without .md when front matter is absent', () => {

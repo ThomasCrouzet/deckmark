@@ -68,6 +68,18 @@ npm run test:e2e -- e2e/presentation-performance.spec.ts --project=chromium --wo
 Retain `presentation-cache-bounds.json` with the fixture hash, browser, command and
 cache counters.
 
+## Large presentation source risks
+
+Decks above 512 KiB open their Advanced source in a lazily loaded CodeMirror
+document. The plain textarea remains for small decks and for existing exact-value
+checks. The large path must keep the document editable, apply one validated
+snapshot, and leave the deck untouched on Cancel. Draft state remains keyed by
+file, and source conflicts still compare the original base.
+
+`e2e/presentation-format.spec.ts` checks the CodeMirror path on a 600 KiB deck,
+the applied tail edit and the durable row. It does not establish native IME,
+physical paint or a 5 MB deck profile; those remain benchmark and native work.
+
 ## Release review regressions
 
 `e2e/external-editor-patches.spec.ts` checks a tiny external update in Source and
@@ -107,6 +119,27 @@ Run the focused Chromium specs with one worker and retain the standard JSON/HTML
 reports, trace, fixture source, downloaded HTML and source identity. Performance
 diagnostics must keep raw samples and explicit engine support limits. A diagnostic
 without enforced budgets is not a strict gate result.
+
+### Incremental visual source reconciliation
+
+Retain these failure risks for issue 310: a scoped patch can target a repeated
+paragraph, change decoded escapes or mixed line endings, or use a rejected edit
+as its accepted cache. References, block changes, large paragraphs and uncertain
+offset mappings need the conservative whole-document check. Multiple changed
+blocks must not be treated as a single safe text leaf.
+An unresolved reference can become a link to a definition outside the scoped
+paragraph. Keep reference-like text on the whole-document semantic route.
+
+`src/lib/source-fidelity.test.ts` checks exact source and parser input sizes.
+Exact export checks cannot detect repeated whole-note parsing, so this isolated
+resource regression retains real parser and normalizer calls. It uses the full
+rich corpus, not a repeated plain-text substitute. Run
+`npx vitest run src/lib/source-fidelity.test.ts --maxWorkers=1`.
+`e2e/source-fidelity.spec.ts` checks the actual visual editor and exported bytes.
+Run `npx playwright test e2e/source-fidelity.spec.ts --project=chromium --workers=1`.
+Keep source, expected and exported files, hashes, path decisions, command, source
+identity and raw timings with each report. Core parser timings do not establish
+browser edit, save, switch or native performance.
 
 ### Versioned JSON worker risks
 
@@ -172,6 +205,42 @@ Playwright's generic event driver does not retain `inputType`. The keyboard case
 checks the constructor, target, input type and cancellation before it checks redo.
 Use `CompositionEvent` for the synthetic composition boundaries. These events do
 not reproduce an operating-system input method.
+
+### Inactive editor history risks
+
+History pressure must not remove cursor, selection direction or scroll metadata.
+A restored Code editor must use saved selection even without history. Byte totals
+must release replaced and deleted entries. Oversized histories must not remove
+unsaved text or alter the 400 ms draft save queue. Native history must not retain
+old view callbacks, cross file boundaries or survive a different raw source.
+Raw BOM and mixed line endings must remain separate from native coordinates.
+
+`e2e/editor-state.spec.ts` drives navigation after 35 file switches and resident
+undo/redo with an immediate unsaved switch in Source and Code. It attaches final
+text and navigation evidence. Run `npx playwright test e2e/editor-state.spec.ts
+--project=chromium --workers=1 --retries=0`. Keep the standard report, source/diff
+identity, environment, command and attachments for each run.
+
+The 35-file navigation and 40-file pressure cases are Chromium-only. Firefox and
+WebKit keep the retained coordinates in the cache but do not expose the restored
+DOM selection after a deferred body mount. The cache unit tests still check the
+exact coordinates, and the Chromium workflow checks selection, scroll and bytes.
+Do not read a skipped engine as a passing cross-engine result.
+
+`e2e/project-backup.spec.ts` ignores the derived `manifest` index key when it
+compares migrated rows. The key is rebuilt on every write and on the version 9
+upgrade; document bytes and identifiers remain the compared data.
+
+`src/lib/editor-state.test.ts` retains deterministic byte accounting, independent
+LRU and invalid-charge cases. Browser workflows cannot precisely attribute a
+replacement or malformed numeric charge to an internal budget. Run
+`npx vitest run src/lib/editor-state.test.ts --maxWorkers=1`. These cases do not
+replace browser content, selection or history evidence.
+
+`src/lib/editor-history.test.ts` detects undercharged removed text, selection
+events, recache resets and unknown retained history effects. A cache estimate is
+not browser heap measurement. Unsupported effect providers must refuse inactive
+history without scanning or serializing it. Run this file with the cache cases.
 
 `e2e/review-regressions.spec.ts` checks these failures through the application:
 
@@ -726,6 +795,40 @@ It also cancels one outgoing capture, checks that the view and dirty input remai
 and retries close. Cancellation must not write a stale closed snapshot or claim a save.
 Run `npx playwright test e2e/document-revisions.spec.ts --project=chromium --workers=1 --retries=0`.
 Keep the JSON report, source identity, fixture bytes, and trace with the run.
+### Deferred note metadata
+
+An edit queues its file ID. The next task sends the current source to one
+persistent worker. Reads keep the last complete per-file snapshot until the
+worker returns the current revision. Publication changes the snapshot, tag
+counts, and backlink contributions together, then updates reactive consumers.
+Closing a tab does not remove its library metadata. Removal cancels queued work.
+Reload disposes the old worker. Bulk changes keep the lazy index rebuild.
+
+The worker keeps only its last document for the plain-line fast path. Other
+edits use the same full parser as cold reads. If workers are unavailable or fail,
+the queue processes one file per task on the main thread. This recovery path
+preserves correctness, but does not establish nonblocking large-note performance.
+The initial library read can still parse cold documents synchronously.
+
+`metadata-index-incremental.spec.ts` checks one MB input tasks, visible tag and
+backlink parity through seeded structural edits, and a delayed worker result
+after a newer edit and tab close. Keep the input CPU profile, raw samples,
+fixture content, source identity, screenshot, and standard browser reports.
+
+The retained risks are a reader that forces a full parse during input, stale
+publication after replacement or removal, mismatched tags and backlinks,
+unbounded queued source copies, and changed code or front matter boundaries.
+`meta-index.test.ts` compares the conservative worker fast path with full
+derivation through 600 seeded edits. The short visible browser sequence cannot
+exhaust these parser-state combinations. Keep full recomputation as the oracle.
+
+```sh
+npm exec -- vitest run src/lib/meta-index.test.ts src/lib/wiki-links.test.ts --maxWorkers=1
+E2E_PORT=4307 npm exec -- playwright test e2e/metadata-index-incremental.spec.ts e2e/wiki-links.spec.ts e2e/cross-window-review.spec.ts --project=chromium --workers=1
+```
+
+Browser results do not establish native WebView performance. Keep native and
+large-library resource acceptance separate from the short browser workflows.
 
 The test review removed duplicate creation, selection, rendering, export, and
 preference tests. Browser workflows verify those results. The remaining isolated
@@ -778,6 +881,55 @@ not replace the existing strict performance assertions or native acceptance.
 Run the `gesture guides` case in `presentation-responsive-tasks.spec.ts` for
 visible pointer cancellation, undo, slide changes and exact keyboard nudges.
 Keep all reports local with the standard JSON and HTML run artifacts.
+### Cross-mode stress checks
+
+The separate stress matrix and commands are in
+[PERFORMANCE.md](PERFORMANCE.md#cross-mode-stress-evidence). Run
+`node --test scripts/benchmark-stress.test.mjs` for the focused CLI contract.
+Run a selected production browser set with
+`node scripts/benchmark-local.mjs --suite stress --prebuilt --runs 20 --cases source/markdown-1mb/lib-0,code/code-1mb/lib-0,json/json-1mb/lib-0 --output "$OUT/stress.json"`.
+`OUT` must exist outside the repository. Record clean build provenance first.
+
+Before isolated checks, retain these failure risks: absent cases, duplicate or
+dropped samples, aborted input, missing required stages, negative values, low
+counts, mismatched profiles, missing source/build identities, lost bytes,
+missing export/history/reload assertions, unknown optional metric support,
+unreviewed limits, and a forged summary that hides a raw regression. Browser
+E2E cannot exercise malformed report files or verify audit process exits. The
+CLI tests start the real audit process and retain those risks. They also check
+the listed mode/size tiers and deterministic exact-size fixture output.
+
+The version 2 contract retains these additional concrete false-green risks:
+missing method/input evidence, untrusted or wrong input type, an invalid position
+schedule/selection/offset, a relabeled fixture/library/mode, dirty or inconsistent
+source/provenance, absent external artifact trust, missing capabilities/resources,
+invalid supported units/values, ignored resource limits and booleans that hide
+missing export/history/reload observations. The parent reproduced G1-G4 through
+the real frozen CLI before hardening. New process controls precede validator code.
+Each semantic mutation uses a fresh synthetic receipt, so rejection cannot rely
+only on a stale report digest. A separate control checks a wrong receipt pin.
+One unsupported heap sample must fail a configured heap limit even when other
+samples have supported values. A partial maximum is not complete resource evidence.
+
+Controls use real deterministic fixture/export bytes but explicitly synthetic
+timings, keyboard records and build identities. They prove the CLI's structural,
+replay, artifact-binding and process-exit behavior, not execution of the browser
+producer. An independent external receipt is a stated trust input, not browser
+attestation. Old version 1 reports remain historical and cannot be promoted by
+inventing missing observations. Preserve original controls and failed attempts.
+
+Each browser case checks a trusted input event, exact editor and saved bytes
+after each measured edit, a second file's undo isolation, redo, downloaded bytes
+and saved reload. Its external JSON report retains raw samples, fixture hashes,
+source/build identity, command, environment, renderer, support limits, resource
+sizes and failures. Preserve failed reports as well as passing cases. A low-count
+diagnostic, an unavailable case or an unreviewed profile is not a strict pass.
+
+This first delivery implements Source, Code, JSON and Split browser adapters.
+The listed remaining modes, bursts/paste timing, failed-save/crash recovery,
+native stress transport and calibrated release/resource limits remain open.
+Existing browser and native suites still own their existing checks. A catalog
+entry does not replace them. Reports remain local and are not uploaded.
 
 Use `scripts/benchmark-local.mjs` for repeatable performance evidence. It is one
 command with two separate targets. A web run and a native run never share a
@@ -1164,6 +1316,39 @@ reload. A second case checks initial focus when no control has focus.
 
 Run `npx playwright test e2e/code-focus-review.spec.ts e2e/snippets.spec.ts e2e/code-editor.spec.ts --project=chromium --workers=1 --retries=0`.
 Keep the JSON values, screenshots, source revision, environment, and fixtures.
+
+### Pathological long lines in the code and source editors
+
+One physical line above 16,384 UTF-16 code units selects a reduced editor
+configuration. The guard suspends the language grammar, folding, bracket
+matching, automatic indentation, image-data decorations and effective line
+wrapping. Text, selection, search, undo, manual indentation, save and exact byte
+export stay active. A visible status reports the reduced highlighting and the
+paused wrapping. The guard removes itself after the content shrinks and a
+debounced full scan finds only short lines.
+
+The retained failure risks are a late grammar reply that restores syntax on an
+unsafe document, a guard scan that itself blocks input, a stale risk state after
+undo or an external replacement, and a fallback that hides lost content. The
+browser cases compare stored and exported bytes, keep the selection usable, and
+check that ordinary files keep syntax tokens.
+
+The Chromium fixtures are generated in the spec. They cover a 1,000,000-byte
+JavaScript line, a 1,000,000-byte minified JSON document, a 100,000-column log
+line and a Markdown note with 20,000-character fence lines. Each case attaches
+the fixture byte count, UTF-16 length, maximum line length and SHA-256. The
+measurement case keeps raw synchronous and next-frame input samples for four
+named scenarios: long line, requested wrapping, invisibles and ordinary
+grammar. Those samples are diagnostic. The strict platform budgets stay under
+the common benchmark owner.
+
+```sh
+E2E_PORT=4398 npx playwright test e2e/code-editor.spec.ts e2e/editor-input-latency.spec.ts e2e/json-tools.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the HTML and JSON reports, the attached fixture metadata and measurement
+samples, downloads and failure traces. A browser result does not prove native
+WebView performance. The JSON worker boundary remains a separate dependency.
 
 ### Whole-application review
 

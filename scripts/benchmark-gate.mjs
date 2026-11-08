@@ -62,6 +62,10 @@ function reportFailures(report) {
 }
 
 async function main() {
+	if (process.argv[2] === '--suite' && process.argv[3] === 'stress') {
+		const { stressAuditMain } = await import('./benchmark-stress-audit.mjs');
+		return stressAuditMain(process.argv.slice(4));
+	}
 	const options = parseArguments(process.argv.slice(2));
 	const report = JSON.parse(await readFile(resolve(options.report), 'utf8'));
 	const structural = reportFailures(report);

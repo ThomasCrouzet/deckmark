@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
+import { encodeDraftManifest } from './draft-manifest-key';
 
 export interface DraftRow {
 	id: string;
@@ -18,6 +19,8 @@ export interface DraftRow {
 	sourceFileId?: string;
 	/** Whether the document is currently shown as an open tab. Missing means open for v4 data. */
 	open?: boolean;
+	/** Metadata index key maintained by the Dexie hooks. Do not write directly. */
+	manifest?: string;
 }
 
 /**
@@ -218,6 +221,32 @@ class MdshDB extends Dexie {
 		// v8: optional local semantic index. Nothing is indexed until the user opts in.
 		this.version(8).stores({
 			semanticIndex: 'id, projectId, draftId'
+		});
+		// v9: metadata projection for the library. The index key holds metadata
+		// only, so startup can read every draft row without its body. The upgrade
+		// writes the key once for existing rows; later writes maintain it in the
+		// same transaction through the hooks below.
+		this.version(9)
+			.stores({
+				drafts: 'id, updatedAt, order, projectId, &[projectId+relativePath], manifest'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<DraftRow>('drafts')
+					.toCollection()
+					.modify((row) => {
+						row.manifest = encodeDraftManifest(row);
+					})
+			);
+
+		this.drafts.hook('creating', (_primaryKey, row) => {
+			row.manifest = encodeDraftManifest(row);
+		});
+		this.drafts.hook('updating', (modifications, _primaryKey, row) => {
+			(modifications as Partial<DraftRow>).manifest = encodeDraftManifest({
+				...row,
+				...modifications
+			} as DraftRow);
 		});
 	}
 }

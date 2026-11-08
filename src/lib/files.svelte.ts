@@ -39,6 +39,7 @@ import {
 	reorderedOpenIds
 } from './file-tabs';
 
+import { encodeDraftManifest } from './draft-manifest-key';
 import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { SaveQueue } from './save-queue';
@@ -63,7 +64,7 @@ import { createCrossTab, type CrossTabMessage } from './cross-tab';
 import { handleCrossTabPolicy } from './cross-tab-policy';
 import { t } from '#lib/i18n/index.js';
 import { notify } from './notify.svelte';
-import { DEMO_DOCS } from './demo-doc';
+// Demo documents are loaded only from the explicit guided-tour action.
 import { toggleSelection, rangeSelection, clearSelection } from './selection';
 
 const ACTIVE_ID_KEY = 'mdsh:activeId';
@@ -174,6 +175,7 @@ class FilesStore {
 	private pendingTrashMoves = new Map<string, Promise<boolean>>();
 	private pendingRestores = new Map<string, Promise<void>>();
 	private pendingCrossTabSyncs = new Map<string, symbol>();
+	private pendingContentLoads = new Map<string, Promise<FileItem | null>>();
 	private diskOperations = new Map<string, Promise<unknown>>();
 	private renameTail: Promise<void> | null = null;
 	/** Bumped when one file's metadata changes so derived reads rerun. */
@@ -296,9 +298,81 @@ class FilesStore {
 		return value;
 	}
 
-	openDocument(id: string): void {
-		if (this.closedFiles.some((file) => file.id === id)) this.reopen(id);
-		else this.setActive(id);
+	openDocument(id: string): Promise<void> {
+		if (this.closedFiles.some((file) => file.id === id)) return this.openClosedDocument(id);
+		this.setActive(id);
+		return Promise.resolve();
+	}
+
+	private async openClosedDocument(id: string): Promise<void> {
+		const file = this.closedFiles.find((entry) => entry.id === id);
+		if (!file) return;
+		if (file.contentDeferred) {
+			const hydrated = await this.hydrateContent(id);
+			if (!hydrated) return;
+		}
+		if (this.closedFiles.some((entry) => entry.id === id)) this.reopen(id);
+		else if (this.files.some((entry) => entry.id === id)) this.setActive(id);
+	}
+
+	/** Reads one deferred body and applies it to the existing library item. */
+	async hydrateContent(id: string): Promise<FileItem | null> {
+		const file = this.library.find((entry) => entry.id === id) ?? null;
+		if (!file || !file.contentDeferred) return file;
+		const pending = this.pendingContentLoads.get(id);
+		if (pending) return pending;
+		const load = this.readContentRow(id);
+		this.pendingContentLoads.set(id, load);
+		void load.finally(() => {
+			if (this.pendingContentLoads.get(id) === load) this.pendingContentLoads.delete(id);
+		});
+		return load;
+	}
+
+	private async readContentRow(id: string): Promise<FileItem | null> {
+		const row = await db.drafts.get(id);
+		const file = this.library.find((entry) => entry.id === id);
+		// The document can be deleted while the body read is pending.
+		if (!row || !file || !file.contentDeferred) return file ?? null;
+		const { applyDraftContent } = await import('./draft-access');
+		applyDraftContent(file, row);
+		this.saveQueue.trackPersisted(row);
+		this.metaIndex.invalidateMeta(id);
+		this.metaRev += 1;
+		return file;
+	}
+
+	/** Hydrates the requested bodies before an operation that needs exact text. */
+	async ensureContent(ids: readonly string[]): Promise<void> {
+		await Promise.all(ids.map((id) => this.hydrateContent(id)));
+	}
+
+	async ensureLibraryContent(): Promise<void> {
+		await this.ensureContent(
+			this.library.filter((file) => file.contentDeferred).map((file) => file.id)
+		);
+	}
+
+	async ensureProjectContent(projectId: string): Promise<void> {
+		await this.ensureContent(
+			this.library
+				.filter((file) => file.projectId === projectId && file.contentDeferred)
+				.map((file) => file.id)
+		);
+	}
+
+	/**
+	 * Returns search text without materializing deferred bodies in the store.
+	 * Search is an explicit operation, so it asks Dexie for exactly the missing
+	 * rows and releases them when the worker owns the snapshot.
+	 */
+	async searchCorpus(
+		files: readonly FileItem[]
+	): Promise<Array<{ id: string; name: string; content: string }>> {
+		if (!files.some((file) => file.contentDeferred))
+			return files.map((file) => ({ id: file.id, name: file.name, content: file.content }));
+		const { buildSearchCorpus } = await import('./draft-access');
+		return buildSearchCorpus(files);
 	}
 
 	hasSaveError(id: string): boolean {
@@ -427,6 +501,7 @@ class FilesStore {
 			else delete file.relativePath;
 			file.updatedAt = row.updatedAt;
 			file.dirty = false;
+			file.contentDeferred = false;
 			this.saveQueue.trackPersisted(row);
 			this.metaIndex.invalidateMeta(id);
 			if (row.open === false) {
@@ -457,7 +532,7 @@ class FilesStore {
 			// endless loading shell. Dexie keeps the request pending; the user
 			// must close the other tab and retry.
 			const timeout = new Promise<never>((_resolve, reject) => {
-				openTimer = setTimeout(() => reject(new Error('storage-open-timeout')), 8_000);
+				openTimer = setTimeout(() => reject(new Error('storage-open-timeout')), 15_000);
 			});
 			await Promise.race([this.loadData(preferredActiveId), timeout]);
 		} catch (err) {
@@ -472,45 +547,18 @@ class FilesStore {
 	}
 
 	private async loadData(preferredActiveId: string | null): Promise<void> {
-		const rows = await db.drafts.orderBy('order').toArray();
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Transient local Set, never $state
-		const linkedIds = new Set<string>();
-		if (isFSASupported() || isDesktop()) {
-			const links = await listDiskLinks();
-			for (const link of links) {
-				if (link.kind === 'path' || isFSASupported()) linkedIds.add(link.id);
-			}
-		}
-		const items = rows.map((r) => ({
-			id: r.id,
-			name: r.name,
-			content: r.content,
-			...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
-			...(r.origin ? { origin: r.origin } : {}),
-			...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
-			...(r.kind ? { kind: r.kind } : {}),
-			...(r.mime ? { mime: r.mime } : {}),
-			...(r.data ? { data: r.data } : {}),
-			createdAt: r.createdAt,
-			updatedAt: r.updatedAt,
-			dirty: false,
-			linkedToDisk: linkedIds.has(r.id)
-		}));
-		for (const row of rows) this.saveQueue.trackPersisted(row);
-		this.files = items.filter((_file, index) => rows[index]?.open !== false);
-		this.closedFiles = items.filter((_file, index) => rows[index]?.open === false);
-		this.metaIndex.invalidateBacklinksIndex();
+		// The metadata scan, body budget, and full-row fallback live in an
+		// on-demand chunk so the boot bundle stays small.
+		const { loadDraftLibrary } = await import('./draft-access');
+		const loaded = await loadDraftLibrary(preferredActiveId, readPreference(ACTIVE_ID_KEY));
+		for (const row of loaded.persistedRows) this.saveQueue.trackPersisted(row);
+		// Load the wiki index module before publishing the files. A reactive read
+		// can run as soon as the library is assigned.
 		await this.metaIndex.load();
-		const savedActiveId =
-			preferredActiveId && this.files.some((file) => file.id === preferredActiveId)
-				? preferredActiveId
-				: readPreference(ACTIVE_ID_KEY);
-		if (savedActiveId && this.files.some((f) => f.id === savedActiveId)) {
-			this.activeId = savedActiveId;
-		} else if (this.files.length > 0) {
-			// invariant: files[0] is guaranteed non-undefined since length > 0.
-			this.activeId = this.files[0]!.id;
-		}
+		this.files = loaded.files;
+		this.closedFiles = loaded.closedFiles;
+		this.activeId = loaded.activeId;
+		this.metaIndex.invalidateBacklinksIndex();
 		await this.loadTrash();
 		this.loaded = true;
 		// Background FSA check - no await (must not block the display).
@@ -543,6 +591,7 @@ class FilesStore {
 		this.trash = [];
 		this.activeId = null;
 		this.selectedIds = new Set();
+		this.metaIndex.dispose();
 		this.metaIndex = new MetaIndex(
 			() => this.library,
 			() => {
@@ -621,6 +670,9 @@ class FilesStore {
 		const snapshot = this.documents.flush(file.id);
 		if (!snapshot) throw new Error('document-snapshot-superseded');
 		const row = toDraftRow(file, order, open);
+		// Keep the derived metadata projection on every write path, including
+		// rollback paths that do not go through a Dexie hook in a test shim.
+		row.manifest = encodeDraftManifest(row);
 		this.saveQueue.captureRevision(row, snapshot.revision);
 		return row;
 	}
@@ -789,7 +841,7 @@ class FilesStore {
 				);
 				if (matches.length === 1) {
 					const existing = matches[0]!;
-					if (this.closedFiles.includes(existing)) this.reopen(existing.id);
+					if (this.closedFiles.includes(existing)) await this.openDocument(existing.id);
 					else this.setActive(existing.id);
 					created.push(existing);
 					session.accept();
@@ -887,6 +939,21 @@ class FilesStore {
 
 	/** Moves a document to the durable trash. This is distinct from closing a tab. */
 	delete(id: string): void {
+		const candidate =
+			this.files.find((file) => file.id === id) ?? this.closedFiles.find((file) => file.id === id);
+		if (candidate?.contentDeferred) {
+			void this.deleteAfterHydration(id);
+			return;
+		}
+		this.deleteLoaded(id);
+	}
+
+	private async deleteAfterHydration(id: string): Promise<void> {
+		const hydrated = await this.hydrateContent(id);
+		if (hydrated) this.deleteLoaded(id);
+	}
+
+	private deleteLoaded(id: string): void {
 		if (this.trashBusy) return;
 		this.dispatchEditorFlush();
 		const open = this.detachFromView(id);
@@ -964,6 +1031,7 @@ class FilesStore {
 		const requested = new Set(ids);
 		if (requested.size === 0) return Promise.resolve(true);
 		return this.runTrashBatch(async () => {
+			await this.ensureContent([...requested]);
 			const trashedAt = Date.now();
 			const entries = this.library.flatMap((file, order) =>
 				requested.has(file.id) ? [{ file: { ...file }, order, trashedAt }] : []
@@ -1035,7 +1103,15 @@ class FilesStore {
 	reopen(id: string): FileItem | null {
 		const idx = this.closedFiles.findIndex((file) => file.id === id);
 		if (idx === -1) return null;
-		const file = this.closedFiles.splice(idx, 1)[0]!;
+		const file = this.closedFiles[idx]!;
+		// A deferred body cannot move into the editor synchronously. Start the
+		// read and let `openClosedDocument` reopen it when the exact text is in
+		// memory.
+		if (file.contentDeferred) {
+			void this.openClosedDocument(id);
+			return null;
+		}
+		this.closedFiles.splice(idx, 1);
 		this.rememberActive();
 		this.files.push(file);
 		this.activeId = file.id;
@@ -1069,24 +1145,34 @@ class FilesStore {
 		for (const r of rows) {
 			if (!r || existing.has(r.id)) continue;
 			const closedIndex = this.closedFiles.findIndex((file) => file.id === r.id);
-			const item =
-				closedIndex >= 0
-					? this.closedFiles.splice(closedIndex, 1)[0]!
-					: {
-							id: r.id,
-							name: r.name,
-							content: r.content,
-							...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
-							...(r.origin ? { origin: r.origin } : {}),
-							...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
-							...(r.kind ? { kind: r.kind } : {}),
-							...(r.mime ? { mime: r.mime } : {}),
-							...(r.data ? { data: r.data } : {}),
-							createdAt: r.createdAt,
-							updatedAt: r.updatedAt,
-							dirty: false,
-							linkedToDisk: false
-						};
+			const closed = closedIndex >= 0 ? this.closedFiles[closedIndex]! : null;
+			const item = closed ?? {
+				id: r.id,
+				name: r.name,
+				content: r.content,
+				...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
+				...(r.origin ? { origin: r.origin } : {}),
+				...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
+				...(r.kind ? { kind: r.kind } : {}),
+				...(r.mime ? { mime: r.mime } : {}),
+				...(r.data ? { data: r.data } : {}),
+				createdAt: r.createdAt,
+				updatedAt: r.updatedAt,
+				dirty: false,
+				linkedToDisk: false
+			};
+			if (closed) {
+				if (closed.contentDeferred) {
+					// The workspace row is the exact durable body.
+					closed.content = r.content;
+					if (r.data) closed.data = r.data;
+					else delete closed.data;
+					closed.name = r.name;
+					closed.updatedAt = r.updatedAt;
+					closed.contentDeferred = false;
+				}
+				this.closedFiles.splice(closedIndex, 1);
+			}
 			this.files.push(item);
 			existing.add(r.id);
 			this.saveQueue.persist(this.capturedDraftRow(item, this.files.length - 1, true));
@@ -1307,11 +1393,19 @@ class FilesStore {
 	}
 
 	updateContent(id: string, content: string): void {
+		const file = this.library.find((entry) => entry.id === id);
+		if (!file || file.content === content) return;
+		if (file.contentDeferred) {
+			// Callers that transform a body must hydrate it first. Refuse the
+			// write instead of replacing the durable text with a placeholder.
+			void this.hydrateContent(id);
+			return;
+		}
 		this.queueEditorContent(id, content);
 		this.documents.flush(id);
 	}
 
-	rename(id: string, name: string): Promise<boolean> {
+	async rename(id: string, name: string): Promise<boolean> {
 		this.dispatchEditorFlush();
 		const file = this.files.find((f) => f.id === id);
 		if (!file) return Promise.resolve(false);
@@ -1336,6 +1430,9 @@ class FilesStore {
 			return Promise.resolve(false);
 		}
 		if (normalized === file.name && !this.diskOperations.has(id)) return Promise.resolve(true);
+		// Link repair scans every note. Large closed bodies must be exact before
+		// the plan decides which documents change.
+		if (this.library.some((entry) => entry.contentDeferred)) await this.ensureLibraryContent();
 		const plan = () => {
 			const oldTarget = stripMdExtension(file.name).toLowerCase();
 			const nextTarget = stripMdExtension(normalized);
@@ -1462,6 +1559,7 @@ class FilesStore {
 				else delete existing.projectId;
 				if (row.relativePath) existing.relativePath = row.relativePath;
 				else delete existing.relativePath;
+				existing.contentDeferred = false;
 				existing.dirty = true;
 			} else if (row.open === false) this.closedFiles.push({ ...row, dirty: false });
 			else this.files.push({ ...row, dirty: false });
@@ -1483,6 +1581,14 @@ class FilesStore {
 		file.name = name;
 		file.updatedAt = Date.now();
 		this.metaIndex.invalidateMeta(id);
+		if (file.contentDeferred) {
+			// A metadata-only item must not rewrite the durable body with the
+			// empty placeholder. Update only the fields that changed.
+			void db.drafts
+				.update(id, { name, updatedAt: file.updatedAt })
+				.catch((error) => reportPersistenceError(error, 'save'));
+			return;
+		}
 		if (this.closedFiles.includes(file))
 			this.saveQueue.persist(this.capturedDraftRow(file, this.files.length, false));
 		else this.scheduleSave(id);
@@ -1498,14 +1604,16 @@ class FilesStore {
 	}
 
 	exportActive(): void {
-		if (this.active) this.export(this.active.id);
+		if (this.active) void this.export(this.active.id);
 	}
-	export(id: string): void {
+	async export(id: string): Promise<void> {
 		this.dispatchEditorFlush();
+		await this.ensureContent([id]);
 		exportMarkdownOp(id, this.exportDeps);
 	}
 	async exportAll(): Promise<void> {
 		this.dispatchEditorFlush();
+		await this.ensureLibraryContent();
 		return exportAllZipOp(this.exportDeps);
 	}
 	async exportOpen(): Promise<void> {
@@ -1514,6 +1622,7 @@ class FilesStore {
 	}
 	async exportHTML(id: string): Promise<void> {
 		this.dispatchEditorFlush();
+		await this.ensureContent([id]);
 		return exportHTMLOp(id, this.exportDeps);
 	}
 	async exportActiveHTML(): Promise<void> {
@@ -1521,6 +1630,7 @@ class FilesStore {
 	}
 	async exportPDF(id: string): Promise<void> {
 		this.dispatchEditorFlush();
+		await this.ensureContent([id]);
 		return exportPDFOp(id, this.exportDeps);
 	}
 	async exportActivePDF(): Promise<void> {
@@ -1528,6 +1638,7 @@ class FilesStore {
 	}
 	async exportSelectedZip(): Promise<void> {
 		this.dispatchEditorFlush();
+		await this.ensureContent([...this.selectedIds]);
 		return exportSelectionZipOp(this.selectedIds, this.exportDeps);
 	}
 
@@ -1574,7 +1685,7 @@ class FilesStore {
 			},
 			getFiles: () => [...this.files, ...this.closedFiles],
 			onActivate: (id: string) => {
-				if (this.closedFiles.some((file) => file.id === id)) this.reopen(id);
+				if (this.closedFiles.some((file) => file.id === id)) void this.openDocument(id);
 				else this.setActive(id);
 			},
 			onCreate: (name: string, content: string) =>
@@ -1675,7 +1786,8 @@ class FilesStore {
 	 * off backlinks and the link graph) and activates the first one. Never
 	 * called automatically - only from the explicit Welcome-screen button.
 	 */
-	loadDemo(): FileItem[] {
+	async loadDemo(): Promise<FileItem[]> {
+		const { DEMO_DOCS } = await import('./demo-doc');
 		const created = DEMO_DOCS.map((doc) =>
 			this.createNew(doc.name, doc.content, { origin: 'created' })
 		);
@@ -1696,6 +1808,8 @@ class FilesStore {
 		scope: 'library' | 'open' = 'library'
 	): Promise<{ files: number; occurrences: number; regexError: string | null }> {
 		this.dispatchEditorFlush();
+		if (scope === 'library' && this.library.some((file) => file.contentDeferred))
+			await this.ensureLibraryContent();
 		const slices = (scope === 'library' ? this.library : this.files)
 			.filter((file) => documentKindForFile(file) === 'note')
 			.map((f) => ({
@@ -1864,6 +1978,7 @@ class FilesStore {
 
 	/** Front-matter tags of file `id`. */
 	getTags(id: string): string[] {
+		void this.metaRev;
 		return this.metaIndex.getTags(id);
 	}
 	/** All unique tags of the corpus, sorted alphabetically. */
@@ -1873,9 +1988,11 @@ class FilesStore {
 	}
 	/** Title: front-matter `title` > first H1 (if FM present) > filename without extension. */
 	displayTitle(id: string): string {
+		void this.metaRev;
 		return this.metaIndex.displayTitle(id);
 	}
 	documentTitle(id: string): string {
+		void this.metaRev;
 		return this.metaIndex.documentTitle(id);
 	}
 	/** Files that contain a wiki-link pointing to `targetId`. */
@@ -1924,6 +2041,7 @@ class FilesStore {
 	}
 	/** @internal - outgoing wiki-link targets of file `id`. */
 	wikiLinkTargets(id: string): string[] {
+		void this.metaRev;
 		return this.metaIndex.wikiLinkTargets(id);
 	}
 

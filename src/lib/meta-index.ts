@@ -18,9 +18,13 @@
 import type { FileItem } from './types';
 import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-utils';
-import { extractWikiLinkTargets } from './wiki-links';
-import { getTags as getFmTags, getTitle as getFmTitle, stripFrontmatter } from './frontmatter';
+import { deriveMetadata, type MetadataSource, type MetadataValues } from './metadata-derive';
+import type { MetadataRequest, MetadataResponse } from './metadata.worker';
 import type { WikiLinkIndex } from './wiki-link-index';
+import type { MetadataRunner } from './metadata-runner';
+import { reportWarning } from './report';
+
+const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 
 /** Per-file cache entry. */
 interface MetaEntry {
@@ -42,12 +46,19 @@ export class MetaIndex {
 	private wikiClass: typeof WikiLinkIndex | null;
 	/** Sorted unique tags; rebuilt lazily after a metadata change. */
 	private allTagsCache: string[] | null = null;
+	private tagCounts: Map<string, number> | null = null;
+	private pending = new Map<string, number>();
+	private revision = 0;
+	private runner: MetadataRunner | null = null;
+	private disposed = false;
+	private timer: ReturnType<typeof setTimeout> | undefined;
+	private active: (MetadataRequest & { sourceKind: FileItem['kind'] }) | null = null;
 
 	/** Reference to the current files state (injected by the store). */
 	private getFiles: () => readonly FileItem[];
 	constructor(
 		getFiles: () => readonly FileItem[],
-		private onPublish?: () => void,
+		private onPublish?: (id: string) => void,
 		indexClass?: typeof WikiLinkIndex
 	) {
 		this.getFiles = getFiles;
@@ -58,6 +69,7 @@ export class MetaIndex {
 	// All meta reads (title/tags/targets) go through here.
 	getMeta(file: FileItem): MetaEntry {
 		const cached = this.metaCache.get(file.id);
+		if (this.onPublish && this.pending.has(file.id)) return cached ?? this.placeholder(file);
 		if (
 			cached &&
 			cached.content === file.content &&
@@ -65,59 +77,37 @@ export class MetaIndex {
 			cached.sourceKind === file.kind
 		)
 			return cached;
-
-		const fallback = stripMdExtension(file.name);
-		const isNote = documentKindForFile(file) === 'note';
-		const { content, raw } = stripFrontmatter(file.content);
-
-		// Title: YAML > first H1 > filename. We reproduce the logic of the old
-		// `displayTitle` but without re-parsing on every call.
-		// Horizontal whitespace only after the colon so multiline YAML is ignored
-		// (full parse stays on async `parseFrontmatter` / js-yaml).
-		let title = fallback;
-		if (raw) {
-			const m = /^title:[ \t]*(.+)$/m.exec(raw);
-			// m[1] is guaranteed if m is non-null (mandatory capture group `.+`),
-			// but noUncheckedIndexedAccess requires optional chaining on the slot.
-			const yamlTitle = m?.[1]?.trim().replace(/^['"]|['"]$/g, '') ?? '';
-			title = yamlTitle || getFmTitle({}, content, fallback);
+		if (cached && this.onPublish) {
+			this.invalidateMeta(file.id);
+			return cached;
 		}
+		if (META_METRICS) performance.mark('meta-index-parse');
+		const entry = this.entry(file, deriveMetadata(this.source(file)));
+		this.publish(file.id, entry);
+		return entry;
+	}
 
-		// YAML tags - accepts same-line `[a, b]` or CSV `a, b` only.
-		let tags: string[] = [];
-		if (raw && isNote) {
-			const m = /^tags:[ \t]*(.+)$/m.exec(raw);
-			if (m) {
-				// invariant: m[1] is guaranteed non-undefined (mandatory capture group `.+`).
-				const value = m[1]!.trim();
-				if (value.startsWith('[') && value.endsWith(']')) {
-					tags = getFmTags({
-						tags: value
-							.slice(1, -1)
-							.split(',')
-							.map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
-							.filter(Boolean)
-					});
-				} else {
-					tags = getFmTags({ tags: value });
-				}
-			}
-		}
+	private source(file: FileItem): MetadataSource {
+		return { name: file.name, content: file.content, isNote: documentKindForFile(file) === 'note' };
+	}
 
-		const targets = isNote ? extractWikiLinkTargets(file.content) : [];
-
-		const entry: MetaEntry = {
+	private entry(file: FileItem, values: MetadataValues): MetaEntry {
+		const { title, documentTitle, tags, targets } = values;
+		return {
 			name: file.name,
-			isNote,
+			isNote: documentKindForFile(file) === 'note',
 			sourceKind: file.kind,
 			content: file.content,
 			title,
-			documentTitle: raw ? title : getFmTitle({}, content, fallback),
+			documentTitle,
 			tags,
 			targets
 		};
-		this.metaCache.set(file.id, entry);
-		return entry;
+	}
+
+	private placeholder(file: FileItem): MetaEntry {
+		const title = stripMdExtension(file.name);
+		return this.entry(file, { title, documentTitle: title, tags: [], targets: [] });
 	}
 
 	// §A2.1+A2.2 - Invalidation: called on write (updateContent), rename
@@ -126,22 +116,139 @@ export class MetaIndex {
 	// backlinks index and the tag counts stay usable, so the next read does not
 	// rebuild them over the whole library.
 	invalidateMeta(id: string): void {
+		if (this.disposed) return;
 		const file = this.getFiles().find((entry) => entry.id === id);
-		const current = file ? this.getMeta(file) : null;
-		this.wikiIndex?.updateLocation(id, file, current?.isNote);
-		if (!file) this.metaCache.delete(id);
-		this.allTagsCache = null;
+		this.wikiIndex?.updateLocation(id, file, file ? documentKindForFile(file) === 'note' : false);
+		if (!file) {
+			this.pending.delete(id);
+			this.publish(id, null);
+			this.onPublish?.(id);
+		} else if (this.onPublish) {
+			this.pending.set(id, ++this.revision);
+			this.schedule();
+		} else this.getMeta(file);
+	}
+
+	private publish(id: string, current: MetaEntry | null): void {
+		const previous = this.metaCache.get(id);
+		const same = (a: string[] = [], b: string[] = []) => {
+			const set = new Set(a);
+			return set.size === b.length && b.every((value) => set.has(value));
+		};
+		const file = this.getFiles().find((entry) => entry.id === id);
+		this.wikiIndex?.updateLocation(id, file, current?.isNote ?? false);
 		this.wikiIndex?.publishTargets(id, current?.targets ?? null);
-		this.onPublish?.();
+		if (!same(previous?.tags, current?.tags)) {
+			if (this.tagCounts) {
+				for (const tag of previous?.tags ?? []) {
+					const count = this.tagCounts.get(tag)! - 1;
+					if (count === 0) {
+						this.tagCounts.delete(tag);
+						this.allTagsCache = null;
+					} else this.tagCounts.set(tag, count);
+				}
+				for (const tag of current?.tags ?? []) {
+					const count = this.tagCounts.get(tag) ?? 0;
+					this.tagCounts.set(tag, count + 1);
+					if (count === 0) this.allTagsCache = null;
+				}
+			} else this.allTagsCache = null;
+		}
+		if (current) this.metaCache.set(id, current);
+		else this.metaCache.delete(id);
+	}
+
+	private schedule(): void {
+		if (this.disposed || this.active || this.timer !== undefined || !this.pending.size) return;
+		this.timer = setTimeout(() => {
+			this.timer = undefined;
+			this.runNext();
+		}, 0);
+	}
+
+	private runNext(): void {
+		const next = this.pending.entries().next().value;
+		if (!next || this.disposed) return;
+		const [id, revision] = next;
+		const file = this.getFiles().find((file) => file.id === id);
+		if (!file) {
+			this.invalidateMeta(id);
+			this.schedule();
+			return;
+		}
+		const request = { id, revision, source: this.source(file) };
+		this.active = { ...request, sourceKind: file.kind };
+		void import('./draft-access')
+			.then(({ MetadataRunner }) => {
+				if (this.disposed) return null;
+				this.runner ??= new MetadataRunner();
+				return this.runner.run(request);
+			})
+			.then((response) => {
+				if (response) this.finish(response);
+			})
+			.catch(() => {
+				if (this.disposed) return;
+				reportWarning('metadata runner unavailable');
+				this.timer = setTimeout(() => {
+					this.timer = undefined;
+					if (META_METRICS) performance.mark('meta-index-parse');
+					this.finish({ id, revision, values: deriveMetadata(request.source), incremental: false });
+				}, 0);
+			});
+	}
+
+	private finish(response: MetadataResponse): void {
+		const request = this.active;
+		if (
+			!request ||
+			this.disposed ||
+			request.id !== response.id ||
+			request.revision !== response.revision
+		)
+			return;
+		this.active = null;
+		const file = this.getFiles().find((file) => file.id === request.id);
+		if (this.pending.get(request.id) === request.revision) {
+			this.pending.delete(request.id);
+			if (
+				file &&
+				file.content === request.source.content &&
+				file.name === request.source.name &&
+				file.kind === request.sourceKind
+			) {
+				this.publish(file.id, this.entry(file, response.values));
+				if (META_METRICS)
+					performance.mark(
+						response.incremental ? 'meta-index-worker-reuse' : 'meta-index-worker-full'
+					);
+				this.onPublish?.(file.id);
+			} else this.invalidateMeta(request.id);
+		}
+		this.schedule();
+	}
+
+	dispose(): void {
+		this.disposed = true;
+		clearTimeout(this.timer);
+		this.runner?.dispose();
+		this.runner = null;
+		this.active = null;
+		this.pending.clear();
+		this.metaCache.clear();
+		this.wikiIndex = null;
+		this.tagCounts = null;
+		this.allTagsCache = null;
 	}
 
 	/** Invalidates the backlinks index and the tag cache (e.g. a bulk change). */
 	invalidateBacklinksIndex(): void {
 		this.wikiIndex = null;
 		this.allTagsCache = null;
-		const live = new Set(this.getFiles().map((file) => file.id));
-		for (const id of this.metaCache.keys()) if (!live.has(id)) this.metaCache.delete(id);
-		this.onPublish?.();
+		this.tagCounts = null;
+		const ids = new Set(this.getFiles().map((file) => file.id));
+		for (const id of this.metaCache.keys()) if (!ids.has(id)) this.metaCache.delete(id);
+		for (const id of this.pending.keys()) if (!ids.has(id)) this.pending.delete(id);
 	}
 
 	/**
@@ -192,11 +299,14 @@ export class MetaIndex {
 	 */
 	get allTags(): string[] {
 		if (this.allTagsCache) return this.allTagsCache;
-		const set = new Set<string>();
-		for (const file of this.getFiles()) {
-			for (const t of this.getMeta(file).tags) set.add(t);
+		if (!this.tagCounts) {
+			const counts = new Map<string, number>();
+			for (const file of this.getFiles()) {
+				for (const tag of this.getMeta(file).tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+			}
+			this.tagCounts = counts;
 		}
-		this.allTagsCache = [...set].sort((a, b) => a.localeCompare(b));
+		this.allTagsCache = [...this.tagCounts.keys()].sort((a, b) => a.localeCompare(b));
 		return this.allTagsCache;
 	}
 

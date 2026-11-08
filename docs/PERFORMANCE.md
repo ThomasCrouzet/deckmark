@@ -1,5 +1,196 @@
 # Desktop performance work
 
+## Cross-mode stress evidence
+
+Issue [#327](https://github.com/ThomasCrouzet/deckmark/issues/327) adds a separate
+stress contract. The closed baseline work in
+[#208](https://github.com/ThomasCrouzet/deckmark/issues/208),
+[#260](https://github.com/ThomasCrouzet/deckmark/issues/260) and
+[#268](https://github.com/ThomasCrouzet/deckmark/issues/268) remains the baseline.
+The existing summary gate, its samples and its limits do not change.
+
+List the complete planned matrix without a build or browser:
+
+```sh
+npm run benchmark:stress -- --list
+node scripts/benchmark-stress.mjs --fixture json-1mb
+```
+
+`scripts/benchmark-fixtures/stress.mjs` defines deterministic Markdown at 50 KB,
+240 KB, 1 MB and 5 MB, a 1 MB line, 1,000 headings, repeated Mermaid/math/tables,
+Code at 50 KB/1 MB/5 MB, JSON at 50 KB/1 MB/5 MB/10 MB, and decks with
+20/100/300 slides and ten objects per slide. Library tiers contain
+0/300/900/3,000 background documents, plus the measured file and a history
+sentinel. Sizes use decimal bytes. The fixture command returns exact content,
+byte count and SHA-256. Decks use the existing version 1 format.
+
+Source, Code, JSON and Split have Web browser adapters. The matrix also lists
+WYSIWYG, Read, annotation, slide canvas, slide text, slide notes and Advanced
+Presentation Source. Those stress adapters are not implemented. A selected
+unavailable case fails and stays in the report. Listing a case is not execution
+or coverage proof. Native stress transport is also not implemented.
+
+Build and record a clean committed root production build, then select a bounded
+set of cases. Set `OUT` to an existing local directory outside the repository.
+Each output file must be new. Do not run the whole matrix on a shared host.
+
+```sh
+BASE_PATH='' npm run build
+node scripts/build-provenance.mjs write --kind web-benchmark --instrumentation none
+node scripts/benchmark-local.mjs --suite stress --prebuilt --runs 20 \
+  --cases source/markdown-1mb/lib-0,code/code-1mb/lib-0,json/json-1mb/lib-0,split/markdown-1mb/lib-0 \
+  --output "$OUT/stress-chromium.json"
+```
+
+The typing runner also accepts `--suite stress` with the same arguments.
+Select Firefox or WebKit with `--profile web-light-firefox-production` or
+`--profile web-light-webkit-production`. The default is
+`web-light-chromium-production`. The verified build must have no source-fidelity
+instrumentation. Provenance rejects a different source, dirty tree, changed
+input or changed build byte. Browser contexts block service workers so that an
+old cache cannot replace the verified build.
+
+The `deckmark-stress/2` report retains every attempted sample and terminal case.
+It records the source commit/tree/diff, untracked hashes, verified build tree,
+fixture hashes, OS, renderer version, host or CI runner and exact command.
+Samples rotate start, middle and end offsets. Each sample inserts one character
+through the browser text-input channel. It requires a trusted `beforeinput`,
+the exact full editor value and the exact saved value. Downloaded bytes, per-file
+undo, redo and saved reload are checked after the samples. These checks do not
+prove crash recovery, failed-write recovery, bursts or clipboard paste.
+History checks use real keyboard actions. Redo uses CodeMirror's primary binding:
+Ctrl+Y on non-Mac platforms and Cmd+Shift+Z on Mac. The report retains the actual
+trusted key event and its editor target. Synthetic history events do not replace
+this check.
+
+| Raw metric | Boundary |
+| --- | --- |
+| `inputToFrameMs` | Trusted `beforeinput` capture to the second animation frame, with one paint opportunity. This is not an observed compositor paint. |
+| `inputDispatchMs` | Input capture to its queued microtask. A browser checkpoint can precede later listeners. This is not pure transaction CPU or guaranteed full dispatch duration. |
+| `saveObservedMs` | Input capture to the observed matching IndexedDB bytes, including poll and driver overhead. The 400 ms product delay stays unchanged. |
+
+Required capability records state support and a reason. Long tasks and engine heap are
+recorded when exposed. Pure transaction CPU, preview completion, validation
+completion, post-idle CPU and attributable process RSS remain unavailable.
+Each successful sample also records DOM count and canvas dimensions. These
+resources have no calibrated stress limit yet.
+Fixture and export sidecars stay beside the JSON report. Failed cases also try
+to retain a screenshot. The JSON lists their paths and byte hashes.
+
+Audit independently with the expected case selection and an external byte-review
+receipt. `RECEIPT_SHA256` is the trusted receipt's raw-file SHA-256:
+
+```sh
+node scripts/benchmark-gate.mjs --suite stress --report "$OUT/stress-chromium.json" \
+  --receipt "$OUT/external-trust.json" --receipt-sha256 "$RECEIPT_SHA256" \
+  --cases source/markdown-1mb/lib-0,code/code-1mb/lib-0,json/json-1mb/lib-0,split/markdown-1mb/lib-0
+```
+
+The audit recomputes p50/p95 from raw values. It rejects absent or duplicated
+cases, missing stages, aborted samples, wrong counts, non-finite values, wrong
+profiles, missing identities and failed byte/history/reload checks. At least
+20 aggregate samples are required for strict evidence. Fewer samples emit
+`tail-estimate-insufficient`. Twenty aggregate samples do not supply twenty
+samples per position. Read the raw samples; do not claim a stable per-position
+tail. There is no minimum-of-three stress statistic.
+
+### Version 2 report contract
+
+`scripts/benchmark-stress-contract.mjs` defines method `codemirror-insert/1`.
+It preserves target-capture beforeinput, the second animation frame, queued
+microtask and exact IndexedDB observation clocks. It also preserves two frames
+before input, no discarded warmup, the 550 ms wait after each sample, raw count,
+nearest-rank statistics and three-decimal summaries. These names do not turn a
+frame opportunity into compositor paint or a microtask into transaction CPU.
+
+The audit requires trusted editor-target `insertText`, operation `insert`, text
+`x`, actual collapsed selection and source length. It replays the deterministic
+fixture at rotating start/middle/end offsets `Math.round(length * ratio)`, with
+ratios 0.02/0.5/0.98. It checks before/after and final hashes against that replay.
+Case mode, fixture name/bytes/hash/generator/arguments, actual library row count,
+membership and background-row hashes must match the selected catalog entry.
+
+Source must be clean before and after collection, with the same commit/tree.
+Source, build digest, provenance, edition/profile, root base path, instrumentation,
+builder/runtime identity and all provenance input hashes must agree. Version 1
+reports remain historical evidence. Missing version 2 observations must not be
+invented or filled into an old measured report to make it pass.
+
+Each sample must retain all seven capability records: longTasks, heap,
+transactionCpu, preview, validation, postIdleCpu and rss. Supported long tasks
+need finite nonnegative ms values. Supported heap needs a finite nonnegative
+byte value with `performance.memory-estimate` origin. This method cannot claim
+the other five stages are supported; each needs an explicit unsupported reason,
+not a zero value. DOM count and canvas backing dimensions require valid counts
+and units. Missing maps or arrays fail.
+
+Strict resource comparison requires configured domNodes and canvasPixels limits.
+Configured heapBytes/rssBytes limits are also enforced against observed maxima.
+A configured unsupported resource, an unknown limit or an invalid value fails.
+Null resource limits remain an unreviewed requirement. No product limit is
+calibrated or approved by these checks.
+
+Fidelity booleans are not enough. The report records separately read CodeMirror
+document and IndexedDB origins/hashes for sentinel insert/undo, main file return,
+main undo/redo and reload. It retains real trusted history key events. Export
+name/count/hash and actual sidecar bytes must equal the final replayed source.
+This contract does not define a visual editor source snapshot or visual history.
+
+### External artifact trust receipt
+
+The producer does not issue its own trust receipt. After collection, an independent
+reviewer must check the source/build/provenance inputs and local fixture/export
+bytes, then issue `deckmark-stress-artifact-trust/1`. Pass its path and pinned
+digest explicitly to the audit. A report-embedded receipt is not authoritative.
+
+The receipt has these fields:
+
+- `scope: "external-artifact-byte-review"`, a named `reviewer`, ISO `reviewedAt`,
+  and `evidenceKind` equal to `browser-run` or `synthetic-control`.
+- `reportSha256`, the exact report-file byte digest.
+- `source: { revision, tree }`, the independently checked source identity.
+- `provenanceSha256`, the SHA-256 of recursively key-sorted canonical JSON for
+  the embedded provenance. Sorting uses the contract module's localeCompare
+  ordering, not an unstated JSON canonicalization standard.
+- `buildTree: { files, sha256 }` and `inputs`, equal to the independently checked
+  provenance tree and complete input-hash map.
+- `files`, an absolute-path map of `{ bytes, sha256 }` for each case's fixture
+  and export sidecars.
+
+The CLI checks the receipt's pinned raw-byte digest, report binding and internal
+agreement, rehashes sidecar bytes and compares them with deterministic replay.
+The caller explicitly trusts the external review of build/input bytes. This is
+not a signature or proof that claimed browser work actually ran. A coordinated
+invented report and invented trusted receipt is outside this JSON check's proof.
+
+The collector's embedded audit cannot be strict success before independent trust
+exists. Without enforcement it can finish functional collection but retains the
+failed audit. `--enforce-budgets` does not bypass receipt or resource requirements.
+Use the separate strict post-collection audit for acceptance. Synthetic CLI
+controls declare `synthetic-control` in report, receipt and test-only budget
+profile. They contain synthetic times, not new browser measurements or product
+references. Preserve original positive/negative reports without rewriting them.
+
+The new `stress` section in `scripts/benchmark-budgets.json` separates Web Light
+production from Desktop Complete release and debug profiles. All new profiles
+are **report-only and uncalibrated**. A strict stress audit therefore fails until
+limits and a review reference are supplied. `--enforce-budgets` makes that audit
+result govern the measurement command exit. Without enforcement, functional
+failures still exit nonzero. An audit with `--report-only` can exit zero but
+retains `enforced: false` and its failed status. It is not a strict gate pass.
+
+Parent review must approve platform latency and resource limits, full native
+adapters, remaining modes and CI workload selection before #327 is accepted.
+This delivery does not change release workflows or claim full cross-mode CI.
+Do not copy debug native limits into a release profile or auto-raise a limit.
+
+The CLI controls run in `npm run test:benchmark-gate` and the standard Node test
+phase. They use labelled synthetic limits, not product baselines. They reject
+a deliberate raw latency increase even when a forged summary reports a lower
+p95. `--inject-delay-ms 250` also adds a labelled delay inside the measured
+browser event task for a local negative control. It changes only that browser
+context. Keep injected evidence separate from normal evidence.
+
 This document records the measured desktop scenarios, the confirmed root
 causes, and the changes made for issue #224.
 
@@ -66,11 +257,57 @@ Budget status for web-chromium: ok
 Startup, typing, read mode, WYSIWYG, project tree, presentation and export
 stages stay inside the same budgets as before the change.
 
+The reviewed precache limit is 412 entries. The large-document work adds the
+metadata worker and one resource for the metadata-first library load. The worker
+stays a separate asset so every native WebView can start it; the editor history
+cache stays behind the source and code editor boundary, and the draft helpers
+share one lazy chunk.
+The gzip limit is unchanged. An extra entry requires a smaller merge or a new
+reviewed limit; a failed build does not raise it.
+
 ## Remaining work
 
 The native benchmark on Windows, Linux and macOS Apple Silicon runs in CI. A
 native profile of the same scenario is captured with
 `--target native`; the shared web measurements above isolate the frontend part.
+
+## WYSIWYG large-document profile
+
+Issue #324 asks for a measured viewport-rendering decision, not a forced
+virtualization. The profile below used the production Web build at source
+`9debaa7e5cd00c274a6543227909be49e2249606`, Chromium on Linux x64, Node 26.13.0,
+and the reviewed `scripts/benchmark-editor-typing.mjs` harness (SHA-256
+`0a5e1b4a917014da135fa9c980fbebbfeac5e15a45a1e9ac16ca72062d46e57f`).
+
+```sh
+node scripts/benchmark-editor-typing.mjs --browser chromium --runs 3   --sizes 240000,1000000,5000000 --modes visual --libraries both   --output /srv/dev/cache/tmp/opencode/bench-324.json
+```
+
+| Source bytes | DOM nodes | Input frame p50 / p95 (ms) | Sync p50 / p95 (ms) |
+| --- | ---: | ---: | ---: |
+| 240,000 | 47,483 | 66.1 / 318.6 | 6.4 / 23.3 |
+| 1,000,000 | 196,823 | 149.3 / 268.5 | 29.7 / 36.9 |
+| 5,000,000 | 978,395 | 607.7 / 607.7 | 134.1 / 134.1 |
+
+The table reports the start-of-document case with an empty library. The 240 KB
+and 1 MB rows have three samples; the machine stopped at one valid 5 MB sample,
+so its tail estimate is not presented as stable. A 300-document library changed
+the medians by less than 25 percent in the same report.
+
+The dominant cost is the full ProseMirror document and its rich node views, not
+string publication: DOM nodes grow linearly with note size and the 5 MB case
+retains almost one million nodes. The measured input path still completes one
+COOP edit per sample with exact source fidelity. The #310 and #335 work removed
+the repeated serializer and full-source work from that path.
+
+Decision: do not adopt DOM virtualization now. ProseMirror selection, IME,
+clipboard, find, drag and drop, table editing, internal anchors, print/export
+and accessibility cross the viewport boundary, and the current evidence covers
+Chromium only with one valid 5 MB sample. The retained fallback is the ordinary
+editor. Revisit with cross-engine and native profiles, a scrollable viewport
+prototype that keeps one complete document model, and an explicit correctness
+matrix for those interactions. This is a measured prototype decision, not a
+claim that 5 MB visual editing is fast.
 
 ## Enforced benchmark gate
 

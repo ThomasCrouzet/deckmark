@@ -12,6 +12,12 @@
 	import { SourceText } from '#lib/source-extensions.js';
 	import { loadCodeLanguage, resolveCodeLanguage } from '#lib/code/languages.js';
 	import {
+		LONG_LINE_RECHECK_MS,
+		changeCreatesLongLine,
+		documentHasLongLine,
+		textHasLongLine
+	} from '#lib/source-extensions.js';
+	import {
 		hasJsonSchemaValidator,
 		validateJsonValueAgainstSchema,
 		type JsonAnalysis
@@ -92,6 +98,7 @@
 	} | null = null;
 	let cm: typeof import('@codemirror/view') | null = null;
 	let languageCompartment: Compartment | null = null;
+	let featureCompartment: Compartment | null = null;
 	let loadedLanguageId = $state('');
 	let historyFieldRef: import('@codemirror/state').StateField<unknown> | null = null;
 	let indentUnitRef: typeof import('@codemirror/language').indentUnit | null = null;
@@ -107,6 +114,18 @@
 	let jsonManual = $state(false);
 	let jsonTimer: ReturnType<typeof setTimeout> | undefined;
 	let isolateHistoryRef: typeof import('@codemirror/commands').isolateHistory | null = null;
+	// A physical line above the guard limit selects a plain-text configuration.
+	// The requested options stay unchanged; the effective options are reduced
+	// and the toolbar shows the difference.
+	let degraded = $state(false);
+	let riskTimer: ReturnType<typeof setTimeout> | null = null;
+	let languageRequest = 0;
+	let featureRefs: {
+		bracketMatching: typeof import('@codemirror/language').bracketMatching;
+		foldGutter: typeof import('@codemirror/language').foldGutter;
+		closeBrackets: typeof import('@codemirror/autocomplete').closeBrackets;
+		indentOnInput: typeof import('@codemirror/language').indentOnInput;
+	} | null = null;
 
 	function indentUnitValue() {
 		return indentStyle === 'tab' ? '\t' : ' '.repeat(indentSize);
@@ -227,25 +246,65 @@
 		notify.error(t('documents.nativeConflict'));
 	}
 
+	function featureExtensions(): import('@codemirror/state').Extension {
+		if (degraded || !featureRefs) return [];
+		return [
+			featureRefs.bracketMatching(),
+			featureRefs.foldGutter(),
+			featureRefs.closeBrackets(),
+			featureRefs.indentOnInput()
+		];
+	}
+
 	function applyOptions() {
 		if (!view || !optionCompartments || !cm || !indentUnitRef) return;
 		view.dispatch({
 			effects: [
 				optionCompartments.indent.reconfigure(indentUnitRef.of(indentUnitValue())),
-				optionCompartments.wrap.reconfigure(wrap ? cm.EditorView.lineWrapping : []),
+				optionCompartments.wrap.reconfigure(wrap && !degraded ? cm.EditorView.lineWrapping : []),
 				optionCompartments.invisibles.reconfigure(showInvisibles ? invisiblesRef : [])
 			]
 		});
 	}
 
+	function setDegraded(next: boolean) {
+		if (next === degraded) return;
+		degraded = next;
+	}
+
+	function scheduleRiskRecheck() {
+		if (riskTimer) clearTimeout(riskTimer);
+		riskTimer = setTimeout(() => {
+			riskTimer = null;
+			if (!view) return;
+			setDegraded(documentHasLongLine(view.state.doc));
+		}, LONG_LINE_RECHECK_MS);
+	}
+
 	$effect(() => {
 		const id = language.id;
+		// Track the guard and the loaded grammar before the mount guard. The
+		// view and compartment are plain variables, so these state reads keep
+		// the effect subscribed after a degraded-to-normal transition.
+		void degraded;
+		void loadedLanguageId;
 		const compartment = languageCompartment;
-		if (!view || !compartment || loadedLanguageId === id) return;
+		if (!view || !compartment) return;
+		if (degraded) {
+			languageRequest += 1;
+			if (loadedLanguageId !== '') {
+				view.dispatch({ effects: compartment.reconfigure([]) });
+				loadedLanguageId = '';
+			}
+			return;
+		}
+		if (loadedLanguageId === id) return;
+		const request = ++languageRequest;
 		let disposed = false;
 		void loadCodeLanguage(id)
 			.then((support) => {
-				if (disposed || !view) return;
+				if (disposed || !view || request !== languageRequest || degraded || language.id !== id)
+					return;
 				view.dispatch({ effects: compartment.reconfigure(support) });
 				loadedLanguageId = id;
 			})
@@ -262,7 +321,12 @@
 		void wrap;
 		void indentStyle;
 		void indentSize;
+		void degraded;
 		applyOptions();
+		const features = featureCompartment;
+		if (view && features) {
+			view.dispatch({ effects: features.reconfigure(featureExtensions()) });
+		}
 	});
 
 	$effect(() => {
@@ -374,6 +438,7 @@
 
 	$effect(() => {
 		const incoming = content;
+		setDegraded(textHasLongLine(incoming));
 		if (!view) return;
 		if (nativeActive()) {
 			if (nativeBlocked) return;
@@ -397,10 +462,17 @@
 
 	onMount(() => {
 		let disposed = false;
+		// Running estimated charge for the resident native history. It starts from
+		// a restored snapshot and never shrinks while the view stays mounted.
+		let historyTracker: import('#lib/editor-history-cache.js').HistoryTracker | null = null;
+		let historyApi: typeof import('#lib/editor-history-cache.js') | null = null;
+		let lastScrollTop = 0;
 		void (async () => {
 			try {
 				const viewModule = await import('@codemirror/view');
 				cm = viewModule;
+				const initialDegraded = textHasLongLine(content);
+				degraded = initialDegraded;
 				const [
 					{ EditorState, Compartment },
 					{ indentWithTab, defaultKeymap, history, historyField, historyKeymap, isolateHistory },
@@ -415,15 +487,19 @@
 					},
 					{ closeBrackets },
 					languageSupport,
-					{ invisibleLineEnds: invisibleEnds }
+					{ invisibleLineEnds: invisibleEnds },
+					editorHistory
 				] = await Promise.all([
 					import('@codemirror/state'),
 					import('@codemirror/commands'),
 					import('@codemirror/search'),
 					import('@codemirror/language'),
 					import('@codemirror/autocomplete'),
-					loadCodeLanguage(language.id),
-					import('#lib/code/invisibles.js')
+					initialDegraded
+						? Promise.resolve<import('@codemirror/state').Extension>([])
+						: loadCodeLanguage(language.id),
+					import('#lib/code/invisibles.js'),
+					import('#lib/editor-history-cache.js')
 				]);
 				const {
 					EditorView,
@@ -435,12 +511,16 @@
 				} = viewModule;
 				if (disposed || !host) return;
 				const mount = host;
+				historyApi = editorHistory;
 				historyFieldRef = historyField as import('@codemirror/state').StateField<unknown>;
 				isolateHistoryRef = isolateHistory;
 				indentUnitRef = indentUnit;
 				invisiblesRef = [highlightWhitespace(), highlightTrailingWhitespace(), invisibleEnds];
+				featureRefs = { bracketMatching, foldGutter, closeBrackets, indentOnInput };
 				const compartment = new Compartment();
 				languageCompartment = compartment;
+				const features = new Compartment();
+				featureCompartment = features;
 				optionCompartments = {
 					indent: new Compartment(),
 					wrap: new Compartment(),
@@ -450,20 +530,24 @@
 					lineNumbers(),
 					highlightActiveLine(),
 					history(),
-					bracketMatching(),
-					foldGutter(),
-					closeBrackets(),
-					indentOnInput(),
+					features.of(featureExtensions()),
 					search({ top: false }),
 					keymap.of([indentWithTab, ...searchKeymap, ...defaultKeymap, ...historyKeymap]),
 					optionCompartments.indent.of(indentUnit.of(indentUnitValue())),
-					optionCompartments.wrap.of(wrap ? EditorView.lineWrapping : []),
+					optionCompartments.wrap.of(wrap && !initialDegraded ? EditorView.lineWrapping : []),
 					optionCompartments.invisibles.of([]),
 					syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 					compartment.of(languageSupport),
 					...(readonly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
 					EditorView.updateListener.of((update) => {
 						if (!update.selectionSet && !update.docChanged) return;
+						if (update.docChanged && !applyingExternal) {
+							if (changeCreatesLongLine(update.state.doc, update.changes)) {
+								setDegraded(true);
+							} else if (degraded) {
+								scheduleRiskRecheck();
+							}
+						}
 						onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 						if (update.docChanged && !applyingExternal && view) {
 							const previous = buffer;
@@ -522,19 +606,20 @@
 						'.cm-invisible-newline': { color: 'var(--color-fg-dim)', opacity: '0.6' }
 					})
 				];
-				const cached = editorStateCache.getSourceState(fileId);
+				const cached = editorHistory.editorHistoryCache.get(fileId);
 				const saved = editorStateCache.getPosition(fileId, 'source');
-				let state: import('@codemirror/state').EditorState | undefined;
-				if (cached?.content === content) {
-					try {
-						state = EditorState.fromJSON(cached.state, { extensions }, { history: historyField });
-					} catch {
-						// Ignore an incompatible cache.
-					}
-				}
-				state ??= EditorState.create({ doc: content, extensions });
+				const restored = editorHistory.restoreHistoryState({
+					EditorState,
+					historyField,
+					content,
+					cached,
+					savedPosition: saved,
+					extensions
+				});
+				const state = restored.state;
+				historyTracker = restored.tracker;
 				view = new EditorView({ state, parent: mount });
-				loadedLanguageId = language.id;
+				loadedLanguageId = initialDegraded ? '' : language.id;
 				lastEmitted = content;
 				buffer = SourceText.create(content, view.state.doc);
 				acceptedBase = nativeCapable() ? (getRevision?.(fileId) ?? null) : null;
@@ -576,13 +661,34 @@
 					onFlush?.(fileId, lastEmitted);
 				};
 				window.addEventListener('mdsh:flush-editor', flushListener);
+				// A detached scroll container can report scrollTop 0. Keep the last
+				// connected value so the saved position survives component teardown.
+				lastScrollTop = saved?.scrollTop ?? 0;
+				const scrollListener = () => {
+					if (view?.scrollDOM.isConnected) lastScrollTop = view.scrollDOM.scrollTop;
+				};
+				view.scrollDOM.addEventListener('scroll', scrollListener, { passive: true });
 				removeTabListener = () => {
 					mount.removeEventListener('keydown', tabListener, true);
 					window.removeEventListener('mdsh:flush-editor', flushListener);
+					view?.scrollDOM.removeEventListener('scroll', scrollListener);
 				};
+				if (saved?.scrollTop) {
+					const mountedView = view;
+					mountedView.requestMeasure({
+						read: (measuredView) =>
+							Math.max(
+								0,
+								measuredView.scrollDOM.scrollHeight - measuredView.scrollDOM.clientHeight
+							),
+						write: (maxScrollTop, measuredView) => {
+							if (view !== mountedView || measuredView !== mountedView) return;
+							measuredView.scrollDOM.scrollTop = Math.min(saved.scrollTop, maxScrollTop);
+						}
+					});
+				}
 				requestAnimationFrame(() => {
 					if (!view) return;
-					if (saved) view.scrollDOM.scrollTop = saved.scrollTop;
 					if (consumeEditorFocus(fileId) || document.activeElement === document.body) view.focus();
 				});
 			} catch (error) {
@@ -594,6 +700,10 @@
 			disposed = true;
 			jsonClient?.dispose();
 			clearTimeout(jsonTimer);
+			if (riskTimer) {
+				clearTimeout(riskTimer);
+				riskTimer = null;
+			}
 			removeTabListener?.();
 			removeTabListener = null;
 			if (view) {
@@ -604,18 +714,17 @@
 					onFlush?.(fileId, lastEmitted);
 				}
 				const cachedText = buffer ? buffer.getText() : lastEmitted;
-				editorStateCache.setSourceState(
-					fileId,
-					{
-						content: cachedText,
-						state: view.state.toJSON(historyFieldRef ? { history: historyFieldRef } : undefined)
-					},
-					{
-						anchor: view.state.selection.main.anchor,
-						head: view.state.selection.main.head,
-						scrollTop: view.scrollDOM.scrollTop
-					}
-				);
+				if (historyApi && historyTracker) {
+					historyApi.editorHistoryCache.set(
+						fileId,
+						historyApi.captureHistoryState(view, historyFieldRef, cachedText, historyTracker.bytes)
+					);
+				}
+				editorStateCache.setPosition(fileId, 'source', {
+					anchor: view.state.selection.main.anchor,
+					head: view.state.selection.main.head,
+					scrollTop: lastScrollTop
+				});
 				view.destroy();
 				view = null;
 				buffer = null;
@@ -661,6 +770,14 @@
 				data-testid="code-language"
 				data-fallback={resolution.fallback ? 'true' : undefined}>{languageLabel}</span
 			>
+			{#if degraded}
+				<span
+					class="code-highlight-status"
+					role="status"
+					data-testid="code-highlight-status"
+					data-degraded="true">{t('code.longLineDegraded')}</span
+				>
+			{/if}
 			<span class="code-eol" data-testid="code-eol">{eol === '\r\n' ? 'CRLF' : 'LF'}</span>
 			<button type="button" onclick={toggleLineEnding} data-testid="code-eol-toggle">
 				{eol === '\r\n' ? t('code.toLf') : t('code.toCrlf')}
@@ -787,6 +904,12 @@
 	.code-language {
 		font-weight: 600;
 		color: var(--color-fg);
+	}
+	.code-highlight-status {
+		padding: 1px 6px;
+		border: 1px solid var(--color-warning, #d19a66);
+		border-radius: var(--radius-xs);
+		color: var(--color-warning, #d19a66);
 	}
 	.json-separator {
 		width: 1px;

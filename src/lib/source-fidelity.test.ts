@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { remark } from 'remark';
 import { stripFrontmatter } from './frontmatter';
 import { SourceFidelity } from './source-fidelity';
+import { noteContent } from '../../scripts/benchmark-fixtures/corpus.mjs';
 
 const processor = remark();
 const parse = (value: string) => processor.parse(value);
@@ -131,6 +132,158 @@ describe('source span preservation', () => {
 		expect(fidelity.restore('A **bright** bird.\n')).toBe('A __bright__ bird.');
 		expect(fidelity.restore('A **bright** bird.\n')).toBe('A __bright__ bird.');
 		expect(fidelity.restore('A **small** bird.\n')).toBe('A __small__ bird.');
-		expect(paths).toEqual(['fastPath']);
+		// Both the accepted edit and the undo stay on the scoped path.
+		expect(paths).toEqual(['fastPath', 'fastPath']);
+	});
+});
+
+describe('bounded paragraph reconciliation', () => {
+	function observed(source: string) {
+		const parsed: number[] = [];
+		const normalized: number[] = [];
+		const baseline = normalize(source);
+		const fidelity = new SourceFidelity(
+			source,
+			baseline,
+			(value) => {
+				parsed.push(value.length);
+				return parse(value);
+			},
+			(value) => {
+				normalized.push(value.length);
+				return normalize(value);
+			}
+		);
+		parsed.length = 0;
+		return { fidelity, baseline, parsed, normalized };
+	}
+
+	it('keeps rich note bytes without full-note parses for text edits at each position', () => {
+		const source = noteContent(777, 240_000);
+		const { fidelity, baseline, parsed, normalized } = observed(source);
+		const anchor = 'Local benchmark text keeps the same words in every run.';
+		const rawOffsets = [...source.matchAll(new RegExp(anchor, 'g'))].map((match) => match.index);
+		const offsets = [...baseline.matchAll(new RegExp(anchor, 'g'))].map((match) => match.index);
+		for (const index of [0, Math.floor(offsets.length / 2), offsets.length - 1]) {
+			const at = offsets[index]! + 10;
+			const rawAt = rawOffsets[index]! + 10;
+			expect(fidelity.restore(baseline.slice(0, at) + 'X' + baseline.slice(at), false)).toBe(
+				source.slice(0, rawAt) + 'X' + source.slice(rawAt)
+			);
+		}
+		expect(parsed.length).toBeGreaterThan(0);
+		expect(
+			Math.max(...parsed),
+			'eligible text edits must parse only a bounded region'
+		).toBeLessThan(64 * 1024);
+		expect(Math.max(0, ...normalized), 'normalization must also stay local').toBeLessThan(
+			64 * 1024
+		);
+	});
+
+	it('keeps entities, mixed EOL and separate edits without accepting a rejected snapshot', () => {
+		const source =
+			'Heading\r\n=======\r\n\r\nA small bird. Keep &amp; this. A small bird.\n\n_Keep_.\r\n';
+		const { fidelity, baseline, parsed } = observed(source);
+		const accepted = baseline.replace('A small bird.', 'A bright bird.');
+		const rejected = accepted.replace('Keep & this.', 'Discard this.');
+		expect(fidelity.restore(accepted)).toBe(source.replace('A small bird.', 'A bright bird.'));
+		expect(fidelity.restore(rejected, false)).toBe(
+			source.replace('A small bird.', 'A bright bird.').replace('Keep &amp; this.', 'Discard this.')
+		);
+		expect(fidelity.restore(accepted)).toBe(source.replace('A small bird.', 'A bright bird.'));
+		const next = accepted.replace('bird.\n', 'wren.\n');
+		expect(fidelity.restore(next)).toBe(
+			source.replace('A small bird.', 'A bright bird.').replace('bird.\n', 'wren.\n')
+		);
+		expect(fidelity.restore(baseline)).toBe(source);
+		expect(Math.max(...parsed)).toBeLessThan(64 * 1024);
+	});
+
+	it('keeps consecutive plain-text edits in separate paragraphs scoped', () => {
+		const source = `First paragraph.\n\n${'Pad text '.repeat(12_000)}\n\nThird paragraph.\n`;
+		const { fidelity, baseline, parsed } = observed(source);
+		const first = baseline.replace('First paragraph.', 'Bright paragraph.');
+		expect(fidelity.restore(first)).toBe(source.replace('First paragraph.', 'Bright paragraph.'));
+		const second = first.replace('Third paragraph.', 'Last paragraph.');
+		expect(fidelity.restore(second)).toBe(
+			source
+				.replace('First paragraph.', 'Bright paragraph.')
+				.replace('Third paragraph.', 'Last paragraph.')
+		);
+		expect(paths).toEqual(['fastPath', 'fastPath']);
+		expect(
+			Math.max(...parsed),
+			'consecutive text edits must parse only a bounded region'
+		).toBeLessThan(64 * 1024);
+	});
+
+	it('rebases after a whole-document fallback so the next text edit stays scoped', () => {
+		const source = `First paragraph.\n\n${'Pad text '.repeat(12_000)}\n\nThird paragraph.\n`;
+		const { fidelity, baseline, parsed } = observed(source);
+		const changed = baseline
+			.replace('First paragraph.', 'Bright paragraph.')
+			.replace('Third paragraph.', 'Last paragraph.');
+		expect(fidelity.restore(changed)).toBe(
+			source
+				.replace('First paragraph.', 'Bright paragraph.')
+				.replace('Third paragraph.', 'Last paragraph.')
+		);
+		expect(
+			Math.max(...parsed),
+			'the multi-block edit needs the whole-document check'
+		).toBeGreaterThan(64 * 1024);
+		parsed.length = 0;
+		const next = changed.replace('Bright paragraph.', 'Brisk paragraph.');
+		expect(fidelity.restore(next)).toBe(
+			source
+				.replace('First paragraph.', 'Brisk paragraph.')
+				.replace('Third paragraph.', 'Last paragraph.')
+		);
+		expect(Math.max(...parsed), 'a later text edit must reuse the accepted baseline').toBeLessThan(
+			64 * 1024
+		);
+	});
+
+	it('keeps a whole-document fallback for changed block structure and multiple blocks', () => {
+		const source = 'First paragraph.\n\nSecond paragraph.\n\nThird paragraph.\n';
+		const { fidelity, baseline, parsed } = observed(source);
+		const next = baseline.replace('First', 'Bright').replace('Third', 'Last');
+		expect(fidelity.restore(next, false)).toBe(
+			source.replace('First', 'Bright').replace('Third', 'Last')
+		);
+		expect(parsed).toContain(next.length);
+		parsed.length = 0;
+		const split = baseline.replace('Second paragraph.', 'Second.\n\nNew paragraph.');
+		expect(fidelity.restore(split, false)).toBe(
+			source.replace('Second paragraph.', 'Second.\n\nNew paragraph.')
+		);
+		expect(parsed).toContain(split.length);
+	});
+
+	it('does not use a scoped paragraph for a large text block', () => {
+		const source = `Before.\n\n${'long word '.repeat(7_000)}\n\nAfter.\n`;
+		const { fidelity, baseline, parsed } = observed(source);
+		const next = baseline.replace('long word', 'long term');
+		expect(fidelity.restore(next, false)).toBe(source.replace('long word', 'long term'));
+		expect(parsed).toContain(next.length);
+	});
+
+	it('keeps unresolved reference text on the whole-document semantic route', () => {
+		const source = 'A [bird] sings.\n\n[bright]: /bird\n';
+		const fidelity = new SourceFidelity(source, 'A \\[bird] sings.\n', parse, normalize);
+		const target = 'A \\[bright] sings.\n';
+		expect(fidelity.restore(target)).toBe(target);
+		expect(paths).toEqual(['fullSerializer']);
+	});
+
+	it('does not discard a changed paragraph gap as an unchanged text leaf', () => {
+		const source = 'First paragraph.\n\nLast paragraph.\n';
+		const { fidelity, baseline, parsed } = observed(source);
+		const next = baseline.replace('First paragraph.\n', 'First paragraph.\n\n');
+		expect(fidelity.restore(next, false)).toBe(
+			source.replace('First paragraph.\n', 'First paragraph.\n\n')
+		);
+		expect(parsed).toContain(next.length);
 	});
 });

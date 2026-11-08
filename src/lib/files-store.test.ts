@@ -1,5 +1,6 @@
 import * as versionHistory from './version-history';
 import { ImportSession } from './import-limits';
+import { IMPORT_LIMITS } from './config';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Dexie from 'dexie';
 import { db, type DraftRow } from './db';
@@ -348,7 +349,32 @@ describe('workspace navigation and disk operations', () => {
 });
 
 describe('load', () => {
+	it('defers large closed content until an operation asks for it', async () => {
+		const content = '# Large\n\n' + 'marker '.repeat(IMPORT_LIMITS.largeDocumentChars / 7);
+		const large = { ...draftRow('large', 'large.md', content, 0), open: false };
+		const open = { ...draftRow('open', 'open.md', 'open body', 1), open: true };
+		await db.drafts.bulkPut([large, open]);
+
+		await filesStore.reload(false);
+
+		const closed = filesStore.closedFiles.find((file) => file.id === 'large');
+		expect(closed?.contentDeferred).toBe(true);
+		expect(closed?.content).toBe('');
+		expect(filesStore.files.find((file) => file.id === 'open')?.content).toBe('open body');
+
+		const corpus = await filesStore.searchCorpus(filesStore.library);
+		expect(corpus.find((file) => file.id === 'large')?.content).toBe(content);
+
+		filesStore.openDocument('large');
+		await vi.waitFor(() => {
+			expect(filesStore.activeId).toBe('large');
+			expect(filesStore.active?.content).toBe(content);
+			expect(filesStore.active?.contentDeferred).toBe(false);
+		});
+	});
+
 	it('reports an IndexedDB load error without marking the store loaded', async () => {
+		const count = vi.spyOn(db.drafts, 'count').mockRejectedValueOnce(new Error('IDB indisponible'));
 		const orderBy = vi.spyOn(db.drafts, 'orderBy').mockImplementationOnce(() => {
 			throw new Error('IDB indisponible');
 		});
@@ -358,6 +384,7 @@ describe('load', () => {
 
 		expect(filesStore.loadError).toBeTruthy();
 		expect(filesStore.loaded).toBe(false);
+		count.mockRestore();
 		orderBy.mockRestore();
 	});
 });
@@ -457,7 +484,9 @@ describe('backlinks / wiki-links', () => {
 		const source = filesStore.createNew('source.md', '[[a]]');
 		filesStore.close(source.id);
 		await filesStore.flushPendingAwait();
-		expect(filesStore.backlinks(a.id).map((file) => file.id)).toEqual([source.id]);
+		await vi.waitFor(() =>
+			expect(filesStore.backlinks(a.id).map((file) => file.id)).toEqual([source.id])
+		);
 		const updatedAt = Date.now() + 100;
 		await db.drafts.update(source.id, { content: '[[b]]', updatedAt });
 		receiveCrossTab({ type: 'draft-written', id: source.id, updatedAt });

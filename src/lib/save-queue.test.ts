@@ -318,6 +318,46 @@ describe('SaveQueue with IndexedDB and actual conflicts', () => {
 		expect((await db.versions.toArray()).map((version) => version.content)).toContain('REMOTE A');
 	});
 
+	it('preserves a branch when only the content length differs', async () => {
+		const initial = { ...row('a'), content: 'same', updatedAt: 1 };
+		await db.drafts.put(initial);
+		const q = new SaveQueue(noopCb);
+		q.trackPersisted(initial);
+		await db.drafts.put({
+			...initial,
+			content: 'remote-content-with-a-different-length',
+			updatedAt: 1
+		});
+		const local = { ...initial, content: 'local', updatedAt: 2 };
+		q.persist(local);
+		await q.flushAwait(() => local);
+		expect((await db.drafts.get('a'))?.content).toBe('local');
+		expect((await db.drafts.toArray()).map((draft) => draft.content).sort()).toEqual([
+			'local',
+			'remote-content-with-a-different-length'
+		]);
+		expect((await db.versions.toArray()).map((version) => version.content)).toContain(
+			'remote-content-with-a-different-length'
+		);
+	});
+
+	it('preserves a branch when equal lengths hide different content', async () => {
+		const initial = { ...row('a'), content: 'aaaa', updatedAt: 1 };
+		await db.drafts.put(initial);
+		const q = new SaveQueue(noopCb);
+		q.trackPersisted(initial);
+		await db.drafts.put({ ...initial, content: 'bbbb', updatedAt: 1 });
+		const local = { ...initial, content: 'cccc', updatedAt: 2 };
+		q.persist(local);
+		await q.flushAwait(() => local);
+		expect((await db.drafts.get('a'))?.content).toBe('cccc');
+		expect((await db.drafts.toArray()).map((draft) => draft.content).sort()).toEqual([
+			'bbbb',
+			'cccc'
+		]);
+		expect((await db.versions.toArray()).map((version) => version.content)).toContain('bbbb');
+	});
+
 	it('rejects overwrite when remote branch preservation fails', async () => {
 		const initial = { ...row('a'), content: 'initial', updatedAt: 1 };
 		await db.drafts.put(initial);

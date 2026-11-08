@@ -172,11 +172,30 @@ export function headingIndexForLine(headings: readonly DocumentHeading[], line: 
 	return result;
 }
 
-/** Builds ranges without changing the editor DOM or its Markdown. */
-export function documentMatches(root: HTMLElement, query: string): Range[] {
-	if (!query.trim()) return [];
+interface TextPart {
+	node: Text;
+	start: number;
+	end: number;
+}
+
+interface TextIndex {
+	text: string;
+	parts: TextPart[];
+}
+
+const textIndexes = new WeakMap<HTMLElement, TextIndex>();
+
+/**
+ * Drops the cached text-node map for one rendered root, or for every root when
+ * no root is given. The navigation observer calls this after a DOM mutation.
+ */
+export function invalidateDocumentTextIndex(root?: HTMLElement | null): void {
+	if (root) textIndexes.delete(root);
+}
+
+function buildTextIndex(root: HTMLElement): TextIndex {
 	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-	const parts: { node: Text; start: number; end: number }[] = [];
+	const parts: TextPart[] = [];
 	let text = '';
 	let block: Element | null = null;
 	let node: Node | null;
@@ -190,12 +209,38 @@ export function documentMatches(root: HTMLElement, query: string): Range[] {
 		text += node.textContent ?? '';
 		parts.push({ node: node as Text, start, end: text.length });
 	}
+	const index = { text, parts };
+	textIndexes.set(root, index);
+	return index;
+}
+
+/** Binary search for the text node that contains a match boundary. */
+function partAt(parts: readonly TextPart[], offset: number, end: boolean): TextPart | undefined {
+	let low = 0;
+	let high = parts.length - 1;
+	while (low <= high) {
+		const middle = (low + high) >> 1;
+		const part = parts[middle]!;
+		const inside = end
+			? part.start < offset && part.end >= offset
+			: part.start <= offset && part.end > offset;
+		if (inside) return part;
+		if (part.end <= offset) low = middle + 1;
+		else high = middle - 1;
+	}
+	return undefined;
+}
+
+/** Builds ranges without changing the editor DOM or its Markdown. */
+export function documentMatches(root: HTMLElement, query: string): Range[] {
+	if (!query.trim()) return [];
+	const { text, parts } = textIndexes.get(root) ?? buildTextIndex(root);
 	const ranges: Range[] = [];
 	const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	for (const match of text.matchAll(new RegExp(escaped, 'giu'))) {
-		const from = parts.find((part) => part.start <= match.index && part.end > match.index);
+		const from = partAt(parts, match.index, false);
 		const end = match.index + match[0].length;
-		const to = parts.find((part) => part.start < end && part.end >= end);
+		const to = partAt(parts, end, true);
 		if (!from || !to) continue;
 		const range = document.createRange();
 		range.setStart(from.node, match.index - from.start);

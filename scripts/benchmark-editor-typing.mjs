@@ -665,6 +665,10 @@ async function runSource(browser, url, fixture, runs) {
 }
 
 async function main() {
+	if (process.argv[2] === '--suite' && process.argv[3] === 'stress') {
+		const { stressMain } = await import('./benchmark-stress.mjs');
+		return stressMain(process.argv.slice(4));
+	}
 	const options = parseArguments(process.argv.slice(2));
 	const { server, url } = await startStaticServer(options.port);
 	const browserType = browserTypes[options.browser];

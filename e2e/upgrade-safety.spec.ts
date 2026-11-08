@@ -131,7 +131,7 @@ test('upgrades an older database and keeps draft content', async ({ page }, info
 	});
 	const state = await page.evaluate(
 		() =>
-			new Promise<{ version: number; content: string; templates: number }>(
+			new Promise<{ version: number; content: string; manifest: string }>(
 				(resolvePromise, reject) => {
 					const request = indexedDB.open('mdsh');
 					request.onerror = () => reject(request.error);
@@ -143,7 +143,8 @@ test('upgrades an older database and keeps draft content', async ({ page }, info
 						tx.oncomplete = () => {
 							resolvePromise({
 								version,
-								content: draft.result?.content ?? ''
+								content: draft.result?.content ?? '',
+								manifest: draft.result?.manifest ?? ''
 							});
 							db.close();
 						};
@@ -152,8 +153,9 @@ test('upgrades an older database and keeps draft content', async ({ page }, info
 				}
 			)
 	);
-	expect(state.version).toBe(80);
+	expect(state.version).toBe(90);
 	expect(state.content).toBe(legacyContent);
+	expect(state.manifest).toContain('legacy-draft');
 	await info.attach('upgrade-state.json', {
 		body: JSON.stringify(state),
 		contentType: 'application/json'

@@ -7,8 +7,18 @@
 //
 // Everything is local (Dexie) - no network. Pure logic + db access, testable.
 
-import Dexie from 'dexie';
 import { db, newId, type VersionRow } from './db';
+
+// Compile-time metrics stay out of the production bundle. Tests and the
+// instrumented E2E build keep the observed path counters.
+const HISTORY_METRICS =
+	import.meta.env.MODE === 'test' || import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
+
+function markHistory(name: string): void {
+	window.dispatchEvent(
+		new CustomEvent('deckmark:editor-perf', { detail: { kind: 'counter', name } })
+	);
+}
 
 export const VERSION_LIMITS = {
 	/** Max number of versions kept per file. */
@@ -25,23 +35,31 @@ export interface SnapshotInput {
 	content: string;
 }
 
-async function latestVersion(draftId: string): Promise<VersionRow | undefined> {
-	return db.versions
-		.where('[draftId+createdAt]')
-		.between([draftId, Dexie.minKey], [draftId, Dexie.maxKey])
-		.last();
+interface VersionIndexEntry {
+	id: string;
+	createdAt: unknown;
 }
 
-async function putCheckpoint(draft: SnapshotInput, now: number): Promise<boolean> {
-	const last = await latestVersion(draft.id);
-	if (last?.content === draft.content && last.name === draft.name) return false;
-	await db.versions.put({
+function versionRange(draftId: string) {
+	return db.versions
+		.where('[draftId+createdAt]')
+		.between([draftId, -Infinity], [draftId, Infinity]);
+}
+
+function versionRow(draft: SnapshotInput, now: number): VersionRow {
+	return {
 		id: newId(),
 		draftId: draft.id,
 		name: draft.name,
 		content: draft.content,
 		createdAt: now
-	});
+	};
+}
+
+async function putCheckpoint(draft: SnapshotInput, now: number): Promise<boolean> {
+	const last = await versionRange(draft.id).last();
+	if (last?.content === draft.content && last.name === draft.name) return false;
+	await db.versions.put(versionRow(draft, now));
 	await pruneVersions(draft.id, now);
 	return true;
 }
@@ -60,22 +78,18 @@ export async function recordVersion(draft: SnapshotInput, now = Date.now()): Pro
 	// → write → purge is atomic. Without it, two concurrent flushes of the same
 	// file read the same "last" and wrote two near-identical snapshots.
 	return db.transaction('rw', db.versions, async () => {
-		// Reads only the most recent snapshot via the composite index
-		// [draftId+createdAt], instead of loading the whole file history on every
-		// save flush (the throttle/dedup decision only looks at it).
-		const last = await latestVersion(draft.id);
-		if (last) {
-			if (last.content === draft.content) return false;
-			if (now - last.createdAt < VERSION_LIMITS.minIntervalMs) return false;
+		// The newest compound-index key decides the throttle before any content
+		// body loads. The full row is read only for a candidate checkpoint.
+		const latestKey = await versionRange(draft.id).lastKey();
+		if (HISTORY_METRICS) markHistory('history.latest-key');
+		if (latestKey) {
+			const createdAt = (latestKey as unknown[])[1] as number;
+			if (now - createdAt < VERSION_LIMITS.minIntervalMs) return false;
+			const last = await versionRange(draft.id).last();
+			if (HISTORY_METRICS) markHistory('history.latest-body');
+			if (last?.content === draft.content) return false;
 		}
-		const row: VersionRow = {
-			id: newId(),
-			draftId: draft.id,
-			name: draft.name,
-			content: draft.content,
-			createdAt: now
-		};
-		await db.versions.put(row);
+		await db.versions.put(versionRow(draft, now));
 		await pruneVersions(draft.id, now);
 		return true;
 	});
@@ -111,20 +125,26 @@ export async function createCheckpoints(
  * Purges a file's history: deletes versions that are too old (`maxAgeMs`) then,
  * among those remaining, keeps only the `maxPerDraft` most recent ones. Returns
  * the number of versions deleted.
+ *
+ * A key-cursor pass avoids reading surviving bodies. When a row is absent from
+ * the compound index (malformed legacy data), the current full-row sort is kept.
  */
 export async function pruneVersions(draftId: string, now = Date.now()): Promise<number> {
-	const all = await db.versions.where('draftId').equals(draftId).sortBy('createdAt'); // asc
+	const total = await db.versions.where('draftId').equals(draftId).count();
+	let entries: VersionIndexEntry[] = [];
+	await versionRange(draftId).eachKey((key, cursor) => {
+		entries.push({ id: cursor.primaryKey as string, createdAt: (key as unknown[])[1] });
+	});
+	if (entries.length !== total) entries = (await listVersions(draftId)).reverse();
 	const toDelete: string[] = [];
-	const survivors: VersionRow[] = [];
-	for (const v of all) {
-		if (now - v.createdAt > VERSION_LIMITS.maxAgeMs) toDelete.push(v.id);
-		else survivors.push(v);
+	const survivors: VersionIndexEntry[] = [];
+	for (const entry of entries) {
+		if (now - (entry.createdAt as number) > VERSION_LIMITS.maxAgeMs) toDelete.push(entry.id);
+		else survivors.push(entry);
 	}
-	if (survivors.length > VERSION_LIMITS.maxPerDraft) {
-		const excess = survivors.slice(0, survivors.length - VERSION_LIMITS.maxPerDraft);
-		for (const v of excess) toDelete.push(v.id);
-	}
-	if (toDelete.length > 0) await db.versions.bulkDelete(toDelete);
+	const excess = survivors.length - VERSION_LIMITS.maxPerDraft;
+	for (let index = 0; index < excess; index++) toDelete.push(survivors[index]!.id);
+	if (toDelete.length) await db.versions.bulkDelete(toDelete);
 	return toDelete.length;
 }
 

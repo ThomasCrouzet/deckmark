@@ -39,27 +39,31 @@
 	// keystroke (mutation of `filesStore.files`) as long as the graph is open.
 	$effect(() => {
 		if (!open) return;
-		untrack(() => {
-			const files = filesStore.library
-				.filter((file) => documentKindForFile(file) === 'note')
-				.map((f) => ({
-					id: f.id,
-					label: filesStore.displayTitle(f.id)
-				}));
-			const data = buildGraph(
-				files,
-				(id) =>
-					filesStore
-						.wikiLinkTargets(id)
-						.map((target) => filesStore.resolveWikiLink(target, id))
-						.filter((target): target is string => target !== null),
-				(target) => target
-			);
-			edges = data.edges;
-			// Fewer iterations on large graphs to stay smooth.
-			const iterations = data.nodes.length > 120 ? 60 : 120;
-			positions = computeLayout(data, { width: WIDTH, height: HEIGHT, iterations });
-		});
+		void (async () => {
+			await filesStore.ensureLibraryContent();
+			if (!open) return;
+			untrack(() => {
+				const files = filesStore.library
+					.filter((file) => documentKindForFile(file) === 'note')
+					.map((f) => ({
+						id: f.id,
+						label: filesStore.displayTitle(f.id)
+					}));
+				const data = buildGraph(
+					files,
+					(id) =>
+						filesStore
+							.wikiLinkTargets(id)
+							.map((target) => filesStore.resolveWikiLink(target, id))
+							.filter((target): target is string => target !== null),
+					(target) => target
+				);
+				edges = data.edges;
+				// Fewer iterations on large graphs to stay smooth.
+				const iterations = data.nodes.length > 120 ? 60 : 120;
+				positions = computeLayout(data, { width: WIDTH, height: HEIGHT, iterations });
+			});
+		})();
 	});
 
 	const posById = $derived(new Map(positions.map((p) => [p.id, p])));

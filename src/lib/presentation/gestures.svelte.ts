@@ -971,7 +971,7 @@ export function createPresentationGestures(
 				editor.cancel();
 				if (completed.kind === 'move' && completed.deselectOnTap)
 					editor.select(completed.deselectOnTap, true);
-			} else editor.commit();
+			} else editor.commit(true, true);
 		} else if (completed.kind === 'marquee') {
 			finishMarquee(completed);
 		}

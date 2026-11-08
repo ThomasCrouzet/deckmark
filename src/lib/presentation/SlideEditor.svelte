@@ -24,6 +24,7 @@
 	import { createPresentationGestures } from './gestures.svelte';
 	import { createPresentationTextEdit } from './text-edit.svelte';
 	import { serializePresentation, type PresentationElementType } from './model';
+	import PresentationSourceEditor from './PresentationSourceEditor.svelte';
 	import SlideContent from './SlideContent.svelte';
 	import SlideThumbnail from './SlideThumbnail.svelte';
 	import { presentationElementStyle, presentationElementBox } from './render';
@@ -88,6 +89,11 @@
 	let sourceDraft = $state(sourceDrafts.get(fileId)?.draft ?? editor.source);
 	let sourceBase = $state(sourceDrafts.get(fileId)?.base ?? editor.source);
 	let sourceError = $state('');
+	// Large decks use CodeMirror so a keystroke does not copy the full source
+	// through a reactive textarea binding. Small decks keep the plain textarea.
+	const LARGE_SOURCE = 512 * 1024;
+	let sourceEditor = $state<PresentationSourceEditor | null>(null);
+	let sourceUsesCodeMirror = $state(false);
 	let sourceAlert = $state<HTMLParagraphElement | null>(null);
 	let parseAlert = $state<HTMLParagraphElement | null>(null);
 	let advancedOpen = $state(false);
@@ -655,25 +661,30 @@
 			sourceBase = editor.source;
 			sourceError = '';
 		}
+		sourceUsesCodeMirror = sourceDraft.length >= LARGE_SOURCE;
 		sourceOpen = true;
-		void tick().then(() =>
-			root?.querySelector<HTMLTextAreaElement>('[data-testid="slide-source-editor"]')?.focus()
-		);
+		void tick().then(() => {
+			if (sourceUsesCodeMirror) sourceEditor?.focus();
+			else root?.querySelector<HTMLTextAreaElement>('[data-testid="slide-source-editor"]')?.focus();
+		});
 	}
 	function cancelSource() {
 		sourceDraft = editor.source;
 		sourceBase = editor.source;
 		sourceError = '';
+		sourceUsesCodeMirror = false;
 		sourceOpen = false;
 		void tick().then(() =>
 			root?.querySelector<HTMLButtonElement>('[data-testid="slide-advanced"]')?.focus()
 		);
 	}
 	function applySource() {
-		if (documentKind(sourceDraft) !== 'presentation') sourceError = t('slides.sourceRequiresData');
+		const draft = sourceEditor?.getValue() ?? sourceDraft;
+		sourceDraft = draft;
+		if (documentKind(draft) !== 'presentation') sourceError = t('slides.sourceRequiresData');
 		else if (editor.source !== sourceBase) sourceError = t('slides.sourceConflict');
 		else {
-			editor.writeSource(sourceDraft);
+			editor.writeSource(draft);
 			sourceBase = editor.source;
 			sourceError = '';
 			if (!editor.error) {
@@ -985,14 +996,26 @@
 		<div class="source-panel">
 			<p id={`${guidanceId}-source`}><Code2 size={18} />{t('slides.sourceHint')}</p>
 			{#if sourceError}<p bind:this={sourceAlert} tabindex="-1" role="alert">{sourceError}</p>{/if}
-			<textarea
-				data-testid="slide-source-editor"
-				aria-label={t('slides.source')}
-				aria-describedby={sourceOpen
-					? `${guidanceId}-present ${guidanceId}-source`
-					: `${guidanceId}-source`}
-				bind:value={sourceDraft}
-				spellcheck="false"></textarea>
+			{#if sourceUsesCodeMirror}
+				<PresentationSourceEditor
+					bind:this={sourceEditor}
+					initial={sourceDraft}
+					ariaLabel={t('slides.source')}
+					ariaDescribedBy={sourceOpen
+						? `${guidanceId}-present ${guidanceId}-source`
+						: `${guidanceId}-source`}
+					onchange={(value) => (sourceDraft = value)}
+				/>
+			{:else}
+				<textarea
+					data-testid="slide-source-editor"
+					aria-label={t('slides.source')}
+					aria-describedby={sourceOpen
+						? `${guidanceId}-present ${guidanceId}-source`
+						: `${guidanceId}-source`}
+					bind:value={sourceDraft}
+					spellcheck="false"></textarea>
+			{/if}
 			<div class="source-actions">
 				<button class="primary" data-testid="slide-source-apply" onclick={applySource}
 					>{t('slides.apply')}</button
@@ -1331,7 +1354,7 @@
 								editor.slide.notes = event.currentTarget.value;
 								editor.markChanged();
 							}}
-							onblur={() => editor.commit()}></textarea></label
+							onblur={() => editor.commit(false)}></textarea></label
 					>
 				{:else if presenting && showNotes}<div
 						class="present-notes"

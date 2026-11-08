@@ -38,7 +38,7 @@ export function createPresentationTextEdit(
 
 	function finish(): void {
 		if (!editingId) return;
-		if (editor.commit()) editingId = null;
+		if (editor.commit(false)) editingId = null;
 	}
 
 	function discard(): void {

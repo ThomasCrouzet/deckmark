@@ -126,7 +126,7 @@ export default defineConfig(({ mode }) => {
 					// Mermaid stays outside the static entry/node graph. Documents without diagrams do not load it.
 					// This meets the roadmap isolation requirement.
 					codeSplitting: {
-						minSize: 1000,
+						minSize: 3000,
 						groups: [
 							{
 								name(id: string): string | null {
@@ -137,15 +137,12 @@ export default defineConfig(({ mode }) => {
 										id.endsWith('/src/lib/files.svelte.ts') ||
 										id.endsWith('/src/lib/components/Toasts.svelte') ||
 										id.endsWith('/src/lib/editor-perf.ts') ||
-										id.endsWith('/src/lib/code/native-adapter.ts')
-									)
-										return 'workspace-state';
-									// The lazy wiki index shares one precache entry with a tiny web stub.
-									if (
-										id.endsWith('/src/lib/wiki-link-index.ts') ||
+										id.endsWith('/src/lib/code/native-adapter.ts') ||
 										id.endsWith('/src/lib/edition/web/tauri-api-stub.ts')
 									)
-										return 'wiki-index';
+										return 'workspace-state';
+									// The lazy wiki index stays in one offline resource.
+									if (id.endsWith('/src/lib/wiki-link-index.ts')) return 'wiki-index';
 									// These dependency-free helpers share one small offline resource.
 									if (id.endsWith('/src/lib/config.ts') || id.endsWith('/src/lib/abort.ts'))
 										return 'operation-utils';

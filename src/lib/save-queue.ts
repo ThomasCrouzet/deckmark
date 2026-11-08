@@ -203,10 +203,11 @@ export class SaveQueue {
 				const changedSinceRead = current
 					? !baseline ||
 						current.name !== baseline.name ||
-						current.content !== baseline.content ||
 						current.projectId !== baseline.projectId ||
 						current.relativePath !== baseline.relativePath ||
-						current.updatedAt !== baseline.updatedAt
+						current.updatedAt !== baseline.updatedAt ||
+						current.content.length !== baseline.content.length ||
+						current.content !== baseline.content
 					: false;
 				if (
 					current &&
