@@ -11,6 +11,45 @@ constant values, or mocked call sequences alone.
 
 ## Release review regressions
 
+### Versioned JSON worker risks
+
+The JSON browser workflows retain these risks: a full parse on the input thread,
+unbounded snapshots, stale diagnostics after edits or file changes, a cancelled
+action that changes source, lost number or escape tokens, grouped undo, deep input,
+invalid large input, and duplicate-key loss. Run the JSON and code editor specs with
+one Chromium worker. The JSON profile attaches raw paint samples, fixture hashes,
+request and response times, and main-thread long tasks. Chromium attempts a CDP
+worker heap measurement. Other engines report an unavailable counter. This profile
+does not replace the benchmark gate or native checks.
+
+Run `npx playwright test e2e/json-tools.spec.ts e2e/code-editor.spec.ts --project=chromium --workers=1 --retries=0`.
+The standard report retains fixtures, traces on failure, source metadata, and the
+`json-worker-profile.json` attachment. Firefox and WebKit include these specs in
+their remote project lists. No existing performance budget changes.
+
+The optional schema callback is not exposed by a browser workflow. Isolated JSON
+tests retain callback output and exception semantics and check parsed-value reuse.
+This bridge cannot move an arbitrary caller closure into a Worker.
+
+The JSON workflow also holds revalidation while an unchanged minify action or an
+injected action transport failure replaces it. Both paths must clear Checking,
+preserve saved bytes and permit Validate to retry. The formatting workflow checks
+a reversed noncollapsed selection and single undo. The JSON offline case uses a
+private production-asset server. WebKit stops that origin and proves access fails;
+Chromium and Firefox use browser offline emulation. Each case confirms service
+worker control, reload, exact formatted bytes and undo, and attaches request and
+response evidence. The fixture changes only its test root precache revision and
+release marker. This is not native or production-CSP acceptance.
+
+The duplicate/CRLF workflow must not require an unused OPFS file. WebKit rejected
+that setup before the required CRLF checks. Keep duplicate keys, saved CRLF bytes,
+the download filename and actual exported bytes as exact assertions. A local
+rejecting OPFS trap received no calls after removal. A corrupt export kept saved
+CRLF text but downloaded LF text and failed the unchanged byte assertion.
+Retained local evidence: `/home/thomas/.hermes/tasks/deckmark-issues-20261107/issue-314/ci-repro-20261108/result.md`
+and its JSON receipts. Three byte-identical archived recovery cases executed;
+three duplicate cases did not run. This is mechanism evidence, not CI acceptance.
+
 ### Source typewriter centering
 
 Retain these risks for issue 328: a key burst can queue obsolete scroll targets;
@@ -584,6 +623,13 @@ nontransparent pixels. Do not use a fixed delay or a pixel tolerance. A browser
 probe must distinguish pixels before and after the queued clear. A missing canvas
 clear must still fail the zero-pixel check after the frame wait.
 
+Scroll also queues canvas compensation. Use `inkFrame()` after the scroll change
+and before reading the canvas box. Keep exact viewport y equality. The retained
+issue 314 probe observed y=-108 before compensation and y=52 on frame 2. Releasing
+a held callback restored y=52. A persistent transform defect still failed the
+same equality after the wait. Both positive cases kept ink, content, saved-state,
+print and reload assertions. Local evidence does not establish the remote cause.
+
 Run the focused checks against the production preview:
 
 ```sh
@@ -830,6 +876,17 @@ npm run test:e2e -- durability-review.spec.ts note-type-guard.spec.ts read-previ
 Keep the HTML and JSON reports, fixtures, downloads, screenshots, and failure
 traces with the command and source identity. Development-server results establish
 the correction only. Run the complete production suite before release.
+
+### Command palette shortcut after reload
+
+`e2e/audit-ui.spec.ts` proves a customized palette shortcut persists across a
+reload. A shortcut sent before the application is interactive is discarded by
+design, so the case waits for `.mdsh-shell[aria-busy="false"]:not([inert])`
+immediately after `page.reload()`, as `resetAppState` does. Without that wait a
+bootstrap race can fail the case for a reason it does not intend to test. The
+readiness wait does not relax the click, the custom value, the chord, the dialog
+assertion, or the assertion timeout. Removing the stored override must still keep
+the configured shortcut from opening the palette after the app is interactive.
 
 ## Documentation check risks
 
