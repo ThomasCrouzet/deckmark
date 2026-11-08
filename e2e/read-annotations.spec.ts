@@ -145,6 +145,7 @@ test('draws ephemeral ink without changing the document and clears on reload', a
 
 	const canvasBefore = await page.getByTestId('annotation-canvas').boundingBox();
 	await page.locator('.mdsh-read').evaluate((element) => (element.scrollTop = 160));
+	await inkFrame(page);
 	const canvasAfter = await page.getByTestId('annotation-canvas').boundingBox();
 	expect(canvasAfter?.y).toBe(canvasBefore?.y);
 	expect(await inkPixels(page)).toBeGreaterThan(100);

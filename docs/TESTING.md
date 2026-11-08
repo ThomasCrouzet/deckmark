@@ -41,6 +41,15 @@ worker control, reload, exact formatted bytes and undo, and attaches request and
 response evidence. The fixture changes only its test root precache revision and
 release marker. This is not native or production-CSP acceptance.
 
+The duplicate/CRLF workflow must not require an unused OPFS file. WebKit rejected
+that setup before the required CRLF checks. Keep duplicate keys, saved CRLF bytes,
+the download filename and actual exported bytes as exact assertions. A local
+rejecting OPFS trap received no calls after removal. A corrupt export kept saved
+CRLF text but downloaded LF text and failed the unchanged byte assertion.
+Retained local evidence: `/home/thomas/.hermes/tasks/deckmark-issues-20261107/issue-314/ci-repro-20261108/result.md`
+and its JSON receipts. Three byte-identical archived recovery cases executed;
+three duplicate cases did not run. This is mechanism evidence, not CI acceptance.
+
 ### Source typewriter centering
 
 Retain these risks for issue 328: a key burst can queue obsolete scroll targets;
@@ -594,6 +603,13 @@ existing `inkFrame()` helper before the Clear pixel check. Require exactly zero
 nontransparent pixels. Do not use a fixed delay or a pixel tolerance. A browser
 probe must distinguish pixels before and after the queued clear. A missing canvas
 clear must still fail the zero-pixel check after the frame wait.
+
+Scroll also queues canvas compensation. Use `inkFrame()` after the scroll change
+and before reading the canvas box. Keep exact viewport y equality. The retained
+issue 314 probe observed y=-108 before compensation and y=52 on frame 2. Releasing
+a held callback restored y=52. A persistent transform defect still failed the
+same equality after the wait. Both positive cases kept ink, content, saved-state,
+print and reload assertions. Local evidence does not establish the remote cause.
 
 Run the focused checks against the production preview:
 

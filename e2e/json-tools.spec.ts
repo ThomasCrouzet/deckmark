@@ -474,11 +474,6 @@ test('preserves duplicate keys and CRLF output', async ({ page }, info: TestInfo
 		.poll(() => savedContent(page))
 		.toBe('{\r\n  "a": 1,\r\n  "a": 2\r\n}'.replace(/\r\n/g, '\n'));
 
-	await page.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
-		const handle = await root.getFileHandle('unused.json', { create: true });
-		void handle;
-	});
 	await importJson(page, 'crlf.json', '{"a":1,"b":2}\r\n');
 	await expect(page.getByTestId('code-eol')).toHaveText('CRLF');
 	await page.getByTestId('json-format').click();
