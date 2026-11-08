@@ -12,13 +12,12 @@
 
 	import { tick } from 'svelte';
 	import LoadError from './LoadError.svelte';
-	import { reportPersistenceError } from '#lib/storage.js';
+	import { formatSaveAge, reportPersistenceError } from '#lib/storage.js';
 	import { browser } from '$app/env';
 	import { t } from '#lib/i18n/index.js';
 	import { workspaceStore } from '#lib/workspaces.svelte.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
-	import { formatSaveAge } from '#lib/stats.js';
 	import { Layers, Plus, Play, RefreshCw, Pencil, Trash2, X } from '@lucide/svelte';
 
 	interface Props {

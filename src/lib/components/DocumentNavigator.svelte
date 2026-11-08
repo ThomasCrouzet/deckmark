@@ -2,10 +2,10 @@
 	import { tick } from 'svelte';
 	import { t } from '#lib/i18n/index.js';
 	import {
-		documentHeadings,
+		completeRenderedHeadings,
 		documentMatches,
 		focusDocumentHeading,
-		renderedDocumentHeadings,
+		sourceHeadingIndex,
 		type DocumentHeading
 	} from '#lib/document-navigation.js';
 	import { X, ArrowUp, ArrowDown } from '@lucide/svelte';
@@ -32,7 +32,7 @@
 	let ranges: Range[] = [];
 	let lastSearch = '';
 	let selectionRequested = false;
-	let headings = $state<DocumentHeading[]>([]);
+	let headings = $state<readonly DocumentHeading[]>([]);
 	const target = () =>
 		container?.querySelector<HTMLElement>(mode === 'read' ? '.mdsh-preview' : '.ProseMirror') ??
 		null;
@@ -85,8 +85,8 @@
 			if (selectedKind === 'outline') {
 				headings =
 					selectedMode === 'source'
-						? documentHeadings(text)
-						: renderedDocumentHeadings(documentRoot);
+						? sourceHeadingIndex(text).headings
+						: completeRenderedHeadings(documentRoot);
 			} else {
 				const changedQuery = search !== lastSearch;
 				lastSearch = search;
@@ -124,8 +124,8 @@
 		const fresh =
 			(kind === 'outline'
 				? mode === 'source'
-					? documentHeadings(content)
-					: renderedDocumentHeadings(target())
+					? sourceHeadingIndex(content).headings
+					: completeRenderedHeadings(target())
 				: [])[index] ?? heading;
 		if (mode === 'source') onLine(fresh.line);
 		else focusDocumentHeading(fresh, mode === 'wysiwyg');

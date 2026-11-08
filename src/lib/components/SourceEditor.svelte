@@ -206,6 +206,30 @@
 	}
 
 	/**
+	 * Applies an accepted external snapshot as one bounded native change.
+	 * CodeMirror maps selection, viewport, search and history through it.
+	 */
+	function applyExternalSource(text: string, cm: CMModule, current: EditorView): void {
+		cancelPublish();
+		lastEmitted = text;
+		sourceHasPresentationMarker = text.includes(PRESENTATION_MARKER);
+		pendingGuard = null;
+		applyingExternal = true;
+		try {
+			const change = cm.patch(current.state, text);
+			if (change) {
+				current.dispatch({
+					changes: change,
+					annotations: cm.Transaction.addToHistory.of(false)
+				});
+			}
+		} finally {
+			applyingExternal = false;
+		}
+		buffer = createSourceText(text, current.state.doc);
+	}
+
+	/**
 	 * A rejected native change must not be forced through a fresh base. Adopt an
 	 * authoritative snapshot only when its captured text equals the previous
 	 * accepted text. Otherwise keep the local work and stop publishing.
@@ -343,6 +367,7 @@
 		setSearchQuery: typeof import('@codemirror/search').setSearchQuery;
 		SearchQuery: typeof import('@codemirror/search').SearchQuery;
 		imageData: typeof import('../source-extensions').imageData;
+		patch: typeof import('#lib/code/external-changes.js').externalDocumentChange;
 		codeMirrorPhrases: typeof import('../source-extensions').codeMirrorPhrases;
 		typewriterCentering: typeof import('../source-extensions').typewriterCentering;
 	};
@@ -441,7 +466,8 @@
 					closeSearchPanel: searchMod.closeSearchPanel,
 					searchKeymap: searchMod.searchKeymap,
 					setSearchQuery: searchMod.setSearchQuery,
-					SearchQuery: searchMod.SearchQuery
+					SearchQuery: searchMod.SearchQuery,
+					patch: lang.patch
 				};
 			})();
 		}
@@ -742,7 +768,8 @@
 
 	/*
 	 * Sync external content -> editor (tab switch, undo store, etc.).
-	 * We keep `lastEmitted` to avoid update loops.
+	 * We keep `lastEmitted` to avoid update loops. A minimal change keeps the
+	 * native selection, viewport anchors, search ranges and history mapping.
 	 */
 	$effect(() => {
 		const c = content;
@@ -763,40 +790,12 @@
 				return;
 			}
 			if (c === lastEmitted) return;
-			// True external change: replace from the canonical revision.
-			cancelPublish();
-			lastEmitted = c;
+			// True external change: apply a bounded patch from the canonical revision.
 			acceptedBase = canonical;
-			sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
-			pendingGuard = null;
-			applyingExternal = true;
-			try {
-				view.dispatch({
-					changes: { from: 0, to: view.state.doc.length, insert: c },
-					annotations: activeCM.Transaction.addToHistory.of(false)
-				});
-			} finally {
-				applyingExternal = false;
-			}
-			buffer = createSourceText(c, view.state.doc);
+		} else if (c === lastEmitted) {
 			return;
 		}
-		if (c !== lastEmitted) {
-			cancelPublish();
-			lastEmitted = c;
-			sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
-			pendingGuard = null;
-			applyingExternal = true;
-			try {
-				view.dispatch({
-					changes: { from: 0, to: view.state.doc.length, insert: c },
-					annotations: activeCM.Transaction.addToHistory.of(false)
-				});
-			} finally {
-				applyingExternal = false;
-			}
-			buffer = createSourceText(c, view.state.doc);
-		}
+		applyExternalSource(c, activeCM, view);
 	});
 
 	$effect(() => {

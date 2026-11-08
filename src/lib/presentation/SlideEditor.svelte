@@ -1049,7 +1049,12 @@
 									style:aspect-ratio={editor.deck.width / editor.deck.height}
 									style:background={slide.background}
 								>
-									<SlideThumbnail deck={editor.deck} {slide} {fileId} />
+									<SlideThumbnail
+										deck={editor.deck}
+										{slide}
+										{fileId}
+										pinned={index === editor.index}
+									/>
 								</span>
 							</button>
 						{/each}

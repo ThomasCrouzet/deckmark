@@ -1,5 +1,26 @@
 # Test policy and evidence
 
+## Split heading index risks
+
+Retain the complete navigation index separately from the legacy 300-heading
+helper contract. Check headings after 300 in Source and Read. Split caret movement
+must not parse unchanged source or query heading nodes. Warm preview scrolling
+must not measure every heading. Retain 240 KB and 1 MB fixtures with 1,000 headings,
+raw two-frame samples, heading query and rectangle counts, fixture hashes, and
+engine-supported CPU/layout counters. A rectangle call is not proof of forced
+layout. A two-frame sample is not proof of compositor paint. Mark unsupported
+WebKit counters as unavailable, not zero.
+
+Large heading fixtures use a real IndexedDB draft followed by reload. This setup
+does not measure bulk typing. Keep insertion-timeout attempts separately from
+navigation failures. Use real input for the subsequent structural edits.
+
+Check inserted and deleted headings, pane width, theme, fonts, image load, file
+replacement, detached nodes, teardown, focus, undo, and alternating scroll sources.
+Keep the 400 ms scroll suppression and draft save delay. Run
+`npx playwright test e2e/split-view.spec.ts e2e/toc-modes.spec.ts e2e/navigation-stats-scroll.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep the command, source/diff identity, raw measurements and screenshots locally.
+
 Use E2E tests as the preferred verification method. Test observable results through
 the application. For a complex change, write the workflow and its failure cases
 before implementation. Never write unit tests after implementation.
@@ -9,7 +30,83 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Presentation thumbnail retention
+
+An intersection callback can mount a thumbnail once and retain its rich subtree
+after it leaves the filmstrip. Visiting a long deck then retains every preview.
+The retention case in `e2e/presentation-performance.spec.ts` applies a deterministic
+300-slide source fixture through the application. It scrolls the complete strip
+forward and backward twice. At each step, it records visible slides, 160 CSS px
+overscan, selected/focused pins, mounted rich previews and DOM node counts.
+Visible sentinels must render. Rich previews must stay within the current range
+plus pins. Lightweight keyed buttons must remain available for all 300 slides.
+This case does not establish drag, touch, native parity or a heap budget.
+
+Run the targeted case before application changes:
+
+```sh
+npm run test:e2e -- e2e/presentation-performance.spec.ts --project=chromium --workers=1 --retries=0 --grep 'releases offscreen thumbnail previews'
+```
+
+Retain `thumbnail-retention-fixture.md`, `thumbnail-retention.json`, the screenshot,
+failure trace and standard source metadata with the actual command and exit code.
+The JSON records the exact fixture hash, browser, method and every scroll sample.
+Keep unavailable tools and failed runs. A DOM count is not a heap measurement.
+
+The content cache bound case applies 300 unique large text slides and visits every
+preview. It reads the local `window.__MDSH_PRESENTATION_CACHE__` counters from the
+instrumented build. Entries must stay at or below 512, estimated bytes at or below
+8 MiB, evictions must occur and no render may remain in flight. The estimate counts
+key, source and HTML characters. It is not a heap measurement.
+
+Run the targeted presentation performance file before and after application changes:
+
+```sh
+npm run test:e2e -- e2e/presentation-performance.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Retain `presentation-cache-bounds.json` with the fixture hash, browser, command and
+cache counters.
+
 ## Release review regressions
+
+`e2e/external-editor-patches.spec.ts` checks a tiny external update in Source and
+Code. The failure risks are lost selection direction, a viewport jump, and an
+editor feedback write that replaces accepted external bytes. The workflow imports
+a real file, selects text backward below the edit, then commits an IndexedDB row
+and sends the existing BroadcastChannel notification. It records selection,
+scroll, exact fixture bytes and hashes, the durable row and the browser version.
+Run `npx playwright test e2e/external-editor-patches.spec.ts --project=chromium --workers=1 --retries=0 --trace=on`.
+Keep the HTML and JSON reports, trace and attached observation with the exact
+command, source revision, working diff and environment. This small workflow does
+not prove native coverage, stale-conflict handling or large-file performance.
+
+`src/lib/code/external-changes.test.ts` covers the native patch helper. The
+isolated risks are a change boundary that splits a UTF-16 surrogate pair and
+native line-ending normalization for CRLF or bare CR input, plus the large-region
+replacement threshold. A browser workflow cannot force those byte boundaries
+cheaply. Run
+`npx vitest run src/lib/code/external-changes.test.ts --maxWorkers=1`.
+The browser workflow still proves selection mapping, scroll position, durable
+bytes and the feedback loop through the application.
+
+### Incremental Read rendering risks
+
+Before a renderer change, retain these failure cases: cancelled work can replace a
+new file or theme; a section edit can replace all diagram and code nodes; cached
+SVG identifiers can collide or lose fragment references; cached output can retain
+old media consent or project membership; a width change can leave stale geometry;
+and a preview optimization can omit the end of an HTML or print export. Markdown
+reference definitions and duplicate headings need document-global parsing.
+
+`rendering.spec.ts` retains DOM handles across a Split edit and checks a complete
+101-diagram, 1000-heading HTML download. `read-preview-isolation.spec.ts` checks
+delayed file and theme work and layout identity after a width change. Existing
+rendering and media-consent cases check offline HTML, PDF and blocked requests.
+Run the focused Chromium specs with one worker and retain the standard JSON/HTML
+reports, trace, fixture source, downloaded HTML and source identity. Performance
+diagnostics must keep raw samples and explicit engine support limits. A diagnostic
+without enforced budgets is not a strict gate result.
 
 ### Versioned JSON worker risks
 
@@ -431,6 +528,32 @@ CI=1 xvfb-run -a npm run test:e2e -- table-editing.spec.ts --workers=1 --retries
 
 ## Retained isolated risks
 
+### Statistics counting risks
+
+`stats.test.ts` compares the exact legacy stripping order and UTF-16 counts with
+a frozen oracle. Its deterministic malformed-syntax corpus includes lone
+surrogates, CRLF, Unicode whitespace and headings exposed by earlier replacements.
+Editor normalization and DOM text cannot reliably preserve every such input.
+Keep this isolated differential check for those concrete boundaries, not coverage.
+Run `npx vitest run src/lib/stats.test.ts --maxWorkers=1`.
+
+The stats cases in `navigation-stats-scroll.spec.ts` check selection in Source,
+Edit and Read, coalesced edits across file switches, and fresh counts without
+focus loss for deterministic 1 MB and 5 MB multiline and single-line notes.
+They also hold the on-demand statistics module during a file switch and reject
+its first load. The latest file must win. Editing and local saves must remain
+available, and a reload must recover both the edit and the counters.
+The two asset-failure cases block service workers so the network fixture can hold
+or reject the module request. They do not prove offline use.
+They find the unique runtime export in the served build instead of guessing its
+hash-only filename. This also works with the prebuilt CI artifact.
+Run `npx playwright test e2e/navigation-stats-scroll.spec.ts --project=chromium
+--workers=1 --grep 'counts the current selection|stats '`.
+Keep the standard source metadata and attached fixture hashes, counts, publication
+intervals and screenshots. These workflow assertions are not timing budgets.
+Counter-only heap and timing diagnostics must retain raw samples, fixture hashes,
+Node or engine identity, source hashes, warmups and post-GC versus temporary heap.
+They do not replace browser or native performance gates.
 ### Project wiki indexes
 
 Record these risks before changes to project resolution and backlinks:

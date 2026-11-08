@@ -13,9 +13,8 @@
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';
-	import { reportPersistenceError } from '#lib/storage.js';
+	import { formatSaveAge, reportPersistenceError } from '#lib/storage.js';
 	import { listVersions } from '#lib/version-history.js';
-	import { formatSaveAge } from '#lib/stats.js';
 	import type { VersionRow } from '#lib/db.js';
 	import { History, X, RotateCcw } from '@lucide/svelte';
 	import DiffView from './DiffView.svelte';

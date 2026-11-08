@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { filesStore } from '#lib/files.svelte.js';
-	import { computeSelectionStats, computeStats, formatSaveAge } from '#lib/stats.js';
+	import type { DocStats, SelectionStats } from '#lib/stats-count.js';
+	import type { StatsRuntime } from '#lib/stats-runtime.js';
+	import { reportError } from '#lib/report.js';
 	import { t } from '#lib/i18n/index.js';
 	import { onMount } from 'svelte';
 	import {
+		formatSaveAge,
 		reportPersistenceError,
 		getStorageHealth,
 		recordBackupReminderShown
@@ -65,49 +68,71 @@
 		};
 	});
 
-	// §A2.4 - `computeStats` runs 6 regexes over the full doc; called on every
-	// keystroke it is measurable beyond 50 KB. We debounce the content snapshot
-	// to 200 ms - the status-bar does not need to react to each individual
-	// keystroke, otherwise the counter flickers visibly.
-	//
-	// A tab switch (change of the active file's identity) writes
-	// immediately to avoid a "0 words" flash for 200 ms; only successive
-	// keystrokes on the same file are coalesced.
-	let debouncedContent = $state('');
-	let debouncedActiveId = $state<string | null>(null);
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	// The empty shell needs save status, not the counter and Worker runtime.
+	const emptyStats: DocStats = { chars: 0, words: 0, lines: 0, readMinutes: 0 };
+	let stats = $state<DocStats | null>(emptyStats);
+	let selectionStats = $state<SelectionStats | null>(null);
+	let loadFailed = $state(false);
+	let runtime: StatsRuntime | null = null;
+	let runtimeLoad: Promise<StatsRuntime | null> | null = null;
+	let requestedId: string | null = null;
+	let disposed = false;
+
+	function getRuntime(): Promise<StatsRuntime | null> {
+		return (runtimeLoad ??= import('#lib/stats-runtime.js')
+			.then((module) => {
+				if (disposed) return null;
+				runtime = module.createStatsRuntime((id, content, value) => {
+					if (disposed || filesStore.activeId !== id || filesStore.active?.content !== content)
+						return;
+					stats = value;
+				});
+				// One pending load reads current state, not one retained text closure per edit.
+				const active = filesStore.active;
+				if (kind === 'note' && active) runtime.setDocument(active.id, active.content);
+				selectionStats = kind === 'note' && selectedText ? runtime.selection(selectedText) : null;
+				return runtime;
+			})
+			.catch((error) => {
+				if (!disposed) {
+					loadFailed = true;
+					reportError('statistics module', error, { notifyUser: t('panels.loadFailed') });
+				}
+				return null;
+			}));
+	}
 
 	$effect(() => {
 		const active = filesStore.active;
 		const id = active?.id ?? null;
-		const c = kind === 'note' ? (active?.content ?? '') : '';
-		if (id !== debouncedActiveId) {
-			// File switch or opening: immediate flush of the snapshot.
-			if (debounceTimer) {
-				clearTimeout(debounceTimer);
-				debounceTimer = null;
-			}
-			debouncedActiveId = id;
-			debouncedContent = c;
+		const content = kind === 'note' ? (active?.content ?? '') : '';
+		if (!id || kind !== 'note') {
+			runtime?.setDocument(null, '');
+			requestedId = null;
+			stats = emptyStats;
 			return;
 		}
-		if (debounceTimer) clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => {
-			debouncedContent = c;
-			debounceTimer = null;
-		}, 200);
-		return () => {
-			if (debounceTimer) {
-				clearTimeout(debounceTimer);
-				debounceTimer = null;
-			}
-		};
+		if (id !== requestedId || !runtime) stats = content.length === 0 ? emptyStats : null;
+		requestedId = id;
+		if (runtime) runtime.setDocument(id, content);
+		else void getRuntime();
 	});
 
-	let stats = $derived(computeStats(debouncedContent));
-	let selectionStats = $derived(
-		selectedText.length > 0 ? computeSelectionStats(selectedText) : null
-	);
+	$effect(() => {
+		const text = selectedText;
+		if (!text || kind !== 'note') {
+			selectionStats = null;
+			return;
+		}
+		if (runtime) selectionStats = runtime.selection(text);
+		else void getRuntime();
+	});
+
+	onMount(() => () => {
+		disposed = true;
+		runtime?.dispose();
+		runtime = null;
+	});
 	let saveLabel = $derived.by(() => {
 		if (!filesStore.active) return '';
 		// Restored drafts are durable before this session records a save time.
@@ -131,7 +156,7 @@
 					<span>{t('statusBar.chars', { n: selectionStats.chars })}</span>
 					<span class="hidden sm:inline text-fg-dim/60">·</span>
 					<span class="hidden sm:inline">{t('statusBar.lines', { n: selectionStats.lines })}</span>
-				{:else}
+				{:else if stats}
 					<span>{t('statusBar.words', { n: stats.words })}</span>
 					<span class="text-fg-dim/60">·</span>
 					<span>{t('statusBar.chars', { n: stats.chars })}</span>
@@ -141,6 +166,10 @@
 					<span class="hidden md:inline"
 						>{t('statusBar.readMinutes', { n: stats.readMinutes })}</span
 					>
+				{:else}
+					<span aria-busy={!loadFailed} data-testid={loadFailed ? 'stats-load-error' : undefined}>
+						{t(loadFailed ? 'panels.loadFailed' : 'diskLinks.loading')}
+					</span>
 				{/if}
 			</div>{/if}
 		<!-- §B3.2 - Ephemeral "saving" state during the debounce + IDB write.

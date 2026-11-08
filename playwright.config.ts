@@ -114,6 +114,9 @@ export default defineConfig({
 			testMatch: [
 				'**/json-tools.spec.ts',
 				'**/code-editor.spec.ts',
+				'**/split-view.spec.ts',
+				'**/toc-modes.spec.ts',
+				'**/navigation-stats-scroll.spec.ts',
 				'**/editor-state.spec.ts',
 				'**/toast-overlap.spec.ts',
 				'**/golden-path.spec.ts',

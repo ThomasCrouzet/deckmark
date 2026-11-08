@@ -16,6 +16,7 @@ import {
 } from '@codemirror/view';
 import { t } from './i18n';
 export { markdown } from '@codemirror/lang-markdown';
+export { externalDocumentChange as patch } from './code/external-changes';
 
 export function codeMirrorPhrases(): Record<string, string> {
 	return {
