@@ -68,6 +68,18 @@ npm run test:e2e -- e2e/presentation-performance.spec.ts --project=chromium --wo
 Retain `presentation-cache-bounds.json` with the fixture hash, browser, command and
 cache counters.
 
+## Large presentation source risks
+
+Decks above 512 KiB open their Advanced source in a lazily loaded CodeMirror
+document. The plain textarea remains for small decks and for existing exact-value
+checks. The large path must keep the document editable, apply one validated
+snapshot, and leave the deck untouched on Cancel. Draft state remains keyed by
+file, and source conflicts still compare the original base.
+
+`e2e/presentation-format.spec.ts` checks the CodeMirror path on a 600 KiB deck,
+the applied tail edit and the durable row. It does not establish native IME,
+physical paint or a 5 MB deck profile; those remain benchmark and native work.
+
 ## Release review regressions
 
 `e2e/external-editor-patches.spec.ts` checks a tiny external update in Source and

@@ -355,3 +355,28 @@ test('keeps a separator inside a fence in one slide', async ({ page }, testInfo)
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(2);
 	await attachFailure(testInfo, 'separator-in-fence', fixture, 'two slides only');
 });
+
+test('edits a large deck source through the lazy CodeMirror path', async ({ page }, testInfo) => {
+	// Above the plain-textarea threshold, the source surface must stay a native
+	// CodeMirror document instead of a reactive full-string textarea value.
+	const long = 'A'.repeat(600 * 1024);
+	const fixture = presentationFixture([long]);
+	await seed(page, fixture);
+	const editor = await openSlides(page);
+	await openPresentationSource(editor);
+	const source = editor.getByTestId('slide-source-editor');
+	await expect(source.locator('.cm-editor')).toBeVisible();
+	await source.locator('.cm-content').focus();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText('\n<!-- tail -->');
+	await editor.getByTestId('slide-source-apply').click();
+	await expect(editor.locator('.save-state')).toHaveText('saved');
+	const stored = await persistenceSnapshot(page);
+	expect(stored.drafts[0]?.content).toContain('<!-- tail -->');
+	await attachFailure(
+		testInfo,
+		'large-source',
+		'large deck source',
+		'CodeMirror path applied a tail edit'
+	);
+});
