@@ -27,16 +27,27 @@ export class PresentationEditor {
 	selected = $state<string[]>([]);
 	source = $state('');
 	error = $state(false);
+	pending = $state(false);
+	saveError = $state(false);
+	revision = $state(0);
 	undoEntries = $state<string[]>([]);
 	redoEntries = $state<string[]>([]);
 	clipboardAvailable = $state(clipboard.length > 0);
 	private operationStart: string | null = null;
 	private operationSource: string | null = null;
 	private operationDeck: PresentationDeck | null = null;
-	private write: (source: string) => void;
+	private idleTimer: ReturnType<typeof setTimeout> | undefined;
+	private maximumTimer: ReturnType<typeof setTimeout> | undefined;
+	private write: (source: string, base: string) => void;
+	private onError: (error: unknown) => void;
 
-	constructor(source: string, write: (source: string) => void) {
+	constructor(
+		source: string,
+		write: (source: string, base: string) => void,
+		onError: (error: unknown) => void = () => {}
+	) {
 		this.write = write;
+		this.onError = onError;
 		this.receive(source);
 	}
 
@@ -50,8 +61,11 @@ export class PresentationEditor {
 		return this.elements[0];
 	}
 
-	receive(source: string): boolean {
-		if (source === this.source && !this.error) return false;
+	receive(source: string, replace = false): boolean {
+		if (source === this.source && !this.error && !replace) return false;
+		this.stopTimers();
+		this.pending = false;
+		this.saveError = false;
 		this.source = source;
 		try {
 			this.deck = parsePresentation(source);
@@ -70,8 +84,8 @@ export class PresentationEditor {
 	}
 
 	writeSource(source: string) {
+		this.write(source, this.source);
 		this.receive(source);
-		this.write(source);
 	}
 
 	begin() {
@@ -83,13 +97,21 @@ export class PresentationEditor {
 	}
 
 	commit() {
-		const source = serializePresentation(this.deck);
+		if (this.operationStart === null) return this.flush();
+		let source: string;
+		try {
+			source = serializePresentation(this.deck);
+		} catch (error) {
+			return this.failed(error);
+		}
 		if (this.operationStart === source) {
+			if (!this.publish(this.operationSource ?? source)) return false;
 			this.operationStart = null;
 			this.operationSource = null;
 			this.operationDeck = null;
-			return;
+			return true;
 		}
+		if (!this.publish(source)) return false;
 		if (this.operationStart !== null && this.operationStart !== source) {
 			this.undoEntries = [...this.undoEntries, this.operationSource ?? this.operationStart].slice(
 				-60
@@ -104,13 +126,48 @@ export class PresentationEditor {
 		this.operationStart = null;
 		this.operationSource = null;
 		this.operationDeck = null;
-		this.publish(source);
+		return true;
 	}
 
-	publish(source = serializePresentation(this.deck)) {
-		if (source === this.source) return;
-		this.source = source;
-		this.write(source);
+	markChanged() {
+		this.revision++;
+		this.pending = true;
+		if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
+		this.idleTimer = setTimeout(() => this.flush(), 200);
+		this.maximumTimer ??= setTimeout(() => this.flush(), 1000);
+	}
+
+	private stopTimers() {
+		clearTimeout(this.idleTimer);
+		clearTimeout(this.maximumTimer);
+		this.idleTimer = undefined;
+		this.maximumTimer = undefined;
+	}
+
+	private failed(error: unknown): false {
+		this.stopTimers();
+		this.pending = true;
+		if (!this.saveError) this.onError(error);
+		this.saveError = true;
+		return false;
+	}
+
+	flush(): boolean {
+		return !this.pending || this.publish();
+	}
+
+	publish(source?: string): boolean {
+		this.stopTimers();
+		try {
+			const snapshot = source ?? serializePresentation(this.deck);
+			if (snapshot !== this.source) this.write(snapshot, this.source);
+			this.source = snapshot;
+			this.pending = false;
+			this.saveError = false;
+			return true;
+		} catch (error) {
+			return this.failed(error);
+		}
 	}
 
 	cancel() {
@@ -129,7 +186,7 @@ export class PresentationEditor {
 	}
 
 	undo() {
-		if (this.operationStart !== null) this.commit();
+		if (!this.commit()) return;
 		const previous = this.undoEntries.at(-1);
 		if (!previous) return;
 		this.redoEntries = [...this.redoEntries, serializePresentation(this.deck)];
@@ -141,7 +198,7 @@ export class PresentationEditor {
 	}
 
 	redo() {
-		if (this.operationStart !== null) this.commit();
+		if (!this.commit()) return;
 		const next = this.redoEntries.at(-1);
 		if (!next) return;
 		this.undoEntries = [...this.undoEntries, serializePresentation(this.deck)];

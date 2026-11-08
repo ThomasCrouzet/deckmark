@@ -66,6 +66,8 @@ import type { FileItem } from './types';
 import { getDiskLinkEpoch } from './db';
 import { pathBasename } from './disk-link';
 import { isBinaryDocument } from './document-kind';
+import { isDiskLinkingAvailable } from './disk-linking';
+export { isDiskLinkingAvailable } from './disk-linking';
 
 /** Dependencies injected by FilesStore - zero Svelte imports here. */
 export interface DiskSyncDeps {
@@ -81,11 +83,6 @@ export interface DiskSyncDeps {
 	onSyncName?: (id: string, name: string) => void;
 	onUpdateContent?: (id: string, content: string) => void;
 	onImportRollback?: (id: string) => void;
-}
-
-/** True when either Chromium FSA or the Tauri desktop shell can link files to disk. */
-export function isDiskLinkingAvailable(): boolean {
-	return isFSASupported() || isDesktop();
 }
 
 /**
