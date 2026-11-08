@@ -52,6 +52,7 @@
 	onMount(() => {
 		selectionText = window.getSelection()?.toString() ?? '';
 		if (filesStore.activeId) selectedIds = [filesStore.activeId];
+		void filesStore.ensureLibraryContent();
 	});
 
 	onDestroy(() => controller?.abort());

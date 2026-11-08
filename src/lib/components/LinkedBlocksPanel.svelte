@@ -25,7 +25,8 @@
 
 	onMount(refresh);
 
-	function refresh() {
+	async function refresh() {
+		await filesStore.ensureLibraryContent();
 		blocks = filesStore.library.flatMap((file) => extractBlocks(file));
 		reports = buildLinkReport(filesStore.library);
 		if (!blocks.some((block) => block.fileId === sourceId)) sourceId = blocks[0]?.fileId ?? '';
@@ -39,7 +40,7 @@
 			active.id,
 			insertInclude(active.content, block.path, block.id, block.hash, block.body)
 		);
-		refresh();
+		void refresh();
 	}
 
 	function update(report: LinkReport) {
@@ -49,21 +50,21 @@
 			file.id,
 			updateInclude(file.content, report.include, report.sourceBody)
 		);
-		refresh();
+		void refresh();
 	}
 
 	function freeze(report: LinkReport) {
 		const file = filesStore.library.find((entry) => entry.id === report.include.fileId);
 		if (!file) return;
 		filesStore.updateContent(file.id, freezeInclude(file.content, report.include));
-		refresh();
+		void refresh();
 	}
 
 	function detach(report: LinkReport) {
 		const file = filesStore.library.find((entry) => entry.id === report.include.fileId);
 		if (!file) return;
 		filesStore.updateContent(file.id, detachInclude(file.content, report.include));
-		refresh();
+		void refresh();
 	}
 
 	function stateLabel(state: LinkReport['state']): string {

@@ -76,6 +76,59 @@ test('library ZIP contains open and closed documents', async ({ page }) => {
 	expect(await zip.file('alpha.md')!.async('string')).toBe('first');
 });
 
+test('a large closed document hydrates on demand for search and export', async ({ page }) => {
+	test.setTimeout(90_000);
+	const marker = 'deferred-marker-315';
+	const paragraph = 'Deferred body line for issue 315.\n';
+	const content = `# Large document\n\n${paragraph.repeat(9_500)}${marker}\n`;
+	expect(content.length).toBeGreaterThan(256 * 1024);
+	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
+		name: 'large315.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from(content)
+	});
+	await expect(page.locator('#app-toolbar input')).toHaveValue('large315', {
+		timeout: 20_000
+	});
+	await page.waitForTimeout(600);
+	const closeLarge = () =>
+		page.locator('.mdsh-file-row').filter({ hasText: 'large315' }).locator('button').last().click();
+
+	// A reload reads the metadata projection and leaves the large closed body in Dexie.
+	await closeLarge();
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
+	await expect(page.getByText('Documents conservés')).toBeVisible();
+
+	// Search must read the exact body from Dexie without keeping it in the store.
+	await page.keyboard.press('ControlOrMeta+Shift+f');
+	await page.getByRole('combobox').fill(marker);
+	await page.locator('#search-listbox button').first().click();
+	await expect(page.locator('#app-toolbar input')).toHaveValue('large315');
+	await expect(page.locator('.cm-content')).toContainText(marker);
+
+	// Reload again so the closed body is deferred before the export.
+	await closeLarge();
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
+	await openPalette(page);
+	await page.getByRole('combobox').fill('Exporter tous');
+	const downloadPromise = page.waitForEvent('download');
+	await page.keyboard.press('Enter');
+	const stream = await (await downloadPromise).createReadStream();
+	const parts: Buffer[] = [];
+	for await (const part of stream!) parts.push(part);
+	const { default: JSZip } = await import('jszip');
+	const zip = await JSZip.loadAsync(Buffer.concat(parts));
+	expect(await zip.file('large315.md')!.async('string')).toBe(content);
+});
+
 test('actions expose the library and renaming repairs incoming links', async ({ page }) => {
 	await seedFiles(page, [
 		{ name: 'alpha', content: 'Target' },

@@ -37,6 +37,17 @@ export const IMPORT_LIMITS = {
 	largeDocumentChars: 256 * 1024
 } as const;
 
+/**
+ * Closed documents keep their metadata in memory. Their body stays in Dexie
+ * above these limits, and an operation that needs it reads it on demand.
+ */
+export const DRAFT_CONTENT = {
+	/** A single closed document that stays inline at startup. */
+	maxInlineChars: IMPORT_LIMITS.largeDocumentChars,
+	/** Total closed body characters kept inline for a library. */
+	closedBudgetChars: 8 * 1024 * 1024
+} as const;
+
 export const BACKUP_LIMITS = {
 	maxDocuments: 3000,
 	maxWorkspaces: 300,

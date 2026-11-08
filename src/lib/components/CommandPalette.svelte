@@ -333,7 +333,7 @@
 								? ImageIcon
 								: FileText,
 			run: () => {
-				filesStore.reopen(file.id);
+				filesStore.openDocument(file.id);
 			}
 		})),
 		{

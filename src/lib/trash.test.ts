@@ -88,7 +88,7 @@ describe('restoreFromTrash', () => {
 
 		expect(ok).toBe(true);
 		expect(await db.trashed.get('r1')).toBeUndefined();
-		expect(await db.drafts.get('r1')).toEqual(row);
+		expect(await db.drafts.get('r1')).toMatchObject(row);
 	});
 });
 
@@ -123,7 +123,7 @@ describe('persistReorder', () => {
 		await persistReorder(['a']);
 
 		const row = await db.drafts.get('a');
-		expect(row).toEqual({
+		expect(row).toMatchObject({
 			id: 'a',
 			name: 'a.md',
 			content: 'contenu a',

@@ -803,7 +803,7 @@
 					aria-label={file.name}
 					aria-describedby={`closed-type-${file.id}`}
 					onclick={() => {
-						filesStore.reopen(file.id);
+						filesStore.openDocument(file.id);
 						if (isMobile) onClose();
 					}}
 				>

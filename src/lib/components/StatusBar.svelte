@@ -176,7 +176,7 @@
 		     Without this, the "saved Xs ago" label only moves every 10 s
 		     (setInterval), with no feedback that typing has been saved. -->
 		<div class="flex flex-wrap items-center gap-2">
-			{#if backupDue && onOpenSettings && filesStore.library.some((file) => file.content.trim())}
+			{#if backupDue && onOpenSettings && filesStore.library.some((file) => file.contentDeferred || file.content.trim())}
 				<button
 					class="text-accent underline"
 					onclick={() => {

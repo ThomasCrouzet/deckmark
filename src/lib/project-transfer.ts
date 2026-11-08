@@ -262,6 +262,9 @@ export async function transferProjectSelection(
 	options: TransferOptions
 ): Promise<TransferResult> {
 	await filesStore.flushPendingAwait();
+	const sourceProjectIdForContent = selection.projectId;
+	if (sourceProjectIdForContent) await filesStore.ensureProjectContent(sourceProjectIdForContent);
+	await filesStore.ensureContent(selection.documentIds ?? []);
 	const targetFolder = options.targetFolder ? projectPath(options.targetFolder) : undefined;
 	const prefix = folderPrefix(targetFolder);
 	const sourceProjectId = selection.projectId;

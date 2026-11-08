@@ -36,7 +36,9 @@
 
 	onMount(() => {
 		views = readCollectionViews();
-		void buildCollection(filesStore.library)
+		void filesStore
+			.ensureLibraryContent()
+			.then(() => buildCollection(filesStore.library))
 			.then((value) => {
 				rows = value;
 			})
