@@ -76,6 +76,8 @@ export default defineConfig({
 			name: 'firefox',
 			use: { ...devices['Desktop Firefox'] },
 			testMatch: [
+				'**/json-tools.spec.ts',
+				'**/code-editor.spec.ts',
 				'**/editor-state.spec.ts',
 				'**/toast-overlap.spec.ts',
 				'**/golden-path.spec.ts',
@@ -110,6 +112,8 @@ export default defineConfig({
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
 			testMatch: [
+				'**/json-tools.spec.ts',
+				'**/code-editor.spec.ts',
 				'**/split-view.spec.ts',
 				'**/toc-modes.spec.ts',
 				'**/navigation-stats-scroll.spec.ts',

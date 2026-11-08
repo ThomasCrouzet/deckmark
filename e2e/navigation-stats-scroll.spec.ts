@@ -1,7 +1,57 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createFirstFile, resetAppState, seedFiles, writeSourceContent } from './helpers';
+import { enableTypewriter, installTypewriterProbe } from './typewriter-helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+
+test('typewriter coalesces caret bursts and cancels work on mode exit', async ({ page }, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(
+		page,
+		Array.from({ length: 80 }, () => 'wrapped text '.repeat(40)).join('\n')
+	);
+	await page.locator('.cm-content').press('ControlOrMeta+Home');
+	await enableTypewriter(page);
+	await installTypewriterProbe(page);
+	await page.evaluate(async () => {
+		window.typewriterProbe.burst(30, true);
+		await window.typewriterProbe.settle();
+	});
+	const burst = await page.evaluate(() => window.typewriterProbe.sample());
+	await info.attach('typewriter-burst.json', {
+		body: JSON.stringify(burst, null, 2),
+		contentType: 'application/json'
+	});
+	expect.soft(burst.head - burst.anchor).toBe(30);
+	expect
+		.soft(burst.maxPending, 'one CodeMirror measure frame, no per-key frames')
+		.toBeLessThanOrEqual(2);
+	expect.soft(burst.centerHeads.length).toBeLessThanOrEqual(1);
+	expect.soft(burst.centerHeads.every((head) => head === burst.head)).toBe(true);
+	await page.evaluate(async () => {
+		window.typewriterProbe.burst(1, false);
+		await window.typewriterProbe.settle();
+	});
+	const centered = await page.evaluate(() => window.typewriterProbe.sample());
+	await info.attach('typewriter-centered.json', {
+		body: JSON.stringify(centered, null, 2),
+		contentType: 'application/json'
+	});
+	expect.soft(centered.centerHeads, 'collapsing a centered selection needs no scroll').toEqual([]);
+	await page.evaluate(async () => {
+		window.typewriterProbe.burst(30, false);
+		(document.querySelector('button[data-mode="read"]') as HTMLButtonElement).click();
+		await window.typewriterProbe.settle();
+	});
+	await expect(page.locator('.cm-content')).toHaveCount(0);
+	const exited = await page.evaluate(() => window.typewriterProbe.sample());
+	await info.attach('typewriter-exit.json', {
+		body: JSON.stringify(exited, null, 2),
+		contentType: 'application/json'
+	});
+	expect(exited.detachedDispatches).toBe(0);
+});
 
 async function seedTwo(page: Page) {
 	await seedFiles(page, [
@@ -9,6 +59,51 @@ async function seedTwo(page: Page) {
 		{ name: 'Second', content: 'Second document.' }
 	]);
 }
+
+test('typewriter cancels queued centering on disable and file switch', async ({ page }, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'Other', content: 'Other document.' },
+		{ name: 'Typewriter', content: 'wrapped text '.repeat(400) }
+	]);
+	await page.locator('.cm-content').press('ControlOrMeta+Home');
+	const results = [];
+	for (let cycle = 0; cycle < 3; cycle += 1) {
+		await enableTypewriter(page);
+		await installTypewriterProbe(page);
+		await page.getByRole('button', { name: 'Palette de commandes', exact: true }).click();
+		await page.getByRole('dialog').getByRole('combobox').fill('typewriter');
+		const disable = page.getByRole('option', { name: /Désactiver le mode typewriter/ });
+		await disable.evaluate(async (element) => {
+			window.typewriterProbe.burst(30, true);
+			(element as HTMLElement).click();
+			await window.typewriterProbe.settle();
+		});
+		await expect(page.locator('body')).not.toHaveClass(/typewriter-mode/);
+		const disabled = await page.evaluate(() => window.typewriterProbe.sample());
+		results.push(disabled);
+		expect.soft(disabled.centerHeads).toEqual([]);
+	}
+	await enableTypewriter(page);
+	await installTypewriterProbe(page);
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^Other/ })
+		.first()
+		.evaluate(async (element) => {
+			window.typewriterProbe.burst(30, false);
+			(element as HTMLElement).click();
+			await window.typewriterProbe.settle();
+		});
+	await expect(page.locator('.cm-content')).toContainText('Other document.');
+	const switched = await page.evaluate(() => window.typewriterProbe.sample());
+	await info.attach('typewriter-lifecycle.json', {
+		body: JSON.stringify({ disabled: results, switched }, null, 2),
+		contentType: 'application/json'
+	});
+	expect(switched.detachedDispatches).toBe(0);
+	expect(switched.centerHeads).toEqual([]);
+});
 
 test('the logo opens the start view and keeps tabs and pending edits', async ({
 	page
