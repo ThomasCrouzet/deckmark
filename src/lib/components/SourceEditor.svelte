@@ -1,13 +1,19 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import type { ChangeSet, Transaction } from '@codemirror/state';
-	import type { EditorView, ViewUpdate } from '@codemirror/view';
+	import type { EditorView } from '@codemirror/view';
 	import { i18n, t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
-	import { applySourceChanges } from '#lib/code/text-changes.js';
+	import type { SourceText } from '#lib/code/source-text.js';
+	import { resolveRejectedNativeChange } from '#lib/code/native-adapter.js';
+	import type {
+		DocumentChange,
+		DocumentRevision,
+		DocumentSnapshot
+	} from '#lib/document-revisions.js';
 
 	interface Props {
 		fileId: string;
@@ -17,6 +23,12 @@
 		/** Code and plain-text documents skip the Markdown parser and guard. */
 		plainText?: boolean;
 		onChange: (markdown: string) => void;
+		/** Writes the final accepted bytes to the outgoing file before detach. */
+		onFlush?: (fileId: string, markdown: string) => void;
+		/** Store authority for the next native change. */
+		getRevision?: ((fileId: string) => DocumentRevision | null) | undefined;
+		applyChange?: ((change: DocumentChange) => DocumentRevision | null) | undefined;
+		resyncSnapshot?: ((fileId: string) => DocumentSnapshot | null) | undefined;
 		onCursorLine?: (line: number) => void;
 		onViewportLine?: (line: number) => void;
 	}
@@ -28,6 +40,10 @@
 		fillContainer = false,
 		plainText = false,
 		onChange,
+		onFlush,
+		getRevision,
+		applyChange,
+		resyncSnapshot,
 		onCursorLine,
 		onViewportLine
 	}: Props = $props();
@@ -40,6 +56,16 @@
 		if (!view) return '';
 		const { from, to } = view.state.selection.main;
 		return from === to ? '' : view.state.sliceDoc(from, to);
+	}
+
+	/**
+	 * Returns the accepted raw bytes for this mounted file. `revision` is local
+	 * to the buffer; it is not a store generation. Callers must use `fileId`.
+	 */
+	export function getSnapshot(): { fileId: string; revision: number; text: string } | null {
+		if (!view || !buffer) return null;
+		if (!nativeActive()) flushPublish();
+		return { fileId, revision: buffer.revision, text: buffer.getText() };
 	}
 
 	let host: HTMLDivElement;
@@ -62,20 +88,188 @@
 	}
 
 	let applyingExternal = false;
+	// Immutable raw bytes for the mounted document. Ordinary changes update this
+	// buffer without scanning line endings or materializing the full string.
+	let SourceTextImpl: typeof SourceText | null = null;
+	let buffer: SourceText | null = null;
+	let publishTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastPublishAt = Number.NEGATIVE_INFINITY;
+	const PUBLISH_THROTTLE_MS = 150;
 	// True when the last accepted source contains the presentation marker
 	// substring. A marker-free note can only become a presentation by creating
 	// that substring, which the fast path tests locally.
 	let sourceHasPresentationMarker = false;
-	// Full source that the change filter computed for an accepted risky
+	// Candidate buffer that the change filter computed for an accepted risky
 	// transaction. The update listener reuses it when the ChangeSet identity
 	// matches, so one accepted risky change converts once.
-	let pendingGuard: { changes: ChangeSet; source: string } | null = null;
+	let pendingGuard: { changes: ChangeSet; buffer: SourceText | null } | null = null;
+	// Store authority for the next native change. The buffer revision is a
+	// separate, editor-local counter and is never used as this base.
+	let acceptedBase: DocumentRevision | null = null;
+	let nativeBlocked = false;
+	function nativeCapable(): boolean {
+		return Boolean(getRevision && applyChange && resyncSnapshot);
+	}
 
 	const PRESENTATION_MARKER = '<!-- mdsh-presentation';
 	const MAX_GUARD_LINE = 4096;
 
-	function sourceChanges(update: Pick<ViewUpdate, 'startState' | 'changes'>): string {
-		return applySourceChanges(lastEmitted, update.startState, update.changes);
+	function createSourceText(source: string, doc: import('@codemirror/state').Text): SourceText {
+		if (!SourceTextImpl) throw new Error('source text module is not loaded');
+		return SourceTextImpl.create(source, doc);
+	}
+
+	function candidateBuffer(transaction: Transaction): SourceText {
+		if (!buffer) return createSourceText(transaction.newDoc.toString(), transaction.newDoc);
+		try {
+			return buffer.apply(transaction.changes, transaction.newDoc);
+		} catch {
+			return createSourceText(transaction.newDoc.toString(), transaction.newDoc);
+		}
+	}
+
+	function applyBufferChange(
+		changes: ChangeSet,
+		doc: import('@codemirror/state').Text
+	): SourceText {
+		if (!buffer) return createSourceText(doc.toString(), doc);
+		try {
+			return buffer.apply(changes, doc);
+		} catch (error) {
+			reportError('source buffer resync', error);
+			return createSourceText(doc.toString(), doc);
+		}
+	}
+
+	/** Materializes the captured raw bytes. Call only at a publication boundary. */
+	function materialize(): string {
+		if (!buffer) return lastEmitted;
+		return SOURCE_METRICS
+			? sourceMeasure('mdsh:source-change', () => buffer!.getText())
+			: buffer.getText();
+	}
+
+	/** Publishes the latest accepted bytes to the existing string adapter. */
+	function publish(): void {
+		if (!buffer || !view) return;
+		const text = materialize();
+		if (text !== lastEmitted) {
+			lastEmitted = text;
+			sourceMark('mdsh:source-string-publish');
+			onChange(text);
+		}
+	}
+
+	/**
+	 * Publishes the first change after a pause immediately, then coalesces a
+	 * typing burst to one raw materialization per interval. Accepted changes
+	 * still update the immutable buffer immediately.
+	 */
+	function schedulePublish(): void {
+		if (publishTimer !== null) return;
+		const wait = Math.max(0, PUBLISH_THROTTLE_MS - (performance.now() - lastPublishAt));
+		publishTimer = setTimeout(() => {
+			publishTimer = null;
+			lastPublishAt = performance.now();
+			publish();
+		}, wait);
+	}
+
+	function cancelPublish(): void {
+		if (publishTimer === null) return;
+		clearTimeout(publishTimer);
+		publishTimer = null;
+	}
+
+	/** Synchronous boundary: save, export, pagehide, detach or a public snapshot. */
+	function flushPublish(): void {
+		cancelPublish();
+		publish();
+	}
+
+	/** Captures the outgoing file before detach. */
+	function flushOutgoing(): void {
+		if (!view || !buffer) return;
+		// The native path already applied the latest accepted change to the store.
+		// Do not publish a string or overwrite a blocked conflict.
+		if (nativeActive()) return;
+		cancelPublish();
+		const text = materialize();
+		const changed = text !== lastEmitted;
+		lastEmitted = text;
+		if (onFlush) onFlush(fileId, text);
+		else if (changed) onChange(text);
+	}
+
+	function nativeActive(): boolean {
+		return nativeCapable() && acceptedBase !== null;
+	}
+
+	/**
+	 * Applies an accepted external snapshot as one bounded native change.
+	 * CodeMirror maps selection, viewport, search and history through it.
+	 */
+	function applyExternalSource(text: string, cm: CMModule, current: EditorView): void {
+		cancelPublish();
+		lastEmitted = text;
+		sourceHasPresentationMarker = text.includes(PRESENTATION_MARKER);
+		pendingGuard = null;
+		applyingExternal = true;
+		try {
+			const change = cm.patch(current.state, text);
+			if (change) {
+				current.dispatch({
+					changes: change,
+					annotations: cm.Transaction.addToHistory.of(false)
+				});
+			}
+		} finally {
+			applyingExternal = false;
+		}
+		buffer = createSourceText(text, current.state.doc);
+	}
+
+	/**
+	 * A rejected native change must not be forced through a fresh base. Adopt an
+	 * authoritative snapshot only when its captured text equals the previous
+	 * accepted text. Otherwise keep the local work and stop publishing.
+	 */
+	function handleRejectedChange(
+		previous: SourceText | null,
+		accepted: SourceText,
+		changes: ChangeSet,
+		state: import('@codemirror/state').EditorState
+	): void {
+		if (!applyChange) {
+			nativeBlocked = true;
+			return;
+		}
+		const snapshot = resyncSnapshot?.(fileId) ?? null;
+		const decision = resolveRejectedNativeChange(
+			fileId,
+			previous ? previous.getText() : '',
+			snapshot
+		);
+		if (decision.kind === 'block') {
+			nativeBlocked = true;
+			sourceMark('mdsh:source-native-block');
+			notify.error(t('documents.nativeConflict'));
+			return;
+		}
+		acceptedBase = decision.revision;
+		const next = applyChange({
+			base: decision.revision,
+			edits: { kind: 'codemirror', changes, state },
+			readText: () => accepted.getText()
+		});
+		if (next) {
+			acceptedBase = next;
+			sourceMark('mdsh:source-native-resync');
+			return;
+		}
+		nativeBlocked = true;
+		sourceMark('mdsh:source-native-block');
+		notify.error(t('documents.nativeConflict'));
 	}
 
 	/**
@@ -140,6 +334,7 @@
 	let typewriterCompartmentRef: import('@codemirror/state').Compartment | null = null;
 	let localeCompartmentRef: import('@codemirror/state').Compartment | null = null;
 	let activeCM: CMModule | null = null;
+	let removeFlushListener: (() => void) | null = null;
 
 	/*
 	 * CodeMirror is heavy (~150 KB). Lazy-loaded on the first mount of source
@@ -195,11 +390,13 @@
 
 	function saveSourceState(): void {
 		if (!view || !activeCM) return;
+		if (!nativeActive()) flushPublish();
+		const cachedText = buffer ? buffer.getText() : lastEmitted;
 		const selection = view.state.selection.main;
 		editorStateCache.setSourceState(
 			fileId,
 			{
-				content: lastEmitted,
+				content: cachedText,
 				state: view.state.toJSON({ history: activeCM.historyField })
 			},
 			{
@@ -222,6 +419,7 @@
 					import('@codemirror/language'),
 					import('@codemirror/search')
 				]);
+				SourceTextImpl = lang.SourceText;
 				return {
 					EditorState: state.EditorState,
 					imageData: lang.imageData,
@@ -420,12 +618,15 @@
 					pendingGuard = null;
 					return true;
 				}
+				// Risky change: validate a candidate buffer without mutating the
+				// accepted one. Only this guarded path materializes raw text.
+				const candidate = candidateBuffer(transaction);
 				const source = SOURCE_METRICS
-					? sourceMeasure('mdsh:source-guard', () => sourceChanges(transaction))
-					: sourceChanges(transaction);
+					? sourceMeasure('mdsh:source-guard', () => candidate.getText())
+					: candidate.getText();
 				if (documentKind(source) === 'note') {
 					sourceHasPresentationMarker = source.includes(PRESENTATION_MARKER);
-					pendingGuard = { changes: transaction.changes, source };
+					pendingGuard = { changes: transaction.changes, buffer: candidate };
 					return true;
 				}
 				pendingGuard = null;
@@ -443,19 +644,32 @@
 				if (update.docChanged && !applyingExternal) {
 					const cached = pendingGuard;
 					pendingGuard = null;
-					let v: string;
-					if (cached && cached.changes === update.changes) {
-						v = cached.source;
+					const previous = buffer;
+					if (cached?.changes === update.changes && cached.buffer) {
+						buffer = cached.buffer;
 						sourceMark('mdsh:source-change-reuse');
 					} else {
-						v = SOURCE_METRICS
-							? sourceMeasure('mdsh:source-change', () => sourceChanges(update))
-							: sourceChanges(update);
-						sourceHasPresentationMarker = v.includes(PRESENTATION_MARKER);
+						buffer = applyBufferChange(update.changes, update.state.doc);
+						sourceMark('mdsh:source-buffer-apply');
 					}
-					if (v !== lastEmitted) {
-						lastEmitted = v;
-						onChange(v);
+					if (nativeActive() && applyChange) {
+						if (!nativeBlocked) {
+							const accepted = buffer!;
+							const next = applyChange({
+								base: acceptedBase!,
+								edits: { kind: 'codemirror', changes: update.changes, state: update.state },
+								readText: () => accepted.getText()
+							});
+							if (next) {
+								acceptedBase = next;
+								sourceMark('mdsh:source-native-apply');
+							} else {
+								sourceMark('mdsh:source-native-reject');
+								handleRejectedChange(previous, accepted, update.changes, update.state);
+							}
+						}
+					} else {
+						schedulePublish();
 					}
 				}
 			}),
@@ -497,7 +711,22 @@
 		onCursorLine?.(view.state.doc.lineAt(view.state.selection.main.head).number);
 		onViewportLine?.(view.state.doc.lineAt(view.viewport.from).number);
 		lastEmitted = content;
+		buffer = createSourceText(content, view.state.doc);
 		sourceHasPresentationMarker = content.includes(PRESENTATION_MARKER);
+		acceptedBase = nativeCapable() ? (getRevision?.(fileId) ?? null) : null;
+		nativeBlocked = false;
+		const flushListener = (event: Event) => {
+			if (nativeActive()) {
+				if (nativeBlocked) {
+					event.preventDefault();
+					notify.error(t('documents.nativeConflict'));
+				}
+				return;
+			}
+			flushPublish();
+		};
+		window.addEventListener('mdsh:flush-editor', flushListener);
+		removeFlushListener = () => window.removeEventListener('mdsh:flush-editor', flushListener);
 		if (savedPosition?.scrollTop) {
 			const mountedView = view;
 			mountedView.requestMeasure({
@@ -544,21 +773,29 @@
 	 */
 	$effect(() => {
 		const c = content;
-		if (!view || !activeCM || c === lastEmitted) return;
-		const change = activeCM.patch(view.state, c);
-		lastEmitted = c;
-		sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
-		pendingGuard = null;
-		if (!change) return;
-		applyingExternal = true;
-		try {
-			view.dispatch({
-				changes: change,
-				annotations: activeCM.Transaction.addToHistory.of(false)
-			});
-		} finally {
-			applyingExternal = false;
+		if (!view || !activeCM) return;
+		if (nativeActive()) {
+			// A blocked conflict keeps the rejected local work. Do not replace it.
+			if (nativeBlocked) return;
+			const canonical = getRevision?.(fileId) ?? null;
+			if (
+				canonical &&
+				acceptedBase &&
+				canonical.fileId === acceptedBase.fileId &&
+				canonical.generation === acceptedBase.generation
+			) {
+				// Own echo: the store published our accepted revision. Adopt its
+				// already-materialized text without replacing the document.
+				lastEmitted = c;
+				return;
+			}
+			if (c === lastEmitted) return;
+			// True external change: apply a bounded patch from the canonical revision.
+			acceptedBase = canonical;
+		} else if (c === lastEmitted) {
+			return;
 		}
+		applyExternalSource(c, activeCM, view);
 	});
 
 	$effect(() => {
@@ -577,9 +814,14 @@
 	});
 
 	onDestroy(() => {
+		flushOutgoing();
 		saveSourceState();
+		removeFlushListener?.();
+		removeFlushListener = null;
 		view?.destroy();
 		view = null;
+		buffer = null;
+		cancelPublish();
 		activeCM = null;
 		typewriterCompartmentRef = null;
 		localeCompartmentRef = null;
