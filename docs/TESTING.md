@@ -49,6 +49,71 @@ cache counters.
 
 ## Release review regressions
 
+### Versioned JSON worker risks
+
+The JSON browser workflows retain these risks: a full parse on the input thread,
+unbounded snapshots, stale diagnostics after edits or file changes, a cancelled
+action that changes source, lost number or escape tokens, grouped undo, deep input,
+invalid large input, and duplicate-key loss. Run the JSON and code editor specs with
+one Chromium worker. The JSON profile attaches raw paint samples, fixture hashes,
+request and response times, and main-thread long tasks. Chromium attempts a CDP
+worker heap measurement. Other engines report an unavailable counter. This profile
+does not replace the benchmark gate or native checks.
+
+Run `npx playwright test e2e/json-tools.spec.ts e2e/code-editor.spec.ts --project=chromium --workers=1 --retries=0`.
+The standard report retains fixtures, traces on failure, source metadata, and the
+`json-worker-profile.json` attachment. Firefox and WebKit include these specs in
+their remote project lists. No existing performance budget changes.
+
+The optional schema callback is not exposed by a browser workflow. Isolated JSON
+tests retain callback output and exception semantics and check parsed-value reuse.
+This bridge cannot move an arbitrary caller closure into a Worker.
+
+The JSON workflow also holds revalidation while an unchanged minify action or an
+injected action transport failure replaces it. Both paths must clear Checking,
+preserve saved bytes and permit Validate to retry. The formatting workflow checks
+a reversed noncollapsed selection and single undo. The JSON offline case uses a
+private production-asset server. WebKit stops that origin and proves access fails;
+Chromium and Firefox use browser offline emulation. Each case confirms service
+worker control, reload, exact formatted bytes and undo, and attaches request and
+response evidence. The fixture changes only its test root precache revision and
+release marker. This is not native or production-CSP acceptance.
+
+The duplicate/CRLF workflow must not require an unused OPFS file. WebKit rejected
+that setup before the required CRLF checks. Keep duplicate keys, saved CRLF bytes,
+the download filename and actual exported bytes as exact assertions. A local
+rejecting OPFS trap received no calls after removal. A corrupt export kept saved
+CRLF text but downloaded LF text and failed the unchanged byte assertion.
+Retained local evidence: `/home/thomas/.hermes/tasks/deckmark-issues-20261107/issue-314/ci-repro-20261108/result.md`
+and its JSON receipts. Three byte-identical archived recovery cases executed;
+three duplicate cases did not run. This is mechanism evidence, not CI acceptance.
+
+### Source typewriter centering
+
+Retain these risks for issue 328: a key burst can queue obsolete scroll targets;
+an already centered caret can cause a redundant scroll transaction; a disabled or
+destroyed extension can dispatch against the old view; wrapped text can change
+caret geometry; selection, composition, undo, accessible input and saved bytes
+can change while the mode is active.
+
+Run `npx playwright test navigation-stats-scroll.spec.ts editor-input-latency.spec.ts
+--grep typewriter --project=chromium --workers=1 --retries=0 --trace=on`.
+Keep the standard source metadata, trace, screenshots and attached JSON files.
+The performance cases record raw frame intervals, p50, p95, pending frame counts,
+center scroll targets and fixture hashes for small, 1 MB and 5 MB notes. Counts
+include the CodeMirror measure frame. The probe uses real editor key handlers.
+It does not prove physical key repeat, a native IME or screen-reader output.
+The existing strict performance budgets stay unchanged.
+Run `npx playwright test keyboard-platform.spec.ts --grep typewriter --workers=1`
+for the accessible input, synthetic composition, selection, undo and save case.
+This spec is in the Chromium, Firefox and WebKit project lists. The navigation
+cases also check repeated disable and re-enable, mode exit and a file switch.
+Construct `InputEvent` explicitly for a synthetic `beforeinput` history action.
+Playwright's generic event driver does not retain `inputType`. The keyboard case
+checks the constructor, target, input type and cancellation before it checks redo.
+Use `CompositionEvent` for the synthetic composition boundaries. These events do
+not reproduce an operating-system input method.
+
 `e2e/review-regressions.spec.ts` checks these failures through the application:
 
 - A rename can replace a code or image extension with `.md`. Compare downloaded
@@ -437,6 +502,25 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
 
 ## Performance benchmarks and native WebView coverage
 
+### Gesture geometry cache risks
+
+Issue 317 retains these risks: equal-distance candidate order, signed connectors,
+moving connector targets, selected groups, fractional canvas scales, stale static
+geometry, slide dimensions, and queued frames after cancel, undo, or slide change.
+`src/lib/presentation/gestures-cache.test.ts` compares real gesture results with the
+previous scan over seeded layouts. It also counts stationary geometry reads. A
+browser timing sample cannot prove that no geometry read occurs or exhaustively
+check tie ordering. The isolated checks use the real editor and render geometry.
+
+Run `npx vitest run src/lib/presentation/gestures-cache.test.ts --maxWorkers=1`.
+Run `npx playwright test presentation-performance.spec.ts --project=chromium --workers=1`.
+The dense cases retain raw frame intervals, p50/p95, long tasks, fixture hashes,
+source identity, environment and browser identity. These additive measurements do
+not replace the existing strict performance assertions or native acceptance.
+Run the `gesture guides` case in `presentation-responsive-tasks.spec.ts` for
+visible pointer cancellation, undo, slide changes and exact keyboard nudges.
+Keep all reports local with the standard JSON and HTML run artifacts.
+
 Use `scripts/benchmark-local.mjs` for repeatable performance evidence. It is one
 command with two separate targets. A web run and a native run never share a
 result, because a browser process and a native WebView have different renderers,
@@ -553,6 +637,73 @@ has unequal hardware and a shared CPU.
   command result does not prove that an operating-system hotkey is available.
   Hotkey registration on macOS and Windows is recorded only by the CI runners,
   and the system can refuse a shortcut that another application owns.
+
+### Viewport annotation risks
+
+`e2e/read-annotations.spec.ts` checks active ink on 1 MB and 5 MB notes at DPR 2.
+The bitmap must fit the read viewport, with a 4096 pixel side limit and a 16 MiB
+RGBA area limit. Keep document dimensions separate from bitmap dimensions.
+The generated notes use repeated plain paragraphs and record exact fixture hashes.
+
+The projection workflow checks pen, transparent highlighter and eraser pixels after
+vertical and horizontal scroll, resize, offscreen culling and a file switch. It
+forces article width to exercise horizontal overflow. A separate workflow injects
+DPR 16 to test the allocation cap, then checks pointer input at CSS zoom 1.25.
+This is not physical-device or native browser zoom evidence. DPR 2 is a real
+browser-context setting. Existing cases keep Clear, print, reload and keyboard
+coverage. `e2e/image-annotations.spec.ts` retains flattened PNG export and original
+image byte checks. Read-view strokes remain temporary and do not enter exports.
+
+The canvas must stay at the same viewport position in the task that changes native
+scroll offsets. A delayed scroll event or ink frame must not move the surface.
+The same-task scroll regression records the actual offset change, canvas identity,
+scroller identity and scroller rectangle before it checks exact canvas coordinates.
+It does not replace the original workflow or add a wait before its position check.
+An absent scroll, changed surface or changed layout is not position-failure proof.
+
+A viewport overlay can cover scrollbars, escape the scroll viewport or break pointer
+input. Keep both canvas dimensions within the scroller client area and keep clipping.
+A stationary box can still hold wrongly projected ink. Keep the point-specific
+scroll, resize, DPR, pen, highlighter and eraser checks. Keep pointer capture, file
+switch, reload, keyboard and print checks. Same-task geometry does not prove correct
+stroke projection before a queued redraw or establish a past remote callback order.
+
+The zero-size sticky anchor keeps the canvas in the native scroller for clipping
+and wheel input. It must not add document width or height. Canvas position does
+not depend on the queued ink renderer. Raster redraw still uses the current scroll
+offsets and the existing animation-frame scheduler.
+
+Clear removes stroke data immediately and clears the bitmap in the queued animation
+frame. A completed button click does not confirm that this frame has run. Use the
+existing `inkFrame()` helper before the Clear pixel check. Require exactly zero
+nontransparent pixels. Do not use a fixed delay or a pixel tolerance. A browser
+probe must distinguish pixels before and after the queued clear. A missing canvas
+clear must still fail the zero-pixel check after the frame wait.
+
+Scroll also queues canvas compensation. Use `inkFrame()` after the scroll change
+and before reading the canvas box. Keep exact viewport y equality. The retained
+issue 314 probe observed y=-108 before compensation and y=52 on frame 2. Releasing
+a held callback restored y=52. A persistent transform defect still failed the
+same equality after the wait. Both positive cases kept ink, content, saved-state,
+print and reload assertions. Local evidence does not establish the remote cause.
+
+Run the focused checks against the production preview:
+
+```sh
+npm run test:e2e -- e2e/read-annotations.spec.ts e2e/image-annotations.spec.ts --project=chromium --workers=1 --retries=0
+npm run test:e2e -- e2e/read-annotations.spec.ts --project=webkit --workers=1 --retries=0
+npm run test:e2e -- e2e/read-annotations.spec.ts --project=chromium --workers=1 --retries=0 --grep 'keeps the ink viewport fixed in the native scroll task' --trace=on
+```
+
+Keep JSON and HTML reports, source snapshots, command exits, screenshots, engine
+versions, OS, build mode and fixture hashes. Long-note cases retain raw intervals
+from a scroll change to two animation frames, p50 and p95, estimated canvas bytes
+and Chromium heap usage. Other engines report heap measurement as unavailable.
+These timings are diagnostic, not a new performance budget or a strict gate pass.
+Native Desktop and physical display checks remain separate acceptance work.
+The same-task case attaches `native-scroll-position.json` and a screenshot even
+when its position assertion fails. Keep that first failure and its trace. A later
+green run does not remove the original remote flake or complete issue acceptance.
 
 ### Native WebView workflow coverage
 
@@ -782,6 +933,17 @@ npm run test:e2e -- durability-review.spec.ts note-type-guard.spec.ts read-previ
 Keep the HTML and JSON reports, fixtures, downloads, screenshots, and failure
 traces with the command and source identity. Development-server results establish
 the correction only. Run the complete production suite before release.
+
+### Command palette shortcut after reload
+
+`e2e/audit-ui.spec.ts` proves a customized palette shortcut persists across a
+reload. A shortcut sent before the application is interactive is discarded by
+design, so the case waits for `.mdsh-shell[aria-busy="false"]:not([inert])`
+immediately after `page.reload()`, as `resetAppState` does. Without that wait a
+bootstrap race can fail the case for a reason it does not intend to test. The
+readiness wait does not relax the click, the custom value, the chord, the dialog
+assertion, or the assertion timeout. Removing the stored override must still keep
+the configured shortcut from opening the palette after the app is interactive.
 
 ## Documentation check risks
 

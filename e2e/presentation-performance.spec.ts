@@ -1,5 +1,11 @@
-import { createHash } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import {
+	createDeck,
+	createElement,
+	createSlide,
+	serializePresentation
+} from '../src/lib/presentation/model';
 import { resetAppState } from './helpers';
 import {
 	createPresentation,
@@ -386,3 +392,158 @@ test('bounds the presentation content cache under unique large slides', async ({
 	expect(stats.evictions).toBeGreaterThan(0);
 	expect(stats.inFlight).toBe(0);
 });
+
+for (const count of [200, 1000, 2000]) {
+	test(`records dense gesture samples with ${count} elements on one slide`, async ({
+		page,
+		browser
+	}, info) => {
+		test.skip(info.project.name !== 'chromium', 'Dense timing evidence uses Chromium.');
+		test.setTimeout(90000);
+		await resetEnglishApp(page);
+		const editor = await createPresentation(page);
+		const fixture = serializePresentation(
+			createDeck({
+				slides: [
+					createSlide({
+						id: 'dense-slide',
+						elements: [
+							...Array.from({ length: count - 1 }, (_, index) =>
+								createElement('rectangle', {
+									id: `fixed-${index}`,
+									x: 500 + (index % 50) * 12,
+									y: 300 + Math.floor(index / 50) * 8,
+									width: 10,
+									height: 6
+								})
+							),
+							createElement('rectangle', {
+								id: 'dense-moving',
+								x: 100,
+								y: 100,
+								width: 40,
+								height: 30
+							})
+						]
+					})
+				]
+			})
+		);
+		await info.attach('dense-fixture.md', { body: fixture, contentType: 'text/markdown' });
+		await openPresentationSource(editor);
+		await editor.getByTestId('slide-source-editor').fill(fixture);
+		await editor.getByTestId('slide-source-apply').click();
+		await expect(editor.getByTestId('slide-object')).toHaveCount(count);
+		const target = editor.locator('[data-object-id="dense-moving"]');
+		await target.click({ trial: true });
+		const before = (await target.boundingBox())!;
+		await page.evaluate(() => {
+			const state = {
+				frames: [] as number[],
+				pointerToFrame: [] as number[],
+				longTasks: [] as number[],
+				running: true,
+				last: 0,
+				observer: undefined as PerformanceObserver | undefined
+			};
+			const tick = (time: number) => {
+				if (!state.running) return;
+				if (state.last) state.frames.push(time - state.last);
+				state.last = time;
+				requestAnimationFrame(tick);
+			};
+			if (PerformanceObserver.supportedEntryTypes.includes('longtask')) {
+				state.observer = new PerformanceObserver((list) =>
+					state.longTasks.push(...list.getEntries().map((entry) => entry.duration))
+				);
+				state.observer.observe({ entryTypes: ['longtask'] });
+			}
+			document.addEventListener(
+				'pointermove',
+				(event) => {
+					if (!state.running || event.buttons !== 1) return;
+					const start = event.timeStamp;
+					requestAnimationFrame(() => state.pointerToFrame.push(performance.now() - start));
+				},
+				{ capture: true }
+			);
+			(globalThis as typeof globalThis & { __denseTiming?: typeof state }).__denseTiming = state;
+			requestAnimationFrame(tick);
+		});
+		const x = before.x + before.width / 2;
+		const y = before.y + before.height / 2;
+		await page.mouse.move(x, y);
+		await page.mouse.down();
+		for (let step = 1; step <= 40; step++) {
+			await page.mouse.move(x + step * 2, y + step, { steps: 1 });
+			await page.evaluate(
+				() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+			);
+		}
+		await page.mouse.up();
+		const metrics = await page.evaluate(() => {
+			const state = (
+				globalThis as typeof globalThis & {
+					__denseTiming: {
+						frames: number[];
+						pointerToFrame: number[];
+						longTasks: number[];
+						running: boolean;
+						observer?: PerformanceObserver;
+					};
+				}
+			).__denseTiming;
+			state.running = false;
+			state.longTasks.push(...(state.observer?.takeRecords() ?? []).map((entry) => entry.duration));
+			state.observer?.disconnect();
+			const summary = (values: number[]) => {
+				const sorted = [...values].sort((a, b) => a - b);
+				return {
+					count: values.length,
+					p50: sorted[Math.floor(sorted.length * 0.5)] ?? null,
+					p95: sorted[Math.floor(sorted.length * 0.95)] ?? null,
+					max: sorted.at(-1) ?? null
+				};
+			};
+			return {
+				frameIntervalsMs: state.frames,
+				frames: summary(state.frames),
+				pointerToFrameMs: state.pointerToFrame,
+				pointerToFrame: summary(state.pointerToFrame),
+				longTasksMs: state.longTasks,
+				longTasks: summary(state.longTasks),
+				longTaskSupport: PerformanceObserver.supportedEntryTypes.includes('longtask')
+			};
+		});
+		const after = (await target.boundingBox())!;
+		await info.attach('dense-gesture.json', {
+			body: JSON.stringify(
+				{
+					command: info.config.metadata.command,
+					source: info.config.metadata.source,
+					diff: info.config.metadata.workingDiffSha256,
+					environment: info.config.metadata.environment,
+					browser: browser.version(),
+					project: info.project.name,
+					buildMode: 'instrumented-production-web',
+					fixture: {
+						elementsPerSlide: count,
+						slides: 1,
+						sha256: createHash('sha256').update(fixture).digest('hex')
+					},
+					metrics,
+					movement: { x: after.x - before.x, y: after.y - before.y },
+					strictBudgetGate: false,
+					limits:
+						'Diagnostic only. Pointer-to-frame is not physical input latency or paint completion. No native claim.'
+				},
+				null,
+				2
+			),
+			contentType: 'application/json'
+		});
+		expect(metrics.frames.count).toBeGreaterThanOrEqual(30);
+		expect(after.x - before.x).toBeGreaterThan(30);
+		expect(after.y - before.y).toBeGreaterThan(10);
+	});
+}

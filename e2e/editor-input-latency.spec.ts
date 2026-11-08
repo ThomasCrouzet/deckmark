@@ -1,5 +1,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
+import { createHash } from 'node:crypto';
+import { enableTypewriter, installTypewriterProbe } from './typewriter-helpers';
 
 const counterKey = 'deckmark:editor-perf-counters';
 const largeId = 'perf-large';
@@ -134,6 +136,63 @@ test.afterEach(async ({ page }, info) => {
 	await info.attach('final.png', { body: await page.screenshot(), contentType: 'image/png' });
 });
 
+for (const bytes of [4_000, 1_000_000, 5_000_000]) {
+	test(`typewriter bounds wrapped caret work on ${bytes} bytes`, async ({ page }, info) => {
+		test.setTimeout(90_000);
+		const content = largeNote(bytes);
+		await seedNote(page, sourceId, content);
+		await page.evaluate(() => localStorage.setItem('mdsh:locale', 'fr'));
+		await page.reload();
+		await expect(page.locator('.cm-content')).toBeVisible({ timeout: 30_000 });
+		await enableTypewriter(page);
+		await installTypewriterProbe(page);
+		const cdp = await page.context().newCDPSession(page);
+		await cdp.send('Performance.enable');
+		const before = await cdp.send('Performance.getMetrics');
+		const samples = [];
+		for (let run = 0; run < 5; run += 1) {
+			await page.evaluate(
+				async (select) => {
+					window.typewriterProbe.burst(40, select);
+					await window.typewriterProbe.settle();
+				},
+				run % 2 === 0
+			);
+			samples.push(await page.evaluate(() => window.typewriterProbe.sample()));
+		}
+		const intervals = samples.flatMap((sample) => sample.frames).sort((a, b) => a - b);
+		const after = await cdp.send('Performance.getMetrics');
+		await info.attach('typewriter-performance.json', {
+			body: JSON.stringify(
+				{
+					fixture: {
+						generator: 'largeNote',
+						bytes: Buffer.byteLength(content),
+						sha256: createHash('sha256').update(content).digest('hex')
+					},
+					browser: page.context().browser()?.version(),
+					layoutMetrics: { before: before.metrics, after: after.metrics },
+					method:
+						'Five same-task 40-key bursts. Twenty animation frame intervals per burst. Reduced motion. No timing budget change.',
+					p50: intervals[Math.ceil(intervals.length * 0.5) - 1],
+					p95: intervals[Math.ceil(intervals.length * 0.95) - 1],
+					samples
+				},
+				null,
+				2
+			),
+			contentType: 'application/json'
+		});
+		for (const sample of samples) {
+			expect.soft(sample.maxPending).toBeLessThanOrEqual(2);
+			expect.soft(sample.centerHeads.length).toBeLessThanOrEqual(1);
+			expect.soft(sample.centerHeads.every((head) => head === sample.head)).toBe(true);
+			expect.soft(Math.abs(sample.centerError ?? Infinity)).toBeLessThanOrEqual(3);
+		}
+		expect(await storedContent(page, sourceId)).toBe(content);
+	});
+}
+
 test('ordinary visual typing avoids full-document validation', async ({ page }, info) => {
 	test.setTimeout(120_000);
 	const content = largeNote(240_000);
@@ -174,8 +233,9 @@ test('ordinary source typing converts once per accepted change and keeps CRLF by
 	page
 }, info) => {
 	test.setTimeout(60_000);
-	const initial = '# Source bytes\r\n\r\nOriginal paragraph.\r\n';
+	const initial = '\uFEFF# Source bytes\r\n\r\nOriginal paragraph.\r\n';
 	await seedNote(page, sourceId, initial);
+	await page.evaluate(() => localStorage.setItem('mdsh:typewriter', '1'));
 	await page.reload();
 	const source = page.locator('.cm-content');
 	await expect(source).toBeVisible({ timeout: 30_000 });
