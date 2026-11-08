@@ -279,6 +279,16 @@ keeps unchanged CRLF and mixed line endings through Source and Split edits.
 The source fidelity browser report compares actual exported source with an
 explicit expected file and retains both Git diffs.
 
+Inactive editor history is optional and lazy. `EditorHistoryCache` keeps at most
+32 full snapshots and 16 MiB of estimated history and text retention. The boot
+graph keeps only `EditorStateCache` with up to 256 navigation entries. The
+estimate counts raw text, native text, line overhead and accepted transactions.
+A nonempty unknown effect provider is refused. History eviction removes only the
+least recently used snapshot. Cursor, selection and scroll data stay in the
+navigation map. The active editor, the FilesStore body and the 400 ms save queue
+stay the content owners, so a dropped history cannot lose unsaved text or an undo
+step from another file.
+
 ## Durability is a state transition, not a timer
 
 The 400 ms save debounce is an optimization, not proof that content is durable. `SaveQueue` serializes writes per document and records a rejected IndexedDB revision as a durability failure. `flushAwait()` retries failed rows and rejects while any in-memory revision is not represented in IndexedDB. Backup export, restore, and workspace replacement stop at that barrier. The UI reports the error without converting it into a successful save.

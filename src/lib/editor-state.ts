@@ -1,7 +1,8 @@
 import type { EditMode } from './types';
 
 const STORAGE_KEY = 'mdsh:editor-view-state';
-export const EDITOR_STATE_CACHE_LIMIT = 32;
+const MAX_FILE_ID_LENGTH = 1024;
+const NAVIGATION_LIMIT = 256;
 
 export interface EditorPosition {
 	anchor: number;
@@ -9,14 +10,8 @@ export interface EditorPosition {
 	scrollTop: number;
 }
 
-export interface SourceStateSnapshot {
-	content: string;
-	state: unknown;
-}
-
-interface DraftEditorState {
+interface NavigationEntry {
 	positions: Partial<Record<EditMode, EditorPosition>>;
-	source?: SourceStateSnapshot;
 }
 
 interface PersistedDraftEditorState {
@@ -45,19 +40,24 @@ function clonePosition(position: EditorPosition): EditorPosition {
 	};
 }
 
+function validFileId(fileId: string): boolean {
+	return typeof fileId === 'string' && fileId.length > 0 && fileId.length <= MAX_FILE_ID_LENGTH;
+}
+
 /**
  * Keeps editor navigation state for the most recently used drafts.
  *
  * Positions use sessionStorage so a page reload restores the same location.
- * CodeMirror history stays in memory because its serialized state can be large.
+ * This module is part of the boot graph, so it stays free of CodeMirror and of
+ * the optional history cache. History lives in `editor-history-cache.ts`.
  */
 export class EditorStateCache {
 	readonly limit: number;
-	#entries = new Map<string, DraftEditorState>();
+	#entries = new Map<string, NavigationEntry>();
 	#loaded = false;
 
-	constructor(limit = EDITOR_STATE_CACHE_LIMIT) {
-		this.limit = Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : EDITOR_STATE_CACHE_LIMIT;
+	constructor(limit = NAVIGATION_LIMIT) {
+		this.limit = Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : NAVIGATION_LIMIT;
 	}
 
 	getPosition(fileId: string, mode: EditMode): EditorPosition | undefined {
@@ -69,23 +69,9 @@ export class EditorStateCache {
 
 	setPosition(fileId: string, mode: EditMode, position: EditorPosition): void {
 		this.#load();
+		if (!validFileId(fileId)) return;
 		const entry = this.#touch(fileId) ?? { positions: {} };
 		entry.positions[mode] = clonePosition(position);
-		this.#put(fileId, entry);
-		this.#persist();
-	}
-
-	getSourceState(fileId: string): SourceStateSnapshot | undefined {
-		this.#load();
-		const entry = this.#touch(fileId);
-		return entry?.source;
-	}
-
-	setSourceState(fileId: string, snapshot: SourceStateSnapshot, position: EditorPosition): void {
-		this.#load();
-		const entry = this.#touch(fileId) ?? { positions: {} };
-		entry.source = snapshot;
-		entry.positions.source = clonePosition(position);
 		this.#put(fileId, entry);
 		this.#persist();
 	}
@@ -107,7 +93,7 @@ export class EditorStateCache {
 		return this.#entries.size;
 	}
 
-	#touch(fileId: string): DraftEditorState | undefined {
+	#touch(fileId: string): NavigationEntry | undefined {
 		const entry = this.#entries.get(fileId);
 		if (!entry) return undefined;
 		this.#entries.delete(fileId);
@@ -115,7 +101,7 @@ export class EditorStateCache {
 		return entry;
 	}
 
-	#put(fileId: string, entry: DraftEditorState): void {
+	#put(fileId: string, entry: NavigationEntry): void {
 		this.#entries.delete(fileId);
 		this.#entries.set(fileId, entry);
 		while (this.#entries.size > this.limit) {
@@ -139,7 +125,7 @@ export class EditorStateCache {
 				const saved = value as Partial<PersistedDraftEditorState>;
 				if (
 					typeof saved.fileId !== 'string' ||
-					saved.fileId.length === 0 ||
+					!validFileId(saved.fileId) ||
 					!saved.positions ||
 					typeof saved.positions !== 'object'
 				)
