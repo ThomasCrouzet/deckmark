@@ -233,6 +233,7 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 				await filesStore.flushPendingAwait();
 				const document = filesStore.library.find((file) => file.id === id);
 				if (!document?.projectId || !document.relativePath) return false;
+				await filesStore.ensureProjectContent(document.projectId);
 				const name = normalizeRename(requested, document.name);
 				if (name.includes('/') || name.includes('\\')) throw new Error('Use a filename');
 				const oldPath = document.relativePath;

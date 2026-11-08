@@ -67,9 +67,13 @@
 	}
 
 	async function scopeFiles() {
-		return filesStore.library.filter((file) =>
+		const files = filesStore.library.filter((file) =>
 			projectId ? file.projectId === projectId : !file.projectId
 		);
+		await filesStore.ensureContent(
+			files.filter((file) => file.contentDeferred).map((file) => file.id)
+		);
+		return files;
 	}
 
 	async function ensureEmbedder() {

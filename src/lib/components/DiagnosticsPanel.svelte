@@ -67,6 +67,7 @@
 	async function buildPreview(): Promise<void> {
 		status = '';
 		try {
+			if (includeStats) await filesStore.ensureLibraryContent();
 			preview = buildDiagnosticReport({
 				metadata: await metadata(),
 				events: diagnosticEvents(),

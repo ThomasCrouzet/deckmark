@@ -444,7 +444,7 @@
 
 	function handleDemo() {
 		if (!canInteract) return;
-		filesStore.loadDemo();
+		void filesStore.loadDemo();
 		sidebarOpen = true;
 	}
 

@@ -34,6 +34,12 @@ export interface FileItem {
 	diskSize?: number | undefined;
 	/** Content-addressed revision returned by the native disk boundary. */
 	diskRevision?: string | undefined;
+	/**
+	 * The durable metadata is in memory, but the body is still in IndexedDB.
+	 * Only closed documents use this state. An operation that needs the body
+	 * must await `filesStore.ensureContent(ids)` first.
+	 */
+	contentDeferred?: boolean;
 }
 
 export interface TrashedFile {

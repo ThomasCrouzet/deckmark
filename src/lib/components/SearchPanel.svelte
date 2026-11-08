@@ -210,37 +210,49 @@
 		const fingerprint = corpusFingerprint(meta);
 		const corpusChanged = fingerprint !== lastCorpusFingerprint;
 		if (corpusChanged) lastCorpusFingerprint = fingerprint;
-		const req: SearchRequest = {
-			id,
-			query: q,
-			caseSensitive,
-			wholeWord,
-			useRegex,
-			...(corpusChanged
-				? {
-						files: untrack(() =>
-							corpus.map((f) => ({
-								id: f.id,
-								name: f.name,
-								content: f.content
-							}))
-						)
-					}
-				: {})
+		const send = (files?: Array<{ id: string; name: string; content: string }>) => {
+			if (lastSentQueryId !== id) return;
+			const activeWorker = worker;
+			if (!activeWorker) return;
+			const req: SearchRequest = {
+				id,
+				query: q,
+				caseSensitive,
+				wholeWord,
+				useRegex,
+				...(corpusChanged && files ? { files } : {})
+			};
+			try {
+				activeWorker.postMessage(req);
+			} catch (error) {
+				stopWorker();
+				queryError = t('search.unavailable');
+				reportError('search request', error);
+				return;
+			}
+			searchTimeout = setTimeout(() => {
+				stopWorker();
+				hits = [];
+				queryError = t('search.timeout');
+			}, 1000);
 		};
-		try {
-			worker.postMessage(req);
-		} catch (error) {
-			stopWorker();
-			queryError = t('search.unavailable');
-			reportError('search request', error);
+		if (!corpusChanged) {
+			send();
 			return;
 		}
-		searchTimeout = setTimeout(() => {
-			stopWorker();
-			hits = [];
-			queryError = t('search.timeout');
-		}, 1000);
+		const snapshot = untrack(() => [...corpus]);
+		if (!snapshot.some((file) => file.contentDeferred)) {
+			send(snapshot.map((file) => ({ id: file.id, name: file.name, content: file.content })));
+			return;
+		}
+		void filesStore
+			.searchCorpus(snapshot)
+			.then((files) => send(files))
+			.catch((error) => {
+				if (lastSentQueryId !== id) return;
+				queryError = t('search.unavailable');
+				reportError('search request', error);
+			});
 	});
 
 	$effect(() => {
