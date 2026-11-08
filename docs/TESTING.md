@@ -410,7 +410,8 @@ This check does not establish editor, persistence, or native integration.
 `SourceEditor` and `CodeEditor` keep an immutable `SourceText` buffer for the
 mounted file. An accepted change updates only the touched separators. Ordinary
 typing does not scan all line endings or rebuild the raw string in the change
-filter. Raw publication is coalesced to one materialization per animation frame.
+filter. Raw publication is throttled: the first change after a pause publishes
+immediately, and a typing burst coalesces to one materialization per 150 ms.
 Explicit boundaries materialize synchronously: `mdsh:flush-editor`, save, export,
 pagehide, editor detach and `getSnapshot()`. `getSnapshot()` returns the captured
 file ID, the buffer-local revision and the exact text. The buffer revision is not

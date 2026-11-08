@@ -53,7 +53,9 @@
 	}
 	// Immutable raw bytes for the mounted document.
 	let buffer: SourceText | null = null;
-	let publishFrame: number | null = null;
+	let publishTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastPublishAt = Number.NEGATIVE_INFINITY;
+	const PUBLISH_THROTTLE_MS = 150;
 	let applyingExternal = false;
 	let loadError = $state(false);
 	let showInvisibles = $state(false);
@@ -110,19 +112,21 @@
 		}
 	}
 
-	/** Coalesces ordinary publication to one raw materialization per frame. */
+	/** Publishes the first change after a pause, then coalesces a typing burst. */
 	function schedulePublish(): void {
-		if (publishFrame !== null || typeof requestAnimationFrame !== 'function') return;
-		publishFrame = requestAnimationFrame(() => {
-			publishFrame = null;
+		if (publishTimer !== null) return;
+		const wait = Math.max(0, PUBLISH_THROTTLE_MS - (performance.now() - lastPublishAt));
+		publishTimer = setTimeout(() => {
+			publishTimer = null;
+			lastPublishAt = performance.now();
 			publish();
-		});
+		}, wait);
 	}
 
 	function cancelPublish(): void {
-		if (publishFrame === null) return;
-		if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(publishFrame);
-		publishFrame = null;
+		if (publishTimer === null) return;
+		clearTimeout(publishTimer);
+		publishTimer = null;
 	}
 
 	/** Synchronous boundary: save, export, pagehide, detach or a public snapshot. */

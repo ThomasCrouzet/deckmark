@@ -78,7 +78,9 @@
 	// Immutable raw bytes for the mounted document. Ordinary changes update this
 	// buffer without scanning line endings or materializing the full string.
 	let buffer: SourceText | null = null;
-	let publishFrame: number | null = null;
+	let publishTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastPublishAt = Number.NEGATIVE_INFINITY;
+	const PUBLISH_THROTTLE_MS = 150;
 	// True when the last accepted source contains the presentation marker
 	// substring. A marker-free note can only become a presentation by creating
 	// that substring, which the fast path tests locally.
@@ -132,21 +134,24 @@
 	}
 
 	/**
-	 * Coalesces ordinary publication to one raw materialization per animation
-	 * frame. Accepted changes still update the immutable buffer immediately.
+	 * Publishes the first change after a pause immediately, then coalesces a
+	 * typing burst to one raw materialization per interval. Accepted changes
+	 * still update the immutable buffer immediately.
 	 */
 	function schedulePublish(): void {
-		if (publishFrame !== null || typeof requestAnimationFrame !== 'function') return;
-		publishFrame = requestAnimationFrame(() => {
-			publishFrame = null;
+		if (publishTimer !== null) return;
+		const wait = Math.max(0, PUBLISH_THROTTLE_MS - (performance.now() - lastPublishAt));
+		publishTimer = setTimeout(() => {
+			publishTimer = null;
+			lastPublishAt = performance.now();
 			publish();
-		});
+		}, wait);
 	}
 
 	function cancelPublish(): void {
-		if (publishFrame === null) return;
-		if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(publishFrame);
-		publishFrame = null;
+		if (publishTimer === null) return;
+		clearTimeout(publishTimer);
+		publishTimer = null;
 	}
 
 	/** Synchronous boundary: save, export, pagehide, detach or a public snapshot. */
