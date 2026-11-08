@@ -528,6 +528,32 @@ CI=1 xvfb-run -a npm run test:e2e -- table-editing.spec.ts --workers=1 --retries
 
 ## Retained isolated risks
 
+### Statistics counting risks
+
+`stats.test.ts` compares the exact legacy stripping order and UTF-16 counts with
+a frozen oracle. Its deterministic malformed-syntax corpus includes lone
+surrogates, CRLF, Unicode whitespace and headings exposed by earlier replacements.
+Editor normalization and DOM text cannot reliably preserve every such input.
+Keep this isolated differential check for those concrete boundaries, not coverage.
+Run `npx vitest run src/lib/stats.test.ts --maxWorkers=1`.
+
+The stats cases in `navigation-stats-scroll.spec.ts` check selection in Source,
+Edit and Read, coalesced edits across file switches, and fresh counts without
+focus loss for deterministic 1 MB and 5 MB multiline and single-line notes.
+They also hold the on-demand statistics module during a file switch and reject
+its first load. The latest file must win. Editing and local saves must remain
+available, and a reload must recover both the edit and the counters.
+The two asset-failure cases block service workers so the network fixture can hold
+or reject the module request. They do not prove offline use.
+They find the unique runtime export in the served build instead of guessing its
+hash-only filename. This also works with the prebuilt CI artifact.
+Run `npx playwright test e2e/navigation-stats-scroll.spec.ts --project=chromium
+--workers=1 --grep 'counts the current selection|stats '`.
+Keep the standard source metadata and attached fixture hashes, counts, publication
+intervals and screenshots. These workflow assertions are not timing budgets.
+Counter-only heap and timing diagnostics must retain raw samples, fixture hashes,
+Node or engine identity, source hashes, warmups and post-GC versus temporary heap.
+They do not replace browser or native performance gates.
 ### Project wiki indexes
 
 Record these risks before changes to project resolution and backlinks:

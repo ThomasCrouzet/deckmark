@@ -78,6 +78,13 @@ async function downloadBytes(
 async function exportLibrary(page: Page) {
 	await openPalette(page);
 	await page.keyboard.insertText('Exporter tous les fichiers');
+	// Enter runs the option that is selected when the key arrives, not the
+	// option that matches the text. Wait for the filtered command to become
+	// the selected option, or the palette can run its first command instead.
+	const dialog = page.getByRole('dialog', { name: 'Palette de commandes' });
+	const option = dialog.getByRole('option', { name: 'Exporter tous les fichiers' });
+	await expect(option).toBeVisible();
+	await expect(option).toHaveAttribute('aria-selected', 'true');
 	await page.keyboard.press('Enter');
 }
 
@@ -230,13 +237,22 @@ test('library ZIP rejects an oversized restored PDF instead of exporting empty t
 	});
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
-	const downloads: string[] = [];
-	page.on('download', (download) => downloads.push(download.suggestedFilename()));
+	// Headless Chromium turns the PDF preview iframe blob into a browser
+	// download. It is the preview, not an export, so exclude that exact blob
+	// URL and require every other download to be absent.
+	const preview = page.getByTestId('pdf-frame');
+	await expect(preview).toBeVisible();
+	const previewUrl = await preview.getAttribute('src');
+	expect(previewUrl).toMatch(/^blob:/);
+	const downloads: { url: string; name: string }[] = [];
+	page.on('download', (download) =>
+		downloads.push({ url: download.url(), name: download.suggestedFilename() })
+	);
 	await exportLibrary(page);
 	await expect(page.getByText('La création du ZIP a échoué.', { exact: true })).toBeVisible();
-	expect(downloads).toEqual([]);
+	expect(downloads.filter((download) => download.url !== previewUrl)).toEqual([]);
 	await info.attach('oversized-pdf.json', {
-		body: JSON.stringify({ restoredBytes: 16 * 1024 * 1024 + 1, downloads }),
+		body: JSON.stringify({ restoredBytes: 16 * 1024 * 1024 + 1, previewUrl, downloads }),
 		contentType: 'application/json'
 	});
 });

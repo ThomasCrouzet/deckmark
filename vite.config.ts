@@ -130,11 +130,14 @@ export default defineConfig(({ mode }) => {
 						groups: [
 							{
 								name(id: string): string | null {
-									// Startup state, notices, editor counters, and shared dependencies use one offline resource.
+									// Startup state, notices, editor counters and small editor helpers
+									// use one offline resource. The counter core stays in the lazy
+									// statistics chunk.
 									if (
 										id.endsWith('/src/lib/files.svelte.ts') ||
 										id.endsWith('/src/lib/components/Toasts.svelte') ||
-										id.endsWith('/src/lib/editor-perf.ts')
+										id.endsWith('/src/lib/editor-perf.ts') ||
+										id.endsWith('/src/lib/code/native-adapter.ts')
 									)
 										return 'workspace-state';
 									// The lazy wiki index shares one precache entry with a tiny web stub.
