@@ -80,7 +80,6 @@
 		if (element.height !== pixelHeight) element.height = pixelHeight;
 		element.style.width = `${width}px`;
 		element.style.height = `${height}px`;
-		element.style.transform = `translate(${scroller.scrollLeft}px, ${scroller.scrollTop}px)`;
 		const context = element.getContext('2d');
 		if (!context) return;
 		context.setTransform(1, 0, 0, 1, 0, 0);
@@ -452,6 +451,22 @@
 		tabindex="0"
 		aria-label={t('toolbar.readingMode')}
 	>
+		{#if !err && htmlFileId === fileId && (annotate || hasInk)}
+			<div class="annotation-viewport">
+				<canvas
+					bind:this={canvas}
+					class="annotation-canvas"
+					class:drawing={annotate}
+					aria-hidden="true"
+					data-testid="annotation-canvas"
+					onpointerdown={startInk}
+					onpointermove={moveInk}
+					onpointerup={endInk}
+					onpointercancel={endInk}
+					onlostpointercapture={endInk}
+				></canvas>
+			</div>
+		{/if}
 		{#if err}
 			<div class="mdsh-read-error" role="alert">
 				<strong>{t('read.renderError')}</strong>
@@ -496,20 +511,6 @@
 				<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 				{@html html}
 			</article>
-		{/if}
-		{#if !err && htmlFileId === fileId && (annotate || hasInk)}
-			<canvas
-				bind:this={canvas}
-				class="annotation-canvas"
-				class:drawing={annotate}
-				aria-hidden="true"
-				data-testid="annotation-canvas"
-				onpointerdown={startInk}
-				onpointermove={moveInk}
-				onpointerup={endInk}
-				onpointercancel={endInk}
-				onlostpointercapture={endInk}
-			></canvas>
 		{/if}
 	</div>
 	<div class="annotation-bar" role="toolbar" aria-label={t('annotations.toolbar')}>
@@ -577,6 +578,16 @@
 		height: 100%;
 		width: 100%;
 		overflow-y: auto;
+	}
+	.annotation-viewport {
+		position: sticky;
+		top: 0;
+		left: 0;
+		/* The anchor must not change document layout. */
+		width: 0;
+		height: 0;
+		z-index: 5;
+		pointer-events: none;
 	}
 	.annotation-canvas {
 		position: absolute;
