@@ -8,6 +8,7 @@
 	import { notify } from '#lib/notify.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { convertLineEndings, detectLineEnding } from '#lib/code/text-changes.js';
+	import { externalDocumentChange } from '#lib/code/external-changes.js';
 	import { SourceText } from '#lib/source-extensions.js';
 	import { loadCodeLanguage, resolveCodeLanguage } from '#lib/code/languages.js';
 	import {
@@ -166,6 +167,21 @@
 
 	function nativeActive(): boolean {
 		return nativeCapable() && acceptedBase !== null;
+	}
+
+	/** Applies an accepted external snapshot as one bounded native change. */
+	function applyExternalDocument(incoming: string): void {
+		if (!view) return;
+		cancelPublish();
+		applyingExternal = true;
+		lastEmitted = incoming;
+		try {
+			const change = externalDocumentChange(view.state, incoming);
+			if (change) view.dispatch({ changes: change });
+		} finally {
+			applyingExternal = false;
+		}
+		buffer = SourceText.create(incoming, view.state.doc);
 	}
 
 	/**
@@ -372,26 +388,11 @@
 				return;
 			}
 			if (incoming === lastEmitted) return;
-			cancelPublish();
 			acceptedBase = canonical;
-			applyingExternal = true;
-			lastEmitted = incoming;
-			view.dispatch({
-				changes: { from: 0, to: view.state.doc.length, insert: incoming }
-			});
-			applyingExternal = false;
-			buffer = SourceText.create(incoming, view.state.doc);
+		} else if (incoming === lastEmitted) {
 			return;
 		}
-		if (incoming === lastEmitted) return;
-		cancelPublish();
-		applyingExternal = true;
-		lastEmitted = incoming;
-		view.dispatch({
-			changes: { from: 0, to: view.state.doc.length, insert: incoming }
-		});
-		applyingExternal = false;
-		buffer = SourceText.create(incoming, view.state.doc);
+		applyExternalDocument(incoming);
 	});
 
 	onMount(() => {

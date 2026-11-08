@@ -49,6 +49,26 @@ cache counters.
 
 ## Release review regressions
 
+`e2e/external-editor-patches.spec.ts` checks a tiny external update in Source and
+Code. The failure risks are lost selection direction, a viewport jump, and an
+editor feedback write that replaces accepted external bytes. The workflow imports
+a real file, selects text backward below the edit, then commits an IndexedDB row
+and sends the existing BroadcastChannel notification. It records selection,
+scroll, exact fixture bytes and hashes, the durable row and the browser version.
+Run `npx playwright test e2e/external-editor-patches.spec.ts --project=chromium --workers=1 --retries=0 --trace=on`.
+Keep the HTML and JSON reports, trace and attached observation with the exact
+command, source revision, working diff and environment. This small workflow does
+not prove native coverage, stale-conflict handling or large-file performance.
+
+`src/lib/code/external-changes.test.ts` covers the native patch helper. The
+isolated risks are a change boundary that splits a UTF-16 surrogate pair and
+native line-ending normalization for CRLF or bare CR input, plus the large-region
+replacement threshold. A browser workflow cannot force those byte boundaries
+cheaply. Run
+`npx vitest run src/lib/code/external-changes.test.ts --maxWorkers=1`.
+The browser workflow still proves selection mapping, scroll position, durable
+bytes and the feedback loop through the application.
+
 ### Versioned JSON worker risks
 
 The JSON browser workflows retain these risks: a full parse on the input thread,
