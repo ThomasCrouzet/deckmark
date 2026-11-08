@@ -351,12 +351,13 @@ export async function exportZip(
 		return false;
 	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');
 	const encoder = new TextEncoder();
+	const encoded = new Map<string, Uint8Array>();
 	let inputBytes = 0;
 	let entries = files.length;
 	for (const file of files) {
-		const size = isBinaryDocument(file)
-			? (await dataUrlBlob(file.data ?? '')).size
-			: encoder.encode(file.content).byteLength;
+		const data = isBinaryDocument(file) ? null : encoder.encode(file.content);
+		if (data) encoded.set(file.id, data);
+		const size = data ? data.byteLength : (await dataUrlBlob(file.data ?? '')).size;
 		inputBytes += size;
 		if (size > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
 			throw new Error('Library export size limit');
@@ -405,8 +406,9 @@ export async function exportZip(
 			archiveBytes += blob.size;
 			zip.file(archiveName(file.name), await blob.arrayBuffer());
 		} else {
-			archiveBytes += encoder.encode(file.content).byteLength;
-			zip.file(archiveName(file.name), file.content);
+			const data = encoded.get(file.id) ?? encoder.encode(file.content);
+			archiveBytes += data.byteLength;
+			zip.file(archiveName(file.name), data);
 		}
 	}
 	if (projectIds.size) {
