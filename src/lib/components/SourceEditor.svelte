@@ -4,7 +4,7 @@
 	import type { EditorView } from '@codemirror/view';
 	import { i18n, t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
-	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
+	import { editorStateCache } from '#lib/editor-state.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import type { SourceText } from '#lib/code/source-text.js';
@@ -344,6 +344,8 @@
 	// imported by the page, so a static guard import would spend boot budget.
 	type LongLineSupport = typeof import('#lib/code/long-line-support.js');
 	let longLineSupport: LongLineSupport | null = null;
+	// Lazy charge tracker for the resident native history.
+	let historyTracker: import('../editor-history-cache').HistoryTracker | null = null;
 
 	/*
 	 * CodeMirror is heavy (~150 KB). Lazy-loaded on the first mount of source
@@ -382,6 +384,9 @@
 		longLineStatus: typeof import('../source-extensions').longLineStatus;
 		sourceTheme: typeof import('../source-extensions').sourceTheme;
 		sourceLocaleExtensions: typeof import('../source-extensions').sourceLocaleExtensions;
+		historyCache: import('../editor-history-cache').EditorHistoryCache;
+		restoreHistoryState: typeof import('../editor-history-cache').restoreHistoryState;
+		captureHistoryState: typeof import('../editor-history-cache').captureHistoryState;
 	};
 
 	function localeExtensions(cm: CMModule) {
@@ -407,44 +412,34 @@
 		if (reopenSearch) activeCM.openSearchPanel(view);
 	}
 
-	function safePosition(position: EditorPosition | undefined, documentLength: number) {
-		if (!position) return undefined;
-		return {
-			anchor: Math.min(position.anchor, documentLength),
-			head: Math.min(position.head, documentLength)
-		};
-	}
-
 	function saveSourceState(): void {
-		if (!view || !activeCM) return;
+		if (!view || !activeCM || !historyTracker) return;
 		if (!nativeActive()) flushPublish();
 		const cachedText = buffer ? buffer.getText() : lastEmitted;
 		const selection = view.state.selection.main;
-		editorStateCache.setSourceState(
+		activeCM.historyCache.set(
 			fileId,
-			{
-				content: cachedText,
-				state: view.state.toJSON({ history: activeCM.historyField })
-			},
-			{
-				anchor: selection.anchor,
-				head: selection.head,
-				scrollTop: view.scrollDOM.scrollTop
-			}
+			activeCM.captureHistoryState(view, activeCM.historyField, cachedText, historyTracker.bytes)
 		);
+		editorStateCache.setPosition(fileId, 'source', {
+			anchor: selection.anchor,
+			head: selection.head,
+			scrollTop: view.scrollDOM.scrollTop
+		});
 	}
 
 	let cmModulePromise: Promise<CMModule> | null = null;
 	function loadCM(): Promise<CMModule> {
 		if (!cmModulePromise) {
 			cmModulePromise = (async () => {
-				const [state, viewMod, lang, cmds, language, searchMod] = await Promise.all([
+				const [state, viewMod, lang, cmds, language, searchMod, editorHistory] = await Promise.all([
 					import('@codemirror/state'),
 					import('@codemirror/view'),
 					import('../source-extensions'),
 					import('@codemirror/commands'),
 					import('@codemirror/language'),
-					import('@codemirror/search')
+					import('@codemirror/search'),
+					import('../editor-history-cache')
 				]);
 				SourceTextImpl = lang.SourceText;
 				return {
@@ -497,7 +492,10 @@
 					searchKeymap: searchMod.searchKeymap,
 					setSearchQuery: searchMod.setSearchQuery,
 					SearchQuery: searchMod.SearchQuery,
-					patch: lang.patch
+					patch: lang.patch,
+					historyCache: editorHistory.editorHistoryCache,
+					restoreHistoryState: editorHistory.restoreHistoryState,
+					captureHistoryState: editorHistory.captureHistoryState
 				};
 			})();
 		}
@@ -642,26 +640,18 @@
 			typewriterCompartment.of(pendingTypewriter ? [cm.typewriterCentering()] : []),
 			theme
 		];
-		const cached = editorStateCache.getSourceState(fileId);
+		const cached = cm.historyCache.get(fileId);
 		const savedPosition = editorStateCache.getPosition(fileId, 'source');
-		let startState: import('@codemirror/state').EditorState | undefined;
-		if (cached?.content === content) {
-			try {
-				startState = cm.EditorState.fromJSON(
-					cached.state,
-					{ extensions },
-					{ history: cm.historyField }
-				);
-			} catch {
-				// Ignore an incompatible cache after a dependency update.
-			}
-		}
-		const initialSelection = safePosition(savedPosition, content.length);
-		startState ??= cm.EditorState.create({
-			doc: content,
-			extensions,
-			...(initialSelection ? { selection: initialSelection } : {})
+		const restored = cm.restoreHistoryState({
+			EditorState: cm.EditorState,
+			historyField: cm.historyField,
+			content,
+			cached,
+			savedPosition,
+			extensions
 		});
+		const startState = restored.state;
+		historyTracker = restored.tracker;
 
 		view = new cm.EditorView({
 			state: startState,

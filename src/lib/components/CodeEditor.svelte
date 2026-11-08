@@ -462,6 +462,11 @@
 
 	onMount(() => {
 		let disposed = false;
+		// Running estimated charge for the resident native history. It starts from
+		// a restored snapshot and never shrinks while the view stays mounted.
+		let historyTracker: import('#lib/editor-history-cache.js').HistoryTracker | null = null;
+		let historyApi: typeof import('#lib/editor-history-cache.js') | null = null;
+		let lastScrollTop = 0;
 		void (async () => {
 			try {
 				const viewModule = await import('@codemirror/view');
@@ -482,7 +487,8 @@
 					},
 					{ closeBrackets },
 					languageSupport,
-					{ invisibleLineEnds: invisibleEnds }
+					{ invisibleLineEnds: invisibleEnds },
+					editorHistory
 				] = await Promise.all([
 					import('@codemirror/state'),
 					import('@codemirror/commands'),
@@ -492,7 +498,8 @@
 					initialDegraded
 						? Promise.resolve<import('@codemirror/state').Extension>([])
 						: loadCodeLanguage(language.id),
-					import('#lib/code/invisibles.js')
+					import('#lib/code/invisibles.js'),
+					import('#lib/editor-history-cache.js')
 				]);
 				const {
 					EditorView,
@@ -504,6 +511,7 @@
 				} = viewModule;
 				if (disposed || !host) return;
 				const mount = host;
+				historyApi = editorHistory;
 				historyFieldRef = historyField as import('@codemirror/state').StateField<unknown>;
 				isolateHistoryRef = isolateHistory;
 				indentUnitRef = indentUnit;
@@ -598,17 +606,18 @@
 						'.cm-invisible-newline': { color: 'var(--color-fg-dim)', opacity: '0.6' }
 					})
 				];
-				const cached = editorStateCache.getSourceState(fileId);
+				const cached = editorHistory.editorHistoryCache.get(fileId);
 				const saved = editorStateCache.getPosition(fileId, 'source');
-				let state: import('@codemirror/state').EditorState | undefined;
-				if (cached?.content === content) {
-					try {
-						state = EditorState.fromJSON(cached.state, { extensions }, { history: historyField });
-					} catch {
-						// Ignore an incompatible cache.
-					}
-				}
-				state ??= EditorState.create({ doc: content, extensions });
+				const restored = editorHistory.restoreHistoryState({
+					EditorState,
+					historyField,
+					content,
+					cached,
+					savedPosition: saved,
+					extensions
+				});
+				const state = restored.state;
+				historyTracker = restored.tracker;
 				view = new EditorView({ state, parent: mount });
 				loadedLanguageId = initialDegraded ? '' : language.id;
 				lastEmitted = content;
@@ -652,13 +661,34 @@
 					onFlush?.(fileId, lastEmitted);
 				};
 				window.addEventListener('mdsh:flush-editor', flushListener);
+				// A detached scroll container can report scrollTop 0. Keep the last
+				// connected value so the saved position survives component teardown.
+				lastScrollTop = saved?.scrollTop ?? 0;
+				const scrollListener = () => {
+					if (view?.scrollDOM.isConnected) lastScrollTop = view.scrollDOM.scrollTop;
+				};
+				view.scrollDOM.addEventListener('scroll', scrollListener, { passive: true });
 				removeTabListener = () => {
 					mount.removeEventListener('keydown', tabListener, true);
 					window.removeEventListener('mdsh:flush-editor', flushListener);
+					view?.scrollDOM.removeEventListener('scroll', scrollListener);
 				};
+				if (saved?.scrollTop) {
+					const mountedView = view;
+					mountedView.requestMeasure({
+						read: (measuredView) =>
+							Math.max(
+								0,
+								measuredView.scrollDOM.scrollHeight - measuredView.scrollDOM.clientHeight
+							),
+						write: (maxScrollTop, measuredView) => {
+							if (view !== mountedView || measuredView !== mountedView) return;
+							measuredView.scrollDOM.scrollTop = Math.min(saved.scrollTop, maxScrollTop);
+						}
+					});
+				}
 				requestAnimationFrame(() => {
 					if (!view) return;
-					if (saved) view.scrollDOM.scrollTop = saved.scrollTop;
 					if (consumeEditorFocus(fileId) || document.activeElement === document.body) view.focus();
 				});
 			} catch (error) {
@@ -684,18 +714,17 @@
 					onFlush?.(fileId, lastEmitted);
 				}
 				const cachedText = buffer ? buffer.getText() : lastEmitted;
-				editorStateCache.setSourceState(
-					fileId,
-					{
-						content: cachedText,
-						state: view.state.toJSON(historyFieldRef ? { history: historyFieldRef } : undefined)
-					},
-					{
-						anchor: view.state.selection.main.anchor,
-						head: view.state.selection.main.head,
-						scrollTop: view.scrollDOM.scrollTop
-					}
-				);
+				if (historyApi && historyTracker) {
+					historyApi.editorHistoryCache.set(
+						fileId,
+						historyApi.captureHistoryState(view, historyFieldRef, cachedText, historyTracker.bytes)
+					);
+				}
+				editorStateCache.setPosition(fileId, 'source', {
+					anchor: view.state.selection.main.anchor,
+					head: view.state.selection.main.head,
+					scrollTop: lastScrollTop
+				});
 				view.destroy();
 				view = null;
 				buffer = null;

@@ -1,0 +1,2 @@
+export const EDITOR_STATE_CACHE_BYTES = 16 * 1024 * 1024;
+export const EDITOR_STATE_CACHE_LIMIT = 32;

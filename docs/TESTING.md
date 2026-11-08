@@ -194,6 +194,32 @@ checks the constructor, target, input type and cancellation before it checks red
 Use `CompositionEvent` for the synthetic composition boundaries. These events do
 not reproduce an operating-system input method.
 
+### Inactive editor history risks
+
+History pressure must not remove cursor, selection direction or scroll metadata.
+A restored Code editor must use saved selection even without history. Byte totals
+must release replaced and deleted entries. Oversized histories must not remove
+unsaved text or alter the 400 ms draft save queue. Native history must not retain
+old view callbacks, cross file boundaries or survive a different raw source.
+Raw BOM and mixed line endings must remain separate from native coordinates.
+
+`e2e/editor-state.spec.ts` drives navigation after 35 file switches and resident
+undo/redo with an immediate unsaved switch in Source and Code. It attaches final
+text and navigation evidence. Run `npx playwright test e2e/editor-state.spec.ts
+--project=chromium --workers=1 --retries=0`. Keep the standard report, source/diff
+identity, environment, command and attachments for each run.
+
+`src/lib/editor-state.test.ts` retains deterministic byte accounting, independent
+LRU and invalid-charge cases. Browser workflows cannot precisely attribute a
+replacement or malformed numeric charge to an internal budget. Run
+`npx vitest run src/lib/editor-state.test.ts --maxWorkers=1`. These cases do not
+replace browser content, selection or history evidence.
+
+`src/lib/editor-history.test.ts` detects undercharged removed text, selection
+events, recache resets and unknown retained history effects. A cache estimate is
+not browser heap measurement. Unsupported effect providers must refuse inactive
+history without scanning or serializing it. Run this file with the cache cases.
+
 `e2e/review-regressions.spec.ts` checks these failures through the application:
 
 - A rename can replace a code or image extension with `.md`. Compare downloaded
