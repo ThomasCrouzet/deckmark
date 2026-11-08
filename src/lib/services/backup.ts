@@ -167,6 +167,9 @@ export function planDraftMerge(
 
 export type RestoreMode = 'merge' | 'replace';
 
+/** Backups already validated by `parseBackupWithReport`, including large restores. */
+const validatedBackups = new WeakSet<object>();
+
 export interface RestoreCounts {
 	drafts: number;
 	workspaces: number;
@@ -617,21 +620,20 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 			throw new BackupParseError(t('backup.tooLarge'));
 		}
 	}
-	return {
-		backup: {
-			format: BACKUP_FORMAT,
-			schemaVersion,
-			exportedAt: raw.exportedAt,
-			drafts,
-			workspaces,
-			templates,
-			...(raw.snippets === undefined ? {} : { snippets }),
-			projects,
-			projectAssets,
-			comments: commentRows
-		},
-		skipped
+	const backup: BackupFile = {
+		format: BACKUP_FORMAT,
+		schemaVersion,
+		exportedAt: raw.exportedAt,
+		drafts,
+		workspaces,
+		templates,
+		...(raw.snippets === undefined ? {} : { snippets }),
+		projects,
+		projectAssets,
+		comments: commentRows
 	};
+	validatedBackups.add(backup);
+	return { backup, skipped };
 }
 
 /**
@@ -770,7 +772,7 @@ export async function applyBackup(
 	mode: RestoreMode,
 	skipped = 0
 ): Promise<RestoreCounts> {
-	backup = parseBackupWithReport(serializeBackup(backup)).backup;
+	if (!validatedBackups.has(backup)) backup = parseBackupWithReport(serializeBackup(backup)).backup;
 	if (skipped > 0) throw new BackupParseError(t('backup.notMdshBackup'));
 	const projects = backup.projects ?? [];
 	const snippets = backup.snippets ?? [];
