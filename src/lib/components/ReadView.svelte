@@ -17,6 +17,7 @@
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { createRenderInstanceId, nextRenderGeneration } from '../render/render-identity';
 	import { mountPreview, type PreviewMount } from '../render/preview-dom';
+	import { ReadInkIndex, strokeWidth, type InkPoint, type InkStroke } from '#lib/read-ink.js';
 
 	interface Props {
 		fileId: string;
@@ -33,26 +34,19 @@
 	let readScroller: HTMLDivElement | null = $state(null);
 	let positionFileId: string | null = null;
 
-	interface InkPoint {
-		x: number;
-		y: number;
-	}
-	interface InkStroke {
-		tool: 'pen' | 'highlighter' | 'eraser';
-		color: string;
-		size: number;
-		points: InkPoint[];
-	}
 	let annotate = $state(false);
 	let hasInk = $state(false);
 	let tool = $state<'pen' | 'highlighter' | 'eraser'>('pen');
 	let color = $state('#f5c542');
 	let inkSize = $state(3);
 	let canvas = $state<HTMLCanvasElement | null>(null);
-	let strokes: InkStroke[] = [];
 	let current: InkStroke | null = null;
-	let drawing = false;
-	let cleanupInk: (() => void) | null = null;
+	let activePointer: number | null = null;
+	let nextStroke = 0;
+	let inkFrame = 0;
+	const inkIndex = new ReadInkIndex();
+	const MAX_INK_SIDE = 4096;
+	const MAX_INK_PIXELS = 4 * 1024 * 1024;
 	const ANNOTATION_COLORS = ['#f5c542', '#ff6b6b', '#4dabf7', '#51cf66'];
 	const ANNOTATION_LABELS: MessageKey[] = [
 		'annotations.colorYellow',
@@ -61,16 +55,51 @@
 		'annotations.colorGreen'
 	];
 
-	function redrawInk() {
+	function scheduleInk() {
+		if (!canvas || inkFrame || typeof window === 'undefined') return;
+		inkFrame = requestAnimationFrame(() => {
+			inkFrame = 0;
+			renderInk();
+		});
+	}
+
+	function renderInk() {
 		const element = canvas;
-		if (!element) return;
+		const scroller = readScroller;
+		if (!element || !scroller) return;
+		const width = scroller.clientWidth;
+		const height = scroller.clientHeight;
+		if (!width || !height) return;
+		// Keep the bitmap below both side and area limits, even at high DPR or zoom.
+		const ratio = Math.min(
+			window.devicePixelRatio || 1,
+			MAX_INK_SIDE / width,
+			MAX_INK_SIDE / height,
+			Math.sqrt(MAX_INK_PIXELS / (width * height))
+		);
+		const pixelWidth = Math.max(1, Math.floor(width * ratio));
+		const pixelHeight = Math.max(1, Math.floor(height * ratio));
+		if (element.width !== pixelWidth) element.width = pixelWidth;
+		if (element.height !== pixelHeight) element.height = pixelHeight;
+		element.style.width = `${width}px`;
+		element.style.height = `${height}px`;
 		const context = element.getContext('2d');
 		if (!context) return;
-		const ratio = window.devicePixelRatio || 1;
-		context.setTransform(ratio, 0, 0, ratio, 0, 0);
-		context.clearRect(0, 0, element.width / ratio, element.height / ratio);
-		for (const stroke of strokes) {
-			drawStroke(context, stroke);
+		context.setTransform(1, 0, 0, 1, 0, 0);
+		context.clearRect(0, 0, element.width, element.height);
+		const left = scroller.scrollLeft;
+		const top = scroller.scrollTop;
+		const scaleX = pixelWidth / width;
+		const scaleY = pixelHeight / height;
+		context.setTransform(scaleX, 0, 0, scaleY, -left * scaleX, -top * scaleY);
+		for (const stroke of inkIndex.visible(top, height)) {
+			if (
+				stroke.right >= left &&
+				stroke.left <= left + width &&
+				stroke.bottom >= top &&
+				stroke.top <= top + height
+			)
+				drawStroke(context, stroke);
 		}
 	}
 
@@ -79,123 +108,114 @@
 		context.save();
 		context.lineCap = 'round';
 		context.lineJoin = 'round';
-		context.lineWidth =
-			stroke.tool === 'highlighter'
-				? stroke.size * 4
-				: stroke.tool === 'eraser'
-					? stroke.size * 5
-					: stroke.size;
+		context.lineWidth = strokeWidth(stroke);
 		context.strokeStyle = stroke.color;
 		context.globalAlpha = stroke.tool === 'highlighter' ? 0.35 : 1;
 		context.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
 		context.beginPath();
-		const [first, ...rest] = stroke.points;
+		const first = stroke.points[0]!;
 		context.moveTo(first!.x, first!.y);
-		for (const point of rest) context.lineTo(point.x, point.y);
+		for (let index = 1; index < stroke.points.length; index++) {
+			const point = stroke.points[index]!;
+			context.lineTo(point.x, point.y);
+		}
 		if (stroke.points.length === 1) context.lineTo(first!.x + 0.1, first!.y + 0.1);
 		context.stroke();
 		context.restore();
 	}
 
 	function pointFrom(event: PointerEvent): InkPoint {
-		const rect = canvas!.getBoundingClientRect();
-		return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+		const scroller = readScroller!;
+		const rect = scroller.getBoundingClientRect();
+		return {
+			x:
+				((event.clientX - rect.left) * scroller.offsetWidth) / rect.width -
+				scroller.clientLeft +
+				scroller.scrollLeft,
+			y:
+				((event.clientY - rect.top) * scroller.offsetHeight) / rect.height -
+				scroller.clientTop +
+				scroller.scrollTop
+		};
 	}
 
 	function startInk(event: PointerEvent) {
-		if (!annotate || !canvas) return;
+		if (!annotate || !canvas || activePointer !== null || event.button !== 0) return;
 		event.preventDefault();
 		canvas.setPointerCapture(event.pointerId);
-		drawing = true;
+		activePointer = event.pointerId;
 		hasInk = true;
+		const point = pointFrom(event);
 		current = {
+			order: nextStroke++,
 			tool,
 			color,
 			size: inkSize,
-			points: [pointFrom(event)]
+			points: [point],
+			left: Infinity,
+			top: Infinity,
+			right: -Infinity,
+			bottom: -Infinity,
+			firstBand: Infinity,
+			lastBand: -Infinity,
+			wide: false
 		};
-		const context = canvas.getContext('2d');
-		if (context) drawStroke(context, current);
+		inkIndex.update(current, point);
+		scheduleInk();
 	}
 
 	function moveInk(event: PointerEvent) {
-		if (!drawing || !current || !canvas) return;
+		if (activePointer !== event.pointerId || !current || !canvas) return;
 		event.preventDefault();
 		const point = pointFrom(event);
-		const previous = current.points[current.points.length - 1]!;
 		current.points.push(point);
-		const context = canvas.getContext('2d');
-		if (!context) return;
-		const ratio = window.devicePixelRatio || 1;
-		context.setTransform(ratio, 0, 0, ratio, 0, 0);
-		context.save();
-		context.lineCap = 'round';
-		context.lineJoin = 'round';
-		context.lineWidth =
-			current.tool === 'highlighter'
-				? current.size * 4
-				: current.tool === 'eraser'
-					? current.size * 5
-					: current.size;
-		context.strokeStyle = current.color;
-		context.globalAlpha = current.tool === 'highlighter' ? 0.35 : 1;
-		context.globalCompositeOperation =
-			current.tool === 'eraser' ? 'destination-out' : 'source-over';
-		context.beginPath();
-		context.moveTo(previous.x, previous.y);
-		context.lineTo(point.x, point.y);
-		context.stroke();
-		context.restore();
+		inkIndex.update(current, point);
+		scheduleInk();
 	}
 
 	function endInk(event: PointerEvent) {
-		if (!drawing) return;
-		drawing = false;
-		if (current) strokes.push(current);
+		if (activePointer !== event.pointerId) return;
+		activePointer = null;
 		current = null;
-		canvas?.releasePointerCapture(event.pointerId);
+		if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
 	}
 
 	function clearInk() {
-		strokes = [];
+		const pointer = activePointer;
+		activePointer = null;
 		current = null;
+		if (pointer !== null && canvas?.hasPointerCapture(pointer))
+			canvas.releasePointerCapture(pointer);
+		inkIndex.clear();
+		nextStroke = 0;
 		hasInk = false;
-		redrawInk();
-	}
-
-	function fitInkCanvas() {
-		const element = canvas;
-		const scroller = readScroller;
-		if (!element || !scroller) return;
-		const ratio = window.devicePixelRatio || 1;
-		const width = Math.max(scroller.scrollWidth, scroller.clientWidth);
-		const height = Math.max(scroller.scrollHeight, scroller.clientHeight);
-		if (
-			element.width !== Math.round(width * ratio) ||
-			element.height !== Math.round(height * ratio)
-		) {
-			element.width = Math.round(width * ratio);
-			element.height = Math.round(height * ratio);
-			element.style.width = `${width}px`;
-			element.style.height = `${height}px`;
-			redrawInk();
-		}
+		scheduleInk();
 	}
 
 	onMount(() => {
-		const resize = new ResizeObserver(() => fitInkCanvas());
+		const resize = new ResizeObserver(scheduleInk);
 		if (readScroller) resize.observe(readScroller);
-		const observer = new MutationObserver(() => fitInkCanvas());
-		if (readScroller) observer.observe(readScroller, { childList: true, subtree: true });
-		window.addEventListener('resize', fitInkCanvas);
-		cleanupInk = () => {
-			resize.disconnect();
-			observer.disconnect();
-			window.removeEventListener('resize', fitInkCanvas);
-		};
+		const scroller = readScroller;
+		scroller?.addEventListener('scroll', scheduleInk, { passive: true });
+		window.addEventListener('resize', scheduleInk);
+		let density: MediaQueryList;
+		function watchDensity() {
+			density?.removeEventListener('change', densityChanged);
+			density = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+			density.addEventListener('change', densityChanged);
+		}
+		function densityChanged() {
+			watchDensity();
+			scheduleInk();
+		}
+		watchDensity();
 		return () => {
-			cleanupInk?.();
-			cleanupInk = null;
+			resize.disconnect();
+			scroller?.removeEventListener('scroll', scheduleInk);
+			window.removeEventListener('resize', scheduleInk);
+			density.removeEventListener('change', densityChanged);
+			if (inkFrame) cancelAnimationFrame(inkFrame);
+			inkFrame = 0;
 		};
 	});
 
@@ -205,7 +225,7 @@
 	});
 
 	$effect(() => {
-		if (readScroller && canvas) tick().then(fitInkCanvas);
+		if (readScroller && canvas) tick().then(scheduleInk);
 	});
 
 	function saveReadPosition(id: string): void {
@@ -478,6 +498,22 @@
 		tabindex="0"
 		aria-label={t('toolbar.readingMode')}
 	>
+		{#if !err && htmlFileId === fileId && (annotate || hasInk)}
+			<div class="annotation-viewport">
+				<canvas
+					bind:this={canvas}
+					class="annotation-canvas"
+					class:drawing={annotate}
+					aria-hidden="true"
+					data-testid="annotation-canvas"
+					onpointerdown={startInk}
+					onpointermove={moveInk}
+					onpointerup={endInk}
+					onpointercancel={endInk}
+					onlostpointercapture={endInk}
+				></canvas>
+			</div>
+		{/if}
 		{#if err}
 			<div class="mdsh-read-error" role="alert">
 				<strong>{t('read.renderError')}</strong>
@@ -541,7 +577,7 @@
 			aria-pressed={annotate}
 			onclick={() => {
 				annotate = !annotate;
-				if (annotate) tick().then(fitInkCanvas);
+				if (annotate) tick().then(scheduleInk);
 			}}
 			data-testid="annotation-toggle">{t('annotations.toggle')}</button
 		>
@@ -600,6 +636,16 @@
 		height: 100%;
 		width: 100%;
 		overflow-y: auto;
+	}
+	.annotation-viewport {
+		position: sticky;
+		top: 0;
+		left: 0;
+		/* The anchor must not change document layout. */
+		width: 0;
+		height: 0;
+		z-index: 5;
+		pointer-events: none;
 	}
 	.annotation-canvas {
 		position: absolute;

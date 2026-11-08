@@ -80,6 +80,10 @@ test('customizes the command palette shortcut locally', async ({ page }) => {
 	await expect(binding).toHaveValue(expectedShortcut);
 	await page.keyboard.press('Escape');
 	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
 	await page.locator('body').click({ position: { x: 310, y: 500 } });
 	await page.keyboard.press('ControlOrMeta+;');
 	await expect(page.getByRole('dialog', { name: 'Palette de commandes' })).toBeVisible();

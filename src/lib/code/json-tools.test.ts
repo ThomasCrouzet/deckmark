@@ -1,14 +1,52 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
 	analyzeJson,
+	analyzeJsonDocument,
 	duplicateJsonKeys,
 	formatJson,
 	minifyJson,
 	prepareJsonAction,
-	tokenizeJson
+	tokenizeJson,
+	setJsonSchemaValidator,
+	validateJsonAgainstSchema,
+	validateJsonValueAgainstSchema
 } from './json-tools';
 
 const options = { indent: '  ', eol: '\n' as const };
+
+describe('optional schema callback compatibility', () => {
+	it('shares the parsed value and keeps callback output and exception behavior', () => {
+		const parse = vi.spyOn(JSON, 'parse');
+		try {
+			setJsonSchemaValidator((value) => ((value as { n: number }).n === 2 ? ['schema issue'] : []));
+			const document = analyzeJsonDocument('{"n":2}');
+			expect(validateJsonValueAgainstSchema(document.value)).toEqual(['schema issue']);
+			expect(parse).toHaveBeenCalledTimes(1);
+			expect(validateJsonAgainstSchema('{"n":2}')).toEqual(['schema issue']);
+			setJsonSchemaValidator(() => {
+				throw new Error('validator failure');
+			});
+			expect(validateJsonValueAgainstSchema(document.value)).toEqual([]);
+			expect(validateJsonAgainstSchema('{')).toEqual([]);
+		} finally {
+			setJsonSchemaValidator(null);
+			parse.mockRestore();
+		}
+	});
+
+	it('locates deeply nested invalid input when the engine omits the source position', () => {
+		const parse = vi.spyOn(JSON, 'parse').mockImplementation(() => {
+			throw new SyntaxError('Invalid JSON');
+		});
+		try {
+			const result = analyzeJson('['.repeat(20_000) + '!' + ']'.repeat(20_000));
+			expect(result.valid).toBe(false);
+			expect(result.column).toBe(20_001);
+		} finally {
+			parse.mockRestore();
+		}
+	});
+});
 
 describe('JSON validation', () => {
 	it('reports the line and column of a syntax error', () => {
