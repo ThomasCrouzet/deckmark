@@ -457,6 +457,47 @@ intervals and screenshots. These workflow assertions are not timing budgets.
 Counter-only heap and timing diagnostics must retain raw samples, fixture hashes,
 Node or engine identity, source hashes, warmups and post-GC versus temporary heap.
 They do not replace browser or native performance gates.
+### Project wiki indexes
+
+Record these risks before changes to project resolution and backlinks:
+
+- Exact IDs, relative paths, root paths, extension rules, and basename collisions
+  can change candidate priority or library order.
+- Encoded separators, invalid encoding, Unicode, traversal, fragments, reserved
+  paths, and case collisions can change confinement or ambiguity.
+- Content, type, name, path, project membership, delete, restore, and cross-tab
+  changes can leave stale references. A new candidate can shadow an old target.
+- Repeated reads can scan unrelated files or links. An edit can rebuild every
+  path. Cached results can grow without a bound or retain removed documents.
+- A non-reactive index can leave the sidebar unchanged after a pending save.
+
+`src/lib/project-paths.test.ts` compares indexed answers with the original
+resolver over generated and adversarial paths. It checks affected-reference work
+through observed property reads. The browser suite cannot exhaust this path space
+or distinguish a fast full scan from an indexed lookup on a small fixture.
+The guarded-publication case checks that location updates retain complete targets
+without deriving a pending body. It also rejects publication after removal.
+The deferred worker belongs to issue 307 and needs combined browser checks after
+integration. This branch uses the existing synchronous metadata adapter.
+`e2e/project-wiki-index.spec.ts` checks visible project backlinks and real document
+switches at 300, 600, and 3000 documents. It retains raw times, fixture hashes,
+Chromium CPU profiles, heap samples, screenshots, and source identity. Baseline
+mode records switch measurements only, without claiming an index gate pass.
+Strict mode also checks the saved edit and affected backlinks.
+`e2e/project-wiki-updates.spec.ts` checks cross-tab path collisions, moves,
+removal, restoration, and project rename through visible backlinks and navigation.
+
+Run the focused checks:
+
+```sh
+npx vitest run src/lib/project-paths.test.ts src/lib/meta-index.test.ts --maxWorkers=1
+npx playwright test e2e/project-wiki-index.spec.ts e2e/project-wiki-updates.spec.ts e2e/wiki-links.spec.ts e2e/project-link-performance.spec.ts e2e/project-scale.spec.ts e2e/metadata-index-incremental.spec.ts e2e/project-explorer.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep each run in separate local storage. The campaign report names the exact
+command, revision, working diff, OS, browser, build mode, fixtures, and results.
+A Chromium result does not establish native Desktop or other browser acceptance.
+
 ### Presentation input snapshot risks
 
 `presentation-performance.spec.ts` inserts 24 characters into text and notes in

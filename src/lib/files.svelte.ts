@@ -41,7 +41,6 @@ import {
 
 import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
-import { projectWikiCandidates } from './project-paths';
 import { SaveQueue } from './save-queue';
 import {
 	exportMarkdown as exportMarkdownOp,
@@ -179,7 +178,12 @@ class FilesStore {
 	private renameTail: Promise<void> | null = null;
 	/** Bumped when one file's metadata changes so derived reads rerun. */
 	private metaRev = $state(0);
-	private metaIndex = new MetaIndex(() => this.library);
+	private metaIndex = new MetaIndex(
+		() => this.library,
+		() => {
+			this.metaRev += 1;
+		}
+	);
 	// §M3 - Ids with a local keystroke not yet persisted ("dirty") in the
 	// cross-tab sense: a draft is dirty as long as a write is pending OR its
 	// in-memory content differs from the last known base. Used to decide, when
@@ -495,6 +499,8 @@ class FilesStore {
 		for (const row of rows) this.saveQueue.trackPersisted(row);
 		this.files = items.filter((_file, index) => rows[index]?.open !== false);
 		this.closedFiles = items.filter((_file, index) => rows[index]?.open === false);
+		this.metaIndex.invalidateBacklinksIndex();
+		await this.metaIndex.load();
 		const savedActiveId =
 			preferredActiveId && this.files.some((file) => file.id === preferredActiveId)
 				? preferredActiveId
@@ -537,7 +543,12 @@ class FilesStore {
 		this.trash = [];
 		this.activeId = null;
 		this.selectedIds = new Set();
-		this.metaIndex = new MetaIndex(() => this.library);
+		this.metaIndex = new MetaIndex(
+			() => this.library,
+			() => {
+				this.metaRev += 1;
+			}
+		);
 		this.loaded = false;
 		this.loadError = null;
 		await this.load(preferredActiveId);
@@ -667,7 +678,7 @@ class FilesStore {
 		this.activeId = file.id;
 		if (options.focusEditor) this.newDocumentFocusId = file.id;
 		this.persistActiveId();
-		if (content.length > 0) this.metaIndex.invalidateBacklinksIndex();
+		this.metaIndex.invalidateMeta(file.id);
 		this.scheduleSave(file.id);
 		return file;
 	}
@@ -1029,7 +1040,7 @@ class FilesStore {
 		this.files.push(file);
 		this.activeId = file.id;
 		this.persistActiveId();
-		this.metaIndex.invalidateBacklinksIndex();
+		this.metaIndex.invalidateMeta(id);
 		this.saveQueue.persist(this.capturedDraftRow(file, this.files.length - 1, true));
 		return file;
 	}
@@ -1150,7 +1161,7 @@ class FilesStore {
 		this.files.splice(insertAt, 0, restored);
 		this.activeId = restored.id;
 		this.persistActiveId();
-		this.metaIndex.invalidateBacklinksIndex();
+		this.metaIndex.invalidateMeta(restored.id);
 		// Atomic restoration (put draft + delete trashed in one transaction): no
 		// window where the file exists in NO table. Since the row is persisted, no
 		// scheduleSave here (later edits will go back through the normal path).
@@ -1284,6 +1295,7 @@ class FilesStore {
 		if (!revision) return null;
 		file.updatedAt = Date.now();
 		file.dirty = true;
+		this.metaIndex.invalidateMeta(file.id);
 		this.scheduleSave(file.id);
 		return revision;
 	}
@@ -1458,8 +1470,7 @@ class FilesStore {
 			if (changed) this.scheduleSave(row.id);
 			else applied.push(row.id);
 		}
-		// A bulk row update is cheaper to index from scratch than per file.
-		if (rows.length > 0) this.metaIndex.invalidateBacklinksIndex();
+		for (const row of rows) this.metaIndex.invalidateMeta(row.id);
 		this.crossTab.post({ type: 'reorder' });
 		return applied;
 	}
@@ -1532,8 +1543,10 @@ class FilesStore {
 		const toIdx = this.files.findIndex((f) => f.id === toId);
 		if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
 		// invariant: splice on a valid index returns exactly 1 element.
-		const moved = this.files.splice(fromIdx, 1)[0]!;
-		this.files.splice(toIdx, 0, moved);
+		const reordered = [...this.files];
+		const moved = reordered.splice(fromIdx, 1)[0]!;
+		reordered.splice(toIdx, 0, moved);
+		this.files = reordered;
 		const orderedIds = this.files.map((f) => f.id);
 		this.saveQueue.flushPending(orderedIds, (id) => {
 			const file = this.files.find((f) => f.id === id);
@@ -1868,34 +1881,12 @@ class FilesStore {
 	/** Files that contain a wiki-link pointing to `targetId`. */
 	backlinks(targetId: string): FileItem[] {
 		void this.metaRev;
-		const targetFile = this.library.find((file) => file.id === targetId);
-		if (!targetFile || documentKindForFile(targetFile) !== 'note') return [];
-		// The metadata index already keeps an inverted name and id index. Use it
-		// for library notes. Project-relative links still need the path-aware
-		// scan, so keep that path for a project document only.
-		if (!targetFile.projectId) return this.metaIndex.backlinks(targetId);
-		return this.library.filter(
-			(file) =>
-				file.id !== targetId &&
-				documentKindForFile(file) === 'note' &&
-				this.metaIndex
-					.wikiLinkTargets(file.id)
-					.some((target) => this.resolveWikiLink(target, file.id) === targetId)
-		);
+		return this.metaIndex.backlinks(targetId);
 	}
 	/** Resolves a wiki-link → file id, or `null` if not found. */
 	resolveWikiLink(target: string, sourceId?: string): string | null {
-		const source = this.library.find((file) => file.id === sourceId);
-		if (source && documentKindForFile(source) !== 'note') return null;
-		if (source?.projectId) {
-			const candidates = projectWikiCandidates(
-				source,
-				target,
-				this.library.filter((file) => documentKindForFile(file) === 'note')
-			);
-			return candidates.length === 1 ? candidates[0]!.id : null;
-		}
-		return this.metaIndex.resolveWikiLink(target);
+		void this.metaRev;
+		return this.metaIndex.resolveWikiLink(target, sourceId);
 	}
 	/**
 	 * Opens a wiki-link target: activates the existing file, or creates a new one
@@ -1905,11 +1896,7 @@ class FilesStore {
 		const source = this.library.find((file) => file.id === sourceId);
 		if (source && documentKindForFile(source) !== 'note') return null;
 		if (source?.projectId) {
-			const matches = projectWikiCandidates(
-				source,
-				target,
-				this.library.filter((file) => documentKindForFile(file) === 'note')
-			);
+			const matches = this.metaIndex.wikiLinkCandidates(target, sourceId);
 			if (matches.length !== 1) {
 				notify.info(
 					matches.length ? t('files.ambiguousLink', { name: target }) : t('projects.linkMissing')
