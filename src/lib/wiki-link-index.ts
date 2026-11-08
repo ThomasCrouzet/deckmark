@@ -1,10 +1,39 @@
 import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-names';
-import { pathKey, projectWikiPathKeys } from './project-paths';
+import { pathKey, resolveProjectPath } from './project-paths';
 import type { FileItem } from './types';
 
 const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 const SEP = '\u0001';
+
+/** Project path candidates in the exact priority order of projectWikiCandidates. */
+function projectWikiPathKeys(from: string, value: string): string[] {
+	const keys: string[] = [];
+	const names = /\.(?:md|markdown|mdx|txt)$/i.test(value) ? [value] : [value, `${value}.md`];
+	for (const name of names) {
+		const encodedName = name
+			.split('/')
+			.map((part) => {
+				try {
+					const decoded = decodeURIComponent(part);
+					return encodeURIComponent(
+						decoded.includes('/') || decoded.includes('\\') ? part : decoded
+					);
+				} catch {
+					return encodeURIComponent(part);
+				}
+			})
+			.join('/');
+		const relative = resolveProjectPath(from, encodedName);
+		if (relative) keys.push(pathKey(relative));
+		try {
+			keys.push(pathKey(name));
+		} catch {
+			/* A relative parent path has no root-relative candidate. */
+		}
+	}
+	return keys;
+}
 
 interface Entry {
 	file: FileItem;

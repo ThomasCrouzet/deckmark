@@ -103,7 +103,7 @@ describe('project wiki index equivalence and retained scaling risks', () => {
 			kind: 'code'
 		});
 		for (let i = 0; i < 40; i++) files.push(note(`generated-${i}`, `folder-${i % 5}/item-${i}.md`));
-		const index = new MetaIndex(() => files);
+		const index = new MetaIndex(() => files, undefined, WikiLinkIndex);
 		const targets = [
 			'',
 			' ',
@@ -151,7 +151,7 @@ describe('project wiki index equivalence and retained scaling risks', () => {
 			note('second', 'b/second.md', 'p', '[[target]]'),
 			note('outsider', 'outside.md', '', '[[target]]')
 		];
-		const index = new MetaIndex(() => files);
+		const index = new MetaIndex(() => files, undefined, WikiLinkIndex);
 		const compare = () => {
 			for (const file of files.filter((file) => file.projectId)) {
 				expect(
@@ -211,7 +211,7 @@ describe('project wiki index equivalence and retained scaling risks', () => {
 			note('target', 'target.md'),
 			{ ...note('global', 'source.md', '', '[[target]]'), kind: 'code' as const } as FileItem
 		];
-		const index = new MetaIndex(() => files);
+		const index = new MetaIndex(() => files, undefined, WikiLinkIndex);
 		expect(index.projectBacklinks('target')).toEqual([]);
 		files[1]!.kind = 'note';
 		index.invalidateMeta('global');
@@ -239,7 +239,7 @@ describe('project wiki index equivalence and retained scaling risks', () => {
 			});
 			return file;
 		});
-		const index = new MetaIndex(() => files);
+		const index = new MetaIndex(() => files, undefined, WikiLinkIndex);
 		expect(index.projectBacklinks('n-1').map((file) => file.id)).toEqual(['n-0']);
 		reads = 0;
 		for (let i = 0; i < 600; i++) {

@@ -68,34 +68,6 @@ export function relativeDestination(from: string, to: string): string {
 	].join('/');
 }
 
-export function projectWikiPathKeys(from: string, value: string): string[] {
-	const keys: string[] = [];
-	const names = /\.(?:md|markdown|mdx|txt)$/i.test(value) ? [value] : [value, `${value}.md`];
-	for (const name of names) {
-		const encodedName = name
-			.split('/')
-			.map((part) => {
-				try {
-					const decoded = decodeURIComponent(part);
-					return encodeURIComponent(
-						decoded.includes('/') || decoded.includes('\\') ? part : decoded
-					);
-				} catch {
-					return encodeURIComponent(part);
-				}
-			})
-			.join('/');
-		const relative = resolveProjectPath(from, encodedName);
-		if (relative) keys.push(pathKey(relative));
-		try {
-			keys.push(pathKey(name));
-		} catch {
-			/* A relative parent path has no root-relative candidate. */
-		}
-	}
-	return keys;
-}
-
 /** Resolve wiki paths within the source project before considering a basename. */
 export function projectWikiCandidates<
 	T extends { id: string; projectId?: string; relativePath?: string }
@@ -111,9 +83,33 @@ export function projectWikiCandidates<
 	);
 	const byId = files.find((file) => file.id === value);
 	if (byId) return [byId];
-	for (const candidate of projectWikiPathKeys(source.relativePath, value)) {
-		const matches = files.filter((file) => pathKey(file.relativePath!) === candidate);
-		if (matches.length) return matches;
+	const names = /\.(?:md|markdown|mdx|txt)$/i.test(value) ? [value] : [value, `${value}.md`];
+	for (const name of names) {
+		const encodedName = name
+			.split('/')
+			.map((part) => {
+				try {
+					const decoded = decodeURIComponent(part);
+					return encodeURIComponent(
+						decoded.includes('/') || decoded.includes('\\') ? part : decoded
+					);
+				} catch {
+					return encodeURIComponent(part);
+				}
+			})
+			.join('/');
+		const relative = resolveProjectPath(source.relativePath, encodedName);
+		if (relative) {
+			const matches = files.filter((file) => pathKey(file.relativePath!) === pathKey(relative));
+			if (matches.length) return matches;
+		}
+		try {
+			const root = pathKey(name);
+			const matches = files.filter((file) => pathKey(file.relativePath!) === root);
+			if (matches.length) return matches;
+		} catch {
+			/* A relative parent path has no root-relative candidate. */
+		}
 	}
 	if (value.includes('/')) return [];
 	const stem = value.replace(/\.(md|markdown|mdx|txt)$/i, '').toLowerCase();

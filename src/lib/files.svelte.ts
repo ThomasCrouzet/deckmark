@@ -489,6 +489,7 @@ class FilesStore {
 		this.files = items.filter((_file, index) => rows[index]?.open !== false);
 		this.closedFiles = items.filter((_file, index) => rows[index]?.open === false);
 		this.metaIndex.invalidateBacklinksIndex();
+		await this.metaIndex.load();
 		const savedActiveId =
 			preferredActiveId && this.files.some((file) => file.id === preferredActiveId)
 				? preferredActiveId

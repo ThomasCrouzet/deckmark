@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MetaIndex } from './meta-index';
+import { WikiLinkIndex } from './wiki-link-index';
 import { matchInCorpus } from './search-core';
 import type { FileItem } from './types';
 
@@ -17,7 +18,7 @@ function corpus(size: number): FileItem[] {
 describe('corpus performance budget', () => {
 	it('indexes and searches 300 representative documents within budget', () => {
 		const files = corpus(300);
-		const index = new MetaIndex(() => files);
+		const index = new MetaIndex(() => files, undefined, WikiLinkIndex);
 		const startedAt = performance.now();
 		expect(index.allTags).toHaveLength(13);
 		expect(index.backlinks('doc-0')).toHaveLength(1);

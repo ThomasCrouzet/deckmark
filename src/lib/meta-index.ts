@@ -20,7 +20,7 @@ import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-utils';
 import { extractWikiLinkTargets } from './wiki-links';
 import { getTags as getFmTags, getTitle as getFmTitle, stripFrontmatter } from './frontmatter';
-import { WikiLinkIndex } from './wiki-link-index';
+import type { WikiLinkIndex } from './wiki-link-index';
 
 /** Per-file cache entry. */
 interface MetaEntry {
@@ -38,6 +38,8 @@ interface MetaEntry {
 export class MetaIndex {
 	private metaCache = new Map<string, MetaEntry>();
 	private wikiIndex: WikiLinkIndex | null = null;
+	/** The store loads the module during boot; tests inject the class. */
+	private wikiClass: typeof WikiLinkIndex | null;
 	/** Sorted unique tags; rebuilt lazily after a metadata change. */
 	private allTagsCache: string[] | null = null;
 
@@ -45,9 +47,11 @@ export class MetaIndex {
 	private getFiles: () => readonly FileItem[];
 	constructor(
 		getFiles: () => readonly FileItem[],
-		private onPublish?: () => void
+		private onPublish?: () => void,
+		indexClass?: typeof WikiLinkIndex
 	) {
 		this.getFiles = getFiles;
+		this.wikiClass = indexClass ?? null;
 	}
 
 	// §A2.1 - Reads the cache for `file.id` and revalidates it if `content` changed.
@@ -140,12 +144,30 @@ export class MetaIndex {
 		this.onPublish?.();
 	}
 
-	private wikiLinks(): WikiLinkIndex {
-		return (this.wikiIndex ??= new WikiLinkIndex(
+	/**
+	 * Loads the index module as a separate chunk during the store load. The boot
+	 * bundle keeps only this loader. A test can inject the class in the constructor.
+	 */
+	async load(): Promise<void> {
+		if (this.wikiClass) return;
+		const { WikiLinkIndex: Index } = await import('./wiki-link-index');
+		this.wikiClass = Index;
+	}
+
+	private createWikiIndex(Index: typeof WikiLinkIndex): WikiLinkIndex {
+		return new Index(
 			this.getFiles,
 			(file) => this.getMeta(file).targets,
 			(file) => this.getMeta(file).isNote
-		));
+		);
+	}
+
+	private wikiLinks(): WikiLinkIndex {
+		const loaded = this.wikiIndex;
+		if (loaded) return loaded;
+		const Index = this.wikiClass;
+		if (!Index) throw new Error('Wiki link index is not loaded');
+		return (this.wikiIndex = this.createWikiIndex(Index));
 	}
 
 	projectBacklinks(targetId: string): FileItem[] {
