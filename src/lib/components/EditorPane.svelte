@@ -23,6 +23,11 @@
 	import { t } from '#lib/i18n/index.js';
 	import { readPreference, writePreference } from '#lib/preferences.js';
 	import type { DocumentKind } from '#lib/document-kind.js';
+	import type {
+		DocumentChange,
+		DocumentRevision,
+		DocumentSnapshot
+	} from '#lib/document-revisions.js';
 
 	interface Props {
 		kind: DocumentKind;
@@ -49,6 +54,9 @@
 		// §C1 - Flush of the last WYSIWYG keystroke to a specific file
 		// (the old tab) before the editor remounts.
 		onEditorFlush: (fileId: string, markdown: string) => void;
+		getRevision?: (fileId: string) => DocumentRevision | null;
+		applyChange?: (change: DocumentChange) => DocumentRevision | null;
+		resyncSnapshot?: (fileId: string) => DocumentSnapshot | null;
 		onNew: () => void;
 		onImport: () => void;
 		onDemo: () => void;
@@ -73,6 +81,9 @@
 		onTocEmpty,
 		onEditorChange,
 		onEditorFlush,
+		getRevision,
+		applyChange,
+		resyncSnapshot,
 		onNew,
 		onImport,
 		onDemo
@@ -169,6 +180,9 @@
 							content={activeFile.content}
 							onChange={editorChangeFor(activeFile.id)}
 							onFlush={onEditorFlush}
+							{getRevision}
+							{applyChange}
+							{resyncSnapshot}
 							onCursorLine={(line) => (sourceLine = line)}
 						/>
 					{:catch}<p role="alert" class="p-4 text-danger">{t('source.loadErrorTitle')}</p>{/await}
@@ -196,6 +210,9 @@
 										content={activeFile.content}
 										onChange={editorChangeFor(activeFile.id)}
 										onFlush={onEditorFlush}
+										{getRevision}
+										{applyChange}
+										{resyncSnapshot}
 										onCursorLine={(line) => (sourceLine = line)}
 										onSourceEditorRef={(ref) => (sourceEditorEl = ref)}
 										{onArticleRef}
@@ -210,6 +227,9 @@
 									content={activeFile.content}
 									onChange={editorChangeFor(activeFile.id)}
 									onFlush={onEditorFlush}
+									{getRevision}
+									{applyChange}
+									{resyncSnapshot}
 									onCursorLine={(line) => (sourceLine = line)}
 								/>
 							{/if}

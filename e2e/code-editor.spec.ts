@@ -291,7 +291,10 @@ async function readPerfCounters(page: Page): Promise<PerfCounters> {
 	return page.evaluate(() => ({
 		codeFullRebuild: performance.getEntriesByName('mdsh:code-full-rebuild').length,
 		codeBufferApply: performance.getEntriesByName('mdsh:code-buffer-apply').length,
-		codeSnapshot: performance.getEntriesByName('mdsh:code-snapshot').length
+		codeSnapshot: performance.getEntriesByName('mdsh:code-snapshot').length,
+		codeNativeApply: performance.getEntriesByName('mdsh:code-native-apply').length,
+		codeNativeReject: performance.getEntriesByName('mdsh:code-native-reject').length,
+		codeStringPublish: performance.getEntriesByName('mdsh:code-string-publish').length
 	}));
 }
 
@@ -336,6 +339,12 @@ test('ordinary typing in a large code file avoids full-document reconstruction',
 	expect
 		.soft(change.codeBufferApply ?? 0, 'each accepted change updates the incremental buffer')
 		.toBeGreaterThanOrEqual(typed.length);
+	expect
+		.soft(change.codeNativeApply ?? 0, 'each accepted change uses the native store revision')
+		.toBeGreaterThanOrEqual(typed.length);
+	expect
+		.soft(change.codeStringPublish ?? 0, 'the native path must not publish a string per key')
+		.toBe(0);
 	await expect
 		.poll(async () => (await savedContent(page)).endsWith(typed), { timeout: 20_000 })
 		.toBe(true);

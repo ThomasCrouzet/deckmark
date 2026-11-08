@@ -53,6 +53,30 @@ async function openSettings(page: Page): Promise<void> {
 }
 
 test.describe('Editor state isolation and restoration', () => {
+	test('source typing keeps undo and the caret after the store publishes its echo', async ({
+		page
+	}) => {
+		await resetAppState(page);
+		await seedFiles(page, [{ name: 'Echo.md', content: 'start' }]);
+		const editor = page.locator('.cm-content').first();
+		await expect(editor).toBeVisible({ timeout: 20_000 });
+		await editor.click();
+		await page.keyboard.press('ControlOrMeta+End');
+		await page.keyboard.insertText('abc');
+		await page.waitForTimeout(700);
+		await expect.poll(() => sourceText(page)).toBe('startabc');
+		// An own echo must not rebuild the document: the caret stays at the end.
+		await page.keyboard.insertText('d');
+		await expect.poll(() => sourceText(page)).toBe('startabcd');
+		await page.waitForTimeout(700);
+		await expect.poll(() => sourceText(page)).toBe('startabcd');
+		// Undo still walks the native history instead of a rebuilt document.
+		await page.keyboard.press('ControlOrMeta+z');
+		await expect.poll(() => sourceText(page)).toBe('startabc');
+		await page.waitForTimeout(700);
+		await expect.poll(() => sourceText(page)).toBe('startabc');
+	});
+
 	test('keeps source undo inside its draft and persists the safe result', async ({ page }) => {
 		await resetAppState(page);
 		await seedFiles(page, [

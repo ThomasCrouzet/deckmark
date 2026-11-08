@@ -5,6 +5,7 @@
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { reportError } from '#lib/report.js';
+	import { notify } from '#lib/notify.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { convertLineEndings, detectLineEnding } from '#lib/code/text-changes.js';
 	import { SourceText } from '#lib/code/source-text.js';
@@ -15,6 +16,12 @@
 		type JsonAnalysis
 	} from '#lib/code/json-tools.js';
 	import { JsonWorkerClient } from '#lib/code/json-worker-client.js';
+	import { resolveRejectedNativeChange } from '#lib/code/native-adapter.js';
+	import type {
+		DocumentChange,
+		DocumentRevision,
+		DocumentSnapshot
+	} from '#lib/document-revisions.js';
 
 	interface Props {
 		fileId: string;
@@ -23,6 +30,10 @@
 		readonly?: boolean;
 		onChange: (text: string) => void;
 		onFlush?: (fileId: string, text: string) => void;
+		/** Store authority for the next native change. */
+		getRevision?: ((fileId: string) => DocumentRevision | null) | undefined;
+		applyChange?: ((change: DocumentChange) => DocumentRevision | null) | undefined;
+		resyncSnapshot?: ((fileId: string) => DocumentSnapshot | null) | undefined;
 		onCursorLine?: (line: number) => void;
 	}
 
@@ -33,6 +44,9 @@
 		readonly = false,
 		onChange,
 		onFlush,
+		getRevision,
+		applyChange,
+		resyncSnapshot,
 		onCursorLine
 	}: Props = $props();
 
@@ -57,6 +71,13 @@
 	let lastPublishAt = Number.NEGATIVE_INFINITY;
 	const PUBLISH_THROTTLE_MS = 150;
 	let applyingExternal = false;
+	// Store authority for the next native change. The buffer revision is a
+	// separate, editor-local counter and is never used as this base.
+	let acceptedBase: DocumentRevision | null = null;
+	let nativeBlocked = false;
+	function nativeCapable(): boolean {
+		return Boolean(getRevision && applyChange && resyncSnapshot);
+	}
 	let loadError = $state(false);
 	let showInvisibles = $state(false);
 	let wrap = $state(false);
@@ -115,6 +136,7 @@
 		const text = materialize();
 		if (text !== lastEmitted) {
 			lastEmitted = text;
+			sourceMark('mdsh:code-string-publish');
 			onChange(text);
 		}
 	}
@@ -140,6 +162,53 @@
 	function flushPublish(): void {
 		cancelPublish();
 		publish();
+	}
+
+	function nativeActive(): boolean {
+		return nativeCapable() && acceptedBase !== null;
+	}
+
+	/**
+	 * A rejected native change must not be forced through a fresh base. Adopt an
+	 * authoritative snapshot only when its captured text equals the previous
+	 * accepted text. Otherwise keep the local work and stop publishing.
+	 */
+	function handleRejectedChange(
+		previous: SourceText | null,
+		accepted: SourceText,
+		changes: import('@codemirror/state').ChangeSet,
+		state: import('@codemirror/state').EditorState
+	): void {
+		if (!applyChange) {
+			nativeBlocked = true;
+			return;
+		}
+		const snapshot = resyncSnapshot?.(fileId) ?? null;
+		const decision = resolveRejectedNativeChange(
+			fileId,
+			previous ? previous.getText() : '',
+			snapshot
+		);
+		if (decision.kind === 'block') {
+			nativeBlocked = true;
+			sourceMark('mdsh:code-native-block');
+			notify.error(t('documents.nativeConflict'));
+			return;
+		}
+		acceptedBase = decision.revision;
+		const next = applyChange({
+			base: decision.revision,
+			edits: { kind: 'codemirror', changes, state },
+			readText: () => accepted.getText()
+		});
+		if (next) {
+			acceptedBase = next;
+			sourceMark('mdsh:code-native-resync');
+			return;
+		}
+		nativeBlocked = true;
+		sourceMark('mdsh:code-native-block');
+		notify.error(t('documents.nativeConflict'));
 	}
 
 	function applyOptions() {
@@ -289,7 +358,32 @@
 
 	$effect(() => {
 		const incoming = content;
-		if (!view || incoming === lastEmitted) return;
+		if (!view) return;
+		if (nativeActive()) {
+			if (nativeBlocked) return;
+			const canonical = getRevision?.(fileId) ?? null;
+			if (
+				canonical &&
+				acceptedBase &&
+				canonical.fileId === acceptedBase.fileId &&
+				canonical.generation === acceptedBase.generation
+			) {
+				lastEmitted = incoming;
+				return;
+			}
+			if (incoming === lastEmitted) return;
+			cancelPublish();
+			acceptedBase = canonical;
+			applyingExternal = true;
+			lastEmitted = incoming;
+			view.dispatch({
+				changes: { from: 0, to: view.state.doc.length, insert: incoming }
+			});
+			applyingExternal = false;
+			buffer = SourceText.create(incoming, view.state.doc);
+			return;
+		}
+		if (incoming === lastEmitted) return;
 		cancelPublish();
 		applyingExternal = true;
 		lastEmitted = incoming;
@@ -371,10 +465,31 @@
 						if (!update.selectionSet && !update.docChanged) return;
 						onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 						if (update.docChanged && !applyingExternal && view) {
-							if (update.docChanged && !applyingExternal && view) {
-								buffer = applyBufferChange(update.changes, update.state.doc);
-								sourceMark('mdsh:code-buffer-apply');
-								invalidateJson();
+							const previous = buffer;
+							buffer = applyBufferChange(update.changes, update.state.doc);
+							sourceMark('mdsh:code-buffer-apply');
+							invalidateJson();
+							if (nativeActive() && applyChange) {
+								if (!nativeBlocked) {
+									const accepted = buffer!;
+									const next = applyChange({
+										base: acceptedBase!,
+										edits: {
+											kind: 'codemirror',
+											changes: update.changes,
+											state: update.state
+										},
+										readText: () => accepted.getText()
+									});
+									if (next) {
+										acceptedBase = next;
+										sourceMark('mdsh:code-native-apply');
+									} else {
+										sourceMark('mdsh:code-native-reject');
+										handleRejectedChange(previous, accepted, update.changes, update.state);
+									}
+								}
+							} else {
 								schedulePublish();
 							}
 						}
@@ -421,6 +536,8 @@
 				loadedLanguageId = language.id;
 				lastEmitted = content;
 				buffer = SourceText.create(content, view.state.doc);
+				acceptedBase = nativeCapable() ? (getRevision?.(fileId) ?? null) : null;
+				nativeBlocked = false;
 				const tabListener = (event: KeyboardEvent) => {
 					if (
 						event.key !== 'Tab' ||
@@ -446,7 +563,14 @@
 					});
 				};
 				mount.addEventListener('keydown', tabListener, true);
-				const flushListener = () => {
+				const flushListener = (event: Event) => {
+					if (nativeActive()) {
+						if (nativeBlocked) {
+							event.preventDefault();
+							notify.error(t('documents.nativeConflict'));
+						}
+						return;
+					}
 					flushPublish();
 					onFlush?.(fileId, lastEmitted);
 				};
@@ -474,12 +598,15 @@
 			if (view) {
 				// Route the final keystroke to its own file before the active tab
 				// changes. Writing through onChange would target the new active file.
-				flushPublish();
-				onFlush?.(fileId, lastEmitted);
+				if (!nativeActive()) {
+					flushPublish();
+					onFlush?.(fileId, lastEmitted);
+				}
+				const cachedText = buffer ? buffer.getText() : lastEmitted;
 				editorStateCache.setSourceState(
 					fileId,
 					{
-						content: lastEmitted,
+						content: cachedText,
 						state: view.state.toJSON(historyFieldRef ? { history: historyFieldRef } : undefined)
 					},
 					{

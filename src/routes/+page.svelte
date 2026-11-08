@@ -589,6 +589,18 @@
 		filesStore.updateContent(id, markdown);
 	}
 
+	function editorRevision(id: string) {
+		return filesStore.documentRevision(id);
+	}
+
+	function editorApplyChange(change: import('#lib/document-revisions.js').DocumentChange) {
+		return filesStore.applyDocumentChange(change);
+	}
+
+	function editorSnapshot(id: string) {
+		return filesStore.documentSnapshot(id);
+	}
+
 	function handleExport() {
 		filesStore.exportActive();
 	}
@@ -908,6 +920,9 @@
 					onTocEmpty={(empty) => (tocEmpty = empty)}
 					onEditorChange={handleEditorChange}
 					onEditorFlush={handleEditorFlush}
+					getRevision={editorRevision}
+					applyChange={editorApplyChange}
+					resyncSnapshot={editorSnapshot}
 					onNew={handleNew}
 					onImport={handleImport}
 					onDemo={handleDemo}

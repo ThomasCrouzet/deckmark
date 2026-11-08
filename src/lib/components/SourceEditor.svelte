@@ -8,6 +8,12 @@
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import { SourceText } from '#lib/code/source-text.js';
+	import { resolveRejectedNativeChange } from '#lib/code/native-adapter.js';
+	import type {
+		DocumentChange,
+		DocumentRevision,
+		DocumentSnapshot
+	} from '#lib/document-revisions.js';
 
 	interface Props {
 		fileId: string;
@@ -19,6 +25,10 @@
 		onChange: (markdown: string) => void;
 		/** Writes the final accepted bytes to the outgoing file before detach. */
 		onFlush?: (fileId: string, markdown: string) => void;
+		/** Store authority for the next native change. */
+		getRevision?: ((fileId: string) => DocumentRevision | null) | undefined;
+		applyChange?: ((change: DocumentChange) => DocumentRevision | null) | undefined;
+		resyncSnapshot?: ((fileId: string) => DocumentSnapshot | null) | undefined;
 		onCursorLine?: (line: number) => void;
 		onViewportLine?: (line: number) => void;
 	}
@@ -31,6 +41,9 @@
 		plainText = false,
 		onChange,
 		onFlush,
+		getRevision,
+		applyChange,
+		resyncSnapshot,
 		onCursorLine,
 		onViewportLine
 	}: Props = $props();
@@ -51,7 +64,7 @@
 	 */
 	export function getSnapshot(): { fileId: string; revision: number; text: string } | null {
 		if (!view || !buffer) return null;
-		flushPublish();
+		if (!nativeActive()) flushPublish();
 		return { fileId, revision: buffer.revision, text: buffer.getText() };
 	}
 
@@ -89,6 +102,13 @@
 	// transaction. The update listener reuses it when the ChangeSet identity
 	// matches, so one accepted risky change converts once.
 	let pendingGuard: { changes: ChangeSet; buffer: SourceText | null } | null = null;
+	// Store authority for the next native change. The buffer revision is a
+	// separate, editor-local counter and is never used as this base.
+	let acceptedBase: DocumentRevision | null = null;
+	let nativeBlocked = false;
+	function nativeCapable(): boolean {
+		return Boolean(getRevision && applyChange && resyncSnapshot);
+	}
 
 	const PRESENTATION_MARKER = '<!-- mdsh-presentation';
 	const MAX_GUARD_LINE = 4096;
@@ -129,6 +149,7 @@
 		const text = materialize();
 		if (text !== lastEmitted) {
 			lastEmitted = text;
+			sourceMark('mdsh:source-string-publish');
 			onChange(text);
 		}
 	}
@@ -163,12 +184,62 @@
 	/** Captures the outgoing file before detach. */
 	function flushOutgoing(): void {
 		if (!view || !buffer) return;
+		// The native path already applied the latest accepted change to the store.
+		// Do not publish a string or overwrite a blocked conflict.
+		if (nativeActive()) return;
 		cancelPublish();
 		const text = materialize();
 		const changed = text !== lastEmitted;
 		lastEmitted = text;
 		if (onFlush) onFlush(fileId, text);
 		else if (changed) onChange(text);
+	}
+
+	function nativeActive(): boolean {
+		return nativeCapable() && acceptedBase !== null;
+	}
+
+	/**
+	 * A rejected native change must not be forced through a fresh base. Adopt an
+	 * authoritative snapshot only when its captured text equals the previous
+	 * accepted text. Otherwise keep the local work and stop publishing.
+	 */
+	function handleRejectedChange(
+		previous: SourceText | null,
+		accepted: SourceText,
+		changes: ChangeSet,
+		state: import('@codemirror/state').EditorState
+	): void {
+		if (!applyChange) {
+			nativeBlocked = true;
+			return;
+		}
+		const snapshot = resyncSnapshot?.(fileId) ?? null;
+		const decision = resolveRejectedNativeChange(
+			fileId,
+			previous ? previous.getText() : '',
+			snapshot
+		);
+		if (decision.kind === 'block') {
+			nativeBlocked = true;
+			sourceMark('mdsh:source-native-block');
+			notify.error(t('documents.nativeConflict'));
+			return;
+		}
+		acceptedBase = decision.revision;
+		const next = applyChange({
+			base: decision.revision,
+			edits: { kind: 'codemirror', changes, state },
+			readText: () => accepted.getText()
+		});
+		if (next) {
+			acceptedBase = next;
+			sourceMark('mdsh:source-native-resync');
+			return;
+		}
+		nativeBlocked = true;
+		sourceMark('mdsh:source-native-block');
+		notify.error(t('documents.nativeConflict'));
 	}
 
 	/**
@@ -288,12 +359,13 @@
 
 	function saveSourceState(): void {
 		if (!view || !activeCM) return;
-		flushPublish();
+		if (!nativeActive()) flushPublish();
+		const cachedText = buffer ? buffer.getText() : lastEmitted;
 		const selection = view.state.selection.main;
 		editorStateCache.setSourceState(
 			fileId,
 			{
-				content: lastEmitted,
+				content: cachedText,
 				state: view.state.toJSON({ history: activeCM.historyField })
 			},
 			{
@@ -539,6 +611,7 @@
 				if (update.docChanged && !applyingExternal) {
 					const cached = pendingGuard;
 					pendingGuard = null;
+					const previous = buffer;
 					if (cached?.changes === update.changes && cached.buffer) {
 						buffer = cached.buffer;
 						sourceMark('mdsh:source-change-reuse');
@@ -546,7 +619,25 @@
 						buffer = applyBufferChange(update.changes, update.state.doc);
 						sourceMark('mdsh:source-buffer-apply');
 					}
-					schedulePublish();
+					if (nativeActive() && applyChange) {
+						if (!nativeBlocked) {
+							const accepted = buffer!;
+							const next = applyChange({
+								base: acceptedBase!,
+								edits: { kind: 'codemirror', changes: update.changes, state: update.state },
+								readText: () => accepted.getText()
+							});
+							if (next) {
+								acceptedBase = next;
+								sourceMark('mdsh:source-native-apply');
+							} else {
+								sourceMark('mdsh:source-native-reject');
+								handleRejectedChange(previous, accepted, update.changes, update.state);
+							}
+						}
+					} else {
+						schedulePublish();
+					}
 				}
 			}),
 			typewriterCompartment.of(pendingTypewriter ? [cm.typewriterCentering()] : []),
@@ -589,7 +680,18 @@
 		lastEmitted = content;
 		buffer = SourceText.create(content, view.state.doc);
 		sourceHasPresentationMarker = content.includes(PRESENTATION_MARKER);
-		const flushListener = () => flushPublish();
+		acceptedBase = nativeCapable() ? (getRevision?.(fileId) ?? null) : null;
+		nativeBlocked = false;
+		const flushListener = (event: Event) => {
+			if (nativeActive()) {
+				if (nativeBlocked) {
+					event.preventDefault();
+					notify.error(t('documents.nativeConflict'));
+				}
+				return;
+			}
+			flushPublish();
+		};
 		window.addEventListener('mdsh:flush-editor', flushListener);
 		removeFlushListener = () => window.removeEventListener('mdsh:flush-editor', flushListener);
 		if (savedPosition?.scrollTop) {
@@ -637,7 +739,42 @@
 	 */
 	$effect(() => {
 		const c = content;
-		if (view && activeCM && c !== lastEmitted) {
+		if (!view || !activeCM) return;
+		if (nativeActive()) {
+			// A blocked conflict keeps the rejected local work. Do not replace it.
+			if (nativeBlocked) return;
+			const canonical = getRevision?.(fileId) ?? null;
+			if (
+				canonical &&
+				acceptedBase &&
+				canonical.fileId === acceptedBase.fileId &&
+				canonical.generation === acceptedBase.generation
+			) {
+				// Own echo: the store published our accepted revision. Adopt its
+				// already-materialized text without replacing the document.
+				lastEmitted = c;
+				return;
+			}
+			if (c === lastEmitted) return;
+			// True external change: replace from the canonical revision.
+			cancelPublish();
+			lastEmitted = c;
+			acceptedBase = canonical;
+			sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
+			pendingGuard = null;
+			applyingExternal = true;
+			try {
+				view.dispatch({
+					changes: { from: 0, to: view.state.doc.length, insert: c },
+					annotations: activeCM.Transaction.addToHistory.of(false)
+				});
+			} finally {
+				applyingExternal = false;
+			}
+			buffer = SourceText.create(c, view.state.doc);
+			return;
+		}
+		if (c !== lastEmitted) {
 			cancelPublish();
 			lastEmitted = c;
 			sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);

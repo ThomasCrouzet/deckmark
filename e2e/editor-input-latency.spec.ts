@@ -30,6 +30,9 @@ async function readCounters(page: Page): Promise<Counters> {
 		counts.sourceChangeConversion = performance.getEntriesByName('mdsh:source-change').length;
 		counts.sourceFullRebuild = performance.getEntriesByName('mdsh:source-full-rebuild').length;
 		counts.sourceBufferApply = performance.getEntriesByName('mdsh:source-buffer-apply').length;
+		counts.sourceNativeApply = performance.getEntriesByName('mdsh:source-native-apply').length;
+		counts.sourceNativeReject = performance.getEntriesByName('mdsh:source-native-reject').length;
+		counts.sourceStringPublish = performance.getEntriesByName('mdsh:source-string-publish').length;
 		return counts;
 	}, counterKey);
 }
@@ -260,6 +263,12 @@ test('ordinary source typing keeps CRLF bytes without rebuilding the full source
 	expect
 		.soft(change.sourceBufferApply ?? 0, 'each accepted change updates the incremental buffer')
 		.toBeGreaterThanOrEqual(typed.length);
+	expect
+		.soft(change.sourceNativeApply ?? 0, 'each accepted change uses the native store revision')
+		.toBeGreaterThanOrEqual(typed.length);
+	expect
+		.soft(change.sourceStringPublish ?? 0, 'the native path must not publish a string per key')
+		.toBe(0);
 	expect
 		.soft(change.sourceChangeConversion ?? 0, 'raw snapshots are coalesced, not one per keypress')
 		.toBeLessThanOrEqual(typed.length);

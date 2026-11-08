@@ -469,6 +469,33 @@ npx playwright test editor-input-latency.spec.ts code-editor.spec.ts \
 These checks do not cover Firefox, WebKit, native WebViews, a full local CI
 profile or a paint/allocation budget. Keep those as separate acceptance work.
 
+### Native store revision wire
+
+`SourceEditor` and `CodeEditor` accept optional `getRevision`, `applyChange` and
+`resyncSnapshot` functions. `EditorPane` and `+page.svelte` supply the existing
+`documentRevision`, `applyDocumentChange` and `documentSnapshot` store methods.
+On the native path an accepted change updates the immutable buffer and applies a
+`DocumentChange` whose `readText` captures that exact `SourceText` instance. The
+editor does not publish a string per key. The store materializes at its own
+100 ms publication boundary and keeps the 400 ms Dexie save.
+
+Identified failure modes before the adapter test and code:
+
+1. A rejected base is replaced with a fresh store revision, and the next edit
+   publishes an unchanged stale buffer over an external change.
+2. The store's own publication is treated as an external replacement, which
+   rebuilds the document and loses undo, selection or scroll.
+3. A lazy reader closes over a mutable buffer and later returns newer text than
+   the change it represents.
+4. A canceled outgoing flush still writes or claims a save.
+
+`src/lib/code/native-adapter.test.ts` keeps the pure rejection decision: adopt
+only a same-file snapshot whose captured text equals the accepted text, otherwise
+block. A browser cannot deterministically force a stale store generation between
+two accepted keystrokes without a mock or a test-only hook. The own-echo and
+outgoing-cancellation failures are proven through the real application in
+`editor-state.spec.ts`, `document-revisions.spec.ts` and the latency cases.
+
 ### Revisioned document publication
 
 The revision scheduler must reject an obsolete base, isolate files, retain pending
