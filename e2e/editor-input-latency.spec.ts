@@ -28,6 +28,11 @@ async function readCounters(page: Page): Promise<Counters> {
 		const counts = JSON.parse(sessionStorage.getItem(key) ?? '{}') as Record<string, number>;
 		counts.sourceGuardConversion = performance.getEntriesByName('mdsh:source-guard').length;
 		counts.sourceChangeConversion = performance.getEntriesByName('mdsh:source-change').length;
+		counts.sourceFullRebuild = performance.getEntriesByName('mdsh:source-full-rebuild').length;
+		counts.sourceBufferApply = performance.getEntriesByName('mdsh:source-buffer-apply').length;
+		counts.sourceNativeApply = performance.getEntriesByName('mdsh:source-native-apply').length;
+		counts.sourceNativeReject = performance.getEntriesByName('mdsh:source-native-reject').length;
+		counts.sourceStringPublish = performance.getEntriesByName('mdsh:source-string-publish').length;
 		return counts;
 	}, counterKey);
 }
@@ -229,7 +234,7 @@ test('ordinary visual typing avoids full-document validation', async ({ page }, 
 	});
 });
 
-test('ordinary source typing converts once per accepted change and keeps CRLF bytes', async ({
+test('ordinary source typing keeps CRLF bytes without rebuilding the full source', async ({
 	page
 }, info) => {
 	test.setTimeout(60_000);
@@ -248,12 +253,25 @@ test('ordinary source typing converts once per accepted change and keeps CRLF by
 	const after = await readCounters(page);
 	await attachCounters(info, before, after);
 	const change = delta(before, after);
+	console.log('[perf] source ordinary typing', JSON.stringify(change));
 	expect
 		.soft(change.sourceGuardConversion ?? 0, 'the change filter must not rebuild the full source')
 		.toBe(0);
 	expect
-		.soft(change.sourceChangeConversion ?? 0, 'one accepted change emits one snapshot')
-		.toBe(typed.length);
+		.soft(change.sourceFullRebuild ?? 0, 'ordinary typing must not rebuild the full raw source')
+		.toBe(0);
+	expect
+		.soft(change.sourceBufferApply ?? 0, 'each accepted change updates the incremental buffer')
+		.toBeGreaterThanOrEqual(typed.length);
+	expect
+		.soft(change.sourceNativeApply ?? 0, 'each accepted change uses the native store revision')
+		.toBeGreaterThanOrEqual(typed.length);
+	expect
+		.soft(change.sourceStringPublish ?? 0, 'the native path must not publish a string per key')
+		.toBe(0);
+	expect
+		.soft(change.sourceChangeConversion ?? 0, 'raw snapshots are coalesced, not one per keypress')
+		.toBeLessThanOrEqual(typed.length);
 	await expect
 		.poll(async () => (await storedContent(page, sourceId)) === `${initial}${typed}`, {
 			timeout: 20_000
@@ -281,4 +299,138 @@ test('removing a fence cannot reveal a presentation marker in a note', async ({ 
 	const stored = await storedContent(page, sourceId);
 	await info.attach('fenced-marker.md', { body: stored, contentType: 'text/markdown' });
 	expect(stored).toBe(initial);
+});
+
+async function seedNamed(page: Page, id: string, name: string, content: string) {
+	await page.evaluate(
+		async ({ id: rowId, name: rowName, content: rowContent }) => {
+			await new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts', 'readwrite');
+					transaction.objectStore('drafts').put({
+						id: rowId,
+						name: rowName,
+						content: rowContent,
+						createdAt: 1_700_000_000_000,
+						updatedAt: 1_700_000_000_000,
+						order: 0,
+						open: true
+					});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			});
+			localStorage.setItem('mdsh:activeId', rowId);
+			localStorage.setItem('mdsh:locale', 'en');
+		},
+		{ id, name, content }
+	);
+}
+
+async function storedRow(page: Page, id: string): Promise<{ content: string; open?: boolean }> {
+	return page.evaluate(
+		(rowId) =>
+			new Promise<{ content: string; open?: boolean }>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts');
+					const get = transaction.objectStore('drafts').get(rowId);
+					get.onsuccess = () => {
+						database.close();
+						resolve(
+							(get.result as { content?: string; open?: boolean } | undefined) ?? { content: '' }
+						);
+					};
+					get.onerror = () => reject(get.error);
+				};
+			}),
+		id
+	);
+}
+
+async function cmText(page: Page): Promise<string> {
+	return page
+		.locator('.cm-content')
+		.first()
+		.evaluate((root) =>
+			Array.from(root.querySelectorAll('.cm-line'))
+				.map((line) => line.textContent ?? '')
+				.join('\n')
+		);
+}
+
+async function forceNativeConflict(page: Page, external: string, fileId: string): Promise<boolean> {
+	return page.evaluate(
+		({ text, id }) => {
+			const seam = (
+				window as unknown as {
+					__mdshTest?: { forceNativeConflict: (external: string, fileId?: string) => boolean };
+				}
+			).__mdshTest;
+			return seam ? seam.forceNativeConflict(text, id) : false;
+		},
+		{ text: external, id: fileId }
+	);
+}
+
+async function exerciseRejectedNativeBase(page: Page, info: TestInfo, id: string, name: string) {
+	const initial = name.endsWith('.md') ? '# Conflict\r\n\r\nBase.\r\n' : 'const base = 1;\n';
+	await seedNamed(page, id, name, initial);
+	await page.reload();
+	const editor = page.locator('.cm-content').first();
+	await expect(editor).toBeVisible({ timeout: 30_000 });
+	await editor.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText('local');
+	await expect.poll(async () => (await storedRow(page, id)).content).toContain('local');
+
+	const forced = await forceNativeConflict(page, 'external-authoritative\n', id);
+	expect(forced, 'native conflict seam is available').toBe(true);
+	await page.keyboard.insertText('X');
+	await expect(page.getByRole('alert').first()).toBeVisible({ timeout: 10_000 });
+	await expect.poll(() => cmText(page)).toContain('localX');
+
+	await page.waitForTimeout(700);
+	expect((await storedRow(page, id)).content).toBe('external-authoritative\n');
+
+	await page.locator('aside li button[aria-label^="Close "]').click({ force: true });
+	await expect(page.getByRole('alert').first()).toBeVisible();
+	expect((await storedRow(page, id)).open).not.toBe(false);
+
+	await info.attach('native-conflict.json', {
+		body: JSON.stringify(
+			{
+				fileId: id,
+				editorText: await cmText(page),
+				stored: await storedRow(page, id),
+				command: info.config.metadata.command,
+				source: info.config.metadata.source
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+}
+
+test('a rejected native base keeps local work and cancels close for a note', async ({
+	page
+}, info) => {
+	test.setTimeout(90_000);
+	await exerciseRejectedNativeBase(page, info, 'conflict-source', 'conflict-source.md');
+});
+
+test('a rejected native base keeps local work and cancels close for a code file', async ({
+	page
+}, info) => {
+	test.setTimeout(90_000);
+	await exerciseRejectedNativeBase(page, info, 'conflict-code', 'conflict-code.js');
 });

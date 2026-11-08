@@ -32,11 +32,9 @@
 		fileId: string;
 		content: string;
 		readonly?: boolean;
-		onChange: (markdown: string) => void;
-		// §C1 - Flush of the last keystroke to the OLD file before remount.
-		// Explicitly receives the relevant fileId (unlike onChange which writes to
-		// the active file): on tab switch, the outgoing instance may hold a
-		// keystroke that `markdownUpdated` (asynchronous) has not yet emitted.
+		onChange: (markdown: string, fileId: string) => void;
+		// A switch can precede the asynchronous Markdown callback. Flush to the
+		// captured outgoing file before the view is replaced.
 		onFlush?: (fileId: string, markdown: string) => void;
 	}
 
@@ -393,7 +391,7 @@
 				if (token !== mountToken || revision !== markdownRevision) return;
 				lastEditorMarkdown = portableMarkdown;
 				queueMicrotask(applyImageAlternatives);
-				if (token === mountToken) onChange(portableMarkdown);
+				if (token === mountToken) onChange(portableMarkdown, idForMount);
 				else onFlush?.(idForMount, portableMarkdown);
 			};
 			if (typeof window.requestIdleCallback === 'function') {
@@ -977,12 +975,18 @@
 			editorView.dispatch(editorView.state.tr.setSelection(selection).scrollIntoView());
 			editorView.focus();
 		}
-		const flushCurrentContent = () => {
+		const flushCurrentContent = (event: Event) => {
 			if (token !== mountToken) return;
-			saveMountedPosition?.();
-			const markdown = restoreMarkdown(instance.getMarkdown());
-			lastEditorMarkdown = markdown;
-			onFlush?.(idForMount, markdown);
+			try {
+				saveMountedPosition?.();
+				const markdown = restoreMarkdown(instance.getMarkdown());
+				lastEditorMarkdown = markdown;
+				onFlush?.(idForMount, markdown);
+				cancelPendingWork();
+			} catch (error) {
+				event.preventDefault();
+				reportError('visual editor snapshot', error);
+			}
 		};
 		window.addEventListener('mdsh:flush-editor', flushCurrentContent);
 		removeFlushListener = () =>

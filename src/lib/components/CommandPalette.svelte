@@ -24,7 +24,7 @@
 	} from '#lib/palette-ops.js';
 	import { isDirectoryPickerSupported } from '#lib/fsa.js';
 	import { isDesktop } from '#lib/desktop.js';
-	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-linking.js';
 	import type { EditMode } from '#lib/types.js';
 	import { EDITOR } from '#lib/config.js';
 	import type { EditorWidth } from '#lib/ui/editor-width.svelte.js';

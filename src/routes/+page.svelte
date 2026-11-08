@@ -27,7 +27,7 @@
 	import { templatesStore } from '#lib/templates.svelte.js';
 	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { requestPersistentStorage, checkStoragePressure } from '#lib/storage.js';
-	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-linking.js';
 	import { isDesktop } from '#lib/desktop.js';
 	import { shouldFallThroughToFileInput } from '#lib/import-intent.js';
 	import type { EditMode } from '#lib/types.js';
@@ -123,6 +123,7 @@
 			if (!accepted || filesStore.activeId !== activeId) return;
 			filesStore.allowDocumentRendering(activeId);
 		}
+		filesStore.flushDocumentEdits();
 		mode = nextMode;
 	}
 	$effect(() => {
@@ -564,13 +565,15 @@
 		input.value = '';
 	}
 
-	function handleEditorChange(text: string) {
-		if (!filesStore.active) return;
-		if (kind === 'note' && documentKind(text) !== 'note') {
+	function handleEditorChange(id: string, text: string) {
+		const file = filesStore.library.find((entry) => entry.id === id);
+		if (!file) return;
+		const fileKind = documentKindForFile(file);
+		if (fileKind === 'note' && documentKind(text) !== 'note') {
 			notify.error(t('documents.noConversion'));
 			return;
 		}
-		if (kind === 'note' || kind === 'code') filesStore.updateContent(filesStore.active.id, text);
+		if (fileKind === 'note' || fileKind === 'code') filesStore.queueEditorContent(id, text);
 	}
 
 	// §C1 - WYSIWYG flush: explicitly writes to the file `id` provided by the
@@ -584,6 +587,45 @@
 		if (fileKind !== 'note' && fileKind !== 'code') return;
 		if (fileKind === 'note' && documentKind(markdown) !== 'note') return;
 		filesStore.updateContent(id, markdown);
+	}
+
+	function editorRevision(id: string) {
+		return filesStore.documentRevision(id);
+	}
+
+	let rejectNextNative = false;
+
+	function editorApplyChange(change: import('#lib/document-revisions.js').DocumentChange) {
+		if (rejectNextNative) {
+			rejectNextNative = false;
+			return null;
+		}
+		return filesStore.applyDocumentChange(change);
+	}
+
+	function editorSnapshot(id: string) {
+		return filesStore.documentSnapshot(id);
+	}
+
+	// Test-build-only seam for the deterministic native conflict E2E. The
+	// compile-time flag removes this block from production.
+	if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'undefined') {
+		(window as unknown as { __mdshTest?: unknown }).__mdshTest = {
+			forceNativeConflict(external: string, fileId?: string) {
+				const id = fileId ?? filesStore.active?.id;
+				if (!id) return false;
+				const base = filesStore.documentRevision(id);
+				if (!base) return false;
+				const applied = filesStore.applyDocumentChange({
+					base,
+					edits: { kind: 'text' },
+					readText: () => external
+				});
+				if (!applied) return false;
+				rejectNextNative = true;
+				return true;
+			}
+		};
 	}
 
 	function handleExport() {
@@ -905,6 +947,9 @@
 					onTocEmpty={(empty) => (tocEmpty = empty)}
 					onEditorChange={handleEditorChange}
 					onEditorFlush={handleEditorFlush}
+					getRevision={editorRevision}
+					applyChange={editorApplyChange}
+					resyncSnapshot={editorSnapshot}
 					onNew={handleNew}
 					onImport={handleImport}
 					onDemo={handleDemo}

@@ -131,6 +131,7 @@ test('draws ephemeral ink without changing the document and clears on reload', a
 	await expect(page.getByTestId('annotation-toggle')).toHaveAttribute('aria-pressed', 'true');
 	await expect(page.getByTestId('annotation-pen')).toHaveAttribute('aria-pressed', 'true');
 	await drawOnCanvas(page);
+	await inkFrame(page);
 	expect(await inkPixels(page)).toBeGreaterThan(100);
 
 	await page.getByTestId('annotation-highlighter').click();
