@@ -27,7 +27,7 @@
 	import { templatesStore } from '#lib/templates.svelte.js';
 	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { requestPersistentStorage, checkStoragePressure } from '#lib/storage.js';
-	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-linking.js';
 	import { isDesktop } from '#lib/desktop.js';
 	import { shouldFallThroughToFileInput } from '#lib/import-intent.js';
 	import type { EditMode } from '#lib/types.js';

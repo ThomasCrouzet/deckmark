@@ -6,7 +6,10 @@ afterEach(() => vi.useRealTimers());
 it('coalesces interleaved file edits without reading discarded snapshots', () => {
 	vi.useFakeTimers();
 	const published: DocumentSnapshot[] = [];
-	const documents = new DocumentRevisions((snapshot) => published.push(snapshot));
+	const documents = new DocumentRevisions(
+		(snapshot) => published.push(snapshot),
+		() => {}
+	);
 	const a = documents.open('a', 'A');
 	const b = documents.open('b', 'B');
 	let reads = 0;
@@ -32,7 +35,10 @@ it('coalesces interleaved file edits without reading discarded snapshots', () =>
 });
 
 it('refuses a delayed change and completion without overwriting a newer revision', async () => {
-	const documents = new DocumentRevisions(() => {});
+	const documents = new DocumentRevisions(
+		() => {},
+		() => {}
+	);
 	const base = documents.open('a', 'A');
 	const oldSnapshot = documents.snapshot('a')!;
 	const delayed = Promise.resolve().then(() =>
@@ -49,7 +55,10 @@ it('refuses a delayed change and completion without overwriting a newer revision
 it('invalidates pending readers on removal and does not reuse a revision on reopen', () => {
 	vi.useFakeTimers();
 	const published: string[] = [];
-	const documents = new DocumentRevisions(({ text }) => published.push(text));
+	const documents = new DocumentRevisions(
+		({ text }) => published.push(text),
+		() => {}
+	);
 	const base = documents.open('a', 'A');
 	const removed = documents.apply({ base, edits: { kind: 'text' }, readText: () => 'removed' })!;
 	documents.forget('a');
@@ -65,7 +74,10 @@ it('invalidates pending readers on removal and does not reuse a revision on reop
 
 it('keeps the pending revision after a read failure and permits an explicit retry', () => {
 	const published: string[] = [];
-	const documents = new DocumentRevisions(({ text }) => published.push(text));
+	const documents = new DocumentRevisions(
+		({ text }) => published.push(text),
+		() => {}
+	);
 	const base = documents.open('a', 'A');
 	let unavailable = true;
 	const revision = documents.apply({
@@ -85,7 +97,10 @@ it('keeps the pending revision after a read failure and permits an explicit retr
 
 it('does not publish a snapshot superseded while its lazy reader runs', () => {
 	const published: string[] = [];
-	const documents = new DocumentRevisions(({ text }) => published.push(text));
+	const documents = new DocumentRevisions(
+		({ text }) => published.push(text),
+		() => {}
+	);
 	const base = documents.open('a', 'A');
 	const old = documents.apply({
 		base,

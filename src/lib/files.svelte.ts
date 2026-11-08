@@ -16,6 +16,7 @@ import {
 	type DocumentKind
 } from './document-kind';
 import { isFSASupported, listDiskLinks, pickDirectoryFiles } from './fsa';
+import { isDiskLinkingAvailable } from './disk-linking';
 import { isDesktop } from './desktop';
 import type { NativeDiskGrant } from './disk-tauri';
 import {
@@ -27,17 +28,6 @@ import {
 	purgeManyPermanently,
 	persistReorder
 } from './trash';
-import {
-	openFromDisk as diskOpenFromDisk,
-	openPathsFromDesktop as diskOpenPathsFromDesktop,
-	openDirectoryFromDisk as diskOpenDirectoryFromDisk,
-	saveToDisk as diskSaveToDisk,
-	saveAsToDisk as diskSaveAsToDisk,
-	isDiskLinkingAvailable,
-	renameOnDisk,
-	unlinkFromDisk as diskUnlinkFromDisk,
-	refreshBrokenLinks as diskRefreshBrokenLinks
-} from './disk-sync';
 
 import { normalizeRename, uniqueName, stripMdExtension } from './file-utils';
 import type { CodeLanguageId } from './code/languages';
@@ -49,6 +39,10 @@ import {
 	reorderedOpenIds
 } from './file-tabs';
 
+import { MetaIndex } from './meta-index';
+import { rewriteWikiLinkTargets } from './wiki-links';
+import { projectWikiCandidates } from './project-paths';
+import { SaveQueue } from './save-queue';
 import {
 	exportMarkdown as exportMarkdownOp,
 	exportAllZip as exportAllZipOp,
@@ -56,10 +50,6 @@ import {
 	exportPDF as exportPDFOp,
 	exportSelectionZip as exportSelectionZipOp
 } from './export-ops';
-import { MetaIndex } from './meta-index';
-import { rewriteWikiLinkTargets } from './wiki-links';
-import { projectWikiCandidates } from './project-paths';
-import { SaveQueue } from './save-queue';
 import {
 	DocumentRevisions,
 	type DocumentChange,
@@ -630,20 +620,17 @@ class FilesStore {
 		const file =
 			openIndex >= 0 ? this.files[openIndex] : this.closedFiles.find((entry) => entry.id === id);
 		if (!file) return null;
-		this.documentSnapshot(id);
-		// §M2 - History snapshot also on the close flush. The `scheduleSave`
-		// debounce path already records a version, but not the
-		// pagehide/beforeunload flush: combined with the 5 min throttle, the last
-		// state before closing could have never had a version. `recordVersion`
-		// handles its own throttle/dedup → no abusive duplicate. Fire-and-forget.
-		void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
-			reportError('version history', err)
-		);
-		return this.capturedDraftRow(
+		const row = this.capturedDraftRow(
 			file,
 			openIndex >= 0 ? openIndex : this.files.length,
 			openIndex >= 0
 		);
+		// §M2 - History snapshot also on the close flush. `recordVersion`
+		// handles its own throttle and dedup. Fire-and-forget.
+		void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
+			reportError('version history', err)
+		);
+		return row;
 	}
 
 	createNew(
@@ -1395,8 +1382,10 @@ class FilesStore {
 			}
 			const current = this.diskDeps.getFile(id);
 			if (!current) return false;
-			if (current.linkedToDisk && !(await renameOnDisk(id, normalized, this.diskDeps)))
-				return false;
+			if (current.linkedToDisk) {
+				const { renameOnDisk } = await import('./disk-sync');
+				if (!(await renameOnDisk(id, normalized, this.diskDeps))) return false;
+			}
 
 			this.syncDiskName(id, normalized);
 			for (const change of changes) {
@@ -1597,7 +1586,8 @@ class FilesStore {
 	async openFromDisk(options: ImportOptions = {}): Promise<FileItem[]> {
 		const configured = this.beginImport(options);
 		try {
-			return await diskOpenFromDisk(this.diskDeps, configured);
+			const { openFromDisk } = await import('./disk-sync');
+			return await openFromDisk(this.diskDeps, configured);
 		} finally {
 			this.finishImport(this.importProgress ?? new ImportSession().publish(), configured.signal);
 		}
@@ -1610,7 +1600,8 @@ class FilesStore {
 	): Promise<string[]> {
 		const configured = this.beginImport(options);
 		try {
-			const result = await diskOpenPathsFromDesktop(grants, this.diskDeps, configured);
+			const { openPathsFromDesktop } = await import('./disk-sync');
+			const result = await openPathsFromDesktop(grants, this.diskDeps, configured);
 			await this.flushPendingAwait();
 			return result.processedTokens;
 		} finally {
@@ -1649,7 +1640,8 @@ class FilesStore {
 		if (!browser || !isDesktop()) return { count: 0, truncated: false };
 		const configured = this.beginImport(options);
 		try {
-			const files = await diskOpenDirectoryFromDisk(this.diskDeps, configured);
+			const { openDirectoryFromDisk } = await import('./disk-sync');
+			const files = await openDirectoryFromDisk(this.diskDeps, configured);
 			const report = this.importProgress;
 			if (report) this.finishImport(report, configured.signal);
 			return {
@@ -1771,7 +1763,10 @@ class FilesStore {
 	}
 	async saveToDisk(id: string): Promise<boolean> {
 		this.dispatchEditorFlush();
-		return this.queueDiskOperation(id, () => diskSaveToDisk(id, this.diskDeps));
+		return this.queueDiskOperation(id, async () => {
+			const { saveToDisk } = await import('./disk-sync');
+			return saveToDisk(id, this.diskDeps);
+		});
 	}
 
 	/**
@@ -1787,7 +1782,10 @@ class FilesStore {
 			notify.info(t('disk.downloadedCopy', { name: file.name }));
 			return true;
 		}
-		return this.queueDiskOperation(id, () => diskSaveAsToDisk(id, this.diskDeps));
+		return this.queueDiskOperation(id, async () => {
+			const { saveAsToDisk } = await import('./disk-sync');
+			return saveAsToDisk(id, this.diskDeps);
+		});
 	}
 	async saveActiveAs(): Promise<boolean> {
 		if (!browser || !this.active) return false;
@@ -1839,10 +1837,14 @@ class FilesStore {
 		return opened.length > 0;
 	}
 	async unlinkFromDisk(id: string): Promise<void> {
-		return this.queueDiskOperation(id, () => diskUnlinkFromDisk(id, this.diskDeps));
+		return this.queueDiskOperation(id, async () => {
+			const { unlinkFromDisk } = await import('./disk-sync');
+			return unlinkFromDisk(id, this.diskDeps);
+		});
 	}
 	async refreshBrokenLinks(): Promise<void> {
-		return diskRefreshBrokenLinks(this.files, (id) => this.files.find((f) => f.id === id));
+		const { refreshBrokenLinks } = await import('./disk-sync');
+		return refreshBrokenLinks(this.files, (id) => this.files.find((f) => f.id === id));
 	}
 
 	// ─── MetaIndex (delegation → meta-index.ts) ──────────────────────────────

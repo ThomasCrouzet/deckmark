@@ -1,7 +1,5 @@
 import type { ChangeSet, EditorState } from '@codemirror/state';
 import type { Transaction } from '@milkdown/kit/prose/state';
-import { measureEditorStage } from './editor-perf';
-import { reportError } from './report';
 
 export interface DocumentRevision {
 	readonly fileId: string;
@@ -28,32 +26,33 @@ export interface DocumentChange {
 
 interface Entry {
 	revision: DocumentRevision;
-	readText: () => string;
+	read: () => string;
 	snapshot: DocumentSnapshot | null;
 	pending: boolean;
 	timer: ReturnType<typeof setTimeout> | null;
 }
 
-// Do not reuse a generation after removal, reload, or a new scheduler instance.
+// A removed or replaced document must never make an old handle current again.
 let generation = 0;
-const PUBLICATION_DELAY_MS = 100;
+const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
+const DELAY = 100;
 
 export class DocumentRevisions {
 	private entries = new Map<string, Entry>();
 
 	constructor(
 		private publish: (snapshot: DocumentSnapshot) => void,
-		private onError: (error: unknown) => void = (error) => reportError('document snapshot', error)
+		private fail: (error: unknown) => void
 	) {}
 
 	open(fileId: string, text: string): DocumentRevision {
-		const existing = this.entries.get(fileId);
-		if (existing) return existing.revision;
-		const revision = Object.freeze({ fileId, generation: ++generation });
+		const current = this.entries.get(fileId);
+		if (current) return current.revision;
+		const revision = { fileId, generation: ++generation };
 		this.entries.set(fileId, {
 			revision,
-			readText: () => text,
-			snapshot: Object.freeze({ revision, text }),
+			read: () => text,
+			snapshot: { revision, text },
 			pending: false,
 			timer: null
 		});
@@ -65,24 +64,22 @@ export class DocumentRevisions {
 	}
 
 	apply(change: DocumentChange): DocumentRevision | null {
-		return measureEditorStage('documentEdit', () => {
-			if (!this.isCurrent(change.base)) return null;
-			const entry = this.entries.get(change.base.fileId)!;
-			entry.revision = Object.freeze({ fileId: change.base.fileId, generation: ++generation });
-			entry.readText = change.readText;
-			entry.snapshot = null;
-			entry.pending = true;
-			// A fixed window coalesces work without starving continuous input.
-			entry.timer ??= setTimeout(() => {
-				entry.timer = null;
-				try {
-					this.flush(change.base.fileId);
-				} catch (error) {
-					this.onError(error);
-				}
-			}, PUBLICATION_DELAY_MS);
-			return entry.revision;
-		});
+		if (!this.isCurrent(change.base)) return null;
+		const entry = this.entries.get(change.base.fileId)!;
+		entry.revision = { fileId: change.base.fileId, generation: ++generation };
+		entry.read = change.readText;
+		entry.snapshot = null;
+		entry.pending = true;
+		if (METRICS) performance.mark('mdsh:document-edit');
+		entry.timer ??= setTimeout(() => {
+			entry.timer = null;
+			try {
+				this.flush(change.base.fileId);
+			} catch (error) {
+				this.fail(error);
+			}
+		}, DELAY);
+		return entry.revision;
 	}
 
 	snapshot(fileId: string): DocumentSnapshot | null {
@@ -90,11 +87,17 @@ export class DocumentRevisions {
 		if (!entry) return null;
 		if (entry.snapshot) return entry.snapshot;
 		const revision = entry.revision;
-		const text = measureEditorStage('documentSerialization', entry.readText);
+		const started = METRICS ? performance.now() : 0;
+		const text = entry.read();
+		if (METRICS)
+			performance.measure('mdsh:document-serialization', {
+				start: started,
+				end: performance.now()
+			});
 		if (!this.isCurrent(revision)) return null;
-		const snapshot = Object.freeze({ revision, text });
+		const snapshot = { revision, text };
 		entry.snapshot = snapshot;
-		entry.readText = () => text;
+		entry.read = () => text;
 		return snapshot;
 	}
 
@@ -105,7 +108,10 @@ export class DocumentRevisions {
 		entry.timer = null;
 		const snapshot = this.snapshot(fileId);
 		if (!snapshot || !entry.pending || !this.isCurrent(snapshot.revision)) return snapshot;
-		measureEditorStage('documentDerived', () => this.publish(snapshot));
+		const started = METRICS ? performance.now() : 0;
+		this.publish(snapshot);
+		if (METRICS)
+			performance.measure('mdsh:document-derived', { start: started, end: performance.now() });
 		if (this.isCurrent(snapshot.revision)) entry.pending = false;
 		return snapshot;
 	}
@@ -120,7 +126,7 @@ export class DocumentRevisions {
 
 	forget(fileId: string): void {
 		const entry = this.entries.get(fileId);
-		if (entry?.timer !== null && entry?.timer !== undefined) clearTimeout(entry.timer);
+		if (entry?.timer != null) clearTimeout(entry.timer);
 		this.entries.delete(fileId);
 	}
 

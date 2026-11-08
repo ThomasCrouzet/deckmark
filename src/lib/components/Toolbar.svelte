@@ -18,7 +18,7 @@
 	} from '@lucide/svelte';
 	import type { EditMode } from '#lib/types.js';
 	import type { DocumentKind } from '#lib/document-kind.js';
-	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-linking.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { t } from '#lib/i18n/index.js';

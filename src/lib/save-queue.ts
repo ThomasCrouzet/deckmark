@@ -11,9 +11,9 @@ import { TIMERS } from './config';
 import { uniqueName } from './file-utils';
 import { projectConflictVariant } from './project-conflicts';
 import type { DocumentRevision } from './document-revisions';
-import { recordEditorDuration } from './editor-perf';
 
 const SAVE_SUPERSEDED = Symbol('save-superseded');
+const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 
 /** Callbacks to the store's `$state` - injected at construction. */
 export interface SaveQueueCallbacks {
@@ -293,7 +293,7 @@ export class SaveQueue {
 			// Superseded by a newer enqueue, invalidate, or discard - skip write.
 			if (this.generations.get(id) !== gen) return;
 
-			const started = performance.now();
+			const started = METRICS ? performance.now() : 0;
 			try {
 				const written = await this.putPreservingConflict(row, gen);
 				if (!written) return;
@@ -310,7 +310,8 @@ export class SaveQueue {
 				}
 				return;
 			} finally {
-				recordEditorDuration('documentStorage', performance.now() - started);
+				if (METRICS)
+					performance.measure('mdsh:document-storage', { start: started, end: performance.now() });
 			}
 			// Put finished: trash discard must reverse a resurrection.
 			if (this.discardedIds.has(id)) {
