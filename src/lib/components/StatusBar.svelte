@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { filesStore } from '#lib/files.svelte.js';
-	import { formatSaveAge } from '#lib/stats-ui.js';
 	import type { DocStats, SelectionStats } from '#lib/stats-count.js';
 	import type { StatsRuntime } from '#lib/stats-runtime.js';
 	import { reportError } from '#lib/report.js';
 	import { t } from '#lib/i18n/index.js';
 	import { onMount } from 'svelte';
 	import {
+		formatSaveAge,
 		reportPersistenceError,
 		getStorageHealth,
 		recordBackupReminderShown

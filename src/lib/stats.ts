@@ -1,5 +1,4 @@
 import type { DocStats } from './stats-count';
-export { formatSaveAge } from './stats-ui';
 export {
 	computeStats,
 	computeSelectionStats,
