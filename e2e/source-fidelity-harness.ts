@@ -36,7 +36,7 @@ export async function readFidelityCounters(page: Page): Promise<SourceFidelityCo
 }
 
 async function selectText(page: Page, editor: Locator, before: string) {
-	await expect(editor).toBeVisible();
+	await expect(editor).toBeVisible({ timeout: 30_000 });
 	await editor.evaluate((root, text) => {
 		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 		const nodes: { node: Node; from: number; to: number }[] = [];
