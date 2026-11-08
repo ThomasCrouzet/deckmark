@@ -593,12 +593,39 @@
 		return filesStore.documentRevision(id);
 	}
 
+	let rejectNextNative = false;
+
 	function editorApplyChange(change: import('#lib/document-revisions.js').DocumentChange) {
+		if (rejectNextNative) {
+			rejectNextNative = false;
+			return null;
+		}
 		return filesStore.applyDocumentChange(change);
 	}
 
 	function editorSnapshot(id: string) {
 		return filesStore.documentSnapshot(id);
+	}
+
+	// Test-build-only seam for the deterministic native conflict E2E. The
+	// compile-time flag removes this block from production.
+	if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'undefined') {
+		(window as unknown as { __mdshTest?: unknown }).__mdshTest = {
+			forceNativeConflict(external: string, fileId?: string) {
+				const id = fileId ?? filesStore.active?.id;
+				if (!id) return false;
+				const base = filesStore.documentRevision(id);
+				if (!base) return false;
+				const applied = filesStore.applyDocumentChange({
+					base,
+					edits: { kind: 'text' },
+					readText: () => external
+				});
+				if (!applied) return false;
+				rejectNextNative = true;
+				return true;
+			}
+		};
 	}
 
 	function handleExport() {

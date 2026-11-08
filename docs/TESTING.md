@@ -496,6 +496,15 @@ two accepted keystrokes without a mock or a test-only hook. The own-echo and
 outgoing-cancellation failures are proven through the real application in
 `editor-state.spec.ts`, `document-revisions.spec.ts` and the latency cases.
 
+The test build sets `VITE_SOURCE_FIDELITY_METRICS=1`. Under that flag only,
+`+page.svelte` exposes `window.__mdshTest.forceNativeConflict(external, fileId)`.
+The seam advances the real store revision with an external change and makes the
+next native apply return null. It does not change production scheduling, guards
+or budgets; the flag is compile-time and the block is removed from production.
+The E2E then checks that the local rejected text remains, the authoritative store
+bytes are not overwritten, a conflict is visible, and close is cancelled. This
+is the deterministic reproduction of failure modes 1 and 4.
+
 ### Revisioned document publication
 
 The revision scheduler must reject an obsolete base, isolate files, retain pending
