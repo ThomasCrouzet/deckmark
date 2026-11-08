@@ -89,7 +89,8 @@ describe('Deferred metadata snapshots', () => {
 		let published = 0;
 		const index = new MetaIndex(
 			() => files,
-			() => published++
+			() => published++,
+			WikiLinkIndex
 		);
 		expect(index.allTags).toEqual(['old']);
 		expect(index.backlinks('t').map((file) => file.id)).toEqual(['s']);
@@ -111,7 +112,8 @@ describe('Deferred metadata snapshots', () => {
 		const files = [makeFile({ id: 's', name: 'Source.md', content: '---\ntags: [old]\n---\n' })];
 		const index = new MetaIndex(
 			() => files,
-			() => {}
+			() => {},
+			WikiLinkIndex
 		);
 		expect(index.allTags).toEqual(['old']);
 		files[0]!.content = '---\ntags: [obsolete]\n---\n';

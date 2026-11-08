@@ -118,12 +118,12 @@ export class MetaIndex {
 	invalidateMeta(id: string): void {
 		if (this.disposed) return;
 		const file = this.getFiles().find((entry) => entry.id === id);
+		this.wikiIndex?.updateLocation(id, file, file ? documentKindForFile(file) === 'note' : false);
 		if (!file) {
 			this.pending.delete(id);
 			this.publish(id, null);
 			this.onPublish?.(id);
 		} else if (this.onPublish) {
-			this.wikiIndex?.updateLocation(id, file, documentKindForFile(file) === 'note');
 			this.pending.set(id, ++this.revision);
 			this.schedule();
 		} else this.getMeta(file);

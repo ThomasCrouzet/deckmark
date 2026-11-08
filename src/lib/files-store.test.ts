@@ -484,7 +484,9 @@ describe('backlinks / wiki-links', () => {
 		const source = filesStore.createNew('source.md', '[[a]]');
 		filesStore.close(source.id);
 		await filesStore.flushPendingAwait();
-		expect(filesStore.backlinks(a.id).map((file) => file.id)).toEqual([source.id]);
+		await vi.waitFor(() =>
+			expect(filesStore.backlinks(a.id).map((file) => file.id)).toEqual([source.id])
+		);
 		const updatedAt = Date.now() + 100;
 		await db.drafts.update(source.id, { content: '[[b]]', updatedAt });
 		receiveCrossTab({ type: 'draft-written', id: source.id, updatedAt });
