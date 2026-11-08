@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { documentHeadings, documentMatches } from './document-navigation';
+import {
+	documentHeadings,
+	documentMatches,
+	invalidateDocumentTextIndex
+} from './document-navigation';
 
 describe('document navigation', () => {
 	it('finds real headings, including setext and repeated headings', () => {
@@ -29,5 +33,14 @@ describe('document navigation', () => {
 		const root = document.createElement('div');
 		root.textContent = 'a+b '.repeat(300);
 		expect(documentMatches(root, 'a+b')).toHaveLength(200);
+	});
+	it('reuses one text map and rebuilds it after an invalidation', () => {
+		const root = document.createElement('div');
+		root.innerHTML = '<p>alpha <strong>beta</strong></p>';
+		expect(documentMatches(root, 'alpha beta')[0]?.toString()).toBe('alpha beta');
+		root.append(' gamma');
+		expect(documentMatches(root, 'gamma')).toHaveLength(0);
+		invalidateDocumentTextIndex(root);
+		expect(documentMatches(root, 'gamma')[0]?.toString()).toBe('gamma');
 	});
 });
