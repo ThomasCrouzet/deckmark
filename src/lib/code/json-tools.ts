@@ -84,52 +84,48 @@ export function tokenizeJson(text: string): JsonToken[] {
  * error when the runtime JSON parser omits a source position.
  */
 function findStructuralError(tokens: JsonToken[]): JsonToken | null {
-	let index = 0;
-	const fail = () => tokens[index] ?? tokens[tokens.length - 1] ?? null;
-	const isValueStart = (token: JsonToken | undefined) =>
-		!!token &&
-		(token.raw === '{' ||
-			token.raw === '[' ||
-			token.type === 'string' ||
-			token.type === 'number' ||
-			token.type === 'literal');
-	const parseValue = (): boolean => {
-		const token = tokens[index];
-		if (!token) return false;
+	type Phase = 'keyOrEnd' | 'key' | 'colon' | 'valueOrEnd' | 'value' | 'commaOrEnd';
+	const stack: { close: '}' | ']'; phase: Phase }[] = [];
+	let rootRead = false;
+	for (const token of tokens) {
+		const frame = stack[stack.length - 1];
+		if (frame) {
+			if (
+				(frame.phase === 'keyOrEnd' ||
+					frame.phase === 'valueOrEnd' ||
+					frame.phase === 'commaOrEnd') &&
+				token.raw === frame.close
+			) {
+				stack.pop();
+				continue;
+			}
+			if (frame.phase === 'commaOrEnd') {
+				if (token.raw !== ',') return token;
+				frame.phase = frame.close === '}' ? 'key' : 'value';
+				continue;
+			}
+			if (frame.phase === 'key' || frame.phase === 'keyOrEnd') {
+				if (token.type !== 'string') return token;
+				frame.phase = 'colon';
+				continue;
+			}
+			if (frame.phase === 'colon') {
+				if (token.raw !== ':') return token;
+				frame.phase = 'value';
+				continue;
+			}
+			frame.phase = 'commaOrEnd';
+		} else if (rootRead) return token;
+		rootRead = true;
 		if (token.raw === '{' || token.raw === '[') {
-			const close = token.raw === '{' ? '}' : ']';
-			const object = token.raw === '{';
-			index++;
-			if (tokens[index]?.raw === close) {
-				index++;
-				return true;
-			}
-			while (index < tokens.length) {
-				if (object) {
-					if (tokens[index]?.type !== 'string') return false;
-					index++;
-					if (tokens[index]?.raw !== ':') return false;
-					index++;
-				}
-				if (!parseValue()) return false;
-				if (tokens[index]?.raw === ',') {
-					index++;
-					continue;
-				}
-				if (tokens[index]?.raw === close) {
-					index++;
-					return true;
-				}
-				return false;
-			}
-			return false;
-		}
-		if (!isValueStart(token)) return false;
-		index++;
-		return true;
-	};
-	if (!parseValue()) return fail();
-	if (index !== tokens.length) return fail();
+			stack.push({
+				close: token.raw === '{' ? '}' : ']',
+				phase: token.raw === '{' ? 'keyOrEnd' : 'valueOrEnd'
+			});
+		} else if (token.type !== 'string' && token.type !== 'number' && token.type !== 'literal')
+			return token;
+	}
+	if (stack.length) return tokens[tokens.length - 1] ?? null;
 	return null;
 }
 
@@ -167,9 +163,15 @@ export function duplicateJsonKeys(tokens: JsonToken[]): string[] {
 	return [...duplicates];
 }
 
-export function analyzeJson(text: string): JsonAnalysis {
+export function analyzeJsonDocument(text: string): {
+	analysis: JsonAnalysis;
+	value?: unknown;
+	tokens?: JsonToken[];
+} {
 	if (text.trim() === '') {
-		return { valid: false, message: 'Empty document', line: 1, column: 1, duplicateKeys: [] };
+		return {
+			analysis: { valid: false, message: 'Empty document', line: 1, column: 1, duplicateKeys: [] }
+		};
 	}
 	let value: unknown;
 	try {
@@ -181,14 +183,20 @@ export function analyzeJson(text: string): JsonAnalysis {
 		const offset = position ? Number(position[1]) : failing?.start;
 		const location = offset === undefined ? undefined : locate(text, offset);
 		return {
-			valid: false,
-			message,
-			...(location ? { line: location.line, column: location.column } : {}),
-			duplicateKeys: []
+			analysis: {
+				valid: false,
+				message,
+				...(location ? { line: location.line, column: location.column } : {}),
+				duplicateKeys: []
+			}
 		};
 	}
-	void value;
-	return { valid: true, duplicateKeys: duplicateJsonKeys(tokenizeJson(text)) };
+	const tokens = tokenizeJson(text);
+	return { analysis: { valid: true, duplicateKeys: duplicateJsonKeys(tokens) }, value, tokens };
+}
+
+export function analyzeJson(text: string): JsonAnalysis {
+	return analyzeJsonDocument(text).analysis;
 }
 
 function emitIndent(depth: number, unit: string): string {
@@ -197,7 +205,10 @@ function emitIndent(depth: number, unit: string): string {
 
 /** Re-indents JSON without changing any token value. */
 export function formatJson(text: string, options: JsonFormatOptions): string {
-	const tokens = tokenizeJson(text);
+	return formatJsonTokens(tokenizeJson(text), options);
+}
+
+function formatJsonTokens(tokens: JsonToken[], options: JsonFormatOptions): string {
 	let depth = 0;
 	let output = '';
 	let previous: JsonToken | undefined;
@@ -240,7 +251,7 @@ export function prepareJsonAction(
 	action: 'format' | 'minify',
 	options: JsonFormatOptions
 ): JsonFormatResult {
-	const analysis = analyzeJson(text);
+	const { analysis, tokens } = analyzeJsonDocument(text);
 	if (!analysis.valid) {
 		return {
 			ok: false,
@@ -251,7 +262,10 @@ export function prepareJsonAction(
 	}
 	return {
 		ok: true,
-		text: action === 'format' ? formatJson(text, options) : minifyJson(text)
+		text:
+			action === 'format'
+				? formatJsonTokens(tokens!, options)
+				: tokens!.map((token) => token.raw).join('')
 	};
 }
 
@@ -263,10 +277,22 @@ export function setJsonSchemaValidator(validator: JsonSchemaValidator | null): v
 	schemaValidator = validator;
 }
 
+export function hasJsonSchemaValidator(): boolean {
+	return schemaValidator !== null;
+}
+
+export function validateJsonValueAgainstSchema(value: unknown): string[] {
+	try {
+		return schemaValidator?.(value) ?? [];
+	} catch {
+		return [];
+	}
+}
+
 export function validateJsonAgainstSchema(text: string): string[] {
 	if (!schemaValidator) return [];
 	try {
-		return schemaValidator(JSON.parse(text));
+		return validateJsonValueAgainstSchema(JSON.parse(text));
 	} catch {
 		return [];
 	}

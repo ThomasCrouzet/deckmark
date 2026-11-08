@@ -10,11 +10,11 @@
 	import { SourceText } from '#lib/code/source-text.js';
 	import { loadCodeLanguage, resolveCodeLanguage } from '#lib/code/languages.js';
 	import {
-		analyzeJson,
-		prepareJsonAction,
-		validateJsonAgainstSchema,
+		hasJsonSchemaValidator,
+		validateJsonValueAgainstSchema,
 		type JsonAnalysis
 	} from '#lib/code/json-tools.js';
+	import { JsonWorkerClient } from '#lib/code/json-worker-client.js';
 
 	interface Props {
 		fileId: string;
@@ -78,6 +78,13 @@
 	let jsonCheck = $state<JsonAnalysis | null>(null);
 	let jsonError = $state('');
 	let jsonSchemaIssues = $state<string[]>([]);
+	let jsonClient = $state.raw<JsonWorkerClient | null>(null);
+	let jsonRevision = 0;
+	let jsonAction = $state(false);
+	let jsonPending = $state(false);
+	let jsonManual = $state(false);
+	let jsonTimer: ReturnType<typeof setTimeout> | undefined;
+	let isolateHistoryRef: typeof import('@codemirror/commands').isolateHistory | null = null;
 
 	function indentUnitValue() {
 		return indentStyle === 'tab' ? '\t' : ' '.repeat(indentSize);
@@ -175,39 +182,109 @@
 
 	$effect(() => {
 		if (language.id !== 'json') return;
-		const text = content;
-		const timer = setTimeout(() => {
-			jsonCheck = analyzeJson(text);
-			jsonError = '';
-			jsonSchemaIssues = jsonCheck.valid ? validateJsonAgainstSchema(text) : [];
-		}, 150);
-		return () => clearTimeout(timer);
+		void fileId;
+		const client = new JsonWorkerClient();
+		jsonClient = client;
+		return () => {
+			clearTimeout(jsonTimer);
+			client.dispose();
+		};
 	});
+
+	function invalidateJson() {
+		jsonRevision++;
+		jsonClient?.setRevision(fileId, jsonRevision);
+		jsonCheck = null;
+		jsonSchemaIssues = [];
+		jsonAction = false;
+		jsonPending = false;
+		clearTimeout(jsonTimer);
+	}
+
+	$effect(() => {
+		if (language.id !== 'json' || !jsonClient) return;
+		const text = content;
+		invalidateJson();
+		jsonError = '';
+		jsonManual = text.length >= 5_000_000;
+		if (!jsonManual) {
+			jsonPending = true;
+			jsonTimer = setTimeout(() => validateJson(text), text.length >= 1_000_000 ? 750 : 200);
+		}
+		return () => clearTimeout(jsonTimer);
+	});
+
+	async function validateJson(text = view ? lastEmitted : content) {
+		const client = jsonClient;
+		if (!client) return;
+		clearTimeout(jsonTimer);
+		const revision = jsonRevision;
+		const includeValue = hasJsonSchemaValidator();
+		jsonPending = true;
+		jsonError = '';
+		const reply = await client.request({ kind: 'analyze', text, includeValue });
+		if (client !== jsonClient || revision !== jsonRevision || !reply) return;
+		jsonPending = false;
+		if (reply.kind !== 'analysis') {
+			jsonError = t('json.workerError');
+			return;
+		}
+		jsonCheck = reply.analysis;
+		jsonSchemaIssues =
+			reply.analysis.valid && includeValue
+				? validateJsonValueAgainstSchema(reply.value)
+				: reply.schemaIssues;
+	}
 
 	function applyWholeDocument(text: string) {
 		if (!view) return;
-		const selection = Math.min(view.state.selection.main.head, text.length);
+		const { anchor, head } = view.state.selection.main;
+		const length = text.replace(/\r\n?/g, '\n').length;
 		view.dispatch({
 			changes: { from: 0, to: view.state.doc.length, insert: text },
-			selection: { anchor: selection },
+			selection: { anchor: Math.min(anchor, length), head: Math.min(head, length) },
+			annotations: isolateHistoryRef ? isolateHistoryRef.of('full') : [],
 			scrollIntoView: true
 		});
 		view.focus();
 	}
 
-	function runJsonAction(action: 'format' | 'minify') {
-		if (view) flushPublish();
-		const current = view && buffer ? buffer.getText() : content;
-		const result = prepareJsonAction(current, action, {
-			indent: ' '.repeat(indentSize),
-			eol
+	async function runJsonAction(action: 'format' | 'minify') {
+		const client = jsonClient;
+		if (!client || !view) return;
+		clearTimeout(jsonTimer);
+		const revision = jsonRevision;
+		jsonAction = true;
+		jsonPending = false;
+		jsonError = '';
+		const current = buffer ? buffer.getText() : lastEmitted;
+		const reply = await client.request({
+			kind: action,
+			text: current,
+			options: {
+				indent: ' '.repeat(indentSize),
+				eol
+			}
 		});
+		if (client !== jsonClient || revision !== jsonRevision || !reply) return;
+		jsonAction = false;
+		if (reply.kind !== 'action') {
+			jsonError = t('json.workerError');
+			return;
+		}
+		const result = reply.result;
 		if (!result.ok) {
 			jsonError = result.reason;
 			return;
 		}
 		jsonError = '';
 		applyWholeDocument(result.text);
+	}
+
+	function cancelJsonAction() {
+		jsonClient?.cancel();
+		jsonAction = false;
+		jsonPending = false;
 	}
 
 	$effect(() => {
@@ -231,7 +308,7 @@
 				cm = viewModule;
 				const [
 					{ EditorState, Compartment },
-					{ indentWithTab, defaultKeymap, history, historyField, historyKeymap },
+					{ indentWithTab, defaultKeymap, history, historyField, historyKeymap, isolateHistory },
 					{ search, searchKeymap },
 					{
 						syntaxHighlighting,
@@ -264,6 +341,7 @@
 				if (disposed || !host) return;
 				const mount = host;
 				historyFieldRef = historyField as import('@codemirror/state').StateField<unknown>;
+				isolateHistoryRef = isolateHistory;
 				indentUnitRef = indentUnit;
 				invisiblesRef = [highlightWhitespace(), highlightTrailingWhitespace(), invisibleEnds];
 				const compartment = new Compartment();
@@ -293,9 +371,12 @@
 						if (!update.selectionSet && !update.docChanged) return;
 						onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 						if (update.docChanged && !applyingExternal && view) {
-							buffer = applyBufferChange(update.changes, update.state.doc);
-							sourceMark('mdsh:code-buffer-apply');
-							schedulePublish();
+							if (update.docChanged && !applyingExternal && view) {
+								buffer = applyBufferChange(update.changes, update.state.doc);
+								sourceMark('mdsh:code-buffer-apply');
+								invalidateJson();
+								schedulePublish();
+							}
 						}
 					}),
 					EditorView.theme({
@@ -386,6 +467,8 @@
 		})();
 		return () => {
 			disposed = true;
+			jsonClient?.dispose();
+			clearTimeout(jsonTimer);
 			removeTabListener?.();
 			removeTabListener = null;
 			if (view) {
@@ -491,6 +574,23 @@
 			</label>
 			{#if language.id === 'json'}
 				<span class="json-separator" aria-hidden="true"></span>
+				{#if jsonPending && !jsonAction}
+					<span role="status" data-testid="json-pending">{t('json.checking')}</span>
+				{:else if jsonManual && !jsonCheck}
+					<span role="status">{t('json.manual')}</span>
+				{/if}
+				<button
+					type="button"
+					disabled={jsonAction || jsonPending}
+					onclick={() => validateJson()}
+					data-testid="json-validate">{t('json.validate')}</button
+				>
+				{#if jsonAction}
+					<span role="status" data-testid="json-progress">{t('json.working')}</span>
+					<button type="button" onclick={cancelJsonAction} data-testid="json-cancel"
+						>{t('json.cancel')}</button
+					>
+				{/if}
 				{#if jsonCheck}
 					<span
 						class="json-status"
@@ -519,13 +619,13 @@
 				{/if}
 				<button
 					type="button"
-					disabled={!jsonCheck?.valid}
+					disabled={!jsonCheck?.valid || jsonAction || readonly}
 					onclick={() => runJsonAction('format')}
 					data-testid="json-format">{t('json.format')}</button
 				>
 				<button
 					type="button"
-					disabled={!jsonCheck?.valid}
+					disabled={!jsonCheck?.valid || jsonAction || readonly}
 					onclick={() => runJsonAction('minify')}
 					data-testid="json-minify">{t('json.minify')}</button
 				>
