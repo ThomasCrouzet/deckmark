@@ -136,6 +136,12 @@ export default defineConfig(({ mode }) => {
 										id.endsWith('/src/lib/components/Toasts.svelte')
 									)
 										return 'workspace-state';
+									// The lazy wiki index shares one precache entry with a tiny web stub.
+									if (
+										id.endsWith('/src/lib/wiki-link-index.ts') ||
+										id.endsWith('/src/lib/edition/web/tauri-api-stub.ts')
+									)
+										return 'wiki-index';
 									// These dependency-free helpers share one small offline resource.
 									if (id.endsWith('/src/lib/config.ts') || id.endsWith('/src/lib/abort.ts'))
 										return 'operation-utils';

@@ -16,6 +16,7 @@ import {
 	type DocumentKind
 } from './document-kind';
 import { isFSASupported, listDiskLinks, pickDirectoryFiles } from './fsa';
+import { isDiskLinkingAvailable } from './disk-linking';
 import { isDesktop } from './desktop';
 import type { NativeDiskGrant } from './disk-tauri';
 import {
@@ -27,17 +28,6 @@ import {
 	purgeManyPermanently,
 	persistReorder
 } from './trash';
-import {
-	openFromDisk as diskOpenFromDisk,
-	openPathsFromDesktop as diskOpenPathsFromDesktop,
-	openDirectoryFromDisk as diskOpenDirectoryFromDisk,
-	saveToDisk as diskSaveToDisk,
-	saveAsToDisk as diskSaveAsToDisk,
-	isDiskLinkingAvailable,
-	renameOnDisk,
-	unlinkFromDisk as diskUnlinkFromDisk,
-	refreshBrokenLinks as diskRefreshBrokenLinks
-} from './disk-sync';
 
 import { normalizeRename, uniqueName, stripMdExtension } from './file-utils';
 import type { CodeLanguageId } from './code/languages';
@@ -49,6 +39,9 @@ import {
 	reorderedOpenIds
 } from './file-tabs';
 
+import { MetaIndex } from './meta-index';
+import { rewriteWikiLinkTargets } from './wiki-links';
+import { SaveQueue } from './save-queue';
 import {
 	exportMarkdown as exportMarkdownOp,
 	exportAllZip as exportAllZipOp,
@@ -56,14 +49,16 @@ import {
 	exportPDF as exportPDFOp,
 	exportSelectionZip as exportSelectionZipOp
 } from './export-ops';
-import { MetaIndex } from './meta-index';
-import { rewriteWikiLinkTargets } from './wiki-links';
-import { SaveQueue } from './save-queue';
+import {
+	DocumentRevisions,
+	type DocumentChange,
+	type DocumentRevision,
+	type DocumentSnapshot
+} from './document-revisions';
 import { reportPersistenceError, resolveDraftSaveError } from './storage';
 import { reportError } from './report';
 import { recordVersion, createCheckpoint, createCheckpoints } from './version-history';
 import type { ReplaceOptions } from './replace';
-import { replaceInFilesAsync } from './replace-worker';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
 import { handleCrossTabPolicy } from './cross-tab-policy';
 import { t } from '#lib/i18n/index.js';
@@ -208,6 +203,17 @@ class FilesStore {
 		closedLength: number;
 		value: FileItem[];
 	} | null = null;
+	private savedRevisions = new Map<string, DocumentRevision>();
+	private documents: DocumentRevisions = new DocumentRevisions(
+		(snapshot) => {
+			const file = this.library.find((entry) => entry.id === snapshot.revision.fileId);
+			if (!file || !this.documents.isCurrent(snapshot.revision)) return;
+			file.content = snapshot.text;
+			this.metaIndex.invalidateMeta(file.id);
+			this.metaRev += 1;
+		},
+		(error) => reportPersistenceError(error, 'save')
+	);
 	private saveQueue = new SaveQueue({
 		onPendingChange: (pending) => {
 			this.hasPendingSave = pending;
@@ -240,7 +246,8 @@ class FilesStore {
 		},
 		// §M3 - After each successful write, we publish to the other tabs so they
 		// resynchronize this draft (and do not overwrite our write).
-		onDraftSaved: (id, updatedAt) => {
+		onDraftSaved: (id, updatedAt, revision) => {
+			if (revision) this.savedRevisions.set(id, revision);
 			resolveDraftSaveError(id);
 			this.crossTab.post({ type: 'draft-written', id, updatedAt });
 		},
@@ -329,6 +336,8 @@ class FilesStore {
 				id,
 			syncDraft: (id) => this.syncDraftFromOtherTab(id),
 			closeRemoved: (id) => {
+				this.documents.forget(id);
+				this.savedRevisions.delete(id);
 				this.detachFromView(id);
 				const closed = this.closedFiles.findIndex((file) => file.id === id);
 				if (closed >= 0) this.closedFiles.splice(closed, 1);
@@ -404,6 +413,8 @@ class FilesStore {
 			if (![...this.files, ...this.closedFiles].some((entry) => entry === file)) return;
 			file.name = row.name;
 			file.content = row.content;
+			this.documents.forget(id);
+			this.savedRevisions.delete(id);
 			if (row.kind) file.kind = row.kind;
 			else delete file.kind;
 			if (row.mime) file.mime = row.mime;
@@ -525,6 +536,8 @@ class FilesStore {
 		// invalidateAll (not discardAll): skip in-flight puts without deleting
 		// IDB rows - discard reverse-delete would wipe restored / reloaded drafts.
 		this.saveQueue.invalidateAll([...this.files, ...this.closedFiles].map((file) => file.id));
+		this.documents.clear();
+		this.savedRevisions.clear();
 		this.files = [];
 		this.closedFiles = [];
 		this.trash = [];
@@ -557,16 +570,9 @@ class FilesStore {
 	/** Schedules the Dexie persistence of `id` after 400 ms (debounce via SaveQueue). */
 	private scheduleSave(id: string): void {
 		this.saveQueue.schedule(id, () => {
-			const file = this.library.find((f) => f.id === id);
-			if (!file) return null;
-			// §2.4 - History snapshot at flush time (throttled + deduplicated in
-			// recordVersion). Fire-and-forget: does not block the save; a history
-			// failure must not compromise the save.
-			void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
-				reportError('version history', err)
-			);
-			const index = this.files.indexOf(file);
-			return toDraftRow(file, index >= 0 ? index : this.library.indexOf(file), index >= 0);
+			const row = this.rowForFlush(id);
+			if (row?.open === false) row.order = this.library.findIndex((file) => file.id === id);
+			return row;
 		});
 	}
 
@@ -595,7 +601,28 @@ class FilesStore {
 	}
 
 	private dispatchEditorFlush(): void {
-		if (browser) window.dispatchEvent(new Event('mdsh:flush-editor'));
+		try {
+			if (browser && !window.dispatchEvent(new Event('mdsh:flush-editor', { cancelable: true }))) {
+				throw new Error('document-flush-cancelled');
+			}
+			this.documents.flushAll();
+		} catch (error) {
+			reportPersistenceError(error, 'save');
+			throw error;
+		}
+	}
+
+	flushDocumentEdits(): void {
+		this.dispatchEditorFlush();
+	}
+
+	private capturedDraftRow(file: FileItem, order: number, open = true): DraftRow {
+		this.documents.open(file.id, file.content);
+		const snapshot = this.documents.flush(file.id);
+		if (!snapshot) throw new Error('document-snapshot-superseded');
+		const row = toDraftRow(file, order, open);
+		this.saveQueue.captureRevision(row, snapshot.revision);
+		return row;
 	}
 
 	/** Shared draft-row builder for flush paths (history snapshot side-effect). */
@@ -604,15 +631,17 @@ class FilesStore {
 		const file =
 			openIndex >= 0 ? this.files[openIndex] : this.closedFiles.find((entry) => entry.id === id);
 		if (!file) return null;
-		// §M2 - History snapshot also on the close flush. The `scheduleSave`
-		// debounce path already records a version, but not the
-		// pagehide/beforeunload flush: combined with the 5 min throttle, the last
-		// state before closing could have never had a version. `recordVersion`
-		// handles its own throttle/dedup → no abusive duplicate. Fire-and-forget.
+		const row = this.capturedDraftRow(
+			file,
+			openIndex >= 0 ? openIndex : this.files.length,
+			openIndex >= 0
+		);
+		// §M2 - History snapshot also on the close flush. `recordVersion`
+		// handles its own throttle and dedup. Fire-and-forget.
 		void recordVersion({ id: file.id, name: file.name, content: file.content }).catch((err) =>
 			reportError('version history', err)
 		);
-		return toDraftRow(file, openIndex >= 0 ? openIndex : this.files.length, openIndex >= 0);
+		return row;
 	}
 
 	createNew(
@@ -849,10 +878,11 @@ class FilesStore {
 			this.delete(id);
 			return;
 		}
+		this.dispatchEditorFlush();
 		const detached = this.detachFromView(id);
 		if (!detached) return;
 		this.closedFiles.push(detached.file);
-		this.saveQueue.persist(toDraftRow(detached.file, detached.index, false));
+		this.saveQueue.persist(this.capturedDraftRow(detached.file, detached.index, false));
 	}
 
 	/** Moves a document to the durable trash. This is distinct from closing a tab. */
@@ -874,7 +904,7 @@ class FilesStore {
 		this.trash.push(entry);
 		const moveP = moveToTrash(
 			id,
-			toDraftRow(file, order, false),
+			this.capturedDraftRow(file, order, false),
 			order,
 			trashedAt,
 			(row) =>
@@ -896,6 +926,8 @@ class FilesStore {
 			return ok;
 		});
 		this.pendingTrashMoves.set(id, moveP);
+		this.documents.forget(id);
+		this.savedRevisions.delete(id);
 		void moveP.finally(() => {
 			if (this.pendingTrashMoves.get(id) === moveP) this.pendingTrashMoves.delete(id);
 		});
@@ -940,7 +972,7 @@ class FilesStore {
 			const result = await moveManyToTrash(
 				entries.map((entry) => ({
 					id: entry.file.id,
-					file: toDraftRow(entry.file, entry.order, false),
+					file: this.capturedDraftRow(entry.file, entry.order, false),
 					order: entry.order,
 					trashedAt
 				}))
@@ -949,17 +981,24 @@ class FilesStore {
 			const removed = new Set<string>();
 			const currentFiles = new Map(this.library.map((file) => [file.id, file]));
 			for (const { file } of entries) {
+				this.documentSnapshot(file.id);
 				const current = currentFiles.get(file.id);
 				if (current && (current.content !== file.content || current.name !== file.name)) {
 					// Keep an edit made during the transaction as a live document beside its trash copy.
 					this.saveQueue.persist(
-						toDraftRow(current, this.library.indexOf(current), this.files.includes(current))
+						this.capturedDraftRow(
+							current,
+							this.library.indexOf(current),
+							this.files.includes(current)
+						)
 					);
 					this.notifyCrossTabConflict(t('files.otherTabChanges'));
 					continue;
 				}
 				removed.add(file.id);
 				this.saveQueue.discard(file.id);
+				this.documents.forget(file.id);
+				this.savedRevisions.delete(file.id);
 			}
 			const nextActiveId = nextActiveAfterRemoval(
 				this.files.map((file) => file.id),
@@ -1002,7 +1041,7 @@ class FilesStore {
 		this.activeId = file.id;
 		this.persistActiveId();
 		this.metaIndex.invalidateMeta(id);
-		this.saveQueue.persist(toDraftRow(file, this.files.length - 1, true));
+		this.saveQueue.persist(this.capturedDraftRow(file, this.files.length - 1, true));
 		return file;
 	}
 
@@ -1050,7 +1089,7 @@ class FilesStore {
 						};
 			this.files.push(item);
 			existing.add(r.id);
-			this.saveQueue.persist(toDraftRow(item, this.files.length - 1, true));
+			this.saveQueue.persist(this.capturedDraftRow(item, this.files.length - 1, true));
 			addedIds.push(r.id);
 		}
 		if (addedIds.length === 0) return;
@@ -1144,7 +1183,7 @@ class FilesStore {
 			await this.saveQueue.settleAndRearm(restored.id);
 			const ok = await restoreFromTrash(
 				id,
-				toDraftRow(restored, insertAt),
+				this.capturedDraftRow(restored, insertAt),
 				(row) => {
 					if (!this.closedFiles.some((file) => file.id === row.id))
 						this.closedFiles.push({ ...row, dirty: false });
@@ -1202,7 +1241,7 @@ class FilesStore {
 			this.closedFiles.push(file);
 			this.metaIndex.invalidateMeta(id);
 		}
-		this.saveQueue.persist(toDraftRow(file, idx, wasOpen));
+		this.saveQueue.persist(this.capturedDraftRow(file, idx, wasOpen));
 	}
 
 	purgeTrash(id: string): void {
@@ -1227,17 +1266,53 @@ class FilesStore {
 		});
 	}
 
-	updateContent(id: string, content: string): void {
-		const file = this.library.find((f) => f.id === id);
-		if (!file || file.content === content) return;
-		file.content = content;
+	documentRevision(id: string): DocumentRevision | null {
+		const file = this.library.find((entry) => entry.id === id);
+		return file ? this.documents.open(id, file.content) : null;
+	}
+
+	documentSnapshot(id: string): DocumentSnapshot | null {
+		if (!this.documentRevision(id)) return null;
+		const snapshot = this.documents.flush(id);
+		if (!snapshot) throw new Error('document-snapshot-superseded');
+		return snapshot;
+	}
+
+	isDocumentRevisionCurrent(revision: DocumentRevision): boolean {
+		return (
+			this.library.some((file) => file.id === revision.fileId) && this.documents.isCurrent(revision)
+		);
+	}
+
+	savedDocumentRevision(id: string): DocumentRevision | null {
+		return this.savedRevisions.get(id) ?? null;
+	}
+
+	applyDocumentChange(change: DocumentChange): DocumentRevision | null {
+		const file = this.library.find((entry) => entry.id === change.base.fileId);
+		if (!file) return null;
+		const revision = this.documents.apply(change);
+		if (!revision) return null;
 		file.updatedAt = Date.now();
 		file.dirty = true;
-		this.metaIndex.invalidateMeta(id);
-		this.scheduleSave(id);
+		this.metaIndex.invalidateMeta(file.id);
+		this.scheduleSave(file.id);
+		return revision;
+	}
+
+	queueEditorContent(id: string, content: string): void {
+		const base = this.documentRevision(id);
+		if (!base || this.documents.snapshot(id)?.text === content) return;
+		this.applyDocumentChange({ base, edits: { kind: 'text' }, readText: () => content });
+	}
+
+	updateContent(id: string, content: string): void {
+		this.queueEditorContent(id, content);
+		this.documents.flush(id);
 	}
 
 	rename(id: string, name: string): Promise<boolean> {
+		this.dispatchEditorFlush();
 		const file = this.files.find((f) => f.id === id);
 		if (!file) return Promise.resolve(false);
 		if (file.projectId && file.relativePath) {
@@ -1319,8 +1394,10 @@ class FilesStore {
 			}
 			const current = this.diskDeps.getFile(id);
 			if (!current) return false;
-			if (current.linkedToDisk && !(await renameOnDisk(id, normalized, this.diskDeps)))
-				return false;
+			if (current.linkedToDisk) {
+				const { renameOnDisk } = await import('./disk-sync');
+				if (!(await renameOnDisk(id, normalized, this.diskDeps))) return false;
+			}
 
 			this.syncDiskName(id, normalized);
 			for (const change of changes) {
@@ -1361,6 +1438,7 @@ class FilesStore {
 		>,
 		reconcile?: (content: string, id: string) => string
 	): string[] {
+		this.documents.flushAll();
 		const applied: string[] = [];
 		for (const row of rows) {
 			const existing = this.library.find((file) => file.id === row.id);
@@ -1377,6 +1455,8 @@ class FilesStore {
 				existing.content = changed
 					? (reconcile?.(existing.content, row.id) ?? existing.content)
 					: row.content;
+				this.documents.forget(row.id);
+				this.savedRevisions.delete(row.id);
 				existing.updatedAt = changed ? Date.now() : row.updatedAt;
 				if (row.projectId) existing.projectId = row.projectId;
 				else delete existing.projectId;
@@ -1404,7 +1484,7 @@ class FilesStore {
 		file.updatedAt = Date.now();
 		this.metaIndex.invalidateMeta(id);
 		if (this.closedFiles.includes(file))
-			this.saveQueue.persist(toDraftRow(file, this.files.length, false));
+			this.saveQueue.persist(this.capturedDraftRow(file, this.files.length, false));
 		else this.scheduleSave(id);
 	}
 
@@ -1471,7 +1551,7 @@ class FilesStore {
 		this.saveQueue.flushPending(orderedIds, (id) => {
 			const file = this.files.find((f) => f.id === id);
 			if (!file) return null;
-			return toDraftRow(file, this.files.indexOf(file));
+			return this.capturedDraftRow(file, this.files.indexOf(file));
 		});
 		void persistReorder(orderedIds).then((ts) => {
 			// ts === null: the order write failed (already notified by
@@ -1488,7 +1568,10 @@ class FilesStore {
 
 	private get diskDeps() {
 		return {
-			getFile: (id: string) => this.library.find((f) => f.id === id),
+			getFile: (id: string) => {
+				this.documentSnapshot(id);
+				return this.library.find((f) => f.id === id);
+			},
 			getFiles: () => [...this.files, ...this.closedFiles],
 			onActivate: (id: string) => {
 				if (this.closedFiles.some((file) => file.id === id)) this.reopen(id);
@@ -1497,9 +1580,15 @@ class FilesStore {
 			onCreate: (name: string, content: string) =>
 				this.createNew(name, content, { origin: 'imported' }),
 			onSyncName: (id: string, name: string) => this.syncDiskName(id, name),
-			onUpdateContent: (id: string, content: string) => this.updateContent(id, content),
+			onUpdateContent: (id: string, content: string) => {
+				this.documents.forget(id);
+				this.savedRevisions.delete(id);
+				this.updateContent(id, content);
+			},
 			scheduleSave: (id: string) => this.scheduleSave(id),
 			onImportRollback: (id: string) => {
+				this.documents.forget(id);
+				this.savedRevisions.delete(id);
 				this.detachFromView(id);
 				this.saveQueue.discard(id);
 				this.metaIndex.invalidateMeta(id);
@@ -1510,7 +1599,8 @@ class FilesStore {
 	async openFromDisk(options: ImportOptions = {}): Promise<FileItem[]> {
 		const configured = this.beginImport(options);
 		try {
-			return await diskOpenFromDisk(this.diskDeps, configured);
+			const { openFromDisk } = await import('./disk-sync');
+			return await openFromDisk(this.diskDeps, configured);
 		} finally {
 			this.finishImport(this.importProgress ?? new ImportSession().publish(), configured.signal);
 		}
@@ -1523,7 +1613,8 @@ class FilesStore {
 	): Promise<string[]> {
 		const configured = this.beginImport(options);
 		try {
-			const result = await diskOpenPathsFromDesktop(grants, this.diskDeps, configured);
+			const { openPathsFromDesktop } = await import('./disk-sync');
+			const result = await openPathsFromDesktop(grants, this.diskDeps, configured);
 			await this.flushPendingAwait();
 			return result.processedTokens;
 		} finally {
@@ -1562,7 +1653,8 @@ class FilesStore {
 		if (!browser || !isDesktop()) return { count: 0, truncated: false };
 		const configured = this.beginImport(options);
 		try {
-			const files = await diskOpenDirectoryFromDisk(this.diskDeps, configured);
+			const { openDirectoryFromDisk } = await import('./disk-sync');
+			const files = await openDirectoryFromDisk(this.diskDeps, configured);
 			const report = this.importProgress;
 			if (report) this.finishImport(report, configured.signal);
 			return {
@@ -1603,13 +1695,16 @@ class FilesStore {
 		opts: ReplaceOptions,
 		scope: 'library' | 'open' = 'library'
 	): Promise<{ files: number; occurrences: number; regexError: string | null }> {
+		this.dispatchEditorFlush();
 		const slices = (scope === 'library' ? this.library : this.files)
 			.filter((file) => documentKindForFile(file) === 'note')
 			.map((f) => ({
 				id: f.id,
 				name: f.name,
-				content: f.content
+				content: f.content,
+				revision: this.documentRevision(f.id)!
 			}));
+		const { replaceInFilesAsync } = await import('./replace-worker');
 		const { results, total, regexError } = await replaceInFilesAsync(
 			slices,
 			query,
@@ -1617,15 +1712,21 @@ class FilesStore {
 			opts
 		);
 		if (regexError) return { files: 0, occurrences: 0, regexError };
-		const unchanged = () =>
-			results.every((result) => {
+		const unchanged = () => {
+			this.dispatchEditorFlush();
+			return results.every((result) => {
 				const before = slices.find((file) => file.id === result.id);
 				const current = this.library.find((file) => file.id === result.id);
 
 				return (
-					before && current && before.content === current.content && before.name === current.name
+					before &&
+					current &&
+					this.isDocumentRevisionCurrent(before.revision) &&
+					before.content === current.content &&
+					before.name === current.name
 				);
 			});
+		};
 		if (!unchanged()) return { files: 0, occurrences: 0, regexError: t('files.otherTabChanges') };
 		await createCheckpoints(
 			slices.filter((file) => results.some((result) => result.id === file.id))
@@ -1636,12 +1737,20 @@ class FilesStore {
 	}
 
 	async restoreVersion(id: string, content: string): Promise<boolean> {
+		this.dispatchEditorFlush();
 		const file = this.files.find((entry) => entry.id === id);
 		if (!file || file.content === content) return false;
 		const before = { id: file.id, name: file.name, content: file.content };
+		const revision = this.documentRevision(id)!;
 		await createCheckpoint(before);
+		this.dispatchEditorFlush();
 		const current = this.files.find((entry) => entry.id === id);
-		if (current !== file || current.content !== before.content || current.name !== before.name) {
+		if (
+			!this.isDocumentRevisionCurrent(revision) ||
+			current !== file ||
+			current.content !== before.content ||
+			current.name !== before.name
+		) {
 			throw new Error(t('files.otherTabChanges'));
 		}
 		this.updateContent(id, content);
@@ -1667,7 +1776,10 @@ class FilesStore {
 	}
 	async saveToDisk(id: string): Promise<boolean> {
 		this.dispatchEditorFlush();
-		return this.queueDiskOperation(id, () => diskSaveToDisk(id, this.diskDeps));
+		return this.queueDiskOperation(id, async () => {
+			const { saveToDisk } = await import('./disk-sync');
+			return saveToDisk(id, this.diskDeps);
+		});
 	}
 
 	/**
@@ -1683,7 +1795,10 @@ class FilesStore {
 			notify.info(t('disk.downloadedCopy', { name: file.name }));
 			return true;
 		}
-		return this.queueDiskOperation(id, () => diskSaveAsToDisk(id, this.diskDeps));
+		return this.queueDiskOperation(id, async () => {
+			const { saveAsToDisk } = await import('./disk-sync');
+			return saveAsToDisk(id, this.diskDeps);
+		});
 	}
 	async saveActiveAs(): Promise<boolean> {
 		if (!browser || !this.active) return false;
@@ -1735,10 +1850,14 @@ class FilesStore {
 		return opened.length > 0;
 	}
 	async unlinkFromDisk(id: string): Promise<void> {
-		return this.queueDiskOperation(id, () => diskUnlinkFromDisk(id, this.diskDeps));
+		return this.queueDiskOperation(id, async () => {
+			const { unlinkFromDisk } = await import('./disk-sync');
+			return unlinkFromDisk(id, this.diskDeps);
+		});
 	}
 	async refreshBrokenLinks(): Promise<void> {
-		return diskRefreshBrokenLinks(this.files, (id) => this.files.find((f) => f.id === id));
+		const { refreshBrokenLinks } = await import('./disk-sync');
+		return refreshBrokenLinks(this.files, (id) => this.files.find((f) => f.id === id));
 	}
 
 	// ─── MetaIndex (delegation → meta-index.ts) ──────────────────────────────
