@@ -220,7 +220,7 @@ test.describe('Metadata index incremental update', () => {
 			window.Worker = class extends NativeWorker {
 				constructor(url: string | URL, options?: WorkerOptions) {
 					super(url, options);
-					if (!String(url).includes('metadata')) return;
+					if (options?.name !== 'metadata' && !String(url).includes('metadata')) return;
 					state.workers.push(this);
 					this.addEventListener('message', (event) => {
 						state.observations.push({ event: 'result', data: event.data, held: state.hold });

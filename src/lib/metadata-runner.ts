@@ -20,7 +20,7 @@ export class MetadataRunner {
 			this.current = { request, resolve };
 			if (!this.worker && !this.workerUnavailable && typeof Worker !== 'undefined') {
 				try {
-					this.worker = new MetadataWorker();
+					this.worker = new MetadataWorker({ name: 'metadata' });
 					this.worker.onmessage = (event: MessageEvent<MetadataResponse>) =>
 						this.finish(event.data);
 					this.worker.onerror = (event) => {
