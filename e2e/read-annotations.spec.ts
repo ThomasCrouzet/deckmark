@@ -519,3 +519,71 @@ test('clears all ink and exposes tools to the keyboard', async ({ page }) => {
 	await expect(page.getByTestId('annotation-pen')).toBeVisible();
 	await expect(page.getByTestId('annotation-clear')).toBeVisible();
 });
+
+test('keeps the ink viewport fixed in the native scroll task', async ({ page, browser }, info) => {
+	const content = 'Scroll target. '.repeat(4000) + '\n\n```text\n' + 'wide'.repeat(800) + '\n```';
+	await readMode(page, content);
+	await page.locator('.mdsh-preview').evaluate((article) => {
+		(article as HTMLElement).style.minWidth = '2200px';
+	});
+	await page.getByTestId('annotation-toggle').click();
+	await inkLine(page, 180);
+	const sample = await page.locator('.mdsh-read').evaluate((scroller) => {
+		const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="annotation-canvas"]');
+		if (!canvas) throw new Error('Canvas is missing');
+		const box = (element: Element) => {
+			const { x, y, width, height } = element.getBoundingClientRect();
+			return { x, y, width, height };
+		};
+		const before = {
+			scroll: { left: scroller.scrollLeft, top: scroller.scrollTop },
+			scroller: box(scroller),
+			canvas: box(canvas),
+			client: { width: scroller.clientWidth, height: scroller.clientHeight },
+			transform: getComputedStyle(canvas).transform
+		};
+		scroller.scrollTop = before.scroll.top + 160;
+		scroller.scrollLeft = before.scroll.left + 60;
+		return {
+			before,
+			after: {
+				scroll: { left: scroller.scrollLeft, top: scroller.scrollTop },
+				scroller: box(scroller),
+				canvas: box(canvas),
+				client: { width: scroller.clientWidth, height: scroller.clientHeight },
+				transform: getComputedStyle(canvas).transform
+			},
+			sameCanvas:
+				canvas.isConnected &&
+				document.querySelector('[data-testid="annotation-canvas"]') === canvas,
+			sameScroller: scroller.isConnected && document.querySelector('.mdsh-read') === scroller
+		};
+	});
+	try {
+		expect(sample.sameCanvas).toBe(true);
+		expect(sample.sameScroller).toBe(true);
+		expect(sample.after.scroller).toEqual(sample.before.scroller);
+		expect(sample.after.client).toEqual(sample.before.client);
+		expect(sample.after.scroll.top - sample.before.scroll.top).toBe(160);
+		expect(sample.after.scroll.left - sample.before.scroll.left).toBe(60);
+		expect(sample.after.canvas.y).toBe(sample.before.canvas.y);
+		expect(sample.after.canvas.x).toBe(sample.before.canvas.x);
+		expect(sample.after.canvas.width).toBe(sample.after.client.width);
+		expect(sample.after.canvas.height).toBe(sample.after.client.height);
+	} finally {
+		await info.attach('native-scroll-position.json', {
+			body: JSON.stringify({
+				...testSource(info.outputPath('source')),
+				browser: { project: info.project.name, version: browser.version() },
+				fixture: {
+					bytes: Buffer.byteLength(content),
+					sha256: createHash('sha256').update(content).digest('hex')
+				},
+				sample,
+				failures: info.errors.map((error) => error.message)
+			}),
+			contentType: 'application/json'
+		});
+		await info.attach('native-scroll-position.png', { body: await page.screenshot() });
+	}
+});
