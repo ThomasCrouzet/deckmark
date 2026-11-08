@@ -877,6 +877,17 @@ Keep the HTML and JSON reports, fixtures, downloads, screenshots, and failure
 traces with the command and source identity. Development-server results establish
 the correction only. Run the complete production suite before release.
 
+### Command palette shortcut after reload
+
+`e2e/audit-ui.spec.ts` proves a customized palette shortcut persists across a
+reload. A shortcut sent before the application is interactive is discarded by
+design, so the case waits for `.mdsh-shell[aria-busy="false"]:not([inert])`
+immediately after `page.reload()`, as `resetAppState` does. Without that wait a
+bootstrap race can fail the case for a reason it does not intend to test. The
+readiness wait does not relax the click, the custom value, the chord, the dialog
+assertion, or the assertion timeout. Removing the stored override must still keep
+the configured shortcut from opening the palette after the app is interactive.
+
 ## Documentation check risks
 
 The documentation check must not change files or start requests. A broad scan can
