@@ -430,6 +430,30 @@ npx playwright test editor-input-latency.spec.ts code-editor.spec.ts \
 These checks do not cover Firefox, WebKit, native WebViews, a full local CI
 profile or a paint/allocation budget. Keep those as separate acceptance work.
 
+### Revisioned document publication
+
+The revision scheduler must reject an obsolete base, isolate files, retain pending
+text after a snapshot error, and invalidate callbacks after removal or reload.
+A lazy reader can also accept another edit while it materializes an old snapshot.
+The current string editor adapters cannot create these internal races through the
+browser. `src/lib/document-revisions.test.ts` retains these cases until native
+editor adapters expose equivalent browser observations. Write these checks before
+the scheduler implementation. Do not use local revision numbers as cross-tab or
+portable format identifiers.
+
+The save queue also retains a snapshot-reader failure and retries it at the next
+explicit barrier. Its internal saved callback must carry the captured revision,
+not the revision that happens to be current when the write completes. Browser
+storage rows deliberately exclude these process-local identities. The isolated
+save queue cases inspect this internal boundary and the unchanged durable row.
+
+`e2e/document-revisions.spec.ts` checks immediate visual close and source mode/file
+switches. It compares the first closed draft write, saved bytes, and restored undo.
+It also cancels one outgoing capture, checks that the view and dirty input remain,
+and retries close. Cancellation must not write a stale closed snapshot or claim a save.
+Run `npx playwright test e2e/document-revisions.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep the JSON report, source identity, fixture bytes, and trace with the run.
+
 The test review removed duplicate creation, selection, rendering, export, and
 preference tests. Browser workflows verify those results. The remaining isolated
 tests cover these additional risks:
