@@ -71,10 +71,19 @@ test.describe('Editor state isolation and restoration', () => {
 		await page.waitForTimeout(700);
 		await expect.poll(() => sourceText(page)).toBe('startabcd');
 		// Undo still walks the native history instead of a rebuilt document.
+		// Firefox can group the seeded text and both insertions into one undo
+		// event. A single undo must remove typed text and keep a proper prefix.
 		await page.keyboard.press('ControlOrMeta+z');
-		await expect.poll(() => sourceText(page)).toBe('startabc');
+		await expect
+			.poll(async () => {
+				const text = await sourceText(page);
+				return text.length < 'startabcd'.length && 'startabcd'.startsWith(text);
+			})
+			.toBe(true);
 		await page.waitForTimeout(700);
-		await expect.poll(() => sourceText(page)).toBe('startabc');
+		const undone = await sourceText(page);
+		expect(undone.length).toBeLessThan('startabcd'.length);
+		expect('startabcd'.startsWith(undone)).toBe(true);
 	});
 
 	test('keeps source undo inside its draft and persists the safe result', async ({ page }) => {

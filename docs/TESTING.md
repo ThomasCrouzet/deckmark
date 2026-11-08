@@ -495,6 +495,10 @@ block. A browser cannot deterministically force a stale store generation between
 two accepted keystrokes without a mock or a test-only hook. The own-echo and
 outgoing-cancellation failures are proven through the real application in
 `editor-state.spec.ts`, `document-revisions.spec.ts` and the latency cases.
+The own-echo case accepts either engine history grouping: one undo must remove
+typed text, and one redo must restore the full echo. Firefox can group two
+adjacent insertions that Chromium and WebKit keep separate. Do not assert the
+exact intermediate prefix.
 
 The test build sets `VITE_SOURCE_FIDELITY_METRICS=1`. Under that flag only,
 `+page.svelte` exposes `window.__mdshTest.forceNativeConflict(external, fileId)`.
@@ -732,6 +736,12 @@ The zero-size sticky anchor keeps the canvas in the native scroller for clipping
 and wheel input. It must not add document width or height. Canvas position does
 not depend on the queued ink renderer. Raster redraw still uses the current scroll
 offsets and the existing animation-frame scheduler.
+
+Stroke paint is also queued in an animation frame. The first pen pixel assertion
+must run `inkFrame()` after `drawOnCanvas()` and before the unchanged greater-than
+100 check. The remote WebKit flake read 43 pixels before that frame. Local WebKit
+passed without the wait, so this is a timing precondition, not a product defect.
+Do not add a fixed delay or change the threshold.
 
 Clear removes stroke data immediately and clears the bitmap in the queued animation
 frame. A completed button click does not confirm that this frame has run. Use the
