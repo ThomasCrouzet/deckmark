@@ -558,6 +558,20 @@ browser-context setting. Existing cases keep Clear, print, reload and keyboard
 coverage. `e2e/image-annotations.spec.ts` retains flattened PNG export and original
 image byte checks. Read-view strokes remain temporary and do not enter exports.
 
+The canvas must stay at the same viewport position in the task that changes native
+scroll offsets. A delayed scroll event or ink frame must not move the surface.
+The same-task scroll regression records the actual offset change, canvas identity,
+scroller identity and scroller rectangle before it checks exact canvas coordinates.
+It does not replace the original workflow or add a wait before its position check.
+An absent scroll, changed surface or changed layout is not position-failure proof.
+
+A viewport overlay can cover scrollbars, escape the scroll viewport or break pointer
+input. Keep both canvas dimensions within the scroller client area and keep clipping.
+A stationary box can still hold wrongly projected ink. Keep the point-specific
+scroll, resize, DPR, pen, highlighter and eraser checks. Keep pointer capture, file
+switch, reload, keyboard and print checks. Same-task geometry does not prove correct
+stroke projection before a queued redraw or establish a past remote callback order.
+
 Clear removes stroke data immediately and clears the bitmap in the queued animation
 frame. A completed button click does not confirm that this frame has run. Use the
 existing `inkFrame()` helper before the Clear pixel check. Require exactly zero
