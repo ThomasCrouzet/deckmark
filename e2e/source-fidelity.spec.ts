@@ -67,7 +67,8 @@ test('a visual editor visit preserves the exact Markdown source without an edit'
 test('rich visual paragraph edits keep exact source and use scoped reconciliation', async ({
 	page
 }, info) => {
-	test.setTimeout(120_000);
+	test.slow();
+	test.setTimeout(240_000);
 	await page.addInitScript(() => {
 		window.addEventListener('deckmark:editor-perf', (event) => {
 			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;

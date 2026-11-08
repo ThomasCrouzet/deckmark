@@ -39,6 +39,7 @@ import {
 	reorderedOpenIds
 } from './file-tabs';
 
+import { encodeDraftManifest } from './draft-manifest-key';
 import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { SaveQueue } from './save-queue';
@@ -669,6 +670,9 @@ class FilesStore {
 		const snapshot = this.documents.flush(file.id);
 		if (!snapshot) throw new Error('document-snapshot-superseded');
 		const row = toDraftRow(file, order, open);
+		// Keep the derived metadata projection on every write path, including
+		// rollback paths that do not go through a Dexie hook in a test shim.
+		row.manifest = encodeDraftManifest(row);
 		this.saveQueue.captureRevision(row, snapshot.revision);
 		return row;
 	}

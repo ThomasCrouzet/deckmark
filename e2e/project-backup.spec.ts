@@ -260,11 +260,14 @@ test('migrates an exact IndexedDB version 5 database before importing a project'
 				};
 			})
 	);
-	expect(beforeProject.version).toBe(80);
-	expect(beforeProject.drafts).toEqual(
-		expect.arrayContaining([fixture.openDraft, fixture.closedDraft])
-	);
-	expect(beforeProject.drafts).toHaveLength(2);
+	expect(beforeProject.version).toBe(90);
+	const drafts = (beforeProject.drafts as Array<Record<string, unknown>>).map((entry) => {
+		const row = { ...entry };
+		delete row.manifest;
+		return row;
+	});
+	expect(drafts).toEqual(expect.arrayContaining([fixture.openDraft, fixture.closedDraft]));
+	expect(drafts).toHaveLength(2);
 	expect(beforeProject.trashed).toEqual([
 		expect.objectContaining({ id: 'v5-trash', file: fixture.trashedDraft })
 	]);
@@ -302,9 +305,14 @@ test('migrates an exact IndexedDB version 5 database before importing a project'
 				};
 			})
 	);
-	expect((migrated.drafts as StoredDraft[]).filter((draft) => draft.id.startsWith('v5-'))).toEqual(
-		expect.arrayContaining([fixture.openDraft, fixture.closedDraft])
-	);
+	const migratedDrafts = (migrated.drafts as StoredDraft[])
+		.filter((draft) => draft.id.startsWith('v5-'))
+		.map((entry) => {
+			const row = { ...entry } as Record<string, unknown>;
+			delete row.manifest;
+			return row;
+		});
+	expect(migratedDrafts).toEqual(expect.arrayContaining([fixture.openDraft, fixture.closedDraft]));
 	expect(migrated.projects).toEqual([expect.objectContaining({ name: 'backup-project' })]);
 	expect(migrated.assets).toEqual([
 		expect.objectContaining({ path: 'assets/pixel.png', data: Array.from(image) })

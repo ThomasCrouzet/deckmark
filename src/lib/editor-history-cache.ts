@@ -1,5 +1,6 @@
 import type { EditorState, Extension, StateField, Text } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { isolateHistory } from '@codemirror/commands';
 import { EDITOR_STATE_CACHE_BYTES, EDITOR_STATE_CACHE_LIMIT } from './editor-history-constants';
 import { advanceHistoryBytes, initialHistoryBytes } from './editor-history';
 
@@ -102,6 +103,9 @@ export function restoreHistoryState(input: RestoreHistoryInput): RestoreHistoryR
 				extensions: [...fullExtensions, historyField.init(() => retained.history)],
 				...(selection ? { selection } : {})
 			});
+			// A restored group must not absorb the first new edit. Otherwise one
+			// undo removes the keystroke typed before the mode switch as well.
+			state = state.update({ annotations: isolateHistory.of('before') }).state;
 		} catch {
 			// Ignore an incompatible retained history.
 		}

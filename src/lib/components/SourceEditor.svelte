@@ -413,20 +413,66 @@
 		if (reopenSearch) activeCM.openSearchPanel(view);
 	}
 
+	let positionTimer: ReturnType<typeof setTimeout> | undefined;
+	let pendingSavedPosition: { anchor: number; head: number; scrollTop: number } | null = null;
+	// The first mount reads the saved position. Ignore the view's initial
+	// zero scroll and selection until the saved scroll is applied.
+	let restoringPosition = false;
+	let userInteracted = false;
+	let lastPosition: { anchor: number; head: number; scrollTop: number } | null = null;
+
+	function rememberPosition(): void {
+		if (!view) return;
+		const selection = view.state.selection.main;
+		lastPosition = {
+			anchor: selection.anchor,
+			head: selection.head,
+			scrollTop: view.scrollDOM.scrollTop
+		};
+	}
+
+	function savePosition(): void {
+		if (!view || restoringPosition) return;
+		// A detached view reports zero selection and scroll. Keep the last
+		// connected navigation point instead of erasing it during teardown.
+		if (!view.scrollDOM.isConnected) {
+			if (lastPosition) editorStateCache.setPosition(fileId, 'source', lastPosition);
+			return;
+		}
+		// A deferred body mounts with empty content before hydration. Keep the
+		// last real navigation point instead of overwriting it with offset 0.
+		const previous = editorStateCache.getPosition(fileId, 'source');
+		if (content.length === 0 && previous) return;
+		const selection = view.state.selection.main;
+		const scrollTop = view.scrollDOM.scrollTop;
+		if (
+			!userInteracted &&
+			previous &&
+			(previous.anchor > 0 || previous.head > 0 || previous.scrollTop > 0) &&
+			selection.empty &&
+			scrollTop === 0
+		)
+			return;
+		lastPosition = { anchor: selection.anchor, head: selection.head, scrollTop };
+		editorStateCache.setPosition(fileId, 'source', lastPosition);
+	}
+
+	function schedulePosition(): void {
+		clearTimeout(positionTimer);
+		positionTimer = setTimeout(savePosition, 100);
+	}
+
 	function saveSourceState(): void {
 		if (!view || !activeCM || !historyTracker) return;
+		clearTimeout(positionTimer);
+		savePosition();
+		if (content.length === 0 && editorStateCache.getPosition(fileId, 'source')) return;
 		if (!nativeActive()) flushPublish();
 		const cachedText = buffer ? buffer.getText() : lastEmitted;
-		const selection = view.state.selection.main;
 		activeCM.historyCache.set(
 			fileId,
 			activeCM.captureHistoryState(view, activeCM.historyField, cachedText, historyTracker.bytes)
 		);
-		editorStateCache.setPosition(fileId, 'source', {
-			anchor: selection.anchor,
-			head: selection.head,
-			scrollTop: view.scrollDOM.scrollTop
-		});
 	}
 
 	let cmModulePromise: Promise<CMModule> | null = null;
@@ -601,6 +647,8 @@
 					monitor?.track(update.state.doc, update.changes);
 				}
 				if (update.selectionSet || update.docChanged) {
+					rememberPosition();
+					schedulePosition();
 					onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 				}
 				if (update.viewportChanged || update.docChanged) {
@@ -643,12 +691,16 @@
 		];
 		const cached = cm.historyCache.get(fileId);
 		const savedPosition = editorStateCache.getPosition(fileId, 'source');
+		// A deferred body mounts empty before its exact text arrives. Applying a
+		// saved offset to that empty document would collapse the selection.
+		pendingSavedPosition = content.length === 0 ? (savedPosition ?? null) : null;
+		restoringPosition = Boolean(savedPosition || pendingSavedPosition);
 		const restored = cm.restoreHistoryState({
 			EditorState: cm.EditorState,
 			historyField: cm.historyField,
 			content,
 			cached,
-			savedPosition,
+			savedPosition: pendingSavedPosition ? undefined : savedPosition,
 			extensions
 		});
 		const startState = restored.state;
@@ -663,7 +715,26 @@
 				: {})
 		});
 		view.scrollDOM.tabIndex = 0;
-		view.scrollDOM.addEventListener('focus', () => view?.focus());
+		view.contentDOM.addEventListener('pointerdown', () => (userInteracted = true));
+		view.contentDOM.addEventListener('keydown', () => (userInteracted = true));
+		view.contentDOM.addEventListener('focus', () => {
+			restoringPosition = false;
+			userInteracted = true;
+			const saved = editorStateCache.getPosition(fileId, 'source');
+			if (saved && view) {
+				const length = view.state.doc.length;
+				const anchor = Math.min(saved.anchor, length);
+				const head = Math.min(saved.head, length);
+				// Always dispatch: the DOM selection may not be synced after a
+				// deferred mount even when the state coordinates already match.
+				view.dispatch({
+					selection: { anchor, head },
+					effects: view.scrollDOM.scrollTop === 0 ? cm.EditorView.scrollIntoView(head) : []
+				});
+			}
+			view?.focus();
+		});
+		view.scrollDOM.addEventListener('scroll', schedulePosition, { passive: true });
 		activeCM = cm;
 		onCursorLine?.(view.state.doc.lineAt(view.state.selection.main.head).number);
 		onViewportLine?.(view.state.doc.lineAt(view.viewport.from).number);
@@ -692,8 +763,11 @@
 				write: (maxScrollTop, measuredView) => {
 					if (view !== mountedView || measuredView !== mountedView) return;
 					measuredView.scrollDOM.scrollTop = Math.min(savedPosition.scrollTop, maxScrollTop);
+					restoringPosition = false;
 				}
 			});
+		} else {
+			restoringPosition = false;
 		}
 
 		// Honor a request to open the search panel issued before the lazy-load
@@ -754,6 +828,26 @@
 			return;
 		}
 		applyExternalSource(c, activeCM, view);
+		const pending = pendingSavedPosition;
+		if (pending) {
+			pendingSavedPosition = null;
+			const length = view.state.doc.length;
+			const anchor = Math.min(pending.anchor, length);
+			const head = Math.min(pending.head, length);
+			view.dispatch({
+				selection: { anchor, head },
+				effects: activeCM.EditorView.scrollIntoView(head)
+			});
+			if (pending.scrollTop) {
+				view.requestMeasure({
+					read: (measuredView) =>
+						Math.max(0, measuredView.scrollDOM.scrollHeight - measuredView.scrollDOM.clientHeight),
+					write: (maxScrollTop, measuredView) => {
+						measuredView.scrollDOM.scrollTop = Math.min(pending.scrollTop, maxScrollTop);
+					}
+				});
+			}
+		}
 	});
 
 	$effect(() => {
@@ -766,6 +860,7 @@
 	});
 
 	onDestroy(() => {
+		clearTimeout(positionTimer);
 		flushOutgoing();
 		monitor?.dispose();
 		monitor = null;
