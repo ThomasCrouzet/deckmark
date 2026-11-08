@@ -1,8 +1,9 @@
+import { untrack } from 'svelte';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 import type { PresentationEditor } from './editor.svelte';
-import type { PresentationElement } from './model';
-import { presentationElementBox } from './render';
+import type { PresentationDeck, PresentationElement, PresentationSlide } from './model';
+import { presentationElementBox, type PresentationElementBox } from './render';
 
 export type PresentationHandle = 'nw' | 'ne' | 'sw' | 'se';
 
@@ -58,6 +59,21 @@ interface ActiveBase {
 	latestClient: Point;
 	shiftKey: boolean;
 	operation: boolean;
+	context?: {
+		deck: PresentationDeck;
+		slide: PresentationSlide;
+		selection: string;
+	};
+}
+
+interface SnapCandidate {
+	value: number;
+	order: number;
+}
+
+interface SnapAxes {
+	x: SnapCandidate[];
+	y: SnapCandidate[];
 }
 
 interface MoveGesture extends ActiveBase {
@@ -191,6 +207,40 @@ function release(target: Element | null, pointerId: number): void {
 	}
 }
 
+function appendSnapBox(axes: SnapAxes, box: PresentationElementBox, order: number): void {
+	const right = box.left + box.width;
+	const bottom = box.top + box.height;
+	for (const [offset, value] of [box.left, (box.left + right) / 2, right].entries()) {
+		axes.x.push({ value, order: order + offset });
+	}
+	for (const [offset, value] of [box.top, (box.top + bottom) / 2, bottom].entries()) {
+		axes.y.push({ value, order: order + offset });
+	}
+}
+
+function sortSnapAxis(candidates: SnapCandidate[]): SnapCandidate[] {
+	return candidates
+		.filter((candidate) => Number.isFinite(candidate.value))
+		.sort((first, second) => first.value - second.value || first.order - second.order)
+		.filter(
+			(candidate, index, sorted) => index === 0 || candidate.value !== sorted[index - 1]!.value
+		);
+}
+
+function indexedBox(
+	element: PresentationElement,
+	slide: PresentationSlide,
+	elements: ReadonlyMap<string, PresentationElement>
+): PresentationElementBox {
+	if (element.type !== 'line' && element.type !== 'arrow')
+		return presentationElementBox(element, slide);
+	// Resolve connector targets without scanning the full slide for each endpoint.
+	const targets = [elements.get(element.startId ?? ''), elements.get(element.endId ?? '')].filter(
+		(target): target is PresentationElement => target !== undefined
+	);
+	return presentationElementBox(element, { ...slide, elements: targets });
+}
+
 export function createPresentationGestures(
 	editor: PresentationEditor,
 	getCanvas: () => HTMLElement | null,
@@ -204,10 +254,65 @@ export function createPresentationGestures(
 	let pan = $state<Point>({ x: 0, y: 0 });
 	let zoom = $state(1);
 	let snapEnabled = $state(true);
-	let active: ActiveGesture | null = null;
+	let active = $state.raw<ActiveGesture | null>(null);
 	let pinch: PinchGesture | null = null;
 	let frame: number | null = null;
 	const pointers = new SvelteMap<number, TrackedPointer>();
+	const snapIndex = $derived.by(() => {
+		if (!active || (active.kind !== 'move' && active.kind !== 'resize') || !snapEnabled)
+			return null;
+		const slide = editor.slide;
+		const selected = new SvelteSet(editor.selected);
+		const elements = new SvelteMap(slide.elements.map((element) => [element.id, element] as const));
+		const axes: SnapAxes = {
+			x: [0, editor.deck.width / 2, editor.deck.width].map((value, order) => ({ value, order })),
+			y: [0, editor.deck.height / 2, editor.deck.height].map((value, order) => ({ value, order }))
+		};
+		const moving: Array<{ element: PresentationElement; order: number }> = [];
+		for (const [index, element] of slide.elements.entries()) {
+			if (selected.has(element.id)) continue;
+			const order = 3 + index * 3;
+			if (
+				(element.type === 'line' || element.type === 'arrow') &&
+				((element.startId !== undefined && selected.has(element.startId)) ||
+					(element.endId !== undefined && selected.has(element.endId)))
+			) {
+				moving.push({ element, order });
+			} else appendSnapBox(axes, indexedBox(element, slide, elements), order);
+		}
+		return { axes: { x: sortSnapAxis(axes.x), y: sortSnapAxis(axes.y) }, moving, elements, slide };
+	});
+	const movingCandidates = $derived.by(() => {
+		const axes: SnapAxes = { x: [], y: [] };
+		if (snapIndex) {
+			for (const { element, order } of snapIndex.moving) {
+				appendSnapBox(axes, indexedBox(element, snapIndex.slide, snapIndex.elements), order);
+			}
+		}
+		return axes;
+	});
+
+	function matchesContext(gesture: ActiveGesture): boolean {
+		return (
+			!gesture.context ||
+			(gesture.context.deck === editor.deck &&
+				gesture.context.slide === editor.slide &&
+				gesture.context.selection === editor.selected.join('\u0000'))
+		);
+	}
+
+	$effect(() => {
+		if (active && !matchesContext(active)) untrack(cancel);
+		// Keep event-only caches connected so reads do not scan every dependency.
+		void snapIndex;
+		void movingCandidates;
+	});
+
+	function clearActive(): void {
+		active = null;
+		void snapIndex;
+		void movingCandidates;
+	}
 
 	function scale(): number {
 		const value = getScale();
@@ -270,27 +375,6 @@ export function createPresentationGestures(
 		});
 	}
 
-	function candidates(axis: 'x' | 'y'): number[] {
-		const selected = new SvelteSet(editor.selected);
-		const dimension = axis === 'x' ? editor.deck.width : editor.deck.height;
-		const result = [0, dimension / 2, dimension];
-		for (const element of editor.slide.elements) {
-			if (selected.has(element.id)) continue;
-			const box = presentationElementBox(element, editor.slide);
-			const bounds = {
-				left: box.left,
-				top: box.top,
-				right: box.left + box.width,
-				bottom: box.top + box.height,
-				width: box.width,
-				height: box.height
-			};
-			if (axis === 'x') result.push(bounds.left, (bounds.left + bounds.right) / 2, bounds.right);
-			else result.push(bounds.top, (bounds.top + bounds.bottom) / 2, bounds.bottom);
-		}
-		return result;
-	}
-
 	function snapDelta(
 		bounds: Bounds,
 		delta: number,
@@ -305,13 +389,31 @@ export function createPresentationGestures(
 		let correction = 0;
 		let guide: number | null = null;
 		let best = threshold + 1;
-		for (const candidate of candidates(axis)) {
-			for (const value of values) {
-				const gap = candidate - value;
-				if (Math.abs(gap) < best && Math.abs(gap) <= threshold) {
-					best = Math.abs(gap);
+		let bestOrder = Infinity;
+		const entries = snapIndex?.axes[axis] ?? [];
+		const moving = movingCandidates[axis];
+		for (const [valueIndex, value] of values.entries()) {
+			let low = 0;
+			let high = entries.length;
+			while (low < high) {
+				const middle = (low + high) >>> 1;
+				if (entries[middle]!.value < value) low = middle + 1;
+				else high = middle;
+			}
+			// Equal gaps keep the original candidate order, then the moving-edge order.
+			for (const candidate of [entries[low - 1], entries[low], ...moving]) {
+				if (!candidate) continue;
+				const gap = candidate.value - value;
+				const absolute = Math.abs(gap);
+				const order = candidate.order * values.length + valueIndex;
+				if (
+					absolute <= threshold &&
+					(absolute < best || (absolute === best && order < bestOrder))
+				) {
+					best = absolute;
+					bestOrder = order;
 					correction = gap;
-					guide = candidate;
+					guide = candidate.value;
 				}
 			}
 		}
@@ -664,6 +766,10 @@ export function createPresentationGestures(
 			return;
 		}
 		if (!active) return;
+		if (!matchesContext(active)) {
+			cancel();
+			return;
+		}
 		if (active.kind === 'move') applyMove(active);
 		else if (active.kind === 'resize') applyResize(active);
 		else if (active.kind === 'rotate') applyRotate(active);
@@ -675,7 +781,7 @@ export function createPresentationGestures(
 		const ids = [...pointers.keys()];
 		if (ids.length < 2) return;
 		if (active?.operation) editor.cancel();
-		active = null;
+		clearActive();
 		marquee = null;
 		clearGuides();
 		const firstId = ids[0]!;
@@ -720,9 +826,15 @@ export function createPresentationGestures(
 			latestClient: { x: event.clientX, y: event.clientY },
 			shiftKey: event.shiftKey,
 			operation: true,
+			context: {
+				deck: editor.deck,
+				slide: editor.slide,
+				selection: editor.selected.join('\u0000')
+			},
 			snapshots,
 			bounds: combinedBounds(snapshots)
 		};
+		void snapIndex;
 	}
 
 	function startHandle(event: PointerEvent, mode: 'resize' | 'rotate', handle = 'se'): void {
@@ -749,6 +861,11 @@ export function createPresentationGestures(
 			latestClient: { x: event.clientX, y: event.clientY },
 			shiftKey: event.shiftKey,
 			operation: true,
+			context: {
+				deck: editor.deck,
+				slide: editor.slide,
+				selection: editor.selected.join('\u0000')
+			},
 			snapshots,
 			bounds
 		};
@@ -763,6 +880,7 @@ export function createPresentationGestures(
 							toSlide(base.startClient).x - (bounds.left + bounds.right) / 2
 						)
 					};
+		void snapIndex;
 	}
 
 	function startBackground(event: PointerEvent): void {
@@ -844,7 +962,7 @@ export function createPresentationGestures(
 		}
 		if (!active || active.pointerId !== event.pointerId) return;
 		const completed = active;
-		active = null;
+		clearActive();
 		if (cancelled) {
 			if (completed.operation) editor.cancel();
 			else if (completed.kind === 'marquee') editor.selected = completed.previousSelection;
@@ -862,6 +980,7 @@ export function createPresentationGestures(
 	}
 
 	function resetView(): void {
+		cancel();
 		pan = { x: 0, y: 0 };
 		zoom = 1;
 		marquee = null;
@@ -874,7 +993,7 @@ export function createPresentationGestures(
 		else if (active?.kind === 'marquee') editor.selected = active.previousSelection;
 		for (const [pointerId, tracked] of pointers) release(tracked.target, pointerId);
 		pointers.clear();
-		active = null;
+		clearActive();
 		pinch = null;
 		marquee = null;
 		clearGuides();
