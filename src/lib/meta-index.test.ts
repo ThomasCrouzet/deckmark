@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MetaIndex } from './meta-index';
+import { WikiLinkIndex } from './wiki-link-index';
 import type { FileItem } from './types';
 
 function makeFile(partial: Partial<FileItem> & { id: string; name: string }): FileItem {
@@ -14,7 +15,7 @@ function makeFile(partial: Partial<FileItem> & { id: string; name: string }): Fi
 
 function makeIndex(initial: FileItem[] = []) {
 	const files: FileItem[] = [...initial];
-	const index = new MetaIndex(() => files);
+	const index = new MetaIndex(() => files, undefined, WikiLinkIndex);
 	return { index, files };
 }
 

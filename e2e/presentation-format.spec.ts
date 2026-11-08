@@ -1,6 +1,13 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
-import { importMarkdown, presentationFixture, waitForPresentation } from './presentation-helpers';
+import {
+	exportPresentation,
+	importMarkdown,
+	openPresentationSource,
+	presentationFixture,
+	waitForPresentation
+} from './presentation-helpers';
+import { readFile } from 'node:fs/promises';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -13,6 +20,47 @@ async function resetEnglishApp(page: Page): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
 	await resetEnglishApp(page);
+});
+
+test('keeps source comments, frontmatter and framing after idle text and notes edits', async ({
+	page
+}, info) => {
+	const frontmatter = '\uFEFF---\r\ntitle: Keep exact frontmatter\r\ncustom: true\r\n---\r\n';
+	const fixture =
+		frontmatter + presentationFixture(['# Before\n\n<!-- Keep this comment -->\n\nLiteral body.']);
+	await seed(page, fixture);
+	const editor = await openSlides(page);
+	await editor.getByTestId('slide-object').first().dblclick();
+	const content =
+		'# Edited\n\n<!-- Keep this comment -->\n\n<!-- mdsh-slide:literal -->\n---\n```md\nopen fence';
+	await editor.getByTestId('slide-text-editor').fill(content);
+	await expect(editor.locator('.save-state')).toHaveText('saved');
+	await editor.getByTestId('slide-text-done').click();
+	await editor.getByTestId('slide-notes').fill('Notes --> and --!> remain exact.');
+	await expect(editor.locator('.save-state')).toHaveText('saved');
+	const pending = page.waitForEvent('download');
+	await exportPresentation(editor, 'md');
+	const download = await pending;
+	const path = info.outputPath('idle-format.md');
+	await download.saveAs(path);
+	const source = await readFile(path, 'utf8');
+	expect(source.startsWith(frontmatter)).toBe(true);
+	expect(source).toContain('<!-- Keep this comment -->');
+	expect(source).toContain('<!-- mdsh-element:text-1 -->');
+	expect(source).toContain('<!-- mdsh-slide:slide-1 -->');
+	expect(source).toContain('<!-- mdsh-literal -->\n<!-- mdsh-slide:literal -->');
+	await page.reload();
+	await editor.getByTestId('slide-object').first().dblclick();
+	await expect(editor.getByTestId('slide-text-editor')).toHaveValue(content);
+	await editor.getByTestId('slide-text-done').click();
+	await expect(editor.getByTestId('slide-notes')).toHaveValue('Notes --> and --!> remain exact.');
+	await openPresentationSource(editor);
+	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(
+		source.replace(/\r\n/g, '\n')
+	);
+	const stored = await persistenceSnapshot(page);
+	expect(stored.drafts[0]?.content).toBe(source);
+	await info.attach('idle-format.md', { path, contentType: 'text/markdown' });
 });
 
 const emptySlide = {
