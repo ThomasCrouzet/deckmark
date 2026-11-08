@@ -14,7 +14,6 @@ import {
 	presentationFixture,
 	waitForPresentation
 } from './presentation-helpers';
-import { createHash } from 'node:crypto';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
