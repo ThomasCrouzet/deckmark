@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
+import { holdReplies, installJsonProbe, probeState } from './json-worker-probe';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -77,6 +78,36 @@ test('highlights language syntax and edits code without Markdown', async ({
 		contentType: 'application/json'
 	});
 	await info.attach('code-editor.png', { body: await page.screenshot() });
+});
+
+test('discards a JSON worker reply after changing or closing the file', async ({ page }, info) => {
+	await installJsonProbe(page);
+	await resetAppState(page);
+	await importCode(page, 'old.json', '{"old":1}');
+	await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+	await holdReplies(page, true);
+	await page.locator('.cm-content').click();
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.insertText('{"old":}');
+	await expect.poll(async () => (await probeState(page)).held).toBe(1);
+	await importCode(page, 'current.json', '{"current":2}');
+	await holdReplies(page, false);
+	await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+	await expect(page.locator('.cm-content')).toContainText('current');
+	await expect(page.getByTestId('json-duplicates')).toHaveCount(0);
+	await holdReplies(page, true);
+	await page.locator('.cm-content').click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText(' ');
+	await expect.poll(async () => (await probeState(page)).held).toBe(1);
+	await page.getByRole('button', { name: 'Fermer current.json', exact: true }).click();
+	await holdReplies(page, false);
+	await expect(page.getByTestId('json-status')).toContainText('JSON invalide');
+	await expect(page.locator('.cm-content')).toContainText('old');
+	await info.attach('json-file-lifecycle.json', {
+		body: JSON.stringify(await probeState(page)),
+		contentType: 'application/json'
+	});
 });
 
 test('toggles invisibles, wrapping and indentation', async ({ page }, info: TestInfo) => {
