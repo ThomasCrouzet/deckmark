@@ -572,6 +572,11 @@ scroll, resize, DPR, pen, highlighter and eraser checks. Keep pointer capture, f
 switch, reload, keyboard and print checks. Same-task geometry does not prove correct
 stroke projection before a queued redraw or establish a past remote callback order.
 
+The zero-size sticky anchor keeps the canvas in the native scroller for clipping
+and wheel input. It must not add document width or height. Canvas position does
+not depend on the queued ink renderer. Raster redraw still uses the current scroll
+offsets and the existing animation-frame scheduler.
+
 Clear removes stroke data immediately and clears the bitmap in the queued animation
 frame. A completed button click does not confirm that this frame has run. Use the
 existing `inkFrame()` helper before the Clear pixel check. Require exactly zero
@@ -584,6 +589,7 @@ Run the focused checks against the production preview:
 ```sh
 npm run test:e2e -- e2e/read-annotations.spec.ts e2e/image-annotations.spec.ts --project=chromium --workers=1 --retries=0
 npm run test:e2e -- e2e/read-annotations.spec.ts --project=webkit --workers=1 --retries=0
+npm run test:e2e -- e2e/read-annotations.spec.ts --project=chromium --workers=1 --retries=0 --grep 'keeps the ink viewport fixed in the native scroll task' --trace=on
 ```
 
 Keep JSON and HTML reports, source snapshots, command exits, screenshots, engine
@@ -592,6 +598,9 @@ from a scroll change to two animation frames, p50 and p95, estimated canvas byte
 and Chromium heap usage. Other engines report heap measurement as unavailable.
 These timings are diagnostic, not a new performance budget or a strict gate pass.
 Native Desktop and physical display checks remain separate acceptance work.
+The same-task case attaches `native-scroll-position.json` and a screenshot even
+when its position assertion fails. Keep that first failure and its trace. A later
+green run does not remove the original remote flake or complete issue acceptance.
 
 ### Native WebView workflow coverage
 
