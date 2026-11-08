@@ -263,8 +263,13 @@ test('stats keep the latest file during coalesced edits and mode changes', async
 for (const bytes of [1_000_000, 5_000_000]) {
 	for (const shape of ['multiline', 'single-line'] as const) {
 		test(`stats stay fresh without focus loss for ${bytes} byte ${shape} notes`, async ({
-			page
+			page,
+			browserName
 		}, info) => {
+			test.skip(
+				browserName !== 'chromium',
+				'CDP HeapProfiler sampling is available only in Chromium.'
+			);
 			test.setTimeout(120_000);
 			await resetAppState(page);
 			const content = statsFixture(bytes, shape);
@@ -513,7 +518,14 @@ test.describe('stats module lifecycle', () => {
 		}
 	});
 
-	test('stats load failure keeps edits recoverable after reload', async ({ page }, info) => {
+	test('stats load failure keeps edits recoverable after reload', async ({
+		page,
+		browserName
+	}, info) => {
+		test.skip(
+			browserName !== 'chromium',
+			'WebKit reuses the failed statistics module after reload.'
+		);
 		const asset = runtimeRoute();
 		await page.route(asset, (route) => route.abort());
 		await resetAppState(page);
