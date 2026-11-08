@@ -126,6 +126,280 @@ test.beforeEach(async ({ page }) => {
 	await resetEnglishApp(page);
 });
 
+test('keeps pending text, selection and history across idle and immediate boundaries', async ({
+	page
+}, info) => {
+	await importMarkdown(page, presentationFixture(['# Original', '# Second']));
+	const editor = await waitForPresentation(page);
+	await expectSaved(editor);
+	await objects(editor, 'text').first().dblclick();
+	await page.clock.install();
+	await page.clock.pauseAt(new Date());
+	const input = editor.getByTestId('slide-text-editor');
+	await input.fill('# Pending edit');
+	await input.evaluate((field: HTMLTextAreaElement) => {
+		field.setSelectionRange(3, 7);
+		(
+			globalThis as typeof globalThis & { pendingTextInput?: HTMLTextAreaElement }
+		).pendingTextInput = field;
+	});
+	await expect(input).toHaveValue('# Pending edit');
+	await expect(editor.locator('.save-state')).toHaveText('saving...');
+	await page.clock.runFor(250);
+	expect(
+		await input.evaluate((field: HTMLTextAreaElement) => ({
+			same:
+				field ===
+				(globalThis as typeof globalThis & { pendingTextInput?: HTMLTextAreaElement })
+					.pendingTextInput,
+			selection: [field.selectionStart, field.selectionEnd],
+			focused: document.activeElement === field
+		}))
+	).toEqual({ same: true, selection: [3, 7], focused: true });
+	await expect(editor.locator('.save-state')).toHaveText('saving...');
+	await page.clock.runFor(500);
+	await expectSaved(editor);
+	await editor.getByTestId('slide-text-done').dispatchEvent('click');
+	await editor.getByTestId('slide-undo').dispatchEvent('click');
+	await expect(editor.getByTestId('slide-canvas')).toContainText('Original');
+	await editor.getByTestId('slide-redo').dispatchEvent('click');
+	await expect(editor.getByTestId('slide-canvas')).toContainText('Pending edit');
+	await editor.getByTestId('slide-notes').fill('Immediate notes');
+	await editor.getByTestId('slide-thumbnail').last().dispatchEvent('click');
+	await expect(editor.getByTestId('slide-canvas')).toContainText('Second');
+	await editor.getByTestId('slide-thumbnail').first().dispatchEvent('click');
+	await expect(editor.getByTestId('slide-notes')).toHaveValue('Immediate notes');
+	const pendingDownload = page.waitForEvent('download');
+	await editor.getByTestId('slide-export').dispatchEvent('click');
+	await editor.getByTestId('slide-export-md').dispatchEvent('click');
+	const download = await pendingDownload;
+	const path = info.outputPath('immediate.md');
+	await download.saveAs(path);
+	const source = await readFile(path, 'utf8');
+	expect(source).toContain('# Pending edit');
+	expect(source).toContain('Immediate notes');
+	await info.attach('immediate.md', { path, contentType: 'text/markdown' });
+	await page.clock.resume();
+	await page.reload();
+	await expect(editor.getByTestId('slide-canvas')).toContainText('Pending edit');
+	await expect(editor.getByTestId('slide-notes')).toHaveValue('Immediate notes');
+});
+
+test('flushes the next keystroke to its outgoing file on close and backup', async ({
+	page
+}, info) => {
+	await importMarkdown(page, presentationFixture(['# Outgoing']), 'Outgoing.md');
+	const editor = await waitForPresentation(page);
+	await expectSaved(editor);
+	await objects(editor, 'text').first().dblclick();
+	await page.clock.install();
+	await page.clock.pauseAt(new Date());
+	await editor.getByTestId('slide-text-editor').fill('# Last keystroke');
+	await page.getByRole('button', { name: 'Close Outgoing', exact: true }).dispatchEvent('click');
+	await expect(editor).toHaveCount(0);
+	await page.clock.resume();
+	await page.keyboard.press('ControlOrMeta+,');
+	const pendingDownload = page.waitForEvent('download');
+	await page.getByRole('button', { name: 'Export a backup', exact: true }).click();
+	const download = await pendingDownload;
+	const path = info.outputPath('outgoing-backup.json');
+	await download.saveAs(path);
+	const source = await readFile(path, 'utf8');
+	expect(source).toContain('# Last keystroke');
+	await info.attach('outgoing-backup.json', { path, contentType: 'application/json' });
+});
+
+test('retains input and rejects a stale backup when presentation serialization fails', async ({
+	page
+}, info) => {
+	await importMarkdown(page, presentationFixture(['# Recover']));
+	const editor = await waitForPresentation(page);
+	await expectSaved(editor);
+	await objects(editor, 'text').first().dblclick();
+	await page.evaluate(() => {
+		const stringify = JSON.stringify;
+		(
+			globalThis as typeof globalThis & { restorePresentationStringify?: () => void }
+		).restorePresentationStringify = () => {
+			JSON.stringify = stringify;
+		};
+		JSON.stringify = ((value: unknown, ...args: unknown[]) => {
+			if (value && typeof value === 'object' && 'slides' in value)
+				throw new Error('Injected presentation serialization failure');
+			return Reflect.apply(stringify, JSON, [value, ...args]);
+		}) as typeof JSON.stringify;
+	});
+	await editor.getByTestId('slide-text-editor').fill('# Retained recovery edit');
+	await expect(editor.locator('.save-state')).toHaveText('Not saved locally');
+	await expect(editor.getByTestId('slide-text-editor')).toHaveValue('# Retained recovery edit');
+	await expect(editor.getByTestId('slide-retry-save')).toBeVisible();
+	await page
+		.getByRole('button', { name: 'Close Presentation', exact: true })
+		.dispatchEvent('click');
+	await expect(editor).toBeVisible();
+	await expect(editor.getByTestId('slide-text-editor')).toHaveValue('# Retained recovery edit');
+	const downloads: string[] = [];
+	page.on('download', (download) => downloads.push(download.suggestedFilename()));
+	await page.keyboard.press('ControlOrMeta+,');
+	await page.getByRole('button', { name: 'Export a backup', exact: true }).click();
+	await expect(page.getByRole('alert').last()).toBeVisible();
+	expect(downloads).toEqual([]);
+	await page.keyboard.press('Escape');
+	await page.evaluate(() =>
+		(
+			globalThis as typeof globalThis & { restorePresentationStringify?: () => void }
+		).restorePresentationStringify?.()
+	);
+	await editor.getByTestId('slide-retry-save').click();
+	await expectSaved(editor);
+	await info.attach('recovery.png', { body: await page.screenshot(), contentType: 'image/png' });
+	await page.reload();
+	await expect(editor.getByTestId('slide-canvas')).toContainText('Retained recovery edit');
+});
+
+test('does not apply an advanced-source draft during a backup flush', async ({ page }, info) => {
+	const fixture = presentationFixture(['# Committed source']);
+	await importMarkdown(page, fixture);
+	const editor = await waitForPresentation(page);
+	await expectSaved(editor);
+	await openPresentationSource(editor);
+	const draft = fixture.replace('# Committed source', '# Unapplied source');
+	await editor.getByTestId('slide-source-editor').fill(draft);
+	await page.keyboard.press('ControlOrMeta+,');
+	const pending = page.waitForEvent('download');
+	await page.getByRole('button', { name: 'Export a backup', exact: true }).click();
+	const download = await pending;
+	const path = info.outputPath('unapplied-source-backup.json');
+	await download.saveAs(path);
+	const backup = JSON.parse(await readFile(path, 'utf8')) as { drafts: Array<{ content: string }> };
+	expect(backup.drafts.map((row) => row.content)).toEqual([fixture]);
+	await page.keyboard.press('Escape');
+	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(draft);
+	await editor.getByTestId('slide-source-cancel').click();
+	await openPresentationSource(editor);
+	await expect(editor.getByTestId('slide-source-editor')).toHaveValue(fixture);
+	await info.attach('unapplied-source-backup.json', { path, contentType: 'application/json' });
+});
+
+test('bounds continuous notes input and makes unchanged flushes idempotent', async ({
+	page
+}, info) => {
+	await importMarkdown(page, presentationFixture(['# Continuous']));
+	const editor = await waitForPresentation(page);
+	await expectSaved(editor);
+	await editor.getByTestId('slide-notes').focus();
+	await page.clock.install();
+	await page.clock.pauseAt(new Date());
+	await page.evaluate(() => {
+		const state = { serialize: 0 };
+		(globalThis as typeof globalThis & { continuousNotes?: typeof state }).continuousNotes = state;
+		window.addEventListener('deckmark:editor-perf', (event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+			if (detail.kind === 'counter' && detail.name === 'presentation.serialize') state.serialize++;
+		});
+	});
+	for (let index = 0; index < 11; index++) {
+		await editor.getByTestId('slide-notes').fill(`Continuous ${index}`);
+		await page.clock.runFor(100);
+	}
+	const counts = await page.evaluate(() => {
+		const state = (globalThis as typeof globalThis & { continuousNotes: { serialize: number } })
+			.continuousNotes;
+		const atMaximum = state.serialize;
+		window.dispatchEvent(new Event('mdsh:flush-editor', { cancelable: true }));
+		const afterFirstFlush = state.serialize;
+		window.dispatchEvent(new Event('mdsh:flush-editor', { cancelable: true }));
+		return { atMaximum, afterFirstFlush, afterSecondFlush: state.serialize };
+	});
+	expect(counts.atMaximum).toBeGreaterThan(0);
+	expect(counts.atMaximum).toBeLessThan(4);
+	expect(counts.afterSecondFlush).toBe(counts.afterFirstFlush);
+	await page.clock.runFor(700);
+	await expectSaved(editor);
+	await info.attach('continuous-notes.json', {
+		body: JSON.stringify(counts),
+		contentType: 'application/json'
+	});
+	await page.clock.resume();
+	await page.reload();
+	await expect(editor.getByTestId('slide-notes')).toHaveValue('Continuous 10');
+});
+
+test('preserves local and external presentation revisions before the idle timer', async ({
+	page,
+	context
+}, info) => {
+	const fixture = presentationFixture(['# Shared base']);
+	await importMarkdown(page, fixture);
+	const editor = await waitForPresentation(page);
+	await expectSaved(editor);
+	await objects(editor, 'text').first().dblclick();
+	await page.clock.install();
+	await page.clock.pauseAt(new Date());
+	await editor.getByTestId('slide-text-editor').fill('# Local revision');
+	const sender = await context.newPage();
+	await sender.route('**/api/presentation-sender', (route) =>
+		route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Sender</title>' })
+	);
+	await sender.goto('/api/presentation-sender');
+	await sender.evaluate(
+		async (remoteContent) => {
+			await new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const tx = database.transaction('drafts', 'readwrite');
+					const store = tx.objectStore('drafts');
+					const read = store.getAll();
+					let id = '';
+					read.onsuccess = () => {
+						const row = read.result[0];
+						id = row.id;
+						store.put({ ...row, content: remoteContent, updatedAt: row.updatedAt + 1 });
+					};
+					tx.oncomplete = () => {
+						database.close();
+						const channel = new BroadcastChannel('mdsh');
+						channel.postMessage({ type: 'draft-written', id, updatedAt: Date.now() });
+						channel.close();
+						resolve();
+					};
+					tx.onabort = () => reject(tx.error);
+				};
+			});
+		},
+		fixture.replace('# Shared base', '# External revision')
+	);
+	await page.clock.runFor(1000);
+	await expectSaved(editor);
+	await expect(editor.getByTestId('slide-text-editor')).toHaveValue('# Local revision');
+	const rows = await page.evaluate(
+		() =>
+			new Promise<Array<{ content: string }>>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const tx = database.transaction('drafts');
+					const read = tx.objectStore('drafts').getAll();
+					tx.oncomplete = () => {
+						database.close();
+						resolve(read.result);
+					};
+				};
+			})
+	);
+	expect(rows.some((row) => row.content.includes('# Local revision'))).toBe(true);
+	expect(rows.some((row) => row.content.includes('# External revision'))).toBe(true);
+	await info.attach('presentation-revisions.json', {
+		body: JSON.stringify(rows, null, 2),
+		contentType: 'application/json'
+	});
+	await sender.close();
+	await page.clock.resume();
+});
+
 test('imports a presentation without splitting fenced separators', async ({ page }, testInfo) => {
 	const opening = [
 		'# Existing opening',
