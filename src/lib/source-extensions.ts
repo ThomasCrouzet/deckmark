@@ -2,6 +2,7 @@ import { StateEffect, StateField, type EditorState, type Extension } from '@code
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { t } from './i18n';
 export { markdown } from '@codemirror/lang-markdown';
+export { externalDocumentChange as patch } from './code/external-changes';
 
 // Keep image bytes in the document. Decorations change only their display.
 export function imageData(): Extension {

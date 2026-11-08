@@ -11,6 +11,7 @@
 		convertLineEndings,
 		detectLineEnding
 	} from '#lib/code/text-changes.js';
+	import { externalDocumentChange } from '#lib/code/external-changes.js';
 	import { loadCodeLanguage, resolveCodeLanguage } from '#lib/code/languages.js';
 	import {
 		analyzeJson,
@@ -152,12 +153,18 @@
 	$effect(() => {
 		const incoming = content;
 		if (!view || incoming === lastEmitted) return;
+		const change = externalDocumentChange(view.state, incoming);
+		if (!change) {
+			lastEmitted = incoming;
+			return;
+		}
 		applyingExternal = true;
-		lastEmitted = incoming;
-		view.dispatch({
-			changes: { from: 0, to: view.state.doc.length, insert: incoming }
-		});
-		applyingExternal = false;
+		try {
+			view.dispatch({ changes: change });
+			lastEmitted = incoming;
+		} finally {
+			applyingExternal = false;
+		}
 	});
 
 	onMount(() => {

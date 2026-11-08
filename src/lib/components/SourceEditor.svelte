@@ -172,6 +172,7 @@
 		setSearchQuery: typeof import('@codemirror/search').setSearchQuery;
 		SearchQuery: typeof import('@codemirror/search').SearchQuery;
 		imageData: typeof import('../source-extensions').imageData;
+		patch: typeof import('#lib/code/external-changes.js').externalDocumentChange;
 	};
 
 	// Factored-out typewriter extension: dispatched in rAF to avoid
@@ -300,7 +301,8 @@
 					closeSearchPanel: searchMod.closeSearchPanel,
 					searchKeymap: searchMod.searchKeymap,
 					setSearchQuery: searchMod.setSearchQuery,
-					SearchQuery: searchMod.SearchQuery
+					SearchQuery: searchMod.SearchQuery,
+					patch: lang.patch
 				};
 			})();
 		}
@@ -583,23 +585,25 @@
 
 	/*
 	 * Sync external content -> editor (tab switch, undo store, etc.).
-	 * We keep `lastEmitted` to avoid update loops.
+	 * We keep `lastEmitted` to avoid update loops. A minimal change keeps the
+	 * native selection, viewport anchors, search ranges and history mapping.
 	 */
 	$effect(() => {
 		const c = content;
-		if (view && activeCM && c !== lastEmitted) {
-			lastEmitted = c;
-			sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
-			pendingGuard = null;
-			applyingExternal = true;
-			try {
-				view.dispatch({
-					changes: { from: 0, to: view.state.doc.length, insert: c },
-					annotations: activeCM.Transaction.addToHistory.of(false)
-				});
-			} finally {
-				applyingExternal = false;
-			}
+		if (!view || !activeCM || c === lastEmitted) return;
+		const change = activeCM.patch(view.state, c);
+		lastEmitted = c;
+		sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
+		pendingGuard = null;
+		if (!change) return;
+		applyingExternal = true;
+		try {
+			view.dispatch({
+				changes: change,
+				annotations: activeCM.Transaction.addToHistory.of(false)
+			});
+		} finally {
+			applyingExternal = false;
 		}
 	});
 
