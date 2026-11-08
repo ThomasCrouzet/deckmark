@@ -18,6 +18,17 @@ function clone<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** Copies the deck structure while sharing immutable strings and element values. */
+function snapshotDeck(deck: PresentationDeck): PresentationDeck {
+	return {
+		...deck,
+		slides: deck.slides.map((slide) => ({
+			...slide,
+			elements: slide.elements.map((element) => ({ ...element }))
+		}))
+	};
+}
+
 let clipboard: PresentationElement[] = [];
 
 /** Keep one undo entry for each completed user operation. */
@@ -36,6 +47,7 @@ export class PresentationEditor {
 	private operationStart: string | null = null;
 	private operationSource: string | null = null;
 	private operationDeck: PresentationDeck | null = null;
+	private operationChanged = false;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
 	private maximumTimer: ReturnType<typeof setTimeout> | undefined;
 	private write: (source: string, base: string) => void;
@@ -77,6 +89,7 @@ export class PresentationEditor {
 			this.operationStart = null;
 			this.operationSource = null;
 			this.operationDeck = null;
+			this.operationChanged = false;
 		} catch {
 			this.error = true;
 		}
@@ -89,47 +102,58 @@ export class PresentationEditor {
 	}
 
 	begin() {
+		// Keep the last accepted source as the undo base. A gesture must not
+		// serialize the complete deck before its first move. The shallow copy
+		// keeps a rollback point without duplicating element content strings.
 		if (this.operationStart === null) {
-			this.operationStart = serializePresentation(this.deck);
+			this.operationStart = this.source;
 			this.operationSource = this.source;
-			this.operationDeck = clone(this.deck);
+			this.operationDeck = snapshotDeck(this.deck);
+			this.operationChanged = false;
 		}
 	}
 
-	commit() {
+	/**
+	 * Ends one operation. `force` records a gesture that mutated the deck
+	 * directly. Text fields pass `false` so an unchanged field adds no entry.
+	 * `defer` keeps gesture serialization on the coalesced save boundary.
+	 */
+	commit(force = true, defer = false) {
 		if (this.operationStart === null) return this.flush();
-		let source: string;
-		try {
-			source = serializePresentation(this.deck);
-		} catch (error) {
-			return this.failed(error);
-		}
-		if (this.operationStart === source) {
-			if (!this.publish(this.operationSource ?? source)) return false;
+		if (!force && !this.operationChanged) {
 			this.operationStart = null;
 			this.operationSource = null;
 			this.operationDeck = null;
-			return true;
+			return this.flush();
 		}
-		if (!this.publish(source)) return false;
-		if (this.operationStart !== null && this.operationStart !== source) {
-			this.undoEntries = [...this.undoEntries, this.operationSource ?? this.operationStart].slice(
-				-60
-			);
-			let bytes = this.undoEntries.reduce((total, entry) => total + entry.length * 2, 0);
-			while (bytes > 24 * 1024 * 1024 && this.undoEntries.length > 1) {
-				bytes -= this.undoEntries[0]!.length * 2;
-				this.undoEntries = this.undoEntries.slice(1);
-			}
-			this.redoEntries = [];
-		}
+		const previous = this.operationSource ?? this.operationStart;
 		this.operationStart = null;
 		this.operationSource = null;
 		this.operationDeck = null;
+		this.operationChanged = false;
+		if (!defer) {
+			let source: string;
+			try {
+				source = serializePresentation(this.deck);
+			} catch (error) {
+				return this.failed(error);
+			}
+			if (previous === source) return this.publish(source);
+			if (!this.publish(source)) return false;
+		}
+		this.undoEntries = [...this.undoEntries, previous].slice(-60);
+		let bytes = this.undoEntries.reduce((total, entry) => total + entry.length * 2, 0);
+		while (bytes > 24 * 1024 * 1024 && this.undoEntries.length > 1) {
+			bytes -= this.undoEntries[0]!.length * 2;
+			this.undoEntries = this.undoEntries.slice(1);
+		}
+		this.redoEntries = [];
+		if (defer) this.markChanged();
 		return true;
 	}
 
 	markChanged() {
+		this.operationChanged = true;
 		this.revision++;
 		this.pending = true;
 		if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
@@ -182,11 +206,12 @@ export class PresentationEditor {
 		if (this.error) return;
 		this.begin();
 		operation();
+		this.operationChanged = true;
 		this.commit();
 	}
 
 	undo() {
-		if (!this.commit()) return;
+		if (!this.commit(true)) return;
 		const previous = this.undoEntries.at(-1);
 		if (!previous) return;
 		this.redoEntries = [...this.redoEntries, serializePresentation(this.deck)];
@@ -198,7 +223,7 @@ export class PresentationEditor {
 	}
 
 	redo() {
-		if (!this.commit()) return;
+		if (!this.commit(true)) return;
 		const next = this.redoEntries.at(-1);
 		if (!next) return;
 		this.undoEntries = [...this.undoEntries, serializePresentation(this.deck)];

@@ -1354,7 +1354,7 @@
 								editor.slide.notes = event.currentTarget.value;
 								editor.markChanged();
 							}}
-							onblur={() => editor.commit()}></textarea></label
+							onblur={() => editor.commit(false)}></textarea></label
 					>
 				{:else if presenting && showNotes}<div
 						class="present-notes"

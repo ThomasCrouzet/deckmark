@@ -270,6 +270,44 @@ The native benchmark on Windows, Linux and macOS Apple Silicon runs in CI. A
 native profile of the same scenario is captured with
 `--target native`; the shared web measurements above isolate the frontend part.
 
+## WYSIWYG large-document profile
+
+Issue #324 asks for a measured viewport-rendering decision, not a forced
+virtualization. The profile below used the production Web build at source
+`9debaa7e5cd00c274a6543227909be49e2249606`, Chromium on Linux x64, Node 26.13.0,
+and the reviewed `scripts/benchmark-editor-typing.mjs` harness (SHA-256
+`0a5e1b4a917014da135fa9c980fbebbfeac5e15a45a1e9ac16ca72062d46e57f`).
+
+```sh
+node scripts/benchmark-editor-typing.mjs --browser chromium --runs 3   --sizes 240000,1000000,5000000 --modes visual --libraries both   --output /srv/dev/cache/tmp/opencode/bench-324.json
+```
+
+| Source bytes | DOM nodes | Input frame p50 / p95 (ms) | Sync p50 / p95 (ms) |
+| --- | ---: | ---: | ---: |
+| 240,000 | 47,483 | 66.1 / 318.6 | 6.4 / 23.3 |
+| 1,000,000 | 196,823 | 149.3 / 268.5 | 29.7 / 36.9 |
+| 5,000,000 | 978,395 | 607.7 / 607.7 | 134.1 / 134.1 |
+
+The table reports the start-of-document case with an empty library. The 240 KB
+and 1 MB rows have three samples; the machine stopped at one valid 5 MB sample,
+so its tail estimate is not presented as stable. A 300-document library changed
+the medians by less than 25 percent in the same report.
+
+The dominant cost is the full ProseMirror document and its rich node views, not
+string publication: DOM nodes grow linearly with note size and the 5 MB case
+retains almost one million nodes. The measured input path still completes one
+COOP edit per sample with exact source fidelity. The #310 and #335 work removed
+the repeated serializer and full-source work from that path.
+
+Decision: do not adopt DOM virtualization now. ProseMirror selection, IME,
+clipboard, find, drag and drop, table editing, internal anchors, print/export
+and accessibility cross the viewport boundary, and the current evidence covers
+Chromium only with one valid 5 MB sample. The retained fallback is the ordinary
+editor. Revisit with cross-engine and native profiles, a scrollable viewport
+prototype that keeps one complete document model, and an explicit correctness
+matrix for those interactions. This is a measured prototype decision, not a
+claim that 5 MB visual editing is fast.
+
 ## Enforced benchmark gate
 
 `scripts/benchmark-budgets.json` is the reviewed reference for each platform and
