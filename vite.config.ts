@@ -150,7 +150,17 @@ export default defineConfig(({ mode }) => {
 									if (id.includes('node_modules/@tauri-apps/api/')) return 'desktop-api';
 									// Share icon components across panels to limit precache requests.
 									if (id.includes('node_modules/@lucide/svelte/')) return 'icons';
+									// The lazy image Markdown helper and render identity helpers share
+									// the existing render-core resource. No boot entry imports them.
+									if (
+										id.endsWith('/src/lib/render/image-markdown.ts') ||
+										id.endsWith('/src/lib/render/render-identity.ts') ||
+										id.endsWith('/src/lib/render/render-stages.ts')
+									)
+										return 'render-core';
 									if (id.includes('node_modules/marked/')) return 'render-core';
+									// The lazy diagram vendor stays in one offline resource for Mermaid.
+									if (id.includes('node_modules/d3-shape/')) return 'render-diagram';
 									if (id.includes('node_modules/highlight.js/')) return 'render-highlight';
 									if (id.includes('node_modules/katex/')) return 'render-math';
 									if (id.includes('node_modules/jszip/')) return 'export-zip';
