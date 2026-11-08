@@ -40,6 +40,8 @@ export interface FileItem {
 	 * must await `filesStore.ensureContent(ids)` first.
 	 */
 	contentDeferred?: boolean;
+	/** Persisted title, tags and wiki targets for a deferred body. */
+	derivedMetadata?: import('./draft-metadata').DraftMetadata;
 }
 
 export interface TrashedFile {

@@ -85,6 +85,8 @@ export const en = {
 		'Keep the exported file outside this browser. Check it here before you need to restore it. A browser download must finish before the file is safe.',
 	'properties.title': 'Document properties',
 	'properties.invalidYaml': 'The YAML front matter is invalid.',
+	'properties.staleDocument':
+		'The document changed while this panel was open. Reopen the panel to edit properties.',
 	'properties.repairInSource': 'Repair it in Source mode, then reopen this panel.',
 	'properties.key': 'Property name',
 	'properties.value': 'Value',
@@ -665,6 +667,8 @@ export const en = {
 	'comments.anchorFailed':
 		'The quoted text is missing or appears more than once. Select a unique passage.',
 	'comments.bodyRequired': 'Enter a comment.',
+	'comments.staleDocument':
+		'The active document changed. Reopen the panel before adding a comment.',
 	'comments.localReviewer': 'Local reviewer',
 	'comments.anchor_attached': 'anchor ok',
 	'comments.anchor_moved': 'anchor moved',
@@ -1166,6 +1170,8 @@ export const en = {
 		'No version saved for this file. The history builds up as you make changes (a snapshot every few minutes).',
 	'versionHistory.kept': '{n} version(s) kept',
 	'versionHistory.loadError': 'Could not load the version history.',
+	'versionHistory.staleDocument':
+		'The active document changed. Reopen the history panel before restoring.',
 	'versionHistory.loading': 'Loading...',
 	'versionHistory.mostRecent': 'most recent',
 	'versionHistory.noFileOpen': 'No file open.',

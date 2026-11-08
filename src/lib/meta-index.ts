@@ -70,6 +70,21 @@ export class MetaIndex {
 	getMeta(file: FileItem): MetaEntry {
 		const cached = this.metaCache.get(file.id);
 		if (this.onPublish && this.pending.has(file.id)) return cached ?? this.placeholder(file);
+		if (file.contentDeferred && file.derivedMetadata) {
+			const durable = file.derivedMetadata;
+			const entry: MetaEntry = {
+				name: file.name,
+				isNote: documentKindForFile(file) === 'note',
+				sourceKind: file.kind,
+				content: file.content,
+				title: durable.title,
+				documentTitle: durable.documentTitle,
+				tags: durable.tags,
+				targets: durable.targets
+			};
+			this.metaCache.set(file.id, entry);
+			return entry;
+		}
 		if (
 			cached &&
 			cached.content === file.content &&

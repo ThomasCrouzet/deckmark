@@ -67,6 +67,32 @@ describe('patch planning', () => {
 		).toBe('conflict');
 	});
 
+	it('rejects empty and out-of-range hunk matches without scanning every occurrence', () => {
+		expect(
+			planPatch(proposal({ hunks: [{ before: '', after: 'x' }] }), [file], ['a']).files[0]?.status
+		).toBe('conflict');
+		const repeated = { ...file, content: 'x'.repeat(1_000_000) };
+		expect(
+			planPatch(
+				{
+					files: [
+						{
+							path: 'guide.md',
+							baseHash: contentHash(repeated.content),
+							hunks: [{ before: 'x', after: 'y', occurrence: 2 }]
+						}
+					]
+				},
+				[repeated],
+				['a']
+			).files[0]?.status
+		).toBe('ready');
+	});
+
+	it('rejects an oversized untrusted provider reply', () => {
+		expect(parsePatchProposal('x'.repeat(2_000_001))).toBeNull();
+	});
+
 	it('applies only approved files and rechecks revisions', () => {
 		const plan = planPatch(proposal(), [file], ['a']);
 		expect(applyPatchPlan(plan, [file], []).changes).toEqual([]);

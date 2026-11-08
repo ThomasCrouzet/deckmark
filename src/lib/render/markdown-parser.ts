@@ -3,6 +3,7 @@ import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import { escapeHTML } from '../html-escape';
 import { preprocessWikiLinks, slugify } from '../wiki-links';
+import { HeadingIdAllocator } from '../document-navigation';
 import { RenderCache } from './render-cache';
 import type { RenderStageSample } from './render-stages';
 
@@ -36,7 +37,7 @@ export function parseMarkdownSource(input: MarkdownParserInput): MarkdownParserO
 	const source = input.wikiLinks ? preprocessWikiLinks(input.content) : input.content;
 	stages.push({ stage: 'wiki', durationMs: performance.now() - started, thread: 'main' });
 	const mermaidCodes: string[] = [];
-	const usedSlugs = new Set<string>();
+	const headingIds = new HeadingIdAllocator();
 	let highlightMs = 0;
 	let mathMs = 0;
 	const hits = cache.hits;
@@ -97,10 +98,7 @@ export function parseMarkdownSource(input: MarkdownParserInput): MarkdownParserO
 			heading({ tokens, depth, text }) {
 				const inner = this.parser.parseInline(tokens);
 				const base = slugify(text).slice(0, 80) || `section-${depth}`;
-				let slug = base;
-				let suffix = 2;
-				while (usedSlugs.has(slug)) slug = `${base}-${suffix++}`;
-				usedSlugs.add(slug);
+				const slug = headingIds.allocate(base);
 				if (depth > 3 || !input.headingPermalinks)
 					return `<h${depth} id="${slug}">${inner}</h${depth}>\n`;
 				return `<h${depth} id="${slug}">${inner}<a class="mdsh-anchor" href="#${slug}" tabindex="-1" aria-hidden="true"></a></h${depth}>\n`;

@@ -139,29 +139,94 @@ export function imageData(): Extension {
 		}
 	}
 	const widget = new ImageDataWidget();
-	const decorate = (state: EditorState, opened: ReadonlySet<number>) => {
-		const ranges = [];
-		const pattern = /(data:image\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*,|blob:)([^\s)"'<>]{32,})/gi;
-		for (const match of state.doc.toString().matchAll(pattern)) {
+	const pattern = /(data:image\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*,|blob:)([^\s)"'<>]{32,})/gi;
+	interface Span {
+		from: number;
+		to: number;
+	}
+	const scanLine = (text: string, from: number, into: Span[]) => {
+		for (const match of text.matchAll(pattern)) {
 			if (!match[1] || !match[2]) continue;
-			const from = match.index + match[1].length;
-			if (!opened.has(from))
-				ranges.push(Decoration.replace({ widget }).range(from, from + match[2].length));
+			const start = from + match.index + match[1].length;
+			into.push({ from: start, to: start + match[2].length });
 		}
-		return Decoration.set(ranges);
 	};
-	const field = StateField.define<{ opened: Set<number>; decorations: DecorationSet }>({
-		create: (state) => ({ opened: new Set(), decorations: decorate(state, new Set()) }),
+	const scanDocument = (doc: Text): Span[] => {
+		const spans: Span[] = [];
+		for (let number = 1; number <= doc.lines; number++) {
+			const line = doc.line(number);
+			scanLine(line.text, line.from, spans);
+		}
+		return spans;
+	};
+	const decorationsFor = (doc: Text, spans: readonly Span[], opened: ReadonlySet<number>) => {
+		const ranges = [];
+		for (const span of spans) {
+			if (span.to <= span.from || opened.has(span.from)) continue;
+			const to = Math.min(span.to, doc.length);
+			if (to <= span.from) continue;
+			ranges.push(Decoration.replace({ widget }).range(span.from, to));
+		}
+		return Decoration.set(ranges, true);
+	};
+	const field = StateField.define<{
+		opened: Set<number>;
+		spans: Span[];
+		decorations: DecorationSet;
+	}>({
+		create: (state) => {
+			const spans = scanDocument(state.doc);
+			return {
+				opened: new Set(),
+				spans,
+				decorations: decorationsFor(state.doc, spans, new Set())
+			};
+		},
 		update: (value, transaction) => {
-			const opened = new Set([...value.opened].map((pos) => transaction.changes.mapPos(pos)));
-			let changed = transaction.docChanged;
+			const opened = new Set([...value.opened].map((pos) => transaction.changes.mapPos(pos, 1)));
+			let revealed = false;
 			for (const effect of transaction.effects) {
 				if (effect.is(reveal)) {
 					opened.add(effect.value);
-					changed = true;
+					revealed = true;
 				}
 			}
-			return changed ? { opened, decorations: decorate(transaction.state, opened) } : value;
+			if (!transaction.docChanged) {
+				return revealed
+					? {
+							opened,
+							spans: value.spans,
+							decorations: decorationsFor(transaction.state.doc, value.spans, opened)
+						}
+					: value;
+			}
+			const doc = transaction.state.doc;
+			const changedLines = new Set<number>();
+			transaction.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+				const first = doc.lineAt(fromB).number;
+				const last = doc.lineAt(Math.min(toB, doc.length)).number;
+				for (let number = Math.max(1, first - 1); number <= Math.min(doc.lines, last + 1); number++)
+					changedLines.add(number);
+			});
+			const kept = value.spans
+				.map((span) => ({
+					from: transaction.changes.mapPos(span.from, -1),
+					to: transaction.changes.mapPos(span.to, 1)
+				}))
+				.filter((span) => {
+					if (span.to <= span.from) return false;
+					const line = doc.lineAt(Math.min(span.from, doc.length)).number;
+					return !changedLines.has(line);
+				});
+			const rescanned: Span[] = [];
+			for (const number of changedLines) {
+				const line = doc.line(number);
+				scanLine(line.text, line.from, rescanned);
+			}
+			const byStart = new Map<number, Span>();
+			for (const span of [...kept, ...rescanned]) byStart.set(span.from, span);
+			const spans = [...byStart.values()].sort((a, b) => a.from - b.from);
+			return { opened, spans, decorations: decorationsFor(doc, spans, opened) };
 		},
 		provide: (self) => [
 			EditorView.decorations.from(self, (value) => value.decorations),

@@ -20,12 +20,12 @@ use uuid::Uuid;
 
 const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdx", "txt"];
 const ASSET_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "avif", "svg"];
-const MAX_MARKDOWN_FILES: usize = 300;
-const MAX_ENTRIES: usize = 1_300;
-const MAX_DEPTH: usize = 8;
+const MAX_MARKDOWN_FILES: usize = 3_000;
+const MAX_ENTRIES: usize = 6_500;
+const MAX_DEPTH: usize = 16;
 const MAX_MARKDOWN_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ASSET_BYTES: u64 = 2 * 1024 * 1024;
-const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SNAPSHOT_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_REGISTRY_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]

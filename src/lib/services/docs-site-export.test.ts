@@ -265,6 +265,20 @@ describe('documentation site output', () => {
 		}
 	});
 
+	it('sanitizes published SVG assets without changing the private bytes', async () => {
+		const raw = new TextEncoder().encode(
+			'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)</script><rect width="4" height="4"/></svg>'
+		);
+		const result = await buildDocsSite(
+			source({ assets: [{ path: 'assets/logo.svg', mime: 'image/svg+xml', data: raw }] })
+		);
+		const published = text(result, 'assets/logo.svg');
+		expect(published).not.toContain('onload');
+		expect(published).not.toContain('<script');
+		expect(published).toContain('<rect');
+		expect(new TextDecoder().decode(raw)).toContain('onload');
+	});
+
 	it('stops before ZIP creation when the signal is cancelled', async () => {
 		const controller = new AbortController();
 		controller.abort();

@@ -212,6 +212,9 @@ pub fn status_error(status: u16) -> &'static str {
     }
 }
 
+const MAX_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
+const ERROR_RESPONSE_TOO_LARGE: &str = "provider response is too large";
+
 static INSTALL_PROVIDER: Once = Once::new();
 
 fn ensure_crypto_provider() {
@@ -233,7 +236,7 @@ pub fn build_client() -> Result<Client, String> {
 }
 
 /// Sends a prepared request and returns only the reply text.
-pub fn execute(client: &Client, prepared: PreparedRequest) -> Result<String, String> {
+pub fn execute(client: &reqwest::blocking::Client, prepared: PreparedRequest) -> Result<String, String> {
     let response = client
         .post(prepared.url.clone())
         .bearer_auth(&prepared.secret)
@@ -243,7 +246,20 @@ pub fn execute(client: &Client, prepared: PreparedRequest) -> Result<String, Str
     if !response.status().is_success() {
         return Err(status_error(response.status().as_u16()).to_string());
     }
-    let completion: ChatCompletion = response.json().map_err(|_| ERROR_SERVER.to_string())?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RESPONSE_BYTES)
+    {
+        return Err(ERROR_RESPONSE_TOO_LARGE.to_string());
+    }
+    let body = response
+        .bytes()
+        .map_err(|_| ERROR_NETWORK.to_string())?;
+    if body.len() as u64 > MAX_RESPONSE_BYTES {
+        return Err(ERROR_RESPONSE_TOO_LARGE.to_string());
+    }
+    let completion: ChatCompletion =
+        serde_json::from_slice(&body).map_err(|_| ERROR_SERVER.to_string())?;
     completion
         .choices
         .first()

@@ -57,6 +57,8 @@ export const projectFr: Record<ProjectMessageKey, string> = {
 	'projects.importZip': 'Importer un projet ZIP',
 	'projects.importFolder': 'Importer un dossier',
 	'projects.export': 'Exporter le projet',
+	'projects.exportUnsaved':
+		"Les dernières modifications ne sont pas encore enregistrées, aucun ZIP n'a été créé. Réessayez après l'enregistrement.",
 	'projects.checkLinks': 'Vérifier les liens',
 	'projects.noIssues': 'Tous les liens locaux sont résolus.',
 	'projects.newDocument': 'Nouveau document du projet',

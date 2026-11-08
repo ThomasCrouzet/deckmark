@@ -10,6 +10,7 @@ import type { DraftRow } from './db';
 import { TIMERS } from './config';
 import { uniqueName } from './file-utils';
 import { projectConflictVariant } from './project-conflicts';
+import { conflictOccupancy } from './draft-occupancy';
 import type { DocumentRevision } from './document-revisions';
 
 const SAVE_SUPERSEDED = Symbol('save-superseded');
@@ -214,22 +215,25 @@ export class SaveQueue {
 					changedSinceRead &&
 					(current.name !== written.name || current.content !== written.content)
 				) {
-					const [documents, assets] = await Promise.all([
-						db.drafts.toArray(),
-						db.projectAssets.toArray()
-					]);
-					const variant = projectConflictVariant(current, documents, assets);
+					const occupancy = await conflictOccupancy(current.projectId);
+					const [documents, assets] = occupancy
+						? [[], []]
+						: await Promise.all([db.drafts.toArray(), db.projectAssets.toArray()]);
+					const variant = projectConflictVariant(current, documents, assets, occupancy?.occupied);
 					preserved = {
 						...variant,
 						id: newId(),
 						name:
 							variant.relativePath === current.relativePath
 								? uniqueName(
-										documents.map((document) => document.name),
+										occupancy ? occupancy.names : documents.map((document) => document.name),
 										current.name
 									)
 								: variant.name,
-						order: documents.reduce((max, document) => Math.max(max, document.order), -1) + 1,
+						order:
+							(occupancy
+								? occupancy.maxOrder
+								: documents.reduce((max, document) => Math.max(max, document.order), -1)) + 1,
 						open: false
 					};
 					await db.drafts.put(preserved);

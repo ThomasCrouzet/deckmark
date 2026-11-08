@@ -3,7 +3,8 @@
 // It does not render HTML, use storage, or start requests.
 
 import { IMPORT_LIMITS } from '../config';
-import { documentHeadings } from '../document-navigation';
+import { projectDocumentLimit } from '../project-limits';
+import { documentHeadings, HeadingIdAllocator } from '../document-navigation';
 import { stripFileExtension } from '../file-utils';
 import {
 	isExternalDestination,
@@ -44,6 +45,7 @@ export interface DocsSiteExportInput {
 
 export type DocsSiteIssueCode =
 	| 'anchor-missing'
+	| 'asset-unsafe'
 	| 'document-skipped'
 	| 'image-external'
 	| 'image-missing'
@@ -168,15 +170,10 @@ export function docsSiteIssue(
 /** Heading identifiers produced by the Markdown renderer. */
 export function headingAnchorIds(markdown: string): Set<string> {
 	const ids = new Set<string>();
-	const counts = new Map<string, number>();
+	const allocator = new HeadingIdAllocator();
 	for (const heading of documentHeadings(markdown)) {
 		const base = slugify(heading.text).slice(0, 80) || `section-${heading.level}`;
-		const seen = counts.get(base) ?? 0;
-		counts.set(base, seen + 1);
-		let id = base;
-		let suffix = 2;
-		while (ids.has(id)) id = `${base}-${suffix++}`;
-		ids.add(id);
+		ids.add(allocator.allocate(base));
 	}
 	return ids;
 }
@@ -265,7 +262,7 @@ function buildMaps(
 
 /** Builds the deterministic page and asset plan without rendering content. */
 export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
-	if (input.documents.length > IMPORT_LIMITS.maxFiles) throw new Error('Project document limit');
+	if (input.documents.length > projectDocumentLimit()) throw new Error('Project document limit');
 	const locale = input.locale === 'fr' ? 'fr' : 'en';
 	const name = input.name.trim() || 'Documentation';
 	const includeSearchIndex = input.includeSearchIndex !== false;

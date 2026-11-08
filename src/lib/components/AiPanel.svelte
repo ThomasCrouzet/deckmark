@@ -140,6 +140,27 @@
 			patchError = t('ai.patchCheckpointFailed');
 			return;
 		}
+		const fence = applyPatchPlan(current, filesStore.library, approvedPaths, hunks);
+		const stale =
+			fence.rejected.length > 0 ||
+			fence.changes.length !== result.changes.length ||
+			fence.changes.some((change) => {
+				const file = filesStore.library.find((entry) => entry.id === change.id);
+				const original = snapshots.find((snapshot) => snapshot.id === change.id);
+				const intended = result.changes.find((entry) => entry.id === change.id);
+				return (
+					!file ||
+					file.contentDeferred ||
+					!original ||
+					!intended ||
+					file.content !== original.content ||
+					change.content !== intended.content
+				);
+			});
+		if (stale) {
+			patchError = t('ai.patchConflict');
+			return;
+		}
 		appliedBefore = snapshots.map((snapshot) => ({ id: snapshot.id, content: snapshot.content }));
 		appliedAfter = result.changes.map((change) => ({
 			id: change.id,

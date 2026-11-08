@@ -23,11 +23,15 @@
 	let author = $state('');
 	let error = $state('');
 	let selected = $state<string | null>(null);
+	let boundId = $state<string | null>(null);
+	const boundFile = $derived(
+		boundId ? filesStore.library.find((entry) => entry.id === boundId) : undefined
+	);
 	const anchors = $derived(
 		Object.fromEntries(
 			comments.map((comment) => [
 				comment.id,
-				resolveCommentAnchor(filesStore.active?.content ?? '', comment)
+				resolveCommentAnchor(boundFile?.content ?? '', comment)
 			])
 		) as Record<string, CommentAnchor>
 	);
@@ -36,13 +40,28 @@
 		author = commentAuthor();
 		selected = window.getSelection()?.toString() ?? '';
 		quote = selected;
+	});
+
+	$effect(() => {
+		if (!open) {
+			boundId = null;
+			return;
+		}
+		const id = filesStore.activeId;
+		if (id === boundId) return;
+		boundId = id;
+		quote = '';
+		body = '';
+		error = '';
+		comments = [];
 		void load();
 	});
 
 	async function load() {
-		const id = filesStore.activeId;
+		const id = boundId;
 		if (!id) return;
-		comments = await db.comments.where('draftId').equals(id).sortBy('createdAt');
+		const rows = await db.comments.where('draftId').equals(id).sortBy('createdAt');
+		if (boundId === id) comments = rows;
 	}
 
 	function useSelection() {
@@ -50,9 +69,13 @@
 	}
 
 	async function addComment() {
-		const activeId = filesStore.activeId;
-		if (!activeId) return;
-		const content = filesStore.active?.content ?? '';
+		const activeId = boundId;
+		const file = boundFile;
+		if (!activeId || !file) {
+			error = t('comments.staleDocument');
+			return;
+		}
+		const content = file.content;
 		const anchor = createAnchor(content, quote);
 		if (!anchor) {
 			error = t('comments.anchorFailed');
@@ -93,7 +116,7 @@
 	}
 
 	async function exportReport() {
-		const content = filesStore.active?.content ?? '';
+		const content = boundFile?.content ?? '';
 		const blob = new Blob([commentReport(comments, content)], { type: 'application/json' });
 		await triggerDownload(blob, 'comments-report.json');
 	}

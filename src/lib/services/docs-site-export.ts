@@ -4,6 +4,7 @@
 
 import { abortable, checkAborted } from '../abort';
 import {
+	docsSiteIssue,
 	mergeIssues,
 	planDocsSite,
 	type DocsSiteExportInput,
@@ -112,6 +113,36 @@ async function buildZip(files: readonly DocsSiteFile[]): Promise<Blob> {
 }
 
 /**
+ * A published SVG is a navigable document, so preview-level `<img>` safety is
+ * not sufficient. Every SVG asset is sanitized again for publication. The
+ * private project asset stays untouched, and a rejected SVG blocks the ZIP.
+ */
+async function sanitizePublishedSvgAssets(plan: DocsSitePlan): Promise<DocsSiteIssue[]> {
+	const issues: DocsSiteIssue[] = [];
+	const { sanitizeSvgBytes } = await import('../render/image-media');
+	for (const asset of plan.assets) {
+		const declaresSvg = asset.mime.toLowerCase().split(';', 1)[0] === 'image/svg+xml';
+		const namedSvg = /\.svg$/i.test(asset.outputPath);
+		if (!declaresSvg && !namedSvg) continue;
+		try {
+			asset.data = await sanitizeSvgBytes(asset.data);
+			asset.mime = 'image/svg+xml';
+		} catch {
+			issues.push(
+				docsSiteIssue(
+					'asset-unsafe',
+					'error',
+					asset.sourcePath,
+					asset.sourcePath,
+					`"${asset.sourcePath}" is not a safe standalone SVG and is not published.`
+				)
+			);
+		}
+	}
+	return issues;
+}
+
+/**
  * Builds the complete static site in memory. The function throws a
  * `DocsSiteExportError` before ZIP creation when a local resource is missing.
  * A cancelled signal rejects with an AbortError.
@@ -123,13 +154,14 @@ export async function buildDocsSite(
 	checkAborted(options.signal);
 	const plan = planDocsSite(input);
 	if (!plan.pages.length) throw new Error('The project contains no Markdown documents');
+	const sanitized = await sanitizePublishedSvgAssets(plan);
 	checkAborted(options.signal);
 	const renderer = await abortable(import('./docs-site-render'), options.signal);
 	const rendered = await renderer.renderDocsSite(plan, {
 		...(options.signal ? { signal: options.signal } : {})
 	});
 	checkAborted(options.signal);
-	const issues = mergeIssues(rendered.issues, []);
+	const issues = mergeIssues(rendered.issues, sanitized);
 	const report = buildReport(
 		plan,
 		rendered.pages.map((page) => ({

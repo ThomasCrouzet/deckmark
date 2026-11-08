@@ -161,7 +161,9 @@
 					{:catch}<p role="alert" class="p-4 text-danger">{t('slides.renderFailed')}</p>{/await}
 				{/key}
 			{:else if kind === 'image'}
-				<ImageDocument file={activeFile} />
+				{#key activeFile.id}
+					<ImageDocument file={activeFile} />
+				{/key}
 			{:else if kind === 'pdf'}
 				{#key activeFile.id}
 					{#await import('./PdfDocument.svelte') then module}

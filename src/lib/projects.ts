@@ -110,13 +110,35 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 	return row.id;
 }
 
+const PROJECT_EXPORT_FLUSH_TIMEOUT_MS = 5000;
+
+/**
+ * Waits for the durable draft barrier. A timeout rejects instead of pretending
+ * that the archive contains the latest edits. The pending write keeps running.
+ */
+async function awaitProjectDraftDurability(): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(
+			() => reject(new Error('project-export-flush-timeout')),
+			PROJECT_EXPORT_FLUSH_TIMEOUT_MS
+		);
+	});
+	try {
+		await Promise.race([filesStore.flushPendingAwait(), timeout]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 export async function exportProject(projectId: string): Promise<boolean> {
-	// A blocked save retry must not block the archive forever: the snapshot below
-	// reads the durable rows, and a slow flush still lands before the ZIP is built.
-	await Promise.race([
-		filesStore.flushPendingAwait().catch(() => undefined),
-		new Promise<void>((resolve) => setTimeout(resolve, 5000))
-	]);
+	try {
+		await awaitProjectDraftDurability();
+	} catch (error) {
+		reportError('project export durability', error);
+		notify.error(t('projects.exportUnsaved'));
+		return false;
+	}
 	const snapshot = await db.transaction(
 		'r',
 		db.projects,

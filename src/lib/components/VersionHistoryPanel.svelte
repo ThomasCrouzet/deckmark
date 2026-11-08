@@ -29,6 +29,7 @@
 	let versions = $state<VersionRow[]>([]);
 	let loading = $state(true);
 	let selectedId = $state<string | null>(null);
+	let loadedId = $state<string | null>(null);
 	let closeButton: HTMLButtonElement | null = $state(null);
 
 	const selected = $derived(versions.find((v) => v.id === selectedId) ?? null);
@@ -39,14 +40,16 @@
 		let cancelled = false;
 		loading = true;
 		const id = filesStore.active?.id;
+		loadedId = id ?? null;
 		if (!id) {
 			versions = [];
+			selectedId = null;
 			loading = false;
 			return;
 		}
 		void listVersions(id)
 			.then((rows) => {
-				if (cancelled) return;
+				if (cancelled || filesStore.activeId !== id) return;
 				versions = rows;
 				selectedId = rows[0]?.id ?? null;
 				loading = false;
@@ -74,16 +77,23 @@
 
 	async function handleRestore(): Promise<void> {
 		const v = selected;
-		const active = filesStore.active;
-		if (!v || !active) return;
+		const targetId = loadedId;
+		if (!v || !targetId || v.draftId !== targetId || filesStore.activeId !== targetId) {
+			notify.error(t('versionHistory.staleDocument'));
+			return;
+		}
 		const ok = await promptStore.confirm({
 			title: t('versionHistory.restoreConfirmTitle'),
 			message: t('versionHistory.restoreConfirmMessage'),
 			confirmLabel: t('versionHistory.restore')
 		});
 		if (!ok) return;
+		if (filesStore.activeId !== targetId || selected?.draftId !== targetId) {
+			notify.error(t('versionHistory.staleDocument'));
+			return;
+		}
 		try {
-			const restored = await filesStore.restoreVersion(active.id, v.content);
+			const restored = await filesStore.restoreVersion(targetId, v.content);
 			if (!restored) return;
 			notify.success(t('versionHistory.restored'));
 			onClose();

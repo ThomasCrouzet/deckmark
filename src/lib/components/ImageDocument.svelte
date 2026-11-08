@@ -175,13 +175,16 @@
 	}
 
 	onMount(() => {
+		const fileId = file.id;
+		let disposed = false;
 		if (!file.data) {
 			loadError = true;
-			return;
+			return () => {};
 		}
 		const element = new Image();
 		element.referrerPolicy = 'no-referrer';
 		element.onload = () => {
+			if (disposed || file.id !== fileId) return;
 			image = element;
 			width = element.naturalWidth;
 			height = element.naturalHeight;
@@ -197,30 +200,46 @@
 			fitZoom();
 			redraw();
 		};
-		element.onerror = () => (loadError = true);
+		element.onerror = () => {
+			if (!disposed) loadError = true;
+		};
 		element.src = file.data;
+		return () => {
+			disposed = true;
+			element.onload = null;
+			element.onerror = null;
+			element.removeAttribute('src');
+		};
 	});
 
 	async function exportFlattened() {
 		if (!image) return;
-		if (width * height > MAX_EXPORT_PIXELS) {
+		const exportName = file.name;
+		const exportWidth = width;
+		const exportHeight = height;
+		const exportImage = image;
+		const exportStrokes = strokes.map((stroke) => ({
+			...stroke,
+			points: stroke.points.map((point) => ({ ...point }))
+		}));
+		if (exportWidth * exportHeight > MAX_EXPORT_PIXELS) {
 			notify.error(t('documents.imageTooLarge'));
 			return;
 		}
 		const output = document.createElement('canvas');
-		output.width = width;
-		output.height = height;
+		output.width = exportWidth;
+		output.height = exportHeight;
 		const context = output.getContext('2d');
 		if (!context) return;
-		context.drawImage(image, 0, 0, width, height);
-		for (const stroke of strokes) drawStroke(context, stroke, 1);
+		context.drawImage(exportImage, 0, 0, exportWidth, exportHeight);
+		for (const stroke of exportStrokes) drawStroke(context, stroke, 1);
 		const blob = await new Promise<Blob | null>((resolve) => output.toBlob(resolve, 'image/png'));
 		if (!blob) {
 			notify.error(t('documents.imageExportFailed'));
 			return;
 		}
 		const { sanitizeFilename, triggerDownload } = await import('#lib/services/export.js');
-		const name = file.name.replace(/\.[^.]+$/, '') || 'image';
+		const name = exportName.replace(/\.[^.]+$/, '') || 'image';
 		await triggerDownload(blob, sanitizeFilename(`${name}-annotated.png`));
 	}
 

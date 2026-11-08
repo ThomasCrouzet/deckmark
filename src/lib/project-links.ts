@@ -20,8 +20,8 @@ function escaped(text: string, index: number): boolean {
 }
 
 /** Pair each bracket once, including brackets inside an unmatched outer label. */
-function closingBrackets(text: string): Int32Array {
-	const closes = new Int32Array(text.length).fill(-1);
+function closingBrackets(text: string): Map<number, number> {
+	const closes = new Map<number, number>();
 	const opens: number[] = [];
 	for (let index = 0; index < text.length; index++) {
 		if (text[index] === '\\') {
@@ -29,7 +29,7 @@ function closingBrackets(text: string): Int32Array {
 			continue;
 		}
 		if (text[index] === '[') opens.push(index);
-		else if (text[index] === ']' && opens.length) closes[opens.pop()!] = index;
+		else if (text[index] === ']' && opens.length) closes.set(opens.pop()!, index);
 	}
 	return closes;
 }
@@ -67,7 +67,7 @@ export function projectDestinations(markdown: string): ProjectDestination[] {
 	const frontmatter = /^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(markdown);
 	let fence = '';
 	let htmlBlock = '';
-	let bracketEnds: Int32Array | undefined;
+	let bracketEnds: Map<number, number> | undefined;
 	for (let index = frontmatter?.[0].length ?? 0; index < markdown.length; index++) {
 		if (index === 0 || markdown[index - 1] === '\n') {
 			const lineEnd = markdown.indexOf('\n', index);
@@ -133,7 +133,7 @@ export function projectDestinations(markdown: string): ProjectDestination[] {
 		// Use the same raw bracket nesting as the label scan. The outer loop still
 		// excludes code and front matter and selects the destination source ranges.
 		bracketEnds ??= closingBrackets(markdown);
-		let cursor = bracketEnds[index]!;
+		let cursor = bracketEnds.get(index) ?? -1;
 		if (cursor < 0) continue;
 		const image = index > 0 && markdown[index - 1] === '!' && !escaped(markdown, index - 1);
 		if (markdown[cursor + 1] !== '(') {
@@ -192,14 +192,22 @@ export function rewriteProjectDestinations(
 	markdown: string,
 	rewrite: (destination: ProjectDestination) => string | null
 ): string {
-	let result = markdown;
-	for (const destination of projectDestinations(markdown).toReversed()) {
+	const chunks: string[] = [];
+	let cursor = 0;
+	let changed = false;
+	for (const destination of projectDestinations(markdown).toSorted((a, b) => a.start - b.start)) {
 		const replacement = rewrite(destination);
-		if (replacement !== null && replacement !== destination.source) {
-			result = result.slice(0, destination.start) + replacement + result.slice(destination.end);
-		}
+		if (replacement === null || replacement === destination.source) continue;
+		// Ranges come from one immutable scan. A malformed overlap must not
+		// duplicate or drop source bytes.
+		if (destination.start < cursor) return markdown;
+		chunks.push(markdown.slice(cursor, destination.start), replacement);
+		cursor = destination.end;
+		changed = true;
 	}
-	return result;
+	if (!changed) return markdown;
+	chunks.push(markdown.slice(cursor));
+	return chunks.join('');
 }
 
 export function renameProjectLinks(

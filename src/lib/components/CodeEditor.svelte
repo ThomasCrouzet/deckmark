@@ -438,8 +438,10 @@
 
 	$effect(() => {
 		const incoming = content;
-		setDegraded(textHasLongLine(incoming));
-		if (!view) return;
+		if (!view) {
+			setDegraded(textHasLongLine(incoming));
+			return;
+		}
 		if (nativeActive()) {
 			if (nativeBlocked) return;
 			const canonical = getRevision?.(fileId) ?? null;
@@ -457,6 +459,7 @@
 		} else if (incoming === lastEmitted) {
 			return;
 		}
+		setDegraded(textHasLongLine(incoming));
 		applyExternalDocument(incoming);
 	});
 

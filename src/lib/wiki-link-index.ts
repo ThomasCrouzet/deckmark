@@ -222,6 +222,12 @@ export class WikiLinkIndex {
 		const changed = [...oldKeys]
 			.filter((key) => !newKeys.has(key))
 			.concat([...newKeys].filter((key) => !oldKeys.has(key)));
+		if (before && after && changed.length === 0 && before.note === after.note) {
+			// A content-only edit keeps the same identity keys. Buckets and
+			// backlink caches stay valid; only the file reference is refreshed.
+			this.entries.set(id, after);
+			return;
+		}
 		const affected = new Set<string>();
 		for (const key of changed) for (const source of this.deps.get(key) ?? []) affected.add(source);
 		this.detach(id);
@@ -246,6 +252,17 @@ export class WikiLinkIndex {
 	/** Replaces one source's complete targets. Null removes its snapshot. */
 	publishTargets(id: string, targets: readonly string[] | null): void {
 		const item = this.entries.get(id);
+		const previous = this.published.get(id);
+		if (
+			targets !== null &&
+			previous &&
+			previous.length === targets.length &&
+			previous.every((target, index) => target === targets[index])
+		) {
+			// The effective link list did not change. Do not detach, reattach or
+			// invalidate unrelated backlink buckets for an ordinary body edit.
+			return;
+		}
 		this.version += 1;
 		if (!item) return;
 		if (targets === null) {

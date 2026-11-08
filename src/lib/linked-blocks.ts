@@ -79,52 +79,101 @@ export function extractIncludes(file: FileItem): LinkedInclude[] {
 	return includes;
 }
 
-function findSource(files: readonly FileItem[], sourcePath: string): FileItem | undefined {
-	return files.find(
-		(file) =>
-			pathOf(file) === sourcePath ||
-			file.name === sourcePath ||
-			file.name.replace(/\.[^.]+$/, '') === sourcePath
-	);
+/** One-pass index that keeps the original first-match precedence. */
+function sourceIndex(files: readonly FileItem[]): Map<string, FileItem> {
+	const index = new Map<string, FileItem>();
+	for (const file of files) {
+		for (const key of [pathOf(file), file.name, file.name.replace(/\.[^.]+$/, '')]) {
+			if (!index.has(key)) index.set(key, file);
+		}
+	}
+	return index;
+}
+
+/** Iterative Tarjan SCC. The call stack stays bounded for deep chains. */
+function stronglyConnectedComponents(graph: Map<string, string[]>): {
+	component: Map<string, number>;
+	selfLoop: Set<string>;
+} {
+	const indices = new Map<string, number>();
+	const low = new Map<string, number>();
+	const onStack = new Set<string>();
+	const stack: string[] = [];
+	const component = new Map<string, number>();
+	const selfLoop = new Set<string>();
+	let counter = 0;
+	let components = 0;
+	for (const start of graph.keys()) {
+		if (indices.has(start)) continue;
+		const frames: Array<{ id: string; next: number }> = [{ id: start, next: 0 }];
+		indices.set(start, counter);
+		low.set(start, counter++);
+		stack.push(start);
+		onStack.add(start);
+		while (frames.length > 0) {
+			const frame = frames.at(-1)!;
+			const edges = graph.get(frame.id) ?? [];
+			if (frame.next < edges.length) {
+				const next = edges[frame.next++]!;
+				if (next === frame.id) selfLoop.add(frame.id);
+				if (!indices.has(next)) {
+					indices.set(next, counter);
+					low.set(next, counter++);
+					stack.push(next);
+					onStack.add(next);
+					frames.push({ id: next, next: 0 });
+				} else if (onStack.has(next)) {
+					low.set(frame.id, Math.min(low.get(frame.id)!, indices.get(next)!));
+				}
+				continue;
+			}
+			frames.pop();
+			const parent = frames.at(-1);
+			if (parent) low.set(parent.id, Math.min(low.get(parent.id)!, low.get(frame.id)!));
+			if (low.get(frame.id) === indices.get(frame.id)) {
+				let member: string;
+				do {
+					member = stack.pop()!;
+					onStack.delete(member);
+					component.set(member, components);
+				} while (member !== frame.id);
+				components++;
+			}
+		}
+	}
+	return { component, selfLoop };
 }
 
 /** Resolves every include without changing any file. */
 export function buildLinkReport(files: readonly FileItem[]): LinkReport[] {
-	const blocksByFile = new Map<string, LinkedBlock[]>();
-	for (const file of files) blocksByFile.set(file.id, extractBlocks(file));
+	const blocksByFile = new Map<string, Map<string, LinkedBlock>>();
+	for (const file of files) {
+		const blocks = new Map<string, LinkedBlock>();
+		for (const block of extractBlocks(file)) if (!blocks.has(block.id)) blocks.set(block.id, block);
+		blocksByFile.set(file.id, blocks);
+	}
+	const sources = sourceIndex(files);
 	const graph = new Map<string, string[]>();
 	for (const file of files) {
 		graph.set(
 			file.id,
-			extractIncludes(file)
-				.map((include) => findSource(files, include.sourcePath)?.id)
-				.filter((id): id is string => !!id)
+			extractIncludes(file).flatMap((include) => {
+				const id = sources.get(include.sourcePath)?.id;
+				return id ? [id] : [];
+			})
 		);
 	}
-	const inCycle = new Set<string>();
-	const visit = (id: string, stack: Set<string>): boolean => {
-		if (stack.has(id)) return true;
-		stack.add(id);
-		for (const next of graph.get(id) ?? []) {
-			if (visit(next, stack)) {
-				inCycle.add(id);
-				stack.delete(id);
-				return true;
-			}
-		}
-		stack.delete(id);
-		return false;
-	};
-	for (const id of graph.keys()) visit(id, new Set());
+	const { component, selfLoop } = stronglyConnectedComponents(graph);
 
 	const reports: LinkReport[] = [];
 	for (const file of files) {
 		for (const include of extractIncludes(file)) {
-			const source = findSource(files, include.sourcePath);
-			const block = source
-				? blocksByFile.get(source.id)?.find((entry) => entry.id === include.blockId)
-				: undefined;
-			const cycle = source ? inCycle.has(source.id) && inCycle.has(file.id) : false;
+			const source = sources.get(include.sourcePath);
+			const block = source ? blocksByFile.get(source.id)?.get(include.blockId) : undefined;
+			const cycle =
+				source !== undefined &&
+				component.get(source.id) === component.get(file.id) &&
+				(source.id !== file.id || selfLoop.has(file.id));
 			reports.push({
 				include,
 				state: cycle

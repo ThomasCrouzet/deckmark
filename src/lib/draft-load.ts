@@ -10,6 +10,7 @@ import {
 	draftItemFromManifest,
 	draftItemFromRow,
 	readDraftManifests,
+	readDraftMetadata,
 	selectInlineContentIds
 } from './draft-manifest';
 import type { FileItem } from './types';
@@ -35,6 +36,7 @@ export async function loadDraftLibrary(
 	}
 
 	let manifests = await readDraftManifests();
+	const metadata = manifests ? await readDraftMetadata() : null;
 	let items: FileItem[] = [];
 	let activeIds: string[] = [];
 	let persistedRows: DraftRow[] = [];
@@ -56,7 +58,11 @@ export async function loadDraftLibrary(
 					const row = byId.get(manifest.id);
 					return row
 						? draftItemFromRow(row, linkedIds.has(row.id))
-						: draftItemFromManifest(manifest, linkedIds.has(manifest.id));
+						: draftItemFromManifest(
+								manifest,
+								linkedIds.has(manifest.id),
+								metadata?.get(manifest.id)
+							);
 				});
 			activeIds = manifests.filter((manifest) => manifest.open).map((manifest) => manifest.id);
 			persistedRows = rows;

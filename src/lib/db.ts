@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
 import { encodeDraftManifest } from './draft-manifest-key';
+import { encodeDraftMetadata } from './draft-metadata';
 
 export interface DraftRow {
 	id: string;
@@ -21,6 +22,8 @@ export interface DraftRow {
 	open?: boolean;
 	/** Metadata index key maintained by the Dexie hooks. Do not write directly. */
 	manifest?: string;
+	/** Derived title, tags and targets index key. Maintained by the hooks. */
+	metadata?: string;
 }
 
 /**

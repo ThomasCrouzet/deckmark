@@ -2,10 +2,37 @@ import { describe, expect, it } from 'vitest';
 import {
 	documentHeadings,
 	documentMatches,
+	HeadingIdAllocator,
 	invalidateDocumentTextIndex
 } from './document-navigation';
 
+function originalAllocate(headings: readonly string[]): string[] {
+	const used = new Set<string>();
+	const result: string[] = [];
+	for (const base of headings) {
+		let slug = base;
+		let suffix = 2;
+		while (used.has(slug)) slug = `${base}-${suffix++}`;
+		used.add(slug);
+		result.push(slug);
+	}
+	return result;
+}
+
 describe('document navigation', () => {
+	it('allocates heading IDs with the original suffix order', () => {
+		const cases = [
+			['x', 'x', 'x'],
+			['x', 'x-2', 'x', 'x-2', 'x'],
+			['x', 'x', 'x-2', 'x-3', 'x'],
+			['section', 'section', 'section', 'section'],
+			['', 'section-1', 'x']
+		];
+		for (const bases of cases) {
+			const allocator = new HeadingIdAllocator();
+			expect(bases.map((base) => allocator.allocate(base))).toEqual(originalAllocate(bases));
+		}
+	});
 	it('finds real headings, including setext and repeated headings', () => {
 		const source =
 			'---\ntitle: Hidden\n---\n# First\n\n```md\n# Example\n```\n\nSecond\n------\n\n## First ##\n    # Indented';

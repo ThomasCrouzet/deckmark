@@ -81,6 +81,8 @@ export const fr: Record<MessageKey, string> = {
 		'Conservez le fichier exporté hors de ce navigateur. Vérifiez-le ici avant de devoir le restaurer. Le téléchargement doit être terminé pour que la copie soit disponible.',
 	'properties.title': 'Propriétés du document',
 	'properties.invalidYaml': 'Le front matter YAML est invalide.',
+	'properties.staleDocument':
+		'Le document a changé pendant que ce panneau était ouvert. Rouvrez-le pour modifier les propriétés.',
 	'properties.repairInSource': 'Réparez-le en mode Source, puis rouvrez ce panneau.',
 	'properties.key': 'Nom de la propriété',
 	'properties.value': 'Valeur',
@@ -678,6 +680,8 @@ export const fr: Record<MessageKey, string> = {
 	'comments.anchorFailed':
 		'Le texte cité est absent ou apparaît plusieurs fois. Sélectionnez un passage unique.',
 	'comments.bodyRequired': 'Saisissez un commentaire.',
+	'comments.staleDocument':
+		"Le document actif a changé. Rouvrez le panneau avant d'ajouter un commentaire.",
 	'comments.localReviewer': 'Relecteur local',
 	'comments.anchor_attached': 'ancre valide',
 	'comments.anchor_moved': 'ancre déplacée',
@@ -1185,6 +1189,8 @@ export const fr: Record<MessageKey, string> = {
 		"Aucune version enregistrée pour ce fichier. L'historique se constitue au fil de tes modifications (un instantané toutes les quelques minutes).",
 	'versionHistory.kept': '{n} version(s) conservée(s)',
 	'versionHistory.loadError': "Impossible de charger l'historique de versions.",
+	'versionHistory.staleDocument':
+		"Le document actif a changé. Rouvrez l'historique avant de restaurer.",
 	'versionHistory.loading': 'Chargement…',
 	'versionHistory.mostRecent': 'la plus récente',
 	'versionHistory.noFileOpen': 'Aucun fichier ouvert.',

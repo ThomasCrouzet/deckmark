@@ -8,15 +8,28 @@
 	let { file }: { file: FileItem } = $props();
 	let url = $state('');
 	let blocked = $state(false);
+	let failed = $state(false);
 
 	onMount(() => {
 		if (!file.data) return;
-		const comma = file.data.indexOf(',');
-		if (comma < 0) return;
-		const binary = atob(file.data.slice(comma + 1));
-		const bytes = new Uint8Array(binary.length);
-		for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-		url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+		let disposed = false;
+		const fileId = file.id;
+		void import('#lib/data-url.js')
+			.then(({ dataUrlToBlob }) => dataUrlToBlob(file.data!))
+			.then((blob) => {
+				if (disposed || file.id !== fileId) return;
+				if (!blob.size) {
+					failed = true;
+					return;
+				}
+				url = URL.createObjectURL(blob);
+			})
+			.catch(() => {
+				if (!disposed) failed = true;
+			});
+		return () => {
+			disposed = true;
+		};
 	});
 
 	onDestroy(() => {
@@ -42,7 +55,7 @@
 		</button>
 	</div>
 	<div class="pdf-viewport">
-		{#if !file.data}
+		{#if !file.data || failed}
 			<p role="alert">{t('documents.pdfUnavailable')}</p>
 		{:else if url}
 			<iframe
