@@ -221,6 +221,16 @@ text and navigation evidence. Run `npx playwright test e2e/editor-state.spec.ts
 --project=chromium --workers=1 --retries=0`. Keep the standard report, source/diff
 identity, environment, command and attachments for each run.
 
+The 35-file navigation and 40-file pressure cases are Chromium-only. Firefox and
+WebKit keep the retained coordinates in the cache but do not expose the restored
+DOM selection after a deferred body mount. The cache unit tests still check the
+exact coordinates, and the Chromium workflow checks selection, scroll and bytes.
+Do not read a skipped engine as a passing cross-engine result.
+
+`e2e/project-backup.spec.ts` ignores the derived `manifest` index key when it
+compares migrated rows. The key is rebuilt on every write and on the version 9
+upgrade; document bytes and identifiers remain the compared data.
+
 `src/lib/editor-state.test.ts` retains deterministic byte accounting, independent
 LRU and invalid-charge cases. Browser workflows cannot precisely attribute a
 replacement or malformed numeric charge to an internal budget. Run
