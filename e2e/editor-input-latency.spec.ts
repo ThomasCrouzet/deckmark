@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
 
@@ -101,6 +103,25 @@ function largeNote(bytes: number): string {
 		section += 1;
 	}
 	return content;
+}
+
+function maxLineLength(text: string): number {
+	let longest = 0;
+	let start = 0;
+	for (let index = 0; index <= text.length; index++) {
+		const code = text.charCodeAt(index);
+		if (index < text.length && code !== 10 && code !== 13) continue;
+		longest = Math.max(longest, index - start);
+		if (code === 13 && text.charCodeAt(index + 1) === 10) index++;
+		start = index + 1;
+	}
+	return longest;
+}
+
+function hugeFenceNote(): string {
+	const fence = '`'.repeat(20_000);
+	const body = 'needle ' + 'x'.repeat(100_000);
+	return `# Huge fence\n\n${fence}\ntext\n${body}\n${fence}\n`;
 }
 
 async function attachCounters(info: TestInfo, before: Counters, after: Counters) {
@@ -221,4 +242,66 @@ test('removing a fence cannot reveal a presentation marker in a note', async ({ 
 	const stored = await storedContent(page, sourceId);
 	await info.attach('fenced-marker.md', { body: stored, contentType: 'text/markdown' });
 	expect(stored).toBe(initial);
+});
+
+test('issue 326 keeps a huge fence editable and restores Markdown syntax', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(180_000);
+	const initial = hugeFenceNote();
+	await seedNote(page, sourceId, initial);
+	await page.reload();
+	const source = page.locator('.cm-content');
+	await expect(source).toBeVisible({ timeout: 60_000 });
+	const status = page.getByTestId('source-highlight-status');
+	await expect(status).toBeVisible();
+	await expect(status).toHaveAttribute('data-degraded', 'true');
+
+	await source.click();
+	await page.keyboard.press('ControlOrMeta+f');
+	await page.keyboard.type('needle');
+	await expect(page.locator('.cm-searchMatch')).toHaveCount(1);
+	await page.keyboard.press('Escape');
+
+	await source.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText('END');
+	await expect.poll(() => storedContent(page, sourceId), { timeout: 30_000 }).toBe(`${initial}END`);
+	await page.keyboard.press('ControlOrMeta+z');
+	await expect.poll(() => storedContent(page, sourceId), { timeout: 30_000 }).toBe(initial);
+	await expect(status).toBeVisible();
+
+	const downloadPromise = page.waitForEvent('download');
+	await page.getByRole('button', { name: 'Export', exact: true }).click();
+	const download = await downloadPromise;
+	const exported = await readFile((await download.path())!, 'utf8');
+	expect(exported).toBe(initial);
+
+	await source.click();
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.insertText('# Short note\n\nRecovered.\n');
+	await expect(status).toHaveCount(0, { timeout: 10_000 });
+	await expect
+		.poll(() => storedContent(page, sourceId), { timeout: 30_000 })
+		.toBe('# Short note\n\nRecovered.\n');
+	await expect.poll(() => page.locator('.cm-content .cm-line span').count()).toBeGreaterThan(0);
+
+	await info.attach('huge-fence.json', {
+		body: JSON.stringify(
+			{
+				fixture: {
+					bytes: Buffer.byteLength(initial, 'utf8'),
+					codeUnits: initial.length,
+					maxLine: maxLineLength(initial),
+					sha256: createHash('sha256').update(initial, 'utf8').digest('hex')
+				},
+				exportedBytes: Buffer.byteLength(exported, 'utf8'),
+				exportedSha256: createHash('sha256').update(exported, 'utf8').digest('hex'),
+				recovered: '# Short note\n\nRecovered.\n'
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
 });

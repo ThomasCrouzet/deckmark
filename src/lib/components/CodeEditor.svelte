@@ -13,6 +13,12 @@
 	} from '#lib/code/text-changes.js';
 	import { loadCodeLanguage, resolveCodeLanguage } from '#lib/code/languages.js';
 	import {
+		LONG_LINE_RECHECK_MS,
+		changeCreatesLongLine,
+		documentHasLongLine,
+		textHasLongLine
+	} from '#lib/code/long-line-support.js';
+	import {
 		analyzeJson,
 		prepareJsonAction,
 		validateJsonAgainstSchema,
@@ -63,6 +69,7 @@
 	} | null = null;
 	let cm: typeof import('@codemirror/view') | null = null;
 	let languageCompartment: Compartment | null = null;
+	let featureCompartment: Compartment | null = null;
 	let loadedLanguageId = $state('');
 	let historyFieldRef: import('@codemirror/state').StateField<unknown> | null = null;
 	let indentUnitRef: typeof import('@codemirror/language').indentUnit | null = null;
@@ -71,9 +78,31 @@
 	let jsonCheck = $state<JsonAnalysis | null>(null);
 	let jsonError = $state('');
 	let jsonSchemaIssues = $state<string[]>([]);
+	// A physical line above the guard limit selects a plain-text configuration.
+	// The requested options stay unchanged; the effective options are reduced
+	// and the toolbar shows the difference.
+	let degraded = $state(false);
+	let riskTimer: ReturnType<typeof setTimeout> | null = null;
+	let languageRequest = 0;
+	let featureRefs: {
+		bracketMatching: typeof import('@codemirror/language').bracketMatching;
+		foldGutter: typeof import('@codemirror/language').foldGutter;
+		closeBrackets: typeof import('@codemirror/autocomplete').closeBrackets;
+		indentOnInput: typeof import('@codemirror/language').indentOnInput;
+	} | null = null;
 
 	function indentUnitValue() {
 		return indentStyle === 'tab' ? '\t' : ' '.repeat(indentSize);
+	}
+
+	function featureExtensions(): import('@codemirror/state').Extension {
+		if (degraded || !featureRefs) return [];
+		return [
+			featureRefs.bracketMatching(),
+			featureRefs.foldGutter(),
+			featureRefs.closeBrackets(),
+			featureRefs.indentOnInput()
+		];
 	}
 
 	function applyOptions() {
@@ -81,20 +110,50 @@
 		view.dispatch({
 			effects: [
 				optionCompartments.indent.reconfigure(indentUnitRef.of(indentUnitValue())),
-				optionCompartments.wrap.reconfigure(wrap ? cm.EditorView.lineWrapping : []),
+				optionCompartments.wrap.reconfigure(wrap && !degraded ? cm.EditorView.lineWrapping : []),
 				optionCompartments.invisibles.reconfigure(showInvisibles ? invisiblesRef : [])
 			]
 		});
 	}
 
+	function setDegraded(next: boolean) {
+		if (next === degraded) return;
+		degraded = next;
+	}
+
+	function scheduleRiskRecheck() {
+		if (riskTimer) clearTimeout(riskTimer);
+		riskTimer = setTimeout(() => {
+			riskTimer = null;
+			if (!view) return;
+			setDegraded(documentHasLongLine(view.state.doc));
+		}, LONG_LINE_RECHECK_MS);
+	}
+
 	$effect(() => {
 		const id = language.id;
+		// Track the guard and the loaded grammar before the mount guard. The
+		// view and compartment are plain variables, so these state reads keep
+		// the effect subscribed after a degraded-to-normal transition.
+		void degraded;
+		void loadedLanguageId;
 		const compartment = languageCompartment;
-		if (!view || !compartment || loadedLanguageId === id) return;
+		if (!view || !compartment) return;
+		if (degraded) {
+			languageRequest += 1;
+			if (loadedLanguageId !== '') {
+				view.dispatch({ effects: compartment.reconfigure([]) });
+				loadedLanguageId = '';
+			}
+			return;
+		}
+		if (loadedLanguageId === id) return;
+		const request = ++languageRequest;
 		let disposed = false;
 		void loadCodeLanguage(id)
 			.then((support) => {
-				if (disposed || !view) return;
+				if (disposed || !view || request !== languageRequest || degraded || language.id !== id)
+					return;
 				view.dispatch({ effects: compartment.reconfigure(support) });
 				loadedLanguageId = id;
 			})
@@ -111,7 +170,12 @@
 		void wrap;
 		void indentStyle;
 		void indentSize;
+		void degraded;
 		applyOptions();
+		const features = featureCompartment;
+		if (view && features) {
+			view.dispatch({ effects: features.reconfigure(featureExtensions()) });
+		}
 	});
 
 	$effect(() => {
@@ -151,6 +215,7 @@
 
 	$effect(() => {
 		const incoming = content;
+		setDegraded(textHasLongLine(incoming));
 		if (!view || incoming === lastEmitted) return;
 		applyingExternal = true;
 		lastEmitted = incoming;
@@ -166,6 +231,8 @@
 			try {
 				const viewModule = await import('@codemirror/view');
 				cm = viewModule;
+				const initialDegraded = textHasLongLine(content);
+				degraded = initialDegraded;
 				const [
 					{ EditorState, Compartment },
 					{ indentWithTab, defaultKeymap, history, historyField, historyKeymap },
@@ -187,7 +254,9 @@
 					import('@codemirror/search'),
 					import('@codemirror/language'),
 					import('@codemirror/autocomplete'),
-					loadCodeLanguage(language.id),
+					initialDegraded
+						? Promise.resolve<import('@codemirror/state').Extension>([])
+						: loadCodeLanguage(language.id),
 					import('#lib/code/invisibles.js')
 				]);
 				const {
@@ -203,8 +272,11 @@
 				historyFieldRef = historyField as import('@codemirror/state').StateField<unknown>;
 				indentUnitRef = indentUnit;
 				invisiblesRef = [highlightWhitespace(), highlightTrailingWhitespace(), invisibleEnds];
+				featureRefs = { bracketMatching, foldGutter, closeBrackets, indentOnInput };
 				const compartment = new Compartment();
 				languageCompartment = compartment;
+				const features = new Compartment();
+				featureCompartment = features;
 				optionCompartments = {
 					indent: new Compartment(),
 					wrap: new Compartment(),
@@ -214,20 +286,24 @@
 					lineNumbers(),
 					highlightActiveLine(),
 					history(),
-					bracketMatching(),
-					foldGutter(),
-					closeBrackets(),
-					indentOnInput(),
+					features.of(featureExtensions()),
 					search({ top: false }),
 					keymap.of([indentWithTab, ...searchKeymap, ...defaultKeymap, ...historyKeymap]),
 					optionCompartments.indent.of(indentUnit.of(indentUnitValue())),
-					optionCompartments.wrap.of(wrap ? EditorView.lineWrapping : []),
+					optionCompartments.wrap.of(wrap && !initialDegraded ? EditorView.lineWrapping : []),
 					optionCompartments.invisibles.of([]),
 					syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
 					compartment.of(languageSupport),
 					...(readonly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
 					EditorView.updateListener.of((update) => {
 						if (!update.selectionSet && !update.docChanged) return;
+						if (update.docChanged && !applyingExternal) {
+							if (changeCreatesLongLine(update.state.doc, update.changes)) {
+								setDegraded(true);
+							} else if (degraded) {
+								scheduleRiskRecheck();
+							}
+						}
 						onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 						if (update.docChanged && !applyingExternal && view) {
 							const text = applySourceChanges(lastEmitted, update.startState, update.changes);
@@ -276,7 +352,7 @@
 				}
 				state ??= EditorState.create({ doc: content, extensions });
 				view = new EditorView({ state, parent: mount });
-				loadedLanguageId = language.id;
+				loadedLanguageId = initialDegraded ? '' : language.id;
 				lastEmitted = content;
 				const tabListener = (event: KeyboardEvent) => {
 					if (
@@ -321,6 +397,10 @@
 		})();
 		return () => {
 			disposed = true;
+			if (riskTimer) {
+				clearTimeout(riskTimer);
+				riskTimer = null;
+			}
 			removeTabListener?.();
 			removeTabListener = null;
 			if (view) {
@@ -379,6 +459,14 @@
 				data-testid="code-language"
 				data-fallback={resolution.fallback ? 'true' : undefined}>{languageLabel}</span
 			>
+			{#if degraded}
+				<span
+					class="code-highlight-status"
+					role="status"
+					data-testid="code-highlight-status"
+					data-degraded="true">{t('code.longLineDegraded')}</span
+				>
+			{/if}
 			<span class="code-eol" data-testid="code-eol">{eol === '\r\n' ? 'CRLF' : 'LF'}</span>
 			<button type="button" onclick={toggleLineEnding} data-testid="code-eol-toggle">
 				{eol === '\r\n' ? t('code.toLf') : t('code.toCrlf')}
@@ -488,6 +576,12 @@
 	.code-language {
 		font-weight: 600;
 		color: var(--color-fg);
+	}
+	.code-highlight-status {
+		padding: 1px 6px;
+		border: 1px solid var(--color-warning, #d19a66);
+		border-radius: var(--radius-xs);
+		color: var(--color-warning, #d19a66);
 	}
 	.json-separator {
 		width: 1px;

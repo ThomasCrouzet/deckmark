@@ -73,6 +73,11 @@
 
 	const PRESENTATION_MARKER = '<!-- mdsh-presentation';
 	const MAX_GUARD_LINE = 4096;
+	// A physical line above the guard limit suspends the Markdown parser, the
+	// image-data decoration and line wrapping. Text, history, search and the
+	// document-kind guard stay active.
+	let degraded = false;
+	let monitor: ReturnType<LongLineSupport['createLongLineMonitor']> | null = null;
 
 	function sourceChanges(update: Pick<ViewUpdate, 'startState' | 'changes'>): string {
 		return applySourceChanges(lastEmitted, update.startState, update.changes);
@@ -140,6 +145,10 @@
 	let typewriterCompartmentRef: import('@codemirror/state').Compartment | null = null;
 	let localeCompartmentRef: import('@codemirror/state').Compartment | null = null;
 	let activeCM: CMModule | null = null;
+	// Keep the guard outside the boot chunk. The source editor is statically
+	// imported by the page, so a static guard import would spend boot budget.
+	type LongLineSupport = typeof import('#lib/code/long-line-support.js');
+	let longLineSupport: LongLineSupport | null = null;
 
 	/*
 	 * CodeMirror is heavy (~150 KB). Lazy-loaded on the first mount of source
@@ -172,6 +181,9 @@
 		setSearchQuery: typeof import('@codemirror/search').setSearchQuery;
 		SearchQuery: typeof import('@codemirror/search').SearchQuery;
 		imageData: typeof import('../source-extensions').imageData;
+		longLineStatus: typeof import('../source-extensions').longLineStatus;
+		sourceTheme: typeof import('../source-extensions').sourceTheme;
+		sourceLocaleExtensions: typeof import('../source-extensions').sourceLocaleExtensions;
 	};
 
 	// Factored-out typewriter extension: dispatched in rAF to avoid
@@ -187,36 +199,27 @@
 		});
 	}
 
-	function codeMirrorPhrases(): Record<string, string> {
-		return {
-			Find: t('source.cmFind'),
-			Replace: t('source.cmReplace'),
-			next: t('source.cmNext'),
-			previous: t('source.cmPrevious'),
-			all: t('source.cmAll'),
-			'match case': t('source.cmMatchCase'),
-			regexp: t('source.cmRegexp'),
-			'by word': t('source.cmByWord'),
-			replace: t('source.cmReplaceAction'),
-			'replace all': t('source.cmReplaceAll'),
-			close: t('source.cmClose'),
-			'Go to line': t('source.cmGoToLine'),
-			go: t('source.cmGo'),
-			'replaced match on line $': t('source.cmReplacedOne'),
-			'replaced $ matches': t('source.cmReplacedMany'),
-			'current match': t('source.cmCurrentMatch'),
-			'on line': t('source.cmOnLine'),
-			'Control character': t('source.cmControlCharacter'),
-			'Selection deleted': t('source.cmSelectionDeleted')
-		};
-	}
-
 	function localeExtensions(cm: CMModule) {
 		return [
-			cm.EditorState.phrases.of(codeMirrorPhrases()),
-			cm.imageData(),
-			cm.EditorView.contentAttributes.of({ 'aria-label': t('editor.ariaLabel') })
+			cm.sourceLocaleExtensions(t('editor.ariaLabel')),
+			...(longLineSupport
+				? [
+						longLineSupport.sourceSupportExtensions(degraded, plainText, {
+							markdown: cm.markdown,
+							imageData: cm.imageData,
+							longLineStatus: cm.longLineStatus,
+							lineWrapping: cm.EditorView.lineWrapping
+						})
+					]
+				: [])
 		];
+	}
+
+	function reconfigureLocale() {
+		if (!view || !activeCM || !localeCompartmentRef) return;
+		const reopenSearch = activeCM.closeSearchPanel(view);
+		view.dispatch({ effects: localeCompartmentRef.reconfigure(localeExtensions(activeCM)) });
+		if (reopenSearch) activeCM.openSearchPanel(view);
 	}
 
 	function safePosition(position: EditorPosition | undefined, documentLength: number) {
@@ -259,6 +262,9 @@
 				return {
 					EditorState: state.EditorState,
 					imageData: lang.imageData,
+					longLineStatus: lang.longLineStatus,
+					sourceTheme: lang.sourceTheme,
+					sourceLocaleExtensions: lang.sourceLocaleExtensions,
 					Transaction: state.Transaction,
 					Compartment: state.Compartment,
 					EditorView: viewMod.EditorView,
@@ -310,8 +316,10 @@
 	async function mount() {
 		if (!host) return;
 		let cm: CMModule;
+		let support: LongLineSupport;
 		try {
-			cm = await loadCM();
+			[cm, support] = await Promise.all([loadCM(), import('#lib/code/long-line-support.js')]);
+			longLineSupport = support;
 			loadError = false;
 		} catch (err) {
 			// The chunk failed: we discard the memoized promise to allow a
@@ -327,85 +335,8 @@
 		// Double-call protection (mount + onDestroy race possible on HMR / fast switch).
 		if (view || !host) return;
 
-		// Minimal theme inheriting the project's CSS vars (cf. app.css).
-		const theme = cm.EditorView.theme({
-			'&': {
-				height: '100%',
-				fontSize: '14.5px',
-				fontFamily: 'var(--font-mono)',
-				backgroundColor: 'transparent',
-				color: 'var(--color-fg)'
-			},
-			'.cm-scroller': {
-				fontFamily: 'var(--font-mono)',
-				lineHeight: '1.7',
-				overflow: 'auto'
-			},
-			'.cm-content': {
-				padding: '2rem 5vw 15vh',
-				caretColor: 'var(--color-accent)'
-			},
-			'.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--color-accent)' },
-			'.cm-gutters': {
-				backgroundColor: 'transparent',
-				color: 'var(--color-fg-dim)',
-				border: 'none'
-			},
-			'.cm-activeLine': {
-				backgroundColor: 'color-mix(in oklab, var(--color-accent) 5%, transparent)',
-				boxShadow: 'inset 1px 0 var(--color-accent-dim)'
-			},
-			'.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-fg)' },
-			'.mdsh-image-data': {
-				font: 'inherit',
-				color: 'var(--color-fg-muted)',
-				backgroundColor: 'var(--color-bg-2)',
-				border: '1px solid var(--color-border)',
-				borderRadius: '4px',
-				padding: '0 0.4em',
-				cursor: 'pointer'
-			},
-			'.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-				backgroundColor: 'rgba(127,127,127,0.25)'
-			},
-			// Override the native styling of the search/replace panel so it
-			// matches the project's dark theme (by default CM uses
-			// white/light gray, hard to read on a dark background).
-			'.cm-panels': {
-				backgroundColor: 'var(--color-bg-1)',
-				color: 'var(--color-fg)',
-				borderTop: '1px solid var(--color-border)'
-			},
-			'.cm-panels.cm-panels-bottom': { borderTop: '1px solid var(--color-border)' },
-			'.cm-panels.cm-panels-top': {
-				borderTop: 'none',
-				borderBottom: '1px solid var(--color-border)'
-			},
-			'.cm-search': { padding: '6px 8px' },
-			'.cm-search input': {
-				backgroundColor: 'var(--color-bg-2)',
-				color: 'var(--color-fg)',
-				border: '1px solid var(--color-border)',
-				borderRadius: '1px',
-				padding: '2px 6px'
-			},
-			'.cm-search input:focus': {
-				outline: 'none',
-				borderColor: 'var(--color-accent)'
-			},
-			'.cm-search button': {
-				backgroundColor: 'transparent',
-				color: 'var(--color-fg-muted)',
-				border: '1px solid var(--color-border)',
-				borderRadius: '1px',
-				padding: '2px 8px',
-				marginLeft: '4px',
-				cursor: 'pointer'
-			},
-			'.cm-search button:hover': { color: 'var(--color-fg)' },
-			'.cm-search label': { color: 'var(--color-fg-dim)', fontSize: '12px' },
-			'.cm-search br': { display: 'none' }
-		});
+		// Theme and phrases load with the CodeMirror chunk, not at boot.
+		const theme = cm.sourceTheme();
 
 		// Typewriter mode - an extension that re-centers the caret line on every
 		// selection change. Wrapped in a Compartment so we can enable/disable it
@@ -413,6 +344,15 @@
 		// https://codemirror.net/examples/config/#dynamic-configuration).
 		// The scroll is dispatched in rAF to avoid re-entering CodeMirror's
 		// transaction cycle (console warning + reentrancy risk).
+		monitor = support.createLongLineMonitor({
+			initial: content,
+			getDocument: () => view?.state.doc ?? null,
+			onChange: (next) => {
+				degraded = next;
+				reconfigureLocale();
+			}
+		});
+		degraded = monitor.initial;
 		const typewriterCompartment = new cm.Compartment();
 		typewriterCompartmentRef = typewriterCompartment;
 		const localeCompartment = new cm.Compartment();
@@ -433,7 +373,6 @@
 			cm.lineNumbers(),
 			cm.highlightActiveLine(),
 			cm.history(),
-			...(plainText ? [] : [cm.markdown()]),
 			cm.syntaxHighlighting(cm.defaultHighlightStyle, { fallback: true }),
 			// `search()` adds the state fields + the panel widget. The
 			// keymap is merged into the `keymap.of()` below (mod-f ->
@@ -445,7 +384,6 @@
 				...cm.defaultKeymap,
 				...cm.historyKeymap
 			]),
-			cm.EditorView.lineWrapping,
 			localeCompartment.of(localeExtensions(cm)),
 			cm.EditorView.editable.of(!readonly),
 			cm.EditorState.readOnly.of(readonly),
@@ -470,6 +408,9 @@
 				return false;
 			}),
 			cm.EditorView.updateListener.of((update) => {
+				if (update.docChanged && !applyingExternal) {
+					monitor?.track(update.state.doc, update.changes);
+				}
 				if (update.selectionSet || update.docChanged) {
 					onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 				}
@@ -587,6 +528,7 @@
 	 */
 	$effect(() => {
 		const c = content;
+		monitor?.external(c);
 		if (view && activeCM && c !== lastEmitted) {
 			lastEmitted = c;
 			sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
@@ -605,13 +547,7 @@
 
 	$effect(() => {
 		void i18n.locale;
-		const currentView = view;
-		const cm = activeCM;
-		const compartment = localeCompartmentRef;
-		if (!currentView || !cm || !compartment) return;
-		const reopenSearch = cm.closeSearchPanel(currentView);
-		currentView.dispatch({ effects: compartment.reconfigure(localeExtensions(cm)) });
-		if (reopenSearch) cm.openSearchPanel(currentView);
+		reconfigureLocale();
 	});
 
 	onMount(() => {
@@ -619,6 +555,8 @@
 	});
 
 	onDestroy(() => {
+		monitor?.dispose();
+		monitor = null;
 		saveSourceState();
 		view?.destroy();
 		view = null;
@@ -802,6 +740,13 @@
 	}
 	.mdsh-source-error button:hover {
 		border-color: var(--color-accent);
+	}
+	.mdsh-source-cm :global(.mdsh-long-line-status) {
+		padding: 0.35rem 0.65rem;
+		border-bottom: 1px solid var(--color-border);
+		background: color-mix(in oklab, var(--color-warning, #d19a66) 12%, transparent);
+		color: var(--color-warning, #d19a66);
+		font: 500 12px/1.4 var(--font-mono);
 	}
 	.mdsh-source-cm :global(.cm-editor) {
 		height: 100%;

@@ -1,7 +1,26 @@
-import { StateEffect, StateField, type EditorState, type Extension } from '@codemirror/state';
-import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
+import { EditorState, StateEffect, StateField, type Extension } from '@codemirror/state';
+import {
+	Decoration,
+	EditorView,
+	WidgetType,
+	showPanel,
+	type DecorationSet
+} from '@codemirror/view';
 import { t } from './i18n';
 export { markdown } from '@codemirror/lang-markdown';
+
+/** Shows the reduced-aids state while a physical line exceeds the guard limit. */
+export function longLineStatus(): Extension {
+	return showPanel.of(() => {
+		const dom = document.createElement('div');
+		dom.className = 'mdsh-long-line-status';
+		dom.setAttribute('role', 'status');
+		dom.dataset.testid = 'source-highlight-status';
+		dom.dataset.degraded = 'true';
+		dom.textContent = t('code.longLineDegraded');
+		return { dom, top: true };
+	});
+}
 
 // Keep image bytes in the document. Decorations change only their display.
 export function imageData(): Extension {
@@ -52,4 +71,112 @@ export function imageData(): Extension {
 		]
 	});
 	return field;
+}
+
+/** Theme for the source editor. It stays in this lazy module so the boot
+ * bundle does not carry CodeMirror theme data. */
+export function sourceTheme(): Extension {
+	return EditorView.theme({
+		'&': {
+			height: '100%',
+			fontSize: '14.5px',
+			fontFamily: 'var(--font-mono)',
+			backgroundColor: 'transparent',
+			color: 'var(--color-fg)'
+		},
+		'.cm-scroller': {
+			fontFamily: 'var(--font-mono)',
+			lineHeight: '1.7',
+			overflow: 'auto'
+		},
+		'.cm-content': {
+			padding: '2rem 5vw 15vh',
+			caretColor: 'var(--color-accent)'
+		},
+		'.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--color-accent)' },
+		'.cm-gutters': {
+			backgroundColor: 'transparent',
+			color: 'var(--color-fg-dim)',
+			border: 'none'
+		},
+		'.cm-activeLine': {
+			backgroundColor: 'color-mix(in oklab, var(--color-accent) 5%, transparent)',
+			boxShadow: 'inset 1px 0 var(--color-accent-dim)'
+		},
+		'.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-fg)' },
+		'.mdsh-image-data': {
+			font: 'inherit',
+			color: 'var(--color-fg-muted)',
+			backgroundColor: 'var(--color-bg-2)',
+			border: '1px solid var(--color-border)',
+			borderRadius: '4px',
+			padding: '0 0.4em',
+			cursor: 'pointer'
+		},
+		'.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
+			backgroundColor: 'rgba(127,127,127,0.25)'
+		},
+		'.cm-panels': {
+			backgroundColor: 'var(--color-bg-1)',
+			color: 'var(--color-fg)',
+			borderTop: '1px solid var(--color-border)'
+		},
+		'.cm-panels.cm-panels-bottom': { borderTop: '1px solid var(--color-border)' },
+		'.cm-panels.cm-panels-top': {
+			borderTop: 'none',
+			borderBottom: '1px solid var(--color-border)'
+		},
+		'.cm-search': { padding: '6px 8px' },
+		'.cm-search input': {
+			backgroundColor: 'var(--color-bg-2)',
+			color: 'var(--color-fg)',
+			border: '1px solid var(--color-border)',
+			borderRadius: '1px',
+			padding: '2px 6px'
+		},
+		'.cm-search input:focus': {
+			outline: 'none',
+			borderColor: 'var(--color-accent)'
+		},
+		'.cm-search button': {
+			backgroundColor: 'transparent',
+			color: 'var(--color-fg-muted)',
+			border: '1px solid var(--color-border)',
+			borderRadius: '1px',
+			padding: '2px 8px',
+			marginLeft: '4px',
+			cursor: 'pointer'
+		},
+		'.cm-search button:hover': { color: 'var(--color-fg)' },
+		'.cm-search label': { color: 'var(--color-fg-dim)', fontSize: '12px' },
+		'.cm-search br': { display: 'none' }
+	});
+}
+
+/** Localizes the source editor and keeps the accessible name current. */
+export function sourceLocaleExtensions(ariaLabel: string): Extension {
+	return [
+		EditorState.phrases.of({
+			Find: t('source.cmFind'),
+			Replace: t('source.cmReplace'),
+			next: t('source.cmNext'),
+			previous: t('source.cmPrevious'),
+			all: t('source.cmAll'),
+			'match case': t('source.cmMatchCase'),
+			regexp: t('source.cmRegexp'),
+			'by word': t('source.cmByWord'),
+			replace: t('source.cmReplaceAction'),
+			'replace all': t('source.cmReplaceAll'),
+			close: t('source.cmClose'),
+			'Go to line': t('source.cmGoToLine'),
+			go: t('source.cmGo'),
+			'replaced match on line $': t('source.cmReplacedOne'),
+			'replaced $ matches': t('source.cmReplacedMany'),
+			'current match': t('source.cmCurrentMatch'),
+			'on line': t('source.cmOnLine'),
+			'Control character': t('source.cmControlCharacter'),
+			'Selection deleted': t('source.cmSelectionDeleted')
+		}),
+		EditorView.contentAttributes.of({ 'aria-label': ariaLabel })
+	];
 }
