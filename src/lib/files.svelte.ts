@@ -334,7 +334,7 @@ class FilesStore {
 		const file = this.library.find((entry) => entry.id === id);
 		// The document can be deleted while the body read is pending.
 		if (!row || !file || !file.contentDeferred) return file ?? null;
-		const { applyDraftContent } = await import('./draft-content');
+		const { applyDraftContent } = await import('./draft-access');
 		applyDraftContent(file, row);
 		this.saveQueue.trackPersisted(row);
 		this.metaIndex.invalidateMeta(id);
@@ -371,7 +371,7 @@ class FilesStore {
 	): Promise<Array<{ id: string; name: string; content: string }>> {
 		if (!files.some((file) => file.contentDeferred))
 			return files.map((file) => ({ id: file.id, name: file.name, content: file.content }));
-		const { buildSearchCorpus } = await import('./draft-content');
+		const { buildSearchCorpus } = await import('./draft-access');
 		return buildSearchCorpus(files);
 	}
 
@@ -549,7 +549,7 @@ class FilesStore {
 	private async loadData(preferredActiveId: string | null): Promise<void> {
 		// The metadata scan, body budget, and full-row fallback live in an
 		// on-demand chunk so the boot bundle stays small.
-		const { loadDraftLibrary } = await import('./draft-load');
+		const { loadDraftLibrary } = await import('./draft-access');
 		const loaded = await loadDraftLibrary(preferredActiveId, readPreference(ACTIVE_ID_KEY));
 		for (const row of loaded.persistedRows) this.saveQueue.trackPersisted(row);
 		// Load the wiki index module before publishing the files. A reactive read

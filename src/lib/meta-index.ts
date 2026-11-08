@@ -178,7 +178,7 @@ export class MetaIndex {
 		}
 		const request = { id, revision, source: this.source(file) };
 		this.active = { ...request, sourceKind: file.kind };
-		void import('./metadata-runner')
+		void import('./draft-access')
 			.then(({ MetadataRunner }) => {
 				if (this.disposed) return null;
 				this.runner ??= new MetadataRunner();

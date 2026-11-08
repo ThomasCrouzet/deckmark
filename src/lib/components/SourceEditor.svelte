@@ -341,8 +341,8 @@
 	let activeCM: CMModule | null = null;
 	let removeFlushListener: (() => void) | null = null;
 	// Keep the guard outside the boot chunk. The source editor is statically
-	// imported by the page, so a static guard import would spend boot budget.
-	type LongLineSupport = typeof import('#lib/code/long-line-support.js');
+	// imported by the page, so the guard arrives with the lazy source bundle.
+	type LongLineSupport = typeof import('../source-extensions');
 	let longLineSupport: LongLineSupport | null = null;
 	// Lazy charge tracker for the resident native history.
 	let historyTracker: import('../editor-history-cache').HistoryTracker | null = null;
@@ -385,6 +385,7 @@
 		sourceTheme: typeof import('../source-extensions').sourceTheme;
 		sourceLocaleExtensions: typeof import('../source-extensions').sourceLocaleExtensions;
 		historyCache: import('../editor-history-cache').EditorHistoryCache;
+		support: typeof import('../source-extensions');
 		restoreHistoryState: typeof import('../editor-history-cache').restoreHistoryState;
 		captureHistoryState: typeof import('../editor-history-cache').captureHistoryState;
 	};
@@ -494,6 +495,7 @@
 					SearchQuery: searchMod.SearchQuery,
 					patch: lang.patch,
 					historyCache: editorHistory.editorHistoryCache,
+					support: lang,
 					restoreHistoryState: editorHistory.restoreHistoryState,
 					captureHistoryState: editorHistory.captureHistoryState
 				};
@@ -505,10 +507,9 @@
 	async function mount() {
 		if (!host) return;
 		let cm: CMModule;
-		let support: LongLineSupport;
 		try {
-			[cm, support] = await Promise.all([loadCM(), import('#lib/code/long-line-support.js')]);
-			longLineSupport = support;
+			cm = await loadCM();
+			longLineSupport = cm.support;
 			loadError = false;
 		} catch (err) {
 			// The chunk failed: we discard the memoized promise to allow a
@@ -529,7 +530,7 @@
 
 		// The compartment removes the plugin and cancels its work without replacing history.
 		// A physical line above the guard limit selects the reduced-aid layout.
-		monitor = support.createLongLineMonitor({
+		monitor = cm.support.createLongLineMonitor({
 			initial: content,
 			getDocument: () => view?.state.doc ?? null,
 			onChange: (next) => {

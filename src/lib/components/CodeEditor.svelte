@@ -16,7 +16,7 @@
 		changeCreatesLongLine,
 		documentHasLongLine,
 		textHasLongLine
-	} from '#lib/code/long-line-support.js';
+	} from '#lib/source-extensions.js';
 	import {
 		hasJsonSchemaValidator,
 		validateJsonValueAgainstSchema,
