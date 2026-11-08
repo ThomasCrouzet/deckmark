@@ -108,6 +108,27 @@ reports, trace, fixture source, downloaded HTML and source identity. Performance
 diagnostics must keep raw samples and explicit engine support limits. A diagnostic
 without enforced budgets is not a strict gate result.
 
+### Incremental visual source reconciliation
+
+Retain these failure risks for issue 310: a scoped patch can target a repeated
+paragraph, change decoded escapes or mixed line endings, or use a rejected edit
+as its accepted cache. References, block changes, large paragraphs and uncertain
+offset mappings need the conservative whole-document check. Multiple changed
+blocks must not be treated as a single safe text leaf.
+An unresolved reference can become a link to a definition outside the scoped
+paragraph. Keep reference-like text on the whole-document semantic route.
+
+`src/lib/source-fidelity.test.ts` checks exact source and parser input sizes.
+Exact export checks cannot detect repeated whole-note parsing, so this isolated
+resource regression retains real parser and normalizer calls. It uses the full
+rich corpus, not a repeated plain-text substitute. Run
+`npx vitest run src/lib/source-fidelity.test.ts --maxWorkers=1`.
+`e2e/source-fidelity.spec.ts` checks the actual visual editor and exported bytes.
+Run `npx playwright test e2e/source-fidelity.spec.ts --project=chromium --workers=1`.
+Keep source, expected and exported files, hashes, path decisions, command, source
+identity and raw timings with each report. Core parser timings do not establish
+browser edit, save, switch or native performance.
+
 ### Versioned JSON worker risks
 
 The JSON browser workflows retain these risks: a full parse on the input thread,
