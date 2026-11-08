@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
 	import type { PresentationDeck, PresentationSlide } from './model';
@@ -17,44 +19,75 @@
 		hideTextId?: string;
 	}
 
+	interface RenderedElement {
+		key: string;
+		html: string;
+	}
+
 	let { slide, deck, fileId, hideTextId }: Props = $props();
-	let renderedContent = $state(new Map<string, string>());
-	let renderFailed = $state(false);
-	let renderGeneration = 0;
+	let renderedContent = new SvelteMap<string, RenderedElement>();
+	let failedElements = new SvelteSet<string>();
+	let renderFailed = $derived(failedElements.size > 0);
+	const renderTokens = new SvelteMap<string, symbol>();
+
+	function contentKey(
+		element: PresentationSlide['elements'][number],
+		activeFileId: string | undefined,
+		hiddenId: string | undefined
+	): string {
+		const hidden = element.id === hiddenId ? 'hidden' : 'shown';
+		return `${element.id}\u0000${element.type}\u0000${hidden}\u0000${activeFileId ?? ''}\u0000${element.content}`;
+	}
 
 	$effect(() => {
-		const elements = slide.elements.map((element) => ({
-			element,
-			key: `${element.id}\u0000${element.type}\u0000${element.content}`
-		}));
+		const elements = slide.elements;
 		const activeFileId = fileId;
 		const hiddenId = hideTextId;
-		const generation = ++renderGeneration;
-		void Promise.all(
-			elements.map(async ({ element, key }) => ({
-				key,
-				html: await renderPresentationElementContentCached(element, {
-					...(activeFileId ? { fileId: activeFileId } : {}),
-					...(hiddenId ? { hideTextId: hiddenId } : {})
-				})
-			}))
-		)
-			.then((entries) => {
-				if (generation !== renderGeneration) return;
-				renderedContent = new Map(entries.map(({ key, html }) => [key, html]));
-				renderFailed = false;
-			})
-			.catch((error) => {
-				if (generation !== renderGeneration) return;
-				renderedContent = new Map();
-				renderFailed = true;
-				reportError('presentation slide render', error);
+		const liveIds = new SvelteSet<string>();
+		for (const element of elements) {
+			liveIds.add(element.id);
+			if (element.type === 'line' || element.type === 'arrow') {
+				untrack(() => {
+					renderedContent.delete(element.id);
+					failedElements.delete(element.id);
+				});
+				renderTokens.delete(element.id);
+				continue;
+			}
+			const key = contentKey(element, activeFileId, hiddenId);
+			const current = untrack(() => renderedContent.get(element.id));
+			if (current?.key === key) continue;
+			const token = Symbol(key);
+			renderTokens.set(element.id, token);
+			untrack(() => {
+				renderedContent.delete(element.id);
+				failedElements.delete(element.id);
 			});
+			void renderPresentationElementContentCached(element, {
+				...(activeFileId ? { fileId: activeFileId } : {}),
+				...(hiddenId ? { hideTextId: hiddenId } : {})
+			})
+				.then((html) => {
+					if (renderTokens.get(element.id) !== token) return;
+					renderedContent.set(element.id, { key, html });
+				})
+				.catch((error: unknown) => {
+					if (renderTokens.get(element.id) !== token) return;
+					failedElements.add(element.id);
+					reportError('presentation slide render', error);
+				});
+		}
+		for (const id of untrack(() => Array.from(renderedContent.keys()))) {
+			if (!liveIds.has(id)) {
+				renderedContent.delete(id);
+				renderTokens.delete(id);
+				failedElements.delete(id);
+			}
+		}
 	});
 
 	function contentFor(element: PresentationSlide['elements'][number]): string {
-		const key = `${element.id}\u0000${element.type}\u0000${element.content}`;
-		return renderedContent.get(key) ?? '';
+		return renderedContent.get(element.id)?.html ?? '';
 	}
 </script>
 

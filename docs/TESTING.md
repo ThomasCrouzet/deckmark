@@ -9,6 +9,44 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Presentation thumbnail retention
+
+An intersection callback can mount a thumbnail once and retain its rich subtree
+after it leaves the filmstrip. Visiting a long deck then retains every preview.
+The retention case in `e2e/presentation-performance.spec.ts` applies a deterministic
+300-slide source fixture through the application. It scrolls the complete strip
+forward and backward twice. At each step, it records visible slides, 160 CSS px
+overscan, selected/focused pins, mounted rich previews and DOM node counts.
+Visible sentinels must render. Rich previews must stay within the current range
+plus pins. Lightweight keyed buttons must remain available for all 300 slides.
+This case does not establish drag, touch, native parity or a heap budget.
+
+Run the targeted case before application changes:
+
+```sh
+npm run test:e2e -- e2e/presentation-performance.spec.ts --project=chromium --workers=1 --retries=0 --grep 'releases offscreen thumbnail previews'
+```
+
+Retain `thumbnail-retention-fixture.md`, `thumbnail-retention.json`, the screenshot,
+failure trace and standard source metadata with the actual command and exit code.
+The JSON records the exact fixture hash, browser, method and every scroll sample.
+Keep unavailable tools and failed runs. A DOM count is not a heap measurement.
+
+The content cache bound case applies 300 unique large text slides and visits every
+preview. It reads the local `window.__MDSH_PRESENTATION_CACHE__` counters from the
+instrumented build. Entries must stay at or below 512, estimated bytes at or below
+8 MiB, evictions must occur and no render may remain in flight. The estimate counts
+key, source and HTML characters. It is not a heap measurement.
+
+Run the targeted presentation performance file before and after application changes:
+
+```sh
+npm run test:e2e -- e2e/presentation-performance.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Retain `presentation-cache-bounds.json` with the fixture hash, browser, command and
+cache counters.
+
 ## Release review regressions
 
 `e2e/review-regressions.spec.ts` checks these failures through the application:

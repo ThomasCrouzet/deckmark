@@ -5,27 +5,50 @@
 	let {
 		deck,
 		slide,
-		fileId
-	}: { deck: PresentationDeck; slide: PresentationSlide; fileId: string } = $props();
+		fileId,
+		pinned = false
+	}: {
+		deck: PresentationDeck;
+		slide: PresentationSlide;
+		fileId: string;
+		pinned?: boolean;
+	} = $props();
 	let element = $state<HTMLDivElement | null>(null);
 	let width = $state(130);
-	let visible = $state(false);
+	let inRange = $state(false);
+	let focused = $state(false);
+	const mounted = $derived(inRange || focused || pinned);
 	onMount(() => {
-		if (!element || typeof IntersectionObserver === 'undefined') {
-			visible = true;
-			return;
+		if (!element) return;
+		const button = element.closest('button');
+		const onFocusIn = () => {
+			focused = true;
+		};
+		const onFocusOut = (event: FocusEvent) => {
+			if (!button?.contains(event.relatedTarget as Node | null)) focused = false;
+		};
+		button?.addEventListener('focusin', onFocusIn);
+		button?.addEventListener('focusout', onFocusOut);
+		if (typeof IntersectionObserver === 'undefined') {
+			inRange = true;
+			return () => {
+				button?.removeEventListener('focusin', onFocusIn);
+				button?.removeEventListener('focusout', onFocusOut);
+			};
 		}
 		const observer = new IntersectionObserver(
 			(entries) => {
-				if (entries.some((entry) => entry.isIntersecting)) {
-					visible = true;
-					observer.disconnect();
-				}
+				const entry = entries[entries.length - 1];
+				if (entry) inRange = entry.isIntersecting;
 			},
-			{ rootMargin: '160px' }
+			{ rootMargin: '160px 0px' }
 		);
 		observer.observe(element);
-		return () => observer.disconnect();
+		return () => {
+			observer.disconnect();
+			button?.removeEventListener('focusin', onFocusIn);
+			button?.removeEventListener('focusout', onFocusOut);
+		};
 	});
 </script>
 
@@ -38,7 +61,7 @@
 	aria-hidden="true"
 	inert
 >
-	{#if visible}<div class="content" style:transform={`scale(${width / deck.width})`}>
+	{#if mounted}<div class="content" style:transform={`scale(${width / deck.width})`}>
 			<SlideContent {deck} {slide} {fileId} />
 		</div>{/if}
 </div>
