@@ -23,6 +23,11 @@
 	import { t } from '#lib/i18n/index.js';
 	import { readPreference, writePreference } from '#lib/preferences.js';
 	import type { DocumentKind } from '#lib/document-kind.js';
+	import type {
+		DocumentChange,
+		DocumentRevision,
+		DocumentSnapshot
+	} from '#lib/document-revisions.js';
 
 	interface Props {
 		kind: DocumentKind;
@@ -45,10 +50,13 @@
 		onArticleRef: (el: HTMLElement | null) => void;
 		onTocEmpty: (empty: boolean) => void;
 		// Action callbacks
-		onEditorChange: (markdown: string) => void;
+		onEditorChange: (fileId: string, markdown: string) => void;
 		// §C1 - Flush of the last WYSIWYG keystroke to a specific file
 		// (the old tab) before the editor remounts.
 		onEditorFlush: (fileId: string, markdown: string) => void;
+		getRevision?: (fileId: string) => DocumentRevision | null;
+		applyChange?: (change: DocumentChange) => DocumentRevision | null;
+		resyncSnapshot?: (fileId: string) => DocumentSnapshot | null;
 		onNew: () => void;
 		onImport: () => void;
 		onDemo: () => void;
@@ -73,10 +81,17 @@
 		onTocEmpty,
 		onEditorChange,
 		onEditorFlush,
+		getRevision,
+		applyChange,
+		resyncSnapshot,
 		onNew,
 		onImport,
 		onDemo
 	}: Props = $props();
+
+	function editorChangeFor(id: string): (text: string) => void {
+		return (text) => onEditorChange(id, text);
+	}
 
 	// Local reference to the resize handle. bind:this only accepts
 	// identifiers - we go through a local variable + $effect.
@@ -163,8 +178,11 @@
 							fileId={activeFile.id}
 							name={activeFile.name}
 							content={activeFile.content}
-							onChange={onEditorChange}
+							onChange={editorChangeFor(activeFile.id)}
 							onFlush={onEditorFlush}
+							{getRevision}
+							{applyChange}
+							{resyncSnapshot}
 							onCursorLine={(line) => (sourceLine = line)}
 						/>
 					{:catch}<p role="alert" class="p-4 text-danger">{t('source.loadErrorTitle')}</p>{/await}
@@ -190,7 +208,11 @@
 									<module.default
 										fileId={activeFile.id}
 										content={activeFile.content}
-										onChange={onEditorChange}
+										onChange={editorChangeFor(activeFile.id)}
+										onFlush={onEditorFlush}
+										{getRevision}
+										{applyChange}
+										{resyncSnapshot}
 										onCursorLine={(line) => (sourceLine = line)}
 										onSourceEditorRef={(ref) => (sourceEditorEl = ref)}
 										{onArticleRef}
@@ -203,7 +225,11 @@
 									bind:this={sourceEditorEl}
 									fileId={activeFile.id}
 									content={activeFile.content}
-									onChange={onEditorChange}
+									onChange={editorChangeFor(activeFile.id)}
+									onFlush={onEditorFlush}
+									{getRevision}
+									{applyChange}
+									{resyncSnapshot}
 									onCursorLine={(line) => (sourceLine = line)}
 								/>
 							{/if}
@@ -219,7 +245,7 @@
 					<module.default
 						fileId={activeFile.id}
 						content={activeFile.content}
-						onChange={onEditorChange}
+						onChange={(markdown, id) => onEditorChange(id, markdown)}
 						onFlush={onEditorFlush}
 					/>
 				{:catch}<p role="alert" class="p-4 text-danger">{t('editor.loadErrorTitle')}</p>{/await}

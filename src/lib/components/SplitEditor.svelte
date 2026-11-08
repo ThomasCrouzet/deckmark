@@ -5,18 +5,37 @@
 	import { documentHeadings } from '#lib/document-navigation.js';
 	import { readPreference, writePreference } from '#lib/preferences.js';
 	import { t } from '#lib/i18n/index.js';
+	import type {
+		DocumentChange,
+		DocumentRevision,
+		DocumentSnapshot
+	} from '#lib/document-revisions.js';
 
 	interface Props {
 		fileId: string;
 		content: string;
 		onChange: (markdown: string) => void;
+		onFlush: (fileId: string, markdown: string) => void;
+		getRevision?: ((fileId: string) => DocumentRevision | null) | undefined;
+		applyChange?: ((change: DocumentChange) => DocumentRevision | null) | undefined;
+		resyncSnapshot?: ((fileId: string) => DocumentSnapshot | null) | undefined;
 		onCursorLine: (line: number) => void;
 		onSourceEditorRef: (ref: SourceEditor | null) => void;
 		onArticleRef: (el: HTMLElement | null) => void;
 	}
 
-	let { fileId, content, onChange, onCursorLine, onSourceEditorRef, onArticleRef }: Props =
-		$props();
+	let {
+		fileId,
+		content,
+		onChange,
+		onFlush,
+		getRevision,
+		applyChange,
+		resyncSnapshot,
+		onCursorLine,
+		onSourceEditorRef,
+		onArticleRef
+	}: Props = $props();
 
 	const RATIO_KEY = 'mdsh:split-ratio';
 	const MIN_RATIO = 25;
@@ -223,6 +242,10 @@
 			{content}
 			fillContainer
 			{onChange}
+			{onFlush}
+			{getRevision}
+			{applyChange}
+			{resyncSnapshot}
 			onCursorLine={handleSourceCursor}
 			onViewportLine={handleSourceViewport}
 		/>

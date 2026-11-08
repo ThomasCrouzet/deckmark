@@ -4,6 +4,8 @@ export const slidesEn = {
 	'documents.files': 'Files',
 	'documents.noConversion':
 		'This note cannot become a presentation. Create or import a presentation instead.',
+	'documents.nativeConflict':
+		'This change conflicts with a newer version. Your text stays in the editor. Copy it before you reload.',
 	'documents.note': 'Note',
 	'documents.presentation': 'Presentation',
 	'documents.code': 'Code',

@@ -6,6 +6,8 @@ export const slidesFr: Record<SlidesMessageKey, string> = {
 	'documents.files': 'Fichiers',
 	'documents.noConversion':
 		'Cette note ne peut pas devenir une présentation. Créez ou importez une présentation.',
+	'documents.nativeConflict':
+		'Cette modification entre en conflit avec une version plus récente. Votre texte reste dans l’éditeur. Copiez-le avant de recharger.',
 	'documents.note': 'Note',
 	'documents.presentation': 'Présentation',
 	'documents.code': 'Code',
