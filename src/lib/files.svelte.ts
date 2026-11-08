@@ -41,7 +41,6 @@ import {
 
 import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
-import { projectWikiCandidates } from './project-paths';
 import { SaveQueue } from './save-queue';
 import {
 	exportMarkdown as exportMarkdownOp,
