@@ -2,7 +2,12 @@
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import ReadView from '#lib/components/ReadView.svelte';
 	import SourceEditor from '#lib/components/SourceEditor.svelte';
-	import { documentHeadings } from '#lib/document-navigation.js';
+	import {
+		headingIndexForLine,
+		sourceHeadingIndex,
+		type SourceHeading,
+		type SourceHeadingIndex
+	} from '#lib/document-navigation.js';
 	import { readPreference, writePreference } from '#lib/preferences.js';
 	import { t } from '#lib/i18n/index.js';
 
@@ -17,6 +22,13 @@
 
 	let { fileId, content, onChange, onCursorLine, onSourceEditorRef, onArticleRef }: Props =
 		$props();
+
+	interface PreviewLayout {
+		scroller: HTMLElement;
+		elements: HTMLElement[];
+		tops: number[];
+		headings: readonly SourceHeading[];
+	}
 
 	const RATIO_KEY = 'mdsh:split-ratio';
 	const MIN_RATIO = 25;
@@ -37,9 +49,16 @@
 	let previewScrollFrame = 0;
 	let suppressPreviewScrollUntil = 0;
 	let suppressSourceScrollUntil = 0;
+	let suppressSourceViewportUntil = 0;
 	let lastPreviewSection = -1;
 	let lastSourceSection = -1;
 	let currentSourceLine = 1;
+	let sourceText = untrack(() => previewContent);
+	let sourceIndex = untrack(() => sourceHeadingIndex(previewContent));
+	let previewLayout: PreviewLayout | null = null;
+	let layoutFrame = 0;
+	let observedArticle: HTMLElement | null = null;
+	let paneResizeObserver: ResizeObserver | null = null;
 
 	function clampRatio(value: number): number {
 		return Math.round(Math.min(MAX_RATIO, Math.max(MIN_RATIO, value)));
@@ -79,34 +98,85 @@
 		maxRenderTimer ??= setTimeout(commitPreview, RENDER_MAX_WAIT_MS);
 	}
 
-	function sectionIndexForLine(markdown: string, line: number): number {
-		return documentHeadings(markdown).findLastIndex((heading) => heading.line <= line);
+	/** Keeps the immutable source index in step with the rendered source string. */
+	function currentSourceIndex(): SourceHeadingIndex {
+		if (sourceText !== previewContent) {
+			sourceText = previewContent;
+			sourceIndex = sourceHeadingIndex(previewContent);
+		}
+		return sourceIndex;
 	}
 
-	function renderedHeadings(): HTMLElement[] {
-		return previewArticle
-			? Array.from(previewArticle.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'))
-			: [];
+	function lastIndexAtOrBefore(values: readonly number[], target: number): number {
+		let low = 0;
+		let high = values.length - 1;
+		let result = -1;
+		while (low <= high) {
+			const middle = (low + high) >> 1;
+			if (values[middle]! <= target) {
+				result = middle;
+				low = middle + 1;
+			} else {
+				high = middle - 1;
+			}
+		}
+		return result;
+	}
+
+	/** Measures every rendered heading once for the current article layout. */
+	function buildPreviewLayout(): void {
+		const article = previewArticle;
+		const scroller = previewPane?.querySelector<HTMLElement>('.mdsh-read') ?? null;
+		if (!article || !scroller) {
+			previewLayout = null;
+			return;
+		}
+		const elements = Array.from(article.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'));
+		const scrollerTop = scroller.getBoundingClientRect().top;
+		const scrollTop = scroller.scrollTop;
+		const tops = elements.map(
+			(element) => element.getBoundingClientRect().top - scrollerTop + scrollTop
+		);
+		previewLayout = { scroller, elements, tops, headings: currentSourceIndex().headings };
+		lastPreviewSection = -1;
+		syncPreviewToSourceLine(currentSourceLine);
+	}
+
+	function schedulePreviewLayout(): void {
+		if (layoutFrame) return;
+		layoutFrame = requestAnimationFrame(() => {
+			layoutFrame = 0;
+			buildPreviewLayout();
+		});
 	}
 
 	function syncPreviewToSourceLine(line: number): void {
 		if (performance.now() < suppressSourceScrollUntil) return;
-		const index = sectionIndexForLine(previewContent, line);
+		const headings = previewLayout?.headings ?? currentSourceIndex().headings;
+		const index = headingIndexForLine(headings, line);
 		if (index < 0 || index === lastPreviewSection) return;
-		const target = renderedHeadings()[index];
-		if (!target) return;
+		const target = previewLayout?.elements[index];
+		if (!target) {
+			schedulePreviewLayout();
+			return;
+		}
 		lastPreviewSection = index;
+		lastSourceSection = index;
 		suppressPreviewScrollUntil = performance.now() + 400;
 		target.scrollIntoView({ block: 'start' });
 	}
 
 	function handleSourceCursor(line: number): void {
 		currentSourceLine = line;
+		// The editor also emits viewport moves while it scrolls the caret into
+		// view. Keep the caret as the sync target during that programmatic scroll.
+		suppressSourceViewportUntil = performance.now() + 400;
 		onCursorLine(line);
 		syncPreviewToSourceLine(line);
 	}
 
 	function handleSourceViewport(line: number): void {
+		if (performance.now() < suppressSourceViewportUntil) return;
 		currentSourceLine = line;
 		syncPreviewToSourceLine(line);
 	}
@@ -119,14 +189,18 @@
 		const scroller = event.target;
 		previewScrollFrame = requestAnimationFrame(() => {
 			previewScrollFrame = 0;
-			const top = scroller.getBoundingClientRect().top + 48;
-			const headings = renderedHeadings();
-			let index = headings.findLastIndex((heading) => heading.getBoundingClientRect().top <= top);
-			if (index < 0 && headings.length > 0) index = 0;
-			if (index < 0 || index === lastSourceSection) return;
-			const sourceHeading = documentHeadings(previewContent)[index];
+			const layout = previewLayout;
+			if (!layout || layout.scroller !== scroller) return;
+			const index = lastIndexAtOrBefore(layout.tops, scroller.scrollTop + 48);
+			const resolved = index < 0 ? (layout.tops.length > 0 ? 0 : -1) : index;
+			if (resolved < 0) return;
+			// Track where the preview actually sits so a later caret move can
+			// target its section again after the user scrolled away.
+			lastPreviewSection = resolved;
+			if (resolved === lastSourceSection) return;
+			const sourceHeading = layout.headings[resolved];
 			if (!sourceHeading) return;
-			lastSourceSection = index;
+			lastSourceSection = resolved;
 			suppressSourceScrollUntil = performance.now() + 400;
 			sourceEditor?.scrollToLine(sourceHeading.line);
 		});
@@ -166,9 +240,19 @@
 		}
 	}
 
+	function observeArticle(el: HTMLElement | null): void {
+		if (observedArticle === el) return;
+		if (paneResizeObserver && observedArticle) paneResizeObserver.unobserve(observedArticle);
+		observedArticle = el;
+		if (paneResizeObserver && el) paneResizeObserver.observe(el);
+	}
+
 	function captureArticle(el: HTMLElement | null): void {
 		previewArticle = el;
 		onArticleRef(el);
+		previewLayout = null;
+		observeArticle(el);
+		if (el) schedulePreviewLayout();
 	}
 
 	$effect(() => {
@@ -177,6 +261,15 @@
 
 	$effect(() => {
 		schedulePreview(fileId, content);
+	});
+
+	$effect(() => {
+		const text = previewContent;
+		untrack(() => {
+			sourceText = text;
+			sourceIndex = sourceHeadingIndex(text);
+			lastPreviewSection = -1;
+		});
 	});
 
 	onMount(() => {
@@ -188,15 +281,47 @@
 		updateLayout();
 		media.addEventListener('change', updateLayout);
 		root?.addEventListener('scroll', handlePreviewScroll, true);
+		// Layout invalidation is coalesced into one rAF measurement. Scroll
+		// handlers never enumerate heading nodes or read heading geometry.
 		const previewObserver = new MutationObserver(() => {
 			lastPreviewSection = -1;
-			syncPreviewToSourceLine(currentSourceLine);
+			schedulePreviewLayout();
 		});
-		if (previewPane) previewObserver.observe(previewPane, { childList: true, subtree: true });
+		if (previewPane)
+			previewObserver.observe(previewPane, { childList: true, subtree: true, characterData: true });
+		const themeObserver = new MutationObserver(() => schedulePreviewLayout());
+		themeObserver.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['class', 'style', 'data-theme']
+		});
+		paneResizeObserver = new ResizeObserver(() => schedulePreviewLayout());
+		if (previewPane) paneResizeObserver.observe(previewPane);
+		observeArticle(previewArticle);
+		const handleMediaLoad = (event: Event) => {
+			const target = event.target;
+			if (target instanceof HTMLElement && target.matches('img, video, iframe')) {
+				schedulePreviewLayout();
+			}
+		};
+		previewPane?.addEventListener('load', handleMediaLoad, true);
+		previewPane?.addEventListener('error', handleMediaLoad, true);
+		const updateFonts = () => schedulePreviewLayout();
+		document.fonts?.addEventListener('loadingdone', updateFonts);
+		void document.fonts?.ready.then(updateFonts);
+		schedulePreviewLayout();
 		return () => {
 			media.removeEventListener('change', updateLayout);
 			root?.removeEventListener('scroll', handlePreviewScroll, true);
 			previewObserver.disconnect();
+			themeObserver.disconnect();
+			paneResizeObserver?.disconnect();
+			paneResizeObserver = null;
+			observedArticle = null;
+			previewPane?.removeEventListener('load', handleMediaLoad, true);
+			previewPane?.removeEventListener('error', handleMediaLoad, true);
+			document.fonts?.removeEventListener('loadingdone', updateFonts);
+			if (layoutFrame) cancelAnimationFrame(layoutFrame);
+			layoutFrame = 0;
 		};
 	});
 
@@ -204,6 +329,7 @@
 		if (renderTimer) clearTimeout(renderTimer);
 		if (maxRenderTimer) clearTimeout(maxRenderTimer);
 		if (previewScrollFrame) cancelAnimationFrame(previewScrollFrame);
+		if (layoutFrame) cancelAnimationFrame(layoutFrame);
 		onSourceEditorRef(null);
 		onArticleRef(null);
 	});

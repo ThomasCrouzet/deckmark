@@ -7,16 +7,33 @@ export interface DocumentHeading {
 	element?: HTMLElement;
 }
 
-/** Reads visible headings without adding identifiers to editable content. */
+export interface SourceHeading extends DocumentHeading {
+	/** Stable level/text/duplicate-occurrence identity for one source revision. */
+	id: string;
+	/** Zero-based UTF-16 offset in the raw Markdown, including BOM and CRLF. */
+	offset: number;
+}
+
+export interface SourceHeadingIndex {
+	readonly revision: number;
+	readonly headings: readonly SourceHeading[];
+}
+
+/** Reads visible headings. The legacy 300-heading bound stays for existing callers. */
 export function renderedDocumentHeadings(root: HTMLElement | null): DocumentHeading[] {
-	return Array.from(root?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6') ?? [])
-		.slice(0, 300)
-		.map((element) => ({
+	return completeRenderedHeadings(root).slice(0, 300);
+}
+
+/** Reads every visible heading, without the legacy outline bound. */
+export function completeRenderedHeadings(root: HTMLElement | null): DocumentHeading[] {
+	return Array.from(root?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6') ?? []).map(
+		(element) => ({
 			text: element.textContent ?? '',
 			level: Number(element.tagName.slice(1)),
 			line: 0,
 			element
-		}));
+		})
+	);
 }
 
 /** Moves the viewport and, in Edit mode, the caret to a heading. */
@@ -41,17 +58,27 @@ export function focusDocumentHeading(heading: DocumentHeading, editable: boolean
 	requestAnimationFrame(scrollToHeading);
 }
 
-/** Reads source headings without treating YAML or code examples as headings. */
-export function documentHeadings(markdown: string): DocumentHeading[] {
-	const body = markdown.replace(/^\uFEFF/, '');
+interface ParsedHeading {
+	text: string;
+	level: number;
+	line: number;
+	offset: number;
+}
+
+function parseHeadings(markdown: string, limit: number): ParsedHeading[] {
+	const hasBom = markdown.charCodeAt(0) === 0xfeff;
+	const body = hasBom ? markdown.slice(1) : markdown;
 	const lines = body.split('\n');
-	const headings: DocumentHeading[] = [];
+	const headings: ParsedHeading[] = [];
 	let fence = '';
 	let yaml = stripFrontmatter(body).raw.length > 0;
+	let lineStart = hasBom ? 1 : 0;
 	for (let index = 0; index < lines.length; index++) {
 		const line = lines[index]!;
+		const nextLineStart = lineStart + line.length + 1;
 		if (yaml) {
 			if (index > 0 && /^(---|\.\.\.)\s*$/.test(line)) yaml = false;
+			lineStart = nextLineStart;
 			continue;
 		}
 		const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
@@ -63,10 +90,12 @@ export function documentHeadings(markdown: string): DocumentHeading[] {
 				line.trim() === marker
 			)
 				fence = '';
+			lineStart = nextLineStart;
 			continue;
 		}
 		if (marker) {
 			fence = marker;
+			lineStart = nextLineStart;
 			continue;
 		}
 		const atx = /^ {0,3}(#{1,6})(?:[ \t]+(.*?)|[ \t]*)\r?$/.exec(line);
@@ -74,7 +103,8 @@ export function documentHeadings(markdown: string): DocumentHeading[] {
 			headings.push({
 				text: (atx[2] ?? '').replace(/[ \t]+#+[ \t]*$/, ''),
 				level: atx[1]!.length,
-				line: index + 1
+				line: index + 1,
+				offset: lineStart
 			});
 		else if (
 			index > 0 &&
@@ -85,12 +115,61 @@ export function documentHeadings(markdown: string): DocumentHeading[] {
 			headings.push({
 				text: lines[index - 1]!.trim(),
 				level: line.trim().startsWith('=') ? 1 : 2,
-				line: index
+				line: index,
+				offset: lineStart - (lines[index - 1]!.length + 1)
 			});
 		}
-		if (headings.length >= 300) break;
+		if (headings.length >= limit) break;
+		lineStart = nextLineStart;
 	}
 	return headings;
+}
+
+/** Reads source headings without treating YAML or code examples as headings. */
+export function documentHeadings(markdown: string): DocumentHeading[] {
+	return parseHeadings(markdown, 300).map(({ text, level, line }) => ({ text, level, line }));
+}
+
+let revision = 0;
+let cachedMarkdown: string | null = null;
+let cachedIndex: SourceHeadingIndex | null = null;
+
+/**
+ * Returns the complete immutable heading index for an exact source string.
+ * Only the most recent string is retained so the cache stays bounded.
+ */
+export function sourceHeadingIndex(markdown: string): SourceHeadingIndex {
+	if (cachedMarkdown === markdown && cachedIndex) return cachedIndex;
+	const occurrences = new Map<string, number>();
+	const headings = parseHeadings(markdown, Number.POSITIVE_INFINITY).map((heading) => {
+		const key = `${heading.level}\u0000${heading.text}`;
+		const occurrence = (occurrences.get(key) ?? 0) + 1;
+		occurrences.set(key, occurrence);
+		return {
+			...heading,
+			id: `${heading.level}:${heading.text}:${occurrence}`
+		};
+	});
+	cachedIndex = { revision: ++revision, headings };
+	cachedMarkdown = markdown;
+	return cachedIndex;
+}
+
+/** Returns the index of the last heading at or before a one-based source line. */
+export function headingIndexForLine(headings: readonly DocumentHeading[], line: number): number {
+	let low = 0;
+	let high = headings.length - 1;
+	let result = -1;
+	while (low <= high) {
+		const middle = (low + high) >> 1;
+		if (headings[middle]!.line <= line) {
+			result = middle;
+			low = middle + 1;
+		} else {
+			high = middle - 1;
+		}
+	}
+	return result;
 }
 
 /** Builds ranges without changing the editor DOM or its Markdown. */

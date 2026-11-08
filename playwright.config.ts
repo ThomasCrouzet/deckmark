@@ -110,6 +110,9 @@ export default defineConfig({
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
 			testMatch: [
+				'**/split-view.spec.ts',
+				'**/toc-modes.spec.ts',
+				'**/navigation-stats-scroll.spec.ts',
 				'**/editor-state.spec.ts',
 				'**/toast-overlap.spec.ts',
 				'**/golden-path.spec.ts',

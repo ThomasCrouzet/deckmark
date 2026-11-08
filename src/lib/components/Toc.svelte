@@ -1,8 +1,9 @@
 <script lang="ts">
 	import {
-		documentHeadings,
+		completeRenderedHeadings,
 		focusDocumentHeading,
-		renderedDocumentHeadings,
+		headingIndexForLine,
+		sourceHeadingIndex,
 		type DocumentHeading
 	} from '#lib/document-navigation.js';
 	import type { EditMode } from '#lib/types.js';
@@ -24,14 +25,14 @@
 		onEmpty: (empty: boolean) => void;
 	} = $props();
 
-	let items = $state<DocumentHeading[]>([]);
+	let items = $state<readonly DocumentHeading[]>([]);
 	let activeIndex = $state(-1);
 	let previousMode: EditMode | undefined;
 	let previousRoot: HTMLElement | null = null;
 
 	$effect(() => {
 		if (mode === 'source') {
-			activeIndex = items.findLastIndex((item) => item.line <= sourceLine);
+			activeIndex = headingIndexForLine(items, sourceLine);
 		}
 	});
 
@@ -56,7 +57,7 @@
 			previousMode = selectedMode;
 			previousRoot = root;
 			if (selectedMode === 'source') {
-				items = documentHeadings(text);
+				items = sourceHeadingIndex(text).headings;
 				onEmpty(items.length === 0);
 			}
 		}
@@ -64,8 +65,8 @@
 		const update = () => {
 			items =
 				selectedMode === 'source'
-					? documentHeadings(text)
-					: renderedDocumentHeadings(renderedRoot());
+					? sourceHeadingIndex(text).headings
+					: completeRenderedHeadings(renderedRoot());
 			onEmpty(items.length === 0);
 			intersection?.disconnect();
 			if (selectedMode !== 'source' && root) {
@@ -101,12 +102,12 @@
 		};
 	});
 
-	function currentHeadings(): DocumentHeading[] {
-		if (mode === 'source') return documentHeadings(content);
+	function currentHeadings(): readonly DocumentHeading[] {
+		if (mode === 'source') return sourceHeadingIndex(content).headings;
 		const root =
 			container?.querySelector<HTMLElement>(mode === 'read' ? '.mdsh-preview' : '.ProseMirror') ??
 			null;
-		return renderedDocumentHeadings(root);
+		return completeRenderedHeadings(root);
 	}
 
 	function jump(item: DocumentHeading, index: number) {
