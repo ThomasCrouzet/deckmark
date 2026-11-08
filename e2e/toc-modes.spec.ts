@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import {
+	createFirstFile,
+	openPalette,
+	resetAppState,
+	switchToSource,
+	writeSourceContent
+} from './helpers';
 
 const fixture = [
 	'---\ntitle: Outline fixture\n---',
@@ -118,6 +124,64 @@ test('keeps a long outline reachable and honors focus and visibility preferences
 		body: longFixture,
 		contentType: 'text/markdown'
 	});
+});
+
+test('navigates beyond heading 300 with a complete source and read outline', async ({
+	page
+}, info) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await resetAppState(page);
+	await createFirstFile(page);
+	const source = Array.from(
+		{ length: 1000 },
+		(_, index) => `## Complete ${index + 1}\n\nParagraph ${index + 1}.`
+	).join('\n\n');
+	await page.evaluate(
+		(content) =>
+			new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts', 'readwrite');
+					const store = transaction.objectStore('drafts');
+					const rows = store.getAll();
+					rows.onsuccess = () => {
+						const row = rows.result[0];
+						if (!row) {
+							transaction.abort();
+							return;
+						}
+						store.put({ ...row, content, updatedAt: Date.now() });
+					};
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onabort = () => {
+						database.close();
+						reject(transaction.error ?? new Error('Fixture transaction aborted'));
+					};
+				};
+			}),
+		source
+	);
+	await page.reload();
+	await switchToSource(page);
+	const toc = page.locator('.mdsh-toc-col nav');
+	for (const mode of ['source', 'read']) {
+		await page.locator(`button[data-mode="${mode}"]`).click();
+		await expect(toc.getByRole('button')).toHaveCount(1000);
+		await toc.getByRole('button', { name: 'Complete 900', exact: true }).click();
+		if (mode === 'source') {
+			await expect(page.locator('.cm-content')).toBeFocused();
+			await expect(toc.getByRole('button', { name: 'Complete 900', exact: true })).toHaveAttribute(
+				'aria-current',
+				'location'
+			);
+		} else await expect(page.locator('.mdsh-preview h2').nth(899)).toBeInViewport();
+	}
+	await info.attach('complete-outline.md', { body: source, contentType: 'text/markdown' });
 });
 
 test('navigates with one click after a render replaces the heading nodes', async ({

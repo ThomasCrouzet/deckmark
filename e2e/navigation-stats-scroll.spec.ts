@@ -294,3 +294,63 @@ test('scroll controls reach both ends of long notes in every mode', async ({
 	});
 	await info.attach('scroll-navigation.png', { body: await page.screenshot() });
 });
+
+test('split navigation discards the outgoing file geometry during rapid jumps', async ({
+	page
+}, info) => {
+	// Two 340 and 370 heading notes exceed the default 30 s budget while WebKit
+	// inserts the fixture through real keyboard input. The navigation assertions
+	// below stay unchanged.
+	test.setTimeout(90_000);
+	await resetAppState(page);
+	const first = Array.from(
+		{ length: 340 },
+		(_, index) => `## First heading ${index + 1}\n\nFirst paragraph.`
+	).join('\n\n');
+	const second = Array.from(
+		{ length: 370 },
+		(_, index) => `## Second heading ${index + 1}\n\nSecond paragraph.`
+	).join('\n\n');
+	await seedFiles(page, [
+		{ name: 'Geometry First', content: first },
+		{ name: 'Geometry Second', content: second }
+	]);
+	await page.getByRole('button', { name: 'Afficher l’aperçu' }).click();
+	const split = page.getByTestId('split-view');
+	for (const [name, prefix, count] of [
+		['Geometry Second', 'Second', 370],
+		['Geometry First', 'First', 340],
+		['Geometry Second', 'Second', 370]
+	] as const) {
+		await page
+			.locator('aside')
+			.getByRole('button', { name: new RegExp(`^${name}`) })
+			.first()
+			.click();
+		await expect(split.locator('.mdsh-preview h2')).toHaveCount(count);
+		for (let index = 0; index < 3; index++) {
+			await split.locator('.cm-content').focus();
+			await page.waitForTimeout(420);
+			await page.keyboard.press('ControlOrMeta+End');
+			await expect(
+				split.getByRole('heading', { name: `${prefix} heading ${count}`, exact: true })
+			).toBeInViewport();
+			await page.waitForTimeout(420);
+			await split.locator('.mdsh-read').evaluate((element) => {
+				element.scrollTop = 0;
+			});
+			await expect
+				.poll(() => split.locator('.cm-scroller').evaluate((element) => element.scrollTop))
+				.toBeLessThan(150);
+		}
+		await expect(split.locator('.cm-content')).toBeFocused();
+	}
+	await info.attach('split-file-switch.png', {
+		body: await page.screenshot(),
+		contentType: 'image/png'
+	});
+	await info.attach('split-files.json', {
+		body: JSON.stringify({ first, second }),
+		contentType: 'application/json'
+	});
+});

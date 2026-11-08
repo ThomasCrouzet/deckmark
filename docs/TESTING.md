@@ -1,5 +1,26 @@
 # Test policy and evidence
 
+## Split heading index risks
+
+Retain the complete navigation index separately from the legacy 300-heading
+helper contract. Check headings after 300 in Source and Read. Split caret movement
+must not parse unchanged source or query heading nodes. Warm preview scrolling
+must not measure every heading. Retain 240 KB and 1 MB fixtures with 1,000 headings,
+raw two-frame samples, heading query and rectangle counts, fixture hashes, and
+engine-supported CPU/layout counters. A rectangle call is not proof of forced
+layout. A two-frame sample is not proof of compositor paint. Mark unsupported
+WebKit counters as unavailable, not zero.
+
+Large heading fixtures use a real IndexedDB draft followed by reload. This setup
+does not measure bulk typing. Keep insertion-timeout attempts separately from
+navigation failures. Use real input for the subsequent structural edits.
+
+Check inserted and deleted headings, pane width, theme, fonts, image load, file
+replacement, detached nodes, teardown, focus, undo, and alternating scroll sources.
+Keep the 400 ms scroll suppression and draft save delay. Run
+`npx playwright test e2e/split-view.spec.ts e2e/toc-modes.spec.ts e2e/navigation-stats-scroll.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep the command, source/diff identity, raw measurements and screenshots locally.
+
 Use E2E tests as the preferred verification method. Test observable results through
 the application. For a complex change, write the workflow and its failure cases
 before implementation. Never write unit tests after implementation.
