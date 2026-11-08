@@ -98,7 +98,10 @@ export class WikiLinkIndex {
 		private getTargets: (file: FileItem) => readonly string[],
 		isNote: (file: FileItem) => boolean = (file) => documentKindForFile(file) === 'note'
 	) {
-		if (METRICS) performance.mark('project-wiki-index-rebuild');
+		if (METRICS) {
+			performance.mark('project-wiki-index-rebuild');
+			performance.mark('meta-index-rebuild');
+		}
 		for (const file of getFiles()) {
 			const item = entry(file, isNote(file));
 			this.entries.set(file.id, item);
