@@ -19,7 +19,7 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import { listDiskLinks, checkHandle } from '#lib/fsa.js';
-	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-linking.js';
 	import { tauriCheckPath } from '#lib/disk-tauri.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import {

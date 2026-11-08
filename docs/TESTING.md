@@ -449,6 +449,179 @@ CI=1 xvfb-run -a npm run test:e2e -- table-editing.spec.ts --workers=1 --retries
 
 ## Retained isolated risks
 
+### Project wiki indexes
+
+Record these risks before changes to project resolution and backlinks:
+
+- Exact IDs, relative paths, root paths, extension rules, and basename collisions
+  can change candidate priority or library order.
+- Encoded separators, invalid encoding, Unicode, traversal, fragments, reserved
+  paths, and case collisions can change confinement or ambiguity.
+- Content, type, name, path, project membership, delete, restore, and cross-tab
+  changes can leave stale references. A new candidate can shadow an old target.
+- Repeated reads can scan unrelated files or links. An edit can rebuild every
+  path. Cached results can grow without a bound or retain removed documents.
+- A non-reactive index can leave the sidebar unchanged after a pending save.
+
+`src/lib/project-paths.test.ts` compares indexed answers with the original
+resolver over generated and adversarial paths. It checks affected-reference work
+through observed property reads. The browser suite cannot exhaust this path space
+or distinguish a fast full scan from an indexed lookup on a small fixture.
+The guarded-publication case checks that location updates retain complete targets
+without deriving a pending body. It also rejects publication after removal.
+The deferred worker belongs to issue 307 and needs combined browser checks after
+integration. This branch uses the existing synchronous metadata adapter.
+`e2e/project-wiki-index.spec.ts` checks visible project backlinks and real document
+switches at 300, 600, and 3000 documents. It retains raw times, fixture hashes,
+Chromium CPU profiles, heap samples, screenshots, and source identity. Baseline
+mode records switch measurements only, without claiming an index gate pass.
+Strict mode also checks the saved edit and affected backlinks.
+`e2e/project-wiki-updates.spec.ts` checks cross-tab path collisions, moves,
+removal, restoration, and project rename through visible backlinks and navigation.
+
+Run the focused checks:
+
+```sh
+npx vitest run src/lib/project-paths.test.ts src/lib/meta-index.test.ts --maxWorkers=1
+npx playwright test e2e/project-wiki-index.spec.ts e2e/project-wiki-updates.spec.ts e2e/wiki-links.spec.ts e2e/project-link-performance.spec.ts e2e/project-scale.spec.ts e2e/metadata-index-incremental.spec.ts e2e/project-explorer.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep each run in separate local storage. The campaign report names the exact
+command, revision, working diff, OS, browser, build mode, fixtures, and results.
+A Chromium result does not establish native Desktop or other browser acceptance.
+
+### Presentation input snapshot risks
+
+`presentation-performance.spec.ts` inserts 24 characters into text and notes in
+100- and 300-slide decks. It records model serialization and parse counters,
+raw input-to-frame and synchronous samples, p50/p95, CPU profiles, frame gaps,
+heap metrics, browser identity, and fixture hashes. These are local diagnostics,
+not a replacement for the existing performance budgets. Net heap size is not
+an allocated-byte measurement.
+
+`presentation-editor.spec.ts` checks idle publication without textarea or
+selection replacement, continuous notes input with a maximum wait, idempotent
+flushes, undo/redo, slide switches, immediate Markdown export, close followed by
+backup, concurrent external revisions, and failed serialization followed by retry.
+A materialization failure must stop a backup or detach and keep local input.
+Generic flush must not apply an advanced-source draft.
+`presentation-format.spec.ts` compares stored and exported bytes after idle edits.
+It keeps BOM/CRLF frontmatter, comments, IDs, notes, and literal marker framing.
+Textarea values normalize CRLF, so exact byte checks use downloads and IndexedDB.
+
+Run focused Chromium evidence with:
+
+```sh
+npm run test:e2e -- presentation-editor.spec.ts presentation-format.spec.ts presentation-performance.spec.ts --project=chromium --workers=1
+```
+
+Keep the command, revision and diff hash, environment, fixtures, JSON and HTML
+reports, downloads, and failure traces locally. Native WebView close and abrupt
+process termination need separate evidence. A synchronous source snapshot does
+not confirm an IndexedDB commit. Keep the existing 400 ms draft save delay.
+
+### Incremental source bytes
+
+`src/lib/code/source-text.test.ts` checks the raw separator map before editor
+integration. Normalized CodeMirror positions differ from raw positions at CRLF
+and bare CR. Multi-range changes can shift a later separator, and a delayed
+snapshot can read a later edit. Browser export cases cannot inspect an immutable
+pending revision or prove that applying a change does not read a full raw string.
+The isolated cases compare exact mixed-EOL and BOM bytes, retained snapshots,
+multi-range edits, and boundary edits in 1 MB and 5 MB documents. A seeded change
+sequence compares the new buffer with the existing raw conversion function.
+Run `npx vitest run src/lib/code/source-text.test.ts --maxWorkers=1`.
+This check does not establish editor, persistence, or native integration.
+
+### Editor raw-buffer integration
+
+`SourceEditor` and `CodeEditor` keep an immutable `SourceText` buffer for the
+mounted file. An accepted change updates only the touched separators. Ordinary
+typing does not scan all line endings or rebuild the raw string in the change
+filter. Raw publication is throttled: the first change after a pause publishes
+immediately, and a typing burst coalesces to one materialization per 150 ms.
+Explicit boundaries materialize synchronously: `mdsh:flush-editor`, save, export,
+pagehide, editor detach and `getSnapshot()`. `getSnapshot()` returns the captured
+file ID, the buffer-local revision and the exact text. The buffer revision is not
+a store generation.
+
+The E2E build records `mdsh:source-buffer-apply`, `mdsh:code-buffer-apply`,
+`mdsh:source-full-rebuild`, `mdsh:code-full-rebuild`, `mdsh:source-change` and
+`mdsh:code-snapshot` performance marks. Ordinary typing must show zero full
+rebuilds and at least one buffer apply per accepted change. Run:
+
+```sh
+npx playwright test editor-input-latency.spec.ts code-editor.spec.ts \
+  --project=chromium --workers=1 --retries=0
+```
+
+These checks do not cover Firefox, WebKit, native WebViews, a full local CI
+profile or a paint/allocation budget. Keep those as separate acceptance work.
+
+### Native store revision wire
+
+`SourceEditor` and `CodeEditor` accept optional `getRevision`, `applyChange` and
+`resyncSnapshot` functions. `EditorPane` and `+page.svelte` supply the existing
+`documentRevision`, `applyDocumentChange` and `documentSnapshot` store methods.
+On the native path an accepted change updates the immutable buffer and applies a
+`DocumentChange` whose `readText` captures that exact `SourceText` instance. The
+editor does not publish a string per key. The store materializes at its own
+100 ms publication boundary and keeps the 400 ms Dexie save.
+
+Identified failure modes before the adapter test and code:
+
+1. A rejected base is replaced with a fresh store revision, and the next edit
+   publishes an unchanged stale buffer over an external change.
+2. The store's own publication is treated as an external replacement, which
+   rebuilds the document and loses undo, selection or scroll.
+3. A lazy reader closes over a mutable buffer and later returns newer text than
+   the change it represents.
+4. A canceled outgoing flush still writes or claims a save.
+
+`src/lib/code/native-adapter.test.ts` keeps the pure rejection decision: adopt
+only a same-file snapshot whose captured text equals the accepted text, otherwise
+block. A browser cannot deterministically force a stale store generation between
+two accepted keystrokes without a mock or a test-only hook. The own-echo and
+outgoing-cancellation failures are proven through the real application in
+`editor-state.spec.ts`, `document-revisions.spec.ts` and the latency cases.
+The own-echo case accepts either engine history grouping: one undo must remove
+typed text, and one redo must restore the full echo. Firefox can group two
+adjacent insertions that Chromium and WebKit keep separate. Do not assert the
+exact intermediate prefix.
+
+The test build sets `VITE_SOURCE_FIDELITY_METRICS=1`. Under that flag only,
+`+page.svelte` exposes `window.__mdshTest.forceNativeConflict(external, fileId)`.
+The seam advances the real store revision with an external change and makes the
+next native apply return null. It does not change production scheduling, guards
+or budgets; the flag is compile-time and the block is removed from production.
+The E2E then checks that the local rejected text remains, the authoritative store
+bytes are not overwritten, a conflict is visible, and close is cancelled. This
+is the deterministic reproduction of failure modes 1 and 4.
+
+### Revisioned document publication
+
+The revision scheduler must reject an obsolete base, isolate files, retain pending
+text after a snapshot error, and invalidate callbacks after removal or reload.
+A lazy reader can also accept another edit while it materializes an old snapshot.
+The current string editor adapters cannot create these internal races through the
+browser. `src/lib/document-revisions.test.ts` retains these cases until native
+editor adapters expose equivalent browser observations. Write these checks before
+the scheduler implementation. Do not use local revision numbers as cross-tab or
+portable format identifiers.
+
+The save queue also retains a snapshot-reader failure and retries it at the next
+explicit barrier. Its internal saved callback must carry the captured revision,
+not the revision that happens to be current when the write completes. Browser
+storage rows deliberately exclude these process-local identities. The isolated
+save queue cases inspect this internal boundary and the unchanged durable row.
+
+`e2e/document-revisions.spec.ts` checks immediate visual close and source mode/file
+switches. It compares the first closed draft write, saved bytes, and restored undo.
+It also cancels one outgoing capture, checks that the view and dirty input remain,
+and retries close. Cancellation must not write a stale closed snapshot or claim a save.
+Run `npx playwright test e2e/document-revisions.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep the JSON report, source identity, fixture bytes, and trace with the run.
+
 The test review removed duplicate creation, selection, rendering, export, and
 preference tests. Browser workflows verify those results. The remaining isolated
 tests cover these additional risks:
@@ -652,6 +825,12 @@ The zero-size sticky anchor keeps the canvas in the native scroller for clipping
 and wheel input. It must not add document width or height. Canvas position does
 not depend on the queued ink renderer. Raster redraw still uses the current scroll
 offsets and the existing animation-frame scheduler.
+
+Stroke paint is also queued in an animation frame. The first pen pixel assertion
+must run `inkFrame()` after `drawOnCanvas()` and before the unchanged greater-than
+100 check. The remote WebKit flake read 43 pixels before that frame. Local WebKit
+passed without the wait, so this is a timing precondition, not a product defect.
+Do not add a fixed delay or change the threshold.
 
 Clear removes stroke data immediately and clears the bitmap in the queued animation
 frame. A completed button click does not confirm that this frame has run. Use the

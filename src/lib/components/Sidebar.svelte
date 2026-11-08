@@ -22,7 +22,7 @@
 		Link2
 	} from '@lucide/svelte';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
-	import { isDiskLinkingAvailable } from '#lib/disk-sync.js';
+	import { isDiskLinkingAvailable } from '#lib/disk-linking.js';
 	import { spinnerStore } from '#lib/spinner.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { promptStore } from '#lib/prompt.svelte.js';

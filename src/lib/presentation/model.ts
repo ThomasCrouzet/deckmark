@@ -1,3 +1,4 @@
+import { recordEditorCounter } from '../editor-perf';
 import {
 	isPresentation,
 	nextPresentationFence as nextFence,
@@ -887,6 +888,7 @@ function syncDeckSource(deck: PresentationDeck, body: string): PresentationDeck 
 }
 
 export function parsePresentation(markdown: string): PresentationDeck {
+	recordEditorCounter('presentation.parse');
 	if (!isPresentation(markdown)) return importOrdinaryMarkdown(markdown);
 	const range = findMetadataRange(markdown);
 	if (!range) fail('The presentation metadata block is invalid.', 'INVALID_JSON');
@@ -968,6 +970,7 @@ function serializeSlideSource(slide: PresentationSlide): string {
 }
 
 export function serializePresentation(input: PresentationDeck): string {
+	recordEditorCounter('presentation.serialize');
 	if (input.original !== undefined && input.originalFingerprint === deckFingerprint(input)) {
 		return input.original;
 	}
