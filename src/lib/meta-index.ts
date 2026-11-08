@@ -4,9 +4,8 @@
 // The `FilesStore` store instantiates it, passing an accessor `() => FileItem[]`,
 // and delegates all reads (tags / backlinks / displayTitle / etc.).
 //
-// Pattern: the data source (`getFiles`) is a pointer to the store's Svelte 5
-// state; the MetaIndex never stores the files - it only caches the parsing
-// results (meta per id + inverted backlinks index).
+// The store supplies loaded files. Parsed metadata and wiki references stay
+// cached until invalidation. Candidate buckets do not read storage.
 //
 // Front-matter fast path (synchronous, no js-yaml):
 //   - `title:` single-line scalar (optional quotes)
@@ -21,12 +20,13 @@ import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-utils';
 import { extractWikiLinkTargets } from './wiki-links';
 import { getTags as getFmTags, getTitle as getFmTitle, stripFrontmatter } from './frontmatter';
-
-const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
+import type { WikiLinkIndex } from './wiki-link-index';
 
 /** Per-file cache entry. */
 interface MetaEntry {
 	name: string;
+	isNote: boolean;
+	sourceKind: FileItem['kind'];
 	/** Content fingerprint: we invalidate if `content !== file.content`. */
 	content: string;
 	title: string;
@@ -35,29 +35,36 @@ interface MetaEntry {
 	targets: string[];
 }
 
-/** Structure of the inverted backlinks index (lazy rebuild). */
-interface BacklinksIndex {
-	byNameLower: Map<string, Set<string>>;
-	byId: Map<string, Set<string>>;
-}
-
 export class MetaIndex {
 	private metaCache = new Map<string, MetaEntry>();
-	private backlinksIndex: BacklinksIndex | null = null;
+	private wikiIndex: WikiLinkIndex | null = null;
+	/** The store loads the module during boot; tests inject the class. */
+	private wikiClass: typeof WikiLinkIndex | null;
 	/** Sorted unique tags; rebuilt lazily after a metadata change. */
 	private allTagsCache: string[] | null = null;
 
 	/** Reference to the current files state (injected by the store). */
 	private getFiles: () => readonly FileItem[];
-	constructor(getFiles: () => readonly FileItem[]) {
+	constructor(
+		getFiles: () => readonly FileItem[],
+		private onPublish?: () => void,
+		indexClass?: typeof WikiLinkIndex
+	) {
 		this.getFiles = getFiles;
+		this.wikiClass = indexClass ?? null;
 	}
 
 	// §A2.1 - Reads the cache for `file.id` and revalidates it if `content` changed.
 	// All meta reads (title/tags/targets) go through here.
 	getMeta(file: FileItem): MetaEntry {
 		const cached = this.metaCache.get(file.id);
-		if (cached && cached.content === file.content && cached.name === file.name) return cached;
+		if (
+			cached &&
+			cached.content === file.content &&
+			cached.name === file.name &&
+			cached.sourceKind === file.kind
+		)
+			return cached;
 
 		const fallback = stripMdExtension(file.name);
 		const isNote = documentKindForFile(file) === 'note';
@@ -101,6 +108,8 @@ export class MetaIndex {
 
 		const entry: MetaEntry = {
 			name: file.name,
+			isNote,
+			sourceKind: file.kind,
 			content: file.content,
 			title,
 			documentTitle: raw ? title : getFmTitle({}, content, fallback),
@@ -117,66 +126,52 @@ export class MetaIndex {
 	// backlinks index and the tag counts stay usable, so the next read does not
 	// rebuild them over the whole library.
 	invalidateMeta(id: string): void {
-		const previous = this.metaCache.get(id);
 		const file = this.getFiles().find((entry) => entry.id === id);
 		const current = file ? this.getMeta(file) : null;
-		const index = this.backlinksIndex;
-		if (index) {
-			for (const [targets, remove] of [
-				[previous?.targets, true],
-				[current?.targets, false]
-			] as const) {
-				for (const target of targets ?? []) {
-					for (const [map, key] of [
-						[index.byNameLower, target.toLowerCase()],
-						[index.byId, target]
-					] as const) {
-						const set = map.get(key);
-						if (remove) {
-							if (set) {
-								set.delete(id);
-								if (set.size === 0) map.delete(key);
-							}
-						} else if (set) set.add(id);
-						else map.set(key, new Set([id]));
-					}
-				}
-			}
-		}
+		this.wikiIndex?.updateLocation(id, file, current?.isNote);
+		if (!file) this.metaCache.delete(id);
 		this.allTagsCache = null;
+		this.wikiIndex?.publishTargets(id, current?.targets ?? null);
+		this.onPublish?.();
 	}
 
 	/** Invalidates the backlinks index and the tag cache (e.g. a bulk change). */
 	invalidateBacklinksIndex(): void {
-		this.backlinksIndex = null;
+		this.wikiIndex = null;
 		this.allTagsCache = null;
+		const live = new Set(this.getFiles().map((file) => file.id));
+		for (const id of this.metaCache.keys()) if (!live.has(id)) this.metaCache.delete(id);
+		this.onPublish?.();
 	}
 
-	private buildBacklinksIndex(): void {
-		if (META_METRICS) performance.mark('meta-index-rebuild');
-		const byNameLower = new Map<string, Set<string>>();
-		const byId = new Map<string, Set<string>>();
-		for (const file of this.getFiles()) {
-			const targets = this.getMeta(file).targets;
-			for (const t of targets) {
-				const tLower = t.toLowerCase();
-				let setName = byNameLower.get(tLower);
-				if (!setName) {
-					setName = new Set();
-					byNameLower.set(tLower, setName);
-				}
-				setName.add(file.id);
-				// A target can also be a direct id ([[<uuid>]]). We index both;
-				// the lookup in `backlinks()` queries both maps.
-				let setId = byId.get(t);
-				if (!setId) {
-					setId = new Set();
-					byId.set(t, setId);
-				}
-				setId.add(file.id);
-			}
-		}
-		this.backlinksIndex = { byNameLower, byId };
+	/**
+	 * Loads the index module as a separate chunk during the store load. The boot
+	 * bundle keeps only this loader. A test can inject the class in the constructor.
+	 */
+	async load(): Promise<void> {
+		if (this.wikiClass) return;
+		const { WikiLinkIndex: Index } = await import('./wiki-link-index');
+		this.wikiClass = Index;
+	}
+
+	private createWikiIndex(Index: typeof WikiLinkIndex): WikiLinkIndex {
+		return new Index(
+			this.getFiles,
+			(file) => this.getMeta(file).targets,
+			(file) => this.getMeta(file).isNote
+		);
+	}
+
+	private wikiLinks(): WikiLinkIndex {
+		const loaded = this.wikiIndex;
+		if (loaded) return loaded;
+		const Index = this.wikiClass;
+		if (!Index) throw new Error('Wiki link index is not loaded');
+		return (this.wikiIndex = this.createWikiIndex(Index));
+	}
+
+	projectBacklinks(targetId: string): FileItem[] {
+		return this.wikiLinks().backlinks(targetId);
 	}
 
 	/**
@@ -224,24 +219,13 @@ export class MetaIndex {
 	 * Backlinks: lists the files that contain a wiki-link pointing to the targeted
 	 * file (by name without extension OR by id).
 	 *
-	 * §A2.2 - O(1) lookup via the inverted index `byNameLower` + `byId`. The index
-	 * is rebuilt lazily after a change.
+	 * Project targets use resolved references. Library targets keep raw name/ID matching.
 	 */
 	backlinks(targetId: string): FileItem[] {
-		const files = this.getFiles();
-		const target = files.find((f) => f.id === targetId);
-		if (!target || documentKindForFile(target) !== 'note') return [];
-		if (!this.backlinksIndex) this.buildBacklinksIndex();
-		const idx = this.backlinksIndex!;
-		const targetNameLower = stripMdExtension(target.name).toLowerCase();
-		const ids = new Set<string>();
-		const byName = idx.byNameLower.get(targetNameLower);
-		if (byName) for (const fid of byName) ids.add(fid);
-		const byId = idx.byId.get(targetId);
-		if (byId) for (const fid of byId) ids.add(fid);
-		ids.delete(targetId); // self-link excluded
-		if (ids.size === 0) return [];
-		return files.filter((f) => ids.has(f.id));
+		const wiki = this.wikiLinks();
+		const target = wiki.file(targetId);
+		if (!target || !wiki.isNote(targetId)) return [];
+		return target.projectId ? wiki.backlinks(targetId) : wiki.rawBacklinks(targetId);
 	}
 
 	/**
@@ -250,21 +234,12 @@ export class MetaIndex {
 	 *
 	 * Case-insensitive on the name (consistent with `backlinks()`).
 	 */
-	resolveWikiLink(target: string): string | null {
-		const matches = this.wikiLinkCandidates(target);
-		return matches.length === 1 ? matches[0]!.id : null;
+	resolveWikiLink(target: string, sourceId?: string): string | null {
+		return this.wikiLinks().resolve(target, sourceId);
 	}
 
-	wikiLinkCandidates(target: string): FileItem[] {
-		const t = target.trim();
-		if (!t) return [];
-		const files = this.getFiles().filter((file) => documentKindForFile(file) === 'note');
-		// Match by exact id first.
-		const byId = files.find((f) => f.id === t);
-		if (byId) return [byId];
-		// Otherwise, match by name without extension (case-insensitive).
-		const tLower = t.toLowerCase();
-		return files.filter((f) => stripMdExtension(f.name).toLowerCase() === tLower);
+	wikiLinkCandidates(target: string, sourceId?: string): FileItem[] {
+		return this.wikiLinks().candidates(target, sourceId);
 	}
 
 	/**
