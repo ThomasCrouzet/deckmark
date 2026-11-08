@@ -532,7 +532,7 @@ class FilesStore {
 			// endless loading shell. Dexie keeps the request pending; the user
 			// must close the other tab and retry.
 			const timeout = new Promise<never>((_resolve, reject) => {
-				openTimer = setTimeout(() => reject(new Error('storage-open-timeout')), 8_000);
+				openTimer = setTimeout(() => reject(new Error('storage-open-timeout')), 15_000);
 			});
 			await Promise.race([this.loadData(preferredActiveId), timeout]);
 		} catch (err) {

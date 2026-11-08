@@ -1,4 +1,3 @@
-import MetadataWorker from './metadata.worker?worker&inline';
 import { deriveMetadata } from './metadata-derive';
 import type { MetadataRequest, MetadataResponse } from './metadata.worker';
 import { reportWarning } from './report';
@@ -20,7 +19,10 @@ export class MetadataRunner {
 			this.current = { request, resolve };
 			if (!this.worker && !this.workerUnavailable && typeof Worker !== 'undefined') {
 				try {
-					this.worker = new MetadataWorker({ name: 'metadata' });
+					this.worker = new Worker(new URL('./metadata.worker.ts', import.meta.url), {
+						type: 'module',
+						name: 'metadata'
+					});
 					this.worker.onmessage = (event: MessageEvent<MetadataResponse>) =>
 						this.finish(event.data);
 					this.worker.onerror = (event) => {

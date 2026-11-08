@@ -257,10 +257,11 @@ Budget status for web-chromium: ok
 Startup, typing, read mode, WYSIWYG, project tree, presentation and export
 stages stay inside the same budgets as before the change.
 
-The reviewed precache limit is 411 entries. The large-document work adds one
-offline resource for the metadata-first library load. The metadata worker is
-inlined in its lazy transport chunk, the editor history cache stays behind the
-source and code editor boundary, and the draft helpers share one lazy chunk.
+The reviewed precache limit is 412 entries. The large-document work adds the
+metadata worker and one resource for the metadata-first library load. The worker
+stays a separate asset so every native WebView can start it; the editor history
+cache stays behind the source and code editor boundary, and the draft helpers
+share one lazy chunk.
 The gzip limit is unchanged. An extra entry requires a smaller merge or a new
 reviewed limit; a failed build does not raise it.
 
