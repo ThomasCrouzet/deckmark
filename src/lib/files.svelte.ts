@@ -551,11 +551,13 @@ class FilesStore {
 		const { loadDraftLibrary } = await import('./draft-load');
 		const loaded = await loadDraftLibrary(preferredActiveId, readPreference(ACTIVE_ID_KEY));
 		for (const row of loaded.persistedRows) this.saveQueue.trackPersisted(row);
+		// Load the wiki index module before publishing the files. A reactive read
+		// can run as soon as the library is assigned.
+		await this.metaIndex.load();
 		this.files = loaded.files;
 		this.closedFiles = loaded.closedFiles;
 		this.activeId = loaded.activeId;
 		this.metaIndex.invalidateBacklinksIndex();
-		await this.metaIndex.load();
 		await this.loadTrash();
 		this.loaded = true;
 		// Background FSA check - no await (must not block the display).

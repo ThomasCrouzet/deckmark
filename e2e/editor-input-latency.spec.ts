@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
-import { createHash } from 'node:crypto';
 import { enableTypewriter, installTypewriterProbe } from './typewriter-helpers';
 
 const counterKey = 'deckmark:editor-perf-counters';
