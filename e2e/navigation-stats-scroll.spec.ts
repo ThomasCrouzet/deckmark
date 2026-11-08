@@ -298,6 +298,10 @@ test('scroll controls reach both ends of long notes in every mode', async ({
 test('split navigation discards the outgoing file geometry during rapid jumps', async ({
 	page
 }, info) => {
+	// Two 340 and 370 heading notes exceed the default 30 s budget while WebKit
+	// inserts the fixture through real keyboard input. The navigation assertions
+	// below stay unchanged.
+	test.setTimeout(90_000);
 	await resetAppState(page);
 	const first = Array.from(
 		{ length: 340 },
