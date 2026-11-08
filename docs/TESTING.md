@@ -562,6 +562,25 @@ still reports coverage for diagnosis. No percentage target requires extra tests.
 
 ## Performance benchmarks and native WebView coverage
 
+### Gesture geometry cache risks
+
+Issue 317 retains these risks: equal-distance candidate order, signed connectors,
+moving connector targets, selected groups, fractional canvas scales, stale static
+geometry, slide dimensions, and queued frames after cancel, undo, or slide change.
+`src/lib/presentation/gestures-cache.test.ts` compares real gesture results with the
+previous scan over seeded layouts. It also counts stationary geometry reads. A
+browser timing sample cannot prove that no geometry read occurs or exhaustively
+check tie ordering. The isolated checks use the real editor and render geometry.
+
+Run `npx vitest run src/lib/presentation/gestures-cache.test.ts --maxWorkers=1`.
+Run `npx playwright test presentation-performance.spec.ts --project=chromium --workers=1`.
+The dense cases retain raw frame intervals, p50/p95, long tasks, fixture hashes,
+source identity, environment and browser identity. These additive measurements do
+not replace the existing strict performance assertions or native acceptance.
+Run the `gesture guides` case in `presentation-responsive-tasks.spec.ts` for
+visible pointer cancellation, undo, slide changes and exact keyboard nudges.
+Keep all reports local with the standard JSON and HTML run artifacts.
+
 Use `scripts/benchmark-local.mjs` for repeatable performance evidence. It is one
 command with two separate targets. A web run and a native run never share a
 result, because a browser process and a native WebView have different renderers,
