@@ -130,11 +130,15 @@ export default defineConfig(({ mode }) => {
 						groups: [
 							{
 								name(id: string): string | null {
-									// Startup state, notices, editor counters, and shared dependencies use one offline resource.
+									// Startup state, notices, editor counters, the save-age display and
+									// small editor helpers use one offline resource.
 									if (
 										id.endsWith('/src/lib/files.svelte.ts') ||
 										id.endsWith('/src/lib/components/Toasts.svelte') ||
-										id.endsWith('/src/lib/editor-perf.ts')
+										id.endsWith('/src/lib/editor-perf.ts') ||
+										id.endsWith('/src/lib/stats-ui.ts') ||
+										id.endsWith('/src/lib/stats.ts') ||
+										id.endsWith('/src/lib/code/native-adapter.ts')
 									)
 										return 'workspace-state';
 									// These dependency-free helpers share one small offline resource.
