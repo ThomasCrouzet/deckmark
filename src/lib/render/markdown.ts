@@ -8,12 +8,14 @@
 import 'katex/dist/katex.min.css';
 
 import { browser } from '$app/env';
-import { Marked, type Tokens } from 'marked';
-import hljs from 'highlight.js/lib/common';
-import katex from 'katex';
 import { escapeHTML } from '../file-utils';
 import { getTags, getTitle, parseFrontmatter } from '../frontmatter';
-import { preprocessWikiLinks, slugify } from '../wiki-links';
+import { slugify } from '../wiki-links';
+import { abortable, checkAborted } from '../abort';
+import { parseMarkdownJob } from './markdown-worker';
+import { RenderCache } from './render-cache';
+import { createRenderInstanceId } from './render-identity';
+import { recordRenderStage } from './render-stages';
 import { t } from '#lib/i18n/index.js';
 import {
 	applyRemoteImagePolicy,
@@ -24,20 +26,15 @@ import {
 import { prepareHtmlMedia } from './image-media';
 import { applyImageMetadataToHtml } from './image-markdown';
 
-type MathToken = Tokens.Generic & {
-	type: 'blockMath' | 'inlineMath';
-	text: string;
-	/** For inlineMath: `true` if rendered as display math (`$$…$$` mid-line). */
-	display?: boolean;
-};
-
-const MAX_HIGHLIGHT_CHARS = 100_000;
-
 export type MermaidTheme = 'default' | 'dark' | 'neutral' | 'forest';
 
 export interface RenderOptions {
+	signal?: AbortSignal;
+	/** Reuse only within one mounted document instance. */
+	instanceId?: string;
 	fileId?: string;
-	projectContext?: import('../project-media').ProjectContext;
+	/** Null means the captured file has no project, even before its draft save. */
+	projectContext?: import('../project-media').ProjectContext | null;
 	/** Mermaid theme: `default` (light) for PDF, `dark` for the app preview. */
 	mermaidTheme?: MermaidTheme;
 	/**
@@ -69,199 +66,66 @@ export interface RenderResult {
 	title?: string | undefined;
 }
 
-function renderMath(tex: string, displayMode: boolean): string {
-	try {
-		return katex.renderToString(tex, {
-			displayMode,
-			throwOnError: false,
-			strict: 'ignore',
-			output: 'htmlAndMathml',
-			trust: false
-		});
-	} catch {
-		const cls = displayMode ? 'math-error math-error-display' : 'math-error';
-		return displayMode
-			? `<div class="${cls}">${escapeHTML(tex)}</div>`
-			: `<span class="${cls}">${escapeHTML(tex)}</span>`;
-	}
-}
-
-function highlightCode(code: string, lang: string | undefined): string {
-	if (code.length > MAX_HIGHLIGHT_CHARS) return escapeHTML(code);
-	const language = lang && hljs.getLanguage(lang) ? lang : null;
-	if (language) {
-		return hljs.highlight(code, { language, ignoreIllegals: true }).value;
-	}
-	try {
-		return hljs.highlightAuto(code).value;
-	} catch {
-		return escapeHTML(code);
-	}
-}
-
-/**
- * Builds an isolated Marked instance. The `code` renderer captures
- * ```mermaid blocks in the sink passed via closure - guarantees isolation
- * between concurrent calls to `renderMarkdown` (no shared module state).
- *
- * The local `usedSlugs` Set guarantees heading id uniqueness within the doc
- * (two `# Hello` → `#hello` then `#hello-2`). Without dedup, the permalink
- * anchor and the TOC always point to the FIRST duplicated heading - copy/paste bug.
- */
-function buildMarked(mermaidSink: string[], headingPermalinks: boolean): Marked {
-	const marked = new Marked({ gfm: true, breaks: false, pedantic: false });
-	const usedSlugs = new Set<string>();
-
-	marked.use({
-		renderer: {
-			// §B4.5 - Discrete `#` anchor on hover over h1-h3, like GitHub /
-			// Obsidian / MDN. Lets you copy a permalink to a section. The
-			// slug reuses the shared `slugify` (cf. wiki-links.ts) to match
-			// the id pattern produced by the TOC.
-			heading({ tokens, depth, text }) {
-				// `parseInline` renders bold/italic/code/etc. in the title.
-				// `this` is rebound to the Marked instance at runtime.
-				const inner = this.parser.parseInline(tokens);
-				// `text` exposed by marked = concatenated raw text (no HTML).
-				// Consistent with the slug the TOC produces on the DOM side
-				// (Toc.svelte does `slugify(h.textContent)`).
-				const base = slugify(text).slice(0, 80) || `section-${depth}`;
-				let slug = base;
-				let suffix = 2;
-				while (usedSlugs.has(slug)) {
-					slug = `${base}-${suffix++}`;
-				}
-				usedSlugs.add(slug);
-				if (depth > 3 || !headingPermalinks) {
-					return `<h${depth} id="${slug}">${inner}</h${depth}>\n`;
-				}
-				return `<h${depth} id="${slug}">${inner}<a class="mdsh-anchor" href="#${slug}" tabindex="-1" aria-hidden="true"></a></h${depth}>\n`;
-			},
-			list(token) {
-				let body = '';
-				for (const item of token.items) {
-					body += this.listitem(item);
-				}
-				const type = token.ordered ? 'ol' : 'ul';
-				const startAttr = token.ordered && token.start !== 1 ? ` start="${token.start}"` : '';
-				const classAttr = token.items.some((item) => item.task)
-					? ' class="contains-task-list"'
-					: '';
-				return `<${type}${startAttr}${classAttr}>\n${body}</${type}>\n`;
-			},
-			listitem(item) {
-				const classAttr = item.task ? ' class="task-list-item"' : '';
-				return `<li${classAttr}>${this.parser.parse(item.tokens)}</li>\n`;
-			},
-			code({ text, lang }) {
-				// Mermaid: indexed placeholder (unique per call); rendered async post-parse.
-				if (lang === 'mermaid') {
-					const idx = mermaidSink.length;
-					mermaidSink.push(text);
-					return `<div class="mdsh-mermaid-placeholder" data-mermaid-idx="${idx}"></div>\n`;
-				}
-				const language = lang && hljs.getLanguage(lang) ? lang : null;
-				const highlighted = highlightCode(text, language ?? undefined);
-				const cls = language ? `hljs language-${language}` : 'hljs';
-				const omitted = text.length > MAX_HIGHLIGHT_CHARS ? ' data-mdsh-highlight="omitted"' : '';
-				// §B1.9 - `aria-label` on `<pre>` announces the block's
-				// language to the screen reader (e.g. "Code JavaScript").
-				// Without a label the SR just says "code" with no context.
-				// The `<pre>` stays readable character by character via cursor navigation.
-				const ariaLabel = language
-					? t('read.codeBlockLang', { lang: language })
-					: t('read.codeBlock');
-				return `<pre aria-label="${escapeHTML(ariaLabel)}"><code class="${cls}"${omitted}>${highlighted}</code></pre>\n`;
-			}
-		},
-		extensions: [
-			{
-				name: 'blockMath',
-				level: 'block',
-				start(src: string) {
-					// Only interrupt a paragraph for a `$$` AT THE START OF A LINE (block
-					// math is `$$` alone on its line). Otherwise a mid-line `$$…$$` would
-					// break the paragraph and prevent inline rendering.
-					let i = src.indexOf('$$');
-					while (i !== -1) {
-						if (i === 0 || src[i - 1] === '\n') return i;
-						i = src.indexOf('$$', i + 1);
-					}
-					return undefined;
-				},
-				tokenizer(src: string) {
-					const match = /^\$\$\s*\n?([\s\S]+?)\n?\s*\$\$(?:\s*\n|\s*$)/.exec(src);
-					if (!match) return;
-					// invariant: match[0] and match[1] are guaranteed after the `!match` guard
-					// (mandatory capture group `[\s\S]+?`).
-					return { type: 'blockMath', raw: match[0]!, text: match[1]!.trim() };
-				},
-				renderer(token) {
-					const t = token as MathToken;
-					return `<div class="math-block">${renderMath(t.text, true)}</div>\n`;
-				}
-			},
-			{
-				name: 'inlineMath',
-				level: 'inline',
-				start(src: string) {
-					const idx = src.indexOf('$');
-					return idx < 0 ? undefined : idx;
-				},
-				tokenizer(src: string) {
-					if (src.startsWith('$$')) {
-						// $$…$$ MID-line (the standalone block is already caught by
-						// blockMath). Rendered as inline display math rather than left as
-						// raw text. If not closed on the line, we let it through (no
-						// confusion with two $…$).
-						const block = /^\$\$([^\n]+?)\$\$/.exec(src);
-
-						if (block)
-							return {
-								type: 'inlineMath',
-								raw: block[0],
-								text: block[1]!.trim(),
-								display: true
-							};
-
-						return;
-					}
-					// Avoid prices like "$10" via the `(?!\d)` lookahead after the closing `$`.
-					const match = /^\$(?!\s)((?:\\\$|[^\n$])+?)(?<!\s)\$(?!\d)/.exec(src);
-					if (!match) return;
-					return { type: 'inlineMath', raw: match[0], text: match[1] };
-				},
-				renderer(token) {
-					const t = token as MathToken;
-					return renderMath(t.text, t.display === true);
-				}
-			}
-		]
-	});
-
-	return marked;
-}
-
 // ---------------------------------------------------------------------------
 // Mermaid - diagrams rendered as SVG, lazy-loaded. Global theme (mermaid
 // singleton): a re-init is forced if the requested theme changes.
 // ---------------------------------------------------------------------------
-interface MermaidCounter {
-	current: number;
+const diagramCache = new RenderCache(8 * 1024 * 1024, 256);
+
+function instanceSvg(svg: string, namespace: string): string {
+	const template = document.createElement('template');
+	template.innerHTML = svg;
+	const ids = new Map<string, string>();
+	for (const node of template.content.querySelectorAll('[id]')) {
+		const id = node.getAttribute('id')!;
+		const replacement = `${namespace}-${ids.size}`;
+		ids.set(id, replacement);
+		node.setAttribute('id', replacement);
+	}
+	for (const node of template.content.querySelectorAll('*')) {
+		for (const attribute of Array.from(node.attributes)) {
+			if (attribute.name === 'id') continue;
+			let value = attribute.value.replace(
+				/url\(\s*(['"]?)#([^)'"\s]+)\1\s*\)/g,
+				(match, quote: string, id: string) =>
+					ids.has(id) ? `url(${quote}#${ids.get(id)}${quote})` : match
+			);
+			if (attribute.name === 'href' || attribute.name === 'xlink:href') {
+				const id = value.startsWith('#') ? ids.get(value.slice(1)) : undefined;
+				if (id) value = `#${id}`;
+			} else if (attribute.name === 'aria-labelledby' || attribute.name === 'aria-describedby') {
+				value = value
+					.split(/\s+/)
+					.map((id) => ids.get(id) ?? id)
+					.join(' ');
+			}
+			if (value !== attribute.value) node.setAttribute(attribute.name, value);
+		}
+	}
+	return template.innerHTML;
 }
 
 async function renderMermaidDiagram(
 	code: string,
 	theme: MermaidTheme,
-	counter: MermaidCounter
+	namespace: string,
+	signal?: AbortSignal
 ): Promise<string> {
 	if (!browser) {
 		return `<pre class="mermaid-source"><code>${escapeHTML(code)}</code></pre>`;
 	}
 	try {
-		const id = `mdsh-mermaid-${++counter.current}`;
-		return await renderMermaidSvg(id, code, theme);
+		checkAborted(signal);
+		const key = JSON.stringify([code, theme]);
+		let svg = diagramCache.get(key);
+		if (svg === undefined) {
+			svg = await renderMermaidSvg(createRenderInstanceId(), code, theme, signal);
+			checkAborted(signal);
+			diagramCache.set(key, svg);
+		}
+		return instanceSvg(svg, namespace);
 	} catch (err) {
+		checkAborted(signal);
 		const msg = err instanceof Error ? err.message : String(err);
 		return `<div class="mermaid-error" role="alert">
 <strong>${escapeHTML(t('read.mermaidError'))}</strong>
@@ -286,16 +150,32 @@ async function renderMermaidDiagram(
 async function sanitize(
 	html: string,
 	allowRemoteImages: boolean,
-	preserveLocalImages: boolean
+	preserveLocalImages: boolean,
+	signal?: AbortSignal,
+	fileId?: string
 ): Promise<string> {
 	// Shared hook (sanitize-html): external links get noopener, remote style
 	// url() beacons are stripped. Same hook as the WYSIWYG Mermaid preview.
 	// Live blob URLs are embedded before DOMPurify sees them. This recovers
 	// documents created by older builds while the original blob is still alive.
+	let started = performance.now();
 	const prepared = preserveLocalImages
 		? html
-		: (await prepareHtmlMedia(html, { allowNetwork: false })).html;
-	return applyRemoteImagePolicy(await sanitizeHtml(prepared, MARKDOWN_PURIFY), allowRemoteImages);
+		: (await prepareHtmlMedia(html, { allowNetwork: false, signal })).html;
+	checkAborted(signal);
+	recordRenderStage(
+		{ stage: 'media', durationMs: performance.now() - started, thread: 'main' },
+		fileId
+	);
+	started = performance.now();
+	const clean = await abortable(sanitizeHtml(prepared, MARKDOWN_PURIFY), signal);
+	checkAborted(signal);
+	const result = applyRemoteImagePolicy(clean, allowRemoteImages);
+	recordRenderStage(
+		{ stage: 'sanitize', durationMs: performance.now() - started, thread: 'main' },
+		fileId
+	);
+	return result;
 }
 
 /**
@@ -381,37 +261,65 @@ async function renderMarkdownCore(
 	md: string,
 	opts: RenderOptions = {}
 ): Promise<{ html: string; fm: Awaited<ReturnType<typeof parseFrontmatter>> }> {
-	// 1. Extract the front-matter (lazy gray-matter via parseFrontmatter).
-	const fm = await parseFrontmatter(md);
-
-	// 2. Pre-process wiki-links on the content (after front-matter so we don't
-	//    accidentally transform a YAML block that contains `[[]]`).
-	const preprocessed = opts.wikiLinks === false ? fm.content : preprocessWikiLinks(fm.content);
-
-	const mermaidCodes: string[] = [];
-	// Call-local counter: no shared module state. Mermaid IDs may collide
-	// between two calls - no impact since the DOM is replaced between renders
-	// and mermaid uses the IDs as internal references within the SVG (which is
-	// then injected via innerHTML).
-	const counter: MermaidCounter = { current: 0 };
-	const marked = buildMarked(mermaidCodes, opts.headingPermalinks === true);
-
-	const htmlRaw = marked.parse(preprocessed, { async: false });
-	let html = applyImageMetadataToHtml(preprocessed, typeof htmlRaw === 'string' ? htmlRaw : '');
-
-	if (mermaidCodes.length > 0) {
-		const theme = opts.mermaidTheme ?? 'default';
-		// Mermaid is a singleton (global state: theme, internal IDs) - sequential
-		// rendering is mandatory to avoid any pollution between diagrams.
-		for (let i = 0; i < mermaidCodes.length; i++) {
-			// invariant: i < mermaidCodes.length guarantees mermaidCodes[i] is defined.
-			const svg = await renderMermaidDiagram(mermaidCodes[i]!, theme, counter);
-			const placeholder = `<div class="mdsh-mermaid-placeholder" data-mermaid-idx="${i}"></div>`;
-			// Replacement function: avoids interpreting the `$&`, `$1`, `$$` etc.
-			// patterns that could appear in the Mermaid SVG's text/ids.
-			html = html.replace(placeholder, () => `<div class="mermaid-block">${svg}</div>`);
-		}
+	const signal = opts.signal;
+	checkAborted(signal);
+	let started = performance.now();
+	const fm = await abortable(parseFrontmatter(md), signal);
+	checkAborted(signal);
+	recordRenderStage(
+		{ stage: 'frontmatter', durationMs: performance.now() - started, thread: 'main' },
+		opts.fileId
+	);
+	const parsed = await parseMarkdownJob(
+		{
+			content: fm.content,
+			wikiLinks: opts.wikiLinks !== false,
+			headingPermalinks: opts.headingPermalinks === true,
+			codeLabel: t('read.codeBlock'),
+			codeLanguageLabel: t('read.codeBlockLang', { lang: '{lang}' })
+		},
+		signal
+	);
+	checkAborted(signal);
+	for (const stage of parsed.stages) recordRenderStage(stage, opts.fileId);
+	let html = applyImageMetadataToHtml(parsed.source, parsed.html);
+	const namespace =
+		opts.instanceId && /^mdsh-render-\d+$/.test(opts.instanceId)
+			? opts.instanceId
+			: createRenderInstanceId();
+	const diagrams: string[] = [];
+	started = performance.now();
+	const hits = diagramCache.hits;
+	const misses = diagramCache.misses;
+	for (let i = 0; i < parsed.mermaidCodes.length; i++) {
+		checkAborted(signal);
+		const svg = await renderMermaidDiagram(
+			parsed.mermaidCodes[i]!,
+			opts.mermaidTheme ?? 'default',
+			`${namespace}-${i}`,
+			signal
+		);
+		diagrams.push(`<div class="mermaid-block">${svg}</div>`);
+		if (i % 16 === 15)
+			await abortable(new Promise<void>((resolve) => setTimeout(resolve, 0)), signal);
 	}
+	checkAborted(signal);
+	// Assemble all placeholders in one scan. Function replacement preserves literal dollars.
+	html = html.replace(
+		/<div class="mdsh-mermaid-placeholder" data-mermaid-idx="(\d+)"><\/div>/g,
+		(_match, index: string) => diagrams[Number(index)] ?? ''
+	);
+	recordRenderStage(
+		{
+			stage: 'diagrams',
+			durationMs: performance.now() - started,
+			thread: 'main',
+			cacheHits: diagramCache.hits - hits,
+			cacheMisses: diagramCache.misses - misses,
+			cache: diagramCache.usage()
+		},
+		opts.fileId
+	);
 
 	// 3. Front-matter block at the top (preview + PDF). Sanitized with the rest
 	//    of the HTML by DOMPurify - no path bypassing the sanitize pass.
@@ -421,14 +329,30 @@ async function renderMarkdownCore(
 		if (block) html = block + html;
 	}
 
-	if (opts.fileId || opts.projectContext) {
+	if (opts.projectContext !== null && (opts.fileId || opts.projectContext)) {
+		checkAborted(signal);
 		const { projectContextFor, resolveProjectHtmlImages } = await import('../project-media');
 		const context =
 			opts.projectContext ?? (opts.fileId ? await projectContextFor(opts.fileId) : undefined);
-		if (context) html = await resolveProjectHtmlImages(html, context);
+		checkAborted(signal);
+		if (context) html = await resolveProjectHtmlImages(html, context, signal);
 	}
+	checkAborted(signal);
+	started = performance.now();
+	const clean = await sanitize(
+		html,
+		opts.allowRemoteImages === true,
+		opts.preserveLocalImages === true,
+		signal,
+		opts.fileId
+	);
+	recordRenderStage(
+		{ stage: 'media-sanitize', durationMs: performance.now() - started, thread: 'main' },
+		opts.fileId
+	);
+	checkAborted(signal);
 	return {
-		html: await sanitize(html, opts.allowRemoteImages === true, opts.preserveLocalImages === true),
+		html: clean,
 		fm
 	};
 }
@@ -460,7 +384,7 @@ export async function renderMarkdownDetailed(
 // Implicit re-export of `slugify` for module consumers who want to
 // regenerate an anchor id on the client side (consistent with the slug set
 // on the `<a class="wiki-link">`).
-export { slugify };
+export { slugify, createRenderInstanceId };
 
 /**
  * Tests whether Markdown contains math notation. The inline pattern matches the

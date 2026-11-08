@@ -69,6 +69,24 @@ cheaply. Run
 The browser workflow still proves selection mapping, scroll position, durable
 bytes and the feedback loop through the application.
 
+### Incremental Read rendering risks
+
+Before a renderer change, retain these failure cases: cancelled work can replace a
+new file or theme; a section edit can replace all diagram and code nodes; cached
+SVG identifiers can collide or lose fragment references; cached output can retain
+old media consent or project membership; a width change can leave stale geometry;
+and a preview optimization can omit the end of an HTML or print export. Markdown
+reference definitions and duplicate headings need document-global parsing.
+
+`rendering.spec.ts` retains DOM handles across a Split edit and checks a complete
+101-diagram, 1000-heading HTML download. `read-preview-isolation.spec.ts` checks
+delayed file and theme work and layout identity after a width change. Existing
+rendering and media-consent cases check offline HTML, PDF and blocked requests.
+Run the focused Chromium specs with one worker and retain the standard JSON/HTML
+reports, trace, fixture source, downloaded HTML and source identity. Performance
+diagnostics must keep raw samples and explicit engine support limits. A diagnostic
+without enforced budgets is not a strict gate result.
+
 ### Versioned JSON worker risks
 
 The JSON browser workflows retain these risks: a full parse on the input thread,

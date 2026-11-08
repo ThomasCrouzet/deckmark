@@ -186,3 +186,113 @@ test('a same-file theme render retains its preview and link context', async ({
 		await releaseImageDecode(page);
 	}
 });
+
+test('publishes render and layout identities after mount and width changes', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await importFixture(page);
+	await page.locator('[data-mode=read]').click();
+	const article = page.locator('.mdsh-preview');
+	await expect(article.locator('h1')).toHaveText('Alpha preview');
+	await expect(article).toHaveAttribute('data-render-generation', /[1-9]\d*/);
+	const rendered = await article.getAttribute('data-render-generation');
+	const layout = await article.getAttribute('data-layout-generation');
+	await page.setViewportSize({ width: 900, height: 720 });
+	await expect.poll(() => article.getAttribute('data-layout-generation')).not.toBe(layout);
+	expect(await article.getAttribute('data-render-generation')).toBe(rendered);
+	await info.attach('layout-identity.json', {
+		body: JSON.stringify({
+			rendered,
+			layout,
+			resized: await article.getAttribute('data-layout-generation')
+		}),
+		contentType: 'application/json'
+	});
+});
+
+test('terminates an obsolete parser Worker before its module loads', async ({ page }, info) => {
+	await resetAppState(page);
+	await importFixture(page);
+	let release!: () => void;
+	let requested = false;
+	const gate = new Promise<void>((resolve) => (release = resolve));
+	await page.route('**/markdown.worker-*.js', async (route) => {
+		requested = true;
+		await gate;
+		await route.continue().catch(() => undefined);
+	});
+	await page.locator('[data-mode=read]').click();
+	try {
+		await expect.poll(() => requested).toBe(true);
+		await page.locator('[data-mode=source]').click();
+		release();
+		await expect(page.locator('.cm-content')).toBeVisible();
+		await expect(page.locator('.mdsh-preview')).toHaveCount(0);
+		await selectFile(page, 'Beta');
+		await page.locator('[data-mode=read]').click();
+		await expect(page.locator('.mdsh-preview h1')).toHaveText('Beta preview');
+		const workers = page.workers().filter((worker) => worker.url().includes('markdown.worker'));
+		expect(workers).toHaveLength(1);
+		await info.attach('cancelled-worker.json', {
+			body: JSON.stringify({
+				delayedRequest: requested,
+				activeWorkers: workers.map((worker) => worker.url()),
+				acceptedFile: await activeFileId(page)
+			}),
+			contentType: 'application/json'
+		});
+	} finally {
+		release();
+		if (!page.isClosed()) await page.unroute('**/markdown.worker-*.js');
+	}
+});
+
+test('invalidates a preview when project membership changes without a text change', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await importFixture(page);
+	await page.locator('[data-mode=read]').click();
+	const article = page.locator('.mdsh-preview');
+	await expect(article.locator('h1')).toHaveText('Alpha preview');
+	const before = await article.getAttribute('data-render-generation');
+	const id = await activeFileId(page);
+	await page.evaluate(async (id) => {
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onsuccess = () => {
+				const db = request.result;
+				const transaction = db.transaction('drafts', 'readwrite');
+				const store = transaction.objectStore('drafts');
+				const get = store.get(id!);
+				get.onsuccess = () => {
+					const row = get.result;
+					delete row.projectId;
+					delete row.relativePath;
+					row.updatedAt = Date.now() + 1000;
+					store.put(row);
+				};
+				transaction.oncomplete = () => {
+					db.close();
+					resolve();
+				};
+				transaction.onerror = () => reject(transaction.error);
+			};
+			request.onerror = () => reject(request.error);
+		});
+		const channel = new BroadcastChannel('mdsh');
+		channel.postMessage({ type: 'draft-written', id, updatedAt: Date.now() + 1000 });
+		channel.close();
+	}, id);
+	await expect.poll(() => article.getAttribute('data-render-generation')).not.toBe(before);
+	await expect(article.locator('h1')).toHaveText('Alpha preview');
+	await info.attach('membership-identity.json', {
+		body: JSON.stringify({
+			id,
+			before,
+			after: await article.getAttribute('data-render-generation')
+		}),
+		contentType: 'application/json'
+	});
+});

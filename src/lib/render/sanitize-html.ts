@@ -1,4 +1,5 @@
 import { t } from '#lib/i18n/index.js';
+import { abortable, checkAborted } from '../abort';
 
 // Shared DOMPurify helpers for markdown HTML (reading / export / print)
 // and the WYSIWYG Mermaid preview. Both paths must neutralize remote
@@ -336,11 +337,15 @@ let mermaidQueue: Promise<unknown> = Promise.resolve();
 export function renderMermaidSvg(
 	id: string,
 	code: string,
-	theme: 'default' | 'dark' | 'neutral' | 'forest'
+	theme: 'default' | 'dark' | 'neutral' | 'forest',
+	signal?: AbortSignal
 ): Promise<string> {
 	const rendering = mermaidQueue.then(async () => {
+		checkAborted(signal);
 		await assertMermaidMediaSafe(code);
+		checkAborted(signal);
 		const { default: mermaid } = await import('mermaid');
+		checkAborted(signal);
 		mermaid.initialize({
 			startOnLoad: false,
 			securityLevel: 'strict',
@@ -367,10 +372,11 @@ export function renderMermaidSvg(
 			fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 		});
 		const { svg } = await mermaid.render(id, code);
+		checkAborted(signal);
 		return inlineMermaidStyles(svg);
 	});
 	mermaidQueue = rendering.catch(() => undefined);
-	return rendering;
+	return abortable(rendering, signal);
 }
 
 /** DOMPurify config for the WYSIWYG Mermaid preview (native SVG labels). */
