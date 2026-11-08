@@ -8,7 +8,7 @@
 	import { notify } from '#lib/notify.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import { convertLineEndings, detectLineEnding } from '#lib/code/text-changes.js';
-	import { SourceText } from '#lib/code/source-text.js';
+	import { SourceText } from '#lib/source-extensions.js';
 	import { loadCodeLanguage, resolveCodeLanguage } from '#lib/code/languages.js';
 	import {
 		hasJsonSchemaValidator,

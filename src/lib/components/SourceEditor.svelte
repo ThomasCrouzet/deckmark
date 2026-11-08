@@ -7,7 +7,7 @@
 	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
-	import { SourceText } from '#lib/code/source-text.js';
+	import type { SourceText } from '#lib/code/source-text.js';
 	import { resolveRejectedNativeChange } from '#lib/code/native-adapter.js';
 	import type {
 		DocumentChange,
@@ -90,6 +90,7 @@
 	let applyingExternal = false;
 	// Immutable raw bytes for the mounted document. Ordinary changes update this
 	// buffer without scanning line endings or materializing the full string.
+	let SourceTextImpl: typeof SourceText | null = null;
 	let buffer: SourceText | null = null;
 	let publishTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastPublishAt = Number.NEGATIVE_INFINITY;
@@ -113,12 +114,17 @@
 	const PRESENTATION_MARKER = '<!-- mdsh-presentation';
 	const MAX_GUARD_LINE = 4096;
 
+	function createSourceText(source: string, doc: import('@codemirror/state').Text): SourceText {
+		if (!SourceTextImpl) throw new Error('source text module is not loaded');
+		return SourceTextImpl.create(source, doc);
+	}
+
 	function candidateBuffer(transaction: Transaction): SourceText {
-		if (!buffer) return SourceText.create(transaction.newDoc.toString(), transaction.newDoc);
+		if (!buffer) return createSourceText(transaction.newDoc.toString(), transaction.newDoc);
 		try {
 			return buffer.apply(transaction.changes, transaction.newDoc);
 		} catch {
-			return SourceText.create(transaction.newDoc.toString(), transaction.newDoc);
+			return createSourceText(transaction.newDoc.toString(), transaction.newDoc);
 		}
 	}
 
@@ -126,12 +132,12 @@
 		changes: ChangeSet,
 		doc: import('@codemirror/state').Text
 	): SourceText {
-		if (!buffer) return SourceText.create(doc.toString(), doc);
+		if (!buffer) return createSourceText(doc.toString(), doc);
 		try {
 			return buffer.apply(changes, doc);
 		} catch (error) {
 			reportError('source buffer resync', error);
-			return SourceText.create(doc.toString(), doc);
+			return createSourceText(doc.toString(), doc);
 		}
 	}
 
@@ -388,6 +394,7 @@
 					import('@codemirror/language'),
 					import('@codemirror/search')
 				]);
+				SourceTextImpl = lang.SourceText;
 				return {
 					EditorState: state.EditorState,
 					imageData: lang.imageData,
@@ -678,7 +685,7 @@
 		onCursorLine?.(view.state.doc.lineAt(view.state.selection.main.head).number);
 		onViewportLine?.(view.state.doc.lineAt(view.viewport.from).number);
 		lastEmitted = content;
-		buffer = SourceText.create(content, view.state.doc);
+		buffer = createSourceText(content, view.state.doc);
 		sourceHasPresentationMarker = content.includes(PRESENTATION_MARKER);
 		acceptedBase = nativeCapable() ? (getRevision?.(fileId) ?? null) : null;
 		nativeBlocked = false;
@@ -771,7 +778,7 @@
 			} finally {
 				applyingExternal = false;
 			}
-			buffer = SourceText.create(c, view.state.doc);
+			buffer = createSourceText(c, view.state.doc);
 			return;
 		}
 		if (c !== lastEmitted) {
@@ -788,7 +795,7 @@
 			} finally {
 				applyingExternal = false;
 			}
-			buffer = SourceText.create(c, view.state.doc);
+			buffer = createSourceText(c, view.state.doc);
 		}
 	});
 
