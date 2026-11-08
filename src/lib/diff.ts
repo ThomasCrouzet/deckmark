@@ -224,18 +224,36 @@ export function lineDiff(
 	const afterMiddle = after.slice(prefix, after.length - suffix);
 	const cells = (beforeMiddle.length + 1) * (afterMiddle.length + 1);
 	const approximate = cells > maxMatrixCells;
-	const prefixLines: RawLine[] = before.slice(0, prefix).map((text, index) => ({
-		kind: 'equal',
-		oldLine: index + 1,
-		newLine: index + 1,
-		text
-	}));
-	const suffixLines: RawLine[] = before.slice(before.length - suffix).map((text, index) => ({
-		kind: 'equal',
-		oldLine: before.length - suffix + index + 1,
-		newLine: after.length - suffix + index + 1,
-		text
-	}));
+	// Equal boundaries can contain tens of thousands of lines. Keep only the
+	// context that a collapsed diff can display and summarize the rest.
+	const equalBoundary = (
+		values: string[],
+		oldOffset: number,
+		newOffset: number
+	): Array<RawLine | DiffLine> => {
+		const toLine = (index: number): RawLine => ({
+			kind: 'equal',
+			oldLine: oldOffset + index + 1,
+			newLine: newOffset + index + 1,
+			text: values[index]! as string
+		});
+		const keep = Math.max(1, contextLines);
+		if (values.length <= keep * 2 + 1) return values.map((_value, index) => toLine(index));
+		const omitted = values.length - keep * 2;
+		return [
+			...values.slice(0, keep).map((_value, index) => toLine(index)),
+			skipLine(omitted, omitted),
+			...values
+				.slice(values.length - keep)
+				.map((_value, index) => toLine(values.length - keep + index))
+		];
+	};
+	const prefixLines = equalBoundary(before.slice(0, prefix), 0, 0);
+	const suffixLines = equalBoundary(
+		before.slice(before.length - suffix),
+		before.length - suffix,
+		after.length - suffix
+	);
 	const middle = approximate
 		? boundedChangedLines(
 				beforeMiddle,

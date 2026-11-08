@@ -24,6 +24,11 @@ export async function conflictOccupancy(projectId?: string): Promise<ConflictOcc
 	if (!transaction?.idbtrans) return null;
 	try {
 		const store = transaction.idbtrans.objectStore('drafts');
+		const total = await new Promise<number>((resolve, reject) => {
+			const request = store.count();
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => resolve(request.result);
+		});
 		const names: string[] = [];
 		let maxOrder = -1;
 		const occupied = new Set<string>();
@@ -46,6 +51,8 @@ export async function conflictOccupancy(projectId?: string): Promise<ConflictOcc
 				cursor.continue();
 			};
 		});
+		// A damaged or partially migrated manifest cannot supply safe names.
+		if (names.length !== total) return null;
 		if (projectId) {
 			await new Promise<void>((resolve, reject) => {
 				const request = store.index('[projectId+path]').openKeyCursor();

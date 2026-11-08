@@ -9,12 +9,13 @@
 		indexFiles,
 		search,
 		SEMANTIC_MODELS,
-		trainCooccurrenceModel,
 		type Embedder,
 		type SemanticHit,
-		type SemanticModelId
+		type SemanticModelId,
+		cachedCooccurrenceEmbedder
 	} from '#lib/semantic-search.js';
 	import { t } from '#lib/i18n/index.js';
+	import type { FileItem } from '#lib/types.js';
 
 	let {
 		open,
@@ -76,10 +77,15 @@
 		return files;
 	}
 
-	async function ensureEmbedder() {
+	async function ensureEmbedder(files: FileItem[]) {
 		embedder =
 			modelId === 'cooccurrence-v1'
-				? trainCooccurrenceModel((await scopeFiles()).map((file) => file.content))
+				? cachedCooccurrenceEmbedder(
+						`${projectId ?? 'library'}|${files
+							.map((file) => `${file.id}:${file.updatedAt}:${file.content.length}`)
+							.join(',')}`,
+						files.map((file) => file.content)
+					)
 				: featureModel;
 	}
 
@@ -89,7 +95,7 @@
 		try {
 			const files = await scopeFiles();
 			const existing = await scopeRows();
-			await ensureEmbedder();
+			await ensureEmbedder(files);
 			const rows = indexFiles(files, existing, projectId, embedder);
 			modelMismatch = false;
 			await db.transaction('rw', db.semanticIndex, async () => {
@@ -111,7 +117,7 @@
 			results = [];
 			return;
 		}
-		await ensureEmbedder();
+		await ensureEmbedder(await scopeFiles());
 		results = search(rows, query, embedder);
 	}
 

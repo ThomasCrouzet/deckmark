@@ -148,6 +148,54 @@ export async function pruneVersions(draftId: string, now = Date.now()): Promise<
 	return toDelete.length;
 }
 
+export interface VersionSummary {
+	id: string;
+	createdAt: number;
+}
+
+/**
+ * Lists version identities and timestamps without materializing every stored
+ * body. The panel then loads only the selected version.
+ */
+export async function listVersionSummaries(draftId: string): Promise<VersionSummary[]> {
+	const idb = db.backendDB();
+	return new Promise<VersionSummary[]>((resolve, reject) => {
+		let transaction: IDBTransaction;
+		try {
+			transaction = idb.transaction('versions', 'readonly');
+		} catch (error) {
+			reject(error);
+			return;
+		}
+		const summaries: VersionSummary[] = [];
+		const range = IDBKeyRange.bound(
+			[draftId, Number.NEGATIVE_INFINITY],
+			[draftId, Number.POSITIVE_INFINITY]
+		);
+		const request = transaction
+			.objectStore('versions')
+			.index('[draftId+createdAt]')
+			.openKeyCursor(range);
+		request.onerror = () => reject(request.error);
+		request.onsuccess = () => {
+			const cursor = request.result;
+			if (!cursor) return;
+			const key = cursor.key;
+			if (Array.isArray(key) && typeof key[1] === 'number')
+				summaries.push({ id: cursor.primaryKey as string, createdAt: key[1] });
+			cursor.continue();
+		};
+		transaction.oncomplete = () => resolve(summaries.reverse());
+		transaction.onerror = () => reject(transaction.error);
+		transaction.onabort = () => reject(transaction.error);
+	});
+}
+
+/** Loads one version body for preview or restore. */
+export async function getVersion(id: string): Promise<VersionRow | undefined> {
+	return db.versions.get(id);
+}
+
 /** Lists a file's versions, most recent first. */
 export async function listVersions(draftId: string): Promise<VersionRow[]> {
 	const all = await db.versions.where('draftId').equals(draftId).sortBy('createdAt');

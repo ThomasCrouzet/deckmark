@@ -349,7 +349,19 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					new Map(snapshot.map((file) => [file.id, file])),
 					rewrite
 				);
-				await nativeRename.commit();
+				try {
+					await nativeRename.commit();
+				} catch {
+					// The disk rename and draft rows already committed. A transient
+					// baseline write failure must not report a false rename failure.
+					await new Promise((resolve) => setTimeout(resolve, 250));
+					try {
+						await nativeRename.commit();
+					} catch (second) {
+						reportError('project rename baseline', second);
+						notify.info(t('projects.renameBaselinePending'));
+					}
+				}
 				return true;
 			} catch (error) {
 				if (nativeRename && !committed) {

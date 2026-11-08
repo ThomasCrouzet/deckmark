@@ -110,6 +110,7 @@
 	/** Fingerprint of the last corpus posted to the worker - skip full
 	 *  structured-clone when the snapshot is unchanged (id + updatedAt). */
 	let lastCorpusFingerprint = '';
+	let lastCorpusFiles = new Map<string, { updatedAt: number; name: string; length: number }>();
 
 	let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 	function stopWorker(): void {
@@ -210,6 +211,25 @@
 		const fingerprint = corpusFingerprint(meta);
 		const corpusChanged = fingerprint !== lastCorpusFingerprint;
 		if (corpusChanged) lastCorpusFingerprint = fingerprint;
+		const changed = corpus.filter((file) => {
+			const previous = lastCorpusFiles.get(file.id);
+			return (
+				!previous ||
+				previous.updatedAt !== file.updatedAt ||
+				previous.name !== file.name ||
+				previous.length !== file.content.length
+			);
+		});
+		const ids = new Set(corpus.map((file) => file.id));
+		const removed = [...lastCorpusFiles.keys()].filter((id) => !ids.has(id));
+		const sync: 'replace' | 'delta' = lastCorpusFiles.size === 0 ? 'replace' : 'delta';
+		if (corpusChanged)
+			lastCorpusFiles = new Map(
+				corpus.map((file) => [
+					file.id,
+					{ updatedAt: file.updatedAt, name: file.name, length: file.content.length }
+				])
+			);
 		const send = (files?: Array<{ id: string; name: string; content: string }>) => {
 			if (lastSentQueryId !== id) return;
 			const activeWorker = worker;
@@ -220,7 +240,7 @@
 				caseSensitive,
 				wholeWord,
 				useRegex,
-				...(corpusChanged && files ? { files } : {})
+				...(corpusChanged && files ? { files, sync, removed } : {})
 			};
 			try {
 				activeWorker.postMessage(req);
@@ -240,7 +260,7 @@
 			send();
 			return;
 		}
-		const snapshot = untrack(() => [...corpus]);
+		const snapshot = untrack(() => [...changed]);
 		if (!snapshot.some((file) => file.contentDeferred)) {
 			send(snapshot.map((file) => ({ id: file.id, name: file.name, content: file.content })));
 			return;

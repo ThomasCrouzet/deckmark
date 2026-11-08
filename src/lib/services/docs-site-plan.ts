@@ -4,7 +4,8 @@
 
 import { IMPORT_LIMITS } from '../config';
 import { projectDocumentLimit } from '../project-limits';
-import { documentHeadings, HeadingIdAllocator } from '../document-navigation';
+import { sourceHeadingIndex } from '../document-navigation';
+import { HeadingIdAllocator } from '../heading-ids';
 import { stripFileExtension } from '../file-utils';
 import {
 	isExternalDestination,
@@ -171,7 +172,7 @@ export function docsSiteIssue(
 export function headingAnchorIds(markdown: string): Set<string> {
 	const ids = new Set<string>();
 	const allocator = new HeadingIdAllocator();
-	for (const heading of documentHeadings(markdown)) {
+	for (const heading of sourceHeadingIndex(markdown).headings) {
 		const base = slugify(heading.text).slice(0, 80) || `section-${heading.level}`;
 		ids.add(allocator.allocate(base));
 	}

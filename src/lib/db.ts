@@ -241,15 +241,32 @@ class MdshDB extends Dexie {
 						row.manifest = encodeDraftManifest(row);
 					})
 			);
+		// v10: derived title, tags and wiki targets for deferred closed bodies.
+		// A second index keeps the compact manifest key small. The draft hook
+		// updates both projections in the same write transaction.
+		this.version(10)
+			.stores({
+				drafts: 'id, updatedAt, order, projectId, &[projectId+relativePath], manifest, metadata'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<DraftRow>('drafts')
+					.toCollection()
+					.modify((row) => {
+						row.metadata = encodeDraftMetadata(row);
+					})
+			);
 
 		this.drafts.hook('creating', (_primaryKey, row) => {
 			row.manifest = encodeDraftManifest(row);
+			row.metadata = encodeDraftMetadata(row);
 		});
 		this.drafts.hook('updating', (modifications, _primaryKey, row) => {
-			(modifications as Partial<DraftRow>).manifest = encodeDraftManifest({
-				...row,
-				...modifications
-			} as DraftRow);
+			const merged = { ...row, ...modifications } as DraftRow;
+			return {
+				manifest: encodeDraftManifest(merged),
+				metadata: encodeDraftMetadata(merged)
+			};
 		});
 	}
 }

@@ -3,6 +3,7 @@
 	import { X } from '@lucide/svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { filesStore } from '#lib/files.svelte.js';
+	import { documentKindForFile } from '#lib/document-kind.js';
 	import {
 		buildLinkReport,
 		detachInclude,
@@ -26,7 +27,17 @@
 	onMount(refresh);
 
 	async function refresh() {
-		await filesStore.ensureLibraryContent();
+		const needed = filesStore.library
+			.filter(
+				(file) =>
+					file.contentDeferred &&
+					documentKindForFile(file) === 'note' &&
+					(file.derivedMetadata?.hasBlocks ||
+						file.derivedMetadata?.hasIncludes ||
+						!file.derivedMetadata)
+			)
+			.map((file) => file.id);
+		await filesStore.ensureContent(needed);
 		blocks = filesStore.library.flatMap((file) => extractBlocks(file));
 		reports = buildLinkReport(filesStore.library);
 		if (!blocks.some((block) => block.fileId === sourceId)) sourceId = blocks[0]?.fileId ?? '';

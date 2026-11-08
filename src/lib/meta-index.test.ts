@@ -35,7 +35,9 @@ describe('Deferred metadata projection', () => {
 					title: 'Durable title',
 					documentTitle: 'Durable title',
 					tags: ['alpha', 'beta'],
-					targets: ['Visible']
+					targets: ['Visible'],
+					hasBlocks: false,
+					hasIncludes: false
 				}
 			}),
 			makeFile({ id: 'visible', name: 'Visible.md', content: '# Visible\n' })

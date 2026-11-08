@@ -741,15 +741,19 @@ pub async fn disk_open_dialog(
     capabilities: tauri::State<'_, CapabilityStore>,
     multiple: bool,
 ) -> Result<Vec<DiskGrant>, String> {
-    let builder = app
-        .dialog()
-        .file()
-        .add_filter("Markdown and text", ALLOWED_READ_EXTS);
-    let selected = if multiple {
-        builder.blocking_pick_files().unwrap_or_default()
-    } else {
-        builder.blocking_pick_file().into_iter().collect()
-    };
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        let builder = app
+            .dialog()
+            .file()
+            .add_filter("Markdown and text", ALLOWED_READ_EXTS);
+        if multiple {
+            builder.blocking_pick_files().unwrap_or_default()
+        } else {
+            builder.blocking_pick_file().into_iter().collect()
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?;
     let paths = selected
         .into_iter()
         .map(|file_path| file_path.into_path().map_err(|error| error.to_string()))
@@ -773,12 +777,19 @@ pub async fn disk_save_dialog(
     } else {
         ALLOWED_READ_EXTS
     };
-    let selected = app
-        .dialog()
-        .file()
-        .add_filter("Supported files", extensions)
-        .set_file_name(&suggested_name)
-        .blocking_save_file();
+    let extensions = extensions.to_vec();
+    let selected = {
+        let suggested_name = suggested_name.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            app.dialog()
+                .file()
+                .add_filter("Supported files", &extensions)
+                .set_file_name(&suggested_name)
+                .blocking_save_file()
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
     let selected = selected
         .map(|file_path| file_path.into_path().map_err(|error| error.to_string()))
         .transpose()?;
@@ -790,7 +801,12 @@ pub async fn disk_open_directory(
     app: tauri::AppHandle,
     capabilities: tauri::State<'_, CapabilityStore>,
 ) -> Result<Vec<DiskGrant>, String> {
-    let Some(selected) = app.dialog().file().blocking_pick_folder() else {
+    let Some(selected) = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().blocking_pick_folder()
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    else {
         return Ok(Vec::new());
     };
     let root = selected.into_path().map_err(|error| error.to_string())?;

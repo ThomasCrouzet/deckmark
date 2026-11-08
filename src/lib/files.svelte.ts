@@ -941,6 +941,37 @@ class FilesStore {
 		if (!detached) return;
 		this.closedFiles.push(detached.file);
 		this.saveQueue.persist(this.capturedDraftRow(detached.file, detached.index, false));
+		void this.flushPendingAwait()
+			.then(() => this.reclaimClosedBodies())
+			.catch(() => undefined);
+	}
+
+	/**
+	 * Keeps closed bodies within a byte budget. A body is cleared only after its
+	 * durable row exists; the derived metadata projection keeps titles, tags and
+	 * backlinks available until the file is opened again.
+	 */
+	private async reclaimClosedBodies(): Promise<void> {
+		const BUDGET = 2 * 1024 * 1024;
+		let retained = 0;
+		for (const file of this.files) retained += file.content.length + (file.data?.length ?? 0);
+		for (const file of this.closedFiles) retained += file.content.length + (file.data?.length ?? 0);
+		if (retained <= BUDGET) return;
+		const { draftMetadataFor } = await import('./draft-metadata');
+		for (const file of this.closedFiles) {
+			if (retained <= BUDGET) break;
+			if (!file.content && !file.data) continue;
+			if (file.dirty || this.saveQueue.has(file.id)) continue;
+			if (this.pendingContentLoads.has(file.id)) continue;
+			const bytes = file.content.length + (file.data?.length ?? 0);
+			file.derivedMetadata ??= draftMetadataFor({
+				...this.capturedDraftRow(file, 0, false)
+			});
+			file.content = '';
+			delete file.data;
+			file.contentDeferred = true;
+			retained -= bytes;
+		}
 	}
 
 	/** Moves a document to the durable trash. This is distinct from closing a tab. */

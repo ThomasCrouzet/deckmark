@@ -3,7 +3,7 @@ import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import { escapeHTML } from '../html-escape';
 import { preprocessWikiLinks, slugify } from '../wiki-links';
-import { HeadingIdAllocator } from '../document-navigation';
+import { HeadingIdAllocator } from '../heading-ids';
 import { RenderCache } from './render-cache';
 import type { RenderStageSample } from './render-stages';
 
@@ -32,10 +32,14 @@ type MathToken = Tokens.Generic & {
 };
 
 export function parseMarkdownSource(input: MarkdownParserInput): MarkdownParserOutput {
+	const executionThread: 'main' | 'worker' =
+		typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope
+			? 'worker'
+			: 'main';
 	const stages: RenderStageSample[] = [];
 	let started = performance.now();
 	const source = input.wikiLinks ? preprocessWikiLinks(input.content) : input.content;
-	stages.push({ stage: 'wiki', durationMs: performance.now() - started, thread: 'main' });
+	stages.push({ stage: 'wiki', durationMs: performance.now() - started, thread: executionThread });
 	const mermaidCodes: string[] = [];
 	const headingIds = new HeadingIdAllocator();
 	let highlightMs = 0;
@@ -178,17 +182,21 @@ export function parseMarkdownSource(input: MarkdownParserInput): MarkdownParserO
 	started = performance.now();
 	// Keep document-global references and heading deduplication in one lexer/parser.
 	const tokens = marked.lexer(source);
-	stages.push({ stage: 'tokenize', durationMs: performance.now() - started, thread: 'main' });
+	stages.push({
+		stage: 'tokenize',
+		durationMs: performance.now() - started,
+		thread: executionThread
+	});
 	started = performance.now();
 	const html = marked.parser(tokens);
 	stages.push(
-		{ stage: 'parse', durationMs: performance.now() - started, thread: 'main' },
-		{ stage: 'highlight', durationMs: highlightMs, thread: 'main' },
-		{ stage: 'math', durationMs: mathMs, thread: 'main' },
+		{ stage: 'parse', durationMs: performance.now() - started, thread: executionThread },
+		{ stage: 'highlight', durationMs: highlightMs, thread: executionThread },
+		{ stage: 'math', durationMs: mathMs, thread: executionThread },
 		{
 			stage: 'blocks',
 			durationMs: highlightMs + mathMs,
-			thread: 'main',
+			thread: executionThread,
 			cacheHits: cache.hits - hits,
 			cacheMisses: cache.misses - misses,
 			cache: cache.usage()

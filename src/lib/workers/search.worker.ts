@@ -12,9 +12,12 @@ export type { SearchFile };
 
 export interface SearchRequest {
 	id: number;
-	/** When present, replaces the worker's corpus. When omitted, the previous
-	 *  corpus is reused (incremental search after the first full sync). */
+	/** Changed files only, or the complete corpus for a replace sync. */
 	files?: SearchFile[];
+	/** Ids removed since the previous delta sync. */
+	removed?: string[];
+	/** A replace clears the worker corpus before applying `files`. */
+	sync?: 'replace' | 'delta';
 	query: string;
 	caseSensitive: boolean;
 	wholeWord: boolean;
@@ -28,11 +31,13 @@ export interface SearchResponse {
 }
 
 /** Last corpus received from the main thread (persists across search messages). */
-let corpus: SearchFile[] = [];
+const corpus = new Map<string, SearchFile>();
 
 function search(req: SearchRequest): SearchResponse {
-	if (req.files) corpus = req.files;
-	const { hits, regexError } = matchInCorpus(corpus, {
+	if (req.sync === 'replace') corpus.clear();
+	for (const id of req.removed ?? []) corpus.delete(id);
+	for (const file of req.files ?? []) corpus.set(file.id, file);
+	const { hits, regexError } = matchInCorpus([...corpus.values()], {
 		query: req.query,
 		caseSensitive: req.caseSensitive,
 		wholeWord: req.wholeWord,

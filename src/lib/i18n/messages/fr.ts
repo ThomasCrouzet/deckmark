@@ -183,6 +183,7 @@ export const fr: Record<MessageKey, string> = {
 	'library.closed': 'Documents fermés',
 	'library.filter': 'Filtrer par titre, nom de fichier ou tag',
 	'library.empty': 'Aucun document correspondant.',
+	'library.loadMore': 'Afficher {n} documents de plus',
 	'library.openDocument': 'Ouvrir {name}',
 	'bulkDelete.libraryActions': 'Actions de suppression dans la bibliothèque',
 	'bulkDelete.trashActions': 'Actions de suppression dans la corbeille',

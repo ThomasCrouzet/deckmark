@@ -826,7 +826,9 @@ pub async fn git_status(
     root_id: String,
 ) -> Result<GitStatus, String> {
     let session = projects.authorize(&root_id)?;
-    status_for_root(&session.path)
+    tauri::async_runtime::spawn_blocking(move || status_for_root(&session.path))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -837,7 +839,11 @@ pub async fn git_diff(
     staged: bool,
 ) -> Result<String, String> {
     let session = projects.authorize(&root_id)?;
-    diff_for_root(&session.path, path.as_deref(), staged)
+    tauri::async_runtime::spawn_blocking(move || {
+        diff_for_root(&session.path, path.as_deref(), staged)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -847,7 +853,9 @@ pub async fn git_log(
     limit: usize,
 ) -> Result<Vec<GitCommit>, String> {
     let session = projects.authorize(&root_id)?;
-    log_for_root(&session.path, limit)
+    tauri::async_runtime::spawn_blocking(move || log_for_root(&session.path, limit))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -857,7 +865,9 @@ pub async fn git_stage(
     paths: Vec<String>,
 ) -> Result<(), String> {
     let session = projects.authorize(&root_id)?;
-    stage_for_root(&session.path, &paths)
+    tauri::async_runtime::spawn_blocking(move || stage_for_root(&session.path, &paths))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -867,7 +877,9 @@ pub async fn git_unstage(
     paths: Vec<String>,
 ) -> Result<(), String> {
     let session = projects.authorize(&root_id)?;
-    unstage_for_root(&session.path, &paths)
+    tauri::async_runtime::spawn_blocking(move || unstage_for_root(&session.path, &paths))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -877,7 +889,9 @@ pub async fn git_commit(
     message: String,
 ) -> Result<GitCommitResult, String> {
     let session = projects.authorize(&root_id)?;
-    commit_for_root(&session.path, &message)
+    tauri::async_runtime::spawn_blocking(move || commit_for_root(&session.path, &message))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]

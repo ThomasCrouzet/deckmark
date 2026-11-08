@@ -18,12 +18,15 @@ export interface MetadataResponse {
 	incremental: boolean;
 }
 
-// Keep one source, not a second copy of the library in the worker.
-let previous: { id: string; snapshot: MetadataSnapshot } | undefined;
+// Keep a small bounded cache, not a second copy of the whole library.
+const BASELINE_LIMIT = 16;
+const baselines = new Map<string, MetadataSnapshot>();
 self.addEventListener('message', (event: MessageEvent<MetadataRequest>) => {
 	const { id, revision, source } = event.data;
-	const result = updateMetadata(previous?.id === id ? previous.snapshot : undefined, source);
-	previous = { id, snapshot: result.snapshot };
+	const result = updateMetadata(baselines.get(id), source);
+	baselines.delete(id);
+	baselines.set(id, result.snapshot);
+	while (baselines.size > BASELINE_LIMIT) baselines.delete(baselines.keys().next().value!);
 	const { title, documentTitle, tags, targets } = result.snapshot;
 	const response: MetadataResponse = {
 		id,

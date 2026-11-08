@@ -93,16 +93,18 @@ export function serializeDocsSiteReport(report: DocsSiteReport): string {
 	return `${JSON.stringify(report, null, 2)}\n`;
 }
 
-async function buildZip(files: readonly DocsSiteFile[]): Promise<Blob> {
+async function buildZip(files: readonly DocsSiteFile[], signal?: AbortSignal): Promise<Blob> {
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const ordered = files.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	for (const file of ordered) {
+		checkAborted(signal);
 		zip.file(file.path, file.data, {
 			date: ZIP_DATE,
 			createFolders: false
 		});
 	}
+	checkAborted(signal);
 	return zip.generateAsync({
 		type: 'blob',
 		compression: 'DEFLATE',
@@ -174,7 +176,7 @@ export async function buildDocsSite(
 	if (report.summary.errors > 0) throw new DocsSiteExportError(report);
 	const files = renderer.buildDocsSiteFiles(plan, { pages: rendered.pages, issues });
 	checkAborted(options.signal);
-	const blob = await abortable(buildZip(files), options.signal);
+	const blob = await abortable(buildZip(files, options.signal), options.signal);
 	checkAborted(options.signal);
 	return { blob, report, files };
 }

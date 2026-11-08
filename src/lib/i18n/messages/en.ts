@@ -185,6 +185,7 @@ export const en = {
 	'library.closed': 'Closed documents',
 	'library.filter': 'Filter by title, filename, or tag',
 	'library.empty': 'No matching documents.',
+	'library.loadMore': 'Show {n} more documents',
 	'library.openDocument': 'Open {name}',
 	'bulkDelete.libraryActions': 'Library deletion actions',
 	'bulkDelete.trashActions': 'Trash deletion actions',

@@ -86,6 +86,7 @@
 
 	const roots = $derived.by((): ProjectNode[] => {
 		const byId: Record<string, ProjectNode> = {};
+		const foldersByPath: Record<string, ProjectFolder> = {};
 		for (const project of projects)
 			byId[project.id] = { id: project.id, name: project.name, folders: [], files: [] };
 		for (const file of documents) {
@@ -106,9 +107,11 @@
 			let path = '';
 			for (const part of parts) {
 				path = path ? `${path}/${part}` : part;
-				let child = folder.folders.find((entry) => entry.name === part);
+				const key = `${file.projectId}\0${path}`;
+				let child = foldersByPath[key];
 				if (!child) {
 					child = folderNode(part, path);
+					foldersByPath[key] = child;
 					folder.folders.push(child);
 				}
 				folder = child;

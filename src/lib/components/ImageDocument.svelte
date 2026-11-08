@@ -49,6 +49,7 @@
 	let height = $state(0);
 	let renderScale = 1;
 	let loadError = $state(false);
+	let pointerRect: DOMRect | null = null;
 
 	function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, scale: number) {
 		if (stroke.points.length === 0) return;
@@ -86,7 +87,7 @@
 	}
 
 	function pointFrom(event: PointerEvent): Point {
-		const rect = canvas!.getBoundingClientRect();
+		const rect = pointerRect ?? canvas!.getBoundingClientRect();
 		return {
 			x: ((event.clientX - rect.left) / rect.width) * width,
 			y: ((event.clientY - rect.top) / rect.height) * height
@@ -98,6 +99,7 @@
 		event.preventDefault();
 		canvas.setPointerCapture(event.pointerId);
 		drawing = true;
+		pointerRect = canvas.getBoundingClientRect();
 		current = { tool, color, size, points: [pointFrom(event)] };
 		const context = canvas.getContext('2d');
 		if (context) drawStroke(context, current, renderScale);
@@ -106,9 +108,6 @@
 	function move(event: PointerEvent) {
 		if (!drawing || !current || !canvas) return;
 		event.preventDefault();
-		const point = pointFrom(event);
-		const previous = current.points[current.points.length - 1]!;
-		current.points.push(point);
 		const context = canvas.getContext('2d');
 		if (!context) return;
 		context.save();
@@ -125,10 +124,19 @@
 		context.globalAlpha = current.tool === 'highlighter' ? 0.35 : 1;
 		context.globalCompositeOperation =
 			current.tool === 'eraser' ? 'destination-out' : 'source-over';
-		context.beginPath();
-		context.moveTo(previous.x, previous.y);
-		context.lineTo(point.x, point.y);
-		context.stroke();
+		// One path per animation frame sample instead of one per pointer event.
+		const samples =
+			typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [event];
+		for (const sample of samples.length ? samples : [event]) {
+			const point = pointFrom(sample);
+			const previous = current.points[current.points.length - 1]!;
+			if (point.x === previous.x && point.y === previous.y) continue;
+			current.points.push(point);
+			context.beginPath();
+			context.moveTo(previous.x, previous.y);
+			context.lineTo(point.x, point.y);
+			context.stroke();
+		}
 		context.restore();
 	}
 
@@ -140,6 +148,7 @@
 			redoStack = [];
 		}
 		current = null;
+		pointerRect = null;
 		canvas?.releasePointerCapture(event.pointerId);
 	}
 

@@ -52,7 +52,6 @@
 	onMount(() => {
 		selectionText = window.getSelection()?.toString() ?? '';
 		if (filesStore.activeId) selectedIds = [filesStore.activeId];
-		void filesStore.ensureLibraryContent();
 	});
 
 	onDestroy(() => controller?.abort());
@@ -223,6 +222,22 @@
 		lastPrompt = text;
 		controller = new AbortController();
 		try {
+			// Hydrate only the scope the user approved. Selection scope reads the
+			// captured selection, and the active document is already resident.
+			const needed =
+				scope === 'files'
+					? selectedIds
+					: scope === 'project'
+						? filesStore.library
+								.filter((file) => file.projectId === active?.projectId)
+								.map((file) => file.id)
+						: scope === 'document' && filesStore.activeId
+							? [filesStore.activeId]
+							: [];
+			await filesStore.ensureContent(
+				needed.filter((id) => !filesStore.active || id !== filesStore.active.id)
+			);
+			if (controller.signal.aborted) return;
 			const request = buildContext({
 				scope,
 				activeId: filesStore.activeId,

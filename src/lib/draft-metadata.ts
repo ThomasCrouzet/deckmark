@@ -8,7 +8,7 @@ import type { DraftRow } from './db';
 import { documentKindForFile } from './document-kind';
 import { deriveMetadata } from './metadata-derive';
 
-export const DRAFT_METADATA_VERSION = 1;
+export const DRAFT_METADATA_VERSION = 2;
 
 export interface DraftMetadata {
 	id: string;
@@ -18,6 +18,9 @@ export interface DraftMetadata {
 	documentTitle: string;
 	tags: string[];
 	targets: string[];
+	/** The body defines or includes a linked block. */
+	hasBlocks: boolean;
+	hasIncludes: boolean;
 }
 
 function hashContent(content: string): string {
@@ -42,7 +45,9 @@ export function draftMetadataFor(row: DraftRow): DraftMetadata {
 		title: values.title,
 		documentTitle: values.documentTitle,
 		tags: values.tags,
-		targets: values.targets
+		targets: values.targets,
+		hasBlocks: /<!--\s*mdsh-block\b/.test(row.content),
+		hasIncludes: /<!--\s*mdsh-include\b/.test(row.content)
 	};
 }
 
@@ -57,7 +62,9 @@ export function encodeDraftMetadata(row: DraftRow): string {
 		metadata.title,
 		metadata.documentTitle,
 		metadata.tags,
-		metadata.targets
+		metadata.targets,
+		metadata.hasBlocks ? 1 : 0,
+		metadata.hasIncludes ? 1 : 0
 	]);
 }
 
@@ -70,8 +77,19 @@ export function decodeDraftMetadata(key: unknown): DraftMetadata | null {
 	} catch {
 		return null;
 	}
-	if (!Array.isArray(value) || value.length !== 8) return null;
-	const [version, id, contentHash, contentLength, title, documentTitle, tags, targets] = value;
+	if (!Array.isArray(value) || value.length !== 10) return null;
+	const [
+		version,
+		id,
+		contentHash,
+		contentLength,
+		title,
+		documentTitle,
+		tags,
+		targets,
+		hasBlocks,
+		hasIncludes
+	] = value;
 	if (version !== DRAFT_METADATA_VERSION) return null;
 	if (
 		typeof id !== 'string' ||
@@ -82,7 +100,9 @@ export function decodeDraftMetadata(key: unknown): DraftMetadata | null {
 		!Array.isArray(tags) ||
 		!tags.every((tag) => typeof tag === 'string') ||
 		!Array.isArray(targets) ||
-		!targets.every((target) => typeof target === 'string')
+		!targets.every((target) => typeof target === 'string') ||
+		(hasBlocks !== 0 && hasBlocks !== 1) ||
+		(hasIncludes !== 0 && hasIncludes !== 1)
 	)
 		return null;
 	return {
@@ -92,6 +112,8 @@ export function decodeDraftMetadata(key: unknown): DraftMetadata | null {
 		title,
 		documentTitle,
 		tags,
-		targets
+		targets,
+		hasBlocks: hasBlocks === 1,
+		hasIncludes: hasIncludes === 1
 	};
 }

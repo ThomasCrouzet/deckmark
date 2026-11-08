@@ -67,6 +67,8 @@ export const projectFr: Record<ProjectMessageKey, string> = {
 	'projects.empty': 'Créez un projet ou importez un dossier ou une archive ZIP.',
 	'projects.local':
 		'Les documents et ressources restent sur cet appareil. Exportez un ZIP pour conserver une copie séparée.',
+	'projects.renameBaselinePending':
+		'Le fichier a été renommé. Actualisez le projet pour rafraîchir sa référence disque.',
 	'projects.operationFailed':
 		'L’opération a échoué. Vérifiez les chemins, les formats et les limites de taille, puis réessayez.',
 	'projects.limits': 'Jusqu’à 300 documents, 64 Mo par projet et 2 Mo par image.',

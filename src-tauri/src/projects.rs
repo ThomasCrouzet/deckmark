@@ -1180,7 +1180,9 @@ pub async fn project_open_root(
     root_id: String,
 ) -> Result<ProjectSnapshot, String> {
     let (token, session) = projects.open(&root_id)?;
-    snapshot(token, session)
+    tauri::async_runtime::spawn_blocking(move || snapshot(token, session))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1189,7 +1191,9 @@ pub async fn project_refresh(
     token: String,
 ) -> Result<ProjectSnapshot, String> {
     let session = projects.resolve(&token)?;
-    snapshot(token, session)
+    tauri::async_runtime::spawn_blocking(move || snapshot(token, session))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1198,7 +1202,10 @@ pub async fn project_read(
     token: String,
     relative_path: String,
 ) -> Result<ProjectEntry, String> {
-    read_entry(&projects.resolve(&token)?, &relative_path)
+    let session = projects.resolve(&token)?;
+    tauri::async_runtime::spawn_blocking(move || read_entry(&session, &relative_path))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1209,13 +1216,18 @@ pub async fn project_write_text(
     content: String,
     expected_revision: Option<String>,
 ) -> Result<ProjectEntry, String> {
-    write_entry(
-        &projects.resolve(&token)?,
-        &relative_path,
-        content.as_bytes(),
-        expected_revision.as_deref(),
-        EntryKind::Markdown,
-    )
+    let session = projects.resolve(&token)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        write_entry(
+            &session,
+            &relative_path,
+            content.as_bytes(),
+            expected_revision.as_deref(),
+            EntryKind::Markdown,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1226,13 +1238,18 @@ pub async fn project_write_asset(
     contents: Vec<u8>,
     expected_revision: Option<String>,
 ) -> Result<ProjectEntry, String> {
-    write_entry(
-        &projects.resolve(&token)?,
-        &relative_path,
-        &contents,
-        expected_revision.as_deref(),
-        EntryKind::Asset,
-    )
+    let session = projects.resolve(&token)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        write_entry(
+            &session,
+            &relative_path,
+            &contents,
+            expected_revision.as_deref(),
+            EntryKind::Asset,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1243,12 +1260,12 @@ pub async fn project_rename(
     to_path: String,
     expected_revision: String,
 ) -> Result<ProjectEntry, String> {
-    rename_entry(
-        &projects.resolve(&token)?,
-        &from_path,
-        &to_path,
-        &expected_revision,
-    )
+    let session = projects.resolve(&token)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rename_entry(&session, &from_path, &to_path, &expected_revision)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
