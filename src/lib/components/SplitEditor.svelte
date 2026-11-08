@@ -10,12 +10,13 @@
 		fileId: string;
 		content: string;
 		onChange: (markdown: string) => void;
+		onFlush: (fileId: string, markdown: string) => void;
 		onCursorLine: (line: number) => void;
 		onSourceEditorRef: (ref: SourceEditor | null) => void;
 		onArticleRef: (el: HTMLElement | null) => void;
 	}
 
-	let { fileId, content, onChange, onCursorLine, onSourceEditorRef, onArticleRef }: Props =
+	let { fileId, content, onChange, onFlush, onCursorLine, onSourceEditorRef, onArticleRef }: Props =
 		$props();
 
 	const RATIO_KEY = 'mdsh:split-ratio';
@@ -223,6 +224,7 @@
 			{content}
 			fillContainer
 			{onChange}
+			{onFlush}
 			onCursorLine={handleSourceCursor}
 			onViewportLine={handleSourceViewport}
 		/>

@@ -191,6 +191,7 @@
 										fileId={activeFile.id}
 										content={activeFile.content}
 										onChange={onEditorChange}
+										onFlush={onEditorFlush}
 										onCursorLine={(line) => (sourceLine = line)}
 										onSourceEditorRef={(ref) => (sourceEditorEl = ref)}
 										{onArticleRef}
@@ -204,6 +205,7 @@
 									fileId={activeFile.id}
 									content={activeFile.content}
 									onChange={onEditorChange}
+									onFlush={onEditorFlush}
 									onCursorLine={(line) => (sourceLine = line)}
 								/>
 							{/if}

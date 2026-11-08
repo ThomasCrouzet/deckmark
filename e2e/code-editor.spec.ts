@@ -253,3 +253,59 @@ test('reloads the grammar when the extension changes and preserves text', async 
 		contentType: 'application/json'
 	});
 });
+
+type PerfCounters = Record<string, number>;
+
+async function readPerfCounters(page: Page): Promise<PerfCounters> {
+	return page.evaluate(() => ({
+		codeFullRebuild: performance.getEntriesByName('mdsh:code-full-rebuild').length,
+		codeBufferApply: performance.getEntriesByName('mdsh:code-buffer-apply').length,
+		codeSnapshot: performance.getEntriesByName('mdsh:code-snapshot').length
+	}));
+}
+
+function counterDelta(before: PerfCounters, after: PerfCounters): PerfCounters {
+	const result: PerfCounters = {};
+	for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+		result[name] = (after[name] ?? 0) - (before[name] ?? 0);
+	}
+	return result;
+}
+
+test('ordinary typing in a large code file avoids full-document reconstruction', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(120_000);
+	await resetAppState(page);
+	const line = 'const value = 42; // unchanged local text\n';
+	const content = line.repeat(Math.ceil(1_000_000 / line.length));
+	await importCode(page, 'large.js', content);
+	await expect(page.getByTestId('code-language')).toHaveText('JavaScript');
+	const editor = page.locator('.cm-content').first();
+	await editor.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	const typed = 'abcdefghijklmnopqrst';
+	const before = await readPerfCounters(page);
+	for (const character of typed) await page.keyboard.insertText(character);
+	await page.waitForTimeout(700);
+	const after = await readPerfCounters(page);
+	const change = counterDelta(before, after);
+	console.log('[perf] code ordinary typing', JSON.stringify(change));
+	await info.attach('code-typing-counters.json', {
+		body: JSON.stringify(
+			{ before, after, delta: change, bytes: Buffer.byteLength(content) },
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	expect
+		.soft(change.codeFullRebuild ?? 0, 'ordinary code typing must not rebuild the full raw source')
+		.toBe(0);
+	expect
+		.soft(change.codeBufferApply ?? 0, 'each accepted change updates the incremental buffer')
+		.toBeGreaterThanOrEqual(typed.length);
+	await expect
+		.poll(async () => (await savedContent(page)).endsWith(typed), { timeout: 20_000 })
+		.toBe(true);
+});

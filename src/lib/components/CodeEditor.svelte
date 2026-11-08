@@ -6,11 +6,8 @@
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { reportError } from '#lib/report.js';
 	import { t } from '#lib/i18n/index.js';
-	import {
-		applySourceChanges,
-		convertLineEndings,
-		detectLineEnding
-	} from '#lib/code/text-changes.js';
+	import { convertLineEndings, detectLineEnding } from '#lib/code/text-changes.js';
+	import { SourceText } from '#lib/code/source-text.js';
 	import { loadCodeLanguage, resolveCodeLanguage } from '#lib/code/languages.js';
 	import {
 		analyzeJson,
@@ -49,6 +46,14 @@
 	let host = $state<HTMLDivElement>();
 	let view: EditorView | null = null;
 	let lastEmitted = '';
+	// Local compile-time instrumentation. A production build removes it.
+	const SOURCE_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
+	function sourceMark(name: string): void {
+		if (SOURCE_METRICS) performance.mark(name);
+	}
+	// Immutable raw bytes for the mounted document.
+	let buffer: SourceText | null = null;
+	let publishFrame: number | null = null;
 	let applyingExternal = false;
 	let loadError = $state(false);
 	let showInvisibles = $state(false);
@@ -74,6 +79,56 @@
 
 	function indentUnitValue() {
 		return indentStyle === 'tab' ? '\t' : ' '.repeat(indentSize);
+	}
+
+	function applyBufferChange(
+		changes: import('@codemirror/state').ChangeSet,
+		doc: import('@codemirror/state').Text
+	): SourceText {
+		if (!buffer) return SourceText.create(doc.toString(), doc);
+		try {
+			return buffer.apply(changes, doc);
+		} catch (error) {
+			reportError('code buffer resync', error);
+			return SourceText.create(doc.toString(), doc);
+		}
+	}
+
+	/** Materializes the captured raw bytes. Call only at a publication boundary. */
+	function materialize(): string {
+		if (!buffer) return lastEmitted;
+		sourceMark('mdsh:code-snapshot');
+		return buffer.getText();
+	}
+
+	function publish(): void {
+		if (!buffer || !view) return;
+		const text = materialize();
+		if (text !== lastEmitted) {
+			lastEmitted = text;
+			onChange(text);
+		}
+	}
+
+	/** Coalesces ordinary publication to one raw materialization per frame. */
+	function schedulePublish(): void {
+		if (publishFrame !== null || typeof requestAnimationFrame !== 'function') return;
+		publishFrame = requestAnimationFrame(() => {
+			publishFrame = null;
+			publish();
+		});
+	}
+
+	function cancelPublish(): void {
+		if (publishFrame === null) return;
+		if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(publishFrame);
+		publishFrame = null;
+	}
+
+	/** Synchronous boundary: save, export, pagehide, detach or a public snapshot. */
+	function flushPublish(): void {
+		cancelPublish();
+		publish();
 	}
 
 	function applyOptions() {
@@ -137,7 +192,9 @@
 	}
 
 	function runJsonAction(action: 'format' | 'minify') {
-		const result = prepareJsonAction(view ? lastEmitted : content, action, {
+		if (view) flushPublish();
+		const current = view && buffer ? buffer.getText() : content;
+		const result = prepareJsonAction(current, action, {
 			indent: ' '.repeat(indentSize),
 			eol
 		});
@@ -152,12 +209,14 @@
 	$effect(() => {
 		const incoming = content;
 		if (!view || incoming === lastEmitted) return;
+		cancelPublish();
 		applyingExternal = true;
 		lastEmitted = incoming;
 		view.dispatch({
 			changes: { from: 0, to: view.state.doc.length, insert: incoming }
 		});
 		applyingExternal = false;
+		buffer = SourceText.create(incoming, view.state.doc);
 	});
 
 	onMount(() => {
@@ -230,11 +289,9 @@
 						if (!update.selectionSet && !update.docChanged) return;
 						onCursorLine?.(update.state.doc.lineAt(update.state.selection.main.head).number);
 						if (update.docChanged && !applyingExternal && view) {
-							const text = applySourceChanges(lastEmitted, update.startState, update.changes);
-							if (text !== lastEmitted) {
-								lastEmitted = text;
-								onChange(text);
-							}
+							buffer = applyBufferChange(update.changes, update.state.doc);
+							sourceMark('mdsh:code-buffer-apply');
+							schedulePublish();
 						}
 					}),
 					EditorView.theme({
@@ -278,6 +335,7 @@
 				view = new EditorView({ state, parent: mount });
 				loadedLanguageId = language.id;
 				lastEmitted = content;
+				buffer = SourceText.create(content, view.state.doc);
 				const tabListener = (event: KeyboardEvent) => {
 					if (
 						event.key !== 'Tab' ||
@@ -303,7 +361,10 @@
 					});
 				};
 				mount.addEventListener('keydown', tabListener, true);
-				const flushListener = () => onFlush?.(fileId, lastEmitted);
+				const flushListener = () => {
+					flushPublish();
+					onFlush?.(fileId, lastEmitted);
+				};
 				window.addEventListener('mdsh:flush-editor', flushListener);
 				removeTabListener = () => {
 					mount.removeEventListener('keydown', tabListener, true);
@@ -326,6 +387,7 @@
 			if (view) {
 				// Route the final keystroke to its own file before the active tab
 				// changes. Writing through onChange would target the new active file.
+				flushPublish();
 				onFlush?.(fileId, lastEmitted);
 				editorStateCache.setSourceState(
 					fileId,
@@ -341,13 +403,18 @@
 				);
 				view.destroy();
 				view = null;
+				buffer = null;
+				cancelPublish();
 			}
 		};
 	});
 
 	function toggleLineEnding() {
+		if (!view || !buffer) return;
+		flushPublish();
 		const next = eol === '\r\n' ? '\n' : '\r\n';
-		const updated = convertLineEndings(view ? lastEmitted : content, next);
+		const updated = convertLineEndings(buffer.getText(), next);
+		buffer = SourceText.create(updated, view.state.doc);
 		lastEmitted = updated;
 		onChange(updated);
 	}

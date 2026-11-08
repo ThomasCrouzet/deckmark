@@ -28,6 +28,8 @@ async function readCounters(page: Page): Promise<Counters> {
 		const counts = JSON.parse(sessionStorage.getItem(key) ?? '{}') as Record<string, number>;
 		counts.sourceGuardConversion = performance.getEntriesByName('mdsh:source-guard').length;
 		counts.sourceChangeConversion = performance.getEntriesByName('mdsh:source-change').length;
+		counts.sourceFullRebuild = performance.getEntriesByName('mdsh:source-full-rebuild').length;
+		counts.sourceBufferApply = performance.getEntriesByName('mdsh:source-buffer-apply').length;
 		return counts;
 	}, counterKey);
 }
@@ -229,7 +231,7 @@ test('ordinary visual typing avoids full-document validation', async ({ page }, 
 	});
 });
 
-test('ordinary source typing converts once per accepted change and keeps CRLF bytes', async ({
+test('ordinary source typing keeps CRLF bytes without rebuilding the full source', async ({
 	page
 }, info) => {
 	test.setTimeout(60_000);
@@ -248,12 +250,19 @@ test('ordinary source typing converts once per accepted change and keeps CRLF by
 	const after = await readCounters(page);
 	await attachCounters(info, before, after);
 	const change = delta(before, after);
+	console.log('[perf] source ordinary typing', JSON.stringify(change));
 	expect
 		.soft(change.sourceGuardConversion ?? 0, 'the change filter must not rebuild the full source')
 		.toBe(0);
 	expect
-		.soft(change.sourceChangeConversion ?? 0, 'one accepted change emits one snapshot')
-		.toBe(typed.length);
+		.soft(change.sourceFullRebuild ?? 0, 'ordinary typing must not rebuild the full raw source')
+		.toBe(0);
+	expect
+		.soft(change.sourceBufferApply ?? 0, 'each accepted change updates the incremental buffer')
+		.toBeGreaterThanOrEqual(typed.length);
+	expect
+		.soft(change.sourceChangeConversion ?? 0, 'raw snapshots are coalesced, not one per keypress')
+		.toBeLessThanOrEqual(typed.length);
 	await expect
 		.poll(async () => (await storedContent(page, sourceId)) === `${initial}${typed}`, {
 			timeout: 20_000

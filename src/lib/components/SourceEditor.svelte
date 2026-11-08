@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import type { ChangeSet, Transaction } from '@codemirror/state';
-	import type { EditorView, ViewUpdate } from '@codemirror/view';
+	import type { EditorView } from '@codemirror/view';
 	import { i18n, t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache, type EditorPosition } from '#lib/editor-state.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
-	import { applySourceChanges } from '#lib/code/text-changes.js';
+	import { SourceText } from '#lib/code/source-text.js';
 
 	interface Props {
 		fileId: string;
@@ -17,6 +17,8 @@
 		/** Code and plain-text documents skip the Markdown parser and guard. */
 		plainText?: boolean;
 		onChange: (markdown: string) => void;
+		/** Writes the final accepted bytes to the outgoing file before detach. */
+		onFlush?: (fileId: string, markdown: string) => void;
 		onCursorLine?: (line: number) => void;
 		onViewportLine?: (line: number) => void;
 	}
@@ -28,6 +30,7 @@
 		fillContainer = false,
 		plainText = false,
 		onChange,
+		onFlush,
 		onCursorLine,
 		onViewportLine
 	}: Props = $props();
@@ -40,6 +43,16 @@
 		if (!view) return '';
 		const { from, to } = view.state.selection.main;
 		return from === to ? '' : view.state.sliceDoc(from, to);
+	}
+
+	/**
+	 * Returns the accepted raw bytes for this mounted file. `revision` is local
+	 * to the buffer; it is not a store generation. Callers must use `fileId`.
+	 */
+	export function getSnapshot(): { fileId: string; revision: number; text: string } | null {
+		if (!view || !buffer) return null;
+		flushPublish();
+		return { fileId, revision: buffer.revision, text: buffer.getText() };
 	}
 
 	let host: HTMLDivElement;
@@ -62,20 +75,95 @@
 	}
 
 	let applyingExternal = false;
+	// Immutable raw bytes for the mounted document. Ordinary changes update this
+	// buffer without scanning line endings or materializing the full string.
+	let buffer: SourceText | null = null;
+	let publishFrame: number | null = null;
 	// True when the last accepted source contains the presentation marker
 	// substring. A marker-free note can only become a presentation by creating
 	// that substring, which the fast path tests locally.
 	let sourceHasPresentationMarker = false;
-	// Full source that the change filter computed for an accepted risky
+	// Candidate buffer that the change filter computed for an accepted risky
 	// transaction. The update listener reuses it when the ChangeSet identity
 	// matches, so one accepted risky change converts once.
-	let pendingGuard: { changes: ChangeSet; source: string } | null = null;
+	let pendingGuard: { changes: ChangeSet; buffer: SourceText | null } | null = null;
 
 	const PRESENTATION_MARKER = '<!-- mdsh-presentation';
 	const MAX_GUARD_LINE = 4096;
 
-	function sourceChanges(update: Pick<ViewUpdate, 'startState' | 'changes'>): string {
-		return applySourceChanges(lastEmitted, update.startState, update.changes);
+	function candidateBuffer(transaction: Transaction): SourceText {
+		if (!buffer) return SourceText.create(transaction.newDoc.toString(), transaction.newDoc);
+		try {
+			return buffer.apply(transaction.changes, transaction.newDoc);
+		} catch {
+			return SourceText.create(transaction.newDoc.toString(), transaction.newDoc);
+		}
+	}
+
+	function applyBufferChange(
+		changes: ChangeSet,
+		doc: import('@codemirror/state').Text
+	): SourceText {
+		if (!buffer) return SourceText.create(doc.toString(), doc);
+		try {
+			return buffer.apply(changes, doc);
+		} catch (error) {
+			reportError('source buffer resync', error);
+			return SourceText.create(doc.toString(), doc);
+		}
+	}
+
+	/** Materializes the captured raw bytes. Call only at a publication boundary. */
+	function materialize(): string {
+		if (!buffer) return lastEmitted;
+		return SOURCE_METRICS
+			? sourceMeasure('mdsh:source-change', () => buffer!.getText())
+			: buffer.getText();
+	}
+
+	/** Publishes the latest accepted bytes to the existing string adapter. */
+	function publish(): void {
+		if (!buffer || !view) return;
+		const text = materialize();
+		if (text !== lastEmitted) {
+			lastEmitted = text;
+			onChange(text);
+		}
+	}
+
+	/**
+	 * Coalesces ordinary publication to one raw materialization per animation
+	 * frame. Accepted changes still update the immutable buffer immediately.
+	 */
+	function schedulePublish(): void {
+		if (publishFrame !== null || typeof requestAnimationFrame !== 'function') return;
+		publishFrame = requestAnimationFrame(() => {
+			publishFrame = null;
+			publish();
+		});
+	}
+
+	function cancelPublish(): void {
+		if (publishFrame === null) return;
+		if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(publishFrame);
+		publishFrame = null;
+	}
+
+	/** Synchronous boundary: save, export, pagehide, detach or a public snapshot. */
+	function flushPublish(): void {
+		cancelPublish();
+		publish();
+	}
+
+	/** Captures the outgoing file before detach. */
+	function flushOutgoing(): void {
+		if (!view || !buffer) return;
+		cancelPublish();
+		const text = materialize();
+		const changed = text !== lastEmitted;
+		lastEmitted = text;
+		if (onFlush) onFlush(fileId, text);
+		else if (changed) onChange(text);
 	}
 
 	/**
@@ -140,6 +228,7 @@
 	let typewriterCompartmentRef: import('@codemirror/state').Compartment | null = null;
 	let localeCompartmentRef: import('@codemirror/state').Compartment | null = null;
 	let activeCM: CMModule | null = null;
+	let removeFlushListener: (() => void) | null = null;
 
 	/*
 	 * CodeMirror is heavy (~150 KB). Lazy-loaded on the first mount of source
@@ -194,6 +283,7 @@
 
 	function saveSourceState(): void {
 		if (!view || !activeCM) return;
+		flushPublish();
 		const selection = view.state.selection.main;
 		editorStateCache.setSourceState(
 			fileId,
@@ -418,12 +508,15 @@
 					pendingGuard = null;
 					return true;
 				}
+				// Risky change: validate a candidate buffer without mutating the
+				// accepted one. Only this guarded path materializes raw text.
+				const candidate = candidateBuffer(transaction);
 				const source = SOURCE_METRICS
-					? sourceMeasure('mdsh:source-guard', () => sourceChanges(transaction))
-					: sourceChanges(transaction);
+					? sourceMeasure('mdsh:source-guard', () => candidate.getText())
+					: candidate.getText();
 				if (documentKind(source) === 'note') {
 					sourceHasPresentationMarker = source.includes(PRESENTATION_MARKER);
-					pendingGuard = { changes: transaction.changes, source };
+					pendingGuard = { changes: transaction.changes, buffer: candidate };
 					return true;
 				}
 				pendingGuard = null;
@@ -441,20 +534,14 @@
 				if (update.docChanged && !applyingExternal) {
 					const cached = pendingGuard;
 					pendingGuard = null;
-					let v: string;
-					if (cached && cached.changes === update.changes) {
-						v = cached.source;
+					if (cached?.changes === update.changes && cached.buffer) {
+						buffer = cached.buffer;
 						sourceMark('mdsh:source-change-reuse');
 					} else {
-						v = SOURCE_METRICS
-							? sourceMeasure('mdsh:source-change', () => sourceChanges(update))
-							: sourceChanges(update);
-						sourceHasPresentationMarker = v.includes(PRESENTATION_MARKER);
+						buffer = applyBufferChange(update.changes, update.state.doc);
+						sourceMark('mdsh:source-buffer-apply');
 					}
-					if (v !== lastEmitted) {
-						lastEmitted = v;
-						onChange(v);
-					}
+					schedulePublish();
 				}
 			}),
 			typewriterCompartment.of(pendingTypewriter ? [cm.typewriterCentering()] : []),
@@ -495,7 +582,11 @@
 		onCursorLine?.(view.state.doc.lineAt(view.state.selection.main.head).number);
 		onViewportLine?.(view.state.doc.lineAt(view.viewport.from).number);
 		lastEmitted = content;
+		buffer = SourceText.create(content, view.state.doc);
 		sourceHasPresentationMarker = content.includes(PRESENTATION_MARKER);
+		const flushListener = () => flushPublish();
+		window.addEventListener('mdsh:flush-editor', flushListener);
+		removeFlushListener = () => window.removeEventListener('mdsh:flush-editor', flushListener);
 		if (savedPosition?.scrollTop) {
 			const mountedView = view;
 			mountedView.requestMeasure({
@@ -542,6 +633,7 @@
 	$effect(() => {
 		const c = content;
 		if (view && activeCM && c !== lastEmitted) {
+			cancelPublish();
 			lastEmitted = c;
 			sourceHasPresentationMarker = c.includes(PRESENTATION_MARKER);
 			pendingGuard = null;
@@ -554,6 +646,7 @@
 			} finally {
 				applyingExternal = false;
 			}
+			buffer = SourceText.create(c, view.state.doc);
 		}
 	});
 
@@ -573,9 +666,14 @@
 	});
 
 	onDestroy(() => {
+		flushOutgoing();
 		saveSourceState();
+		removeFlushListener?.();
+		removeFlushListener = null;
 		view?.destroy();
 		view = null;
+		buffer = null;
+		cancelPublish();
 		activeCM = null;
 		typewriterCompartmentRef = null;
 		localeCompartmentRef = null;

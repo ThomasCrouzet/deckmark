@@ -405,6 +405,30 @@ sequence compares the new buffer with the existing raw conversion function.
 Run `npx vitest run src/lib/code/source-text.test.ts --maxWorkers=1`.
 This check does not establish editor, persistence, or native integration.
 
+### Editor raw-buffer integration
+
+`SourceEditor` and `CodeEditor` keep an immutable `SourceText` buffer for the
+mounted file. An accepted change updates only the touched separators. Ordinary
+typing does not scan all line endings or rebuild the raw string in the change
+filter. Raw publication is coalesced to one materialization per animation frame.
+Explicit boundaries materialize synchronously: `mdsh:flush-editor`, save, export,
+pagehide, editor detach and `getSnapshot()`. `getSnapshot()` returns the captured
+file ID, the buffer-local revision and the exact text. The buffer revision is not
+a store generation.
+
+The E2E build records `mdsh:source-buffer-apply`, `mdsh:code-buffer-apply`,
+`mdsh:source-full-rebuild`, `mdsh:code-full-rebuild`, `mdsh:source-change` and
+`mdsh:code-snapshot` performance marks. Ordinary typing must show zero full
+rebuilds and at least one buffer apply per accepted change. Run:
+
+```sh
+npx playwright test editor-input-latency.spec.ts code-editor.spec.ts \
+  --project=chromium --workers=1 --retries=0
+```
+
+These checks do not cover Firefox, WebKit, native WebViews, a full local CI
+profile or a paint/allocation budget. Keep those as separate acceptance work.
+
 The test review removed duplicate creation, selection, rendering, export, and
 preference tests. Browser workflows verify those results. The remaining isolated
 tests cover these additional risks:
