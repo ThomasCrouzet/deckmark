@@ -26,6 +26,10 @@ function nodeKey(node: Node): string {
 	return `${node.nodeName}|${node.getAttribute('id') ?? ''}|${node.getAttribute('class') ?? ''}`;
 }
 
+// A small lookahead keeps one changed block from poisoning the shared key
+// bucket. It never scans the whole bucket, so reorder work stays bounded.
+const LOOKAHEAD = 4;
+
 function reconcile(article: HTMLElement, html: string): void {
 	const template = document.createElement('template');
 	// Only complete sanitized renderer output enters this action.
@@ -45,16 +49,41 @@ function reconcile(article: HTMLElement, html: string): void {
 	let misses = 0;
 	for (const fresh of Array.from(template.content.childNodes)) {
 		const bucket = reusable.get(nodeKey(fresh));
-		// Consume equal candidates in order. Scanning the whole bucket for a
-		// later match turns one changed block into quadratic equality work.
-		const equal = bucket?.[0]?.isEqualNode(fresh) ?? false;
-		if (!equal && ++misses > 32) {
-			// Reordering or identity churn makes node-by-node reuse slower than
-			// one native replacement. Keep a bounded reconciliation cost.
-			article.replaceChildren(template.content);
-			return;
+		// Find the first equal candidate within a bounded window. Skipped
+		// candidates were removed from the document; later fresh blocks still
+		// reach their own old nodes instead of the same stale bucket head.
+		let match = -1;
+		if (bucket) {
+			const limit = Math.min(bucket.length, LOOKAHEAD);
+			for (let index = 0; index < limit; index += 1) {
+				if (bucket[index]!.isEqualNode(fresh)) {
+					match = index;
+					break;
+				}
+			}
 		}
-		const node = equal ? bucket!.shift()! : fresh;
+		if (match < 0) {
+			// The block is new or changed. Insert a fresh node and keep the old
+			// heads for the following fresh blocks.
+			if (++misses > 32) {
+				// Reordering or identity churn makes node-by-node reuse slower than
+				// one native replacement. Keep a bounded reconciliation cost. Some
+				// fresh nodes already moved into the article, so parse the source
+				// again instead of replacing with the remaining fragment.
+				const replacement = document.createElement('template');
+				replacement.innerHTML = html;
+				article.replaceChildren(replacement.content);
+				return;
+			}
+			if (cursor) article.insertBefore(fresh, cursor);
+			else article.append(fresh);
+			continue;
+		}
+		if (match > 0) {
+			misses += match;
+			bucket!.splice(0, match);
+		}
+		const node = bucket!.shift()!;
 		if (node === cursor) cursor = cursor.nextSibling;
 		else article.insertBefore(node, cursor);
 	}
