@@ -233,8 +233,11 @@ async function ingestDesktopOpens(
 	const files = deps.getFiles?.() ?? [];
 	const filesById = new Map(files.map((file) => [file.id, file]));
 	const pathIndex = new Map<string, string>();
-	for (const link of await listDiskLinks().catch(() => []))
-		if (link.kind === 'path') pathIndex.set(link.path, link.id);
+	for (const link of await listDiskLinks().catch(() => [])) {
+		if (link.kind !== 'path' || !filesById.has(link.id) || pathIndex.has(link.path)) continue;
+		// Several retained owners can share one path. Prefer a live document.
+		pathIndex.set(link.path, link.id);
+	}
 	for (const file of picked) {
 		if (!(await session.pause())) break;
 		let createdItem: FileItem | undefined;
