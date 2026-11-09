@@ -1092,6 +1092,8 @@ export const en = {
 	'json.invalid': 'Invalid JSON at line {line}, column {column}',
 	'json.duplicates': 'Duplicate keys: {keys}',
 	'json.schemaIssues': '{n} schema issue(s)',
+	'json.schemaFailed': 'Schema validation failed.',
+	'json.schemaUnavailable': 'Schema validation is unavailable for this large document.',
 	'json.format': 'Format',
 	'json.minify': 'Minify',
 	'json.validate': 'Validate',

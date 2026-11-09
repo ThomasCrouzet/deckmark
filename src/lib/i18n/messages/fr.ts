@@ -1110,6 +1110,8 @@ export const fr: Record<MessageKey, string> = {
 	'json.invalid': 'JSON invalide à la ligne {line}, colonne {column}',
 	'json.duplicates': 'Clés en double : {keys}',
 	'json.schemaIssues': '{n} problème(s) de schéma',
+	'json.schemaFailed': 'La validation de schéma a échoué.',
+	'json.schemaUnavailable': 'La validation de schéma est indisponible pour ce document volumineux.',
 	'json.format': 'Formater',
 	'json.minify': 'Minifier',
 	'json.validate': 'Valider',
