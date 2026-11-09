@@ -9,6 +9,7 @@
 		commentReport,
 		createAnchor,
 		resolveCommentAnchor,
+		resolveCommentAnchors,
 		shiftCommentAnchors,
 		setCommentAuthor,
 		type CommentAnchor
@@ -57,25 +58,30 @@
 		const job = ++anchorJob;
 		const timer = setTimeout(() => {
 			if (job !== anchorJob) return;
-			const resolve = (comment: CommentRow): CommentAnchor => {
+			const cachedFor = (comment: CommentRow) => {
 				const cached = resolvedAnchors.get(comment.id);
-				if (
-					cached &&
+				return cached &&
 					cached.content === content &&
 					cached.quote === comment.quote &&
 					cached.from === comment.from &&
 					cached.to === comment.to
-				)
-					return cached.anchor;
-				return resolveCommentAnchor(content, comment);
+					? cached.anchor
+					: undefined;
 			};
-			anchors =
-				fileId === lastAnchorFile && lastAnchorContent !== content
-					? shiftCommentAnchors(lastAnchorContent, content, list, lastAnchors)
-					: (Object.fromEntries(list.map((comment) => [comment.id, resolve(comment)])) as Record<
-							string,
-							CommentAnchor
-						>);
+			if (fileId === lastAnchorFile && lastAnchorContent !== content) {
+				anchors = shiftCommentAnchors(lastAnchorContent, content, list, lastAnchors);
+			} else {
+				// Resolve every uncached comment in one shared pass. A file switch or a
+				// full external replace must not run one whole-note search per comment.
+				const pending = list.filter((comment) => cachedFor(comment) === undefined);
+				const resolved = resolveCommentAnchors(content, pending);
+				anchors = Object.fromEntries(
+					list.map((comment) => [
+						comment.id,
+						cachedFor(comment) ?? resolved[comment.id] ?? resolveCommentAnchor(content, comment)
+					])
+				) as Record<string, CommentAnchor>;
+			}
 			const live = new Set(list.map((comment) => comment.id));
 			for (const id of resolvedAnchors.keys()) if (!live.has(id)) resolvedAnchors.delete(id);
 			for (const comment of list) {
