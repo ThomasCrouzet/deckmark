@@ -5,7 +5,6 @@ import { CliError, EXIT } from './exit';
 import {
 	Deadline,
 	displayPath,
-	mapPool,
 	readText,
 	requireDirectory,
 	requireFile,
@@ -39,7 +38,8 @@ async function resolveScope(input: string, deadline: Deadline): Promise<SearchSc
 		if (!(error instanceof CliError) || error.code !== 'input-not-found') throw error;
 		const root = await requireDirectory(resolve(input));
 		const files = await walkFiles(root, {
-			accept: (path) => isMarkdownExtension(path) || isCodeExtension(path)
+			accept: (path) => isMarkdownExtension(path) || isCodeExtension(path),
+			deadline
 		});
 		deadline.check();
 		return { root, files };
@@ -65,38 +65,59 @@ export async function runSearch(input: SearchInput): Promise<number> {
 	const deadline = new Deadline(input.timeoutMs);
 	const scope = await resolveScope(input.input, deadline);
 	const paths = scope.files.filter(isTextPath);
-	const corpus = await mapPool(paths, input.concurrency, deadline, async (path) => ({
-		id: path,
-		name: basename(path),
-		content: await readText(scope.root, path)
-	}));
-	deadline.check();
-	const result = matchInCorpus(
-		corpus,
-		{
-			query,
-			caseSensitive: input.caseSensitive,
-			wholeWord: input.wholeWord,
-			useRegex: input.regex
-		},
-		input.maxResults
+	const order = new Map(paths.map((path, index) => [path, index]));
+	const matches: SearchMatch[] = [];
+	let regexError: string | null = null;
+	let next = 0;
+	// Read and match a few files at a time. Stop taking new files as soon as the
+	// result limit is met, so an early hit does not load the rest of the corpus.
+	const worker = async () => {
+		for (;;) {
+			if (matches.length >= input.maxResults || regexError) return;
+			const index = next++;
+			const path = paths[index];
+			if (path === undefined) return;
+			deadline.check();
+			const content = await readText(scope.root, path);
+			if (matches.length >= input.maxResults || regexError) return;
+			const result = matchInCorpus(
+				[{ id: path, name: basename(path), content }],
+				{
+					query,
+					caseSensitive: input.caseSensitive,
+					wholeWord: input.wholeWord,
+					useRegex: input.regex
+				},
+				input.maxResults - matches.length
+			);
+			if (result.regexError) {
+				regexError = result.regexError;
+				return;
+			}
+			for (const hit of result.hits) {
+				const ellipsis = hit.snippet.startsWith('…') ? 1 : 0;
+				matches.push({
+					path: hit.fileId,
+					line: hit.line,
+					column: hit.matchStart + 1 - ellipsis,
+					endColumn: hit.matchEnd + 1 - ellipsis,
+					snippet: hit.snippet
+				});
+				if (matches.length >= input.maxResults) return;
+			}
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.max(1, Math.min(input.concurrency, paths.length)) }, () => worker())
 	);
-	if (result.regexError)
-		throw new CliError(
-			EXIT.USAGE,
-			'invalid-regex',
-			`Invalid regular expression: ${result.regexError}`
-		);
-	const matches: SearchMatch[] = result.hits.map((hit) => {
-		const ellipsis = hit.snippet.startsWith('…') ? 1 : 0;
-		return {
-			path: hit.fileId,
-			line: hit.line,
-			column: hit.matchStart + 1 - ellipsis,
-			endColumn: hit.matchEnd + 1 - ellipsis,
-			snippet: hit.snippet
-		};
-	});
+	if (regexError)
+		throw new CliError(EXIT.USAGE, 'invalid-regex', `Invalid regular expression: ${regexError}`);
+	matches.sort(
+		(left, right) =>
+			(order.get(left.path) ?? 0) - (order.get(right.path) ?? 0) ||
+			left.line - right.line ||
+			left.column - right.column
+	);
 	const truncated = matches.length >= input.maxResults;
 	if (input.json) {
 		process.stdout.write(

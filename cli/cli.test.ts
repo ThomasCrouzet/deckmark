@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,6 +93,31 @@ describe('deckmark CLI', () => {
 		const presentation = run(project, ['inspect', 'notes/slides.md', '--json']);
 		expect(presentation.status).toBe(0);
 		expect(JSON.parse(presentation.stdout).kind).toBe('presentation');
+	});
+
+	it('allocates duplicate heading IDs in linear time and stable order', async () => {
+		const file = join(project, 'many-headings.md');
+		await writeFile(file, `${'# Same\n\n'.repeat(3000)}`);
+		const result = run(project, ['render', 'many-headings.md']);
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('id="same"');
+		expect(result.stdout).toContain('id="same-3000"');
+		expect((result.stdout.match(/id="same-\d+"/g) ?? []).length).toBe(2999);
+		await rm(file, { force: true });
+	});
+
+	it('rejects a directory tree deeper than the walk limit', async () => {
+		let current = join(project, 'deep-tree');
+		await mkdir(current);
+		for (let depth = 0; depth < 70; depth++) {
+			current = join(current, `d${depth}`);
+			await mkdir(current);
+		}
+		await writeFile(join(current, 'note.md'), '# Deep');
+		const result = run(project, ['check', 'deep-tree', '--json']);
+		await rm(join(project, 'deep-tree'), { recursive: true, force: true });
+		expect(result.status).toBe(3);
+		expect(result.stderr).toContain('depth-limit');
 	});
 
 	it('renders golden standalone HTML', async () => {
