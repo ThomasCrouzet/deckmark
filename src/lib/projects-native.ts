@@ -9,6 +9,7 @@ import { importProject } from './projects';
 import type { ProjectInput } from './project-archive';
 import { pathKey, projectPath } from './project-paths';
 import {
+	manifestNativeProject,
 	openNativeProject,
 	pickNativeProject,
 	readNativeProjectEntry,
@@ -160,6 +161,32 @@ async function loadBaseline(projectId: string): Promise<Record<string, string>> 
 
 async function storeBaseline(projectId: string, baseline: Record<string, string>): Promise<void> {
 	await db.metadata.put({ key: baselineKey(projectId), value: JSON.stringify(baseline) });
+}
+
+const MANIFEST_PREFIX = 'project-native-manifest:';
+
+function manifestKey(projectId: string): string {
+	return `${MANIFEST_PREFIX}${projectId}`;
+}
+
+function manifestOf(snapshot: NativeProjectSnapshot): string {
+	return JSON.stringify(
+		snapshot.entries.map((entry) => ({
+			kind: entry.kind,
+			relativePath: entry.relativePath,
+			mtimeMs: entry.mtimeMs,
+			size: entry.size
+		}))
+	);
+}
+
+async function loadManifest(projectId: string): Promise<string | null> {
+	const row = await db.metadata.get(manifestKey(projectId));
+	return row?.value ?? null;
+}
+
+async function storeManifest(projectId: string, snapshot: NativeProjectSnapshot): Promise<void> {
+	await db.metadata.put({ key: manifestKey(projectId), value: manifestOf(snapshot) });
 }
 
 function revisions(snapshot: NativeProjectSnapshot): Record<string, string> {
@@ -528,7 +555,14 @@ async function refreshNativeProjectFromDiskInternal(
 ): Promise<NativeProjectReport> {
 	await filesStore.flushPendingAwait();
 	await filesStore.ensureProjectContent(projectId);
-	const snapshot = providedSnapshot ?? (await currentSnapshot(projectId));
+	let snapshot = providedSnapshot;
+	if (!snapshot) {
+		const active = await ensureSession(projectId);
+		const manifest = await manifestNativeProject(active.token);
+		if ((await loadManifest(projectId)) === JSON.stringify(manifest.entries))
+			return { succeeded: [], failed: [] };
+		snapshot = await currentSnapshot(projectId);
+	}
 	const session = sessions.get(projectId);
 	if (!session) throw new Error('Native project session is unavailable');
 	const baseline = await loadBaseline(projectId);
@@ -601,6 +635,7 @@ async function refreshNativeProjectFromDiskInternal(
 	}
 	if (report.failed.length)
 		throw new NativeProjectOperationError('Native project refresh failed', report);
+	await storeManifest(projectId, snapshot).catch(() => {});
 	return report;
 }
 

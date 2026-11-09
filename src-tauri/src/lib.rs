@@ -102,6 +102,7 @@ pub fn run() {
             projects::project_pick_root,
             projects::project_open_root,
             projects::project_refresh,
+            projects::project_manifest,
             projects::project_read,
             projects::project_write_text,
             projects::project_write_asset,
