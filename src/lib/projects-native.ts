@@ -283,6 +283,12 @@ export async function reopenNativeProjects(): Promise<NativeProjectFailure[]> {
 			});
 		}
 	}
+	try {
+		const { recoverPendingProjectRenames } = await import('./project-rename-recovery');
+		failed.push(...(await recoverPendingProjectRenames()));
+	} catch {
+		/* Recovery stays best effort. The journal remains for the next start. */
+	}
 	return failed;
 }
 
