@@ -422,40 +422,42 @@
 						<Folder size={15} class="mr-2 inline-block text-fg-dim" aria-hidden="true" />
 					{/if}{child.name}
 				</summary>
-				<ul class="ml-4 list-none border-l border-border pl-2">
-					{#if actions}
-						<li class="flex flex-wrap gap-1 px-2 pb-1">
-							<button
-								type="button"
-								class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
-								data-project-action="new-document"
-								aria-label={t('projects.newDocumentIn', { folder: child.path })}
-								onclick={() => void newDocument(projectId, child.path)}
-							>
-								<FilePlus size={12} aria-hidden="true" />
-							</button>
-							<button
-								type="button"
-								class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
-								data-project-action="rename-folder"
-								aria-label={t('projects.renameFolder')}
-								onclick={() => void renameFolderPrompt(projectId, child.path)}
-							>
-								<Pencil size={12} aria-hidden="true" />
-							</button>
-							<button
-								type="button"
-								class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
-								data-project-action="move-folder"
-								aria-label={t('projects.moveTo')}
-								onclick={() => openMove({ projectId, folder: child.path })}
-							>
-								<FolderInput size={12} aria-hidden="true" />
-							</button>
-						</li>
-					{/if}
-					{@render folderContents(projectId, child)}
-				</ul>
+				{#if isOpen(key)}
+					<ul class="ml-4 list-none border-l border-border pl-2">
+						{#if actions}
+							<li class="flex flex-wrap gap-1 px-2 pb-1">
+								<button
+									type="button"
+									class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
+									data-project-action="new-document"
+									aria-label={t('projects.newDocumentIn', { folder: child.path })}
+									onclick={() => void newDocument(projectId, child.path)}
+								>
+									<FilePlus size={12} aria-hidden="true" />
+								</button>
+								<button
+									type="button"
+									class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
+									data-project-action="rename-folder"
+									aria-label={t('projects.renameFolder')}
+									onclick={() => void renameFolderPrompt(projectId, child.path)}
+								>
+									<Pencil size={12} aria-hidden="true" />
+								</button>
+								<button
+									type="button"
+									class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
+									data-project-action="move-folder"
+									aria-label={t('projects.moveTo')}
+									onclick={() => openMove({ projectId, folder: child.path })}
+								>
+									<FolderInput size={12} aria-hidden="true" />
+								</button>
+							</li>
+						{/if}
+						{@render folderContents(projectId, child)}
+					</ul>
+				{/if}
 			</details>
 		</li>
 	{/each}
@@ -552,47 +554,49 @@
 						<Folder size={15} class="mr-2 inline-block text-fg-dim" aria-hidden="true" />
 					{/if}{project.name}
 				</summary>
-				<ul class="ml-4 list-none border-l border-border pl-2">
-					{#if actions}
-						<li class="flex flex-wrap gap-1 px-2 pb-1">
-							<button
-								type="button"
-								class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
-								data-project-action="new-document"
-								aria-label={t('projects.newDocumentHere')}
-								onclick={() => void newDocument(project.id)}
-							>
-								<FilePlus size={12} aria-hidden="true" />
-							</button>
-							<button
-								type="button"
-								class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
-								data-project-action="rename-project"
-								aria-label={t('projects.renameProject')}
-								onclick={() => void renameProjectPrompt(project.id)}
-							>
-								<FolderCog size={12} aria-hidden="true" />
-							</button>
-							{#if onManageProjects}
+				{#if isOpen(key)}
+					<ul class="ml-4 list-none border-l border-border pl-2">
+						{#if actions}
+							<li class="flex flex-wrap gap-1 px-2 pb-1">
 								<button
 									type="button"
 									class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
-									data-project-action="manage-projects"
-									aria-label={t('projects.manage')}
-									onclick={onManageProjects}
+									data-project-action="new-document"
+									aria-label={t('projects.newDocumentHere')}
+									onclick={() => void newDocument(project.id)}
 								>
-									<Settings2 size={12} aria-hidden="true" />
+									<FilePlus size={12} aria-hidden="true" />
 								</button>
-							{/if}
-						</li>
-					{/if}
-					{@render folderContents(project.id, {
-						name: project.name,
-						path: '',
-						folders: project.folders,
-						files: project.files
-					})}
-				</ul>
+								<button
+									type="button"
+									class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
+									data-project-action="rename-project"
+									aria-label={t('projects.renameProject')}
+									onclick={() => void renameProjectPrompt(project.id)}
+								>
+									<FolderCog size={12} aria-hidden="true" />
+								</button>
+								{#if onManageProjects}
+									<button
+										type="button"
+										class="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg"
+										data-project-action="manage-projects"
+										aria-label={t('projects.manage')}
+										onclick={onManageProjects}
+									>
+										<Settings2 size={12} aria-hidden="true" />
+									</button>
+								{/if}
+							</li>
+						{/if}
+						{@render folderContents(project.id, {
+							name: project.name,
+							path: '',
+							folders: project.folders,
+							files: project.files
+						})}
+					</ul>
+				{/if}
 			</details>
 		</div>
 	{/each}
