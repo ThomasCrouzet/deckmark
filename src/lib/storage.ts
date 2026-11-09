@@ -115,6 +115,38 @@ export function isBackupReminderDue(
 	return backupTooOld && reminderWindowOpen;
 }
 
+/**
+ * Sums the durable asset-byte index keys only. The cursor never returns an
+ * asset body, so a large image library does not pass through the UI heap.
+ */
+async function readProjectAssetTotals(): Promise<{ count: number; bytes: number }> {
+	const idb = db.backendDB();
+	return new Promise((resolve, reject) => {
+		let transaction: IDBTransaction;
+		try {
+			transaction = idb.transaction('projectAssets', 'readonly');
+		} catch (error) {
+			reject(error);
+			return;
+		}
+		const index = transaction.objectStore('projectAssets').index('bytes');
+		const request = index.openKeyCursor();
+		let count = 0;
+		let bytes = 0;
+		request.onerror = () => reject(request.error);
+		request.onsuccess = () => {
+			const cursor = request.result;
+			if (!cursor) return;
+			count += 1;
+			if (typeof cursor.key === 'number') bytes += cursor.key;
+			cursor.continue();
+		};
+		transaction.oncomplete = () => resolve({ count, bytes });
+		transaction.onerror = () => reject(transaction.error);
+		transaction.onabort = () => reject(transaction.error);
+	});
+}
+
 export async function getStorageHealth(now = Date.now()): Promise<StorageHealth> {
 	const lastExternalBackupAt = readTimestamp(BACKUP_SUCCESS_KEY);
 	const lastBackupErrorAt = readTimestamp(BACKUP_ERROR_KEY);
@@ -123,11 +155,9 @@ export async function getStorageHealth(now = Date.now()): Promise<StorageHealth>
 	let projectAssetBytes: number | null = null;
 	if (browser) {
 		try {
-			projectAssetCount = await db.projectAssets.count();
-			projectAssetBytes = 0;
-			await db.projectAssets.each((asset) => {
-				projectAssetBytes! += asset.data.byteLength;
-			});
+			const totals = await readProjectAssetTotals();
+			projectAssetCount = totals.count;
+			projectAssetBytes = totals.bytes;
 		} catch {
 			projectAssetCount = null;
 			projectAssetBytes = null;

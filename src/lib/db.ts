@@ -155,6 +155,8 @@ export interface ProjectAssetRow {
 	path: string;
 	mime: string;
 	data: Uint8Array;
+	/** Durable byte length maintained by the table hooks. Do not write directly. */
+	bytes?: number;
 }
 
 export const DISK_LINK_EPOCH_KEY = 'disk-link-epoch';
@@ -277,6 +279,20 @@ class MdshDB extends Dexie {
 		this.version(13).stores({
 			trashed: 'id, trashedAt, summary'
 		});
+		// v14: asset byte lengths live in the index so Settings can sum them
+		// without reading every binary body.
+		this.version(14)
+			.stores({
+				projectAssets: 'id, projectId, bytes, &[projectId+path]'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<ProjectAssetRow>('projectAssets')
+					.toCollection()
+					.modify((row) => {
+						row.bytes = row.data.byteLength;
+					})
+			);
 
 		this.drafts.hook('creating', (_primaryKey, row) => {
 			row.manifest = encodeDraftManifest(row);
@@ -284,6 +300,13 @@ class MdshDB extends Dexie {
 		this.drafts.hook('updating', (modifications, _primaryKey, row) => {
 			const merged = { ...row, ...modifications } as DraftRow;
 			return { manifest: encodeDraftManifest(merged) };
+		});
+		this.projectAssets.hook('creating', (_primaryKey, row) => {
+			row.bytes = row.data.byteLength;
+		});
+		this.projectAssets.hook('updating', (modifications, _primaryKey, row) => {
+			const merged = { ...row, ...modifications } as ProjectAssetRow;
+			return merged.data ? { bytes: merged.data.byteLength } : {};
 		});
 	}
 }
