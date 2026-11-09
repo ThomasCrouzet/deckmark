@@ -12,6 +12,93 @@ export const CAPABILITIES: AiProviderCapabilities = {
 	modelDiscovery: true
 };
 
+/** Model discovery is an id list, not a document. Keep it small and bounded. */
+export const MODEL_LIST_MAX_BYTES = 512 * 1024;
+/** An HTTP error detail is diagnostic text only. Never buffer the full body. */
+export const ERROR_BODY_MAX_BYTES = 4 * 1024;
+export const MAX_MODELS = 2000;
+export const MAX_MODEL_ID_CHARS = 256;
+
+class BodyTooLargeError extends Error {
+	constructor() {
+		super('The provider response is too large.');
+		this.name = 'BodyTooLargeError';
+	}
+}
+
+function isAbort(error: unknown): boolean {
+	return error instanceof DOMException && error.name === 'AbortError';
+}
+
+/**
+ * Reads a response with a true byte cap that applies during the stream, not
+ * only after buffering. A declared Content-Length is an early hint, and a
+ * chunked or misreported body still stops as soon as the cap is crossed.
+ */
+async function readBoundedText(
+	response: Response,
+	maxBytes: number,
+	signal?: AbortSignal
+): Promise<string> {
+	const declared = Number(response.headers.get('content-length'));
+	if (Number.isFinite(declared) && declared > maxBytes) {
+		await response.body?.cancel().catch(() => {});
+		throw new BodyTooLargeError();
+	}
+	if (!response.body) return '';
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let received = 0;
+	let text = '';
+	try {
+		for (;;) {
+			if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+			const { done, value } = await reader.read();
+			if (done) break;
+			received += value.byteLength;
+			if (received > maxBytes) throw new BodyTooLargeError();
+			text += decoder.decode(value, { stream: true });
+		}
+		text += decoder.decode();
+		return text;
+	} finally {
+		await reader.cancel().catch(() => {});
+	}
+}
+
+/** Removes common credential shapes before any detail reaches a message. */
+function redactDetail(text: string): string {
+	return text
+		.replace(/\s+/g, ' ')
+		.trim()
+		.replace(/sk-[A-Za-z0-9_-]{8,}/g, '[redacted]')
+		.replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]')
+		.replace(
+			/("?(?:api[_-]?key|authorization|token|secret|password)"?\s*[:=]\s*")([^"]{4,})(")/gi,
+			'$1[redacted]$3'
+		)
+		.slice(0, 400);
+}
+
+/** Extracts a short provider message instead of echoing the complete body. */
+function errorDetail(text: string): string {
+	const value = text.trim();
+	if (value.startsWith('{')) {
+		try {
+			const parsed = JSON.parse(value) as {
+				error?: string | { message?: unknown };
+				message?: unknown;
+			};
+			const message =
+				typeof parsed.error === 'string' ? parsed.error : (parsed.error?.message ?? parsed.message);
+			if (typeof message === 'string' && message.trim()) return redactDetail(message);
+		} catch {
+			/* Fall back to the bounded text. */
+		}
+	}
+	return redactDetail(value);
+}
+
 function endpoint(baseUrl: string, path: string): string {
 	const base = baseUrl.trim().replace(/\/+$/, '');
 	if (!/^https?:\/\//i.test(base)) throw new AiProviderError('invalid-response', 'Invalid URL');
@@ -25,12 +112,13 @@ function headers(apiKey: string | null): Record<string, string> {
 	};
 }
 
-async function failure(response: Response): Promise<AiProviderError> {
+async function failure(response: Response, signal?: AbortSignal): Promise<AiProviderError> {
 	let detail = '';
 	try {
-		detail = (await response.text()).slice(0, 400);
-	} catch {
-		/* The status remains actionable. */
+		detail = errorDetail(await readBoundedText(response, ERROR_BODY_MAX_BYTES, signal));
+	} catch (error) {
+		if (isAbort(error)) throw new AiProviderError('cancelled', 'Request cancelled');
+		/* An oversized or unreadable detail keeps only the status. */
 	}
 	const message = detail || `Provider returned ${response.status}`;
 	if (response.status === 401 || response.status === 403)
@@ -66,7 +154,7 @@ async function request(
 			);
 		throw new AiProviderError('network', error instanceof Error ? error.message : String(error));
 	}
-	if (!response.ok) throw await failure(response);
+	if (!response.ok) throw await failure(response, signal);
 	return response;
 }
 
@@ -89,13 +177,27 @@ export async function listModels(
 			throw new AiProviderError('cors', 'Network or CORS failure while listing models.');
 		throw new AiProviderError('network', error instanceof Error ? error.message : String(error));
 	}
-	if (!response.ok) throw await failure(response);
-	const data = (await response.json()) as { data?: Array<{ id?: unknown }> };
+	if (!response.ok) throw await failure(response, signal);
+	let data: { data?: Array<{ id?: unknown }> };
+	try {
+		data = JSON.parse(await readBoundedText(response, MODEL_LIST_MAX_BYTES, signal)) as {
+			data?: Array<{ id?: unknown }>;
+		};
+	} catch (error) {
+		if (isAbort(error)) throw new AiProviderError('cancelled', 'Request cancelled');
+		if (error instanceof BodyTooLargeError)
+			throw new AiProviderError('invalid-response', 'The model list is too large.');
+		throw new AiProviderError('invalid-response', 'The provider returned an invalid model list.');
+	}
 	if (!Array.isArray(data.data))
 		throw new AiProviderError('invalid-response', 'The provider did not return a model list.');
 	return data.data
+		.slice(0, MAX_MODELS)
 		.map((entry) => entry.id)
-		.filter((id): id is string => typeof id === 'string' && id.length > 0)
+		.filter(
+			(id): id is string =>
+				typeof id === 'string' && id.length > 0 && id.length <= MAX_MODEL_ID_CHARS
+		)
 		.sort();
 }
 
