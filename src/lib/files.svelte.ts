@@ -48,7 +48,8 @@ import {
 	exportAllZip as exportAllZipOp,
 	exportHTML as exportHTMLOp,
 	exportPDF as exportPDFOp,
-	exportSelectionZip as exportSelectionZipOp
+	exportSelectionZip as exportSelectionZipOp,
+	type ExportResult
 } from './export-ops';
 import {
 	DocumentRevisions,
@@ -1776,10 +1777,10 @@ class FilesStore {
 	exportActive(): void {
 		if (this.active) void this.export(this.active.id);
 	}
-	async export(id: string): Promise<void> {
+	async export(id: string): Promise<ExportResult> {
 		this.dispatchEditorFlush();
 		await this.ensureContent([id]);
-		exportMarkdownOp(id, this.exportDeps);
+		return exportMarkdownOp(id, this.exportDeps);
 	}
 	async exportAll(): Promise<void> {
 		this.dispatchEditorFlush();
@@ -2068,8 +2069,8 @@ class FilesStore {
 		const active = this.active;
 		if (active.linkedToDisk && isDiskLinkingAvailable()) return this.saveToDisk(active.id);
 		this.dispatchEditorFlush();
-		await exportMarkdownOp(active.id, this.exportDeps);
-		return true;
+		const result = await exportMarkdownOp(active.id, this.exportDeps);
+		return result.outcome === 'written' || result.outcome === 'initiated';
 	}
 
 	async saveActiveToDisk(): Promise<boolean> {
@@ -2093,7 +2094,8 @@ class FilesStore {
 		if (!browser || !file) return false;
 		this.dispatchEditorFlush();
 		if (!isDiskLinkingAvailable()) {
-			await exportMarkdownOp(id, this.exportDeps);
+			const result = await exportMarkdownOp(id, this.exportDeps);
+			if (result.outcome === 'cancelled' || result.outcome === 'failed') return false;
 			notify.info(t('disk.downloadedCopy', { name: file.name }));
 			return true;
 		}
