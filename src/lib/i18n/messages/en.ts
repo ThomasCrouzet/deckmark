@@ -660,6 +660,7 @@ export const en = {
 	'comments.add': 'Add comment',
 	'comments.list': 'Comments',
 	'comments.empty': 'No comments for this document.',
+	'comments.showMore': 'Show {n} more comments',
 	'comments.resolve': 'Resolve',
 	'comments.reopen': 'Reopen',
 	'comments.delete': 'Delete',
