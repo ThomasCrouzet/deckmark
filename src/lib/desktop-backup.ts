@@ -7,7 +7,7 @@
 import { browser } from '$app/env';
 import { IS_DESKTOP_EDITION } from './edition';
 import { readPreference, writePreference } from './preferences';
-import { collectBackup, parseBackupWithReport, serializeBackup } from './services/backup';
+import { collectBackup, serializeBackup, validateBackupValue } from './services/backup';
 
 const STORAGE_KEY = 'mdsh:desktop-backup';
 const DEFAULT_INTERVAL_HOURS = 24;
@@ -162,9 +162,9 @@ async function invokeDesktop<T>(command: string, args: Record<string, unknown>):
 async function buildSnapshot(): Promise<string> {
 	const { filesStore } = await import('./files.svelte');
 	await filesStore.flushPendingAwait();
-	const json = serializeBackup(await collectBackup());
-	parseBackupWithReport(json);
-	return json;
+	const backup = await collectBackup();
+	validateBackupValue(backup);
+	return serializeBackup(backup);
 }
 
 export async function chooseBackupFolder(title: string): Promise<string | null> {
