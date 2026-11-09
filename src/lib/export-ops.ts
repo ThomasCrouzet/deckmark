@@ -107,10 +107,11 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	} finally {
 		dismiss();
 	}
-	// Reset dirty + save for each exported file.
-	const current = deps.getFiles();
+	// Reset dirty + save for each exported file. One index avoids a linear
+	// current-library scan for every exported document.
+	const currentById = new Map(deps.getFiles().map((file) => [file.id, file]));
 	for (const file of snapshot) {
-		const f = current.find((x) => x.id === file.id);
+		const f = currentById.get(file.id);
 		if (!f || f.content !== file.content || f.name !== file.name) continue;
 		f.dirty = false;
 		deps.scheduleSave(f.id);
