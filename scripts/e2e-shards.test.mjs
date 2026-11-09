@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, test } from 'node:test';
+import { e2eTestKey } from './e2e-test-key.mjs';
 
 const script = resolve(import.meta.dirname, 'e2e-shards.mjs');
 const roots = [];
@@ -259,7 +260,15 @@ test('warns and ignores a stale weight entry instead of blocking the plan', () =
 	assert.deepEqual(value.staleWeightGroups, ['chromium::removed.spec.ts']);
 	assert.deepEqual(
 		value.shards.flatMap((shard) => shard.tests).sort(),
-		['a.spec.ts:1::chromium', 'a.spec.ts:2::chromium', 'b.spec.ts:1::chromium'].sort()
+		[
+			['a.spec.ts', 1],
+			['a.spec.ts', 2],
+			['b.spec.ts', 1]
+		]
+			.map(([file, line]) =>
+				e2eTestKey({ file, line, title: `${file} ${line}` }, { projectName: 'chromium' }, [''])
+			)
+			.sort()
 	);
 });
 
