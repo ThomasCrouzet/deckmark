@@ -317,25 +317,6 @@
 			run: onSaveSnippetFile
 		},
 		{ id: 'backup', label: t('actions.backups'), icon: Download, run: onOpenSettings },
-		...filesStore.closedFiles.map((file) => ({
-			id: `reopen-${file.id}`,
-			label: t('palette.reopenFile', { name: file.name }),
-			keywords: filesStore.documentTitle(file.id),
-			hint: t(documentKindLabelKey(documentKindForFile(file))),
-			icon:
-				documentKindForFile(file) === 'note'
-					? FileText
-					: documentKindForFile(file) === 'presentation'
-						? Presentation
-						: documentKindForFile(file) === 'code'
-							? Code2
-							: documentKindForFile(file) === 'image'
-								? ImageIcon
-								: FileText,
-			run: () => {
-				filesStore.openDocument(file.id);
-			}
-		})),
 		{
 			id: 'close-file',
 			label: t('palette.closeFile'),
@@ -828,6 +809,28 @@
 		}
 	]);
 
+	const reopenCommands: Command[] = $derived(
+		filesStore.closedFiles.map((file) => ({
+			id: `reopen-${file.id}`,
+			label: t('palette.reopenFile', { name: file.name }),
+			keywords: filesStore.documentTitle(file.id),
+			hint: t(documentKindLabelKey(documentKindForFile(file))),
+			icon:
+				documentKindForFile(file) === 'note'
+					? FileText
+					: documentKindForFile(file) === 'presentation'
+						? Presentation
+						: documentKindForFile(file) === 'code'
+							? Code2
+							: documentKindForFile(file) === 'image'
+								? ImageIcon
+								: FileText,
+			run: () => {
+				filesStore.openDocument(file.id);
+			}
+		}))
+	);
+
 	const fileCommands: Command[] = $derived(
 		filesStore.files.map((f) => ({
 			id: `file-${f.id}`,
@@ -879,8 +882,20 @@
 		}))
 	);
 
-	const filtered: Command[] = $derived.by(() => {
-		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands]
+	const PAGE_COMMANDS = 100;
+	let visibleLimit = $state(PAGE_COMMANDS);
+	$effect(() => {
+		void query;
+		visibleLimit = PAGE_COMMANDS;
+	});
+	const matches: Command[] = $derived.by(() => {
+		const all = [
+			...baseCommands,
+			...templateCommands,
+			...workspaceCommands,
+			...fileCommands,
+			...reopenCommands
+		]
 			.filter((command) => {
 				if (command.id === 'advanced-source') return kind === 'presentation';
 				if (command.id === 'focus') return kind === 'note' && mode === 'read';
@@ -909,6 +924,7 @@
 			});
 		return [...filterCommands(all, query)];
 	});
+	const filtered: Command[] = $derived(matches.slice(0, visibleLimit));
 	const actionGroups = $derived(
 		[
 			{
@@ -1173,6 +1189,17 @@
 								{/if}
 							</li>
 						{/each}
+						{#if filtered.length < matches.length}
+							<li class="px-4 py-2 text-center text-xs">
+								<button
+									type="button"
+									class="text-fg-muted underline"
+									onclick={() => (visibleLimit += PAGE_COMMANDS)}
+								>
+									{t('palette.showMore', { n: matches.length - filtered.length })}
+								</button>
+							</li>
+						{/if}
 					{/if}
 				</ul>
 			{/if}

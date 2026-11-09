@@ -377,6 +377,7 @@ export const en = {
 	'settings.confirmPassphrase': 'Confirm the passphrase',
 	'settings.passphraseMismatch': 'The passphrases do not match. No backup was created.',
 	'page.exitFocusMode': 'Exit focus mode',
+	'palette.showMore': 'Show {n} more commands',
 	'palette.commandIndex': 'Commands',
 	'palette.availableCount': '{n} available',
 	'palette.requiresDocument': 'Open a document to use this command.',

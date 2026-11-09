@@ -28,6 +28,7 @@ export const gitFr: Record<GitMessageKey, string> = {
 	'git.group.untracked': 'Non suivi',
 	'git.group.deleted': 'Supprimé',
 	'git.group.empty': 'Aucun',
+	'git.showMore': 'Afficher {n} chemins de plus',
 	'git.file.partlyStaged': 'Indexé en partie',
 	'git.stage': 'Indexer {path}',
 	'git.unstage': 'Retirer {path} de l’index',
