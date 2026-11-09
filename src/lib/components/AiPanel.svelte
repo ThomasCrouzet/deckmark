@@ -32,6 +32,22 @@
 	let controller: AbortController | null = null;
 	let lastPrompt = $state('');
 	let history = $state<Array<{ prompt: string; reply: string }>>([]);
+	const MAX_OUTPUT_CHARS = 2_000_000;
+	const MAX_HISTORY_CHARS = 4_000_000;
+
+	function boundedHistory(
+		entries: Array<{ prompt: string; reply: string }>
+	): Array<{ prompt: string; reply: string }> {
+		const kept: Array<{ prompt: string; reply: string }> = [];
+		let bytes = 0;
+		for (const entry of entries) {
+			const size = entry.prompt.length + entry.reply.length;
+			if (kept.length > 0 && bytes + size > MAX_HISTORY_CHARS) break;
+			kept.push(entry);
+			bytes += size;
+		}
+		return kept;
+	}
 	let lastAllowedIds = $state<string[]>([]);
 	let approvedPaths = $state<string[]>([]);
 	let selectedHunks = $state<Record<string, number[]>>({});
@@ -265,9 +281,12 @@
 						}
 					]
 				},
-				(chunk) => (output += chunk)
+				(chunk) => {
+					const room = MAX_OUTPUT_CHARS - output.length;
+					if (room > 0) output += chunk.slice(0, room);
+				}
 			);
-			history = [{ prompt: text, reply: output }, ...history].slice(0, 10);
+			history = boundedHistory([{ prompt: text, reply: output }, ...history].slice(0, 10));
 		} catch (failure) {
 			if (failure instanceof AiProviderError && failure.code === 'cancelled')
 				output += t('ai.stopped');

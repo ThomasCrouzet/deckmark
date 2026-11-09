@@ -127,40 +127,49 @@ export async function streamChat(
 		throw new AiProviderError('invalid-response', 'The provider returned no body.');
 	const reader = response.body.getReader();
 	const maxResponseChars = 2_000_000;
+	const maxResponseBytes = 8 * 1024 * 1024;
 	const decoder = new TextDecoder();
 	let buffer = '';
 	let full = '';
+	let receivedBytes = 0;
+	const tooLarge = async () => {
+		await reader.cancel().catch(() => {});
+		throw new AiProviderError('invalid-response', 'The provider response is too large.');
+	};
 	try {
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-			const lines = buffer.split(/\r?\n/);
-			buffer = lines.pop() ?? '';
-			if (buffer.length > maxResponseChars || full.length > maxResponseChars) {
-				await reader.cancel().catch(() => {});
-				throw new AiProviderError('invalid-response', 'The provider response is too large.');
-			}
-			for (const line of lines) {
-				if (!line.startsWith('data:')) continue;
-				const payload = line.slice(5).trim();
-				if (!payload || payload === '[DONE]') continue;
-				let chunk: StreamChunk;
-				try {
-					chunk = JSON.parse(payload) as StreamChunk;
-				} catch {
-					continue;
-				}
-				const choice = chunk.choices?.[0];
-				const text = choice?.delta?.content ?? choice?.message?.content;
-				if (typeof text === 'string' && text.length > 0) {
-					full += text;
-					if (full.length > maxResponseChars) {
-						await reader.cancel().catch(() => {});
-						throw new AiProviderError('invalid-response', 'The provider response is too large.');
+			receivedBytes += value.byteLength;
+			if (receivedBytes > maxResponseBytes) await tooLarge();
+			const decoded = decoder.decode(value, { stream: true });
+			if (buffer.length + decoded.length > maxResponseChars) await tooLarge();
+			buffer += decoded;
+			// Process complete lines incrementally. Splitting a huge chunk into
+			// an event array would allocate before the byte check can reject it.
+			let newline = buffer.indexOf('\n');
+			while (newline >= 0) {
+				const line = buffer.slice(0, newline).replace(/\r$/, '');
+				buffer = buffer.slice(newline + 1);
+				if (line.startsWith('data:')) {
+					const payload = line.slice(5).trim();
+					if (payload && payload !== '[DONE]') {
+						let chunk: StreamChunk;
+						try {
+							chunk = JSON.parse(payload) as StreamChunk;
+						} catch {
+							chunk = {};
+						}
+						const choice = chunk.choices?.[0];
+						const text = choice?.delta?.content ?? choice?.message?.content;
+						if (typeof text === 'string' && text.length > 0) {
+							full += text;
+							if (full.length > maxResponseChars) await tooLarge();
+							onDelta(text);
+						}
 					}
-					onDelta(text);
 				}
+				newline = buffer.indexOf('\n');
 			}
 		}
 	} catch (error) {
