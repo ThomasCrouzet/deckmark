@@ -171,10 +171,10 @@
 		editingTemplate = null;
 		void tick().then(() => templateSummary?.focus());
 	}
-	function editTemplate(template: TemplateRow) {
+	async function editTemplate(template: TemplateRow) {
 		editingTemplate = template.id;
 		templateName = template.name;
-		templateContent = template.content;
+		templateContent = (await templatesStore.contentFor(template.id)) ?? '';
 		void tick().then(() => templateNameInput?.focus());
 	}
 	async function saveTemplate() {
@@ -933,7 +933,7 @@
 							<div class="flex flex-wrap items-center gap-2 border-t border-border py-2">
 								<span class="min-w-0 flex-1 break-words">{template.name}</span><button
 									class="rounded border border-border px-2 py-1"
-									onclick={() => editTemplate(template)}>{t('templates.edit')}</button
+									onclick={() => void editTemplate(template)}>{t('templates.edit')}</button
 								><button
 									class="rounded border border-border px-2 py-1 text-danger"
 									onclick={() => void deleteTemplate(template.id)}>{t('templates.delete')}</button

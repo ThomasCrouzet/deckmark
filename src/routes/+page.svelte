@@ -425,7 +425,7 @@
 	});
 
 	async function handleCreateFromTemplate(templateId: string): Promise<void> {
-		const document = templatesStore.resolve(templateId);
+		const document = await templatesStore.resolve(templateId);
 		if (!document) return;
 		// Keep the last keystroke of the outgoing document before the new one
 		// replaces the active tab.

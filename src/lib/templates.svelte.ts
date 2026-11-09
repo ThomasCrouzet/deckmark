@@ -16,6 +16,39 @@ import {
 	templateFileName,
 	type TemplateDef
 } from './templates';
+import { decodeTemplateManifest, type TemplateManifest } from './template-manifest-key';
+
+async function readTemplateManifests(): Promise<TemplateManifest[] | null> {
+	try {
+		const expected = await db.templates.count();
+		const idb = db.backendDB();
+		const manifests = await new Promise<TemplateManifest[]>((resolve, reject) => {
+			let transaction: IDBTransaction;
+			try {
+				transaction = idb.transaction('templates', 'readonly');
+			} catch (error) {
+				reject(error);
+				return;
+			}
+			const values: TemplateManifest[] = [];
+			const request = transaction.objectStore('templates').index('manifest').openKeyCursor();
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const cursor = request.result;
+				if (!cursor) return;
+				const manifest = decodeTemplateManifest(cursor.key);
+				if (manifest) values.push(manifest);
+				cursor.continue();
+			};
+			transaction.oncomplete = () => resolve(values);
+			transaction.onerror = () => reject(transaction.error);
+			transaction.onabort = () => reject(transaction.error);
+		});
+		return manifests.length === expected ? manifests : null;
+	} catch {
+		return null;
+	}
+}
 
 export interface TemplateChoice {
 	id: string;
@@ -44,15 +77,49 @@ class TemplatesStore {
 			name: tpl.name,
 			description: t('templates.userDescription'),
 			builtin: false,
-			kind: tpl.kind ?? documentKind(tpl.content)
+			kind: tpl.kind ?? 'note'
 		}));
 		return [...builtin, ...user];
 	}
 
 	async load(): Promise<void> {
 		if (!browser || this.loaded) return;
-		this.userTemplates = await db.templates.orderBy('updatedAt').reverse().toArray();
+		const manifests = await readTemplateManifests();
+		this.userTemplates = manifests
+			? manifests
+					.sort((a, b) => b.updatedAt - a.updatedAt)
+					.map((manifest) => ({
+						id: manifest.id,
+						name: manifest.name,
+						content: '',
+						builtin: manifest.builtin,
+						kind: manifest.kind,
+						createdAt: manifest.createdAt,
+						updatedAt: manifest.updatedAt,
+						contentDeferred: true
+					}))
+			: await db.templates.orderBy('updatedAt').reverse().toArray();
 		this.loaded = true;
+	}
+
+	/** Reads the exact current body for a selected or edited template. */
+	async contentFor(id: string): Promise<string | null> {
+		if (id.startsWith('builtin:'))
+			return BUILTIN_TEMPLATES.find((template) => template.id === id)?.content ?? null;
+		const row = await db.templates.get(id);
+		const item = this.userTemplates.find((template) => template.id === id);
+		if (!row) {
+			if (item) this.userTemplates = this.userTemplates.filter((template) => template.id !== id);
+			return null;
+		}
+		if (item) {
+			item.content = row.content;
+			item.name = row.name;
+			item.kind = row.kind ?? documentKind(row.content);
+			item.updatedAt = row.updatedAt;
+			item.contentDeferred = false;
+		}
+		return row.content;
 	}
 
 	/** §1.1 - Reloads after a backup restore. */
@@ -62,10 +129,10 @@ class TemplatesStore {
 	}
 
 	/** Resolves a template (builtin or user) into `{ name, content }` ready to create. */
-	resolve(
+	async resolve(
 		id: string,
 		now: Date = new Date()
-	): { name: string; content: string; kind: DocumentKind } | null {
+	): Promise<{ name: string; content: string; kind: DocumentKind } | null> {
 		const builtin: TemplateDef | undefined = BUILTIN_TEMPLATES.find((t) => t.id === id);
 		if (builtin) {
 			return {
@@ -75,14 +142,18 @@ class TemplatesStore {
 			};
 		}
 		const user = this.userTemplates.find((t) => t.id === id);
-		if (user) {
-			return {
-				name: `${user.name}.md`,
-				content: applyTemplateVars(user.content, now),
-				kind: user.kind ?? documentKind(user.content)
-			};
+		if (!user) return null;
+		let content = user.content;
+		if (user.contentDeferred) {
+			const hydrated = await this.contentFor(id);
+			if (hydrated === null) return null;
+			content = hydrated;
 		}
-		return null;
+		return {
+			name: `${user.name}.md`,
+			content: applyTemplateVars(content, now),
+			kind: user.kind ?? documentKind(content)
+		};
 	}
 
 	/**

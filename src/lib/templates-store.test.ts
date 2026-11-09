@@ -17,7 +17,19 @@ describe('templatesStore', () => {
 		const saved = await templatesStore.save('Deck', '# Deck', 'presentation');
 		expect(saved?.kind).toBe('presentation');
 		expect(await db.templates.get(saved!.id)).toMatchObject({ kind: 'presentation' });
-		expect(templatesStore.resolve(saved!.id)).toMatchObject({ kind: 'presentation' });
+		expect(await templatesStore.resolve(saved!.id)).toMatchObject({ kind: 'presentation' });
+	});
+
+	it('loads catalog metadata first and hydrates only the selected body', async () => {
+		const saved = await templatesStore.save('Large', '# Large template');
+		templatesStore.loaded = false;
+		await templatesStore.load();
+		const item = templatesStore.userTemplates.find((template) => template.id === saved!.id)!;
+		expect(item.contentDeferred).toBe(true);
+		expect(item.content).toBe('');
+		const resolved = await templatesStore.resolve(saved!.id);
+		expect(resolved?.content).toContain('# Large template');
+		expect(item.contentDeferred).toBe(false);
 	});
 
 	it('treats an older template row without kind as a note', async () => {
@@ -33,7 +45,7 @@ describe('templatesStore', () => {
 			}
 		];
 		expect(templatesStore.choices.find((choice) => choice.id === 'legacy')?.kind).toBe('note');
-		expect(templatesStore.resolve('legacy')?.kind).toBe('note');
+		expect((await templatesStore.resolve('legacy'))?.kind).toBe('note');
 	});
 
 	it('updates a template only after its new content is durable', async () => {
