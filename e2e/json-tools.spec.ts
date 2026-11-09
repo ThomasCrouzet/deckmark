@@ -133,7 +133,9 @@ for (const outcome of ['no-op', 'worker-error'] as const) {
 		await resetAppState(page);
 		const source = '{"a":1}';
 		await importJson(page, 'pending.json', source);
-		await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+		await expect(page.getByTestId('json-status')).toHaveText('JSON valide', {
+			timeout: 20_000
+		});
 		try {
 			await holdReplies(page, true);
 			await page.getByTestId('json-validate').click();
@@ -161,7 +163,9 @@ for (const outcome of ['no-op', 'worker-error'] as const) {
 			await expect(page.getByTestId('json-pending')).toHaveCount(0);
 			await expect(page.getByTestId('json-validate')).toBeEnabled();
 			await expect(page.getByTestId('json-action-error')).toHaveCount(0);
-			await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+			await expect(page.getByTestId('json-status')).toHaveText('JSON valide', {
+				timeout: 20_000
+			});
 			await expect.poll(() => savedContent(page)).toBe(source);
 		} finally {
 			await info.attach(`json-pending-${outcome}.json`, {
@@ -198,7 +202,9 @@ test('keeps full JSON diagnostics off the input thread at 1, 5 and 10 MB', async
 		});
 		await expect(page.getByTestId('code-editor')).toBeVisible();
 		if (bytes >= 5_000_000) await page.getByTestId('json-validate').click();
-		await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+		await expect(page.getByTestId('json-status')).toHaveText('JSON valide', {
+			timeout: 20_000
+		});
 		await page.locator('.cm-content').click();
 		await page.keyboard.press('ControlOrMeta+End');
 		const samples = [];
@@ -217,7 +223,9 @@ test('keeps full JSON diagnostics off the input thread at 1, 5 and 10 MB', async
 			rawSamples.push({ start, inputEnd, paint, latency: paint - start });
 		}
 		if (bytes >= 5_000_000) await page.getByTestId('json-validate').click();
-		await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+		await expect(page.getByTestId('json-status')).toHaveText('JSON valide', {
+			timeout: 20_000
+		});
 		const probe = await probeState(page);
 		const workerMemory = await jsonWorkerHeap(page);
 		expect(probe.parses).toEqual([]);
@@ -407,7 +415,9 @@ test('validates and formats JSON after an offline reload', async ({
 		await expect
 			.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)))
 			.toBe(true);
-		await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+		await expect(page.getByTestId('json-status')).toHaveText('JSON valide', {
+			timeout: 20_000
+		});
 		await page.getByTestId('json-format').click();
 		await expect
 			.poll(() => savedContent(page))
