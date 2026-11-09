@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { IMPORT_LIMITS } from '../src/lib/config';
 import { documentKindForFile } from '../src/lib/document-kind';
@@ -44,10 +45,6 @@ const FORMATS = new Set<ExportFormat>(['html', 'md', 'zip']);
 const FIXED_ZIP_DATE = new Date('1980-01-01T00:00:00.000Z');
 const MARKDOWN_EXTENSION = /\.(?:md|markdown|mdx|txt)$/i;
 
-function totalBytes(chunks: readonly Uint8Array[]): number {
-	return chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
-}
-
 async function exportZip(
 	input: ExportInput,
 	deadline: Deadline
@@ -69,7 +66,7 @@ async function exportZip(
 	} catch (error) {
 		if (!(error instanceof CliError) || error.code !== 'input-not-found') throw error;
 		root = await requireDirectory(resolve(input.input));
-		const paths = await walkFiles(root);
+		const paths = await walkFiles(root, { deadline });
 		documentPaths = paths.filter((path) => MARKDOWN_EXTENSION.test(path));
 		assetPaths = paths.filter((path) => !MARKDOWN_EXTENSION.test(path));
 	}
@@ -87,6 +84,15 @@ async function exportZip(
 			throw new CliError(EXIT.INPUT, 'unsupported-path', `Unsupported project path: ${path}`);
 		}
 	}
+	// Reject an over-budget project from file sizes before any full read.
+	let preflightBytes = 0;
+	for (const path of [...documentPaths, ...assetPaths]) {
+		const info = await stat(resolve(root, path));
+		preflightBytes += info.size;
+		if (preflightBytes > IMPORT_LIMITS.maxBatchBytes)
+			throw new CliError(EXIT.INPUT, 'batch-limit', 'Project size limit reached');
+	}
+	deadline.check();
 	const documents: ProjectDocumentInput[] = await mapPool(
 		documentPaths,
 		input.concurrency,
@@ -106,8 +112,8 @@ async function exportZip(
 	);
 	deadline.check();
 	const bytes =
-		totalBytes(documents.map((document) => new TextEncoder().encode(document.content))) +
-		totalBytes(assets.map((asset) => asset.data));
+		documents.reduce((sum, document) => sum + Buffer.byteLength(document.content, 'utf8'), 0) +
+		assets.reduce((sum, asset) => sum + asset.data.byteLength, 0);
 	if (bytes > IMPORT_LIMITS.maxBatchBytes)
 		throw new CliError(EXIT.INPUT, 'batch-limit', 'Project size limit reached');
 	const name = input.name?.trim() || basename(root) || 'deckmark-export';

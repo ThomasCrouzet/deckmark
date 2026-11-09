@@ -14,6 +14,7 @@
 		type SemanticModelId,
 		cachedCooccurrenceEmbedder
 	} from '#lib/semantic-search.js';
+	import { contentHash } from '#lib/ai/patches.js';
 	import { t } from '#lib/i18n/index.js';
 	import type { FileItem } from '#lib/types.js';
 
@@ -52,8 +53,9 @@
 	}
 
 	async function scopeRows() {
+		if (projectId) return db.semanticIndex.where('projectId').equals(projectId).toArray();
 		const all = await db.semanticIndex.toArray();
-		return all.filter((row) => (projectId ? row.projectId === projectId : row.projectId === null));
+		return all.filter((row) => row.projectId === null);
 	}
 
 	function setEnabled(value: boolean) {
@@ -82,7 +84,7 @@
 			modelId === 'cooccurrence-v1'
 				? cachedCooccurrenceEmbedder(
 						`${projectId ?? 'library'}|${files
-							.map((file) => `${file.id}:${file.updatedAt}:${file.content.length}`)
+							.map((file) => `${file.id}:${contentHash(file.content)}`)
 							.join(',')}`,
 						files.map((file) => file.content)
 					)

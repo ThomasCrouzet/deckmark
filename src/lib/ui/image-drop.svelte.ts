@@ -116,7 +116,10 @@ export async function appendImagesToActive(images: File[], store: ImageDropStore
 				]);
 				source = relativeDestination(
 					active.relativePath,
-					await addProjectImage(active.projectId, img)
+					await addProjectImage(active.projectId, img, {
+						data: embedded.data,
+						mime: embedded.mime
+					})
 				);
 			} catch (error) {
 				unreadable++;

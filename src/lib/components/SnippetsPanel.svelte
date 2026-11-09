@@ -6,7 +6,6 @@
 	import { t } from '#lib/i18n/index.js';
 	import { CODE_LANGUAGES, type CodeLanguageId } from '#lib/code/languages.js';
 	import {
-		findDuplicateSnippet,
 		parseSnippetExport,
 		parseSnippetTags,
 		resolveSnippetForCopy,
@@ -97,9 +96,13 @@
 	);
 	const duplicate = $derived(
 		mode === 'create' && editingId === null
-			? findDuplicateSnippet(snippetsStore.rows, formCode, formLanguage)
+			? snippetsStore.findDuplicateCandidate(formCode, formLanguage)
 			: null
 	);
+
+	$effect(() => {
+		if (selected?.contentDeferred) void snippetsStore.contentFor(selected.id);
+	});
 
 	$effect(() => {
 		if (!open) {
@@ -296,7 +299,7 @@
 
 	async function exportSnippets() {
 		const stamp = new Date().toISOString().slice(0, 10);
-		const blob = new Blob([snippetsStore.exportJson()], {
+		const blob = new Blob([await snippetsStore.exportJson()], {
 			type: 'application/json;charset=utf-8'
 		});
 		const exported = await triggerDownload(blob, `deckmark-snippets-${stamp}.json`);

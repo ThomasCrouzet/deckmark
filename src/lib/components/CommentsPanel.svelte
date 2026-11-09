@@ -29,14 +29,40 @@
 	);
 	let anchors = $state<Record<string, CommentAnchor>>({});
 	let anchorJob = 0;
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient cache, never rendered
+	const anchorCache = new Map<
+		string,
+		{ content: string; quote: string; from: number; to: number; anchor: CommentAnchor }
+	>();
 	$effect(() => {
 		const content = boundFile?.content ?? '';
 		const list = comments;
 		const job = ++anchorJob;
 		const timer = setTimeout(() => {
 			if (job !== anchorJob) return;
+			const live = new Set(list.map((comment) => comment.id));
+			for (const id of anchorCache.keys()) if (!live.has(id)) anchorCache.delete(id);
 			anchors = Object.fromEntries(
-				list.map((comment) => [comment.id, resolveCommentAnchor(content, comment)])
+				list.map((comment) => {
+					const cached = anchorCache.get(comment.id);
+					if (
+						cached &&
+						cached.content === content &&
+						cached.quote === comment.quote &&
+						cached.from === comment.from &&
+						cached.to === comment.to
+					)
+						return [comment.id, cached.anchor];
+					const anchor = resolveCommentAnchor(content, comment);
+					anchorCache.set(comment.id, {
+						content,
+						quote: comment.quote,
+						from: comment.from,
+						to: comment.to,
+						anchor
+					});
+					return [comment.id, anchor];
+				})
 			) as Record<string, CommentAnchor>;
 		}, 150);
 		return () => clearTimeout(timer);

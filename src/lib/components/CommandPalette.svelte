@@ -871,8 +871,8 @@
 			label: t('palette.newFromTemplate', { name: tpl.name }),
 			hint: tpl.description,
 			icon: FileText,
-			run: () => {
-				const doc = templatesStore.resolve(tpl.id);
+			run: async () => {
+				const doc = await templatesStore.resolve(tpl.id);
 				if (doc)
 					filesStore.createNew(doc.name, doc.content, {
 						focusEditor: doc.kind === 'note',

@@ -1041,6 +1041,33 @@ describe('deferred activation intent', () => {
 		get.mockRestore();
 	});
 
+	it('does not publish workspace tabs when the open flag write fails', async () => {
+		await db.drafts.bulkPut([draftRow('a', 'a.md', '# A'), draftRow('b', 'b.md', '# B')]);
+		const where = vi.spyOn(db.drafts, 'where').mockReturnValue({
+			anyOf: () => ({
+				modify: async () => {
+					throw new Error('abort');
+				}
+			})
+		} as never);
+		await expect(filesStore.openWorkspace(['a', 'b'])).rejects.toThrow('abort');
+		expect(filesStore.files).toHaveLength(0);
+		expect(filesStore.closedFiles).toHaveLength(0);
+		expect(filesStore.activeId).toBeNull();
+		expect((await db.drafts.get('a'))?.open).not.toBe(true);
+		where.mockRestore();
+	});
+
+	it('does not publish a superseded workspace restore', async () => {
+		await db.drafts.bulkPut([draftRow('a', 'a.md', '# A')]);
+		let current = true;
+		const opening = filesStore.openWorkspace(['a'], () => current);
+		current = false;
+		await opening;
+		expect(filesStore.files).toHaveLength(0);
+		expect(filesStore.closedFiles).toHaveLength(0);
+	});
+
 	it('bounds concurrent deferred body reads', async () => {
 		const base = { createdAt: 1, updatedAt: 2, dirty: false, linkedToDisk: false };
 		const items = Array.from({ length: 20 }, (_, index) => ({

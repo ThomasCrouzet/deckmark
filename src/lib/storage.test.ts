@@ -7,6 +7,7 @@ import {
 	getStorageHealth
 } from './storage';
 import { notify } from './notify.svelte';
+import { db } from './db';
 
 const originalStorage = Object.getOwnPropertyDescriptor(navigator, 'storage');
 function mockStorage(value: unknown): void {
@@ -62,6 +63,34 @@ describe('storage health', () => {
 			usage: null,
 			quota: null
 		});
+	});
+
+	it('sums asset bytes from the index without reading binary bodies', async () => {
+		await db.projectAssets.clear();
+		await db.projectAssets.bulkAdd([
+			{
+				id: 'a',
+				projectId: 'p',
+				path: 'a.png',
+				mime: 'image/png',
+				data: new Uint8Array(1234)
+			},
+			{
+				id: 'b',
+				projectId: 'p',
+				path: 'b.png',
+				mime: 'image/png',
+				data: new Uint8Array(66)
+			}
+		]);
+		const each = vi.spyOn(db.projectAssets, 'each');
+		await expect(getStorageHealth()).resolves.toMatchObject({
+			projectAssetCount: 2,
+			projectAssetBytes: 1300
+		});
+		expect(each).not.toHaveBeenCalled();
+		each.mockRestore();
+		await db.projectAssets.clear();
 	});
 
 	it('ignores unavailable quota values and estimate failures', async () => {

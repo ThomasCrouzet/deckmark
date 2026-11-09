@@ -39,6 +39,9 @@ function readString(text: string, start: number): number {
 	return index;
 }
 
+const NUMBER = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+const LITERAL = /(?:true|false|null)/y;
+
 /** Splits JSON into lexical tokens. Whitespace is not a token. */
 export function tokenizeJson(text: string): JsonToken[] {
 	const tokens: JsonToken[] = [];
@@ -60,14 +63,15 @@ export function tokenizeJson(text: string): JsonToken[] {
 			index++;
 			continue;
 		}
-		const rest = text.slice(index);
-		const number = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(rest);
+		NUMBER.lastIndex = index;
+		const number = NUMBER.exec(text);
 		if (number) {
 			tokens.push({ type: 'number', raw: number[0], start: index });
 			index += number[0].length;
 			continue;
 		}
-		const literal = /^(?:true|false|null)/.exec(rest);
+		LITERAL.lastIndex = index;
+		const literal = LITERAL.exec(text);
 		if (literal) {
 			tokens.push({ type: 'literal', raw: literal[0], start: index });
 			index += literal[0].length;
@@ -281,19 +285,42 @@ export function hasJsonSchemaValidator(): boolean {
 	return schemaValidator !== null;
 }
 
-export function validateJsonValueAgainstSchema(value: unknown): string[] {
+export type JsonSchemaStatus = 'none' | 'valid' | 'invalid' | 'failed' | 'unavailable';
+
+export interface JsonSchemaResult {
+	status: JsonSchemaStatus;
+	issues: string[];
+	message?: string;
+}
+
+/** Reports an explicit schema state. A throwing validator is never "valid". */
+export function validateJsonValueAgainstSchemaDetailed(value: unknown): JsonSchemaResult {
+	if (!schemaValidator) return { status: 'none', issues: [] };
 	try {
-		return schemaValidator?.(value) ?? [];
-	} catch {
-		return [];
+		const issues = schemaValidator(value);
+		return issues.length > 0 ? { status: 'invalid', issues } : { status: 'valid', issues: [] };
+	} catch (error) {
+		return {
+			status: 'failed',
+			issues: [],
+			message: error instanceof Error ? error.message : String(error)
+		};
 	}
+}
+
+export function validateJsonValueAgainstSchema(value: unknown): string[] {
+	const result = validateJsonValueAgainstSchemaDetailed(value);
+	if (result.status === 'failed') throw new Error(result.message ?? 'Schema validation failed');
+	return result.issues;
 }
 
 export function validateJsonAgainstSchema(text: string): string[] {
 	if (!schemaValidator) return [];
+	let value: unknown;
 	try {
-		return validateJsonValueAgainstSchema(JSON.parse(text));
+		value = JSON.parse(text);
 	} catch {
 		return [];
 	}
+	return validateJsonValueAgainstSchema(value);
 }

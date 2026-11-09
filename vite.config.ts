@@ -142,7 +142,7 @@ export default defineConfig(({ mode }) => {
 									)
 										return 'workspace-state';
 									// The lazy wiki index stays in one offline resource.
-									if (id.endsWith('/src/lib/wiki-link-index.ts')) return 'wiki-index';
+									if (id.endsWith('/src/lib/wiki-link-index.ts')) return 'workspace-state';
 									// These dependency-free helpers share one small offline resource.
 									if (id.endsWith('/src/lib/config.ts') || id.endsWith('/src/lib/abort.ts'))
 										return 'operation-utils';

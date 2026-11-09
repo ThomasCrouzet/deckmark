@@ -63,7 +63,9 @@ export async function waitForPrintImages(
 			const source = image.getAttribute('src') ?? image.getAttribute('data-mdsh-remote-src') ?? '';
 			try {
 				if (!source) throw new Error('Image source is missing');
-				if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) return;
+				// A cached image is already decoded. Skip only this image and keep
+				// the worker on the remaining queue.
+				if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) continue;
 				const decoded =
 					typeof image.decode === 'function'
 						? image.decode()
@@ -301,7 +303,13 @@ export async function printInIframe(
 		return printOnDesktop(html, opts);
 	}
 
+	// Keep one full print tree alive at a time. A second request must wait for
+	// the previous afterprint or grace cleanup instead of mounting another
+	// multi-megabyte document.
+	if (document.querySelector('iframe[data-mdsh-print]'))
+		throw new Error('A print session is already active');
 	const iframe = document.createElement('iframe');
+	iframe.setAttribute('data-mdsh-print', '');
 	iframe.setAttribute('aria-hidden', 'true');
 	iframe.setAttribute('tabindex', '-1');
 	iframe.title = t('print.iframeTitle');

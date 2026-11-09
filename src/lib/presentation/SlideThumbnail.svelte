@@ -62,7 +62,7 @@
 	inert
 >
 	{#if mounted}<div class="content" style:transform={`scale(${width / deck.width})`}>
-			<SlideContent {deck} {slide} {fileId} />
+			<SlideContent {deck} {slide} {fileId} priority="background" />
 		</div>{/if}
 </div>
 

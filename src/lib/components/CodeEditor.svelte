@@ -19,8 +19,9 @@
 	} from '#lib/source-extensions.js';
 	import {
 		hasJsonSchemaValidator,
-		validateJsonValueAgainstSchema,
-		type JsonAnalysis
+		validateJsonValueAgainstSchemaDetailed,
+		type JsonAnalysis,
+		type JsonSchemaStatus
 	} from '#lib/code/json-tools.js';
 	import { JsonWorkerClient } from '#lib/code/json-worker-client.js';
 	import { resolveRejectedNativeChange } from '#lib/code/native-adapter.js';
@@ -107,6 +108,9 @@
 	let jsonCheck = $state<JsonAnalysis | null>(null);
 	let jsonError = $state('');
 	let jsonSchemaIssues = $state<string[]>([]);
+	let jsonSchemaStatus = $state<JsonSchemaStatus>('none');
+	let jsonSchemaMessage = $state('');
+	const JSON_SCHEMA_VALUE_LIMIT = 1_000_000;
 	let jsonClient = $state.raw<JsonWorkerClient | null>(null);
 	let jsonRevision = 0;
 	let jsonAction = $state(false);
@@ -345,6 +349,8 @@
 		jsonClient?.setRevision(fileId, jsonRevision);
 		jsonCheck = null;
 		jsonSchemaIssues = [];
+		jsonSchemaStatus = 'none';
+		jsonSchemaMessage = '';
 		jsonAction = false;
 		jsonPending = false;
 		clearTimeout(jsonTimer);
@@ -368,7 +374,10 @@
 		if (!client) return;
 		clearTimeout(jsonTimer);
 		const revision = jsonRevision;
-		const includeValue = hasJsonSchemaValidator();
+		const hasSchema = hasJsonSchemaValidator();
+		// A large document must not clone its complete parsed object back to the
+		// main thread only to run an optional callback. Report the degraded state.
+		const includeValue = hasSchema && text.length <= JSON_SCHEMA_VALUE_LIMIT;
 		jsonPending = true;
 		jsonError = '';
 		const reply = await client.request({ kind: 'analyze', text, includeValue });
@@ -379,10 +388,15 @@
 			return;
 		}
 		jsonCheck = reply.analysis;
-		jsonSchemaIssues =
-			reply.analysis.valid && includeValue
-				? validateJsonValueAgainstSchema(reply.value)
-				: reply.schemaIssues;
+		jsonSchemaIssues = [];
+		jsonSchemaStatus = !hasSchema || !reply.analysis.valid ? 'none' : 'unavailable';
+		jsonSchemaMessage = '';
+		if (hasSchema && reply.analysis.valid && includeValue) {
+			const result = validateJsonValueAgainstSchemaDetailed(reply.value);
+			jsonSchemaStatus = result.status;
+			jsonSchemaIssues = result.issues;
+			jsonSchemaMessage = result.message ?? '';
+		}
 	}
 
 	function applyWholeDocument(text: string) {
@@ -862,6 +876,15 @@
 					{#if jsonSchemaIssues.length > 0}
 						<span class="json-warning" data-testid="json-schema">
 							{t('json.schemaIssues', { n: jsonSchemaIssues.length })}
+						</span>
+					{/if}
+					{#if jsonSchemaStatus === 'failed'}
+						<span class="json-warning" data-testid="json-schema-failed" title={jsonSchemaMessage}>
+							{t('json.schemaFailed')}
+						</span>
+					{:else if jsonSchemaStatus === 'unavailable'}
+						<span class="json-warning" data-testid="json-schema-unavailable">
+							{t('json.schemaUnavailable')}
 						</span>
 					{/if}
 				{/if}

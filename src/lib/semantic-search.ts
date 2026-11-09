@@ -37,6 +37,8 @@ export const SEMANTIC_MODELS: readonly SemanticModelOption[] = [
 
 export interface Embedder {
 	modelId: SemanticModelId;
+	/** Immutable identity of the trained coordinate space. */
+	revision: string;
 	dims: number;
 	embed(text: string): number[];
 }
@@ -90,12 +92,16 @@ export function embed(text: string): number[] {
 
 export const featureModel: Embedder = {
 	modelId: 'feature-hash-v1',
+	revision: 'feature-hash-v1',
 	dims: FEATURE_DIMENSIONS,
 	embed
 };
 
 /** Builds a deterministic co-occurrence model from the selected local text. */
-export function trainCooccurrenceModel(texts: readonly string[]): Embedder {
+export function trainCooccurrenceModel(
+	texts: readonly string[],
+	revision = 'cooccurrence-v1'
+): Embedder {
 	const counts = new Map<string, number>();
 	for (const text of texts) {
 		for (const word of words(text)) counts.set(word, (counts.get(word) ?? 0) + 1);
@@ -132,6 +138,7 @@ export function trainCooccurrenceModel(texts: readonly string[]): Embedder {
 	const normalized = semantic.map(normalize);
 	return {
 		modelId: 'cooccurrence-v1',
+		revision,
 		dims: COOCCURRENCE_DIMENSIONS,
 		embed(text: string): number[] {
 			const tokens = words(text)
@@ -155,14 +162,14 @@ const cooccurrenceModels = new Map<string, Embedder>();
 export function cachedCooccurrenceEmbedder(corpusKey: string, texts: readonly string[]): Embedder {
 	const cached = cooccurrenceModels.get(corpusKey);
 	if (cached) return cached;
-	const trained = trainCooccurrenceModel(texts);
+	const trained = trainCooccurrenceModel(texts, `cooccurrence-v1:${corpusKey}`);
 	cooccurrenceModels.set(corpusKey, trained);
 	while (cooccurrenceModels.size > 3)
 		cooccurrenceModels.delete(cooccurrenceModels.keys().next().value!);
 	return trained;
 }
 
-const chunkVectors = new Map<string, number[]>();
+const chunkVectors = new Map<string, { text: string; vector: number[] }>();
 
 function chunkHash(text: string): string {
 	let hash = 0x811c9dc5;
@@ -174,18 +181,24 @@ function chunkHash(text: string): string {
 }
 
 function embedChunk(embedder: Embedder, text: string): number[] {
-	const key = `${embedder.modelId}:${chunkHash(text)}`;
+	const key = `${embedder.modelId}:${embedder.revision}:${chunkHash(text)}`;
 	const cached = chunkVectors.get(key);
-	if (cached) return cached;
+	// An exact text guard keeps a 32-bit hash collision from aliasing a vector.
+	if (cached?.text === text) return cached.vector;
 	const vector = embedder.embed(text);
-	chunkVectors.set(key, vector);
+	chunkVectors.set(key, { text, vector });
 	while (chunkVectors.size > 5000) chunkVectors.delete(chunkVectors.keys().next().value!);
 	return vector;
 }
 
 export function modelById(id: string): Embedder {
 	return id === 'cooccurrence-v1'
-		? { ...featureModel, modelId: 'cooccurrence-v1', dims: COOCCURRENCE_DIMENSIONS }
+		? {
+				...featureModel,
+				modelId: 'cooccurrence-v1',
+				revision: 'cooccurrence-v1:unknown',
+				dims: COOCCURRENCE_DIMENSIONS
+			}
 		: featureModel;
 }
 
@@ -200,12 +213,16 @@ export function chunks(content: string): Array<{ line: number; text: string }> {
 	const lines = content.split(/\r?\n/);
 	const result: Array<{ line: number; text: string }> = [];
 	let buffer: string[] = [];
+	let pendingChars = 0;
 	let line = 1;
 	for (let index = 0; index < lines.length; index++) {
-		buffer.push(lines[index]!);
-		if (buffer.join('\n').length >= CHUNK_CHARS) {
+		const next = lines[index]!;
+		buffer.push(next);
+		pendingChars += next.length + (buffer.length > 1 ? 1 : 0);
+		if (pendingChars >= CHUNK_CHARS) {
 			result.push({ line, text: buffer.join('\n') });
 			buffer = [];
+			pendingChars = 0;
 			line = index + 2;
 		}
 	}
@@ -228,6 +245,7 @@ export function indexFile(
 		path,
 		contentHash: contentHash(file.content),
 		modelId: embedder.modelId,
+		modelRevision: embedder.revision,
 		vector: embedder.embed(file.content),
 		chunks: chunks(file.content),
 		updatedAt: Date.now()
@@ -247,7 +265,11 @@ export function indexFiles(
 		if (projectId && file.projectId !== projectId) continue;
 		const hash = contentHash(file.content);
 		const previous = byDraft.get(file.id);
-		if (previous?.contentHash === hash && previous.modelId === embedder.modelId) {
+		if (
+			previous?.contentHash === hash &&
+			previous.modelId === embedder.modelId &&
+			previous.modelRevision === embedder.revision
+		) {
 			rows.push(previous);
 			continue;
 		}
@@ -268,14 +290,16 @@ export function search(
 	const queryTokens = new Set(words(query));
 	return rows
 		.map((row) => {
-			const best = row.chunks
-				.map((chunk) => {
-					const score = cosine(queryVector, embedChunk(embedder, chunk.text));
-					const content = chunk.text.toLowerCase();
-					const tokenBonus = [...queryTokens].filter((token) => content.includes(token)).length;
-					return { chunk, score: score + tokenBonus * 0.05 };
-				})
-				.sort((left, right) => right.score - left.score)[0];
+			let best: { chunk: SemanticIndexRow['chunks'][number]; score: number } | undefined;
+			for (const chunk of row.chunks) {
+				const score = cosine(queryVector, embedChunk(embedder, chunk.text));
+				const content = chunk.text.toLowerCase();
+				let tokenBonus = 0;
+				for (const token of queryTokens) if (content.includes(token)) tokenBonus += 1;
+				const total = score + tokenBonus * 0.05;
+				// Keep the first chunk on a tie, matching the stable sort order.
+				if (!best || total > best.score) best = { chunk, score: total };
+			}
 			return {
 				draftId: row.draftId,
 				path: row.path,

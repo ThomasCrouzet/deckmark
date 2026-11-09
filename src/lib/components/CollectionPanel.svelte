@@ -46,15 +46,26 @@
 		visibleCount = PAGE_ROWS;
 	});
 
+	let loadJob = 0;
 	onMount(() => {
 		views = readCollectionViews();
-		void filesStore
-			.ensureLibraryContent()
-			.then(() => buildCollection(filesStore.library))
-			.then((value) => {
+		const job = ++loadJob;
+		void (async () => {
+			try {
+				await filesStore.ensureLibraryContent();
+				if (job !== loadJob) return;
+				const value = await buildCollection(filesStore.library);
+				if (job !== loadJob) return;
 				rows = value;
-			})
-			.finally(() => (loading = false));
+			} catch {
+				if (job === loadJob) rows = [];
+			} finally {
+				if (job === loadJob) loading = false;
+			}
+		})();
+		return () => {
+			loadJob += 1;
+		};
 	});
 
 	function openRow(row: CollectionRow) {

@@ -106,7 +106,7 @@ export async function runCheck(input: CheckInput): Promise<number> {
 	const scope = await resolveScope(input.input, input.root);
 	const deadline = new Deadline(input.timeoutMs);
 	deadline.check();
-	const allFiles = await walkFiles(scope.root);
+	const allFiles = await walkFiles(scope.root, { deadline });
 	deadline.check();
 	const documentPaths = allFiles.filter((path) => MARKDOWN_EXTENSION.test(path));
 	const assets = allFiles.filter((path) => !MARKDOWN_EXTENSION.test(path));

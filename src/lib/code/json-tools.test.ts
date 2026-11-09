@@ -9,7 +9,8 @@ import {
 	tokenizeJson,
 	setJsonSchemaValidator,
 	validateJsonAgainstSchema,
-	validateJsonValueAgainstSchema
+	validateJsonValueAgainstSchema,
+	validateJsonValueAgainstSchemaDetailed
 } from './json-tools';
 
 const options = { indent: '  ', eol: '\n' as const };
@@ -26,7 +27,12 @@ describe('optional schema callback compatibility', () => {
 			setJsonSchemaValidator(() => {
 				throw new Error('validator failure');
 			});
-			expect(validateJsonValueAgainstSchema(document.value)).toEqual([]);
+			expect(validateJsonValueAgainstSchemaDetailed(document.value)).toMatchObject({
+				status: 'failed',
+				issues: [],
+				message: 'validator failure'
+			});
+			expect(() => validateJsonValueAgainstSchema(document.value)).toThrow('validator failure');
 			expect(validateJsonAgainstSchema('{')).toEqual([]);
 		} finally {
 			setJsonSchemaValidator(null);
@@ -45,6 +51,17 @@ describe('optional schema callback compatibility', () => {
 		} finally {
 			parse.mockRestore();
 		}
+	});
+});
+
+describe('large JSON tokenization', () => {
+	it('keeps exact number lexemes for a large numeric array', () => {
+		const text = `[${Array.from({ length: 100_000 }, (_, index) => `${index}.5e+2`).join(',')}]`;
+		const tokens = tokenizeJson(text);
+		expect(tokens).toHaveLength(200_001);
+		expect(tokens[1]).toEqual({ type: 'number', raw: '0.5e+2', start: 1 });
+		expect(formatJson(text, options).startsWith('[\n  0.5e+2,')).toBe(true);
+		expect(minifyJson(formatJson(text, options))).toBe(text);
 	});
 });
 

@@ -240,6 +240,12 @@ export async function buildProjectZip(
 				]
 			: []
 	);
+	const wikiById = new Map<string, typeof wikiDocuments>();
+	for (const candidate of wikiDocuments) {
+		const matches = wikiById.get(candidate.id);
+		if (matches) matches.push(candidate);
+		else wikiById.set(candidate.id, [candidate]);
+	}
 	const exportedDocuments: ProjectDocumentInput[] = [];
 	for (const document of documents) {
 		const documentPath = projectPath(document.relativePath);
@@ -269,7 +275,7 @@ export async function buildProjectZip(
 				? document.content
 				: rewriteWikiLinkTargets(document.content, (target) => {
 						const id = target.split('#', 1)[0]!;
-						const matches = wikiDocuments.filter((candidate) => candidate.id === id);
+						const matches = wikiById.get(id) ?? [];
 						if (matches.length !== 1) return target;
 						const suffix = target.slice(id.length);
 						return relativeDestination(documentPath, matches[0]!.relativePath) + suffix;

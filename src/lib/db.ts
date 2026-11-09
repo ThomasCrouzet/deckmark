@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
 import { encodeDraftManifest } from './draft-manifest-key';
+import { documentKind } from './document-kind';
 import { hashSnippetCode } from './snippet-hash';
 
 export interface DraftRow {
@@ -87,6 +88,10 @@ export interface TemplateRow {
 	kind?: DocumentKind;
 	createdAt: number;
 	updatedAt: number;
+	/** Metadata index key maintained by the table hooks. Do not write directly. */
+	manifest?: string;
+	/** True while only the catalog metadata is resident. */
+	contentDeferred?: boolean;
 }
 
 export interface CommentRow {
@@ -121,6 +126,10 @@ export interface SnippetRow {
 	updatedAt: number;
 	/** Duplicate-candidate index key. Do not write directly. */
 	codeHash?: string;
+	/** Metadata index key maintained by the table hooks. Do not write directly. */
+	manifest?: string;
+	/** True while only the catalog metadata is resident. */
+	contentDeferred?: boolean;
 }
 
 export interface SemanticIndexRow {
@@ -130,6 +139,8 @@ export interface SemanticIndexRow {
 	path: string;
 	contentHash: string;
 	modelId: string;
+	/** Immutable identity of the training corpus or feature model version. */
+	modelRevision?: string;
 	vector: number[];
 	chunks: Array<{ line: number; text: string }>;
 	updatedAt: number;
@@ -155,10 +166,41 @@ export interface ProjectAssetRow {
 	path: string;
 	mime: string;
 	data: Uint8Array;
+	/** Durable byte length maintained by the table hooks. Do not write directly. */
+	bytes?: number;
 }
 
 export const DISK_LINK_EPOCH_KEY = 'disk-link-epoch';
 export const LEGACY_DISK_LINK_EPOCH = 'legacy';
+
+function encodeTemplateManifest(row: TemplateRow): string {
+	return JSON.stringify([
+		1,
+		row.id,
+		row.name,
+		row.builtin ? 1 : 0,
+		row.kind ?? 'note',
+		row.createdAt,
+		row.updatedAt,
+		row.content.length
+	]);
+}
+
+function encodeSnippetManifest(row: SnippetRow): string {
+	return JSON.stringify([
+		1,
+		row.id,
+		row.title,
+		row.language,
+		row.tags,
+		row.folder ?? '',
+		row.projectId ?? '',
+		row.favorite ? 1 : 0,
+		row.createdAt,
+		row.updatedAt,
+		row.codeHash ?? ''
+	]);
+}
 
 class MdshDB extends Dexie {
 	drafts!: Table<DraftRow, string>;
@@ -277,6 +319,63 @@ class MdshDB extends Dexie {
 		this.version(13).stores({
 			trashed: 'id, trashedAt, summary'
 		});
+		// v14: asset byte lengths live in the index so Settings can sum them
+		// without reading every binary body.
+		this.version(14)
+			.stores({
+				projectAssets: 'id, projectId, bytes, &[projectId+path]'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<ProjectAssetRow>('projectAssets')
+					.toCollection()
+					.modify((row) => {
+						row.bytes = row.data.byteLength;
+					})
+			);
+		// v15: the template catalog reads a compact manifest. Legacy rows get
+		// their kind and manifest key once, without a later stale rewrite.
+		this.version(15)
+			.stores({
+				templates: 'id, updatedAt, manifest'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<TemplateRow>('templates')
+					.toCollection()
+					.modify((row) => {
+						row.kind ??= documentKind(row.content);
+						row.manifest = encodeTemplateManifest(row);
+					})
+			);
+		// v16: the snippet panel lists compact metadata and reads a code body
+		// only for the selected item.
+		this.version(16)
+			.stores({
+				snippets: 'id, updatedAt, favorite, projectId, folder, language, codeHash, manifest'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<SnippetRow>('snippets')
+					.toCollection()
+					.modify((row) => {
+						row.manifest = encodeSnippetManifest(row);
+					})
+			);
+		// v17: project quota checks read indexed byte lengths instead of every
+		// document body and binary asset row.
+		this.version(17)
+			.stores({
+				projectAssets: 'id, projectId, bytes, [projectId+bytes], &[projectId+path]'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<ProjectAssetRow>('projectAssets')
+					.toCollection()
+					.modify((row) => {
+						row.bytes = row.data.byteLength;
+					})
+			);
 
 		this.drafts.hook('creating', (_primaryKey, row) => {
 			row.manifest = encodeDraftManifest(row);
@@ -284,6 +383,22 @@ class MdshDB extends Dexie {
 		this.drafts.hook('updating', (modifications, _primaryKey, row) => {
 			const merged = { ...row, ...modifications } as DraftRow;
 			return { manifest: encodeDraftManifest(merged) };
+		});
+		this.projectAssets.hook('creating', (_primaryKey, row) => {
+			row.bytes = row.data.byteLength;
+		});
+		this.projectAssets.hook('updating', (modifications, _primaryKey, row) => {
+			const merged = { ...row, ...modifications } as ProjectAssetRow;
+			return merged.data ? { bytes: merged.data.byteLength } : {};
+		});
+		this.templates.hook('creating', (_primaryKey, row) => {
+			row.kind ??= documentKind(row.content);
+			row.manifest = encodeTemplateManifest(row);
+		});
+		this.templates.hook('updating', (modifications, _primaryKey, row) => {
+			const merged = { ...row, ...modifications } as TemplateRow;
+			merged.kind ??= documentKind(merged.content);
+			return { kind: merged.kind, manifest: encodeTemplateManifest(merged) };
 		});
 	}
 }

@@ -44,7 +44,7 @@
 		if (!templateId || body.trim()) return;
 		try {
 			const { templatesStore } = await import('#lib/templates.svelte.js');
-			const resolved = templatesStore.resolve(templateId);
+			const resolved = await templatesStore.resolve(templateId);
 			if (!resolved) return;
 			if (!title.trim()) title = resolved.name.replace(/\.md$/i, '');
 			body = resolved.content;

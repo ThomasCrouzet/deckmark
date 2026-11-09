@@ -211,7 +211,17 @@ export function disableDesktopBackup(): void {
 	notify();
 }
 
-export async function writeBackupNow(): Promise<BackupWrite> {
+let pendingWrite: Promise<BackupWrite> | null = null;
+
+export function writeBackupNow(): Promise<BackupWrite> {
+	// Manual and scheduled calls share one snapshot build and one native write.
+	pendingWrite ??= performBackupWrite().finally(() => {
+		pendingWrite = null;
+	});
+	return pendingWrite;
+}
+
+async function performBackupWrite(): Promise<BackupWrite> {
 	requireDesktop();
 	const preferences = loadPreferences();
 	if (!preferences.rootId) throw new Error('Choose a backup folder first.');

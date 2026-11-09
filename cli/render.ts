@@ -2,7 +2,7 @@ import hljs from 'highlight.js/lib/common';
 import { Marked } from 'marked';
 import { escapeHTML } from '../src/lib/html-escape';
 import { getTags, getTitle, parseFrontmatter } from '../src/lib/frontmatter';
-import { preprocessWikiLinks, slugify } from '../src/lib/wiki-links';
+import { HeadingIdAllocator, preprocessWikiLinks, slugify } from '../src/lib/wiki-links';
 
 export interface RenderOptions {
 	showFrontmatter?: boolean;
@@ -57,7 +57,7 @@ function highlightCode(code: string, language: string | undefined): string {
 
 function buildMarked(): Marked {
 	const marked = new Marked({ gfm: true, breaks: false, pedantic: false });
-	const usedSlugs = new Set<string>();
+	const headingIds = new HeadingIdAllocator();
 	marked.use({
 		renderer: {
 			html({ text }) {
@@ -66,10 +66,7 @@ function buildMarked(): Marked {
 			heading({ tokens, depth, text }) {
 				const inner = this.parser.parseInline(tokens);
 				const base = slugify(text).slice(0, 80) || `section-${depth}`;
-				let slug = base;
-				let suffix = 2;
-				while (usedSlugs.has(slug)) slug = `${base}-${suffix++}`;
-				usedSlugs.add(slug);
+				const slug = headingIds.allocate(base);
 				return `<h${depth} id="${escapeHTML(slug)}">${inner}</h${depth}>\n`;
 			},
 			link({ href, title, tokens }) {

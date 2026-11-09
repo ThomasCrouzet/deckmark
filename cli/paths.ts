@@ -15,6 +15,8 @@ import { CliError, EXIT } from './exit';
 
 export const MAX_FILE_BYTES = 16 * 1024 * 1024;
 export const MAX_ENTRIES = 5000;
+export const MAX_DIRECTORIES = 10_000;
+export const MAX_DIRECTORY_DEPTH = 64;
 
 const IGNORED_DIRECTORIES = new Set([
 	'.git',
@@ -65,6 +67,9 @@ export function displayPath(path: string): string {
 
 export interface WalkOptions {
 	maxEntries?: number;
+	maxDirectories?: number;
+	maxDepth?: number;
+	deadline?: Deadline;
 	/** Include only files that match this predicate. */
 	accept?: (relativePath: string) => boolean;
 }
@@ -72,26 +77,48 @@ export interface WalkOptions {
 /** Lists regular files in stable path order. Symbolic links are not followed. */
 export async function walkFiles(root: string, options: WalkOptions = {}): Promise<string[]> {
 	const limit = options.maxEntries ?? MAX_ENTRIES;
+	const directoryLimit = options.maxDirectories ?? MAX_DIRECTORIES;
+	const depthLimit = options.maxDepth ?? MAX_DIRECTORY_DEPTH;
 	const found: string[] = [];
-	async function visit(directory: string): Promise<void> {
+	const stack: Array<{ directory: string; depth: number }> = [{ directory: root, depth: 0 }];
+	let directories = 0;
+	while (stack.length > 0) {
+		options.deadline?.check();
+		const current = stack.pop()!;
+		if (current.depth > depthLimit)
+			throw new CliError(EXIT.INPUT, 'depth-limit', `Directory depth exceeds ${depthLimit} levels`);
+		directories += 1;
+		if (directories > directoryLimit)
+			throw new CliError(
+				EXIT.INPUT,
+				'directory-limit',
+				`Directory has more than ${directoryLimit} folders`
+			);
 		let entries;
 		try {
-			entries = await opendir(directory);
+			entries = await opendir(current.directory);
 		} catch {
-			throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read directory: ${directory}`);
+			throw new CliError(
+				EXIT.INPUT,
+				'input-unreadable',
+				`Cannot read directory: ${current.directory}`
+			);
 		}
 		const names: Array<{ name: string; directory: boolean }> = [];
 		for await (const entry of entries) {
+			options.deadline?.check();
 			if (entry.isSymbolicLink()) continue;
 			if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
 			if (entry.isDirectory()) names.push({ name: entry.name, directory: true });
 			else if (entry.isFile()) names.push({ name: entry.name, directory: false });
 		}
 		names.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+		// Push folders in reverse so files keep a stable lexical visit order.
+		const folders: Array<{ directory: string; depth: number }> = [];
 		for (const entry of names) {
-			const absolute = resolve(directory, entry.name);
+			const absolute = resolve(current.directory, entry.name);
 			if (entry.directory) {
-				await visit(absolute);
+				folders.push({ directory: absolute, depth: current.depth + 1 });
 				continue;
 			}
 			const path = toProjectPath(relative(root, absolute));
@@ -100,8 +127,8 @@ export async function walkFiles(root: string, options: WalkOptions = {}): Promis
 			if (found.length > limit)
 				throw new CliError(EXIT.INPUT, 'entry-limit', `Directory has more than ${limit} files`);
 		}
+		for (let index = folders.length - 1; index >= 0; index--) stack.push(folders[index]!);
 	}
-	await visit(root);
 	return found.sort();
 }
 

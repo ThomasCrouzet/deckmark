@@ -24,7 +24,6 @@
 	import { reportError } from '#lib/report.js';
 	import { createModals } from '#lib/ui/modals.svelte.js';
 	import { filesStore } from '#lib/files.svelte.js';
-	import { templatesStore } from '#lib/templates.svelte.js';
 	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { requestPersistentStorage, checkStoragePressure } from '#lib/storage.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-linking.js';
@@ -425,7 +424,8 @@
 	});
 
 	async function handleCreateFromTemplate(templateId: string): Promise<void> {
-		const document = templatesStore.resolve(templateId);
+		const { templatesStore } = await import('#lib/templates.svelte.js');
+		const document = await templatesStore.resolve(templateId);
 		if (!document) return;
 		// Keep the last keystroke of the outgoing document before the new one
 		// replaces the active tab.

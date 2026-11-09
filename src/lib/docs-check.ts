@@ -8,6 +8,7 @@ import { isPresentation } from './presentation/detect';
 import { parsePresentation, type PresentationDeck } from './presentation/model';
 import { projectDestinations, projectLinkReport } from './project-links';
 import {
+	createProjectWikiIndex,
 	isExternalDestination,
 	pathKey,
 	projectWikiCandidates,
@@ -155,13 +156,11 @@ function escaped(text: string, index: number): boolean {
 
 /** Marks code and front matter so image and definition scans skip them. */
 function maskedMarkdown(markdown: string): string {
-	const characters = markdown.split('');
+	// A compact mask plus range assembly avoids an array of one-character
+	// strings for every UTF-16 code unit of a multi-megabyte note.
 	const masked = new Uint8Array(markdown.length);
 	const mask = (start: number, end: number): void => {
-		for (let index = start; index < end; index++) {
-			masked[index] = 1;
-			if (characters[index] !== '\n' && characters[index] !== '\r') characters[index] = ' ';
-		}
+		for (let index = start; index < end; index++) masked[index] = 1;
 	};
 
 	const block = frontmatterBlock(markdown);
@@ -211,7 +210,24 @@ function maskedMarkdown(markdown: string): string {
 		mask(index, stop);
 		index = stop - 1;
 	}
-	return characters.join('');
+	const chunks: string[] = [];
+	let cursor = 0;
+	let index = 0;
+	while (index < markdown.length) {
+		if (!masked[index]) {
+			index++;
+			continue;
+		}
+		const start = index;
+		while (index < markdown.length && masked[index]) index++;
+		chunks.push(
+			markdown.slice(cursor, start),
+			markdown.slice(start, index).replace(/[^\r\n]/g, ' ')
+		);
+		cursor = index;
+	}
+	chunks.push(markdown.slice(cursor));
+	return chunks.join('');
 }
 
 function referenceLabel(value: string): string {
@@ -346,6 +362,7 @@ function anchorIssues(
 		projectId: 'project',
 		relativePath: document.relativePath
 	}));
+	const wikiIndex = createProjectWikiIndex(wikiDocuments);
 	const issues: PositionedIssue[] = [];
 	for (const document of documents) {
 		for (const destination of projectDestinations(document.content)) {
@@ -382,7 +399,8 @@ function anchorIssues(
 			const candidates = projectWikiCandidates(
 				{ projectId: 'project', relativePath: document.relativePath },
 				occurrence.target,
-				wikiDocuments
+				wikiDocuments,
+				wikiIndex
 			);
 			if (candidates.length !== 1) continue;
 			const target = byPath.get(pathKey(candidates[0]!.relativePath!));

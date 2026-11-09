@@ -70,20 +70,67 @@ export function relativeDestination(from: string, to: string): string {
 	].join('/');
 }
 
+interface WikiProjectBucket<T> {
+	files: T[];
+	byId: Map<string, T>;
+	byPath: Map<string, T[]>;
+	byStem: Map<string, T[]>;
+}
+
+/** One reusable index for every wiki target in a project. */
+export interface ProjectWikiIndex<T> {
+	byProject: Map<string, WikiProjectBucket<T>>;
+}
+
+function wikiStem(relativePath: string): string {
+	return relativePath
+		.split('/')
+		.pop()!
+		.replace(/\.(md|markdown|mdx|txt)$/i, '')
+		.toLowerCase();
+}
+
+export function createProjectWikiIndex<
+	T extends { id: string; projectId?: string; relativePath?: string }
+>(documents: readonly T[]): ProjectWikiIndex<T> {
+	const byProject = new Map<string, WikiProjectBucket<T>>();
+	for (const file of documents) {
+		if (!file.projectId || !file.relativePath) continue;
+		let bucket = byProject.get(file.projectId);
+		if (!bucket) {
+			bucket = { files: [], byId: new Map(), byPath: new Map(), byStem: new Map() };
+			byProject.set(file.projectId, bucket);
+		}
+		bucket.files.push(file);
+		bucket.byId.set(file.id, file);
+		const key = pathKey(file.relativePath);
+		const pathMatches = bucket.byPath.get(key);
+		if (pathMatches) pathMatches.push(file);
+		else bucket.byPath.set(key, [file]);
+		const stem = wikiStem(file.relativePath);
+		const stemMatches = bucket.byStem.get(stem);
+		if (stemMatches) stemMatches.push(file);
+		else bucket.byStem.set(stem, [file]);
+	}
+	return { byProject };
+}
+
 /** Resolve wiki paths within the source project before considering a basename. */
 export function projectWikiCandidates<
 	T extends { id: string; projectId?: string; relativePath?: string }
 >(
 	source: { projectId?: string; relativePath?: string },
 	target: string,
-	documents: readonly T[]
+	documents: readonly T[],
+	index?: ProjectWikiIndex<T>
 ): T[] {
 	const value = target.trim().split('#', 1)[0]!;
 	if (!value || !source.projectId || !source.relativePath) return [];
-	const files = documents.filter(
-		(file) => file.projectId === source.projectId && file.relativePath
-	);
-	const byId = files.find((file) => file.id === value);
+	const bucket = index?.byProject.get(source.projectId);
+	const files =
+		bucket?.files ??
+		documents.filter((file) => file.projectId === source.projectId && file.relativePath);
+	const byId = bucket ? bucket.byId.get(value) : files.find((file) => file.id === value);
 	if (byId) return [byId];
 	const names = /\.(?:md|markdown|mdx|txt)$/i.test(value) ? [value] : [value, `${value}.md`];
 	for (const name of names) {
@@ -102,12 +149,17 @@ export function projectWikiCandidates<
 			.join('/');
 		const relative = resolveProjectPath(source.relativePath, encodedName);
 		if (relative) {
-			const matches = files.filter((file) => pathKey(file.relativePath!) === pathKey(relative));
+			const key = pathKey(relative);
+			const matches = bucket
+				? (bucket.byPath.get(key) ?? [])
+				: files.filter((file) => pathKey(file.relativePath!) === key);
 			if (matches.length) return matches;
 		}
 		try {
 			const root = pathKey(name);
-			const matches = files.filter((file) => pathKey(file.relativePath!) === root);
+			const matches = bucket
+				? (bucket.byPath.get(root) ?? [])
+				: files.filter((file) => pathKey(file.relativePath!) === root);
 			if (matches.length) return matches;
 		} catch {
 			/* A relative parent path has no root-relative candidate. */
@@ -115,14 +167,8 @@ export function projectWikiCandidates<
 	}
 	if (value.includes('/')) return [];
 	const stem = value.replace(/\.(md|markdown|mdx|txt)$/i, '').toLowerCase();
-	return files.filter(
-		(file) =>
-			file
-				.relativePath!.split('/')
-				.pop()!
-				.replace(/\.(md|markdown|mdx|txt)$/i, '')
-				.toLowerCase() === stem
-	);
+	if (bucket) return bucket.byStem.get(stem) ?? [];
+	return files.filter((file) => wikiStem(file.relativePath!) === stem);
 }
 
 export function imageMime(path: string): string | null {

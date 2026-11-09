@@ -6,6 +6,21 @@ import { abortable, checkAborted } from './abort';
 const imageCache = new Map<string, string>();
 const IMAGE_CACHE_BYTES = 8 * 1024 * 1024;
 
+function bytesFingerprint(data: Uint8Array): string {
+	let hash = 0x811c9dc5;
+	for (const byte of data) {
+		hash ^= byte;
+		hash = Math.imul(hash, 0x01000193) >>> 0;
+	}
+	return hash.toString(16).padStart(8, '0');
+}
+
+/** Drops cached previews after an asset write or a project location change. */
+export function invalidateProjectMediaCache(): void {
+	imageCache.clear();
+	contextCache.clear();
+}
+
 function cacheImage(key: string, dataUri: string): void {
 	imageCache.delete(key);
 	imageCache.set(key, dataUri);
@@ -54,7 +69,9 @@ export async function projectImageSource(
 		.first();
 	checkAborted(signal);
 	if (!asset || !asset.mime.startsWith('image/')) return null;
-	const key = `${asset.id}:${asset.data.byteLength}:${asset.mime}`;
+	// Content identity, not just id/size/MIME: a native refresh can replace
+	// bytes on the same row without changing either of those fields.
+	const key = `${asset.id}:${bytesFingerprint(asset.data)}:${asset.mime}`;
 	const cached = imageCache.get(key);
 	if (cached) {
 		cacheImage(key, cached);

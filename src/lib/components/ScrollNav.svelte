@@ -52,6 +52,16 @@
 
 	let bound: HTMLElement | null = null;
 	let unbind: (() => void) | null = null;
+	let scheduled = 0;
+
+	/** Coalesces content mutations into one geometry read per frame. */
+	function scheduleUpdate(): void {
+		if (scheduled) return;
+		scheduled = requestAnimationFrame(() => {
+			scheduled = 0;
+			update();
+		});
+	}
 
 	function bind() {
 		const element = scroller();
@@ -68,9 +78,9 @@
 		}
 		update();
 		element.addEventListener('scroll', update, { passive: true });
-		const observer = new ResizeObserver(update);
+		const observer = new ResizeObserver(scheduleUpdate);
 		observer.observe(element);
-		const mutations = new MutationObserver(update);
+		const mutations = new MutationObserver(scheduleUpdate);
 		mutations.observe(element, { childList: true, subtree: true, characterData: true });
 		unbind = () => {
 			element.removeEventListener('scroll', update);
@@ -92,6 +102,8 @@
 		rootObserver.observe(root, { childList: true, subtree: true });
 		return () => {
 			rootObserver.disconnect();
+			if (scheduled) cancelAnimationFrame(scheduled);
+			scheduled = 0;
 			unbind?.();
 			unbind = null;
 			bound = null;

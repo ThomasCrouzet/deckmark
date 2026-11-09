@@ -64,6 +64,17 @@ describe('local semantic index', () => {
 		expect(search(rows, 'guide', model)[0]?.draftId).toBe('a');
 	});
 
+	it('rebuilds rows when the trained model revision changes', () => {
+		const files = [file('a', 'guide.md', 'Documentation guide for the editor.')];
+		const corpusA = trainCooccurrenceModel([files[0]!.content], 'corpus-a');
+		const corpusB = trainCooccurrenceModel([files[0]!.content], 'corpus-b');
+		const first = indexFiles(files, [], null, corpusA);
+		expect(indexFiles(files, first, null, corpusA)[0]).toBe(first[0]);
+		const rebuilt = indexFiles(files, first, null, corpusB);
+		expect(rebuilt[0]).not.toBe(first[0]);
+		expect(rebuilt[0]?.modelRevision).toBe('corpus-b');
+	});
+
 	it('normalizes vectors', () => {
 		const vector = embed('one two two');
 		const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));

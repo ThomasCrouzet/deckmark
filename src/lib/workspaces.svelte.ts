@@ -172,9 +172,14 @@ class WorkspaceStore {
 	 * Without `keepDB: true`, `closeMany` would destroy the files on every
 	 * workspace switch - critical bug fixed after the Tier 5-9 review.
 	 */
+	/** Latest workspace restore request. An older restore must not publish. */
+	private restoreGeneration = 0;
+
 	async restore(id: string): Promise<void> {
 		const ws = this.workspaces.find((w) => w.id === id);
 		if (!ws) return;
+		const generation = ++this.restoreGeneration;
+		const isCurrent = () => generation === this.restoreGeneration;
 
 		// Durability barrier: keepDB flushes are otherwise fire-and-forget, so a
 		// rapid switch away and back could re-open pre-edit IDB content.
@@ -185,13 +190,14 @@ class WorkspaceStore {
 			// Fail closed: keep every current tab and its in-memory content intact.
 			return;
 		}
+		if (!isCurrent()) return;
 
 		// 1. Open the missing files from Dexie (preserve the ids).
 		const openIds = new Set(filesStore.files.map((f) => f.id));
 		const toReopen = ws.fileIds.filter((wsId) => !openIds.has(wsId));
 		if (toReopen.length > 0) {
 			try {
-				await filesStore.openWorkspace(toReopen);
+				await filesStore.openWorkspace(toReopen, isCurrent);
 			} catch (err) {
 				// IDB read failure: without this catch, restore() rejected silently
 				// (the WorkspacesPanel caller has no .catch) - the user did not
@@ -200,6 +206,7 @@ class WorkspaceStore {
 				return;
 			}
 		}
+		if (!isCurrent()) return;
 
 		// 2. Close the tabs outside the workspace WITHOUT touching the DB.
 		const wsIds = new Set(ws.fileIds);
@@ -212,6 +219,7 @@ class WorkspaceStore {
 		// 3. Activate the target if it exists (otherwise fallback already handled by close).
 		if (ws.activeId && filesStore.files.some((f) => f.id === ws.activeId)) {
 			await filesStore.ensureContent([ws.activeId]);
+			if (!isCurrent()) return;
 			filesStore.setActive(ws.activeId);
 		}
 	}

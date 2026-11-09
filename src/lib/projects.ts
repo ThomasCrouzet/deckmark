@@ -382,29 +382,61 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 	return operation;
 }
 
-export async function addProjectImage(projectId: string, file: File): Promise<string> {
-	const { embedImageFile } = await import('./render/image-media');
-	await embedImageFile(file);
+/** Reads exact project occupancy from index keys only, without body rows. */
+async function projectOccupancy(projectId: string): Promise<{
+	documents: number;
+	assets: number;
+	bytes: number;
+}> {
+	const manifestKeys = await db.drafts.orderBy('manifest').keys();
+	let documentCount = 0;
+	let documentBytes = 0;
+	for (const raw of manifestKeys) {
+		try {
+			const key = JSON.parse(String(raw)) as unknown[];
+			if (key[3] !== projectId) continue;
+			documentCount += 1;
+			if (typeof key[13] === 'number') documentBytes += key[13];
+		} catch {
+			/* An invalid manifest key is not a project document. */
+		}
+	}
+	const assetKeys = await db.projectAssets
+		.where('[projectId+bytes]')
+		.between([projectId, -Infinity], [projectId, Infinity])
+		.keys();
+	let bytes = documentBytes;
+	for (const key of assetKeys)
+		if (Array.isArray(key) && typeof key[1] === 'number') bytes += key[1];
+	return { documents: documentCount, assets: assetKeys.length, bytes };
+}
+
+export async function addProjectImage(
+	projectId: string,
+	file: File,
+	validated?: { data: Uint8Array; mime: string }
+): Promise<string> {
+	let data = validated?.data;
+	if (!data) {
+		const { embedImageFile } = await import('./render/image-media');
+		const embedded = await embedImageFile(file);
+		data = embedded.data;
+	}
 	const { sanitizeFilename } = await import('./services/export');
 	const path = projectPath(`assets/${newId()}-${sanitizeFilename(file.name)}`);
-	const mime = imageMime(path);
+	const mime = validated?.mime ?? imageMime(path);
 	if (!mime) throw new Error('Unsupported image type');
-	const data = new Uint8Array(await file.arrayBuffer());
 	await db.transaction('rw', db.projects, db.drafts, db.projectAssets, async () => {
 		if (!(await db.projects.get(projectId))) throw new Error('Project no longer exists');
-		const documents = await db.drafts.where('projectId').equals(projectId).toArray();
-		const assets = await db.projectAssets.where('projectId').equals(projectId).toArray();
-		const encoder = new TextEncoder();
-		const size =
-			data.byteLength +
-			assets.reduce((total, asset) => total + asset.data.byteLength, 0) +
-			documents.reduce((total, document) => total + encoder.encode(document.content).byteLength, 0);
+		const occupancy = await projectOccupancy(projectId);
 		if (
-			size > PROJECT_SCALE_LIMITS.maxBytes ||
-			documents.length + assets.length >= PROJECT_SCALE_LIMITS.maxEntries - 3
+			occupancy.bytes + data.byteLength > PROJECT_SCALE_LIMITS.maxBytes ||
+			occupancy.documents + occupancy.assets >= PROJECT_SCALE_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project size limit');
 		await db.projectAssets.add({ id: newId(), projectId, path, mime, data });
 	});
+	const { invalidateProjectMediaCache } = await import('./project-media');
+	invalidateProjectMediaCache();
 	return path;
 }
