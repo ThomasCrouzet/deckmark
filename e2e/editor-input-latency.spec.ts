@@ -279,6 +279,12 @@ test('new visual paragraphs avoid full-document validation on Enter', async ({ p
 	expect
 		.soft(change.noteTypeFast ?? 0, 'the new paragraph must take the fast path')
 		.toBeGreaterThan(0);
+	expect
+		.soft(change.markdownIncrementalFallback ?? 0, 'a new paragraph must stay incremental')
+		.toBe(0);
+	expect
+		.soft(change.markdownIncrementalBlock ?? 0, 'the publish must update blocks, not the note')
+		.toBeGreaterThan(0);
 	await expect
 		.poll(async () => (await storedContent(page, largeId)).includes('New paragraph text.'), {
 			timeout: 20_000
