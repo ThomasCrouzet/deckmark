@@ -879,7 +879,13 @@
 		}))
 	);
 
-	const filtered: Command[] = $derived.by(() => {
+	const PAGE_COMMANDS = 100;
+	let visibleLimit = $state(PAGE_COMMANDS);
+	$effect(() => {
+		void query;
+		visibleLimit = PAGE_COMMANDS;
+	});
+	const matches: Command[] = $derived.by(() => {
 		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands]
 			.filter((command) => {
 				if (command.id === 'advanced-source') return kind === 'presentation';
@@ -909,6 +915,7 @@
 			});
 		return [...filterCommands(all, query)];
 	});
+	const filtered: Command[] = $derived(matches.slice(0, visibleLimit));
 	const actionGroups = $derived(
 		[
 			{
@@ -1173,6 +1180,17 @@
 								{/if}
 							</li>
 						{/each}
+						{#if filtered.length < matches.length}
+							<li class="px-4 py-2 text-center text-xs">
+								<button
+									type="button"
+									class="text-fg-muted underline"
+									onclick={() => (visibleLimit += PAGE_COMMANDS)}
+								>
+									{t('palette.showMore', { n: matches.length - filtered.length })}
+								</button>
+							</li>
+						{/if}
 					{/if}
 				</ul>
 			{/if}

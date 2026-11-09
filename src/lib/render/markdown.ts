@@ -105,6 +105,8 @@ function instanceSvg(svg: string, namespace: string): string {
 	return template.innerHTML;
 }
 
+const inFlightDiagrams = new Map<string, Promise<string>>();
+
 async function renderMermaidDiagram(
 	code: string,
 	theme: MermaidTheme,
@@ -119,7 +121,14 @@ async function renderMermaidDiagram(
 		const key = JSON.stringify([code, theme]);
 		let svg = diagramCache.get(key);
 		if (svg === undefined) {
-			svg = await renderMermaidSvg(createRenderInstanceId(), code, theme, signal);
+			let pending = inFlightDiagrams.get(key);
+			if (!pending) {
+				pending = renderMermaidSvg(createRenderInstanceId(), code, theme).finally(() => {
+					inFlightDiagrams.delete(key);
+				});
+				inFlightDiagrams.set(key, pending);
+			}
+			svg = await abortable(pending, signal);
 			checkAborted(signal);
 			diagramCache.set(key, svg);
 		}

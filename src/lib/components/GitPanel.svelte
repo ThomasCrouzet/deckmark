@@ -111,6 +111,11 @@
 			files: rows.filter((row) => row.group === 'deleted')
 		}
 	]);
+	let groupLimit = $state(100);
+	$effect(() => {
+		void status;
+		groupLimit = 100;
+	});
 	const diffLines = $derived.by(() => diff.split('\n').map((line) => line));
 	const diffTruncated = $derived(diffLines.length > 2000);
 	const diffRows = $derived(diffLines.slice(0, 2000));
@@ -396,7 +401,7 @@
 									<p class="text-xs text-fg-muted">{tg('git.group.empty')}</p>
 								{:else}
 									<ul class="mt-1 space-y-1">
-										{#each group.files as row (row.file.path)}
+										{#each group.files.slice(0, groupLimit) as row (row.file.path)}
 											<li class="flex min-w-0 items-center gap-2">
 												<input
 													type="checkbox"

@@ -29,6 +29,7 @@ export const gitEn = {
 	'git.group.untracked': 'Untracked',
 	'git.group.deleted': 'Deleted',
 	'git.group.empty': 'None',
+	'git.showMore': 'Show {n} more paths',
 	'git.file.partlyStaged': 'Partly staged',
 	'git.stage': 'Stage {path}',
 	'git.unstage': 'Unstage {path}',

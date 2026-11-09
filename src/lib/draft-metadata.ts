@@ -157,26 +157,71 @@ export function installDraftMetadataHooks(): void {
 		row.metadata = encodeDraftMetadata(row);
 	});
 	db.drafts.hook('updating', (modifications, _primaryKey, row) => {
+		const touchesSource = ['content', 'name', 'kind'].some((key) =>
+			Object.prototype.hasOwnProperty.call(modifications, key)
+		);
+		if (!touchesSource) return undefined;
 		return { metadata: encodeDraftMetadata({ ...row, ...modifications } as DraftRow) };
 	});
 }
 
-/** Fills missing projections in idle-sized batches, without retaining bodies. */
+/** Lists ids without a projection using metadata-only key cursors. */
+async function missingDraftMetadataIds(): Promise<string[]> {
+	const idb = db.backendDB();
+	return new Promise<string[]>((resolve, reject) => {
+		let transaction: IDBTransaction;
+		try {
+			transaction = idb.transaction('drafts', 'readonly');
+		} catch (error) {
+			reject(error);
+			return;
+		}
+		const store = transaction.objectStore('drafts');
+		const all: string[] = [];
+		const projected = new Set<string>();
+		const allRequest = store.openKeyCursor();
+		allRequest.onerror = () => reject(allRequest.error);
+		allRequest.onsuccess = () => {
+			const cursor = allRequest.result;
+			if (!cursor) return;
+			all.push(String(cursor.primaryKey));
+			cursor.continue();
+		};
+		const projectedRequest = store.index('metadata').openKeyCursor();
+		projectedRequest.onerror = () => reject(projectedRequest.error);
+		projectedRequest.onsuccess = () => {
+			const cursor = projectedRequest.result;
+			if (!cursor) return;
+			const metadata = decodeDraftMetadata(cursor.key);
+			if (metadata) projected.add(metadata.id);
+			cursor.continue();
+		};
+		transaction.oncomplete = () => resolve(all.filter((id) => !projected.has(id)));
+		transaction.onerror = () => reject(transaction.error);
+		transaction.onabort = () => reject(transaction.error);
+	});
+}
+
+/** Fills only missing projections, with metadata-only transaction updates. */
 export async function backfillDraftMetadata(): Promise<void> {
 	installDraftMetadataHooks();
-	const ids = await db.drafts.toCollection().primaryKeys();
+	const ids = await missingDraftMetadataIds();
 	for (let offset = 0; offset < ids.length; offset += 25) {
-		const rows = await db.drafts.bulkGet(ids.slice(offset, offset + 25));
-		const present = rows.filter((row): row is DraftRow => row !== undefined);
-		if (present.length) {
-			await db.drafts.bulkPut(
-				present.map((row) => ({ ...row, metadata: encodeDraftMetadata(row) }))
-			);
-		}
-		await new Promise<void>((resolve) => {
-			if (typeof requestIdleCallback === 'function')
-				requestIdleCallback(() => resolve(), { timeout: 200 });
-			else setTimeout(resolve, 50);
+		const batch = ids.slice(offset, offset + 25);
+		await db.transaction('rw', db.drafts, async () => {
+			const rows = await db.drafts.bulkGet(batch);
+			for (const row of rows) {
+				if (!row) continue;
+				// Never write content, name, order or open state from a stale read.
+				await db.drafts.update(row.id, { metadata: encodeDraftMetadata(row) });
+			}
 		});
+		if (offset + 25 < ids.length) {
+			await new Promise<void>((resolve) => {
+				if (typeof requestIdleCallback === 'function')
+					requestIdleCallback(() => resolve(), { timeout: 200 });
+				else setTimeout(resolve, 50);
+			});
+		}
 	}
 }

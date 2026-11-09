@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, type DraftRow } from './db';
 import { readDraftMetadata } from './draft-manifest';
-import { installDraftMetadataHooks } from './draft-metadata';
+import { backfillDraftMetadata, installDraftMetadataHooks } from './draft-metadata';
 
 function row(overrides: Partial<DraftRow> = {}): DraftRow {
 	return {
@@ -43,5 +43,32 @@ describe('durable draft metadata', () => {
 			tags: ['gamma'],
 			targets: []
 		});
+	});
+});
+
+describe('metadata backfill safety', () => {
+	beforeEach(async () => {
+		installDraftMetadataHooks();
+		await db.drafts.clear();
+	});
+
+	it('updates only missing projections and never rewrites the row body', async () => {
+		await db.drafts.put(row());
+		await db.drafts.update('meta-note', { metadata: '' });
+		const bulkPut = vi.spyOn(db.drafts, 'bulkPut');
+		await backfillDraftMetadata();
+		expect(bulkPut).not.toHaveBeenCalled();
+		const stored = await db.drafts.get('meta-note');
+		expect(stored?.content).toContain('Durable title');
+		expect(stored?.metadata).toBeDefined();
+		bulkPut.mockRestore();
+	});
+
+	it('does nothing when every projection is current', async () => {
+		await db.drafts.put(row());
+		const update = vi.spyOn(db.drafts, 'update');
+		await backfillDraftMetadata();
+		expect(update).not.toHaveBeenCalled();
+		update.mockRestore();
 	});
 });

@@ -10,7 +10,7 @@ import {
 	persistReorder
 } from './trash';
 import { recordVersion } from './version-history';
-import { installTrashSummaryHooks } from './trash-summary-hooks';
+import { backfillTrashSummaries, installTrashSummaryHooks } from './trash-summary-hooks';
 
 // Use a fixed epoch timestamp to make undo calculations deterministic.
 const T0 = 1_000_000_000_000;
@@ -192,5 +192,16 @@ describe('trash persistence failures and conflicts', () => {
 		await purgePermanently('safe');
 		expect(await db.drafts.get('safe')).toBeDefined();
 		expect(await db.versions.where('draftId').equals('safe').count()).toBe(1);
+	});
+});
+
+describe('trash summary backfill', () => {
+	it('does nothing when every summary is current', async () => {
+		installTrashSummaryHooks();
+		await db.trashed.put(trashedRow('summary-ok', T0));
+		const update = vi.spyOn(db.trashed, 'update');
+		await backfillTrashSummaries();
+		expect(update).not.toHaveBeenCalled();
+		update.mockRestore();
 	});
 });
