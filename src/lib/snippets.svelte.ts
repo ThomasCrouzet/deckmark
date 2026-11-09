@@ -7,6 +7,7 @@ import { db, newId, type SnippetRow } from './db';
 import { reportPersistenceError } from './storage';
 import { t } from '#lib/i18n/index.js';
 import { hashSnippetCode } from './snippet-hash';
+import { decodeSnippetManifest, type SnippetManifest } from './snippet-manifest-key';
 import {
 	findDuplicateSnippet,
 	normalizeSnippetRow,
@@ -14,6 +15,55 @@ import {
 	snippetLanguage,
 	type SnippetCapture
 } from './snippets';
+
+async function readSnippetManifests(): Promise<SnippetManifest[] | null> {
+	try {
+		const expected = await db.snippets.count();
+		const idb = db.backendDB();
+		const manifests = await new Promise<SnippetManifest[]>((resolve, reject) => {
+			let transaction: IDBTransaction;
+			try {
+				transaction = idb.transaction('snippets', 'readonly');
+			} catch (error) {
+				reject(error);
+				return;
+			}
+			const values: SnippetManifest[] = [];
+			const request = transaction.objectStore('snippets').index('manifest').openKeyCursor();
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const cursor = request.result;
+				if (!cursor) return;
+				const manifest = decodeSnippetManifest(cursor.key);
+				if (manifest) values.push(manifest);
+				cursor.continue();
+			};
+			transaction.oncomplete = () => resolve(values);
+			transaction.onerror = () => reject(transaction.error);
+			transaction.onabort = () => reject(transaction.error);
+		});
+		return manifests.length === expected ? manifests : null;
+	} catch {
+		return null;
+	}
+}
+
+function manifestRow(manifest: SnippetManifest): SnippetRow {
+	return {
+		id: manifest.id,
+		title: manifest.title,
+		code: '',
+		language: manifest.language,
+		tags: manifest.tags,
+		...(manifest.folder ? { folder: manifest.folder } : {}),
+		...(manifest.projectId ? { projectId: manifest.projectId } : {}),
+		favorite: manifest.favorite,
+		createdAt: manifest.createdAt,
+		updatedAt: manifest.updatedAt,
+		...(manifest.codeHash ? { codeHash: manifest.codeHash } : {}),
+		contentDeferred: true
+	};
+}
 
 export interface SnippetInput {
 	title: string;
@@ -44,13 +94,36 @@ class SnippetsStore {
 		if (this.loading) return this.loading;
 		if (this.loaded) return;
 		this.loading = new Promise<void>((resolve, reject) => {
+			let first = true;
 			this.subscription = liveQuery(() =>
-				db.snippets.orderBy('updatedAt').reverse().toArray()
+				db.snippets.orderBy('updatedAt').reverse().primaryKeys()
 			).subscribe({
-				next: (rows) => {
-					this.rows = rows;
-					this.loaded = true;
-					resolve();
+				next: (ids) => {
+					void (async () => {
+						const manifests = await readSnippetManifests();
+						if (manifests) {
+							const byId = new Map(manifests.map((manifest) => [manifest.id, manifest]));
+							this.rows = ids
+								.map((id) => byId.get(id))
+								.filter((manifest): manifest is SnippetManifest => !!manifest)
+								.map(manifestRow);
+						} else {
+							this.rows = await db.snippets.orderBy('updatedAt').reverse().toArray();
+						}
+						this.loaded = true;
+						if (first) {
+							first = false;
+							resolve();
+						}
+					})().catch((error: unknown) => {
+						if (this.loaded) reportPersistenceError(error, 'load');
+						this.loaded = false;
+						this.subscription = undefined;
+						if (first) {
+							first = false;
+							reject(error);
+						}
+					});
 				},
 				error: (error: unknown) => {
 					if (this.loaded) reportPersistenceError(error, 'load');
@@ -126,17 +199,53 @@ class SnippetsStore {
 		});
 	}
 
+	/** Reads one exact code body and updates the resident catalog row. */
+	async contentFor(id: string): Promise<string | null> {
+		const row = await db.snippets.get(id);
+		const item = this.rows.find((entry) => entry.id === id);
+		if (!row) {
+			if (item) this.rows = this.rows.filter((entry) => entry.id !== id);
+			return null;
+		}
+		if (item) {
+			item.title = row.title;
+			item.code = row.code;
+			item.language = row.language;
+			item.tags = row.tags;
+			item.favorite = row.favorite;
+			item.updatedAt = row.updatedAt;
+			item.contentDeferred = false;
+		}
+		return row.code;
+	}
+
+	/** Advisory duplicate candidate from metadata; save still compares exact bytes. */
+	findDuplicateCandidate(
+		code: string,
+		language: string,
+		excludeId: string | null = null
+	): SnippetRow | null {
+		const hash = hashSnippetCode(code);
+		return (
+			this.rows.find(
+				(row) => row.id !== excludeId && row.language === language && row.codeHash === hash
+			) ?? null
+		);
+	}
+
 	async toggleFavorite(id: string): Promise<void> {
 		const current = this.rows.find((row) => row.id === id);
 		if (!current) return;
-		const next = { ...current, favorite: !current.favorite, updatedAt: Date.now() };
+		const favorite = !current.favorite;
+		const updatedAt = Date.now();
 		try {
-			await db.snippets.put($state.snapshot(next));
+			// Narrow update: the selected code body is not rewritten.
+			await db.snippets.update(id, { favorite, updatedAt });
 		} catch (error) {
 			reportPersistenceError(error, 'save');
 			return;
 		}
-		this.rows = this.rows.map((row) => (row.id === id ? next : row));
+		this.rows = this.rows.map((row) => (row.id === id ? { ...row, favorite, updatedAt } : row));
 	}
 
 	async delete(id: string): Promise<boolean> {
@@ -169,7 +278,18 @@ class SnippetsStore {
 		return normalized.length;
 	}
 
-	exportJson(now = Date.now()): string {
+	async exportJson(now = Date.now()): Promise<string> {
+		const ids = this.rows.filter((row) => row.contentDeferred).map((row) => row.id);
+		if (ids.length > 0) {
+			const full = await db.snippets.bulkGet(ids);
+			const byId = new Map(
+				full.filter((row): row is SnippetRow => row !== undefined).map((row) => [row.id, row])
+			);
+			return serializeSnippetExport(
+				this.rows.map((row) => byId.get(row.id) ?? row),
+				now
+			);
+		}
 		return serializeSnippetExport(this.rows, now);
 	}
 }

@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
 import { encodeDraftManifest } from './draft-manifest-key';
 import { encodeTemplateManifest } from './template-manifest-key';
+import { encodeSnippetManifest } from './snippet-manifest-key';
 import { documentKind } from './document-kind';
 import { hashSnippetCode } from './snippet-hash';
 
@@ -127,6 +128,10 @@ export interface SnippetRow {
 	updatedAt: number;
 	/** Duplicate-candidate index key. Do not write directly. */
 	codeHash?: string;
+	/** Metadata index key maintained by the table hooks. Do not write directly. */
+	manifest?: string;
+	/** True while only the catalog metadata is resident. */
+	contentDeferred?: boolean;
 }
 
 export interface SemanticIndexRow {
@@ -312,6 +317,20 @@ class MdshDB extends Dexie {
 					.modify((row) => {
 						row.kind ??= documentKind(row.content);
 						row.manifest = encodeTemplateManifest(row);
+					})
+			);
+		// v16: the snippet panel lists compact metadata and reads a code body
+		// only for the selected item.
+		this.version(16)
+			.stores({
+				snippets: 'id, updatedAt, favorite, projectId, folder, language, codeHash, manifest'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<SnippetRow>('snippets')
+					.toCollection()
+					.modify((row) => {
+						row.manifest = encodeSnippetManifest(row);
 					})
 			);
 
