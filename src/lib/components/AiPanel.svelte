@@ -6,7 +6,12 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { documentKindForFile } from '#lib/document-kind.js';
 	import { aiStore, aiErrorMessage } from '#lib/ai/store.svelte.js';
-	import { buildContext, contextSystemPrompt, type AiContextScope } from '#lib/ai/context.js';
+	import {
+		buildContext,
+		contextSystemPrompt,
+		isSecretPath,
+		type AiContextScope
+	} from '#lib/ai/context.js';
 	import { AiProviderError } from '#lib/ai/types.js';
 	import {
 		applyPatchPlan,
@@ -316,7 +321,14 @@
 				error = t('ai.noContext');
 				return;
 			}
-			const needed =
+			// Never hydrate a recognized credential store for a remote request.
+			// The context builder applies the same path policy to the manifest.
+			const secretIds = new Set(
+				filesStore.library
+					.filter((file) => isSecretPath(file.relativePath ?? file.name))
+					.map((file) => file.id)
+			);
+			const needed = (
 				frozen.scope === 'files'
 					? frozen.selectedIds
 					: frozen.scope === 'project'
@@ -325,7 +337,8 @@
 								.map((file) => file.id)
 						: frozen.scope === 'document' && frozen.activeId
 							? [frozen.activeId]
-							: [];
+							: []
+			).filter((id) => !secretIds.has(id));
 			const revisions: Array<{
 				id: string;
 				deferred: boolean;

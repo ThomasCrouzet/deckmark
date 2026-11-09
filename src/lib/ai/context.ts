@@ -42,13 +42,37 @@ export interface AiContextBundle {
 	truncated: boolean;
 }
 
+/**
+ * Conservative local-only credential locations. This is a path filter, not
+ * secret scanning: a token embedded in an ordinary file is still the user's
+ * responsibility. Paths are normalized before matching so Windows separators
+ * and case cannot hide a known store.
+ */
 const SECRET_PATTERNS = [
 	/(^|\/)\.env(\.|$)/i,
 	/(^|\/)\.git\//i,
 	/(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.|$)/i,
 	/\.(pem|key|p12|pfx|keystore)$/i,
 	/(^|\/)(credentials|secrets?)(\.|$)/i,
-	/(^|\/)\.npmrc$/i
+	/(^|\/)\.npmrc$/i,
+	/(^|\/)\.docker\/config\.json$/i,
+	/(^|\/)(\.netrc|_netrc)$/i,
+	/(^|\/)\.pypirc$/i,
+	/(^|\/)\.git-credentials$/i,
+	/(^|\/)\.vault-token$/i,
+	/(^|\/)\.pgpass$/i,
+	/(^|\/)\.s3cfg$/i,
+	/(^|\/)\.boto$/i,
+	/(^|\/)\.my\.cnf$/i,
+	/(^|\/)\.htpasswd$/i,
+	/(^|\/)\.kube\/config$/i,
+	/(^|\/)\.aws\/(config|credentials)$/i,
+	/(^|\/)\.azure\/(accessTokens\.json|azureProfile\.json|msal_token_cache\.json)$/i,
+	/(^|\/)\.config\/gcloud\/(application_default_credentials\.json|credentials\.db|access_tokens\.db)$/i,
+	/(^|\/)\.config\/gcloud\/legacy_credentials\//i,
+	/(^|\/)\.config\/gh\/hosts\.ya?ml$/i,
+	/(^|\/)\.config\/rclone\/rclone\.conf$/i,
+	/(^|\/)\.terraform\.d\/credentials\.tfrc\.json$/i
 ];
 
 export function tokenEstimate(text: string): number {
@@ -56,7 +80,8 @@ export function tokenEstimate(text: string): number {
 }
 
 export function isSecretPath(path: string): boolean {
-	return SECRET_PATTERNS.some((pattern) => pattern.test(path));
+	const normalized = path.replace(/\\/g, '/').replace(/^\.\//, '');
+	return SECRET_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 function pathOf(file: AiContextFile): string {

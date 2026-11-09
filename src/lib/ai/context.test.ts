@@ -130,4 +130,57 @@ describe('AI context manifest', () => {
 			expect(isSecretPath(path)).toBe(true);
 		expect(isSecretPath('notes.md')).toBe(false);
 	});
+
+	it('identifies common credential-store paths on POSIX and Windows', () => {
+		for (const path of [
+			'.docker/config.json',
+			'project/.docker/config.json',
+			'.netrc',
+			'_netrc',
+			'.pypirc',
+			'.aws/credentials',
+			'.aws/config',
+			'.kube/config',
+			'.config/gcloud/application_default_credentials.json',
+			'.config/gcloud/credentials.db',
+			'.config/gh/hosts.yml',
+			'.git-credentials',
+			'.pgpass',
+			'C:\\Users\\me\\.docker\\config.json',
+			'project\\_netrc'
+		])
+			expect(isSecretPath(path)).toBe(true);
+		for (const path of [
+			'docker/compose.yml',
+			'docs/config.json',
+			'notes/netrc.md',
+			'.aws/README.md'
+		])
+			expect(isSecretPath(path)).toBe(false);
+	});
+
+	it('excludes credential stores from a Files scope even when selected', () => {
+		const bundle = buildContext({
+			scope: 'files',
+			activeId: 'a',
+			selection: '',
+			files: [
+				{ id: 'n', name: 'notes.md', content: 'ordinary note' },
+				{
+					id: 'd',
+					name: 'config.json',
+					relativePath: '.docker/config.json',
+					content: '{"auths":{"registry.example":{"auth":"secret-token"}}}'
+				},
+				{ id: 'm', name: '.netrc', content: 'machine example login me password secret' }
+			],
+			selectedIds: ['n', 'd', 'm']
+		});
+		const reasons = new Map(bundle.manifest.map((entry) => [entry.path, entry.reason]));
+		expect(reasons.get('.docker/config.json')).toBe('secret');
+		expect(reasons.get('.netrc')).toBe('secret');
+		expect(bundle.text).toContain('ordinary note');
+		expect(bundle.text).not.toContain('secret-token');
+		expect(bundle.text).not.toContain('machine example');
+	});
 });
