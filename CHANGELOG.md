@@ -5,6 +5,41 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.5.1](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.0...v2.5.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **annotations:** keep the ink viewport fixed during native scroll ([#333](https://github.com/ThomasCrouzet/deckmark/issues/333)) ([ffd489f](https://github.com/ThomasCrouzet/deckmark/commit/ffd489f1fe5192d1a0fcee0df005cd500ed99cd9))
+* fence deferred hydration and bound local MCP work ([#420](https://github.com/ThomasCrouzet/deckmark/issues/420), [#421](https://github.com/ThomasCrouzet/deckmark/issues/421)) ([#422](https://github.com/ThomasCrouzet/deckmark/issues/422)) ([578f0ea](https://github.com/ThomasCrouzet/deckmark/commit/578f0eadc0e7599dae51f2f310a1242f514e30ba))
+* make projection backfill revision-safe and bound command lists ([#413](https://github.com/ThomasCrouzet/deckmark/issues/413)) ([0cb455e](https://github.com/ThomasCrouzet/deckmark/commit/0cb455e3560866f2286ed0043b68052962fd6d58))
+* **native-projects:** journal project renames and recover on reconnect ([#379](https://github.com/ThomasCrouzet/deckmark/issues/379)) ([#427](https://github.com/ThomasCrouzet/deckmark/issues/427)) ([5978dc6](https://github.com/ThomasCrouzet/deckmark/commit/5978dc697c2d438e7c6f2acdd1712a358667e9b8))
+* remediate open security, correctness and large-document issues ([#401](https://github.com/ThomasCrouzet/deckmark/issues/401)) ([a192726](https://github.com/ThomasCrouzet/deckmark/commit/a192726509fe671da6d657fd0e990c872335e1f4))
+
+
+### Performance Improvements
+
+* address selection, disk-link and replace hot paths ([#402](https://github.com/ThomasCrouzet/deckmark/issues/402)) ([ca0d4e8](https://github.com/ThomasCrouzet/deckmark/commit/ca0d4e864d9f466c11ef7ac6507ad1d54f8ff1ba))
+* **annotations:** bound ink rendering to the viewport ([#331](https://github.com/ThomasCrouzet/deckmark/issues/331)) ([f176e21](https://github.com/ThomasCrouzet/deckmark/commit/f176e219b3848fce9eb5e9e68bc2b561f847a1a6))
+* bound print, workspace, JSON, asset, template, AI, CLI, snippet and presentation work ([#423](https://github.com/ThomasCrouzet/deckmark/issues/423)) ([2a4f9e4](https://github.com/ThomasCrouzet/deckmark/commit/2a4f9e4e4ca60fab41d93fddb851845fb194717a))
+* bound trash, workspace, sidebar, print and media work ([#403](https://github.com/ThomasCrouzet/deckmark/issues/403)) ([b4ff766](https://github.com/ThomasCrouzet/deckmark/commit/b4ff7665767fcbe1584d2e4c701a7d53545d9ea9))
+* **comments:** page the comment list instead of mounting every row ([#385](https://github.com/ThomasCrouzet/deckmark/issues/385)) ([#426](https://github.com/ThomasCrouzet/deckmark/issues/426)) ([cad2b40](https://github.com/ThomasCrouzet/deckmark/commit/cad2b40ca24e1b084b1df7b9d7d0214682f3ebd4))
+* **core:** connect revisioned Source and Code edits ([#335](https://github.com/ThomasCrouzet/deckmark/issues/335)) ([6c95b10](https://github.com/ThomasCrouzet/deckmark/commit/6c95b10320f22e67b03dc7be5be1d3e0b74d9b38))
+* **editor:** reduce input latency in large rendered notes ([#430](https://github.com/ThomasCrouzet/deckmark/issues/430)) ([8607b15](https://github.com/ThomasCrouzet/deckmark/commit/8607b156fdbf2675ac5e659b23de60b1f586035a))
+* finish large-document metadata, storage and stress work ([#344](https://github.com/ThomasCrouzet/deckmark/issues/344)) ([30a6926](https://github.com/ThomasCrouzet/deckmark/commit/30a692690613bca4b888f43ed9b2b82bf6189420))
+* integrate remaining large-document optimizations ([#343](https://github.com/ThomasCrouzet/deckmark/issues/343)) ([934cbac](https://github.com/ThomasCrouzet/deckmark/commit/934cbac302112cd129bc865a52a113e1b0af21a6))
+* **mermaid:** publish non-diagram HTML before preview renders finish ([#363](https://github.com/ThomasCrouzet/deckmark/issues/363)) ([#429](https://github.com/ThomasCrouzet/deckmark/issues/429)) ([c2f5f29](https://github.com/ThomasCrouzet/deckmark/commit/c2f5f297fd3251eb093548aee4d08d530574615a))
+* move versioned JSON diagnostics to worker ([#332](https://github.com/ThomasCrouzet/deckmark/issues/332)) ([11f9267](https://github.com/ThomasCrouzet/deckmark/commit/11f9267fb1f49d212fd500298d3d1dfa803da18a))
+* **native-projects:** skip unchanged refreshes with a metadata manifest ([#351](https://github.com/ThomasCrouzet/deckmark/issues/351)) ([#428](https://github.com/ThomasCrouzet/deckmark/issues/428)) ([075c435](https://github.com/ThomasCrouzet/deckmark/commit/075c4351151402a063b7c108141d76be2ed8b2b8))
+* **presentation:** cache snap geometry during gestures ([#334](https://github.com/ThomasCrouzet/deckmark/issues/334)) ([c04d4e0](https://github.com/ThomasCrouzet/deckmark/commit/c04d4e0c710cb321d793791d32747a8c4f6f5e70))
+* **presentation:** coalesce text and notes deck snapshots ([#336](https://github.com/ThomasCrouzet/deckmark/issues/336)) ([5e87960](https://github.com/ThomasCrouzet/deckmark/commit/5e879605d83930b23bd22f39e073cf224948e0b2))
+* **presentation:** snapshot only selected gesture elements ([#415](https://github.com/ThomasCrouzet/deckmark/issues/415)) ([#425](https://github.com/ThomasCrouzet/deckmark/issues/425)) ([601a946](https://github.com/ThomasCrouzet/deckmark/commit/601a946d583f856583f0333c43c53b02d71de513))
+* **presentation:** window large filmstrips ([#416](https://github.com/ThomasCrouzet/deckmark/issues/416)) ([#424](https://github.com/ThomasCrouzet/deckmark/issues/424)) ([93c2f6b](https://github.com/ThomasCrouzet/deckmark/commit/93c2f6b8edc49796decd57b0b1d12c482811a36e))
+* **projects:** index wiki candidates and bound project backlinks ([#338](https://github.com/ThomasCrouzet/deckmark/issues/338)) ([2ef0fc9](https://github.com/ThomasCrouzet/deckmark/commit/2ef0fc9b51e81d37b3f73ea8cfc02cf5b946d413))
+* **source:** coalesce typewriter caret centering ([#329](https://github.com/ThomasCrouzet/deckmark/issues/329)) ([dc76ebe](https://github.com/ThomasCrouzet/deckmark/commit/dc76ebe87a52eb2f4decfcfebfa4a307dec52f9e)), closes [#328](https://github.com/ThomasCrouzet/deckmark/issues/328)
+* **stats:** compute large selection statistics in the stats worker ([#404](https://github.com/ThomasCrouzet/deckmark/issues/404)) ([2006bb1](https://github.com/ThomasCrouzet/deckmark/commit/2006bb19c5451509ebb288c4ff060b37836f4852))
+* **workspaces:** restore tabs from metadata and hydrate only the active document ([#405](https://github.com/ThomasCrouzet/deckmark/issues/405)) ([b8cfbf1](https://github.com/ThomasCrouzet/deckmark/commit/b8cfbf1d2d616a04ca87db6be989e2c74b5991f5))
+
 ## [2.5.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.4.0...v2.5.0) (2026-11-07)
 
 
