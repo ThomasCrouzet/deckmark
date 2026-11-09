@@ -65,7 +65,10 @@ export interface LayoutOptions {
  * attraction along edges, with linear cooling.
  * O(n² × iterations) - bounded by the app's file cap (~hundreds).
  */
-export function computeLayout(data: GraphData, opts: LayoutOptions): PositionedNode[] {
+function* layoutSteps(
+	data: GraphData,
+	opts: LayoutOptions
+): Generator<PositionedNode[], PositionedNode[]> {
 	const { width, height } = opts;
 	const n = data.nodes.length;
 	if (n === 0) return [];
@@ -146,7 +149,32 @@ export function computeLayout(data: GraphData, opts: LayoutOptions): PositionedN
 			p.y = Math.max(8, Math.min(height - 8, p.y));
 		}
 		temp -= cool;
+		yield pos;
 	}
 
 	return pos;
+}
+
+export function computeLayout(data: GraphData, opts: LayoutOptions): PositionedNode[] {
+	const steps = layoutSteps(data, opts);
+	let next = steps.next();
+	while (!next.done) next = steps.next();
+	return next.value;
+}
+
+/** Cooperative fallback: one force iteration per task, never a full UI block. */
+export async function computeLayoutAsync(
+	data: GraphData,
+	opts: LayoutOptions,
+	signal?: AbortSignal
+): Promise<PositionedNode[]> {
+	const steps = layoutSteps(data, opts);
+	let next = steps.next();
+	while (!next.done) {
+		if (signal?.aborted) throw new DOMException('Graph layout cancelled', 'AbortError');
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		if (signal?.aborted) throw new DOMException('Graph layout cancelled', 'AbortError');
+		next = steps.next();
+	}
+	return next.value;
 }

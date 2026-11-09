@@ -78,7 +78,7 @@ export async function projectImageSource(
 		return cached;
 	}
 	const image = await abortable(
-		embedImageBlob(new Blob([asset.data], { type: asset.mime })),
+		embedImageBlob(new Blob([new Uint8Array(asset.data)], { type: asset.mime })),
 		signal
 	);
 	cacheImage(key, image.dataUri);

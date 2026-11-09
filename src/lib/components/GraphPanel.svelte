@@ -12,7 +12,7 @@
 	import { documentKindForFile } from '#lib/document-kind.js';
 	import {
 		buildGraph,
-		computeLayout,
+		computeLayoutAsync,
 		type GraphData,
 		type PositionedNode,
 		type GraphEdge
@@ -34,31 +34,48 @@
 	let closeButton: HTMLButtonElement | null = $state(null);
 	let layoutJob = 0;
 
-	function layoutInWorker(data: GraphData, iterations: number): Promise<PositionedNode[]> {
+	function layoutInWorker(
+		data: GraphData,
+		iterations: number,
+		signal: AbortSignal
+	): Promise<PositionedNode[]> {
 		const options = { width: WIDTH, height: HEIGHT, iterations };
-		if (typeof Worker === 'undefined') return Promise.resolve(computeLayout(data, options));
+		if (typeof Worker === 'undefined') return computeLayoutAsync(data, options, signal);
 		return new Promise((resolve, reject) => {
 			let worker: Worker;
+			const terminate = () => {
+				worker.terminate();
+				signal.removeEventListener('abort', abort);
+				clearTimeout(watchdog);
+			};
+			const abort = () => {
+				terminate();
+				reject(new DOMException('Graph layout cancelled', 'AbortError'));
+			};
 			try {
 				worker = new Worker(new URL('../workers/graph.worker.ts', import.meta.url), {
 					type: 'module',
 					name: 'graph-layout'
 				});
 			} catch {
-				resolve(computeLayout(data, options));
+				reject(new Error('graph worker unavailable'));
 				return;
 			}
-			const finish = () => worker.terminate();
+			const watchdog = setTimeout(() => {
+				terminate();
+				reject(new Error('graph layout timed out'));
+			}, 15_000);
+			signal.addEventListener('abort', abort, { once: true });
 			worker.onmessage = (
 				event: MessageEvent<{ positions?: PositionedNode[]; error?: string }>
 			) => {
-				finish();
+				terminate();
 				if (event.data.positions) resolve(event.data.positions);
 				else reject(new Error(event.data.error ?? 'graph layout failed'));
 			};
 			worker.onerror = () => {
-				finish();
-				resolve(computeLayout(data, options));
+				terminate();
+				reject(new Error('graph worker failed'));
 			};
 			worker.postMessage({ id: Date.now(), data, ...options });
 		});
@@ -77,6 +94,7 @@
 	$effect(() => {
 		if (!open) return;
 		const job = ++layoutJob;
+		const controller = new AbortController();
 		untrack(() => {
 			const files = filesStore.library
 				.filter((file) => documentKindForFile(file) === 'note')
@@ -96,16 +114,28 @@
 			edges = data.edges;
 			// Fewer iterations on large graphs to stay smooth.
 			const iterations = data.nodes.length > 120 ? 60 : 120;
-			void layoutInWorker(data, iterations)
+			void layoutInWorker(data, iterations, controller.signal)
 				.then((result) => {
 					if (!open || job !== layoutJob) return;
 					positions = result;
 				})
 				.catch(() => {
-					if (!open || job !== layoutJob) return;
-					positions = computeLayout(data, { width: WIDTH, height: HEIGHT, iterations });
+					if (!open || job !== layoutJob || controller.signal.aborted) return;
+					// Never run the full quadratic layout synchronously on the UI
+					// thread. One iteration per task keeps the dialog responsive.
+					void computeLayoutAsync(
+						data,
+						{ width: WIDTH, height: HEIGHT, iterations },
+						controller.signal
+					)
+						.then((result) => {
+							if (!open || job !== layoutJob) return;
+							positions = result;
+						})
+						.catch(() => {});
 				});
 		});
+		return () => controller.abort();
 	});
 
 	const posById = $derived(new Map(positions.map((p) => [p.id, p])));
