@@ -37,6 +37,8 @@ export interface EmbeddedImage {
 	height: number;
 	bytes: number;
 	mime: string;
+	/** Validated original bytes, reused by project asset creation. */
+	data: Uint8Array;
 }
 
 export type MediaIssueReason =
@@ -250,7 +252,8 @@ export async function embedImageBlob(
 	const mime = normalizedMime(file);
 	if (!mime) throw new ImageFileError('unsupported-type', 'The image type is not supported');
 
-	let bytes = new Uint8Array(await blobBytes(file));
+	const original = new Uint8Array(await blobBytes(file));
+	let bytes = original;
 	if (!hasExpectedSignature(bytes, mime)) {
 		throw new ImageFileError('invalid-content', 'The file content does not match its image type');
 	}
@@ -271,7 +274,8 @@ export async function embedImageBlob(
 		width: dimensions.width,
 		height: dimensions.height,
 		bytes: bytes.byteLength,
-		mime
+		mime,
+		data: original
 	};
 }
 

@@ -5,6 +5,7 @@ import { encodeTemplateManifest } from './template-manifest-key';
 import { encodeSnippetManifest } from './snippet-manifest-key';
 import { documentKind } from './document-kind';
 import { hashSnippetCode } from './snippet-hash';
+import { utf8ByteLength } from './utf8';
 
 export interface DraftRow {
 	id: string;
@@ -27,6 +28,8 @@ export interface DraftRow {
 	manifest?: string;
 	/** Derived title, tags and targets index key. Maintained by the hooks. */
 	metadata?: string;
+	/** Durable UTF-8 source length maintained by the table hooks. */
+	contentBytes?: number;
 }
 
 /**
@@ -333,13 +336,41 @@ class MdshDB extends Dexie {
 						row.manifest = encodeSnippetManifest(row);
 					})
 			);
+		// v17: project quota checks read indexed byte lengths instead of every
+		// document body and binary asset row.
+		this.version(17)
+			.stores({
+				drafts:
+					'id, updatedAt, order, projectId, &[projectId+relativePath], manifest, metadata, [projectId+contentBytes]',
+				projectAssets: 'id, projectId, bytes, [projectId+bytes], &[projectId+path]'
+			})
+			.upgrade((transaction) => {
+				transaction
+					.table<DraftRow>('drafts')
+					.toCollection()
+					.modify((row) => {
+						row.contentBytes = utf8ByteLength(row.content);
+					});
+				transaction
+					.table<ProjectAssetRow>('projectAssets')
+					.toCollection()
+					.modify((row) => {
+						row.bytes = row.data.byteLength;
+					});
+			});
 
 		this.drafts.hook('creating', (_primaryKey, row) => {
+			row.contentBytes = utf8ByteLength(row.content);
 			row.manifest = encodeDraftManifest(row);
 		});
 		this.drafts.hook('updating', (modifications, _primaryKey, row) => {
 			const merged = { ...row, ...modifications } as DraftRow;
-			return { manifest: encodeDraftManifest(merged) };
+			return {
+				manifest: encodeDraftManifest(merged),
+				...(Object.hasOwn(modifications, 'content')
+					? { contentBytes: utf8ByteLength(merged.content) }
+					: {})
+			};
 		});
 		this.projectAssets.hook('creating', (_primaryKey, row) => {
 			row.bytes = row.data.byteLength;
