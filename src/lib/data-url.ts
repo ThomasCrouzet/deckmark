@@ -43,13 +43,7 @@ async function decodeInChunks(data: string): Promise<Blob> {
 /** Returns the exact bytes of a data URL without one synchronous full decode. */
 export async function dataUrlToBlob(data: string): Promise<Blob> {
 	if (!data.startsWith('data:')) return new Blob([]);
-	if (typeof fetch === 'function') {
-		try {
-			const response = await fetch(data);
-			if (response.ok) return await response.blob();
-		} catch {
-			/* Fall back to the bounded chunk decoder. */
-		}
-	}
+	// A data: fetch would violate the production `connect-src` policy. The
+	// bounded chunk decoder yields between slices and keeps the CSP intact.
 	return decodeInChunks(data);
 }
