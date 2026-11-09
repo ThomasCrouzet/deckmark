@@ -1,8 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
 import { encodeDraftManifest } from './draft-manifest-key';
-import { encodeTemplateManifest } from './template-manifest-key';
-import { encodeSnippetManifest } from './snippet-manifest-key';
 import { documentKind } from './document-kind';
 import { hashSnippetCode } from './snippet-hash';
 import { utf8ByteLength } from './utf8';
@@ -177,6 +175,35 @@ export interface ProjectAssetRow {
 
 export const DISK_LINK_EPOCH_KEY = 'disk-link-epoch';
 export const LEGACY_DISK_LINK_EPOCH = 'legacy';
+
+function encodeTemplateManifest(row: TemplateRow): string {
+	return JSON.stringify([
+		1,
+		row.id,
+		row.name,
+		row.builtin ? 1 : 0,
+		row.kind ?? 'note',
+		row.createdAt,
+		row.updatedAt,
+		row.content.length
+	]);
+}
+
+function encodeSnippetManifest(row: SnippetRow): string {
+	return JSON.stringify([
+		1,
+		row.id,
+		row.title,
+		row.language,
+		row.tags,
+		row.folder ?? '',
+		row.projectId ?? '',
+		row.favorite ? 1 : 0,
+		row.createdAt,
+		row.updatedAt,
+		row.codeHash ?? ''
+	]);
+}
 
 class MdshDB extends Dexie {
 	drafts!: Table<DraftRow, string>;
