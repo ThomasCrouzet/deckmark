@@ -22,7 +22,7 @@
 	} from '#lib/render/image-markdown.js';
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { stripFrontmatter } from '#lib/frontmatter.js';
-	import { SourceFidelity } from '#lib/source-fidelity.js';
+	import { SourceFidelity, type SourceFidelityHint } from '#lib/source-fidelity.js';
 	import {
 		createIncrementalMarkdown,
 		updateIncrementalMarkdown,
@@ -60,6 +60,9 @@
 	let removeHistoryListener: (() => void) | null = null;
 	let cancelPendingMarkdown: (() => void) | null = null;
 	let removeImageListeners: (() => void) | null = null;
+	// One block hint from the latest incremental serialization. It is consumed
+	// by the matching restore call and never survives a stale publish.
+	let pendingHint: (SourceFidelityHint & { markdown: string }) | null = null;
 	// §C1 - fileId associated with the currently mounted Crepe instance. Captured
 	// at mount to correctly route a late keystroke (flush or asynchronous
 	// `markdownUpdated`) to the right file even after a tab switch.
@@ -240,13 +243,21 @@
 		let editorBaseline: string | null = null;
 		let fidelity: SourceFidelity | null = null;
 		const restoreMarkdown = (markdown: string, commit = true) =>
-			measureEditorStage('restoreMarkdown', () =>
-				editorBaseline === null || markdown === editorBaseline
-					? sourceMarkdown
-					: frontmatter.raw +
-						(fidelity?.restore(roundTrip.restore(markdown, commit), commit) ??
-							roundTrip.restore(markdown, commit))
-			);
+			measureEditorStage('restoreMarkdown', () => {
+				const hint =
+					commit && pendingHint?.markdown === markdown
+						? {
+								previousFrom: pendingHint.previousFrom,
+								previousTo: pendingHint.previousTo,
+								nextFrom: pendingHint.nextFrom,
+								nextTo: pendingHint.nextTo
+							}
+						: undefined;
+				if (commit) pendingHint = null;
+				if (editorBaseline === null || markdown === editorBaseline) return sourceMarkdown;
+				const restored = roundTrip.restore(markdown, commit);
+				return frontmatter.raw + (fidelity?.restore(restored, commit, hint) ?? restored);
+			});
 		lastEditorMarkdown = initial;
 		let alternativesSignature = '';
 		let imageFrame = 0;
@@ -698,12 +709,18 @@
 				const serialize = ctx.get(serializerCtx);
 				if (!incrementalMarkdown) {
 					incrementalMarkdown = createIncrementalMarkdown(doc, serialize);
+					pendingHint = null;
 					return incrementalMarkdown.markdown;
 				}
 				const result = updateIncrementalMarkdown(incrementalMarkdown, doc, serialize);
 				incrementalMarkdown = result.state;
-				if (result.full) recordEditorCounter('markdownIncrementalFallback');
-				else recordEditorCounter('markdownIncrementalBlock');
+				if (result.full) {
+					pendingHint = null;
+					recordEditorCounter('markdownIncrementalFallback');
+				} else {
+					recordEditorCounter('markdownIncrementalBlock');
+					pendingHint = result.scope ? { ...result.scope, markdown: result.state.markdown } : null;
+				}
 				return result.state.markdown;
 			});
 		};

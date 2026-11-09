@@ -49,6 +49,13 @@ describe('incremental Markdown serialization', () => {
 		};
 		const result = updateIncrementalMarkdown(state, next, counting);
 		expect(result.full).toBe(false);
+		expect(result.changed).toEqual({ start: 1, end: 2, previousEnd: 2 });
+		expect(result.scope).toEqual({
+			previousFrom: 'First\n\n'.length,
+			previousTo: 'First\n\n'.length + 'Second'.length,
+			nextFrom: 'First\n\n'.length,
+			nextTo: 'First\n\n'.length + 'Changed'.length
+		});
 		expect(calls).toBe(1);
 		expect(result.state.markdown).toBe(serialize(next));
 	});

@@ -26,6 +26,14 @@ function join(state: IncrementalMarkdownState): string {
 	return result + state.suffix;
 }
 
+/** Content span of one top-level block inside its joined Markdown. */
+function blockSpan(state: IncrementalMarkdownState, index: number): { from: number; to: number } {
+	let from = state.prefixes[index]?.length ?? 0;
+	for (let cursor = 0; cursor < index; cursor += 1)
+		from += (state.prefixes[cursor]?.length ?? 0) + (state.blockMarkdown[cursor]?.length ?? 0);
+	return { from, to: from + (state.blockMarkdown[index]?.length ?? 0) };
+}
+
 /** Splits one full serialization into reusable top-level block strings. */
 export function createIncrementalMarkdown(
 	doc: ProseNode,
@@ -68,10 +76,32 @@ export function createIncrementalMarkdown(
 	return state;
 }
 
+export interface IncrementalBlockChange {
+	/** First changed top-level block index in both documents. */
+	start: number;
+	/** Exclusive end index of the changed blocks in both documents. */
+	end: number;
+	/** Exclusive end index of the changed blocks in the previous document. */
+	previousEnd: number;
+}
+
+export interface IncrementalBlockScope {
+	/** Changed block span in the previous joined Markdown. */
+	previousFrom: number;
+	previousTo: number;
+	/** Changed block span in the new joined Markdown. */
+	nextFrom: number;
+	nextTo: number;
+}
+
 export interface IncrementalMarkdownResult {
 	state: IncrementalMarkdownState;
 	/** True when the update had to serialize the complete document. */
 	full: boolean;
+	/** One contiguous changed top-level block range when the update was local. */
+	changed?: IncrementalBlockChange | undefined;
+	/** Exact Markdown span of the single changed block. */
+	scope?: IncrementalBlockScope | undefined;
 }
 
 /**
@@ -125,5 +155,22 @@ export function updateIncrementalMarkdown(
 		markdown: ''
 	};
 	next.markdown = join(next);
-	return { state: next, full: false };
+	const single = start < newEnd && newEnd - start === 1 && oldEnd - start === 1;
+	return {
+		state: next,
+		full: false,
+		changed: start < newEnd ? { start, end: newEnd, previousEnd: oldEnd } : undefined,
+		scope: single
+			? (() => {
+					const previous = blockSpan(state, start);
+					const current = blockSpan(next, start);
+					return {
+						previousFrom: previous.from,
+						previousTo: previous.to,
+						nextFrom: current.from,
+						nextTo: current.to
+					};
+				})()
+			: undefined
+	};
 }

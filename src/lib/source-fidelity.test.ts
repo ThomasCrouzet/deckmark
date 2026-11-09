@@ -265,6 +265,57 @@ describe('bounded paragraph reconciliation', () => {
 		expect(parsed).toContain(split.length);
 	});
 
+	it('uses a transaction block hint without comparing the whole note', () => {
+		const paragraphs = Array.from(
+			{ length: 2_000 },
+			(_, index) => `Paragraph ${index} keeps a stable sentence.`
+		);
+		const source = `${paragraphs.join('\n\n')}\n`;
+		const { fidelity, baseline, parsed } = observed(source);
+		const tree = parse(baseline);
+		const block = tree.children?.[tree.children.length - 1];
+		const blockFrom = block?.position?.start.offset;
+		const blockTo = block?.position?.end.offset;
+		expect(blockFrom).toBeTypeOf('number');
+		const at = blockFrom! + 10;
+		const next = `${baseline.slice(0, at)}X${baseline.slice(at)}`;
+		const delta = next.length - baseline.length;
+		const counters: string[] = [];
+		const observeCounter = (event: Event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+			if (detail.kind === 'counter') counters.push(detail.name);
+		};
+		window.addEventListener('deckmark:editor-perf', observeCounter);
+		try {
+			expect(
+				fidelity.restore(next, true, {
+					previousFrom: blockFrom!,
+					previousTo: blockTo!,
+					nextFrom: blockFrom!,
+					nextTo: blockTo! + delta
+				})
+			).toBe(`${source.slice(0, at)}X${source.slice(at)}`);
+		} finally {
+			window.removeEventListener('deckmark:editor-perf', observeCounter);
+		}
+		expect(counters).toContain('sourceFidelityScopedHint');
+		expect(Math.max(...parsed), 'the hint must keep parser input local').toBeLessThan(64 * 1024);
+	});
+
+	it('ignores a hint that does not align with the accepted baseline', () => {
+		const source = 'First paragraph.\n\nSecond paragraph.\n\nThird paragraph.\n';
+		const { fidelity, baseline } = observed(source);
+		const next = baseline.replace('Third paragraph.', 'Last paragraph.');
+		expect(
+			fidelity.restore(next, true, {
+				previousFrom: 1,
+				previousTo: 16,
+				nextFrom: 1,
+				nextTo: 16
+			})
+		).toBe(source.replace('Third paragraph.', 'Last paragraph.'));
+	});
+
 	it('does not use a scoped paragraph for a large text block', () => {
 		const source = `Before.\n\n${'long word '.repeat(7_000)}\n\nAfter.\n`;
 		const { fidelity, baseline, parsed } = observed(source);
