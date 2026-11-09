@@ -228,3 +228,87 @@ describe('deckmark MCP server', () => {
 		expect(JSON.stringify(secret.result)).toContain('sensitive');
 	});
 });
+
+describe('bounded MCP work', () => {
+	it('indexes wiki diagnostic lines in linear time', async () => {
+		const body = `${'line\n'.repeat(5000)}[[Missing]]\n`;
+		writeFileSync(join(root, 'notes', 'long.md'), body);
+		const response = await request('tools/call', { name: 'check', arguments: {} });
+		const text = (response.result as { content: Array<{ text: string }> }).content[0]!.text;
+		const report = JSON.parse(text) as { issues: Array<{ path: string; line: number }> };
+		const issue = report.issues.find((entry) => entry.path.endsWith('long.md'));
+		expect(issue?.line).toBe(5001);
+	});
+
+	it('survives a directory tree deeper than the walk limit', () => {
+		let current = root;
+		for (let depth = 0; depth < 70; depth++) {
+			current = join(current, `d${depth}`);
+			mkdirSync(current);
+		}
+		writeFileSync(join(current, 'deep.md'), '# Deep');
+		const responses = exchange([
+			JSON.stringify({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'tools/call',
+				params: { name: 'list_files', arguments: {} }
+			})
+		]);
+		expect(responses).toMatchObject([{ id: 1 }]);
+		const text = (responses[0] as { result: { content: Array<{ text: string }> } }).result
+			.content[0]!.text;
+		expect(JSON.parse(text).truncated).toBe(true);
+	});
+
+	it('answers ping before a queued heavy tool call', () => {
+		const responses = exchange([
+			JSON.stringify({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'tools/call',
+				params: { name: 'check', arguments: {} }
+			}),
+			JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'ping' })
+		]);
+		expect(responses.map((entry) => (entry as { id: number }).id)).toEqual([2, 1]);
+	});
+
+	it('rejects an oversized request line before parsing and keeps serving', () => {
+		const responses = exchange([
+			`{"jsonrpc":"2.0","id":1,"method":"ping","params":{"padding":"${'x'.repeat(1024 * 1024)}"}}`,
+			'{"jsonrpc":"2.0","id":2,"method":"ping"}'
+		]);
+		expect(responses).toEqual([
+			{
+				jsonrpc: '2.0',
+				id: null,
+				error: { code: -32600, message: 'Request exceeds 1 MiB' }
+			},
+			{ jsonrpc: '2.0', id: 2, result: {} }
+		]);
+	});
+
+	it('rejects oversized patch input and omits large inline bodies', async () => {
+		const oversized = await request('tools/call', {
+			name: 'propose_patch',
+			arguments: {
+				path: 'notes/guide.md',
+				before: 'x'.repeat(300_000),
+				after: 'y'
+			}
+		});
+		expect(JSON.stringify(oversized.result)).toContain('256 KiB');
+
+		writeFileSync(join(root, 'notes', 'large.md'), `${'# Large\n'.repeat(40_000)}target\n`);
+		const patch = await request('tools/call', {
+			name: 'propose_patch',
+			arguments: { path: 'notes/large.md', before: 'target', after: 'changed' }
+		});
+		const text = (patch.result as { content: Array<{ text: string }> }).content[0]!.text;
+		const report = JSON.parse(text) as { inlineBodies: boolean; before?: string; after?: string };
+		expect(report.inlineBodies).toBe(false);
+		expect(report.before).toBeUndefined();
+		expect(report.after).toBeUndefined();
+	});
+});

@@ -156,6 +156,10 @@ class FilesStore {
 	loaded = $state(false);
 	/** Monotonic boundary for startup and backup reloads. */
 	private loadGeneration = 0;
+	/** Latest tab activation request. A late hydration may not steal focus. */
+	private activationIntent = 0;
+	/** Maximum number of deferred bodies read at the same time. */
+	private static readonly HYDRATION_CONCURRENCY = 4;
 	// §J1 - Error message if IndexedDB access fails at startup (private mode,
 	// storage disabled, corrupted profile). Shown as a banner by +page.
 	loadError = $state<string | null>(null);
@@ -307,12 +311,14 @@ class FilesStore {
 	}
 
 	private async openClosedDocument(id: string): Promise<void> {
+		const intent = ++this.activationIntent;
 		const file = this.closedFiles.find((entry) => entry.id === id);
 		if (!file) return;
 		if (file.contentDeferred) {
 			const hydrated = await this.hydrateContent(id);
-			if (!hydrated) return;
+			if (!hydrated || intent !== this.activationIntent) return;
 		}
+		if (intent !== this.activationIntent) return;
 		if (this.closedFiles.some((entry) => entry.id === id)) this.reopen(id);
 		else if (this.files.some((entry) => entry.id === id)) this.setActive(id);
 	}
@@ -325,18 +331,34 @@ class FilesStore {
 		if (pending) return pending;
 		const load = this.readContentRow(id);
 		this.pendingContentLoads.set(id, load);
-		void load.finally(() => {
+		const cleanup = () => {
 			if (this.pendingContentLoads.get(id) === load) this.pendingContentLoads.delete(id);
-		});
+		};
+		// Observe both outcomes: a rejected body read must reach its caller
+		// without leaving a second unhandled rejecting continuation behind.
+		void load.then(cleanup, cleanup);
 		return load;
 	}
 
 	private async readContentRow(id: string): Promise<FileItem | null> {
+		const generation = this.loadGeneration;
 		const row = await db.drafts.get(id);
+		if (this.loadGeneration !== generation) return null;
 		const file = this.library.find((entry) => entry.id === id);
 		// The document can be deleted while the body read is pending.
 		if (!row || !file || !file.contentDeferred) return file ?? null;
 		const { applyDraftContent } = await import('./draft-access');
+		// The awaited import and storage read can overlap a cross-tab sync, a
+		// local edit, a deletion or a backup reload. Never publish an older row
+		// over newer state.
+		if (
+			this.loadGeneration !== generation ||
+			this.library.find((entry) => entry.id === id) !== file ||
+			!file.contentDeferred ||
+			file.dirty ||
+			this.saveQueue.has(id)
+		)
+			return file;
 		applyDraftContent(file, row);
 		this.saveQueue.trackPersisted(row);
 		this.metaIndex.invalidateMeta(id);
@@ -346,7 +368,13 @@ class FilesStore {
 
 	/** Hydrates the requested bodies before an operation that needs exact text. */
 	async ensureContent(ids: readonly string[]): Promise<void> {
-		await Promise.all(ids.map((id) => this.hydrateContent(id)));
+		const queue = [...new Set(ids)];
+		const workers = Math.min(FilesStore.HYDRATION_CONCURRENCY, queue.length);
+		await Promise.all(
+			Array.from({ length: workers }, async () => {
+				while (queue.length > 0) await this.hydrateContent(queue.shift()!);
+			})
+		);
 	}
 
 	async ensureLibraryContent(): Promise<void> {
@@ -873,10 +901,12 @@ class FilesStore {
 	}
 
 	setActive(id: string): void {
+		const intent = ++this.activationIntent;
 		const pendingFile = this.library.find((file) => file.id === id);
 		if (pendingFile?.contentDeferred) {
 			void this.hydrateContent(id).then((file) => {
-				if (file && this.files.some((entry) => entry.id === id)) this.setActive(id);
+				if (file && intent === this.activationIntent && this.files.some((entry) => entry.id === id))
+					this.setActive(id);
 			});
 			return;
 		}
@@ -896,6 +926,8 @@ class FilesStore {
 	 * open files stay available, and pending edits flush first.
 	 */
 	showHome(): void {
+		// A body read started for the previous tab must not activate it again.
+		this.activationIntent += 1;
 		this.dispatchEditorFlush();
 		this.activeId = null;
 		this.persistActiveId();
