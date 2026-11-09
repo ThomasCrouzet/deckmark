@@ -744,22 +744,65 @@ function dataTransferEntries(dataTransfer: DataTransfer): EntryLike[] {
 	return entries;
 }
 
-async function readEntry(entry: EntryLike, parent: string, output: DroppedFile[]): Promise<void> {
-	if (output.length >= PROJECT_SCALE_LIMITS.maxEntries) throw new Error('Project entry limit');
-	const path = parent ? `${parent}/${entry.name}` : entry.name;
-	if (entry.isFile) {
-		const file = await new Promise<File>((resolve, reject) => entry.file(resolve, reject));
-		output.push({ file, relativePath: path });
-		return;
-	}
-	if (!entry.isDirectory) return;
-	const reader = entry.createReader();
-	while (true) {
-		const entries = await new Promise<EntryLike[]>((resolve, reject) =>
-			reader.readEntries(resolve, reject)
-		);
-		if (!entries.length) break;
-		for (const child of entries) await readEntry(child, path, output);
+const DISCOVERY_TIME_BUDGET_MS = 30_000;
+const DISCOVERY_VISITED_FACTOR = 4;
+const DISCOVERY_DIRECTORY_FACTOR = 2;
+
+/**
+ * Walks the dropped tree with explicit depth, visited-entry, directory and
+ * elapsed-time budgets. The queue grows on the heap, so a deep tree cannot
+ * grow the JavaScript call stack. A branch over the depth limit fails before
+ * its children are read.
+ */
+async function readEntryTree(
+	root: EntryLike,
+	parent: string,
+	output: DroppedFile[]
+): Promise<void> {
+	const maxVisited = PROJECT_SCALE_LIMITS.maxEntries * DISCOVERY_VISITED_FACTOR;
+	const maxDirectories = PROJECT_SCALE_LIMITS.maxEntries * DISCOVERY_DIRECTORY_FACTOR;
+	const maxDepth = PROJECT_SCALE_LIMITS.maxDepth;
+	const started = Date.now();
+	const stack: Array<{ entry: EntryLike; parent: string; depth: number }> = [
+		{ entry: root, parent, depth: 0 }
+	];
+	let visited = 0;
+	let directories = 0;
+	let queued = 1;
+	while (stack.length > 0) {
+		if (Date.now() - started > DISCOVERY_TIME_BUDGET_MS)
+			throw new Error('Project discovery time limit');
+		const current = stack.pop()!;
+		queued -= 1;
+		visited += 1;
+		if (visited > maxVisited) throw new Error('Project discovery entry limit');
+		const path = current.parent ? `${current.parent}/${current.entry.name}` : current.entry.name;
+		if (current.entry.isFile) {
+			if (output.length >= PROJECT_SCALE_LIMITS.maxEntries) throw new Error('Project entry limit');
+			const file = await new Promise<File>((resolve, reject) =>
+				current.entry.file(resolve, reject)
+			);
+			output.push({ file, relativePath: path });
+			continue;
+		}
+		if (!current.entry.isDirectory) continue;
+		if (current.depth >= maxDepth) throw new Error('Project directory depth limit');
+		directories += 1;
+		if (directories > maxDirectories) throw new Error('Project discovery directory limit');
+		const reader = current.entry.createReader();
+		const children: EntryLike[] = [];
+		while (true) {
+			const batch = await new Promise<EntryLike[]>((resolve, reject) =>
+				reader.readEntries(resolve, reject)
+			);
+			if (!batch.length) break;
+			children.push(...batch);
+			queued += batch.length;
+			if (visited + queued > maxVisited) throw new Error('Project discovery entry limit');
+		}
+		for (let index = children.length - 1; index >= 0; index -= 1) {
+			stack.push({ entry: children[index]!, parent: path, depth: current.depth + 1 });
+		}
 	}
 }
 
@@ -768,7 +811,7 @@ export async function readDroppedFiles(dataTransfer: DataTransfer): Promise<Drop
 	const entries = dataTransferEntries(dataTransfer);
 	if (entries.length) {
 		const output: DroppedFile[] = [];
-		for (const entry of entries) await readEntry(entry, '', output);
+		for (const entry of entries) await readEntryTree(entry, '', output);
 		return output;
 	}
 	return Array.from(dataTransfer.files ?? []).map((file) => ({
