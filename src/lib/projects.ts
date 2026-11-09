@@ -388,20 +388,27 @@ async function projectOccupancy(projectId: string): Promise<{
 	assets: number;
 	bytes: number;
 }> {
-	const documentKeys = await db.drafts
-		.where('[projectId+contentBytes]')
-		.between([projectId, -Infinity], [projectId, Infinity])
-		.keys();
+	const manifestKeys = await db.drafts.orderBy('manifest').keys();
+	let documentCount = 0;
+	let documentBytes = 0;
+	for (const raw of manifestKeys) {
+		try {
+			const key = JSON.parse(String(raw)) as unknown[];
+			if (key[3] !== projectId) continue;
+			documentCount += 1;
+			if (typeof key[13] === 'number') documentBytes += key[13];
+		} catch {
+			/* An invalid manifest key is not a project document. */
+		}
+	}
 	const assetKeys = await db.projectAssets
 		.where('[projectId+bytes]')
 		.between([projectId, -Infinity], [projectId, Infinity])
 		.keys();
-	let bytes = 0;
-	for (const key of documentKeys)
-		if (Array.isArray(key) && typeof key[1] === 'number') bytes += key[1];
+	let bytes = documentBytes;
 	for (const key of assetKeys)
 		if (Array.isArray(key) && typeof key[1] === 'number') bytes += key[1];
-	return { documents: documentKeys.length, assets: assetKeys.length, bytes };
+	return { documents: documentCount, assets: assetKeys.length, bytes };
 }
 
 export async function addProjectImage(

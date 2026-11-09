@@ -120,31 +120,10 @@ export function isBackupReminderDue(
  * asset body, so a large image library does not pass through the UI heap.
  */
 async function readProjectAssetTotals(): Promise<{ count: number; bytes: number }> {
-	const idb = db.backendDB();
-	return new Promise((resolve, reject) => {
-		let transaction: IDBTransaction;
-		try {
-			transaction = idb.transaction('projectAssets', 'readonly');
-		} catch (error) {
-			reject(error);
-			return;
-		}
-		const index = transaction.objectStore('projectAssets').index('bytes');
-		const request = index.openKeyCursor();
-		let count = 0;
-		let bytes = 0;
-		request.onerror = () => reject(request.error);
-		request.onsuccess = () => {
-			const cursor = request.result;
-			if (!cursor) return;
-			count += 1;
-			if (typeof cursor.key === 'number') bytes += cursor.key;
-			cursor.continue();
-		};
-		transaction.oncomplete = () => resolve({ count, bytes });
-		transaction.onerror = () => reject(transaction.error);
-		transaction.onabort = () => reject(transaction.error);
-	});
+	const keys = await db.projectAssets.orderBy('bytes').keys();
+	let bytes = 0;
+	for (const key of keys) if (typeof key === 'number') bytes += key;
+	return { count: keys.length, bytes };
 }
 
 export async function getStorageHealth(now = Date.now()): Promise<StorageHealth> {
