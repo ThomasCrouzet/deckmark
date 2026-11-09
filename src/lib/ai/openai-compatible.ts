@@ -99,10 +99,48 @@ function errorDetail(text: string): string {
 	return redactDetail(value);
 }
 
-function endpoint(baseUrl: string, path: string): string {
-	const base = baseUrl.trim().replace(/\/+$/, '');
-	if (!/^https?:\/\//i.test(base)) throw new AiProviderError('invalid-response', 'Invalid URL');
-	return `${base}/${path.replace(/^\/+/, '')}`;
+function isLoopbackHost(hostname: string): boolean {
+	const host = hostname.toLowerCase();
+	return (
+		host === 'localhost' || host === '[::1]' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host)
+	);
+}
+
+/**
+ * Builds a provider endpoint from a parsed URL. The path is appended to the
+ * pathname and the query string is preserved, matching the native adapter.
+ * Fragments and credentials are refused, and remote cleartext HTTP is blocked
+ * because the browser key travels in an authenticated header.
+ */
+export function providerEndpoint(baseUrl: string, path: string): string {
+	let url: URL;
+	try {
+		url = new URL(baseUrl.trim());
+	} catch {
+		throw new AiProviderError('invalid-endpoint', 'The provider base URL is not a valid URL.');
+	}
+	if (url.protocol !== 'https:' && url.protocol !== 'http:')
+		throw new AiProviderError('invalid-endpoint', 'The provider base URL must use HTTP or HTTPS.');
+	if (!url.hostname)
+		throw new AiProviderError('invalid-endpoint', 'The provider base URL has no host.');
+	if (url.username || url.password)
+		throw new AiProviderError(
+			'invalid-endpoint',
+			'The provider base URL must not contain credentials.'
+		);
+	if (url.hash)
+		throw new AiProviderError(
+			'invalid-endpoint',
+			'The provider base URL must not contain a fragment.'
+		);
+	if (url.protocol === 'http:' && !isLoopbackHost(url.hostname))
+		throw new AiProviderError(
+			'invalid-endpoint',
+			'Remote provider endpoints must use HTTPS. HTTP is allowed only for local loopback.'
+		);
+	const basePath = url.pathname.replace(/\/+$/, '');
+	url.pathname = `${basePath}/${path.replace(/^\/+/, '')}`;
+	return url.toString();
 }
 
 function headers(apiKey: string | null): Record<string, string> {
@@ -138,13 +176,14 @@ async function request(
 	if (typeof fetch !== 'function') throw new AiProviderError('network', 'Fetch is unavailable.');
 	let response: Response;
 	try {
-		response = await fetch(endpoint(config.baseUrl, path), {
+		response = await fetch(providerEndpoint(config.baseUrl, path), {
 			method: 'POST',
 			headers: headers(apiKey),
 			body: JSON.stringify(body),
 			...(signal ? { signal } : {})
 		});
 	} catch (error) {
+		if (error instanceof AiProviderError) throw error;
 		if (error instanceof DOMException && error.name === 'AbortError')
 			throw new AiProviderError('cancelled', 'Request cancelled');
 		if (error instanceof TypeError)
@@ -166,11 +205,12 @@ export async function listModels(
 ): Promise<string[]> {
 	let response: Response;
 	try {
-		response = await fetch(endpoint(config.baseUrl, 'models'), {
+		response = await fetch(providerEndpoint(config.baseUrl, 'models'), {
 			headers: headers(apiKey),
 			...(signal ? { signal } : {})
 		});
 	} catch (error) {
+		if (error instanceof AiProviderError) throw error;
 		if (error instanceof DOMException && error.name === 'AbortError')
 			throw new AiProviderError('cancelled', 'Request cancelled');
 		if (error instanceof TypeError)

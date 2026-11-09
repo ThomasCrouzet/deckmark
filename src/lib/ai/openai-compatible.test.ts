@@ -4,6 +4,7 @@ import {
 	MAX_MODELS,
 	MODEL_LIST_MAX_BYTES,
 	listModels,
+	providerEndpoint,
 	streamChat
 } from './openai-compatible';
 import type { AiChatRequest, AiProviderConfig } from './types';
@@ -40,6 +41,81 @@ function encode(text: string): Uint8Array {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('provider endpoints', () => {
+	it('preserves query parameters and appends to the path', () => {
+		expect(providerEndpoint('https://host.example/v1?api-version=1', 'models')).toBe(
+			'https://host.example/v1/models?api-version=1'
+		);
+		expect(providerEndpoint('https://host.example/v1?api-version=1', 'chat/completions')).toBe(
+			'https://host.example/v1/chat/completions?api-version=1'
+		);
+	});
+
+	it('handles trailing slashes, root paths and encoded path segments', () => {
+		expect(providerEndpoint('https://host.example/', 'models')).toBe('https://host.example/models');
+		expect(providerEndpoint('https://host.example/v1///', '/models')).toBe(
+			'https://host.example/v1/models'
+		);
+		expect(providerEndpoint('https://host.example/v1%2Fproxy', 'models')).toBe(
+			'https://host.example/v1%2Fproxy/models'
+		);
+	});
+
+	it('rejects fragments, credentials, malformed hosts and remote cleartext', () => {
+		const codeOf = (input: string) => {
+			try {
+				providerEndpoint(input, 'models');
+			} catch (error) {
+				return (error as { code?: string }).code;
+			}
+			return 'no-error';
+		};
+		expect(codeOf('https://host.example/v1#frag')).toBe('invalid-endpoint');
+		expect(codeOf('https://user:pass@host.example/v1')).toBe('invalid-endpoint');
+		expect(codeOf('not a url')).toBe('invalid-endpoint');
+		expect(codeOf('http://host.example/v1')).toBe('invalid-endpoint');
+		expect(codeOf('ftp://host.example/v1')).toBe('invalid-endpoint');
+	});
+
+	it('allows local HTTP loopback providers', () => {
+		expect(providerEndpoint('http://127.0.0.1:8080/v1', 'models')).toBe(
+			'http://127.0.0.1:8080/v1/models'
+		);
+		expect(providerEndpoint('http://localhost:1234/v1', 'models')).toBe(
+			'http://localhost:1234/v1/models'
+		);
+		expect(providerEndpoint('http://[::1]:8080/v1', 'models')).toBe('http://[::1]:8080/v1/models');
+	});
+
+	it('sends both discovery and chat to the parsed endpoint', async () => {
+		const urls: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) => {
+				urls.push(String(input));
+				const url = String(input);
+				if (url.includes('/models')) return streamResponse([encode('{"data":[]}')]);
+				return streamResponse([encode('data: [DONE]\n\n')]);
+			})
+		);
+		await listModels(config, 'sk-test');
+		await streamChat(config, 'sk-test', request, () => {});
+		expect(urls).toEqual([
+			'https://provider.example/v1/models',
+			'https://provider.example/v1/chat/completions'
+		]);
+	});
+
+	it('reports an invalid endpoint before sending a request', async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+		await expect(
+			streamChat({ ...config, baseUrl: 'https://user:pass@host/v1' }, 'sk-test', request, () => {})
+		).rejects.toMatchObject({ code: 'invalid-endpoint' });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
 
 describe('streamChat bounds', () => {
 	it('rejects one oversized event before scanning it as lines', async () => {
