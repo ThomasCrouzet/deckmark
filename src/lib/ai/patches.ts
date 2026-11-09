@@ -31,6 +31,11 @@ export interface PatchFilePlan {
 		ok: boolean;
 		before: string;
 		after: string;
+		/** 1-based occurrence requested by the provider, if any. */
+		occurrence?: number;
+		/** Verified range in the reviewed source, used for subset application. */
+		sourceStart?: number;
+		sourceEnd?: number;
 		reason?: 'missing' | 'ambiguous';
 	}>;
 }
@@ -110,10 +115,14 @@ function findTarget(files: readonly PatchTarget[], path: string): PatchTarget | 
 	return files.find((file) => (file.relativePath ?? file.name) === path || file.name === path);
 }
 
-function applyHunk(
-	content: string,
-	hunk: AiPatchHunk
-): { ok: true; content: string } | { ok: false; reason: 'missing' | 'ambiguous' } {
+type HunkResolution =
+	{ ok: true; start: number; end: number } | { ok: false; reason: 'missing' | 'ambiguous' };
+
+/**
+ * Resolves a hunk against the reviewed source. Occurrence numbers always refer
+ * to the original source, so one hunk cannot renumber a later hunk.
+ */
+function resolveHunk(content: string, hunk: AiPatchHunk): HunkResolution {
 	if (hunk.before.length === 0) return { ok: false, reason: 'missing' };
 	const wanted = hunk.occurrence;
 	if (wanted !== undefined && (!Number.isInteger(wanted) || wanted < 1))
@@ -139,10 +148,18 @@ function applyHunk(
 		offset = found + Math.max(1, hunk.before.length);
 	}
 	if (position < 0) return { ok: false, reason: 'missing' };
-	return {
-		ok: true,
-		content: content.slice(0, position) + hunk.after + content.slice(position + hunk.before.length)
-	};
+	return { ok: true, start: position, end: position + hunk.before.length };
+}
+
+/** Replaces the selected verified ranges, from the end so offsets stay stable. */
+function applyRanges(
+	content: string,
+	edits: ReadonlyArray<{ start: number; end: number; after: string }>
+): string {
+	let result = content;
+	for (const edit of [...edits].sort((a, b) => b.start - a.start))
+		result = result.slice(0, edit.start) + edit.after + result.slice(edit.end);
+	return result;
 }
 
 /**
@@ -199,9 +216,9 @@ export function planPatch(
 			result.rejected.push({ path, reason: 'invalid-hunks' });
 			continue;
 		}
-		let content = before;
 		let hunkBudget = 0;
 		const hunkPlans: PatchFilePlan['hunks'] = [];
+		const edits: Array<{ start: number; end: number; after: string }> = [];
 		let failed = false;
 		patch.hunks.forEach((hunk, index) => {
 			if (
@@ -220,21 +237,44 @@ export function planPatch(
 				failed = true;
 				return;
 			}
-			const applied = applyHunk(content, hunk);
-			if (!applied.ok) {
+			const resolved = resolveHunk(before, hunk);
+			if (!resolved.ok) {
 				hunkPlans.push({
 					index,
 					ok: false,
 					before: hunk.before,
 					after: hunk.after,
-					reason: applied.reason
+					...(hunk.occurrence !== undefined ? { occurrence: hunk.occurrence } : {}),
+					reason: resolved.reason
 				});
 				failed = true;
 				return;
 			}
-			content = applied.content;
-			hunkPlans.push({ index, ok: true, before: hunk.before, after: hunk.after });
+			// Two hunks that target the same reviewed range cannot both apply.
+			if (edits.some((edit) => resolved.start < edit.end && resolved.end > edit.start)) {
+				hunkPlans.push({
+					index,
+					ok: false,
+					before: hunk.before,
+					after: hunk.after,
+					...(hunk.occurrence !== undefined ? { occurrence: hunk.occurrence } : {}),
+					reason: 'ambiguous'
+				});
+				failed = true;
+				return;
+			}
+			edits.push({ start: resolved.start, end: resolved.end, after: hunk.after });
+			hunkPlans.push({
+				index,
+				ok: true,
+				before: hunk.before,
+				after: hunk.after,
+				...(hunk.occurrence !== undefined ? { occurrence: hunk.occurrence } : {}),
+				sourceStart: resolved.start,
+				sourceEnd: resolved.end
+			});
 		});
+		const content = failed ? before : applyRanges(before, edits);
 		result.files.push({
 			path,
 			fileId: target.id,
@@ -276,22 +316,35 @@ export function applyPatchPlan(
 			changes.push({ id: entry.fileId, content: entry.after });
 			continue;
 		}
-		let content = entry.before;
 		const selected = new Set(indexes);
-		let failed = false;
-		for (const hunk of entry.hunks) {
-			if (!selected.has(hunk.index) || !hunk.ok) continue;
-			const applied = applyHunk(content, { before: hunk.before, after: hunk.after });
-			if (!applied.ok) {
-				failed = true;
-				break;
-			}
-			content = applied.content;
+		const chosen = entry.hunks.filter((hunk) => selected.has(hunk.index) && hunk.ok);
+		if (chosen.length === 0) {
+			changes.push({ id: entry.fileId, content: entry.before });
+			continue;
 		}
-		if (failed) {
+		// A full selection is exactly the reviewed preview, including same-before
+		// hunks and explicit occurrences.
+		if (chosen.length === entry.hunks.length) {
+			changes.push({ id: entry.fileId, content: entry.after });
+			continue;
+		}
+		// A subset uses the verified source ranges captured at review time. This
+		// keeps occurrence numbering stable when an earlier hunk is unselected.
+		const stable = chosen.every(
+			(hunk) => hunk.sourceStart !== undefined && hunk.sourceEnd !== undefined
+		);
+		if (!stable) {
 			rejected.push(entry.path);
 			continue;
 		}
+		const content = applyRanges(
+			entry.before,
+			chosen.map((hunk) => ({
+				start: hunk.sourceStart!,
+				end: hunk.sourceEnd!,
+				after: hunk.after
+			}))
+		);
 		changes.push({ id: entry.fileId, content });
 	}
 	return { changes, rejected };

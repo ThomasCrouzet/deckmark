@@ -124,6 +124,72 @@ describe('patch planning', () => {
 		]);
 	});
 
+	it('preserves an explicit occurrence through selective apply', () => {
+		const target = { ...file, content: 'alpha alpha' };
+		const patch: AiPatchProposal = {
+			files: [
+				{
+					path: 'guide.md',
+					baseHash: contentHash(target.content),
+					hunks: [{ before: 'alpha', after: 'beta', occurrence: 2 }]
+				}
+			]
+		};
+		const plan = planPatch(patch, [target], ['a']);
+		expect(plan.files[0]?.status).toBe('ready');
+		expect(plan.files[0]?.after).toBe('alpha beta');
+		expect(applyPatchPlan(plan, [target], ['guide.md'], { 'guide.md': [0] }).changes).toEqual([
+			{ id: 'a', content: 'alpha beta' }
+		]);
+	});
+
+	it('keeps subset application aligned with the full preview', () => {
+		const target = { ...file, content: 'one two one two' };
+		const patch: AiPatchProposal = {
+			files: [
+				{
+					path: 'guide.md',
+					baseHash: contentHash(target.content),
+					hunks: [
+						{ before: 'one', after: 'ONE', occurrence: 1 },
+						{ before: 'one', after: 'UNO', occurrence: 2 }
+					]
+				}
+			]
+		};
+		const plan = planPatch(patch, [target], ['a']);
+		expect(plan.files[0]?.after).toBe('ONE two UNO two');
+		// Selecting only the second hunk must still hit the second occurrence.
+		expect(applyPatchPlan(plan, [target], ['guide.md'], { 'guide.md': [1] }).changes).toEqual([
+			{ id: 'a', content: 'one two UNO two' }
+		]);
+		// Selecting both must match the preview exactly.
+		expect(applyPatchPlan(plan, [target], ['guide.md'], { 'guide.md': [0, 1] }).changes).toEqual([
+			{ id: 'a', content: 'ONE two UNO two' }
+		]);
+	});
+
+	it('applies a subset of same-before hunks without renumbering later matches', () => {
+		const target = { ...file, content: 'x y x' };
+		const patch: AiPatchProposal = {
+			files: [
+				{
+					path: 'guide.md',
+					baseHash: contentHash(target.content),
+					hunks: [
+						{ before: 'x', after: 'A', occurrence: 1 },
+						{ before: 'x', after: 'B', occurrence: 2 }
+					]
+				}
+			]
+		};
+		const plan = planPatch(patch, [target], ['a']);
+		expect(plan.files[0]?.after).toBe('A y B');
+		expect(applyPatchPlan(plan, [target], ['guide.md'], { 'guide.md': [1] }).changes).toEqual([
+			{ id: 'a', content: 'x y B' }
+		]);
+	});
+
 	it('rejects path traversal and duplicate paths', () => {
 		expect(safePatchPath('../secret')).toBe(false);
 		expect(safePatchPath('/etc/passwd')).toBe(false);
