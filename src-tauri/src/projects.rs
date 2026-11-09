@@ -81,6 +81,23 @@ pub struct ProjectSnapshot {
     entries: Vec<ProjectEntry>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectManifestEntry {
+    kind: &'static str,
+    relative_path: String,
+    mtime_ms: f64,
+    size: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectManifest {
+    root_id: String,
+    token: String,
+    entries: Vec<ProjectManifestEntry>,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum EntryKind {
     Markdown,
@@ -703,6 +720,67 @@ fn collect_snapshot(session: &ProjectSession) -> Result<Vec<ProjectEntry>, Strin
     Ok(entries)
 }
 
+fn collect_manifest(session: &ProjectSession) -> Result<Vec<ProjectManifestEntry>, String> {
+    let root = open_project_root(session)?;
+    let mut paths = Vec::new();
+    collect_relative_paths(&root, Path::new(""), 0, &mut paths)?;
+    paths.sort();
+    let markdown_count = paths
+        .iter()
+        .filter(|path| entry_kind(Path::new(path)).ok() == Some(EntryKind::Markdown))
+        .count();
+    if markdown_count > MAX_MARKDOWN_FILES {
+        return Err(format!(
+            "native project contains more than {MAX_MARKDOWN_FILES} Markdown documents"
+        ));
+    }
+    let mut entries = Vec::with_capacity(paths.len());
+    for relative in paths {
+        let child = open_child_parent(session, &relative, false)?;
+        let kind = entry_kind(&child.absolute)?;
+        let file = open_child_file(&child).map_err(|error| error.to_string())?;
+        let metadata = cap_file_metadata(&file)?;
+        if !metadata.is_file() {
+            return Err("native project entry changed during manifest read".to_string());
+        }
+        let limit = if kind == EntryKind::Markdown {
+            MAX_MARKDOWN_BYTES
+        } else {
+            MAX_ASSET_BYTES
+        };
+        if metadata.len() > limit {
+            return Err("native project entry exceeds its size limit".to_string());
+        }
+        let mtime_ms = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        entries.push(ProjectManifestEntry {
+            kind: if kind == EntryKind::Markdown {
+                "markdown"
+            } else {
+                "asset"
+            },
+            relative_path: relative,
+            mtime_ms,
+            size: metadata.len(),
+        });
+    }
+    validate_root(&session.path, &session.identity)?;
+    Ok(entries)
+}
+
+fn manifest(token: String, session: ProjectSession) -> Result<ProjectManifest, String> {
+    let entries = collect_manifest(&session)?;
+    Ok(ProjectManifest {
+        root_id: session.root_id,
+        token,
+        entries,
+    })
+}
+
 fn snapshot(token: String, session: ProjectSession) -> Result<ProjectSnapshot, String> {
     let name = session
         .path
@@ -1192,6 +1270,17 @@ pub async fn project_refresh(
 ) -> Result<ProjectSnapshot, String> {
     let session = projects.resolve(&token)?;
     tauri::async_runtime::spawn_blocking(move || snapshot(token, session))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn project_manifest(
+    projects: tauri::State<'_, ProjectStore>,
+    token: String,
+) -> Result<ProjectManifest, String> {
+    let session = projects.resolve(&token)?;
+    tauri::async_runtime::spawn_blocking(move || manifest(token, session))
         .await
         .map_err(|error| error.to_string())?
 }

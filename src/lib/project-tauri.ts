@@ -38,6 +38,19 @@ interface RawProjectSnapshot {
 	entries: RawProjectEntry[];
 }
 
+export interface NativeProjectManifestEntry {
+	kind: 'markdown' | 'asset';
+	relativePath: string;
+	mtimeMs: number;
+	size: number;
+}
+
+export interface NativeProjectManifest {
+	rootId: string;
+	token: string;
+	entries: NativeProjectManifestEntry[];
+}
+
 async function invokeProject<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
 	const { invoke } = await import('@tauri-apps/api/core');
 	return invoke<T>(command, args);
@@ -74,6 +87,10 @@ export async function openNativeProject(rootId: string): Promise<NativeProjectSn
 
 export async function refreshNativeProject(token: string): Promise<NativeProjectSnapshot> {
 	return toSnapshot(await invokeProject<RawProjectSnapshot>('project_refresh', { token }));
+}
+
+export async function manifestNativeProject(token: string): Promise<NativeProjectManifest> {
+	return invokeProject<NativeProjectManifest>('project_manifest', { token });
 }
 
 export async function readNativeProjectEntry(
