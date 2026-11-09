@@ -17,14 +17,18 @@
 		deck: PresentationDeck;
 		fileId?: string;
 		hideTextId?: string;
+		priority?: 'active' | 'background';
 	}
 
 	const RENDER_LIMIT = 4;
 	let activeRenders = 0;
 	const waitingRenders: Array<() => void> = [];
 
-	function scheduleRender(task: () => Promise<void>): void {
+	/** Returns a cancel function that releases a task which has not started. */
+	function scheduleRender(task: () => Promise<void>): () => void {
+		let cancelled = false;
 		const run = () => {
+			if (cancelled) return;
 			activeRenders += 1;
 			void task().finally(() => {
 				activeRenders -= 1;
@@ -33,6 +37,11 @@
 		};
 		if (activeRenders < RENDER_LIMIT) run();
 		else waitingRenders.push(run);
+		return () => {
+			cancelled = true;
+			const index = waitingRenders.indexOf(run);
+			if (index >= 0) waitingRenders.splice(index, 1);
+		};
 	}
 
 	interface RenderedElement {
@@ -40,11 +49,12 @@
 		html: string;
 	}
 
-	let { slide, deck, fileId, hideTextId }: Props = $props();
+	let { slide, deck, fileId, hideTextId, priority = 'background' }: Props = $props();
 	let renderedContent = new SvelteMap<string, RenderedElement>();
 	let failedElements = new SvelteSet<string>();
 	let renderFailed = $derived(failedElements.size > 0);
 	const renderTokens = new SvelteMap<string, symbol>();
+	const cancelRuns = new SvelteMap<string, () => void>();
 
 	function contentKey(
 		element: PresentationSlide['elements'][number],
@@ -59,6 +69,7 @@
 		const elements = slide.elements;
 		const activeFileId = fileId;
 		const hiddenId = hideTextId;
+		const controller = new AbortController();
 		const liveIds = new SvelteSet<string>();
 		for (const element of elements) {
 			liveIds.add(element.id);
@@ -68,6 +79,8 @@
 					failedElements.delete(element.id);
 				});
 				renderTokens.delete(element.id);
+				cancelRuns.get(element.id)?.();
+				cancelRuns.delete(element.id);
 				continue;
 			}
 			const key = contentKey(element, activeFileId, hiddenId);
@@ -79,29 +92,42 @@
 				renderedContent.delete(element.id);
 				failedElements.delete(element.id);
 			});
-			scheduleRender(async () => {
-				if (renderTokens.get(element.id) !== token) return;
-				try {
-					const html = await renderPresentationElementContentCached(element, {
-						...(activeFileId ? { fileId: activeFileId } : {}),
-						...(hiddenId ? { hideTextId: hiddenId } : {})
-					});
+			cancelRuns.get(element.id)?.();
+			cancelRuns.set(
+				element.id,
+				scheduleRender(async () => {
 					if (renderTokens.get(element.id) !== token) return;
-					renderedContent.set(element.id, { key, html });
-				} catch (error) {
-					if (renderTokens.get(element.id) !== token) return;
-					failedElements.add(element.id);
-					reportError('presentation slide render', error);
-				}
-			});
+					try {
+						const html = await renderPresentationElementContentCached(element, {
+							...(activeFileId ? { fileId: activeFileId } : {}),
+							...(hiddenId ? { hideTextId: hiddenId } : {}),
+							priority,
+							signal: controller.signal
+						});
+						if (renderTokens.get(element.id) !== token) return;
+						renderedContent.set(element.id, { key, html });
+					} catch (error) {
+						if (controller.signal.aborted || renderTokens.get(element.id) !== token) return;
+						failedElements.add(element.id);
+						reportError('presentation slide render', error);
+					}
+				})
+			);
 		}
 		for (const id of untrack(() => Array.from(renderedContent.keys()))) {
 			if (!liveIds.has(id)) {
 				renderedContent.delete(id);
 				renderTokens.delete(id);
 				failedElements.delete(id);
+				cancelRuns.get(id)?.();
+				cancelRuns.delete(id);
 			}
 		}
+		return () => {
+			controller.abort();
+			for (const cancel of cancelRuns.values()) cancel();
+			cancelRuns.clear();
+		};
 	});
 
 	function contentFor(element: PresentationSlide['elements'][number]): string {

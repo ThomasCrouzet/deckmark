@@ -11,6 +11,8 @@ export interface PresentationRenderOptions {
 	allowRemoteImages?: boolean;
 	hideTextId?: string;
 	signal?: AbortSignal;
+	/** Active slide work goes ahead of offscreen thumbnail work. */
+	priority?: 'active' | 'background';
 }
 
 export interface RenderedPresentation {
@@ -145,7 +147,8 @@ export async function renderPresentationElementContent(
 			...(projectContext ? { projectContext } : {}),
 			showFrontmatter: false,
 			wikiLinks: false,
-			allowRemoteImages: options.allowRemoteImages === true
+			allowRemoteImages: options.allowRemoteImages === true,
+			priority: options.priority ?? 'background'
 		});
 	}
 	if (element.type !== 'image') return '';
@@ -165,10 +168,6 @@ export function renderPresentationElementContentCached(
 	element: PresentationElement,
 	options: PresentationRenderOptions = {}
 ): Promise<string> {
-	if (options.signal || element.content.length > MAX_CACHED_CONTENT_CHARS) {
-		contentCacheOversized++;
-		return renderPresentationElementContent(element, options);
-	}
 	const key = `${element.type}\u0000${element.content}\u0000${element.id === options.hideTextId ? 'hidden' : 'shown'}\u0000${contextKey(options)}`;
 	const existing = contentCache.get(key);
 	if (existing) {
@@ -177,7 +176,13 @@ export function renderPresentationElementContentCached(
 		contentCache.set(key, existing);
 		return Promise.resolve(existing.html);
 	}
-	const active = inFlightContent.get(key);
+	if (element.content.length > MAX_CACHED_CONTENT_CHARS) {
+		contentCacheOversized++;
+		return renderPresentationElementContent(element, options);
+	}
+	// A cancellable render keeps its own promise. Sharing it would let one
+	// thumbnail abort an active-slide render that did not abort.
+	const active = options.signal ? undefined : inFlightContent.get(key);
 	if (active) {
 		contentCacheHits++;
 		return active;

@@ -1214,6 +1214,7 @@
 									slide={editor.slide}
 									deck={editor.deck}
 									{fileId}
+									priority="active"
 									{...textEdit.editingId ? { hideTextId: textEdit.editingId } : {}}
 								/>
 							</div>

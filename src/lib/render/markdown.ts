@@ -30,6 +30,8 @@ export type MermaidTheme = 'default' | 'dark' | 'neutral' | 'forest';
 
 export interface RenderOptions {
 	signal?: AbortSignal;
+	/** Active viewport work goes ahead of offscreen thumbnails and exports. */
+	priority?: 'active' | 'background';
 	/** Reuse only within one mounted document instance. */
 	instanceId?: string;
 	fileId?: string;
@@ -287,7 +289,8 @@ async function renderMarkdownCore(
 			codeLabel: t('read.codeBlock'),
 			codeLanguageLabel: t('read.codeBlockLang', { lang: '{lang}' })
 		},
-		signal
+		signal,
+		opts.priority ?? 'background'
 	);
 	checkAborted(signal);
 	for (const stage of parsed.stages) recordRenderStage(stage, opts.fileId);
