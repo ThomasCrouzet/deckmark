@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from './db';
-import { addProjectImage, createProject } from './projects';
+import { addProjectImage, createProject, createProjectDocument } from './projects';
 
 const PNG_BYTES = Uint8Array.from(
 	atob(
@@ -18,7 +18,44 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
+});
+
+describe('project document creation', () => {
+	it('reads only path metadata and keeps duplicate checks atomic', async () => {
+		const project = await createProject('Notes');
+		const seeded = await db.drafts.where('projectId').equals(project.id).first();
+		await db.drafts.update(seeded!.id, { content: 'large body '.repeat(1000) });
+		await db.projectAssets.add({
+			id: 'asset-1',
+			projectId: project.id,
+			path: 'three.md',
+			mime: 'image/png',
+			data: PNG_BYTES
+		});
+		const draftsWhere = db.drafts.where.bind(db.drafts);
+		const assetsWhere = db.projectAssets.where.bind(db.projectAssets);
+		const draftsSpy = vi.spyOn(db.drafts, 'where').mockImplementation(((index: string) => {
+			if (index === 'projectId') throw new Error('Full project document scan');
+			return draftsWhere(index);
+		}) as typeof db.drafts.where);
+		const assetsSpy = vi.spyOn(db.projectAssets, 'where').mockImplementation(((index: string) => {
+			if (index === 'projectId') throw new Error('Full project asset scan');
+			return assetsWhere(index);
+		}) as typeof db.projectAssets.where);
+
+		const id = await createProjectDocument(project.id, 'two.md');
+		expect(await db.drafts.get(id)).toMatchObject({ relativePath: 'two.md', content: '' });
+		await expect(createProjectDocument(project.id, 'TWO.md')).rejects.toThrow(
+			'Project path already exists'
+		);
+		await expect(createProjectDocument(project.id, 'three.md')).rejects.toThrow(
+			'Project path already exists'
+		);
+		expect(draftsSpy).not.toHaveBeenCalledWith('projectId');
+		expect(assetsSpy).not.toHaveBeenCalledWith('projectId');
+	});
 });
 
 describe('project image assets', () => {
