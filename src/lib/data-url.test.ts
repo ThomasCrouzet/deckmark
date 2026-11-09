@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { dataUrlToBlob } from './data-url';
 
-function readBlob(blob: Blob): Promise<ArrayBuffer> {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = () => resolve(reader.result as ArrayBuffer);
-		reader.onerror = () => reject(reader.error);
-		reader.readAsArrayBuffer(blob);
-	});
+async function readBlob(blob: Blob): Promise<ArrayBuffer> {
+	if (typeof FileReader === 'function') {
+		try {
+			return await new Promise((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(reader.result as ArrayBuffer);
+				reader.onerror = () => reject(reader.error);
+				reader.readAsArrayBuffer(blob);
+			});
+		} catch {
+			/* A cross-realm Blob is not readable by jsdom's FileReader. */
+		}
+	}
+	if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
+	return new Response(blob).arrayBuffer();
 }
 
 describe('data URL decoding', () => {
