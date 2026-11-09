@@ -31,6 +31,7 @@ import {
 	getPathLink,
 	getPathLinkWithEpoch,
 	isFSASupported,
+	listDiskLinks,
 	isSameFileHandle,
 	pickAndOpen,
 	pickSaveTarget,
@@ -228,18 +229,21 @@ async function ingestDesktopOpens(
 	}
 	session.report.processed = initialFailed;
 	session.publish();
+	const epoch = await getDiskLinkEpoch();
+	const files = deps.getFiles?.() ?? [];
+	const filesById = new Map(files.map((file) => [file.id, file]));
+	const pathIndex = new Map<string, string>();
+	for (const link of await listDiskLinks().catch(() => [])) {
+		if (link.kind !== 'path' || !filesById.has(link.id) || pathIndex.has(link.path)) continue;
+		// Several retained owners can share one path. Prefer a live document.
+		pathIndex.set(link.path, link.id);
+	}
 	for (const file of picked) {
 		if (!(await session.pause())) break;
 		let createdItem: FileItem | undefined;
 		try {
-			const epoch = await getDiskLinkEpoch();
-			let existing: FileItem | undefined;
-			for (const candidate of deps.getFiles?.() ?? []) {
-				if ((await getPathLink(candidate.id))?.path === file.path) {
-					existing = candidate;
-					break;
-				}
-			}
+			const existingId = pathIndex.get(file.path);
+			const existing = existingId ? filesById.get(existingId) : undefined;
 			if (existing) {
 				const previous = await getPathLinkWithEpoch(existing.id);
 				const revision =
@@ -256,7 +260,7 @@ async function ingestDesktopOpens(
 				}
 				if (existing.name !== file.name) deps.onSyncName?.(existing.id, file.name);
 				created.push(existing);
-				const token = file.token ?? picked.find((entry) => entry.path === file.path)?.token;
+				const token = file.token;
 				if (token) processedTokens.push(token);
 				session.accept();
 				continue;
@@ -429,16 +433,18 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		reportError('saveToDisk', err);
 		return false;
 	}
+	let linkPersisted = true;
 	try {
 		await saveHandle(id, handle, writtenRevision, epoch);
 		file.linkedToDisk = true;
 	} catch (err) {
+		linkPersisted = false;
 		file.linkedToDisk = hadLink;
 		reportPersistenceError(err, 'save');
 	}
 	file.brokenLink = false;
 	const current = deps.getFile(id);
-	if (current?.content === content) current.dirty = false;
+	if (linkPersisted && current?.content === content) current.dirty = false;
 	if (
 		file.linkedToDisk &&
 		!hadLink &&
@@ -464,6 +470,12 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		file.diskSize = undefined;
 	}
 	deps.scheduleSave(id);
+	if (!linkPersisted) {
+		// The bytes reached the file, but the durable link and anti-overwrite
+		// revision did not. Keep the draft dirty and let the user retry the link.
+		file.dirty = true;
+		return false;
+	}
 	notify.success(t('disk.saved', { name: handle.name || name }));
 	return true;
 }
@@ -576,13 +588,16 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 	} catch (err) {
 		reportPersistenceError(err, 'save');
 	}
-	file.linkedToDisk = persistedPath !== null;
+	const linkPersisted = persistedPath !== null;
+	file.linkedToDisk = linkPersisted;
 	file.brokenLink = false;
 	const current = deps.getFile(id);
-	if (current?.content === content) current.dirty = false;
-	file.diskLastModified = written.lastModified;
-	file.diskSize = written.size;
-	file.diskRevision = written.revision;
+	if (linkPersisted && current?.content === content) current.dirty = false;
+	if (linkPersisted) {
+		file.diskLastModified = written.lastModified;
+		file.diskSize = written.size;
+		file.diskRevision = written.revision;
+	}
 	const linkedName = pathBasename(pathRec.path);
 	if (
 		persistedPath === pathRec.path &&
@@ -593,6 +608,10 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 		deps.onSyncName?.(id, linkedName);
 	}
 	deps.scheduleSave(id);
+	if (!linkPersisted) {
+		file.dirty = true;
+		return false;
+	}
 	notify.success(t('disk.saved', { name: linkedName }));
 	return true;
 }

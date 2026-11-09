@@ -42,11 +42,19 @@ function reconcile(article: HTMLElement, html: string): void {
 		else reusable.set(key, [node]);
 	}
 	let cursor = article.firstChild;
+	let misses = 0;
 	for (const fresh of Array.from(template.content.childNodes)) {
 		const bucket = reusable.get(nodeKey(fresh));
 		// Consume equal candidates in order. Scanning the whole bucket for a
 		// later match turns one changed block into quadratic equality work.
-		const node = bucket?.[0]?.isEqualNode(fresh) ? bucket.shift()! : fresh;
+		const equal = bucket?.[0]?.isEqualNode(fresh) ?? false;
+		if (!equal && ++misses > 32) {
+			// Reordering or identity churn makes node-by-node reuse slower than
+			// one native replacement. Keep a bounded reconciliation cost.
+			article.replaceChildren(template.content);
+			return;
+		}
+		const node = equal ? bucket!.shift()! : fresh;
 		if (node === cursor) cursor = cursor.nextSibling;
 		else article.insertBefore(node, cursor);
 	}

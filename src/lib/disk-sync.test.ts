@@ -12,6 +12,7 @@ vi.mock('./fsa', () => ({
 	getHandle: vi.fn(),
 	getPathLink: vi.fn(),
 	getPathLinkWithEpoch: vi.fn(),
+	listDiskLinks: vi.fn(async () => []),
 	requestPermission: vi.fn(),
 	pickSaveTarget: vi.fn(),
 	revisionForFile: vi.fn(),
@@ -127,6 +128,8 @@ beforeEach(() => {
 	vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:disk');
 	vi.mocked(fsa.revisionForText).mockResolvedValue('sha256:local');
 	vi.mocked(database.getDiskLinkEpoch).mockResolvedValue('epoch');
+	vi.mocked(fsa.saveHandle).mockReset().mockResolvedValue(undefined);
+	vi.mocked(fsa.savePathLink).mockReset().mockResolvedValue(undefined);
 });
 
 describe('openFromDisk', () => {
@@ -691,8 +694,9 @@ describe('saveToDisk desktop capability backend', () => {
 		});
 		vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('IndexedDB'));
 
-		expect(await saveToDisk('a', deps)).toBe(true);
+		expect(await saveToDisk('a', deps)).toBe(false);
 		expect(file.linkedToDisk).toBe(false);
+		expect(file.dirty).toBe(true);
 		expect(file.name).toBe('note.md');
 		expect(onSyncName).not.toHaveBeenCalled();
 		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
@@ -783,6 +787,9 @@ describe('guarded native imports', () => {
 			diskRevision: 'old-revision'
 		});
 		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: opened.path });
+		vi.mocked(fsa.listDiskLinks).mockResolvedValue([
+			{ id: file.id, kind: 'path', path: opened.path, label: 'note.md' }
+		]);
 		const onCreate = vi.fn();
 		const onActivate = vi.fn();
 		const onSyncName = vi.fn((id: string, name: string) => {
@@ -929,6 +936,9 @@ describe('native capability acknowledgment', () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		const existing = makeFile({ id: 'existing', content: 'local' });
 		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/same.md' });
+		vi.mocked(fsa.listDiskLinks).mockResolvedValue([
+			{ id: existing.id, kind: 'path', path: '/tmp/same.md', label: 'same.md' }
+		]);
 		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
 			files: [
 				{

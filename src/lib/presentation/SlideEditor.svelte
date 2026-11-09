@@ -527,7 +527,7 @@
 		if (
 			editor.slide.id === request.slideId &&
 			editor.selected.length === request.selectedIds.length &&
-			request.selectedIds.every((id) => editor.selected.includes(id))
+			request.selectedIds.every((id) => editor.selectedSet.has(id))
 		)
 			editor.remove();
 	}
@@ -1222,7 +1222,7 @@
 									<button
 										type="button"
 										class="slide-object"
-										class:selected={editor.selected.includes(element.id)}
+										class:selected={editor.selectedSet.has(element.id)}
 										data-testid="slide-object"
 										data-object-id={element.id}
 										data-object-type={element.type}
@@ -1230,7 +1230,7 @@
 											type: t(`slides.${element.type}`),
 											n: index + 1
 										})}
-										aria-pressed={editor.selected.includes(element.id)}
+										aria-pressed={editor.selectedSet.has(element.id)}
 										style={presentationElementStyle(element, editor.slide)}
 										onpointerdown={(event) => {
 											if (textEdit.editingId !== element.id) gestures.startObject(event, element);

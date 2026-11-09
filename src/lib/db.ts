@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
 import { encodeDraftManifest } from './draft-manifest-key';
+import { hashSnippetCode } from './snippet-hash';
 
 export interface DraftRow {
 	id: string;
@@ -116,6 +117,8 @@ export interface SnippetRow {
 	favorite: boolean;
 	createdAt: number;
 	updatedAt: number;
+	/** Duplicate-candidate index key. Do not write directly. */
+	codeHash?: string;
 }
 
 export interface SemanticIndexRow {
@@ -253,6 +256,27 @@ class MdshDB extends Dexie {
 					.toCollection()
 					.modify(() => {})
 			);
+
+		// v12: snippet duplicate candidates by code hash.
+		this.version(12)
+			.stores({
+				snippets: 'id, updatedAt, favorite, projectId, folder, language, codeHash'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<SnippetRow>('snippets')
+					.toCollection()
+					.modify((row) => {
+						row.codeHash = hashSnippetCode(row.code);
+					})
+			);
+
+		this.snippets.hook('creating', (_primaryKey, row) => {
+			row.codeHash = hashSnippetCode(row.code);
+		});
+		this.snippets.hook('updating', (modifications, _primaryKey, row) => ({
+			codeHash: hashSnippetCode(({ ...row, ...modifications } as SnippetRow).code)
+		}));
 
 		this.drafts.hook('creating', (_primaryKey, row) => {
 			row.manifest = encodeDraftManifest(row);
