@@ -1002,6 +1002,31 @@ describe('defensive workspace reopen and links', () => {
 	});
 });
 
+// The browser workflow restores deferred tabs, but it cannot separate an
+// inactive body placeholder from an empty document through the UI. This
+// isolated case retains the concrete export failure: the ZIP must not encode
+// the placeholder while the durable row holds the text.
+describe('export open hydration', () => {
+	it('hydrates the deferred open tabs before building the archive', async () => {
+		await db.drafts.bulkPut([draftRow('open', 'open.md', '# Durable body')]);
+		const deferred = {
+			id: 'open',
+			name: 'open.md',
+			content: '',
+			createdAt: 1000,
+			updatedAt: 1000,
+			dirty: false,
+			linkedToDisk: false,
+			contentDeferred: true
+		};
+		filesStore.files = [deferred];
+		filesStore.activeId = 'open';
+		await filesStore.exportOpen();
+		expect(filesStore.files[0]?.content).toBe('# Durable body');
+		expect(filesStore.files[0]?.contentDeferred).toBe(false);
+	});
+});
+
 describe('deferred activation intent', () => {
 	it('does not steal focus when a slower hydration finishes after another tab', async () => {
 		const base = { createdAt: 1, updatedAt: 2, dirty: false, linkedToDisk: false };

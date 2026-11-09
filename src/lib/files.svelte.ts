@@ -1788,7 +1788,25 @@ class FilesStore {
 	}
 	async exportOpen(): Promise<void> {
 		this.dispatchEditorFlush();
-		return exportAllZipOp({ ...this.exportDeps, getFiles: () => this.files });
+		// Capture the open-tab membership before the asynchronous hydration. A
+		// tab closed during the export must not change the archive set.
+		const ids = this.files.map((file) => file.id);
+		if (ids.length === 0) return;
+		try {
+			await this.ensureContent(ids);
+		} catch (error) {
+			reportError('export open hydration', error, { notifyUser: t('export.zipFailed') });
+			return;
+		}
+		const openIds = new Set(ids);
+		const snapshot = this.files.filter((file) => openIds.has(file.id));
+		// A missing or unreadable row leaves the placeholder deferred. Refuse to
+		// build an incomplete archive instead of writing an empty entry.
+		if (snapshot.some((file) => file.contentDeferred)) {
+			notify.error(t('export.zipFailed'));
+			return;
+		}
+		return exportAllZipOp({ ...this.exportDeps, getFiles: () => snapshot });
 	}
 	async exportHTML(id: string): Promise<void> {
 		this.dispatchEditorFlush();
