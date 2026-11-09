@@ -786,6 +786,159 @@ describe('applyBackup - editorial comment identity', () => {
 	});
 });
 
+describe('applyBackup - replace preserves recovery comments', () => {
+	it('rekeys comments to the retained recovery draft instead of the incoming one', async () => {
+		await db.drafts.put(
+			draft({ id: 'a', name: 'a.md', content: 'CURRENT', createdAt: 1, updatedAt: 2 })
+		);
+		await db.comments.put({
+			id: 'review',
+			draftId: 'a',
+			quote: 'CURRENT',
+			from: 0,
+			to: 7,
+			body: 'Keep this note',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: 3,
+			updatedAt: 4
+		});
+		const incoming: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ id: 'a', name: 'a.md', content: 'INCOMING', createdAt: 1, updatedAt: 2 })],
+			workspaces: [],
+			templates: [],
+			comments: []
+		};
+		const counts = await applyBackup(incoming, 'replace');
+		expect((await db.drafts.get('a'))?.content).toBe('INCOMING');
+		const trashed = await db.trashed.get('a');
+		expect(trashed).toBeUndefined();
+		const recovery = (await db.trashed.toArray()).find((row) => row.file.content === 'CURRENT')!;
+		expect(recovery).toBeDefined();
+		expect(recovery.id).not.toBe('a');
+		const comments = await db.comments.toArray();
+		expect(comments).toHaveLength(1);
+		expect(comments[0]).toMatchObject({
+			draftId: recovery.id,
+			quote: 'CURRENT',
+			body: 'Keep this note',
+			author: 'Reviewer'
+		});
+		expect(counts.comments).toBe(1);
+
+		const repeated = await applyBackup(incoming, 'replace');
+		expect(await db.comments.count()).toBe(1);
+		expect(repeated.comments).toBe(1);
+		expect((await db.comments.toArray())[0]).toMatchObject({ draftId: recovery.id });
+	});
+
+	it('remaps recovery comments with the retained project identity', async () => {
+		await db.projects.put({ id: 'p', name: 'Current project', createdAt: 1, updatedAt: 2 });
+		await db.drafts.put(
+			draft({
+				id: 'doc',
+				name: 'doc.md',
+				content: 'CURRENT',
+				projectId: 'p',
+				relativePath: 'doc.md',
+				createdAt: 1,
+				updatedAt: 2
+			})
+		);
+		await db.comments.put({
+			id: 'review',
+			draftId: 'doc',
+			quote: 'CURRENT',
+			from: 0,
+			to: 7,
+			body: 'Project note',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: 3,
+			updatedAt: 4
+		});
+		await applyBackup(
+			{
+				format: BACKUP_FORMAT,
+				schemaVersion: 2,
+				exportedAt: 0,
+				drafts: [
+					draft({
+						id: 'doc',
+						name: 'doc.md',
+						content: 'INCOMING',
+						projectId: 'p',
+						relativePath: 'doc.md',
+						createdAt: 1,
+						updatedAt: 2
+					})
+				],
+				workspaces: [],
+				templates: [],
+				projects: [{ id: 'p', name: 'Incoming project', createdAt: 1, updatedAt: 2 }],
+				projectAssets: [],
+				comments: []
+			},
+			'replace'
+		);
+		const recoveryProject = (await db.projects.toArray()).find((row) => row.id !== 'p')!;
+		expect(recoveryProject).toBeDefined();
+		const recovery = (await db.trashed.toArray()).find((row) => row.file.content === 'CURRENT')!;
+		expect(recovery.file.projectId).toBe(recoveryProject.id);
+		expect((await db.comments.toArray())[0]).toMatchObject({ draftId: recovery.id });
+	});
+
+	it('never attaches a preserved comment to an incoming draft', async () => {
+		await db.drafts.put(
+			draft({ id: 'a', name: 'a.md', content: 'CURRENT', createdAt: 1, updatedAt: 2 })
+		);
+		await db.comments.put({
+			id: 'review',
+			draftId: 'a',
+			quote: 'CURRENT',
+			from: 0,
+			to: 7,
+			body: 'Local review',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: 3,
+			updatedAt: 4
+		});
+		await applyBackup(
+			{
+				format: BACKUP_FORMAT,
+				schemaVersion: 1,
+				exportedAt: 0,
+				drafts: [draft({ id: 'a', name: 'a.md', content: 'INCOMING', createdAt: 1, updatedAt: 2 })],
+				workspaces: [],
+				templates: [],
+				comments: [
+					{
+						id: 'incoming-review',
+						draftId: 'a',
+						quote: 'INCOMING',
+						from: 0,
+						to: 8,
+						body: 'Backup review',
+						author: 'Backup author',
+						status: 'open',
+						createdAt: 5,
+						updatedAt: 6
+					}
+				]
+			},
+			'replace'
+		);
+		const comments = await db.comments.toArray();
+		expect(comments).toHaveLength(2);
+		expect(comments.find((row) => row.body === 'Backup review')).toMatchObject({ draftId: 'a' });
+		expect(comments.find((row) => row.body === 'Local review')?.draftId).not.toBe('a');
+	});
+});
+
 describe('restoreFromText - plain text', () => {
 	it('rejects an encrypted envelope with an incorrect passphrase', async () => {
 		const clearJson = serializeBackup({

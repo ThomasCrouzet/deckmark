@@ -674,6 +674,21 @@ function sameDraftSource(left: DraftRow, right: DraftRow): boolean {
 	);
 }
 
+/** Exact editorial-comment identity, including the mapped draft and anchor. */
+function commentIdentity(row: CommentRow): string {
+	return JSON.stringify([
+		row.draftId,
+		row.quote,
+		row.from,
+		row.to,
+		row.body,
+		row.author,
+		row.status,
+		row.createdAt,
+		row.updatedAt
+	]);
+}
+
 function sameProjectContent(
 	incomingProjectId: string,
 	existingProjectId: string,
@@ -839,10 +854,11 @@ export async function applyBackup(
 			if (mode === 'replace') {
 				// Keep a durable recovery point, including writes from other tabs that
 				// committed immediately before this transaction acquired the database.
-				const [currentDrafts, currentProjects, currentAssets] = await Promise.all([
+				const [currentDrafts, currentProjects, currentAssets, currentComments] = await Promise.all([
 					db.drafts.toArray(),
 					db.projects.toArray(),
-					db.projectAssets.toArray()
+					db.projectAssets.toArray(),
+					db.comments.toArray()
 				]);
 				const incomingProjects = new Map(projects.map((project) => [project.id, project]));
 				const incomingDrafts = new Map(backup.drafts.map((draft) => [draft.id, draft]));
@@ -865,6 +881,7 @@ export async function applyBackup(
 						})
 						.map((project) => project.id)
 				);
+				const trashIdMap = new Map<string, string>();
 				for (const current of currentDrafts) {
 					const incoming = incomingDrafts.get(current.id);
 					if (
@@ -877,9 +894,18 @@ export async function applyBackup(
 					)
 						continue;
 					await preserveTrashEntry(current.id);
+					// Editorial comments are stored by draft id. When an incoming
+					// draft reuses this id, give the recovery copy its own id so
+					// the saved comments never attach to the incoming content.
+					let trashId = current.id;
+					if (incoming && currentComments.some((row) => row.draftId === current.id)) {
+						do trashId = newId();
+						while (incomingDrafts.has(trashId));
+						trashIdMap.set(current.id, trashId);
+					}
 					await db.trashed.put({
-						id: current.id,
-						file: current,
+						id: trashId,
+						file: trashId === current.id ? current : { ...current, id: trashId },
 						order: current.order,
 						trashedAt: Date.now()
 					});
@@ -913,6 +939,7 @@ export async function applyBackup(
 						recoveryAssets.push({ ...asset, id: assetId, projectId: mappedId });
 					}
 				}
+				const retainedOriginalIds = new Set(retained.map((row) => row.id));
 				for (let index = 0; index < retained.length; index++) {
 					const row = retained[index]!;
 					// Keep standalone trash references until restoration resolves the collision.
@@ -932,6 +959,26 @@ export async function applyBackup(
 						}
 					}))
 				);
+				// Re-attach existing review comments to the retained recovery
+				// identity instead of discarding them with the replaced drafts.
+				const currentDraftIds = new Set(currentDrafts.map((row) => row.id));
+				const recoveryCommentDraftId = (id: string) =>
+					draftIdMap.get(id) ?? trashIdMap.get(id) ?? id;
+				const incomingComments = backup.comments ?? [];
+				const commentIds = new Set(incomingComments.map((row) => row.id));
+				const commentKeys = new Set(incomingComments.map(commentIdentity));
+				const recoveryComments: CommentRow[] = [];
+				for (const comment of currentComments) {
+					if (!currentDraftIds.has(comment.draftId) && !retainedOriginalIds.has(comment.draftId))
+						continue;
+					const mapped = { ...comment, draftId: recoveryCommentDraftId(comment.draftId) };
+					const key = commentIdentity(mapped);
+					if (commentKeys.has(key)) continue;
+					commentKeys.add(key);
+					const id = commentIds.has(mapped.id) ? newId() : mapped.id;
+					commentIds.add(id);
+					recoveryComments.push({ ...mapped, id });
+				}
 				await Promise.all([
 					db.drafts.clear(),
 					db.workspaces.clear(),
@@ -950,7 +997,7 @@ export async function applyBackup(
 					db.snippets.bulkPut(snippets),
 					db.projects.bulkPut([...projects, ...recoveryProjects]),
 					db.projectAssets.bulkPut([...projectAssets, ...recoveryAssets]),
-					db.comments.bulkPut(backup.comments ?? [])
+					db.comments.bulkPut([...incomingComments, ...recoveryComments])
 				]);
 				counts.drafts = backup.drafts.length;
 				counts.workspaces = backup.workspaces.length;
@@ -958,7 +1005,7 @@ export async function applyBackup(
 				counts.snippets = snippets.length;
 				counts.projects = projects.length;
 				counts.projectAssets = projectAssets.length;
-				counts.comments = backup.comments?.length ?? 0;
+				counts.comments = incomingComments.length + recoveryComments.length;
 				if (backup.snippets !== undefined) counts.unchanged.snippets = 0;
 				return;
 			}
@@ -1046,18 +1093,6 @@ export async function applyBackup(
 			});
 			const existingComments = await db.comments.toArray();
 			const commentIds = new Set(existingComments.map((row) => row.id));
-			const commentIdentity = (row: CommentRow) =>
-				JSON.stringify([
-					row.draftId,
-					row.quote,
-					row.from,
-					row.to,
-					row.body,
-					row.author,
-					row.status,
-					row.createdAt,
-					row.updatedAt
-				]);
 			const admittedComments = new Set(existingComments.map(commentIdentity));
 			const commentsToPut = (backup.comments ?? []).flatMap((comment) => {
 				const mappedDraftId =

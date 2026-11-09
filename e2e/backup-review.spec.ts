@@ -592,6 +592,57 @@ test('merge keeps comments that collide on id but anchor another document', asyn
 	expect(await commentRows(page)).toHaveLength(2);
 });
 
+test('replace keeps review comments with the recovery copy of the document', async ({
+	page
+}, info) => {
+	const first = emptyBackup();
+	first.drafts = [
+		{
+			id: 'doc-a',
+			name: 'a.md',
+			content: 'CURRENT',
+			createdAt: stamp,
+			updatedAt: stamp,
+			order: 0,
+			open: true
+		}
+	];
+	first.comments = [
+		{
+			id: 'review',
+			draftId: 'doc-a',
+			quote: 'CURRENT',
+			from: 0,
+			to: 7,
+			body: 'Recover this note',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: 1,
+			updatedAt: 2
+		}
+	];
+	await restore(page, Buffer.from(JSON.stringify(first)), 'Fusionner');
+	const stored = (await inventory(page)).drafts[0]!;
+	const incoming = emptyBackup();
+	incoming.drafts = [{ ...stored, content: 'INCOMING' }];
+	await attach(info, 'recovery-comment-incoming.json', incoming);
+	await restore(page, Buffer.from(JSON.stringify(incoming)), 'Remplacer');
+	const state = await inventory(page);
+	const comments = await commentRows(page);
+	await attach(info, 'recovery-comment-state.json', { state, comments });
+	const recovery = state.trashed.find((row) => row.file.content === 'CURRENT')!;
+	expect(recovery).toBeDefined();
+	expect(state.drafts.find((row) => row.id === stored.id)?.content).toBe('INCOMING');
+	expect(comments).toHaveLength(1);
+	expect(comments[0]).toMatchObject({
+		draftId: recovery.id,
+		quote: 'CURRENT',
+		body: 'Recover this note',
+		author: 'Reviewer'
+	});
+	expect(comments[0]!.draftId).not.toBe(stored.id);
+});
+
 test('a failed recovery asset write rolls back the complete replacement', async ({
 	page
 }, info) => {
