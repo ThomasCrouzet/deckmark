@@ -125,6 +125,64 @@ async function configureCustomAi(
 	});
 }
 
+async function configureSequenceAi(
+	page: Page,
+	sequence: Array<(content: string) => MockHunk[]>
+): Promise<void> {
+	await page.addInitScript(() => {
+		localStorage.setItem(
+			'mdsh:ai',
+			JSON.stringify({
+				enabled: true,
+				privacyMode: 'direct',
+				allowBrowserKey: true,
+				baseUrl: 'https://mock.local/v1',
+				model: 'mock-model',
+				temperature: 0.2,
+				maxTokens: 24000
+			})
+		);
+		sessionStorage.setItem('mdsh:ai-key', 'sk-session');
+	});
+	let index = 0;
+	await page.route('https://mock.local/v1/**', async (route) => {
+		if (route.request().method() === 'OPTIONS') {
+			await route.fulfill({
+				status: 204,
+				headers: {
+					'access-control-allow-origin': '*',
+					'access-control-allow-methods': 'POST, OPTIONS',
+					'access-control-allow-headers': '*'
+				}
+			});
+			return;
+		}
+		const body = route.request().postDataJSON() as { messages: Array<{ content: string }> };
+		const prompt = body.messages.at(-1)?.content ?? '';
+		const file = /<file path="([^"]+)" hash="([^"]+)">\n([\s\S]*?)\n<\/file>/.exec(prompt);
+		if (!file) {
+			await route.fulfill({
+				status: 200,
+				headers: { 'access-control-allow-origin': '*', 'content-type': 'text/event-stream' },
+				body: 'data: {"choices":[{"delta":{"content":"No file context."}}]}\n\ndata: [DONE]\n\n'
+			});
+			return;
+		}
+		const [, path, hash, content] = file;
+		const buildHunks = sequence[Math.min(index, sequence.length - 1)]!;
+		index += 1;
+		const patch = { files: [{ path, baseHash: hash, hunks: buildHunks(content) }] };
+		const chunk = JSON.stringify({
+			choices: [{ delta: { content: '```json\n' + JSON.stringify(patch) + '\n```' } }]
+		});
+		await route.fulfill({
+			status: 200,
+			headers: { 'access-control-allow-origin': '*', 'content-type': 'text/event-stream' },
+			body: `data: ${chunk}\n\ndata: [DONE]\n\n`
+		});
+	});
+}
+
 async function importProject(
 	page: Page,
 	name: string,
@@ -266,6 +324,42 @@ test('rejects a concurrent source edit before applying', async ({ page }, info: 
 	expect(await page.locator('.cm-content').innerText()).not.toContain('alpha beta');
 	await info.attach('ai-patch-concurrent.json', {
 		body: JSON.stringify({ concurrentEditBlocked: true, sourceKept: 'alpha alpha changed' }),
+		contentType: 'application/json'
+	});
+});
+
+test('resets hunk approvals when a new proposal reuses the same path and status', async ({
+	page
+}, info: TestInfo) => {
+	await configureSequenceAi(page, [
+		() => [
+			{ before: 'alpha', after: 'A1' },
+			{ before: 'beta', after: 'B1' }
+		],
+		() => [
+			{ before: 'alpha', after: 'A2' },
+			{ before: 'gamma', after: 'G2' }
+		]
+	]);
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, '# Guide\n\nalpha beta gamma');
+	await openAiPanel(page);
+	await page.getByTestId('ai-action-patch').click();
+	await expect(page.getByTestId('ai-patch-review')).toContainText('A1');
+	// Uncheck the first hunk of proposal A.
+	await page.getByTestId('ai-patch-review').locator('.patch-hunks input').first().uncheck();
+	// A second response has the same path and status but different hunks.
+	await page.getByTestId('ai-action-patch').click();
+	await expect(page.getByTestId('ai-patch-review')).toContainText('A2');
+	await expect(page.getByTestId('ai-patch-review').locator('.patch-hunks input')).toHaveCount(2);
+	for (const box of await page.getByTestId('ai-patch-review').locator('.patch-hunks input').all())
+		await expect(box).toBeChecked();
+	await page.getByTestId('ai-patch-apply').click();
+	await expect.poll(() => page.locator('.cm-content').innerText()).toContain('A2 beta G2');
+	expect(await page.locator('.cm-content').innerText()).not.toContain('A1');
+	await info.attach('ai-patch-reset.json', {
+		body: JSON.stringify({ proposalA: [0, 1], proposalB: [0, 1], applied: 'A2 beta G2' }),
 		contentType: 'application/json'
 	});
 });

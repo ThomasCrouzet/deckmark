@@ -52,6 +52,7 @@
 	let approvedPaths = $state<string[]>([]);
 	let selectedHunks = $state<Record<string, number[]>>({});
 	let planKey = $state('');
+	let requestGeneration = $state(0);
 	let appliedMessage = $state('');
 	let appliedBefore = $state<Array<{ id: string; content: string }>>([]);
 	let appliedAfter = $state<Array<{ id: string; content: string }>>([]);
@@ -97,8 +98,26 @@
 		proposal ? planPatch(proposal, filesStore.library, lastAllowedIds) : null
 	);
 
+	/**
+	 * Identity of the exact reviewed proposal. It covers the hunks, the source
+	 * revision and the request that produced them, not only paths and statuses.
+	 */
+	function proposalIdentity(plan: PatchPlan): string {
+		const files = plan.files.map((file) => {
+			const hunks = file.hunks
+				.map(
+					(hunk) =>
+						`${hunk.index}:${hunk.ok ? 1 : 0}:${hunk.occurrence ?? ''}:${hunk.sourceStart ?? ''}:${hunk.sourceEnd ?? ''}:${contentHash(hunk.before)}:${contentHash(hunk.after)}`
+				)
+				.join(',');
+			return `${file.path}|${file.canonicalPath}|${file.fileId ?? ''}|${file.status}|${contentHash(file.before)}|${contentHash(file.after)}|${hunks}`;
+		});
+		const rejected = plan.rejected.map((entry) => `${entry.path}:${entry.reason}`).join(',');
+		return `${files.join('||')}||${rejected}`;
+	}
+
 	$effect(() => {
-		const key = patchPlan?.files.map((file) => `${file.path}:${file.status}`).join('|') ?? '';
+		const key = patchPlan ? `${requestGeneration}:${proposalIdentity(patchPlan)}` : '';
 		if (!key || key === planKey) return;
 		planKey = key;
 		approvedPaths =
@@ -234,6 +253,15 @@
 		output = '';
 		patchError = '';
 		appliedMessage = '';
+		// A new request owns a new approval generation. No selection or patch
+		// permission from the previous response survives into this one.
+		requestGeneration += 1;
+		planKey = '';
+		approvedPaths = [];
+		selectedHunks = {};
+		lastAllowedIds = [];
+		appliedBefore = [];
+		appliedAfter = [];
 		streaming = true;
 		lastPrompt = text;
 		controller = new AbortController();
