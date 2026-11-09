@@ -394,7 +394,10 @@
 				mermaidTheme,
 				priority: 'active',
 				headingPermalinks: true,
-				allowRemoteImages: false
+				allowRemoteImages: false,
+				onPartialHtml: (partial) => {
+					if (isCurrent()) html = partial;
+				}
 			});
 			if (!isCurrent()) return;
 			html = out;
