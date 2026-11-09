@@ -57,6 +57,8 @@ export const snippetsFr: Record<keyof typeof snippetsEn, string> = {
 	'snippets.import': 'Importer des extraits...',
 	'snippets.exported': 'Extraits exportés.',
 	'snippets.imported': '{n} extrait(s) importé(s).',
+	'snippets.importReport':
+		'{added} nouveau(x), {preserved} en conflit conservé(s), {unchanged} inchangé(s).',
 	'snippets.importFailed': "Impossible d'importer les extraits.",
 	'snippets.invalidExport': "Ce fichier n'est pas un export d'extraits valide.",
 	'snippets.exportTooLarge': "L'export d'extraits dépasse la limite de taille.",

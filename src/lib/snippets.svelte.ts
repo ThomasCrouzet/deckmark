@@ -16,6 +16,29 @@ import {
 	type SnippetCapture
 } from './snippets';
 
+export interface SnippetImportReport {
+	added: number;
+	preserved: number;
+	unchanged: number;
+	replaced: number;
+}
+
+function sameSnippetIdentity(left: SnippetRow, right: SnippetRow): boolean {
+	return (
+		left.id === right.id &&
+		left.title === right.title &&
+		left.code === right.code &&
+		left.language === right.language &&
+		left.tags.length === right.tags.length &&
+		left.tags.every((tag, index) => tag === right.tags[index]) &&
+		left.folder === right.folder &&
+		left.projectId === right.projectId &&
+		left.favorite === right.favorite &&
+		left.createdAt === right.createdAt &&
+		left.updatedAt === right.updatedAt
+	);
+}
+
 async function readSnippetManifests(): Promise<SnippetManifest[] | null> {
 	try {
 		const expected = await db.snippets.count();
@@ -259,23 +282,58 @@ class SnippetsStore {
 		return true;
 	}
 
-	/** Replaces rows with the same identifier and adds all other rows. */
-	async importRows(rows: readonly SnippetRow[]): Promise<number> {
-		if (rows.length === 0) return 0;
+	/**
+	 * Merges an import without replacing a divergent local snippet. An exact
+	 * match is idempotent. A conflict keeps the local row and stores the
+	 * imported variant under a new identifier, so both remain searchable.
+	 */
+	async importRows(rows: readonly SnippetRow[]): Promise<SnippetImportReport> {
+		const report: SnippetImportReport = { added: 0, preserved: 0, unchanged: 0, replaced: 0 };
+		if (rows.length === 0) return report;
 		const normalized = rows.map(normalizeSnippetRow);
+		const written: SnippetRow[] = [];
 		try {
 			await db.transaction('rw', db.snippets, async () => {
-				await db.snippets.bulkPut(normalized);
+				// Compare at commit time so a cross-tab save between the file read
+				// and this transaction cannot be overwritten.
+				const existingRows = await db.snippets.bulkGet(normalized.map((row) => row.id));
+				const existing = new Map(
+					existingRows
+						.filter((row): row is SnippetRow => row !== undefined)
+						.map((row) => [row.id, row])
+				);
+				const toWrite: SnippetRow[] = [];
+				for (const row of normalized) {
+					const current = existing.get(row.id);
+					if (!current) {
+						toWrite.push(row);
+						report.added += 1;
+						continue;
+					}
+					if (sameSnippetIdentity(current, row)) {
+						report.unchanged += 1;
+						continue;
+					}
+					// Safe merge: never replace the local row with the older or
+					// unrelated imported variant.
+					const variant = { ...row, id: newId() };
+					toWrite.push(variant);
+					report.preserved += 1;
+				}
+				if (toWrite.length > 0) await db.snippets.bulkPut(toWrite);
+				written.push(...toWrite);
 			});
 		} catch (error) {
 			reportPersistenceError(error, 'save');
 			throw error;
 		}
-		const incoming = new Set(normalized.map((row) => row.id));
-		this.rows = [...normalized, ...this.rows.filter((row) => !incoming.has(row.id))].toSorted(
-			(left, right) => right.updatedAt - left.updatedAt
-		);
-		return normalized.length;
+		if (written.length > 0) {
+			const incoming = new Set(written.map((row) => row.id));
+			this.rows = [...written, ...this.rows.filter((row) => !incoming.has(row.id))].toSorted(
+				(left, right) => right.updatedAt - left.updatedAt
+			);
+		}
+		return report;
 	}
 
 	async exportJson(now = Date.now()): Promise<string> {
