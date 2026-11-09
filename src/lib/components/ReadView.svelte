@@ -342,6 +342,12 @@
 	let err = $state<string | null>(null);
 	let hasBlockedRemoteImages = $state(false);
 	let mediaBusy = $state(false);
+	let mediaAbort: AbortController | null = null;
+	$effect(() => {
+		void fileId;
+		mediaAbort?.abort();
+		mediaAbort = null;
+	});
 	let retryVersion = $state(0);
 	let renderSeq = 0;
 
@@ -420,9 +426,16 @@
 		const snapshot = content;
 		const id = fileId;
 		mediaBusy = true;
+		mediaAbort?.abort();
+		const controller = new AbortController();
+		mediaAbort = controller;
 		try {
 			const { incorporateDocumentImages } = await import('../render/document-media');
-			const result = await incorporateDocumentImages(snapshot, options);
+			const result = await incorporateDocumentImages(snapshot, {
+				...options,
+				signal: controller.signal
+			});
+			if (controller.signal.aborted) return;
 			const current = filesStore.files.find((file) => file.id === id);
 			if (!current || current.content !== snapshot) {
 				notify.error(t('read.imageContentChanged'));
@@ -448,6 +461,7 @@
 				notifyUser: t('imageDrop.unreadable', { n: 1 })
 			});
 		} finally {
+			if (mediaAbort === controller) mediaAbort = null;
 			mediaBusy = false;
 		}
 	}
@@ -481,6 +495,7 @@
 
 	onDestroy(() => {
 		renderController?.abort();
+		mediaAbort?.abort();
 		renderSeq++;
 		if (positionFileId) saveReadPosition(positionFileId);
 	});

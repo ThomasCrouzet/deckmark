@@ -7,6 +7,7 @@ import {
 } from './image-media';
 import { projectDestinations } from '../project-links';
 import { MAX_IMAGE_BYTES } from '../config';
+import { checkAborted } from '../abort';
 
 export interface MarkdownImageDestination {
 	start: number;
@@ -114,13 +115,14 @@ function matchingFile(source: string, files: readonly File[]): File | null {
 
 export async function incorporateDocumentImages(
 	markdown: string,
-	opts: { files?: readonly File[]; allowNetwork?: boolean }
+	opts: { files?: readonly File[]; allowNetwork?: boolean; signal?: AbortSignal }
 ): Promise<{ markdown: string; embedded: number; issues: MediaIssue[] }> {
 	const replacements = new Map<string, string>();
 	const issues: MediaIssue[] = [];
 	let totalBytes = 0;
 	const destinations = markdownImageDestinations(markdown);
 	for (const { source } of destinations) {
+		checkAborted(opts.signal);
 		const isBlob = /^blob:/i.test(source.trim());
 		if (isLocalImageSource(source) && !isBlob) continue;
 		if (replacements.has(source)) continue;
