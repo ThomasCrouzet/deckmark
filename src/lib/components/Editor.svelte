@@ -1019,6 +1019,9 @@
 		fullImageScan();
 		mountedFileId = idForMount;
 		await restoreEditorPosition(instance, idForMount, token);
+		// Re-enable editing before the caret request. A read-only ProseMirror
+		// element cannot take focus, so the new note would lose its caret.
+		instance.setReadonly(readonly);
 		// A new note waits for the lazy editor before it can take the caret.
 		// The request survives the modal close and the asynchronous mount.
 		const focusedControl = document.activeElement;
@@ -1065,7 +1068,6 @@
 			applyImageAlternatives();
 		};
 		if (content !== initial && fileId === idForMount) await updateExternalContent(content);
-		instance.setReadonly(readonly);
 	}
 
 	async function unmount() {
