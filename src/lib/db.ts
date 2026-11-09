@@ -35,6 +35,8 @@ export interface TrashedRow {
 	file: DraftRow;
 	order: number;
 	trashedAt: number;
+	/** Metadata-only startup projection. Do not write directly. */
+	summary?: string;
 }
 
 /**
@@ -271,12 +273,10 @@ class MdshDB extends Dexie {
 					})
 			);
 
-		this.snippets.hook('creating', (_primaryKey, row) => {
-			row.codeHash = hashSnippetCode(row.code);
+		// v13: metadata-only trash startup and bounded expired-entry checks.
+		this.version(13).stores({
+			trashed: 'id, trashedAt, summary'
 		});
-		this.snippets.hook('updating', (modifications, _primaryKey, row) => ({
-			codeHash: hashSnippetCode(({ ...row, ...modifications } as SnippetRow).code)
-		}));
 
 		this.drafts.hook('creating', (_primaryKey, row) => {
 			row.manifest = encodeDraftManifest(row);

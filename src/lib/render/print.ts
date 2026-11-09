@@ -55,8 +55,11 @@ export async function waitForPrintImages(
 ): Promise<void> {
 	if (opts.signal?.aborted) throw abortError();
 	const failed: string[] = [];
-	await Promise.all(
-		Array.from(doc.querySelectorAll<HTMLImageElement>('img')).map(async (image) => {
+	const images = Array.from(doc.querySelectorAll<HTMLImageElement>('img'));
+	let next = 0;
+	const worker = async () => {
+		while (next < images.length) {
+			const image = images[next++]!;
 			const source = image.getAttribute('src') ?? image.getAttribute('data-mdsh-remote-src') ?? '';
 			try {
 				if (!source) throw new Error('Image source is missing');
@@ -79,8 +82,11 @@ export async function waitForPrintImages(
 				if (opts.signal?.aborted) throw error;
 				failed.push(source || image.alt);
 			}
-		})
-	);
+		}
+	};
+	// Bound decoded-image fan-out. A multi-megabyte document can reference
+	// hundreds of images; decoding all at once retains every bitmap.
+	await Promise.all(Array.from({ length: Math.min(6, images.length) }, () => worker()));
 	if (failed.length > 0) throw new PrintImageError(failed);
 }
 

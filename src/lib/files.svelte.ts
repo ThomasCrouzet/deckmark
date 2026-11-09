@@ -1161,11 +1161,12 @@ class FilesStore {
 		if (!browser || rows.length === 0) return;
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient local set, never exposed to rendering
 		const existing = new Set(this.files.map((f) => f.id));
+		const closedById = new Map(this.closedFiles.map((file) => [file.id, file]));
 		const addedIds: string[] = [];
+		const openedRows: DraftRow[] = [];
 		for (const r of rows) {
 			if (!r || existing.has(r.id)) continue;
-			const closedIndex = this.closedFiles.findIndex((file) => file.id === r.id);
-			const closed = closedIndex >= 0 ? this.closedFiles[closedIndex]! : null;
+			const closed = closedById.get(r.id) ?? null;
 			const item = closed ?? {
 				id: r.id,
 				name: r.name,
@@ -1191,14 +1192,15 @@ class FilesStore {
 					closed.updatedAt = r.updatedAt;
 					closed.contentDeferred = false;
 				}
-				this.closedFiles.splice(closedIndex, 1);
 			}
 			this.files.push(item);
 			existing.add(r.id);
-			this.saveQueue.persist(this.capturedDraftRow(item, this.files.length - 1, true));
+			openedRows.push(r);
 			addedIds.push(r.id);
 		}
 		if (addedIds.length === 0) return;
+		this.closedFiles = this.closedFiles.filter((file) => !existing.has(file.id));
+		void this.persistOpenedRows(openedRows);
 		this.metaIndex.invalidateBacklinksIndex();
 		// Background: restore linkedToDisk flags for re-opened workspace tabs.
 		if (isFSASupported() || isDesktop()) {
@@ -1217,6 +1219,18 @@ class FilesStore {
 					if (any) void this.refreshBrokenLinks();
 				})
 				.catch((error: unknown) => reportPersistenceError(error, 'load'));
+		}
+	}
+
+	private async persistOpenedRows(rows: DraftRow[]): Promise<void> {
+		if (rows.length === 0) return;
+		try {
+			await db.transaction('rw', db.drafts, async () => {
+				await db.drafts.bulkPut(rows.map((row) => ({ ...row, open: true })));
+			});
+			for (const row of rows) this.saveQueue.trackPersisted({ ...row, open: true });
+		} catch (error) {
+			reportPersistenceError(error, 'save');
 		}
 	}
 
@@ -1239,6 +1253,10 @@ class FilesStore {
 		if (this.trashBusy) return null;
 		const idx = this.trash.findIndex((t) => t.file.id === id);
 		if (idx === -1) return null;
+		if (this.trash[idx]!.file.contentDeferred) {
+			void this.restoreDeferred(id);
+			return null;
+		}
 		// invariant: splice on a valid index returns exactly 1 element.
 		const entry = this.trash.splice(idx, 1)[0]!;
 		const collision = [...this.files, ...this.closedFiles].some((file) => file.id === id);
@@ -1308,6 +1326,27 @@ class FilesStore {
 			if (this.pendingRestores.get(id) === restorePromise) this.pendingRestores.delete(id);
 		});
 		return restored;
+	}
+
+	private async restoreDeferred(id: string): Promise<void> {
+		if (this.trashBusy) return;
+		const row = await db.trashed.get(id);
+		const entry = this.trash.find((item) => item.file.id === id);
+		if (!row || !entry) return;
+		Object.assign(entry.file, {
+			name: row.file.name,
+			content: row.file.content,
+			...(row.file.projectId
+				? { projectId: row.file.projectId, relativePath: row.file.relativePath }
+				: {}),
+			...(row.file.kind ? { kind: row.file.kind } : {}),
+			...(row.file.mime ? { mime: row.file.mime } : {}),
+			...(row.file.data ? { data: row.file.data } : {}),
+			createdAt: row.file.createdAt,
+			updatedAt: row.file.updatedAt,
+			contentDeferred: false
+		});
+		this.restore(id);
 	}
 
 	/**

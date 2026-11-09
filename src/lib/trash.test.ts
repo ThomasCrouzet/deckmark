@@ -10,6 +10,7 @@ import {
 	persistReorder
 } from './trash';
 import { recordVersion } from './version-history';
+import { installTrashSummaryHooks } from './trash-summary-hooks';
 
 // Use a fixed epoch timestamp to make undo calculations deterministic.
 const T0 = 1_000_000_000_000;
@@ -32,6 +33,7 @@ function trashedRow(id: string, trashedAt: number, order = 0): TrashedRow {
 }
 
 beforeEach(async () => {
+	installTrashSummaryHooks();
 	await db.drafts.clear();
 	await db.trashed.clear();
 	await db.versions.clear();
@@ -66,6 +68,18 @@ describe('loadTrashRows', () => {
 		expect(results[0]!.remainingMs).toBe(TIMERS.trashRetentionMs - 1000); // 4000
 		expect(await db.trashed.get('old')).toBeUndefined();
 		expect(await db.trashed.get('fresh')).toBeTruthy();
+	});
+});
+
+describe('large trash loading', () => {
+	it('keeps a large trash metadata-only until restore', async () => {
+		await db.trashed.bulkPut(
+			Array.from({ length: 70 }, (_value, index) => trashedRow(`large-${index}`, T0, index))
+		);
+		const results = await loadTrashRows(T0);
+		expect(results).toHaveLength(70);
+		expect(results[0]!.entry.file.content).toBe('');
+		expect(results[0]!.entry.file.contentDeferred).toBe(true);
 	});
 });
 

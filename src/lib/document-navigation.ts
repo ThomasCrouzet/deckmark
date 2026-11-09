@@ -68,17 +68,22 @@ interface ParsedHeading {
 function parseHeadings(markdown: string, limit: number): ParsedHeading[] {
 	const hasBom = markdown.charCodeAt(0) === 0xfeff;
 	const body = hasBom ? markdown.slice(1) : markdown;
-	const lines = body.split('\n');
 	const headings: ParsedHeading[] = [];
 	let fence = '';
 	let yaml = stripFrontmatter(body).raw.length > 0;
-	let lineStart = hasBom ? 1 : 0;
-	for (let index = 0; index < lines.length; index++) {
-		const line = lines[index]!;
-		const nextLineStart = lineStart + line.length + 1;
+	let lineStart = 0;
+	let index = 0;
+	let previousLine = '';
+	while (lineStart <= body.length) {
+		const newline = body.indexOf('\n', lineStart);
+		const hasNewline = newline >= 0;
+		const lineEnd = hasNewline ? newline : body.length;
+		const line = body.slice(lineStart, lineEnd);
 		if (yaml) {
 			if (index > 0 && /^(---|\.\.\.)\s*$/.test(line)) yaml = false;
-			lineStart = nextLineStart;
+			previousLine = line;
+			lineStart = lineEnd + 1;
+			index++;
 			continue;
 		}
 		const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
@@ -90,12 +95,16 @@ function parseHeadings(markdown: string, limit: number): ParsedHeading[] {
 				line.trim() === marker
 			)
 				fence = '';
-			lineStart = nextLineStart;
+			previousLine = line;
+			lineStart = lineEnd + 1;
+			index++;
 			continue;
 		}
 		if (marker) {
 			fence = marker;
-			lineStart = nextLineStart;
+			previousLine = line;
+			lineStart = lineEnd + 1;
+			index++;
 			continue;
 		}
 		const atx = /^ {0,3}(#{1,6})(?:[ \t]+(.*?)|[ \t]*)\r?$/.exec(line);
@@ -104,23 +113,26 @@ function parseHeadings(markdown: string, limit: number): ParsedHeading[] {
 				text: (atx[2] ?? '').replace(/[ \t]+#+[ \t]*$/, ''),
 				level: atx[1]!.length,
 				line: index + 1,
-				offset: lineStart
+				offset: lineStart + (hasBom ? 1 : 0)
 			});
 		else if (
 			index > 0 &&
 			/^ {0,3}(=+|-+)\s*$/.test(line) &&
-			lines[index - 1]!.trim() &&
-			!/^(?: {4}|\t|\s*[#>\-*])/.test(lines[index - 1]!)
+			previousLine.trim() &&
+			!/^(?: {4}|\t|\s*[#>\-*])/.test(previousLine)
 		) {
 			headings.push({
-				text: lines[index - 1]!.trim(),
+				text: previousLine.trim(),
 				level: line.trim().startsWith('=') ? 1 : 2,
 				line: index,
-				offset: lineStart - (lines[index - 1]!.length + 1)
+				offset: lineStart - (previousLine.length + 1) + (hasBom ? 1 : 0)
 			});
 		}
 		if (headings.length >= limit) break;
-		lineStart = nextLineStart;
+		previousLine = line;
+		if (!hasNewline) break;
+		lineStart = lineEnd + 1;
+		index++;
 	}
 	return headings;
 }

@@ -19,6 +19,22 @@
 		hideTextId?: string;
 	}
 
+	const RENDER_LIMIT = 4;
+	let activeRenders = 0;
+	const waitingRenders: Array<() => void> = [];
+
+	function scheduleRender(task: () => Promise<void>): void {
+		const run = () => {
+			activeRenders += 1;
+			void task().finally(() => {
+				activeRenders -= 1;
+				waitingRenders.shift()?.();
+			});
+		};
+		if (activeRenders < RENDER_LIMIT) run();
+		else waitingRenders.push(run);
+	}
+
 	interface RenderedElement {
 		key: string;
 		html: string;
@@ -63,19 +79,21 @@
 				renderedContent.delete(element.id);
 				failedElements.delete(element.id);
 			});
-			void renderPresentationElementContentCached(element, {
-				...(activeFileId ? { fileId: activeFileId } : {}),
-				...(hiddenId ? { hideTextId: hiddenId } : {})
-			})
-				.then((html) => {
+			scheduleRender(async () => {
+				if (renderTokens.get(element.id) !== token) return;
+				try {
+					const html = await renderPresentationElementContentCached(element, {
+						...(activeFileId ? { fileId: activeFileId } : {}),
+						...(hiddenId ? { hideTextId: hiddenId } : {})
+					});
 					if (renderTokens.get(element.id) !== token) return;
 					renderedContent.set(element.id, { key, html });
-				})
-				.catch((error: unknown) => {
+				} catch (error) {
 					if (renderTokens.get(element.id) !== token) return;
 					failedElements.add(element.id);
 					reportError('presentation slide render', error);
-				});
+				}
+			});
 		}
 		for (const id of untrack(() => Array.from(renderedContent.keys()))) {
 			if (!liveIds.has(id)) {

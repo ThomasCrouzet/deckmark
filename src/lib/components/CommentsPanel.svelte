@@ -27,14 +27,20 @@
 	const boundFile = $derived(
 		boundId ? filesStore.library.find((entry) => entry.id === boundId) : undefined
 	);
-	const anchors = $derived(
-		Object.fromEntries(
-			comments.map((comment) => [
-				comment.id,
-				resolveCommentAnchor(boundFile?.content ?? '', comment)
-			])
-		) as Record<string, CommentAnchor>
-	);
+	let anchors = $state<Record<string, CommentAnchor>>({});
+	let anchorJob = 0;
+	$effect(() => {
+		const content = boundFile?.content ?? '';
+		const list = comments;
+		const job = ++anchorJob;
+		const timer = setTimeout(() => {
+			if (job !== anchorJob) return;
+			anchors = Object.fromEntries(
+				list.map((comment) => [comment.id, resolveCommentAnchor(content, comment)])
+			) as Record<string, CommentAnchor>;
+		}, 150);
+		return () => clearTimeout(timer);
+	});
 
 	onMount(() => {
 		author = commentAuthor();

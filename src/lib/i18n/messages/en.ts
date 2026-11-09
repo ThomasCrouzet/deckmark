@@ -1004,6 +1004,7 @@ export const en = {
 	// sidebar
 	'sidebar.allTags': 'All',
 	'sidebar.backlinks': 'Backlinks',
+	'sidebar.showMore': 'Show {n} more',
 	'sidebar.backlinksCount': 'Backlinks ({n})',
 	'sidebar.brokenDiskLink': 'Broken disk link',
 	'sidebar.brokenDiskLinkHint': 'Broken disk link - relink the file or unlink it',

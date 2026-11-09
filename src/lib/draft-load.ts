@@ -39,6 +39,11 @@ export async function loadDraftLibrary(
 	// publishing any row, then fill projections written before this version.
 	const hooks = await import('./draft-metadata');
 	hooks.installDraftMetadataHooks();
+	const snippetHooks = await import('./snippet-hooks');
+	snippetHooks.installSnippetHooks();
+	const trashHooks = await import('./trash-summary-hooks');
+	trashHooks.installTrashSummaryHooks();
+	void trashHooks.backfillTrashSummaries().catch(() => undefined);
 	let manifests = await readDraftManifests();
 	const metadata = manifests ? await readDraftMetadata() : null;
 	if (manifests && !metadata) {
