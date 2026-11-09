@@ -12,7 +12,8 @@ import {
 	relativeDestination
 } from './project-paths';
 import { renameProjectLinks, projectLinkReport } from './project-links';
-import { buildProjectZip, PROJECT_LIMITS, type ProjectInput } from './project-archive';
+import type { ProjectInput } from './project-archive';
+import { PROJECT_SCALE_LIMITS } from './project-limits';
 import { projectDocumentLimit } from './project-limits';
 import { normalizeRename } from './file-utils';
 import { rewriteWikiLinkTargets } from './wiki-links';
@@ -94,7 +95,7 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 		const assets = await db.projectAssets.where('projectId').equals(projectId).toArray();
 		if (
 			documents.length >= projectDocumentLimit() ||
-			documents.length + assets.length >= PROJECT_LIMITS.maxEntries - 3
+			documents.length + assets.length >= PROJECT_SCALE_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project entry limit');
 		if (
@@ -151,6 +152,7 @@ export async function exportProject(projectId: string): Promise<boolean> {
 		})
 	);
 	if (!snapshot.project) throw new Error('Project no longer exists');
+	const { buildProjectZip } = await import('./project-archive');
 	const blob = await buildProjectZip(
 		snapshot.project.name,
 		snapshot.documents.map((doc) => ({
@@ -398,8 +400,8 @@ export async function addProjectImage(projectId: string, file: File): Promise<st
 			assets.reduce((total, asset) => total + asset.data.byteLength, 0) +
 			documents.reduce((total, document) => total + encoder.encode(document.content).byteLength, 0);
 		if (
-			size > PROJECT_LIMITS.maxBytes ||
-			documents.length + assets.length >= PROJECT_LIMITS.maxEntries - 3
+			size > PROJECT_SCALE_LIMITS.maxBytes ||
+			documents.length + assets.length >= PROJECT_SCALE_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project size limit');
 		await db.projectAssets.add({ id: newId(), projectId, path, mime, data });

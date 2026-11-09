@@ -4,7 +4,7 @@ import { db, type DraftRow } from './db';
 import { DRAFT_CONTENT } from './config';
 import type { FileItem } from './types';
 import { DRAFT_MANIFEST_VERSION, type DraftManifest } from './draft-manifest-key';
-import { decodeDraftMetadata, type DraftMetadata } from './draft-metadata-codec';
+import { decodeDraftMetadata, type DraftMetadata } from './draft-metadata';
 
 /**
  * Returns one metadata row per draft, or `null` when the projection is not

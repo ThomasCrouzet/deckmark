@@ -3,9 +3,72 @@
 // The codec lives in `draft-metadata-codec.ts` so readers do not pull the
 // frontmatter and wiki scanners into the boot bundle.
 
-import type { DraftRow } from './db';
-import { fastFrontmatter } from './frontmatter-fast';
-import { DRAFT_METADATA_VERSION, type DraftMetadata } from './draft-metadata-codec';
+import { db, type DraftRow } from './db';
+import { fastFrontmatter } from './metadata-derive';
+export const DRAFT_METADATA_VERSION = 2;
+
+export interface DraftMetadata {
+	id: string;
+	contentHash: string;
+	contentLength: number;
+	title: string;
+	documentTitle: string;
+	tags: string[];
+	targets: string[];
+	/** The body defines or includes a linked block. */
+	hasBlocks: boolean;
+	hasIncludes: boolean;
+}
+
+/** Decodes a metadata index key. Returns null for unknown or damaged values. */
+export function decodeDraftMetadata(key: unknown): DraftMetadata | null {
+	if (typeof key !== 'string') return null;
+	let value: unknown;
+	try {
+		value = JSON.parse(key);
+	} catch {
+		return null;
+	}
+	if (!Array.isArray(value) || value.length !== 10) return null;
+	const [
+		version,
+		id,
+		contentHash,
+		contentLength,
+		title,
+		documentTitle,
+		tags,
+		targets,
+		hasBlocks,
+		hasIncludes
+	] = value;
+	if (version !== DRAFT_METADATA_VERSION) return null;
+	if (
+		typeof id !== 'string' ||
+		typeof contentHash !== 'string' ||
+		typeof contentLength !== 'number' ||
+		typeof title !== 'string' ||
+		typeof documentTitle !== 'string' ||
+		!Array.isArray(tags) ||
+		!tags.every((tag) => typeof tag === 'string') ||
+		!Array.isArray(targets) ||
+		!targets.every((target) => typeof target === 'string') ||
+		(hasBlocks !== 0 && hasBlocks !== 1) ||
+		(hasIncludes !== 0 && hasIncludes !== 1)
+	)
+		return null;
+	return {
+		id,
+		contentHash,
+		contentLength,
+		title,
+		documentTitle,
+		tags,
+		targets,
+		hasBlocks: hasBlocks === 1,
+		hasIncludes: hasIncludes === 1
+	};
+}
 
 function hashContent(content: string): string {
 	let hash = 0x811c9dc5;
@@ -83,4 +146,27 @@ export function encodeDraftMetadata(row: DraftRow): string {
 		metadata.hasBlocks ? 1 : 0,
 		metadata.hasIncludes ? 1 : 0
 	]);
+}
+
+let installed = false;
+
+export function installDraftMetadataHooks(): void {
+	if (installed) return;
+	installed = true;
+	db.drafts.hook('creating', (_primaryKey, row) => {
+		row.metadata = encodeDraftMetadata(row);
+	});
+	db.drafts.hook('updating', (modifications, _primaryKey, row) => {
+		return { metadata: encodeDraftMetadata({ ...row, ...modifications } as DraftRow) };
+	});
+}
+
+/** Fills missing projections once, without retaining the row bodies. */
+export async function backfillDraftMetadata(): Promise<void> {
+	installDraftMetadataHooks();
+	await db.transaction('rw', db.drafts, async () => {
+		await db.drafts.toCollection().modify((row) => {
+			row.metadata = encodeDraftMetadata(row);
+		});
+	});
 }

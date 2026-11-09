@@ -22,7 +22,6 @@ import { IMPORT_LIMITS } from '../config';
 import { isPresentation } from '../presentation/detect';
 import { documentKindForFile, isBinaryDocument } from '../document-kind';
 import { activeProfile, applyExportProfile } from '../export-profiles';
-import { dataUrlToBlob } from '../data-url';
 
 export interface MediaExportOptions {
 	allowNetworkImages?: boolean;
@@ -181,6 +180,7 @@ export async function triggerDownload(blob: Blob, filename: string): Promise<boo
 
 /** Decodes a legacy or imported data URL without one synchronous full pass. */
 async function dataUrlBlob(data: string): Promise<Blob> {
+	const { dataUrlToBlob } = await import('../data-url');
 	return dataUrlToBlob(data);
 }
 

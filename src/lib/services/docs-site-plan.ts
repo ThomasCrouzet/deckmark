@@ -5,7 +5,6 @@
 import { IMPORT_LIMITS } from '../config';
 import { projectDocumentLimit } from '../project-limits';
 import { sourceHeadingIndex } from '../document-navigation';
-import { HeadingIdAllocator } from '../heading-ids';
 import { stripFileExtension } from '../file-utils';
 import {
 	isExternalDestination,
@@ -16,7 +15,7 @@ import {
 	relativeDestination
 } from '../project-paths';
 import { projectDestinations } from '../project-links';
-import { slugify, wikiLinkOccurrences } from '../wiki-links';
+import { HeadingIdAllocator, slugify, wikiLinkOccurrences } from '../wiki-links';
 
 export type DocsSiteDocumentKind = 'note' | 'presentation' | 'code' | 'image' | 'pdf';
 

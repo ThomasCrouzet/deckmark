@@ -12,6 +12,25 @@ import { uniqueName } from './file-utils';
 import type { DocumentRevision } from './document-revisions';
 
 const SAVE_SUPERSEDED = Symbol('save-superseded');
+
+type ConflictApi = {
+	conflictOccupancy: typeof import('./draft-occupancy').conflictOccupancy;
+	projectConflictVariant: typeof import('./project-conflicts').projectConflictVariant;
+};
+
+let conflictApiPromise: Promise<ConflictApi> | null = null;
+
+/** Loads rare conflict helpers before a transaction starts. */
+function conflictApi(): Promise<ConflictApi> {
+	conflictApiPromise ??= Promise.all([
+		import('./draft-occupancy'),
+		import('./project-conflicts')
+	]).then(([occupancy, conflicts]) => ({
+		conflictOccupancy: occupancy.conflictOccupancy,
+		projectConflictVariant: conflicts.projectConflictVariant
+	}));
+	return conflictApiPromise;
+}
 const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 
 /** Callbacks to the store's `$state` - injected at construction. */
@@ -174,6 +193,7 @@ export class SaveQueue {
 			this.trackPersisted(row);
 			return row;
 		}
+		const conflict = await conflictApi();
 		let preserved: DraftRow | undefined;
 		let written = row;
 		try {
@@ -213,15 +233,16 @@ export class SaveQueue {
 					changedSinceRead &&
 					(current.name !== written.name || current.content !== written.content)
 				) {
-					const [{ conflictOccupancy }, { projectConflictVariant }] = await Promise.all([
-						import('./draft-occupancy'),
-						import('./project-conflicts')
-					]);
-					const occupancy = await conflictOccupancy(current.projectId);
+					const occupancy = await conflict.conflictOccupancy(current.projectId);
 					const [documents, assets] = occupancy
 						? [[], []]
 						: await Promise.all([db.drafts.toArray(), db.projectAssets.toArray()]);
-					const variant = projectConflictVariant(current, documents, assets, occupancy?.occupied);
+					const variant = conflict.projectConflictVariant(
+						current,
+						documents,
+						assets,
+						occupancy?.occupied
+					);
 					preserved = {
 						...variant,
 						id: newId(),

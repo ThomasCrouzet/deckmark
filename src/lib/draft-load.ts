@@ -37,7 +37,7 @@ export async function loadDraftLibrary(
 
 	// The projection hooks stay out of the boot bundle. Install them before
 	// publishing any row, then fill projections written before this version.
-	const hooks = await import('./draft-metadata-hooks');
+	const hooks = await import('./draft-metadata');
 	hooks.installDraftMetadataHooks();
 	let manifests = await readDraftManifests();
 	let metadata = manifests ? await readDraftMetadata() : null;

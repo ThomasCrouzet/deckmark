@@ -41,7 +41,7 @@ export interface FileItem {
 	 */
 	contentDeferred?: boolean;
 	/** Persisted title, tags and wiki targets for a deferred body. */
-	derivedMetadata?: import('./draft-metadata-codec').DraftMetadata;
+	derivedMetadata?: import('./draft-metadata').DraftMetadata;
 }
 
 export interface TrashedFile {

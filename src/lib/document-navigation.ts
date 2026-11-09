@@ -125,7 +125,7 @@ function parseHeadings(markdown: string, limit: number): ParsedHeading[] {
 	return headings;
 }
 
-export { HeadingIdAllocator } from './heading-ids';
+export { HeadingIdAllocator } from './wiki-links';
 
 /** Reads source headings without treating YAML or code examples as headings. */
 export function documentHeadings(markdown: string): DocumentHeading[] {

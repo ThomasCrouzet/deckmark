@@ -2,8 +2,7 @@ import { Marked, type Tokens } from 'marked';
 import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import { escapeHTML } from '../html-escape';
-import { preprocessWikiLinks, slugify } from '../wiki-links';
-import { HeadingIdAllocator } from '../heading-ids';
+import { HeadingIdAllocator, preprocessWikiLinks, slugify } from '../wiki-links';
 import { RenderCache } from './render-cache';
 import type { RenderStageSample } from './render-stages';
 

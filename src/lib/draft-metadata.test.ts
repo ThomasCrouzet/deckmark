@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db, type DraftRow } from './db';
 import { readDraftMetadata } from './draft-manifest';
-import { installDraftMetadataHooks } from './draft-metadata-hooks';
+import { installDraftMetadataHooks } from './draft-metadata';
 
 function row(overrides: Partial<DraftRow> = {}): DraftRow {
 	return {
