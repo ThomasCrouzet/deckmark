@@ -38,7 +38,7 @@ function boot(preferences = fixture, write = async () => ({ fileName: 'snapshot.
 		'./services/backup': {
 			collectBackup: async () => ({ marker: 'backup' }),
 			serializeBackup: JSON.stringify,
-			parseBackupWithReport: JSON.parse
+			validateBackupValue: (value) => ({ backup: value, skipped: 0 })
 		},
 		'./files.svelte': { filesStore: { flushPendingAwait: async () => {} } },
 		'@tauri-apps/api/core': {
