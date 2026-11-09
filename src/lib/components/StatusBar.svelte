@@ -90,7 +90,11 @@
 				// One pending load reads current state, not one retained text closure per edit.
 				const active = filesStore.active;
 				if (kind === 'note' && active) runtime.setDocument(active.id, active.content);
-				selectionStats = kind === 'note' && selectedText ? runtime.selection(selectedText) : null;
+				if (kind === 'note' && selectedText)
+					void runtime.selection(selectedText).then((value) => {
+						if (!disposed) selectionStats = value;
+					});
+				else selectionStats = null;
 				return runtime;
 			})
 			.catch((error) => {
@@ -130,7 +134,10 @@
 		// and cancel an older selection walk as soon as the selection changes.
 		const run = () => {
 			if (job !== selectionJob || disposed) return;
-			if (runtime) selectionStats = runtime.selection(text);
+			if (runtime)
+				void runtime.selection(text).then((value) => {
+					if (job === selectionJob && !disposed) selectionStats = value;
+				});
 			else void getRuntime();
 		};
 		const handle =

@@ -1,5 +1,5 @@
 import { computeSelectionStats, computeStats, createStatsCache } from './stats';
-import type { DocStats } from './stats-count';
+import type { DocStats, SelectionStats } from './stats-count';
 
 export type StatsRuntime = ReturnType<typeof createStatsRuntime>;
 
@@ -18,6 +18,44 @@ export function createStatsRuntime(
 	let workerFailures = 0;
 	let workerRetryAt = 0;
 	let sequence = 0;
+	let selectionWorker: Worker | null = null;
+	let selectionSequence = 0;
+
+	function selection(text: string): Promise<SelectionStats> {
+		if (text.length < 64 * 1024 || typeof Worker === 'undefined')
+			return Promise.resolve(computeSelectionStats(text));
+		selectionSequence += 1;
+		const token = selectionSequence;
+		selectionWorker?.terminate();
+		let worker: Worker;
+		try {
+			worker = new Worker(new URL('./workers/stats.worker.ts', import.meta.url), {
+				type: 'module'
+			});
+		} catch {
+			return Promise.resolve(computeSelectionStats(text));
+		}
+		selectionWorker = worker;
+		return new Promise<SelectionStats>((resolve) => {
+			let settled = false;
+			const finish = (value: SelectionStats) => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				worker.terminate();
+				if (selectionWorker === worker) selectionWorker = null;
+				resolve(value);
+			};
+			const timer = setTimeout(() => finish(computeSelectionStats(text)), 5000);
+			worker.onmessage = (event: MessageEvent<{ token: number; selection?: SelectionStats }>) => {
+				if (event.data.token !== token || !event.data.selection) return;
+				finish(event.data.selection);
+			};
+			worker.onerror = () => finish(computeSelectionStats(text));
+			worker.onmessageerror = () => finish(computeSelectionStats(text));
+			worker.postMessage({ token, text, mode: 'selection' });
+		});
+	}
 
 	function cancelPending() {
 		sequence += 1;
@@ -110,12 +148,14 @@ export function createStatsRuntime(
 				measure(id, content, token);
 			}, 200);
 		},
-		selection: computeSelectionStats,
+		selection,
 		dispose(): void {
 			disposed = true;
 			cancelPending();
 			worker?.terminate();
 			worker = null;
+			selectionWorker?.terminate();
+			selectionWorker = null;
 			cached.clear();
 			activeId = null;
 			activeContent = '';
