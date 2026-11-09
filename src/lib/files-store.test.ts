@@ -1001,3 +1001,69 @@ describe('defensive workspace reopen and links', () => {
 		}
 	});
 });
+
+describe('deferred activation intent', () => {
+	it('does not steal focus when a slower hydration finishes after another tab', async () => {
+		const base = { createdAt: 1, updatedAt: 2, dirty: false, linkedToDisk: false };
+		const deferred = { ...base, id: 'slow', name: 'slow.md', content: '', contentDeferred: true };
+		const fast = { ...base, id: 'fast', name: 'fast.md', content: '# Fast' };
+		filesStore.closedFiles = [deferred];
+		filesStore.files = [fast];
+		filesStore.activeId = 'fast';
+		let release!: (row: DraftRow) => void;
+		const pending = new Promise<DraftRow | undefined>((resolve) => (release = resolve));
+		const get = vi.spyOn(db.drafts, 'get').mockReturnValue(pending as never);
+		const opening = filesStore.openDocument('slow');
+		filesStore.setActive('fast');
+		release({ ...draftRow('slow', 'slow.md', '# Slow'), updatedAt: 3 });
+		await opening;
+		await vi.waitFor(() => expect(filesStore.closedFiles[0]?.content).toBe('# Slow'));
+		expect(filesStore.closedFiles).toHaveLength(1);
+		expect(filesStore.activeId).toBe('fast');
+		get.mockRestore();
+	});
+
+	it('keeps Home selected when a deferred body finishes afterwards', async () => {
+		const base = { createdAt: 1, updatedAt: 2, dirty: false, linkedToDisk: false };
+		const deferred = { ...base, id: 'slow', name: 'slow.md', content: '', contentDeferred: true };
+		filesStore.closedFiles = [deferred];
+		filesStore.activeId = null;
+		let release!: (row: DraftRow) => void;
+		const pending = new Promise<DraftRow | undefined>((resolve) => (release = resolve));
+		const get = vi.spyOn(db.drafts, 'get').mockReturnValue(pending as never);
+		const opening = filesStore.openDocument('slow');
+		filesStore.showHome();
+		release({ ...draftRow('slow', 'slow.md', '# Slow'), updatedAt: 3 });
+		await opening;
+		await vi.waitFor(() => expect(filesStore.closedFiles[0]?.content).toBe('# Slow'));
+		expect(filesStore.activeId).toBeNull();
+		expect(filesStore.files).toHaveLength(0);
+		get.mockRestore();
+	});
+
+	it('bounds concurrent deferred body reads', async () => {
+		const base = { createdAt: 1, updatedAt: 2, dirty: false, linkedToDisk: false };
+		const items = Array.from({ length: 20 }, (_, index) => ({
+			...base,
+			id: `d${index}`,
+			name: `d${index}.md`,
+			content: '',
+			contentDeferred: true
+		}));
+		filesStore.files = items;
+		filesStore.activeId = null;
+		let inFlight = 0;
+		let peak = 0;
+		const get = vi.spyOn(db.drafts, 'get').mockImplementation((async (id: string) => {
+			inFlight += 1;
+			peak = Math.max(peak, inFlight);
+			await new Promise((resolve) => setTimeout(resolve, 2));
+			inFlight -= 1;
+			return { ...draftRow(id, `${id}.md`, `# ${id}`), updatedAt: 3 };
+		}) as never);
+		await filesStore.ensureContent(items.map((item) => item.id));
+		expect(peak).toBeLessThanOrEqual(4);
+		expect(filesStore.files.every((file) => file.content === `# ${file.id}`)).toBe(true);
+		get.mockRestore();
+	});
+});
