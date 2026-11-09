@@ -1046,18 +1046,33 @@ export async function applyBackup(
 			});
 			const existingComments = await db.comments.toArray();
 			const commentIds = new Set(existingComments.map((row) => row.id));
-			const commentKeys = new Set(
-				existingComments.map((row) => JSON.stringify([row.id, row.body, row.status, row.updatedAt]))
-			);
+			const commentIdentity = (row: CommentRow) =>
+				JSON.stringify([
+					row.draftId,
+					row.quote,
+					row.from,
+					row.to,
+					row.body,
+					row.author,
+					row.status,
+					row.createdAt,
+					row.updatedAt
+				]);
+			const admittedComments = new Set(existingComments.map(commentIdentity));
 			const commentsToPut = (backup.comments ?? []).flatMap((comment) => {
-				const mappedDraftId = importedIdMap.get(comment.draftId);
+				const mappedDraftId =
+					importedIdMap.get(comment.draftId) ??
+					(existing.some((row) => row.id === comment.draftId) ? comment.draftId : undefined);
 				if (!mappedDraftId) return [];
 				const mapped = { ...comment, draftId: mappedDraftId };
-				const identical = commentKeys.has(
-					JSON.stringify([mapped.id, mapped.body, mapped.status, mapped.updatedAt])
-				);
-				if (identical) return [];
-				return [{ ...mapped, id: commentIds.has(mapped.id) ? newId() : mapped.id }];
+				const identity = commentIdentity(mapped);
+				// Deduplicate on the complete row, including the mapped draft and
+				// the anchor, so a colliding ID cannot suppress another review.
+				if (admittedComments.has(identity)) return [];
+				admittedComments.add(identity);
+				const id = commentIds.has(mapped.id) ? newId() : mapped.id;
+				commentIds.add(id);
+				return [{ ...mapped, id }];
 			});
 			const existingSnippets = await db.snippets.toArray();
 			const snippetIds = new Set(existingSnippets.map((row) => row.id));

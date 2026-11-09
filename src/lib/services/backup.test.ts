@@ -703,6 +703,89 @@ describe('applyBackup - project-scoped snippets', () => {
 	});
 });
 
+describe('applyBackup - editorial comment identity', () => {
+	const comment = (overrides: Record<string, unknown> = {}) => ({
+		id: 'c',
+		draftId: 'a',
+		quote: 'alpha',
+		from: 0,
+		to: 5,
+		body: 'review',
+		author: 'Alice',
+		status: 'open' as const,
+		createdAt: 1,
+		updatedAt: 2,
+		...overrides
+	});
+
+	it('imports a comment that shares the incomplete key but anchors another draft', async () => {
+		await db.drafts.put(draft({ id: 'a', name: 'a.md', content: 'alpha beta' }));
+		await db.comments.put(comment());
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ id: 'b', name: 'b.md', content: 'beta gamma' })],
+			workspaces: [],
+			templates: [],
+			comments: [
+				comment({
+					draftId: 'b',
+					quote: 'beta',
+					from: 6,
+					to: 11,
+					author: 'Bob'
+				}) as never
+			]
+		};
+		const counts = await applyBackup(backup, 'merge');
+		expect(counts.comments).toBe(1);
+		const rows = await db.comments.toArray();
+		expect(rows).toHaveLength(2);
+		const importedDraft = (await db.drafts.toArray()).find((row) => row.id !== 'a')!;
+		const imported = rows.find((row) => row.id !== 'c')!;
+		expect(imported).toMatchObject({
+			draftId: importedDraft.id,
+			quote: 'beta',
+			from: 6,
+			to: 11,
+			author: 'Bob'
+		});
+		expect(await db.comments.get('c')).toMatchObject({ draftId: 'a', quote: 'alpha' });
+
+		const repeated = await applyBackup(backup, 'merge');
+		expect(repeated.comments).toBe(0);
+		expect(await db.comments.count()).toBe(2);
+		expect(await db.comments.get(imported.id)).toMatchObject({ quote: 'beta', author: 'Bob' });
+	});
+
+	it('deduplicates an exact repeat and keeps a same-id comment with another body', async () => {
+		const shared = draft({ id: 'a', name: 'a.md', content: 'alpha', createdAt: 1, updatedAt: 2 });
+		await db.drafts.put(shared);
+		const exact = comment();
+		await db.comments.put(exact);
+		const repeated: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [shared],
+			workspaces: [],
+			templates: [],
+			comments: [exact as never]
+		};
+		const first = await applyBackup(repeated, 'merge');
+		expect(first.comments).toBe(0);
+		expect(first.unchanged.drafts).toBe(1);
+		expect(await db.comments.count()).toBe(1);
+
+		repeated.comments = [comment({ body: 'second review' }) as never];
+		const second = await applyBackup(repeated, 'merge');
+		expect(second.comments).toBe(1);
+		expect(await db.comments.count()).toBe(2);
+		expect(new Set((await db.comments.toArray()).map((row) => row.id)).size).toBe(2);
+	});
+});
+
 describe('restoreFromText - plain text', () => {
 	it('rejects an encrypted envelope with an incorrect passphrase', async () => {
 		const clearJson = serializeBackup({

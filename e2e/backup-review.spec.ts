@@ -46,6 +46,18 @@ interface Backup {
 		createdAt: number;
 		updatedAt: number;
 	}>;
+	comments?: Array<{
+		id: string;
+		draftId: string;
+		quote: string;
+		from: number;
+		to: number;
+		body: string;
+		author: string;
+		status: 'open' | 'resolved';
+		createdAt: number;
+		updatedAt: number;
+	}>;
 }
 
 function emptyBackup(): Backup {
@@ -324,6 +336,37 @@ async function snippetRows(page: Page) {
 	);
 }
 
+async function commentRows(page: Page) {
+	return page.evaluate(
+		() =>
+			new Promise<
+				Array<{
+					id: string;
+					draftId: string;
+					quote: string;
+					from: number;
+					to: number;
+					body: string;
+					author: string;
+					status: string;
+				}>
+			>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('comments');
+					const rows = transaction.objectStore('comments').getAll();
+					transaction.oncomplete = () => {
+						database.close();
+						resolve(rows.result);
+					};
+					transaction.onabort = () => reject(transaction.error);
+				};
+			})
+	);
+}
+
 for (const closed of [false, true]) {
 	test(`standalone replacement restores A and keeps ${closed ? 'closed' : 'open'} B and history`, async ({
 		page
@@ -467,6 +510,86 @@ test('merge remaps a project-scoped snippet to the imported project', async ({ p
 	await restore(page, Buffer.from(JSON.stringify(incoming)), 'Fusionner');
 	expect(await snippetRows(page)).toEqual(snippets);
 	expect((await inventory(page)).projects).toHaveLength(2);
+});
+
+test('merge keeps comments that collide on id but anchor another document', async ({
+	page
+}, info) => {
+	const first = emptyBackup();
+	first.drafts = [
+		{
+			id: 'doc-a',
+			name: 'a.md',
+			content: 'alpha',
+			createdAt: stamp,
+			updatedAt: stamp,
+			order: 0,
+			open: true
+		}
+	];
+	first.comments = [
+		{
+			id: 'shared',
+			draftId: 'doc-a',
+			quote: 'alpha',
+			from: 0,
+			to: 5,
+			body: 'review',
+			author: 'Alice',
+			status: 'open',
+			createdAt: 1,
+			updatedAt: 2
+		}
+	];
+	await restore(page, Buffer.from(JSON.stringify(first)), 'Fusionner');
+	const incoming = emptyBackup();
+	incoming.drafts = [
+		{
+			id: 'doc-b',
+			name: 'b.md',
+			content: 'beta gamma',
+			createdAt: stamp,
+			updatedAt: stamp,
+			order: 1,
+			open: false
+		}
+	];
+	incoming.comments = [
+		{
+			id: 'shared',
+			draftId: 'doc-b',
+			quote: 'beta',
+			from: 6,
+			to: 11,
+			body: 'review',
+			author: 'Bob',
+			status: 'open',
+			createdAt: 1,
+			updatedAt: 2
+		}
+	];
+	await attach(info, 'comment-incoming.json', incoming);
+	await restore(page, Buffer.from(JSON.stringify(incoming)), 'Fusionner');
+	const comments = await commentRows(page);
+	const drafts = (await inventory(page)).drafts;
+	const importedDraft = drafts.find((draft) => draft.name === 'b.md')!;
+	const firstDraft = drafts.find((draft) => draft.name === 'a.md')!;
+	await attach(info, 'comment-merged.json', { comments, drafts });
+	expect(comments).toHaveLength(2);
+	expect(comments).toContainEqual(
+		expect.objectContaining({ draftId: firstDraft.id, quote: 'alpha', author: 'Alice' })
+	);
+	expect(comments).toContainEqual(
+		expect.objectContaining({
+			draftId: importedDraft.id,
+			quote: 'beta',
+			from: 6,
+			to: 11,
+			author: 'Bob'
+		})
+	);
+	await restore(page, Buffer.from(JSON.stringify(incoming)), 'Fusionner');
+	expect(await commentRows(page)).toHaveLength(2);
 });
 
 test('a failed recovery asset write rolls back the complete replacement', async ({
