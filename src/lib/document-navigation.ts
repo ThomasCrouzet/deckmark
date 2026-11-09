@@ -145,15 +145,20 @@ export function documentHeadings(markdown: string): DocumentHeading[] {
 }
 
 let revision = 0;
-let cachedMarkdown: string | null = null;
-let cachedIndex: SourceHeadingIndex | null = null;
+const headingIndexes = new Map<string, SourceHeadingIndex>();
+const HEADING_INDEX_CACHE = 4;
 
 /**
  * Returns the complete immutable heading index for an exact source string.
- * Only the most recent string is retained so the cache stays bounded.
+ * A small LRU keeps recent A/B document switches warm while bounding memory.
  */
 export function sourceHeadingIndex(markdown: string): SourceHeadingIndex {
-	if (cachedMarkdown === markdown && cachedIndex) return cachedIndex;
+	const cached = headingIndexes.get(markdown);
+	if (cached) {
+		headingIndexes.delete(markdown);
+		headingIndexes.set(markdown, cached);
+		return cached;
+	}
 	const occurrences = new Map<string, number>();
 	const headings = parseHeadings(markdown, Number.POSITIVE_INFINITY).map((heading) => {
 		const key = `${heading.level}\u0000${heading.text}`;
@@ -164,9 +169,11 @@ export function sourceHeadingIndex(markdown: string): SourceHeadingIndex {
 			id: `${heading.level}:${heading.text}:${occurrence}`
 		};
 	});
-	cachedIndex = { revision: ++revision, headings };
-	cachedMarkdown = markdown;
-	return cachedIndex;
+	const index = { revision: ++revision, headings };
+	headingIndexes.set(markdown, index);
+	while (headingIndexes.size > HEADING_INDEX_CACHE)
+		headingIndexes.delete(headingIndexes.keys().next().value!);
+	return index;
 }
 
 /** Returns the index of the last heading at or before a one-based source line. */
