@@ -255,7 +255,7 @@ fn verify(manifest_bytes: &str, signature: &str) -> Result<VerifiedUpdate, Updat
     )
 }
 
-fn fetch(url: &str) -> Result<String, UpdateError> {
+fn fetch(url: &str, limit: usize) -> Result<String, UpdateError> {
     if !valid_url(url) {
         return Err(UpdateError::code("invalid-endpoint", "invalid update URL"));
     }
@@ -273,16 +273,15 @@ fn fetch(url: &str) -> Result<String, UpdateError> {
             format!("update server returned {}", response.status()),
         ));
     }
-    let bytes = response
-        .bytes()
-        .map_err(|error| UpdateError::code("network", error.to_string()))?;
-    if bytes.len() > MAX_MANIFEST_BYTES {
-        return Err(UpdateError::code(
-            "invalid-manifest",
-            "manifest is too large",
-        ));
-    }
-    String::from_utf8(bytes.to_vec())
+    let declared = response.content_length();
+    let bytes = crate::http_body::read_bounded(response, declared, limit).map_err(|error| {
+        if error == crate::http_body::BodyError::TooLarge {
+            UpdateError::code("invalid-manifest", "update response is too large")
+        } else {
+            UpdateError::code("network", "update response read failed")
+        }
+    })?;
+    String::from_utf8(bytes)
         .map_err(|_| UpdateError::code("invalid-manifest", "manifest is not UTF-8"))
 }
 
@@ -344,8 +343,9 @@ pub fn update_check() -> Result<VerifiedUpdate, String> {
     }
     let (manifest_url, signature_url) = check_urls()
         .ok_or_else(|| "no-update-source: configure DECKMARK_UPDATE_BASE_URL".to_string())?;
-    let manifest = fetch(&manifest_url).map_err(|error| error.to_string())?;
-    let signature = fetch(&signature_url).map_err(|error| error.to_string())?;
+    let manifest = fetch(&manifest_url, MAX_MANIFEST_BYTES).map_err(|error| error.to_string())?;
+    let signature =
+        fetch(&signature_url, MAX_SIGNATURE_BYTES).map_err(|error| error.to_string())?;
     verify(&manifest, &signature).map_err(|error| error.to_string())
 }
 

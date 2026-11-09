@@ -5,6 +5,7 @@ mod disk;
 #[cfg(feature = "native-smoke")]
 mod disk_gate;
 mod git;
+mod http_body;
 mod printing;
 mod projects;
 mod shell;
