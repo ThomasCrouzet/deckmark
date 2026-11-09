@@ -233,7 +233,19 @@ async function ingestDesktopOpens(
 	const files = deps.getFiles?.() ?? [];
 	const filesById = new Map(files.map((file) => [file.id, file]));
 	const pathIndex = new Map<string, string>();
-	for (const link of await listDiskLinks().catch(() => [])) {
+	let links: Awaited<ReturnType<typeof listDiskLinks>>;
+	try {
+		links = await listDiskLinks();
+	} catch (error) {
+		// An unreadable registry is not an empty registry. Creating drafts now
+		// would duplicate every already linked path. Leave the launch tokens
+		// unacknowledged so a later retry can activate the original document.
+		reportError('disk link registry', error);
+		notify.error(t('page.openFromDiskError'));
+		session.publish();
+		return { files: [], processedTokens: [] };
+	}
+	for (const link of links) {
 		if (link.kind !== 'path' || !filesById.has(link.id) || pathIndex.has(link.path)) continue;
 		// Several retained owners can share one path. Prefer a live document.
 		pathIndex.set(link.path, link.id);

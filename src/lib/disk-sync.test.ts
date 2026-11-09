@@ -932,6 +932,53 @@ describe('native capability acknowledgment', () => {
 		expect(result).toEqual({ files: [], processedTokens: [] });
 		expect(store).toEqual([]);
 	});
+	it('fails closed when the native link registry cannot be read', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(fsa.listDiskLinks).mockRejectedValueOnce(new Error('registry unavailable'));
+		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
+			files: [
+				{
+					token: 'retry-token',
+					name: 'same.md',
+					content: 'disk',
+					path: '/tmp/same.md',
+					lastModified: 1,
+					size: 4,
+					revision: 'r1',
+					link: { kind: 'path', path: '/tmp/same.md' }
+				}
+			],
+			failed: 0
+		});
+		const store: FileItem[] = [];
+		const result = await openPathsFromDesktop(
+			[{ token: 'retry-token', path: '/tmp/same.md', stat: null }],
+			testDeps(store)
+		);
+		expect(result).toEqual({ files: [], processedTokens: [] });
+		expect(store).toEqual([]);
+		expect(fsa.savePathLink).not.toHaveBeenCalled();
+		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+
+		// The next read succeeds and activates the original path owner.
+		const existing = makeFile({ id: 'linked', content: 'disk' });
+		vi.mocked(fsa.listDiskLinks).mockResolvedValueOnce([
+			{ id: existing.id, kind: 'path', path: '/tmp/same.md', label: 'same.md' }
+		]);
+		const retry = await openPathsFromDesktop(
+			[{ token: 'retry-token', path: '/tmp/same.md', stat: null }],
+			{
+				getFile: () => existing,
+				getFiles: () => [existing],
+				onCreate: vi.fn(),
+				onActivate: vi.fn(),
+				scheduleSave: vi.fn()
+			}
+		);
+		expect(retry.processedTokens).toEqual(['retry-token']);
+		expect(retry.files).toEqual([existing]);
+	});
+
 	it('also acknowledges a token that reactivates an existing local branch', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		const existing = makeFile({ id: 'existing', content: 'local' });
