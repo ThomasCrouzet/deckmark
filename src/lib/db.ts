@@ -144,6 +144,8 @@ export interface SemanticIndexRow {
 	path: string;
 	contentHash: string;
 	modelId: string;
+	/** Immutable identity of the training corpus or feature model version. */
+	modelRevision?: string;
 	vector: number[];
 	chunks: Array<{ line: number; text: string }>;
 	updatedAt: number;
