@@ -242,7 +242,30 @@ export async function listModels(
 }
 
 interface StreamChunk {
-	choices?: Array<{ delta?: { content?: unknown }; message?: { content?: unknown } }>;
+	error?: unknown;
+	choices?: Array<{
+		delta?: { content?: unknown };
+		message?: { content?: unknown };
+		finish_reason?: unknown;
+	}>;
+}
+
+/** Maps a provider stream error object to an actionable, redacted error. */
+function streamFailure(value: unknown): AiProviderError {
+	const record = (typeof value === 'object' && value !== null ? value : {}) as {
+		message?: unknown;
+		code?: unknown;
+		type?: unknown;
+	};
+	const message =
+		typeof record.message === 'string' && record.message.trim()
+			? redactDetail(record.message)
+			: 'The provider reported a stream error.';
+	const code =
+		`${typeof record.code === 'string' ? record.code : ''} ${typeof record.type === 'string' ? record.type : ''}`.toLowerCase();
+	if (/rate|quota|limit/.test(code)) return new AiProviderError('rate-limit', message);
+	if (/auth|permission|key|forbidden/.test(code)) return new AiProviderError('auth', message);
+	return new AiProviderError('server', message);
 }
 
 /** Streams a chat completion and forwards text deltas. */
@@ -274,12 +297,81 @@ export async function streamChat(
 	let buffer = '';
 	let full = '';
 	let receivedBytes = 0;
+	let seenDone = false;
+	let finished = false;
+	let eventName = '';
+	let eventData: string[] = [];
 	const tooLarge = async () => {
-		await reader.cancel().catch(() => {});
 		throw new AiProviderError('invalid-response', 'The provider response is too large.');
+	};
+	const dispatch = async () => {
+		if (eventData.length === 0) {
+			eventName = '';
+			return;
+		}
+		const payload = eventData.join('\n').trim();
+		const name = eventName;
+		eventData = [];
+		eventName = '';
+		if (!payload) return;
+		if (payload === '[DONE]') {
+			seenDone = true;
+			return;
+		}
+		let chunk: StreamChunk;
+		try {
+			chunk = JSON.parse(payload) as StreamChunk;
+		} catch {
+			throw new AiProviderError('invalid-response', 'The provider sent a malformed stream event.');
+		}
+		if (
+			name === 'error' ||
+			(typeof chunk === 'object' && chunk !== null && chunk.error !== undefined)
+		)
+			throw streamFailure(chunk.error ?? chunk);
+		const choice = chunk.choices?.[0];
+		if (choice?.finish_reason !== undefined && choice.finish_reason !== null) finished = true;
+		const text = choice?.delta?.content ?? choice?.message?.content;
+		if (typeof text === 'string' && text.length > 0) {
+			full += text;
+			if (full.length > maxResponseChars) await tooLarge();
+			onDelta(text);
+		}
+	};
+	const processLine = async (line: string) => {
+		if (line === '') {
+			await dispatch();
+			return;
+		}
+		if (line.startsWith(':')) return;
+		if (line.startsWith('event:')) {
+			eventName = line.slice(6).trim();
+			return;
+		}
+		if (line.startsWith('data:')) {
+			eventData.push(line.slice(5).replace(/^ /, ''));
+			// Standard SSE aggregates data lines until a blank line. Some
+			// compatible providers send one complete event per bare newline.
+			// Dispatch as soon as the accumulated data parses, otherwise keep
+			// collecting a multi-line event.
+			const joined = eventData.join('\n').trim();
+			if (joined === '[DONE]') {
+				await dispatch();
+				return;
+			}
+			let complete = false;
+			try {
+				JSON.parse(joined);
+				complete = true;
+			} catch {
+				/* A multi-line event continues on the next data line. */
+			}
+			if (complete) await dispatch();
+		}
 	};
 	try {
 		for (;;) {
+			if (requestConfig.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 			const { done, value } = await reader.read();
 			if (done) break;
 			receivedBytes += value.byteLength;
@@ -293,34 +385,30 @@ export async function streamChat(
 			while (newline >= 0) {
 				const line = buffer.slice(0, newline).replace(/\r$/, '');
 				buffer = buffer.slice(newline + 1);
-				if (line.startsWith('data:')) {
-					const payload = line.slice(5).trim();
-					if (payload && payload !== '[DONE]') {
-						let chunk: StreamChunk;
-						try {
-							chunk = JSON.parse(payload) as StreamChunk;
-						} catch {
-							chunk = {};
-						}
-						const choice = chunk.choices?.[0];
-						const text = choice?.delta?.content ?? choice?.message?.content;
-						if (typeof text === 'string' && text.length > 0) {
-							full += text;
-							if (full.length > maxResponseChars) await tooLarge();
-							onDelta(text);
-						}
-					}
-				}
+				await processLine(line);
 				newline = buffer.indexOf('\n');
 			}
 		}
+		// Flush a split multi-byte character and treat EOF as an event boundary
+		// for a complete final frame that has no trailing newline.
+		const tail = decoder.decode();
+		if (tail) buffer += tail;
+		if (buffer.length > 0) {
+			await processLine(buffer.replace(/\r$/, ''));
+			buffer = '';
+		}
+		if (eventData.length > 0) await dispatch();
+		if (!seenDone && !finished)
+			throw new AiProviderError('invalid-response', 'The provider stream ended before completion.');
 	} catch (error) {
 		if (error instanceof AiProviderError) throw error;
 		if (error instanceof DOMException && error.name === 'AbortError') {
-			reader.cancel().catch(() => {});
+			await reader.cancel().catch(() => {});
 			throw new AiProviderError('cancelled', 'Request cancelled');
 		}
 		throw new AiProviderError('network', error instanceof Error ? error.message : String(error));
+	} finally {
+		await reader.cancel().catch(() => {});
 	}
 	return full;
 }

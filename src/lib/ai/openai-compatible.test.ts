@@ -212,6 +212,115 @@ describe('streamChat bounds', () => {
 		});
 	});
 
+	it('processes a final data frame without a trailing newline', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				streamResponse([
+					encode('data: {"choices":[{"delta":{"content":"last"},"finish_reason":"stop"}]}')
+				])
+			)
+		);
+		await expect(streamChat(config, null, request, () => {})).resolves.toBe('last');
+	});
+
+	it('accepts a terminal finish_reason without a DONE marker', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				streamResponse([
+					encode('data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n')
+				])
+			)
+		);
+		await expect(streamChat(config, null, request, () => {})).resolves.toBe('done');
+	});
+
+	it('surfaces a provider error frame and redacts its secret', async () => {
+		const secret = 'sk-test-0000000000000000';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				streamResponse([
+					encode(
+						`data: {"error":{"message":"quota exceeded for ${secret}","code":"rate_limit"}}\n\n`
+					)
+				])
+			)
+		);
+		const error = await streamChat(config, secret, request, () => {}).catch(
+			(value: unknown) => value
+		);
+		expect(error).toMatchObject({ code: 'rate-limit' });
+		expect((error as Error).message).not.toContain(secret);
+	});
+
+	it('rejects premature EOF instead of returning partial success', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				streamResponse([encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n')])
+			)
+		);
+		await expect(streamChat(config, null, request, () => {})).rejects.toMatchObject({
+			code: 'invalid-response',
+			message: 'The provider stream ended before completion.'
+		});
+	});
+
+	it('rejects a malformed SSE data event', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => streamResponse([encode('data: not json\n\ndata: [DONE]\n\n')]))
+		);
+		await expect(streamChat(config, null, request, () => {})).rejects.toMatchObject({
+			code: 'invalid-response'
+		});
+	});
+
+	it('handles CRLF, split markers and multi-line data events', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				streamResponse([
+					encode('data: {"choices":\r\n'),
+					encode('data: [{"delta":{"content":"Hel"}}]}\r\n\r\n'),
+					encode('data: {"choices":[{"delta":{"content":"lo"}}]}\r\n\r\n'),
+					encode('data: [DONE]\r\n\r\n')
+				])
+			)
+		);
+		const deltas: string[] = [];
+		await expect(streamChat(config, null, request, (value) => deltas.push(value))).resolves.toBe(
+			'Hello'
+		);
+		expect(deltas).toEqual(['Hel', 'lo']);
+	});
+
+	it('keeps multi-byte UTF-8 split across chunks', async () => {
+		const bytes = encode('data: {"choices":[{"delta":{"content":"café"}}]}\n\ndata: [DONE]\n\n');
+		const split = bytes.indexOf(0xc3) + 1;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => streamResponse([bytes.slice(0, split), bytes.slice(split)]))
+		);
+		await expect(streamChat(config, null, request, () => {})).resolves.toBe('café');
+	});
+
+	it('rejects an already-aborted stream signal', async () => {
+		const controller = new AbortController();
+		controller.abort();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				streamResponse([encode('data: {"choices":[{"delta":{"content":"x"}}]}\n\n')])
+			)
+		);
+		await expect(
+			streamChat(config, null, { ...request, signal: controller.signal }, () => {})
+		).rejects.toMatchObject({ code: 'cancelled' });
+	});
+
 	it('streams complete lines and keeps the concatenated reply', async () => {
 		const encoder = new TextEncoder();
 		vi.stubGlobal(
