@@ -161,12 +161,22 @@ export function installDraftMetadataHooks(): void {
 	});
 }
 
-/** Fills missing projections once, without retaining the row bodies. */
+/** Fills missing projections in idle-sized batches, without retaining bodies. */
 export async function backfillDraftMetadata(): Promise<void> {
 	installDraftMetadataHooks();
-	await db.transaction('rw', db.drafts, async () => {
-		await db.drafts.toCollection().modify((row) => {
-			row.metadata = encodeDraftMetadata(row);
+	const ids = await db.drafts.toCollection().primaryKeys();
+	for (let offset = 0; offset < ids.length; offset += 25) {
+		const rows = await db.drafts.bulkGet(ids.slice(offset, offset + 25));
+		const present = rows.filter((row): row is DraftRow => row !== undefined);
+		if (present.length) {
+			await db.drafts.bulkPut(
+				present.map((row) => ({ ...row, metadata: encodeDraftMetadata(row) }))
+			);
+		}
+		await new Promise<void>((resolve) => {
+			if (typeof requestIdleCallback === 'function')
+				requestIdleCallback(() => resolve(), { timeout: 200 });
+			else setTimeout(resolve, 50);
 		});
-	});
+	}
 }

@@ -40,10 +40,13 @@ export async function loadDraftLibrary(
 	const hooks = await import('./draft-metadata');
 	hooks.installDraftMetadataHooks();
 	let manifests = await readDraftManifests();
-	let metadata = manifests ? await readDraftMetadata() : null;
+	const metadata = manifests ? await readDraftMetadata() : null;
 	if (manifests && !metadata) {
-		await hooks.backfillDraftMetadata();
-		metadata = await readDraftMetadata();
+		// The projection is incomplete (for example rows written by another
+		// client or before this version). Keep the full-row fallback for this
+		// boot and fill the projection in the background for the next one.
+		manifests = null;
+		void hooks.backfillDraftMetadata().catch(() => undefined);
 	}
 	let items: FileItem[] = [];
 	let activeIds: string[] = [];
