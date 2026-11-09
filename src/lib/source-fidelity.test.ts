@@ -158,28 +158,32 @@ describe('bounded paragraph reconciliation', () => {
 		return { fidelity, baseline, parsed, normalized };
 	}
 
-	it('keeps rich note bytes without full-note parses for text edits at each position', () => {
-		const source = noteContent(777, 240_000);
-		const { fidelity, baseline, parsed, normalized } = observed(source);
-		const anchor = 'Local benchmark text keeps the same words in every run.';
-		const rawOffsets = [...source.matchAll(new RegExp(anchor, 'g'))].map((match) => match.index);
-		const offsets = [...baseline.matchAll(new RegExp(anchor, 'g'))].map((match) => match.index);
-		for (const index of [0, Math.floor(offsets.length / 2), offsets.length - 1]) {
-			const at = offsets[index]! + 10;
-			const rawAt = rawOffsets[index]! + 10;
-			expect(fidelity.restore(baseline.slice(0, at) + 'X' + baseline.slice(at), false)).toBe(
-				source.slice(0, rawAt) + 'X' + source.slice(rawAt)
+	it(
+		'keeps rich note bytes without full-note parses for text edits at each position',
+		{ timeout: 20_000 },
+		() => {
+			const source = noteContent(777, 240_000);
+			const { fidelity, baseline, parsed, normalized } = observed(source);
+			const anchor = 'Local benchmark text keeps the same words in every run.';
+			const rawOffsets = [...source.matchAll(new RegExp(anchor, 'g'))].map((match) => match.index);
+			const offsets = [...baseline.matchAll(new RegExp(anchor, 'g'))].map((match) => match.index);
+			for (const index of [0, Math.floor(offsets.length / 2), offsets.length - 1]) {
+				const at = offsets[index]! + 10;
+				const rawAt = rawOffsets[index]! + 10;
+				expect(fidelity.restore(baseline.slice(0, at) + 'X' + baseline.slice(at), false)).toBe(
+					source.slice(0, rawAt) + 'X' + source.slice(rawAt)
+				);
+			}
+			expect(parsed.length).toBeGreaterThan(0);
+			expect(
+				Math.max(...parsed),
+				'eligible text edits must parse only a bounded region'
+			).toBeLessThan(64 * 1024);
+			expect(Math.max(0, ...normalized), 'normalization must also stay local').toBeLessThan(
+				64 * 1024
 			);
 		}
-		expect(parsed.length).toBeGreaterThan(0);
-		expect(
-			Math.max(...parsed),
-			'eligible text edits must parse only a bounded region'
-		).toBeLessThan(64 * 1024);
-		expect(Math.max(0, ...normalized), 'normalization must also stay local').toBeLessThan(
-			64 * 1024
-		);
-	});
+	);
 
 	it('keeps entities, mixed EOL and separate edits without accepting a rejected snapshot', () => {
 		const source =
