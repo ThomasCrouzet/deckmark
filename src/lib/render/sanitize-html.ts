@@ -333,49 +333,105 @@ export async function assertMermaidMediaSafe(code: string): Promise<void> {
 
 // Both consumers share this queue and reset the singleton together. This prevents
 // a light export from changing a concurrent dark preview.
-let mermaidQueue: Promise<unknown> = Promise.resolve();
+export type MermaidPriority = 'active' | 'background';
+
+interface MermaidJob {
+	run: () => Promise<string>;
+	resolve: (value: string) => void;
+	reject: (error: unknown) => void;
+	signal: AbortSignal | undefined;
+	priority: MermaidPriority;
+	onAbort: () => void;
+}
+
+const mermaidJobs: MermaidJob[] = [];
+let mermaidActive = false;
+
+function pumpMermaid(): void {
+	if (mermaidActive) return;
+	for (;;) {
+		const index = mermaidJobs.findIndex((job) => job.priority === 'active');
+		const job = mermaidJobs.splice(index >= 0 ? index : 0, 1)[0];
+		if (!job) return;
+		job.signal?.removeEventListener('abort', job.onAbort);
+		if (job.signal?.aborted) {
+			job.reject(new DOMException('Operation cancelled', 'AbortError'));
+			continue;
+		}
+		mermaidActive = true;
+		void job
+			.run()
+			.then(job.resolve, job.reject)
+			.finally(() => {
+				mermaidActive = false;
+				pumpMermaid();
+			});
+		return;
+	}
+}
+
 export function renderMermaidSvg(
 	id: string,
 	code: string,
 	theme: 'default' | 'dark' | 'neutral' | 'forest',
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	priority: MermaidPriority = 'background'
 ): Promise<string> {
-	const rendering = mermaidQueue.then(async () => {
-		checkAborted(signal);
-		await assertMermaidMediaSafe(code);
-		checkAborted(signal);
-		const { default: mermaid } = await import('mermaid');
-		checkAborted(signal);
-		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: 'strict',
-			theme,
-			// Keep the offline-supported Dagre layout and the classic appearance.
-			// Secure layout and flowchart so document settings cannot load ELK.
-			layout: 'dagre',
-			look: 'classic',
-			htmlLabels: false,
-			flowchart: { htmlLabels: false },
-			secure: [
-				'securityLevel',
-				'startOnLoad',
-				'maxTextSize',
-				'maxEdges',
-				'htmlLabels',
-				'layout',
-				'flowchart',
-				'themeCSS',
-				'themeVariables',
-				'fontFamily',
-				'altFontFamily'
-			],
-			fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
-		});
-		const { svg } = await mermaid.render(id, code);
-		checkAborted(signal);
-		return inlineMermaidStyles(svg);
+	const rendering = new Promise<string>((resolve, reject) => {
+		const job: MermaidJob = {
+			resolve,
+			reject,
+			signal,
+			priority,
+			onAbort: () => {
+				const index = mermaidJobs.indexOf(job);
+				if (index >= 0) mermaidJobs.splice(index, 1);
+				reject(new DOMException('Operation cancelled', 'AbortError'));
+			},
+			run: async () => {
+				checkAborted(signal);
+				await assertMermaidMediaSafe(code);
+				checkAborted(signal);
+				const { default: mermaid } = await import('mermaid');
+				checkAborted(signal);
+				mermaid.initialize({
+					startOnLoad: false,
+					securityLevel: 'strict',
+					theme,
+					// Keep the offline-supported Dagre layout and the classic appearance.
+					// Secure layout and flowchart so document settings cannot load ELK.
+					layout: 'dagre',
+					look: 'classic',
+					htmlLabels: false,
+					flowchart: { htmlLabels: false },
+					secure: [
+						'securityLevel',
+						'startOnLoad',
+						'maxTextSize',
+						'maxEdges',
+						'htmlLabels',
+						'layout',
+						'flowchart',
+						'themeCSS',
+						'themeVariables',
+						'fontFamily',
+						'altFontFamily'
+					],
+					fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+				});
+				const { svg } = await mermaid.render(id, code);
+				checkAborted(signal);
+				return inlineMermaidStyles(svg);
+			}
+		};
+		if (priority === 'active') {
+			const firstBackground = mermaidJobs.findIndex((entry) => entry.priority === 'background');
+			if (firstBackground < 0) mermaidJobs.push(job);
+			else mermaidJobs.splice(firstBackground, 0, job);
+		} else mermaidJobs.push(job);
+		signal?.addEventListener('abort', job.onAbort, { once: true });
+		pumpMermaid();
 	});
-	mermaidQueue = rendering.catch(() => undefined);
 	return abortable(rendering, signal);
 }
 
