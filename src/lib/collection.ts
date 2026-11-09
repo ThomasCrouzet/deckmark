@@ -1,5 +1,6 @@
 import { parseFrontmatter } from './frontmatter';
 import { documentKindForFile } from './document-kind';
+import { contentHash } from './ai/patches';
 import type { FileItem } from './types';
 
 export interface CollectionRow {
@@ -32,30 +33,48 @@ function scalar(value: unknown): string | number | boolean | string[] | null {
 	return null;
 }
 
+const parsedRows = new Map<
+	string,
+	{ hash: string; values: Record<string, string | number | boolean | string[]>; title: string }
+>();
+
 /** Reads front matter into a table-friendly shape. Image and code files are skipped. */
 export async function buildCollection(files: readonly FileItem[]): Promise<CollectionRow[]> {
 	const rows: CollectionRow[] = [];
+	const live = new Set<string>();
 	for (const file of files) {
 		if (documentKindForFile(file) !== 'note') continue;
-		const parsed = await parseFrontmatter(file.content);
-		const values: CollectionRow['values'] = {};
-		for (const [key, raw] of Object.entries(parsed.data)) {
-			const value = scalar(raw);
-			if (value !== null) values[key] = value;
+		live.add(file.id);
+		const hash = `${file.content.length}:${contentHash(file.content)}`;
+		let cached = parsedRows.get(file.id);
+		if (cached?.hash !== hash) {
+			const parsed = await parseFrontmatter(file.content);
+			const values: CollectionRow['values'] = {};
+			for (const [key, raw] of Object.entries(parsed.data)) {
+				const value = scalar(raw);
+				if (value !== null) values[key] = value;
+			}
+			cached = {
+				hash,
+				values,
+				title:
+					typeof parsed.data.title === 'string' && parsed.data.title.trim()
+						? parsed.data.title.trim()
+						: file.name.replace(/\.[^.]+$/, '')
+			};
+			parsedRows.set(file.id, cached);
 		}
 		rows.push({
 			id: file.id,
 			name: file.name,
-			title:
-				typeof parsed.data.title === 'string' && parsed.data.title.trim()
-					? parsed.data.title.trim()
-					: file.name.replace(/\.[^.]+$/, ''),
+			title: cached.title,
 			...(file.projectId ? { projectId: file.projectId } : {}),
 			...(file.relativePath ? { relativePath: file.relativePath } : {}),
 			updatedAt: file.updatedAt,
-			values
+			values: cached.values
 		});
 	}
+	for (const id of parsedRows.keys()) if (!live.has(id)) parsedRows.delete(id);
 	return rows;
 }
 
