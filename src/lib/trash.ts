@@ -9,7 +9,7 @@
 
 import { db, newId } from './db';
 import type { DraftRow, TrashedRow } from './db';
-import type { FileItem, TrashedFile } from './types';
+import type { TrashedFile } from './types';
 import { TIMERS } from './config';
 import { deleteHandle } from './fsa';
 import { isDesktop } from './desktop';
@@ -108,35 +108,87 @@ export interface TrashLoadResult {
  * are deleted from Dexie in place (DB side-effect, no Svelte state).
  */
 export async function loadTrashRows(now = Date.now()): Promise<TrashLoadResult[]> {
-	const trashedRows = await db.trashed.orderBy('trashedAt').toArray();
+	const { readTrashSummaries } = await import('./trash-summary-read');
+	let summaries: Awaited<ReturnType<typeof readTrashSummaries>> = await readTrashSummaries();
+	// Small trash stays fully resident: the metadata round-trip is only worth
+	// its restore indirection when bodies would be materialized in bulk.
+	const summaryBytes = summaries?.reduce((total, item) => total + item.contentLength, 0) ?? 0;
+	if (summaries && summaryBytes <= 512 * 1024 && summaries.length <= 64) summaries = null;
 	const results: TrashLoadResult[] = [];
-	for (const tr of trashedRows) {
-		const remainingMs = TIMERS.trashRetentionMs - (now - tr.trashedAt);
-		if (remainingMs <= 0) {
-			// Immediate purge: undo window expired (late reload). Complete purge
-			// (trashed + handle + versions) so no orphan snapshots are left in base.
-			try {
-				await fullPurge(tr.id);
-				continue;
-			} catch (error) {
-				reportPersistenceError(error, 'trash');
-			}
+	const expired = new Map<string, TrashLoadResult>();
+	if (summaries) {
+		for (const summary of summaries) {
+			const entry: TrashedFile = {
+				file: {
+					id: summary.id,
+					name: summary.name,
+					content: '',
+					...(summary.projectId
+						? { projectId: summary.projectId, relativePath: summary.relativePath }
+						: {}),
+					...(summary.kind ? { kind: summary.kind } : {}),
+					...(summary.mime ? { mime: summary.mime } : {}),
+					createdAt: summary.createdAt,
+					updatedAt: summary.updatedAt,
+					dirty: false,
+					linkedToDisk: false,
+					contentDeferred: true
+				},
+				order: summary.order,
+				trashedAt: summary.trashedAt
+			};
+			const remainingMs = TIMERS.trashRetentionMs - (now - summary.trashedAt);
+			if (remainingMs <= 0) expired.set(summary.id, { entry, remainingMs });
+			else results.push({ entry, remainingMs });
 		}
-		const file: FileItem = {
+	} else {
+		const trashedRows = await db.trashed.orderBy('trashedAt').toArray();
+		for (const tr of trashedRows) {
+			const entry = trashEntryFromRow(tr);
+			const remainingMs = TIMERS.trashRetentionMs - (now - tr.trashedAt);
+			if (remainingMs <= 0) expired.set(tr.id, { entry, remainingMs });
+			else results.push({ entry, remainingMs });
+		}
+	}
+	// Purge outside the startup scan in small batches so hundreds of expired
+	// entries do not serialize disk-link cleanup on the first paint.
+	const expiredIds = [...expired.keys()];
+	for (let offset = 0; offset < expiredIds.length; offset += 20) {
+		await Promise.all(
+			expiredIds.slice(offset, offset + 20).map(async (id) => {
+				try {
+					await fullPurge(id);
+				} catch (error) {
+					reportPersistenceError(error, 'trash');
+					const entry = expired.get(id);
+					if (entry) results.push(entry);
+				}
+			})
+		);
+	}
+	return results;
+}
+
+function trashEntryFromRow(tr: TrashedRow): TrashedFile {
+	return {
+		file: {
 			id: tr.file.id,
 			name: tr.file.name,
 			content: tr.file.content,
 			...(tr.file.projectId
 				? { projectId: tr.file.projectId, relativePath: tr.file.relativePath }
 				: {}),
+			...(tr.file.kind ? { kind: tr.file.kind } : {}),
+			...(tr.file.mime ? { mime: tr.file.mime } : {}),
+			...(tr.file.data ? { data: tr.file.data } : {}),
 			createdAt: tr.file.createdAt,
 			updatedAt: tr.file.updatedAt,
 			dirty: false,
 			linkedToDisk: false
-		};
-		results.push({ entry: { file, order: tr.order, trashedAt: tr.trashedAt }, remainingMs });
-	}
-	return results;
+		},
+		order: tr.order,
+		trashedAt: tr.trashedAt
+	};
 }
 
 /**

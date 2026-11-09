@@ -203,6 +203,11 @@
 	// §5.2 - Backlinks of the active file (files that point to it via
 	// `[[...]]`). Recomputed on every active file or content change.
 	const backlinks = $derived(filesStore.activeId ? filesStore.backlinks(filesStore.activeId) : []);
+	let closedOpen = $state(false);
+	let closedLimit = $state(100);
+	let backlinksLimit = $state(50);
+	const visibleClosed = $derived(filesStore.closedFiles.slice(0, closedLimit));
+	const visibleBacklinks = $derived(backlinks.slice(0, backlinksLimit));
 
 	// §6.5 - Multi-selection: remembers the last clicked id (without modifying
 	// activeId) to enable Finder/VSCode-style Shift+click ranges.
@@ -781,44 +786,58 @@
 		</details>
 	{/if}
 	{#if filesStore.closedFiles.length > 0}
-		<details class="max-h-48 overflow-y-auto border-t border-border px-3 py-2 text-xs">
+		<details
+			class="max-h-48 overflow-y-auto border-t border-border px-3 py-2 text-xs"
+			bind:open={closedOpen}
+		>
 			<summary class="cursor-pointer text-fg"
 				>{t('sidebar.closedFiles')} ({filesStore.closedFiles.length})</summary
 			>
-			{#each filesStore.closedFiles as file (file.id)}
-				{@const kind = documentKindForFile(file)}
-				{@const typeLabel = t(documentKindLabelKey(kind))}
-				{@const TypeIcon =
-					kind === 'note'
-						? FileText
-						: kind === 'presentation'
-							? Presentation
-							: kind === 'code'
-								? Code2
-								: kind === 'image'
-									? Image
-									: FileText}
-				<button
-					class="flex w-full items-center gap-2 py-2 text-left"
-					aria-label={file.name}
-					aria-describedby={`closed-type-${file.id}`}
-					onclick={() => {
-						filesStore.openDocument(file.id);
-						if (isMobile) onClose();
-					}}
-				>
-					<span
-						id={`closed-type-${file.id}`}
-						class="shrink-0"
-						role="img"
-						aria-label={typeLabel}
-						title={typeLabel}
+			{#if closedOpen}
+				{#each visibleClosed as file (file.id)}
+					{@const kind = documentKindForFile(file)}
+					{@const typeLabel = t(documentKindLabelKey(kind))}
+					{@const TypeIcon =
+						kind === 'note'
+							? FileText
+							: kind === 'presentation'
+								? Presentation
+								: kind === 'code'
+									? Code2
+									: kind === 'image'
+										? Image
+										: FileText}
+					<button
+						class="flex w-full items-center gap-2 py-2 text-left"
+						aria-label={file.name}
+						aria-describedby={`closed-type-${file.id}`}
+						onclick={() => {
+							filesStore.openDocument(file.id);
+							if (isMobile) onClose();
+						}}
 					>
-						<TypeIcon size={14} aria-hidden="true" />
-					</span>
-					<span class="truncate">{file.name}</span>
-				</button>
-			{/each}
+						<span
+							id={`closed-type-${file.id}`}
+							class="shrink-0"
+							role="img"
+							aria-label={typeLabel}
+							title={typeLabel}
+						>
+							<TypeIcon size={14} aria-hidden="true" />
+						</span>
+						<span class="truncate">{file.name}</span>
+					</button>
+				{/each}
+				{#if visibleClosed.length < filesStore.closedFiles.length}
+					<button
+						type="button"
+						class="w-full py-2 text-center text-fg-muted underline"
+						onclick={() => (closedLimit += 100)}
+					>
+						{t('sidebar.showMore', { n: filesStore.closedFiles.length - visibleClosed.length })}
+					</button>
+				{/if}
+			{/if}
 		</details>
 	{/if}
 	{#if filesStore.trash.length > 0}
@@ -837,7 +856,7 @@
 				<span>{t('sidebar.backlinksCount', { n: backlinks.length })}</span>
 			</div>
 			<ul class="flex flex-col">
-				{#each backlinks as bf (bf.id)}
+				{#each visibleBacklinks as bf (bf.id)}
 					<li>
 						<button
 							type="button"
@@ -851,6 +870,15 @@
 					</li>
 				{/each}
 			</ul>
+			{#if visibleBacklinks.length < backlinks.length}
+				<button
+					type="button"
+					class="w-full py-1 text-center text-[11px] text-fg-muted underline"
+					onclick={() => (backlinksLimit += 50)}
+				>
+					{t('sidebar.showMore', { n: backlinks.length - visibleBacklinks.length })}
+				</button>
+			{/if}
 		</nav>
 	{/if}
 

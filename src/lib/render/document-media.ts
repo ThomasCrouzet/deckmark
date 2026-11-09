@@ -6,6 +6,7 @@ import {
 	type MediaIssue
 } from './image-media';
 import { projectDestinations } from '../project-links';
+import { MAX_IMAGE_BYTES } from '../config';
 
 export interface MarkdownImageDestination {
 	start: number;
@@ -133,9 +134,13 @@ export async function incorporateDocumentImages(
 				issues.push({ source, reason: 'blocked' });
 				continue;
 			}
-			const image = file
-				? await embedImageFile(file)
-				: await fetchAndEmbedImage(source, MAX_MEDIA_TOTAL_BYTES - totalBytes);
+			const remaining = MAX_MEDIA_TOTAL_BYTES - totalBytes;
+			if (file && file.size > Math.min(MAX_IMAGE_BYTES, remaining)) {
+				// Reject before decode. Oversized files must not allocate pixels.
+				issues.push({ source, reason: 'too-large' });
+				continue;
+			}
+			const image = file ? await embedImageFile(file) : await fetchAndEmbedImage(source, remaining);
 			if (totalBytes + image.bytes > MAX_MEDIA_TOTAL_BYTES) {
 				issues.push({ source, reason: 'too-large' });
 				continue;
@@ -146,11 +151,17 @@ export async function incorporateDocumentImages(
 			issues.push({ source, reason: 'unreadable' });
 		}
 	}
-	let result = markdown;
-	for (const destination of destinations.toReversed()) {
+	// Assemble all changed destinations in one pass. Repeated string slicing
+	// copies most of a multi-megabyte note for every embedded image.
+	const chunks: string[] = [];
+	let cursor = 0;
+	for (const destination of destinations.toSorted((a, b) => a.start - b.start)) {
 		const replacement = replacements.get(destination.source);
-		if (replacement)
-			result = result.slice(0, destination.start) + replacement + result.slice(destination.end);
+		if (!replacement) continue;
+		if (destination.start < cursor) break;
+		chunks.push(markdown.slice(cursor, destination.start), replacement);
+		cursor = destination.end;
 	}
-	return { markdown: result, embedded: replacements.size, issues };
+	chunks.push(markdown.slice(cursor));
+	return { markdown: chunks.join(''), embedded: replacements.size, issues };
 }

@@ -1022,6 +1022,7 @@ export const fr: Record<MessageKey, string> = {
 	// sidebar
 	'sidebar.allTags': 'Tous',
 	'sidebar.backlinks': 'Backlinks',
+	'sidebar.showMore': 'Afficher {n} de plus',
 	'sidebar.backlinksCount': 'Backlinks ({n})',
 	'sidebar.brokenDiskLink': 'Lien disque rompu',
 	'sidebar.brokenDiskLinkHint': 'Lien disque rompu - relier le fichier ou dissocier',

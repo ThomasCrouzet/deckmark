@@ -3,6 +3,21 @@ import { resolveProjectPath } from './project-paths';
 import { embedImageBlob, MAX_MEDIA_TOTAL_BYTES } from './render/image-media';
 import { abortable, checkAborted } from './abort';
 
+const imageCache = new Map<string, string>();
+const IMAGE_CACHE_BYTES = 8 * 1024 * 1024;
+
+function cacheImage(key: string, dataUri: string): void {
+	imageCache.delete(key);
+	imageCache.set(key, dataUri);
+	let bytes = 0;
+	for (const value of imageCache.values()) bytes += value.length;
+	while (imageCache.size > 1 && bytes > IMAGE_CACHE_BYTES) {
+		const oldest = imageCache.keys().next().value!;
+		bytes -= imageCache.get(oldest)!.length;
+		imageCache.delete(oldest);
+	}
+}
+
 export interface ProjectContext {
 	projectId: string;
 	relativePath: string;
@@ -30,10 +45,17 @@ export async function projectImageSource(
 		.first();
 	checkAborted(signal);
 	if (!asset || !asset.mime.startsWith('image/')) return null;
+	const key = `${asset.id}:${asset.data.byteLength}:${asset.mime}`;
+	const cached = imageCache.get(key);
+	if (cached) {
+		cacheImage(key, cached);
+		return cached;
+	}
 	const image = await abortable(
 		embedImageBlob(new Blob([new Uint8Array(asset.data)], { type: asset.mime })),
 		signal
 	);
+	cacheImage(key, image.dataUri);
 	return image.dataUri;
 }
 

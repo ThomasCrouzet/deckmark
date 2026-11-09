@@ -76,6 +76,7 @@ class SnippetsStore {
 	}
 
 	async save(input: SnippetInput, existingId: string | null = null): Promise<SnippetSaveResult> {
+		(await import('./snippet-hooks')).installSnippetHooks();
 		const language = snippetLanguage(input.language);
 		const code = input.code;
 		let result: SnippetSaveResult;
