@@ -15,6 +15,7 @@ import { renameProjectLinks, projectLinkReport } from './project-links';
 import type { ProjectInput } from './project-archive';
 import { PROJECT_SCALE_LIMITS } from './project-limits';
 import { projectDocumentLimit } from './project-limits';
+import { validateMarkdownContent } from './import-limits';
 import { normalizeRename } from './file-utils';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { notify } from './notify.svelte';
@@ -75,8 +76,13 @@ export async function createProject(name: string): Promise<ProjectRow> {
 	});
 }
 
-export async function createProjectDocument(projectId: string, path: string): Promise<string> {
+export async function createProjectDocument(
+	projectId: string,
+	path: string,
+	content = ''
+): Promise<string> {
 	const relativePath = projectPath(/\.(md|markdown|mdx|txt)$/i.test(path) ? path : `${path}.md`);
+	validateMarkdownContent(content);
 
 	if (relativePath.split('/')[0]!.toLowerCase() === '.mdsh')
 		throw new Error('Reserved project path');
@@ -88,7 +94,7 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 		projectId,
 		relativePath,
 		name: relativePath.split('/').pop()!,
-		content: '',
+		content,
 		createdAt: now,
 		updatedAt: now,
 		order: filesStore.library.length,

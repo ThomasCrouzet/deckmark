@@ -56,6 +56,31 @@ describe('project document creation', () => {
 		expect(draftsSpy).not.toHaveBeenCalledWith('projectId');
 		expect(assetsSpy).not.toHaveBeenCalledWith('projectId');
 	});
+
+	it('commits the final capture body with the path reservation', async () => {
+		const project = await createProject('Capture');
+		const id = await createProjectDocument(project.id, 'quick.md', '# Captured\n\nExact body.\n');
+		expect(await db.drafts.get(id)).toMatchObject({
+			relativePath: 'quick.md',
+			content: '# Captured\n\nExact body.\n'
+		});
+	});
+
+	it('leaves no empty document when the atomic insert fails', async () => {
+		const project = await createProject('Capture');
+		const before = await db.drafts.where('projectId').equals(project.id).count();
+		const add = vi.spyOn(db.drafts, 'add').mockRejectedValue(new Error('quota'));
+		await expect(
+			createProjectDocument(project.id, 'failed.md', '# Must not remain\n')
+		).rejects.toThrow('quota');
+		add.mockRestore();
+		expect(await db.drafts.where('projectId').equals(project.id).count()).toBe(before);
+		expect(
+			(await db.drafts.where('projectId').equals(project.id).toArray()).some(
+				(row) => row.relativePath === 'failed.md'
+			)
+		).toBe(false);
+	});
 });
 
 describe('project image assets', () => {
