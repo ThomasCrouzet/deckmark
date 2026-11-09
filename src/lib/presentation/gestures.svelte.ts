@@ -807,11 +807,11 @@ export function createPresentationGestures(
 			return;
 		}
 		const extendSelection = event.shiftKey || event.ctrlKey || event.metaKey || getMultiSelect();
-		const deselectOnTap = extendSelection && editor.selected.includes(element.id);
-		if (!editor.selected.includes(element.id)) {
+		const deselectOnTap = extendSelection && editor.selectedSet.has(element.id);
+		if (!editor.selectedSet.has(element.id)) {
 			editor.select(element.id, extendSelection);
 		}
-		if (!editor.selected.includes(element.id)) return;
+		if (!editor.selectedSet.has(element.id)) return;
 		editor.begin();
 		const snapshots = prepareSnapshots();
 		if (snapshots.length === 0) {

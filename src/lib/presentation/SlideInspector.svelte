@@ -231,7 +231,7 @@
 				{#each editor.slide.elements as element, index (element.id)}
 					<button
 						type="button"
-						aria-pressed={editor.selected.includes(element.id)}
+						aria-pressed={editor.selectedSet.has(element.id)}
 						data-testid="slide-object-list-item"
 						onclick={(event) =>
 							editor.select(

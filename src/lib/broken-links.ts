@@ -40,32 +40,39 @@ export async function computeBrokenLinks(
 	const check = deps.checkHandleFn ?? checkHandle;
 	const getPath = deps.getPathLinkFn ?? getPathLink;
 	const checkPath = deps.checkPathFn ?? tauriCheckPath;
-	// Independent checks per file → `Promise.all` to parallelize the
-	// `getHandle` + `checkHandle` calls (N×IDB latency otherwise).
 	const candidates = files.filter((f) => f.linkedToDisk);
-	const updates = await Promise.all(
-		candidates.map(async (file): Promise<BrokenLinkUpdate> => {
+	const updates = new Array<BrokenLinkUpdate>(candidates.length);
+	let next = 0;
+	const worker = async () => {
+		while (next < candidates.length) {
+			const index = next++;
+			const file = candidates[index]!;
 			const pathRec = await getPath(file.id);
 			if (pathRec) {
 				const status = await checkPath(pathRec.path);
-				return {
+				updates[index] = {
 					id: file.id,
 					brokenLink: status === 'broken',
 					handleMissing: false
 				};
+				continue;
 			}
 			const handle = await get(file.id);
 			if (!handle) {
-				return { id: file.id, brokenLink: true, handleMissing: true };
+				updates[index] = { id: file.id, brokenLink: true, handleMissing: true };
+				continue;
 			}
 			const status = await check(handle);
-			return {
+			updates[index] = {
 				id: file.id,
 				brokenLink: status === 'broken',
 				handleMissing: false
 			};
-		})
-	);
+		}
+	};
+	// Bound concurrent IDB and native stat work so a large linked library does
+	// not submit hundreds of checks at once after startup.
+	await Promise.all(Array.from({ length: Math.min(8, candidates.length) }, () => worker()));
 	return updates;
 }
 

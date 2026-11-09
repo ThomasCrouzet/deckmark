@@ -118,14 +118,31 @@
 		else void getRuntime();
 	});
 
+	let selectionJob = 0;
 	$effect(() => {
 		const text = selectedText;
+		const job = ++selectionJob;
 		if (!text || kind !== 'note') {
 			selectionStats = null;
 			return;
 		}
-		if (runtime) selectionStats = runtime.selection(text);
-		else void getRuntime();
+		// Selection counting is O(selection length). Run it after the input event
+		// and cancel an older selection walk as soon as the selection changes.
+		const run = () => {
+			if (job !== selectionJob || disposed) return;
+			if (runtime) selectionStats = runtime.selection(text);
+			else void getRuntime();
+		};
+		const handle =
+			typeof requestIdleCallback === 'function'
+				? requestIdleCallback(run, { timeout: 200 })
+				: setTimeout(run, 0);
+		return () => {
+			selectionJob += 1;
+			if (typeof cancelIdleCallback === 'function' && typeof handle === 'number')
+				cancelIdleCallback(handle);
+			else clearTimeout(handle as ReturnType<typeof setTimeout>);
+		};
 	});
 
 	onMount(() => () => {

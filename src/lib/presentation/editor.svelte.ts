@@ -36,6 +36,8 @@ export class PresentationEditor {
 	deck = $state<PresentationDeck>(createDeck());
 	index = $state(0);
 	selected = $state<string[]>([]);
+	selectedSet = $derived(new SvelteSet(this.selected));
+	elements = $derived(this.slide.elements.filter((element) => this.selectedSet.has(element.id)));
 	source = $state('');
 	error = $state(false);
 	pending = $state(false);
@@ -65,9 +67,6 @@ export class PresentationEditor {
 
 	get slide() {
 		return this.deck.slides[this.index]!;
-	}
-	get elements() {
-		return this.slide.elements.filter((element) => this.selected.includes(element.id));
 	}
 	get primary() {
 		return this.elements[0];
@@ -243,7 +242,7 @@ export class PresentationEditor {
 					.map((entry) => entry.id)
 			: [id];
 		this.selected = extend
-			? ids.every((value) => this.selected.includes(value))
+			? ids.every((value) => this.selectedSet.has(value))
 				? this.selected.filter((value) => !ids.includes(value))
 				: [...new SvelteSet([...this.selected, ...ids])]
 			: ids;
@@ -390,16 +389,15 @@ export class PresentationEditor {
 	remove() {
 		this.change(() => {
 			for (const element of this.slide.elements) {
-				const removeStart =
-					element.startId !== undefined && this.selected.includes(element.startId);
-				const removeEnd = element.endId !== undefined && this.selected.includes(element.endId);
+				const removeStart = element.startId !== undefined && this.selectedSet.has(element.startId);
+				const removeEnd = element.endId !== undefined && this.selectedSet.has(element.endId);
 				if (!removeStart && !removeEnd) continue;
 				this.materializeConnector(element, false);
 				if (removeStart) delete element.startId;
 				if (removeEnd) delete element.endId;
 			}
 			this.slide.elements = this.slide.elements.filter(
-				(element) => !this.selected.includes(element.id)
+				(element) => !this.selectedSet.has(element.id)
 			);
 			this.selected = [];
 		});
@@ -490,7 +488,7 @@ export class PresentationEditor {
 	layer(direction: 'front' | 'back' | 'forward' | 'backward') {
 		this.change(() => {
 			const selected = this.elements;
-			const others = this.slide.elements.filter((element) => !this.selected.includes(element.id));
+			const others = this.slide.elements.filter((element) => !this.selectedSet.has(element.id));
 			if (direction === 'front') this.slide.elements = [...others, ...selected];
 			else if (direction === 'back') this.slide.elements = [...selected, ...others];
 			else {
@@ -500,7 +498,7 @@ export class PresentationEditor {
 				for (const element of ordered) {
 					const index = entries.findIndex((entry) => entry.id === element.id);
 					const next = entries[index + step];
-					if (next && !this.selected.includes(next.id)) {
+					if (next && !this.selectedSet.has(next.id)) {
 						entries[index] = next;
 						entries[index + step] = element;
 					}

@@ -33,7 +33,8 @@ export function replaceInFilesAsync(
 	opts: ReplaceOptions,
 	workerOptions: ReplaceWorkerOptions = {}
 ): Promise<ReplaceOutcome> {
-	if (!opts.useRegex) return Promise.resolve(replaceInFiles(files, query, replacement, opts));
+	if (typeof Worker === 'undefined' && !workerOptions.createWorker)
+		return Promise.resolve(replaceInFiles(files, query, replacement, opts));
 	return new Promise((resolve) => {
 		let worker: WorkerHost;
 		try {
@@ -41,7 +42,7 @@ export function replaceInFilesAsync(
 				? workerOptions.createWorker()
 				: new Worker(new URL('./workers/replace.worker.ts', import.meta.url), { type: 'module' });
 		} catch {
-			resolve({ results: [], total: 0, regexError: t('search.unavailable') });
+			resolve(replaceInFiles(files, query, replacement, opts));
 			return;
 		}
 		let settled = false;

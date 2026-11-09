@@ -6,6 +6,7 @@ import { liveQuery, type Subscription } from 'dexie';
 import { db, newId, type SnippetRow } from './db';
 import { reportPersistenceError } from './storage';
 import { t } from '#lib/i18n/index.js';
+import { hashSnippetCode } from './snippet-hash';
 import {
 	findDuplicateSnippet,
 	normalizeSnippetRow,
@@ -80,11 +81,14 @@ class SnippetsStore {
 		let result: SnippetSaveResult;
 		try {
 			result = await db.transaction('rw', db.snippets, async (): Promise<SnippetSaveResult> => {
-				const rows = await db.snippets.toArray();
-				const duplicate = findDuplicateSnippet(rows, code, language, existingId);
+				const candidates = await db.snippets
+					.where('codeHash')
+					.equals(hashSnippetCode(code))
+					.toArray();
+				const duplicate = findDuplicateSnippet(candidates, code, language, existingId);
 				if (duplicate) return { ok: false, duplicate };
 				const now = Date.now();
-				const current = existingId ? (rows.find((row) => row.id === existingId) ?? null) : null;
+				const current = existingId ? ((await db.snippets.get(existingId)) ?? null) : null;
 				const row: SnippetRow = {
 					id: current?.id ?? newId(),
 					title: input.title.trim() || t('snippets.untitled'),
