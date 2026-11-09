@@ -317,25 +317,6 @@
 			run: onSaveSnippetFile
 		},
 		{ id: 'backup', label: t('actions.backups'), icon: Download, run: onOpenSettings },
-		...filesStore.closedFiles.map((file) => ({
-			id: `reopen-${file.id}`,
-			label: t('palette.reopenFile', { name: file.name }),
-			keywords: filesStore.documentTitle(file.id),
-			hint: t(documentKindLabelKey(documentKindForFile(file))),
-			icon:
-				documentKindForFile(file) === 'note'
-					? FileText
-					: documentKindForFile(file) === 'presentation'
-						? Presentation
-						: documentKindForFile(file) === 'code'
-							? Code2
-							: documentKindForFile(file) === 'image'
-								? ImageIcon
-								: FileText,
-			run: () => {
-				filesStore.openDocument(file.id);
-			}
-		})),
 		{
 			id: 'close-file',
 			label: t('palette.closeFile'),
@@ -828,6 +809,28 @@
 		}
 	]);
 
+	const reopenCommands: Command[] = $derived(
+		filesStore.closedFiles.map((file) => ({
+			id: `reopen-${file.id}`,
+			label: t('palette.reopenFile', { name: file.name }),
+			keywords: filesStore.documentTitle(file.id),
+			hint: t(documentKindLabelKey(documentKindForFile(file))),
+			icon:
+				documentKindForFile(file) === 'note'
+					? FileText
+					: documentKindForFile(file) === 'presentation'
+						? Presentation
+						: documentKindForFile(file) === 'code'
+							? Code2
+							: documentKindForFile(file) === 'image'
+								? ImageIcon
+								: FileText,
+			run: () => {
+				filesStore.openDocument(file.id);
+			}
+		}))
+	);
+
 	const fileCommands: Command[] = $derived(
 		filesStore.files.map((f) => ({
 			id: `file-${f.id}`,
@@ -886,7 +889,13 @@
 		visibleLimit = PAGE_COMMANDS;
 	});
 	const matches: Command[] = $derived.by(() => {
-		const all = [...baseCommands, ...templateCommands, ...workspaceCommands, ...fileCommands]
+		const all = [
+			...baseCommands,
+			...templateCommands,
+			...workspaceCommands,
+			...fileCommands,
+			...reopenCommands
+		]
 			.filter((command) => {
 				if (command.id === 'advanced-source') return kind === 'presentation';
 				if (command.id === 'focus') return kind === 'note' && mode === 'read';

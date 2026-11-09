@@ -174,9 +174,20 @@ async function inventory(page: Page) {
 					const reads = stores.map((store) => transaction.objectStore(store).getAll());
 					transaction.oncomplete = () => {
 						database.close();
+						const cleanDraft = (row: Record<string, unknown>) => {
+							const { metadata: _metadata, ...rest } = row;
+							return rest;
+						};
+						const cleanTrash = (row: Record<string, unknown>) => {
+							const { summary: _summary, file, ...rest } = row;
+							return {
+								...rest,
+								file: file ? cleanDraft(file as Record<string, unknown>) : file
+							};
+						};
 						resolve({
-							drafts: reads[0]!.result,
-							trashed: reads[1]!.result,
+							drafts: reads[0]!.result.map(cleanDraft),
+							trashed: reads[1]!.result.map(cleanTrash),
 							projects: reads[2]!.result,
 							projectAssets: reads[3]!.result.map((asset) => ({
 								...asset,
