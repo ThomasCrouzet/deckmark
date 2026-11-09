@@ -151,6 +151,71 @@ describe('mixed resource traversal', () => {
 		expect(result.issues).toEqual([{ source: '4.png', reason: 'too-large' }]);
 		expect(result.markdown).toContain('![Alt](4.png)');
 	});
+
+	it('stops a pending network read on abort and never starts the next one', async () => {
+		const source = '![A](https://example.org/a.png)\n![B](https://example.org/b.png)';
+		let started = 0;
+		const fetchSpy = vi.fn(
+			(_input: RequestInfo | URL, init?: RequestInit) =>
+				new Promise<Response>((_resolve, reject) => {
+					started += 1;
+					init?.signal?.addEventListener('abort', () =>
+						reject(new DOMException('Operation cancelled', 'AbortError'))
+					);
+				})
+		);
+		vi.stubGlobal('fetch', fetchSpy);
+		const controller = new AbortController();
+		const pending = incorporateDocumentImages(source, {
+			allowNetwork: true,
+			signal: controller.signal
+		});
+		await vi.waitFor(() => expect(started).toBe(1));
+		controller.abort();
+		await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+		expect(started).toBe(1);
+	});
+
+	it('stops a local decode on abort and keeps the original Markdown', async () => {
+		vi.stubGlobal(
+			'createImageBitmap',
+			vi.fn(() => new Promise(() => {}))
+		);
+		const source = '![Alt](figure.png)';
+		const file = new File([PNG_BYTES], 'figure.png', { type: 'image/png' });
+		const controller = new AbortController();
+		const pending = incorporateDocumentImages(source, { files: [file], signal: controller.signal });
+		await vi.waitFor(() => expect(createImageBitmap).toHaveBeenCalled());
+		controller.abort();
+		await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+	});
+
+	it('does not read a remote image after the aggregate budget is full', async () => {
+		const large = new Uint8Array(2 * 1024 * 1024);
+		large.set(PNG_BYTES);
+		const sources = Array.from({ length: 5 }, (_, index) => `https://example.org/${index}.png`);
+		let reads = 0;
+		const fetchSpy = vi.fn(async () => {
+			reads += 1;
+			return {
+				ok: true,
+				headers: new Headers({ 'content-type': 'image/png' }),
+				body: new ReadableStream({
+					start(controller) {
+						controller.enqueue(large);
+						controller.close();
+					}
+				})
+			} as unknown as Response;
+		});
+		vi.stubGlobal('fetch', fetchSpy);
+		const markdown = sources.map((source) => `![Alt](${source})`).join('\n');
+		const result = await incorporateDocumentImages(markdown, { allowNetwork: true });
+		expect(result.embedded).toBe(4);
+		expect(reads).toBe(4);
+		expect(result.issues).toEqual([{ source: sources[4], reason: 'too-large' }]);
+		expect(result.markdown).toContain(`![Alt](${sources[4]})`);
+	});
 });
 
 describe('case-insensitive local schemes', () => {

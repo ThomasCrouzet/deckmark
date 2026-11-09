@@ -7,7 +7,7 @@ import {
 } from './image-media';
 import { projectDestinations } from '../project-links';
 import { MAX_IMAGE_BYTES } from '../config';
-import { checkAborted } from '../abort';
+import { abortable, checkAborted, isAbortError } from '../abort';
 
 export interface MarkdownImageDestination {
 	start: number;
@@ -167,14 +167,26 @@ export async function incorporateDocumentImages(
 				issues.push({ source, reason: 'too-large' });
 				continue;
 			}
-			const image = file ? await embedImageFile(file) : await fetchAndEmbedImage(source, remaining);
+			if (!file && remaining <= 0) {
+				// Do not start a network read only to discover a full budget.
+				issues.push({ source, reason: 'too-large' });
+				continue;
+			}
+			const image = file
+				? await abortable(embedImageFile(file), opts.signal)
+				: await fetchAndEmbedImage(source, remaining, opts.signal);
+			// A late result must not reach the source after a file change or Stop.
+			checkAborted(opts.signal);
 			if (totalBytes + image.bytes > MAX_MEDIA_TOTAL_BYTES) {
 				issues.push({ source, reason: 'too-large' });
 				continue;
 			}
 			totalBytes += image.bytes;
 			replacements.set(source, image.dataUri);
-		} catch {
+		} catch (error) {
+			// A normal Stop or file switch is not a broken image.
+			checkAborted(opts.signal);
+			if (isAbortError(error)) throw error;
 			issues.push({ source, reason: 'unreadable' });
 		}
 	}

@@ -13,6 +13,7 @@
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';
+	import { isAbortError } from '#lib/abort.js';
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { createRenderInstanceId, nextRenderGeneration } from '../render/render-identity';
@@ -461,6 +462,7 @@
 				);
 			}
 		} catch (error) {
+			if (controller.signal.aborted || isAbortError(error)) return;
 			reportError('document image import', error, {
 				notifyUser: t('imageDrop.unreadable', { n: 1 })
 			});
