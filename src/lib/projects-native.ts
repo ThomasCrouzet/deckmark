@@ -398,6 +398,8 @@ async function applyAsset(row: ProjectAssetRow, entry: NativeProjectAssetEntry):
 		}
 		await db.projectAssets.put({ ...durable, mime: entry.mime, data: entry.bytes });
 	});
+	const { invalidateProjectMediaCache } = await import('./project-media');
+	invalidateProjectMediaCache();
 }
 
 async function preserveAssetConflict(

@@ -429,5 +429,7 @@ export async function addProjectImage(
 			throw new Error('Project size limit');
 		await db.projectAssets.add({ id: newId(), projectId, path, mime, data });
 	});
+	const { invalidateProjectMediaCache } = await import('./project-media');
+	invalidateProjectMediaCache();
 	return path;
 }
