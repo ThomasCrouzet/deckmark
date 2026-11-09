@@ -79,7 +79,15 @@ export async function exportMarkdown(id: string, deps: ExportDeps): Promise<void
 		const ok = await exportMarkdownService(snapshot);
 		if (!ok) return;
 		const current = deps.getFiles().find((candidate) => candidate.id === id);
-		if (!current || current.content !== snapshot.content || current.name !== snapshot.name) return;
+		if (
+			!current ||
+			current.content !== snapshot.content ||
+			current.name !== snapshot.name ||
+			current.data !== snapshot.data ||
+			current.kind !== snapshot.kind ||
+			current.mime !== snapshot.mime
+		)
+			return;
 		current.dirty = false;
 		deps.scheduleSave(id);
 	} catch (err) {
@@ -112,7 +120,15 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	const currentById = new Map(deps.getFiles().map((file) => [file.id, file]));
 	for (const file of snapshot) {
 		const f = currentById.get(file.id);
-		if (!f || f.content !== file.content || f.name !== file.name) continue;
+		if (
+			!f ||
+			f.content !== file.content ||
+			f.name !== file.name ||
+			f.data !== file.data ||
+			f.kind !== file.kind ||
+			f.mime !== file.mime
+		)
+			continue;
 		f.dirty = false;
 		deps.scheduleSave(f.id);
 	}

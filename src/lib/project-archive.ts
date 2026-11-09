@@ -8,6 +8,7 @@ import {
 } from './project-links';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { documentKindForFile, isBinaryDocument } from './document-kind';
+import { decodeBinaryDataBytes } from './data-url';
 import type { ProjectAssetRow } from './db';
 type JSZipObject = import('jszip').JSZipObject;
 
@@ -19,6 +20,8 @@ export interface ProjectDocumentInput {
 	relativePath: string;
 	content: string;
 	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
+	/** MIME recorded for a typed document. */
+	mime?: string;
 	/** Base64 data URL for an image or PDF document. */
 	data?: string;
 }
@@ -257,18 +260,18 @@ export async function buildProjectZip(
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
 		const typeInfo = { ...document, name: documentPath };
 		if (isBinaryDocument(typeInfo)) {
-			const data = document.data ?? '';
-			const bytes = Uint8Array.from(atob(data.slice(data.indexOf(',') + 1)), (character) =>
-				character.charCodeAt(0)
-			);
-			if (bytes.byteLength > IMPORT_LIMITS.maxFileBytes)
-				throw new Error('Project document size limit');
+			const kind = documentKindForFile(typeInfo);
+			const { bytes } = await decodeBinaryDataBytes(document.data, {
+				expectedKind: kind === 'image' || kind === 'pdf' ? kind : undefined,
+				expectedMime: document.mime,
+				maxBytes: kind === 'image' ? MAX_IMAGE_BYTES : IMPORT_LIMITS.maxFileBytes
+			});
 			occupied.add(documentKey);
 			exportedDocuments.push({
 				...(document.id ? { id: document.id } : {}),
 				relativePath: documentPath,
 				content: '',
-				kind: documentKindForFile(typeInfo)
+				kind
 			});
 			zip.file(documentPath, bytes, entryOptions);
 			continue;

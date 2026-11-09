@@ -16,6 +16,72 @@ async function loadArchive(blob: Blob) {
 	return JSZip.loadAsync(bytes);
 }
 
+describe('portable project ZIP binary documents', () => {
+	it('writes the exact bytes of a typed image document without an asset copy', async () => {
+		const blob = await buildProjectZip(
+			'Project',
+			[
+				{ relativePath: 'README.md', content: '# Project\n' },
+				{
+					relativePath: 'photo.png',
+					content: '',
+					kind: 'image',
+					mime: 'image/png',
+					data: IMAGE_URL
+				}
+			],
+			[]
+		);
+		const zip = await loadArchive(blob);
+		expect(new Uint8Array(await zip.file('photo.png')!.async('uint8array'))).toEqual(IMAGE);
+		expect(
+			Object.keys(zip.files).filter((path) => path.startsWith('assets/') && !zip.files[path]!.dir)
+		).toEqual([]);
+	});
+
+	it('rejects a binary document without data', async () => {
+		await expect(
+			buildProjectZip('Project', [{ relativePath: 'photo.png', content: '', kind: 'image' }], [])
+		).rejects.toThrow(/no data/i);
+	});
+
+	it('rejects a binary document whose payload contradicts its kind', async () => {
+		await expect(
+			buildProjectZip(
+				'Project',
+				[
+					{
+						relativePath: 'manual.pdf',
+						content: '',
+						kind: 'pdf',
+						mime: 'application/pdf',
+						data: IMAGE_URL
+					}
+				],
+				[]
+			)
+		).rejects.toThrow(/incompatible type/i);
+	});
+
+	it('rejects malformed base64 before creating an archive entry', async () => {
+		await expect(
+			buildProjectZip(
+				'Project',
+				[
+					{
+						relativePath: 'photo.png',
+						content: '',
+						kind: 'image',
+						mime: 'image/png',
+						data: 'data:image/png;base64,AA=A'
+					}
+				],
+				[]
+			)
+		).rejects.toThrow(/not valid base64/i);
+	});
+});
+
 describe('portable project ZIP media', () => {
 	it('decodes one shared inline image once and keeps exact bytes', async () => {
 		const source = `# Document\n\n![Pixel](${IMAGE_URL})\n`;

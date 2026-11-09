@@ -171,6 +171,48 @@ describe('exports during errors and concurrent changes', () => {
 		expect(files.slice(0, 2).every((item) => item.dirty)).toBe(true);
 	});
 
+	it('keeps a binary document dirty when its payload changes during export', async () => {
+		const files: FileItem[] = [
+			{
+				...file('a'),
+				name: 'photo.png',
+				content: '',
+				kind: 'image',
+				mime: 'image/png',
+				data: 'data:image/png;base64,AAAA'
+			}
+		];
+		const scheduleSave = vi.fn();
+		vi.mocked(services.exportMarkdown).mockImplementation(async () => {
+			files[0]!.data = 'data:image/png;base64,BBBB';
+			return true;
+		});
+		await exportMarkdown('a', { getFiles: () => files, scheduleSave });
+		expect(files[0]!.dirty).toBe(true);
+		expect(scheduleSave).not.toHaveBeenCalled();
+	});
+
+	it('keeps a binary document dirty after a ZIP when its kind changes', async () => {
+		const files: FileItem[] = [
+			{
+				...file('a'),
+				name: 'photo.png',
+				content: '',
+				kind: 'image',
+				mime: 'image/png',
+				data: 'data:image/png;base64,AAAA'
+			}
+		];
+		const scheduleSave = vi.fn();
+		vi.mocked(services.exportZip).mockImplementation(async () => {
+			files[0]!.kind = 'pdf';
+			return true;
+		});
+		await exportAllZip({ getFiles: () => files, scheduleSave });
+		expect(files[0]!.dirty).toBe(true);
+		expect(scheduleSave).not.toHaveBeenCalled();
+	});
+
 	it('does not report success after selection ZIP cancellation', async () => {
 		vi.mocked(services.exportZip).mockResolvedValue(false);
 		await exportSelectionZip(new Set(['a']), deps);
