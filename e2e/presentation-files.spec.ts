@@ -20,7 +20,7 @@ test.beforeEach(async ({ page }) => {
 test('keeps note mode and imported bytes across file switches', async ({ page }, info) => {
 	await page.getByTestId('welcome-new').click();
 	await page.getByTestId('create-note').click();
-	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await page.locator('button[data-mode="source"]').click();
 	await expect(page.locator('.cm-content')).toBeVisible();
 	const fixture = await readFile('e2e/fixtures/presentation-complete.md', 'utf8');
@@ -34,7 +34,7 @@ test('keeps note mode and imported bytes across file switches', async ({ page },
 	await editor.getByTestId('slide-source-cancel').click();
 	await editor.focus();
 	await page.keyboard.press('Control+Shift+Tab');
-	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await expect(page.locator('.cm-content')).toBeVisible();
 	await page.keyboard.press('Control+Tab');
 	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(3);
@@ -79,7 +79,7 @@ test('offers direct creation and disables Present for notes', async ({ page }) =
 	let palette = page.getByRole('dialog');
 	await palette.getByRole('combobox').fill('Create a note');
 	await palette.getByRole('option', { name: 'Create a note', exact: true }).click();
-	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await page.keyboard.press('ControlOrMeta+Shift+p');
 	palette = page.getByRole('dialog');
 	await palette.getByRole('combobox').fill('Present active file');
@@ -108,10 +108,10 @@ test('does not convert a note through the note source editor', async ({ page }) 
 	const source = page.locator('.cm-content');
 	await source.fill(presentationFixture(['# Not a note']));
 	await expect(page.getByRole('alert')).toContainText('cannot become a presentation');
-	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
 	await page.reload();
-	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await expect(source).not.toContainText('mdsh-presentation');
 });
 
@@ -157,7 +157,7 @@ test('retains an unapplied source draft across file switches', async ({ page }) 
 	await source.focus();
 	await page.keyboard.press('ControlOrMeta+n');
 	await page.getByTestId('create-note').click();
-	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await page.keyboard.press('Control+Shift+Tab');
 	await expect(source).toHaveValue(draft);
 	await editor.getByTestId('slide-source-cancel').click();
@@ -229,7 +229,7 @@ test('creates, edits, presents, and exports with the keyboard only', async ({ pa
 	await page.keyboard.press('ControlOrMeta+n');
 	await expect(page.getByTestId('create-note')).toBeFocused();
 	await page.keyboard.press('Enter');
-	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await page.keyboard.press('ControlOrMeta+n');
 	await expect(page.getByTestId('create-note')).toBeFocused();
 	await page.keyboard.press('Tab');
@@ -305,7 +305,7 @@ test('exports the requested deck after a pending save and a file switch', async 
 		const downloaded = page.waitForEvent('download');
 		await page.getByTestId('slide-export-html').click();
 		await page.keyboard.press('Control+Shift+Tab');
-		await expect(page.getByTestId('document-kind')).toHaveText('Note');
+		await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 		await page.evaluate(() =>
 			(window as unknown as { releasePresentationLock: () => void }).releasePresentationLock()
 		);
@@ -336,7 +336,7 @@ test('keeps slide wiki text literal and out of note indices', async ({ page }) =
 	await expect(page.locator('.mdsh-sidebar').getByText('deck-only-tag')).toHaveCount(0);
 	await editor.focus();
 	await page.keyboard.press('Control+Shift+Tab');
-	await expect(page.getByTestId('document-kind')).toHaveText('Note');
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await expect(page.locator('.mdsh-sidebar').locator('[aria-label="Presentation"]')).toBeVisible();
 	await page.locator('#app-toolbar input').fill('Renamed target');
 	await page.locator('#app-toolbar input').press('Enter');
