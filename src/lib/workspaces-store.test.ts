@@ -148,13 +148,13 @@ describe('workspaceStore - IndexedDB failure paths', () => {
 		filesStore.close(a.id, { trash: false, keepDB: true });
 		expect(filesStore.files.some((f) => f.id === a.id)).toBe(false);
 
-		const bulkGetSpy = vi
-			.spyOn(db.drafts, 'bulkGet')
+		const openSpy = vi
+			.spyOn(filesStore, 'openWorkspace')
 			.mockRejectedValueOnce(new Error('IDB read failed'));
 
 		// Do not reject. The internal catch reports the persistence error and returns.
 		await expect(workspaceStore.restore(ws!.id)).resolves.toBeUndefined();
-		expect(bulkGetSpy).toHaveBeenCalled();
+		expect(openSpy).toHaveBeenCalled();
 		// A read failure stops restore, so file a does not reopen.
 		expect(filesStore.files.some((f) => f.id === a.id)).toBe(false);
 	});

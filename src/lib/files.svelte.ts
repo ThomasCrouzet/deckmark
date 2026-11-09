@@ -873,6 +873,13 @@ class FilesStore {
 	}
 
 	setActive(id: string): void {
+		const pendingFile = this.library.find((file) => file.id === id);
+		if (pendingFile?.contentDeferred) {
+			void this.hydrateContent(id).then((file) => {
+				if (file && this.files.some((entry) => entry.id === id)) this.setActive(id);
+			});
+			return;
+		}
 		this.dispatchEditorFlush();
 		this.rememberActive();
 		this.activeId = id;
@@ -1159,48 +1166,98 @@ class FilesStore {
 	 */
 	openMany(rows: DraftRow[]): void {
 		if (!browser || rows.length === 0) return;
+		const items: FileItem[] = [];
+		for (const r of rows) {
+			if (!r) continue;
+			const closed = this.closedFiles.find((file) => file.id === r.id);
+			if (closed?.contentDeferred) {
+				closed.content = r.content;
+				if (r.data) closed.data = r.data;
+				else delete closed.data;
+				closed.name = r.name;
+				closed.updatedAt = r.updatedAt;
+				closed.contentDeferred = false;
+			}
+			items.push(
+				closed ?? {
+					id: r.id,
+					name: r.name,
+					content: r.content,
+					...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
+					...(r.origin ? { origin: r.origin } : {}),
+					...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
+					...(r.kind ? { kind: r.kind } : {}),
+					...(r.mime ? { mime: r.mime } : {}),
+					...(r.data ? { data: r.data } : {}),
+					createdAt: r.createdAt,
+					updatedAt: r.updatedAt,
+					dirty: false,
+					linkedToDisk: false
+				}
+			);
+		}
+		const added = this.insertOpenItems(items);
+		if (added.length > 0) void this.persistOpenedRows(rows);
+	}
+
+	/**
+	 * Restores a workspace from the metadata projection. Open tabs stay bodyless
+	 * until one is activated; only the active document pays the hydration cost.
+	 */
+	async openWorkspace(ids: readonly string[]): Promise<void> {
+		if (!browser || ids.length === 0) return;
+		const { readDraftManifests, readDraftMetadata, draftItemFromManifest } =
+			await import('./draft-manifest');
+		const manifests = await readDraftManifests();
+		if (!manifests) {
+			const rows = await db.drafts.bulkGet([...ids]);
+			this.openMany(rows.filter((row): row is DraftRow => row !== undefined));
+			return;
+		}
+		const metadata = await readDraftMetadata();
+		const byId = new Map(manifests.map((manifest) => [manifest.id, manifest]));
+		const items: FileItem[] = [];
+		for (const id of ids) {
+			const manifest = byId.get(id);
+			if (!manifest) continue;
+			const closed = this.closedFiles.find((file) => file.id === id);
+			items.push(closed ?? draftItemFromManifest(manifest, false, metadata?.get(id)));
+		}
+		const added = this.insertOpenItems(items);
+		if (added.length === 0) return;
+		await db.transaction('rw', db.drafts, async () => {
+			for (const id of added) await db.drafts.update(id, { open: true });
+		});
+	}
+
+	private insertOpenItems(items: readonly FileItem[]): string[] {
+		if (!browser || items.length === 0) return [];
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient local set, never exposed to rendering
 		const existing = new Set(this.files.map((f) => f.id));
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient local map
 		const closedById = new Map(this.closedFiles.map((file) => [file.id, file]));
 		const addedIds: string[] = [];
-		const openedRows: DraftRow[] = [];
-		for (const r of rows) {
-			if (!r || existing.has(r.id)) continue;
-			const closed = closedById.get(r.id) ?? null;
-			const item = closed ?? {
-				id: r.id,
-				name: r.name,
-				content: r.content,
-				...(r.projectId ? { projectId: r.projectId, relativePath: r.relativePath } : {}),
-				...(r.origin ? { origin: r.origin } : {}),
-				...(r.sourceFileId ? { sourceFileId: r.sourceFileId } : {}),
-				...(r.kind ? { kind: r.kind } : {}),
-				...(r.mime ? { mime: r.mime } : {}),
-				...(r.data ? { data: r.data } : {}),
-				createdAt: r.createdAt,
-				updatedAt: r.updatedAt,
-				dirty: false,
-				linkedToDisk: false
-			};
+		for (const item of items) {
+			if (!item || existing.has(item.id)) continue;
+			const closed = closedById.get(item.id) ?? null;
+			const chosen = closed ?? item;
 			if (closed) {
-				if (closed.contentDeferred) {
-					// The workspace row is the exact durable body.
-					closed.content = r.content;
-					if (r.data) closed.data = r.data;
+				if (closed.contentDeferred && !item.contentDeferred) {
+					closed.content = item.content;
+					if (item.data) closed.data = item.data;
 					else delete closed.data;
-					closed.name = r.name;
-					closed.updatedAt = r.updatedAt;
+					closed.name = item.name;
+					closed.updatedAt = item.updatedAt;
 					closed.contentDeferred = false;
 				}
+				closedById.delete(item.id);
 			}
-			this.files.push(item);
-			existing.add(r.id);
-			openedRows.push(r);
-			addedIds.push(r.id);
+			this.files.push(chosen);
+			existing.add(item.id);
+			addedIds.push(item.id);
 		}
-		if (addedIds.length === 0) return;
+		if (addedIds.length === 0) return [];
 		this.closedFiles = this.closedFiles.filter((file) => !existing.has(file.id));
-		void this.persistOpenedRows(openedRows);
 		this.metaIndex.invalidateBacklinksIndex();
 		// Background: restore linkedToDisk flags for re-opened workspace tabs.
 		if (isFSASupported() || isDesktop()) {
@@ -1220,6 +1277,7 @@ class FilesStore {
 				})
 				.catch((error: unknown) => reportPersistenceError(error, 'load'));
 		}
+		return addedIds;
 	}
 
 	private async persistOpenedRows(rows: DraftRow[]): Promise<void> {
