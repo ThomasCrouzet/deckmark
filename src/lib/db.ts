@@ -1,7 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
 import { encodeDraftManifest } from './draft-manifest-key';
-import { encodeDraftMetadata } from './draft-metadata';
 
 export interface DraftRow {
 	id: string;
@@ -252,21 +251,15 @@ class MdshDB extends Dexie {
 				transaction
 					.table<DraftRow>('drafts')
 					.toCollection()
-					.modify((row) => {
-						row.metadata = encodeDraftMetadata(row);
-					})
+					.modify(() => {})
 			);
 
 		this.drafts.hook('creating', (_primaryKey, row) => {
 			row.manifest = encodeDraftManifest(row);
-			row.metadata = encodeDraftMetadata(row);
 		});
 		this.drafts.hook('updating', (modifications, _primaryKey, row) => {
 			const merged = { ...row, ...modifications } as DraftRow;
-			return {
-				manifest: encodeDraftManifest(merged),
-				metadata: encodeDraftMetadata(merged)
-			};
+			return { manifest: encodeDraftManifest(merged) };
 		});
 	}
 }

@@ -236,7 +236,10 @@ pub fn build_client() -> Result<Client, String> {
 }
 
 /// Sends a prepared request and returns only the reply text.
-pub fn execute(client: &reqwest::blocking::Client, prepared: PreparedRequest) -> Result<String, String> {
+pub fn execute(
+    client: &reqwest::blocking::Client,
+    prepared: PreparedRequest,
+) -> Result<String, String> {
     let response = client
         .post(prepared.url.clone())
         .bearer_auth(&prepared.secret)
@@ -252,9 +255,7 @@ pub fn execute(client: &reqwest::blocking::Client, prepared: PreparedRequest) ->
     {
         return Err(ERROR_RESPONSE_TOO_LARGE.to_string());
     }
-    let body = response
-        .bytes()
-        .map_err(|_| ERROR_NETWORK.to_string())?;
+    let body = response.bytes().map_err(|_| ERROR_NETWORK.to_string())?;
     if body.len() as u64 > MAX_RESPONSE_BYTES {
         return Err(ERROR_RESPONSE_TOO_LARGE.to_string());
     }

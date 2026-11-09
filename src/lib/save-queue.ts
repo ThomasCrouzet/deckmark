@@ -9,8 +9,6 @@ import { db, newId } from './db';
 import type { DraftRow } from './db';
 import { TIMERS } from './config';
 import { uniqueName } from './file-utils';
-import { projectConflictVariant } from './project-conflicts';
-import { conflictOccupancy } from './draft-occupancy';
 import type { DocumentRevision } from './document-revisions';
 
 const SAVE_SUPERSEDED = Symbol('save-superseded');
@@ -215,6 +213,10 @@ export class SaveQueue {
 					changedSinceRead &&
 					(current.name !== written.name || current.content !== written.content)
 				) {
+					const [{ conflictOccupancy }, { projectConflictVariant }] = await Promise.all([
+						import('./draft-occupancy'),
+						import('./project-conflicts')
+					]);
 					const occupancy = await conflictOccupancy(current.projectId);
 					const [documents, assets] = occupancy
 						? [[], []]

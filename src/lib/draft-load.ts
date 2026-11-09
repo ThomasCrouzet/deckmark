@@ -35,8 +35,16 @@ export async function loadDraftLibrary(
 		}
 	}
 
+	// The projection hooks stay out of the boot bundle. Install them before
+	// publishing any row, then fill projections written before this version.
+	const hooks = await import('./draft-metadata-hooks');
+	hooks.installDraftMetadataHooks();
 	let manifests = await readDraftManifests();
-	const metadata = manifests ? await readDraftMetadata() : null;
+	let metadata = manifests ? await readDraftMetadata() : null;
+	if (manifests && !metadata) {
+		await hooks.backfillDraftMetadata();
+		metadata = await readDraftMetadata();
+	}
 	let items: FileItem[] = [];
 	let activeIds: string[] = [];
 	let persistedRows: DraftRow[] = [];

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db, type DraftRow } from './db';
 import { readDraftMetadata } from './draft-manifest';
+import { installDraftMetadataHooks } from './draft-metadata-hooks';
 
 function row(overrides: Partial<DraftRow> = {}): DraftRow {
 	return {
@@ -16,6 +17,7 @@ function row(overrides: Partial<DraftRow> = {}): DraftRow {
 
 describe('durable draft metadata', () => {
 	beforeEach(async () => {
+		installDraftMetadataHooks();
 		await db.drafts.clear();
 	});
 

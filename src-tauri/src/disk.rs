@@ -801,11 +801,10 @@ pub async fn disk_open_directory(
     app: tauri::AppHandle,
     capabilities: tauri::State<'_, CapabilityStore>,
 ) -> Result<Vec<DiskGrant>, String> {
-    let Some(selected) = tauri::async_runtime::spawn_blocking(move || {
-        app.dialog().file().blocking_pick_folder()
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    let Some(selected) =
+        tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+            .await
+            .map_err(|error| error.to_string())?
     else {
         return Ok(Vec::new());
     };
