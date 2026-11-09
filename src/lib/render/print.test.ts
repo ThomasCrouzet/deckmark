@@ -21,6 +21,58 @@ describe('image decoding before print', () => {
 		controller.abort();
 		await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
 	});
+
+	it('waits for a failing image after six cached images', async () => {
+		const doc = document.implementation.createHTMLDocument();
+		doc.body.innerHTML = Array.from(
+			{ length: 7 },
+			(_, index) => `<img src="data:image/png;base64,${index}">`
+		).join('');
+		const images = Array.from(doc.querySelectorAll('img'));
+		for (const [index, image] of images.entries()) {
+			const cached = index < 6;
+			Object.defineProperty(image, 'complete', { configurable: true, get: () => cached });
+			Object.defineProperty(image, 'naturalWidth', {
+				configurable: true,
+				get: () => (cached ? 1 : 0)
+			});
+			Object.defineProperty(image, 'naturalHeight', {
+				configurable: true,
+				get: () => (cached ? 1 : 0)
+			});
+			image.decode = vi.fn(async () => {
+				if (!cached) throw new Error('late decode failed');
+			});
+		}
+		await expect(waitForPrintImages(doc)).rejects.toBeInstanceOf(PrintImageError);
+		expect(images[6]!.decode).toHaveBeenCalledOnce();
+	});
+
+	it('bounds decode concurrency and visits every pending image', async () => {
+		const doc = document.implementation.createHTMLDocument();
+		doc.body.innerHTML = Array.from(
+			{ length: 20 },
+			(_, index) => `<img src="data:image/png;base64,${index}">`
+		).join('');
+		let active = 0;
+		let peak = 0;
+		let calls = 0;
+		for (const image of doc.querySelectorAll('img')) {
+			Object.defineProperty(image, 'complete', { configurable: true, get: () => false });
+			Object.defineProperty(image, 'naturalWidth', { configurable: true, get: () => 1 });
+			Object.defineProperty(image, 'naturalHeight', { configurable: true, get: () => 1 });
+			image.decode = async () => {
+				calls += 1;
+				active += 1;
+				peak = Math.max(peak, active);
+				await new Promise((resolve) => setTimeout(resolve, 2));
+				active -= 1;
+			};
+		}
+		await waitForPrintImages(doc);
+		expect(calls).toBe(20);
+		expect(peak).toBeLessThanOrEqual(6);
+	});
 });
 
 describe('buildPrintDocument - structure', () => {
@@ -202,6 +254,19 @@ describe('printInIframe', () => {
 		iframe.contentWindow?.dispatchEvent(new Event('afterprint'));
 		expect(iframe.parentNode).toBeNull();
 	});
+
+	it('rejects a second print while the first tree is alive', async () => {
+		patchCreateElement({ onIframe: spyOnWindow });
+		await printInIframe('<html><body>first</body></html>');
+		const first = lastIframe!;
+		await expect(printInIframe('<html><body>second</body></html>')).rejects.toThrow(
+			/already active/
+		);
+		expect(document.querySelectorAll('iframe[data-mdsh-print]')).toHaveLength(1);
+		first.contentWindow?.dispatchEvent(new Event('afterprint'));
+		expect(first.parentNode).toBeNull();
+		await expect(printInIframe('<html><body>third</body></html>')).resolves.toBe(true);
+	}, 15_000);
 
 	it('removes the iframe after the grace period without afterprint', async () => {
 		vi.useFakeTimers();
