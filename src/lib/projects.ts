@@ -20,6 +20,11 @@ import { rewriteWikiLinkTargets } from './wiki-links';
 import { notify } from './notify.svelte';
 import { t } from './i18n';
 import { reportError } from './report';
+import {
+	removeProjectRenameJournal,
+	updateProjectRenameStage,
+	writeProjectRenameJournal
+} from './project-rename-journal';
 
 export async function importProject(input: ProjectInput): Promise<ProjectRow> {
 	if (!browser || typeof indexedDB === 'undefined') throw new Error('Storage is not available');
@@ -253,6 +258,7 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 		.then(async () => {
 			let nativeRename: import('./projects-native').NativeRenameReceipt | undefined;
 			let committed = false;
+			let renameJournalId: string | null = null;
 			try {
 				await filesStore.flushPendingAwait();
 				const document = filesStore.library.find((file) => file.id === id);
@@ -293,7 +299,23 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					})
 					.filter((entry) => entry.content !== entry.file.content || entry.file.id === id);
 				const { renameNativeProjectDocument } = await import('./projects-native');
+				renameJournalId = newId();
+				try {
+					await writeProjectRenameJournal({
+						id: renameJournalId,
+						projectId: document.projectId,
+						oldPath,
+						newPath,
+						stage: 'prepared',
+						updatedAt: Date.now()
+					});
+				} catch (error) {
+					reportError('project rename journal', error);
+				}
 				nativeRename = await renameNativeProjectDocument(document.projectId, oldPath, newPath);
+				if (renameJournalId) {
+					await updateProjectRenameStage(renameJournalId, 'disk-renamed').catch(() => {});
+				}
 				const rows = await db.transaction(
 					'rw',
 					db.drafts,
@@ -346,6 +368,9 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					}
 				);
 				committed = true;
+				if (renameJournalId) {
+					await updateProjectRenameStage(renameJournalId, 'db-rewritten').catch(() => {});
+				}
 				filesStore.acceptProjectRows(
 					rows,
 					new Map(snapshot.map((file) => [file.id, file])),
@@ -364,11 +389,13 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 						notify.info(t('projects.renameBaselinePending'));
 					}
 				}
+				if (renameJournalId) await removeProjectRenameJournal(renameJournalId).catch(() => {});
 				return true;
 			} catch (error) {
 				if (nativeRename && !committed) {
 					try {
 						await nativeRename.rollback();
+						if (renameJournalId) await removeProjectRenameJournal(renameJournalId).catch(() => {});
 					} catch (rollbackError) {
 						reportError('project rename rollback', rollbackError);
 					}

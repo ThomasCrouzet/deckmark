@@ -24,6 +24,7 @@ import {
 } from './project-tauri';
 import type { FileItem } from './types';
 import { createCheckpoint } from './version-history';
+import { recoverPendingProjectRenames } from './project-rename-recovery';
 
 const BASELINE_PREFIX = 'project-native-revisions:';
 
@@ -282,6 +283,13 @@ export async function reopenNativeProjects(): Promise<NativeProjectFailure[]> {
 				message: String(error)
 			});
 		}
+	}
+	try {
+		failed.push(
+			...(await recoverPendingProjectRenames((id) => refreshNativeProjectFromDiskInternal(id)))
+		);
+	} catch {
+		/* Recovery stays best effort. The journal remains for the next start. */
 	}
 	return failed;
 }
