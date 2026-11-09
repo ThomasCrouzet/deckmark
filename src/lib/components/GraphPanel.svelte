@@ -10,7 +10,13 @@
 	import { t } from '#lib/i18n/index.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { documentKindForFile } from '#lib/document-kind.js';
-	import { buildGraph, computeLayout, type PositionedNode, type GraphEdge } from '#lib/graph.js';
+	import {
+		buildGraph,
+		computeLayout,
+		type GraphData,
+		type PositionedNode,
+		type GraphEdge
+	} from '#lib/graph.js';
 	import { Workflow, X } from '@lucide/svelte';
 
 	interface Props {
@@ -26,6 +32,37 @@
 	let positions = $state<PositionedNode[]>([]);
 	let edges = $state<GraphEdge[]>([]);
 	let closeButton: HTMLButtonElement | null = $state(null);
+	let layoutJob = 0;
+
+	function layoutInWorker(data: GraphData, iterations: number): Promise<PositionedNode[]> {
+		const options = { width: WIDTH, height: HEIGHT, iterations };
+		if (typeof Worker === 'undefined') return Promise.resolve(computeLayout(data, options));
+		return new Promise((resolve, reject) => {
+			let worker: Worker;
+			try {
+				worker = new Worker(new URL('../workers/graph.worker.ts', import.meta.url), {
+					type: 'module',
+					name: 'graph-layout'
+				});
+			} catch {
+				resolve(computeLayout(data, options));
+				return;
+			}
+			const finish = () => worker.terminate();
+			worker.onmessage = (
+				event: MessageEvent<{ positions?: PositionedNode[]; error?: string }>
+			) => {
+				finish();
+				if (event.data.positions) resolve(event.data.positions);
+				else reject(new Error(event.data.error ?? 'graph layout failed'));
+			};
+			worker.onerror = () => {
+				finish();
+				resolve(computeLayout(data, options));
+			};
+			worker.postMessage({ id: Date.now(), data, ...options });
+		});
+	}
 
 	// §a11y - Sets the initial focus inside the dialog on open (WCAG 2.4.3).
 	// `use:focusTrap` only moves focus on Tab; without this initial focus, the
@@ -39,31 +76,36 @@
 	// keystroke (mutation of `filesStore.files`) as long as the graph is open.
 	$effect(() => {
 		if (!open) return;
-		void (async () => {
-			await filesStore.ensureLibraryContent();
-			if (!open) return;
-			untrack(() => {
-				const files = filesStore.library
-					.filter((file) => documentKindForFile(file) === 'note')
-					.map((f) => ({
-						id: f.id,
-						label: filesStore.displayTitle(f.id)
-					}));
-				const data = buildGraph(
-					files,
-					(id) =>
-						filesStore
-							.wikiLinkTargets(id)
-							.map((target) => filesStore.resolveWikiLink(target, id))
-							.filter((target): target is string => target !== null),
-					(target) => target
-				);
-				edges = data.edges;
-				// Fewer iterations on large graphs to stay smooth.
-				const iterations = data.nodes.length > 120 ? 60 : 120;
-				positions = computeLayout(data, { width: WIDTH, height: HEIGHT, iterations });
-			});
-		})();
+		const job = ++layoutJob;
+		untrack(() => {
+			const files = filesStore.library
+				.filter((file) => documentKindForFile(file) === 'note')
+				.map((f) => ({
+					id: f.id,
+					label: filesStore.displayTitle(f.id)
+				}));
+			const data = buildGraph(
+				files,
+				(id) =>
+					filesStore
+						.wikiLinkTargets(id)
+						.map((target) => filesStore.resolveWikiLink(target, id))
+						.filter((target): target is string => target !== null),
+				(target) => target
+			);
+			edges = data.edges;
+			// Fewer iterations on large graphs to stay smooth.
+			const iterations = data.nodes.length > 120 ? 60 : 120;
+			void layoutInWorker(data, iterations)
+				.then((result) => {
+					if (!open || job !== layoutJob) return;
+					positions = result;
+				})
+				.catch(() => {
+					if (!open || job !== layoutJob) return;
+					positions = computeLayout(data, { width: WIDTH, height: HEIGHT, iterations });
+				});
+		});
 	});
 
 	const posById = $derived(new Map(positions.map((p) => [p.id, p])));

@@ -260,10 +260,11 @@ test('migrates an exact IndexedDB version 5 database before importing a project'
 				};
 			})
 	);
-	expect(beforeProject.version).toBe(90);
+	expect(beforeProject.version).toBe(100);
 	const drafts = (beforeProject.drafts as Array<Record<string, unknown>>).map((entry) => {
 		const row = { ...entry };
 		delete row.manifest;
+		delete row.metadata;
 		return row;
 	});
 	expect(drafts).toEqual(expect.arrayContaining([fixture.openDraft, fixture.closedDraft]));
@@ -310,6 +311,7 @@ test('migrates an exact IndexedDB version 5 database before importing a project'
 		.map((entry) => {
 			const row = { ...entry } as Record<string, unknown>;
 			delete row.manifest;
+			delete row.metadata;
 			return row;
 		});
 	expect(migratedDrafts).toEqual(expect.arrayContaining([fixture.openDraft, fixture.closedDraft]));

@@ -8,7 +8,7 @@ import {
 	isMarkdownExtension
 } from './document-kind';
 import { validateMarkdownContent } from './import-limits';
-import { PROJECT_LIMITS } from './project-archive';
+import { PROJECT_SCALE_LIMITS } from './project-limits';
 import { projectDocumentLimit } from './project-limits';
 import {
 	pathKey,
@@ -688,7 +688,7 @@ function dataTransferEntries(dataTransfer: DataTransfer): EntryLike[] {
 }
 
 async function readEntry(entry: EntryLike, parent: string, output: DroppedFile[]): Promise<void> {
-	if (output.length >= PROJECT_LIMITS.maxEntries) throw new Error('Project entry limit');
+	if (output.length >= PROJECT_SCALE_LIMITS.maxEntries) throw new Error('Project entry limit');
 	const path = parent ? `${parent}/${entry.name}` : entry.name;
 	if (entry.isFile) {
 		const file = await new Promise<File>((resolve, reject) => entry.file(resolve, reject));
@@ -735,7 +735,7 @@ export async function importProjectEntries(
 	await filesStore.flushPendingAwait();
 	const prefix = folderPrefix(folder);
 	if (!entries.length) return { documents: 0, assets: 0, skipped: [] };
-	if (entries.length > PROJECT_LIMITS.maxEntries) throw new Error('Project entry limit');
+	if (entries.length > PROJECT_SCALE_LIMITS.maxEntries) throw new Error('Project entry limit');
 	const drafts: DraftRow[] = [];
 	const assets: ProjectAssetRow[] = [];
 	const skipped: string[] = [];
@@ -750,7 +750,7 @@ export async function importProjectEntries(
 		paths.add(pathKey(path));
 		if (entry.file.size > IMPORT_LIMITS.maxFileBytes) throw new Error('Project file size limit');
 		bytes += entry.file.size;
-		if (bytes > PROJECT_LIMITS.maxBytes) throw new Error('Project size limit');
+		if (bytes > PROJECT_SCALE_LIMITS.maxBytes) throw new Error('Project size limit');
 		const name = basename(path);
 		if (isMarkdownExtension(path)) {
 			const content = decoder.decode(new Uint8Array(await entry.file.arrayBuffer()));
@@ -825,7 +825,7 @@ export async function importProjectEntries(
 		if (
 			existingDocuments.length + drafts.length > projectDocumentLimit() ||
 			existingDocuments.length + drafts.length + existingAssets.length + assets.length >=
-				PROJECT_LIMITS.maxEntries - 3
+				PROJECT_SCALE_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project entry limit');
 		const occupied = occupiedPaths(existingDocuments, existingAssets, new Set(), new Set());

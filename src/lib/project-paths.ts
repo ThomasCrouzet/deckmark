@@ -1,3 +1,5 @@
+import { PROJECT_SCALE_LIMITS } from './project-limits';
+
 /** Project paths use slash separators and remain inside the selected root. */
 export function projectPath(value: string): string {
 	if (!value || value.length > 1024 || value.includes('\\') || value.startsWith('/')) {
@@ -5,7 +7,7 @@ export function projectPath(value: string): string {
 	}
 	const parts = value.normalize('NFC').split('/');
 	if (
-		parts.length > 9 ||
+		parts.length > PROJECT_SCALE_LIMITS.maxDepth + 1 ||
 		parts.some(
 			(part) =>
 				!part ||

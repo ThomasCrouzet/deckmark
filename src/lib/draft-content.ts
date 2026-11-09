@@ -43,3 +43,34 @@ export async function buildSearchCorpus(files: readonly FileItem[]): Promise<Sea
 		content: file.contentDeferred ? (contentById.get(file.id) ?? file.content) : file.content
 	}));
 }
+
+/**
+ * Keeps closed bodies within a byte budget. A body is cleared only after its
+ * durable row exists; the derived metadata keeps titles, tags and backlinks.
+ */
+export async function reclaimClosedBodies(options: {
+	files: readonly FileItem[];
+	closedFiles: FileItem[];
+	isPending: (id: string) => boolean;
+	rowFor: (file: FileItem) => DraftRow;
+	budget?: number;
+}): Promise<void> {
+	const budget = options.budget ?? 2 * 1024 * 1024;
+	let retained = 0;
+	for (const file of options.files) retained += file.content.length + (file.data?.length ?? 0);
+	for (const file of options.closedFiles)
+		retained += file.content.length + (file.data?.length ?? 0);
+	if (retained <= budget) return;
+	const { draftMetadataFor } = await import('./draft-metadata');
+	for (const file of options.closedFiles) {
+		if (retained <= budget) break;
+		if (!file.content && !file.data) continue;
+		if (file.dirty || options.isPending(file.id)) continue;
+		const bytes = file.content.length + (file.data?.length ?? 0);
+		file.derivedMetadata ??= draftMetadataFor(options.rowFor(file));
+		file.content = '';
+		delete file.data;
+		file.contentDeferred = true;
+		retained -= bytes;
+	}
+}

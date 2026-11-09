@@ -151,6 +151,18 @@ function altFromName(name: string): string {
 		.slice(0, 120);
 }
 
+/**
+ * Sanitizes an SVG byte payload for a context that can be opened as a
+ * standalone document. The caller must treat a rejection as a publication
+ * failure; it must not fall back to the original bytes.
+ */
+export async function sanitizeSvgBytes(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+	if (bytes.byteLength > MAX_IMAGE_BYTES) {
+		throw new ImageFileError('too-large', 'The SVG image exceeds its limit');
+	}
+	return sanitizeSvg(bytes);
+}
+
 async function sanitizeSvg(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
 	const source = new TextDecoder().decode(bytes);
 	const clean = applyRemoteImagePolicy(

@@ -4,6 +4,7 @@ import { db, type DraftRow } from './db';
 import { DRAFT_CONTENT } from './config';
 import type { FileItem } from './types';
 import { DRAFT_MANIFEST_VERSION, type DraftManifest } from './draft-manifest-key';
+import { decodeDraftMetadata, type DraftMetadata } from './draft-metadata';
 
 /**
  * Returns one metadata row per draft, or `null` when the projection is not
@@ -39,6 +40,43 @@ export async function readDraftManifests(): Promise<DraftManifest[] | null> {
 			transaction.onabort = () => reject(transaction.error);
 		});
 		return manifests.length === expected ? manifests : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Reads the derived metadata projection without loading document bodies.
+ * Returns null when the projection is incomplete; the caller then parses the
+ * bodies it loads normally.
+ */
+export async function readDraftMetadata(): Promise<Map<string, DraftMetadata> | null> {
+	try {
+		const expected = await db.drafts.count();
+		const idb = db.backendDB();
+		const metadata = await new Promise<Map<string, DraftMetadata>>((resolve, reject) => {
+			let transaction: IDBTransaction;
+			try {
+				transaction = idb.transaction('drafts', 'readonly');
+			} catch (error) {
+				reject(error);
+				return;
+			}
+			const values = new Map<string, DraftMetadata>();
+			const request = transaction.objectStore('drafts').index('metadata').openKeyCursor();
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const cursor = request.result;
+				if (!cursor) return;
+				const decoded = decodeDraftMetadata(cursor.key);
+				if (decoded) values.set(decoded.id, decoded);
+				cursor.continue();
+			};
+			transaction.oncomplete = () => resolve(values);
+			transaction.onerror = () => reject(transaction.error);
+			transaction.onabort = () => reject(transaction.error);
+		});
+		return metadata.size === expected ? metadata : null;
 	} catch {
 		return null;
 	}
@@ -126,7 +164,11 @@ export function draftItemFromRow(row: DraftRow, linkedToDisk: boolean): FileItem
 	};
 }
 
-export function draftItemFromManifest(manifest: DraftManifest, linkedToDisk: boolean): FileItem {
+export function draftItemFromManifest(
+	manifest: DraftManifest,
+	linkedToDisk: boolean,
+	derivedMetadata?: DraftMetadata
+): FileItem {
 	return {
 		id: manifest.id,
 		name: manifest.name,
@@ -142,6 +184,7 @@ export function draftItemFromManifest(manifest: DraftManifest, linkedToDisk: boo
 		updatedAt: manifest.updatedAt,
 		dirty: false,
 		linkedToDisk,
+		...(derivedMetadata ? { derivedMetadata } : {}),
 		contentDeferred: true
 	};
 }

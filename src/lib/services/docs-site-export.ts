@@ -4,6 +4,7 @@
 
 import { abortable, checkAborted } from '../abort';
 import {
+	docsSiteIssue,
 	mergeIssues,
 	planDocsSite,
 	type DocsSiteExportInput,
@@ -92,16 +93,18 @@ export function serializeDocsSiteReport(report: DocsSiteReport): string {
 	return `${JSON.stringify(report, null, 2)}\n`;
 }
 
-async function buildZip(files: readonly DocsSiteFile[]): Promise<Blob> {
+async function buildZip(files: readonly DocsSiteFile[], signal?: AbortSignal): Promise<Blob> {
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const ordered = files.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	for (const file of ordered) {
+		checkAborted(signal);
 		zip.file(file.path, file.data, {
 			date: ZIP_DATE,
 			createFolders: false
 		});
 	}
+	checkAborted(signal);
 	return zip.generateAsync({
 		type: 'blob',
 		compression: 'DEFLATE',
@@ -109,6 +112,36 @@ async function buildZip(files: readonly DocsSiteFile[]): Promise<Blob> {
 		platform: 'DOS',
 		mimeType: 'application/zip'
 	});
+}
+
+/**
+ * A published SVG is a navigable document, so preview-level `<img>` safety is
+ * not sufficient. Every SVG asset is sanitized again for publication. The
+ * private project asset stays untouched, and a rejected SVG blocks the ZIP.
+ */
+async function sanitizePublishedSvgAssets(plan: DocsSitePlan): Promise<DocsSiteIssue[]> {
+	const issues: DocsSiteIssue[] = [];
+	const { sanitizeSvgBytes } = await import('../render/image-media');
+	for (const asset of plan.assets) {
+		const declaresSvg = asset.mime.toLowerCase().split(';', 1)[0] === 'image/svg+xml';
+		const namedSvg = /\.svg$/i.test(asset.outputPath);
+		if (!declaresSvg && !namedSvg) continue;
+		try {
+			asset.data = await sanitizeSvgBytes(asset.data);
+			asset.mime = 'image/svg+xml';
+		} catch {
+			issues.push(
+				docsSiteIssue(
+					'asset-unsafe',
+					'error',
+					asset.sourcePath,
+					asset.sourcePath,
+					`"${asset.sourcePath}" is not a safe standalone SVG and is not published.`
+				)
+			);
+		}
+	}
+	return issues;
 }
 
 /**
@@ -123,13 +156,14 @@ export async function buildDocsSite(
 	checkAborted(options.signal);
 	const plan = planDocsSite(input);
 	if (!plan.pages.length) throw new Error('The project contains no Markdown documents');
+	const sanitized = await sanitizePublishedSvgAssets(plan);
 	checkAborted(options.signal);
 	const renderer = await abortable(import('./docs-site-render'), options.signal);
 	const rendered = await renderer.renderDocsSite(plan, {
 		...(options.signal ? { signal: options.signal } : {})
 	});
 	checkAborted(options.signal);
-	const issues = mergeIssues(rendered.issues, []);
+	const issues = mergeIssues(rendered.issues, sanitized);
 	const report = buildReport(
 		plan,
 		rendered.pages.map((page) => ({
@@ -142,7 +176,7 @@ export async function buildDocsSite(
 	if (report.summary.errors > 0) throw new DocsSiteExportError(report);
 	const files = renderer.buildDocsSiteFiles(plan, { pages: rendered.pages, issues });
 	checkAborted(options.signal);
-	const blob = await abortable(buildZip(files), options.signal);
+	const blob = await abortable(buildZip(files, options.signal), options.signal);
 	checkAborted(options.signal);
 	return { blob, report, files };
 }

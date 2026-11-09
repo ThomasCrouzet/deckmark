@@ -52,7 +52,6 @@
 	onMount(() => {
 		selectionText = window.getSelection()?.toString() ?? '';
 		if (filesStore.activeId) selectedIds = [filesStore.activeId];
-		void filesStore.ensureLibraryContent();
 	});
 
 	onDestroy(() => controller?.abort());
@@ -140,6 +139,27 @@
 			patchError = t('ai.patchCheckpointFailed');
 			return;
 		}
+		const fence = applyPatchPlan(current, filesStore.library, approvedPaths, hunks);
+		const stale =
+			fence.rejected.length > 0 ||
+			fence.changes.length !== result.changes.length ||
+			fence.changes.some((change) => {
+				const file = filesStore.library.find((entry) => entry.id === change.id);
+				const original = snapshots.find((snapshot) => snapshot.id === change.id);
+				const intended = result.changes.find((entry) => entry.id === change.id);
+				return (
+					!file ||
+					file.contentDeferred ||
+					!original ||
+					!intended ||
+					file.content !== original.content ||
+					change.content !== intended.content
+				);
+			});
+		if (stale) {
+			patchError = t('ai.patchConflict');
+			return;
+		}
 		appliedBefore = snapshots.map((snapshot) => ({ id: snapshot.id, content: snapshot.content }));
 		appliedAfter = result.changes.map((change) => ({
 			id: change.id,
@@ -202,6 +222,22 @@
 		lastPrompt = text;
 		controller = new AbortController();
 		try {
+			// Hydrate only the scope the user approved. Selection scope reads the
+			// captured selection, and the active document is already resident.
+			const needed =
+				scope === 'files'
+					? selectedIds
+					: scope === 'project'
+						? filesStore.library
+								.filter((file) => file.projectId === active?.projectId)
+								.map((file) => file.id)
+						: scope === 'document' && filesStore.activeId
+							? [filesStore.activeId]
+							: [];
+			await filesStore.ensureContent(
+				needed.filter((id) => !filesStore.active || id !== filesStore.active.id)
+			);
+			if (controller.signal.aborted) return;
 			const request = buildContext({
 				scope,
 				activeId: filesStore.activeId,

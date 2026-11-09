@@ -15,6 +15,8 @@ export function createStatsRuntime(
 	let worker: Worker | null = null;
 	let workerBusy = false;
 	let workerUnavailable = false;
+	let workerFailures = 0;
+	let workerRetryAt = 0;
 	let sequence = 0;
 
 	function cancelPending() {
@@ -39,7 +41,11 @@ export function createStatsRuntime(
 		const current = () =>
 			!disposed && token === sequence && activeId === id && activeContent === content;
 		if (!current()) return;
-		if (content.length < 256 * 1024 || workerUnavailable || typeof Worker === 'undefined') {
+		if (
+			content.length < 256 * 1024 ||
+			(workerUnavailable && Date.now() < workerRetryAt) ||
+			typeof Worker === 'undefined'
+		) {
 			publish(id, content, computeStats(content));
 			return;
 		}
@@ -49,6 +55,8 @@ export function createStatsRuntime(
 			worker = null;
 			workerBusy = false;
 			workerUnavailable = true;
+			workerFailures += 1;
+			workerRetryAt = Date.now() + Math.min(60_000, 1000 * 2 ** Math.min(workerFailures, 6));
 			if (workerTimer) clearTimeout(workerTimer);
 			workerTimer = null;
 			if (current()) publish(id, content, computeStats(content));
@@ -63,6 +71,9 @@ export function createStatsRuntime(
 				if (workerTimer) clearTimeout(workerTimer);
 				workerTimer = null;
 				workerBusy = false;
+				workerUnavailable = false;
+				workerFailures = 0;
+				workerRetryAt = 0;
 				worker!.onmessage = null;
 				worker!.onerror = null;
 				worker!.onmessageerror = null;

@@ -5,7 +5,8 @@ import { pathKey, projectPath } from './project-paths';
 export function projectConflictVariant(
 	row: DraftRow,
 	documents: readonly DraftRow[],
-	assets: readonly ProjectAssetRow[]
+	assets: readonly ProjectAssetRow[],
+	occupiedPaths?: ReadonlySet<string>
 ): DraftRow {
 	if (!row.projectId || !row.relativePath) return row;
 	const parts = row.relativePath.split('/');
@@ -14,16 +15,18 @@ export function projectConflictVariant(
 	const dot = originalName.lastIndexOf('.');
 	const stem = dot > 0 ? originalName.slice(0, dot) : originalName;
 	const extension = dot > 0 ? originalName.slice(dot) : '';
-	const occupied = new Set(
-		[
-			...documents
-				.filter((document) => document.projectId === row.projectId)
-				.flatMap((document) => (document.relativePath ? [pathKey(document.relativePath)] : [])),
-			...assets
-				.filter((asset) => asset.projectId === row.projectId)
-				.map((asset) => pathKey(asset.path))
-		].map((path) => path.toLowerCase())
-	);
+	const occupied =
+		occupiedPaths ??
+		new Set(
+			[
+				...documents
+					.filter((document) => document.projectId === row.projectId)
+					.flatMap((document) => (document.relativePath ? [pathKey(document.relativePath)] : [])),
+				...assets
+					.filter((asset) => asset.projectId === row.projectId)
+					.map((asset) => pathKey(asset.path))
+			].map((path) => path.toLowerCase())
+		);
 	let sequence = 2;
 	while (true) {
 		const suffix = ` (${sequence})`;

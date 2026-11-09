@@ -178,15 +178,10 @@ export async function triggerDownload(blob: Blob, filename: string): Promise<boo
 	return true;
 }
 
-function dataUrlBlob(data: string): Blob {
-	const comma = data.indexOf(',');
-	if (comma < 0) return new Blob([]);
-	const header = data.slice(0, comma);
-	const mime = /^data:([^;,]+)/.exec(header)?.[1] ?? 'application/octet-stream';
-	const binary = atob(data.slice(comma + 1));
-	const bytes = new Uint8Array(binary.length);
-	for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-	return new Blob([bytes], { type: mime });
+/** Decodes a legacy or imported data URL without one synchronous full pass. */
+async function dataUrlBlob(data: string): Promise<Blob> {
+	const { dataUrlToBlob } = await import('../data-url');
+	return dataUrlToBlob(data);
 }
 
 /**
@@ -198,7 +193,7 @@ export async function exportMarkdown(file: FileItem): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
 	const kind = documentKindForFile(file);
 	const blob = isBinaryDocument(file)
-		? dataUrlBlob(file.data ?? '')
+		? await dataUrlBlob(file.data ?? '')
 		: kind === 'code'
 			? new Blob([file.content], {
 					type: file.mime || 'text/plain;charset=utf-8'
@@ -356,12 +351,13 @@ export async function exportZip(
 		return false;
 	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');
 	const encoder = new TextEncoder();
+	const encoded = new Map<string, Uint8Array>();
 	let inputBytes = 0;
 	let entries = files.length;
 	for (const file of files) {
-		const size = isBinaryDocument(file)
-			? dataUrlBlob(file.data ?? '').size
-			: encoder.encode(file.content).byteLength;
+		const data = isBinaryDocument(file) ? null : encoder.encode(file.content);
+		if (data) encoded.set(file.id, data);
+		const size = data ? data.byteLength : (await dataUrlBlob(file.data ?? '')).size;
 		inputBytes += size;
 		if (size > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
 			throw new Error('Library export size limit');
@@ -406,12 +402,13 @@ export async function exportZip(
 	}
 	for (const file of files.filter((file) => !file.projectId)) {
 		if (isBinaryDocument(file)) {
-			const blob = dataUrlBlob(file.data ?? '');
+			const blob = await dataUrlBlob(file.data ?? '');
 			archiveBytes += blob.size;
 			zip.file(archiveName(file.name), await blob.arrayBuffer());
 		} else {
-			archiveBytes += encoder.encode(file.content).byteLength;
-			zip.file(archiveName(file.name), file.content);
+			const data = encoded.get(file.id) ?? encoder.encode(file.content);
+			archiveBytes += data.byteLength;
+			zip.file(archiveName(file.name), data);
 		}
 	}
 	if (projectIds.size) {

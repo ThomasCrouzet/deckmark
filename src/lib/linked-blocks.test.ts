@@ -57,6 +57,44 @@ describe('linked blocks', () => {
 		expect(detached).not.toContain('mdsh-include');
 	});
 
+	it('marks only edges inside an SCC as cyclic', () => {
+		const a = file('a', 'a.md', '<!-- mdsh-block id="x" -->\nA\n<!-- /mdsh-block -->');
+		const b = file('b', 'b.md', '<!-- mdsh-block id="y" -->\nB\n<!-- /mdsh-block -->');
+		const c = file('c', 'c.md', '<!-- mdsh-block id="z" -->\nC\n<!-- /mdsh-block -->');
+		a.content = insertInclude(a.content, 'b.md', 'y', 'h', 'B');
+		b.content = insertInclude(b.content, 'c.md', 'z', 'h', 'C');
+		c.content = insertInclude(c.content, 'c.md', 'z', 'h', 'C');
+		const reports = buildLinkReport([a, b, c]);
+		const states = Object.fromEntries(
+			reports.map((report) => [
+				`${report.include.fileId}:${report.include.sourcePath}`,
+				report.state
+			])
+		);
+		expect(states['a:b.md']).not.toBe('cycle');
+		expect(states['b:c.md']).not.toBe('cycle');
+		expect(states['c:c.md']).toBe('cycle');
+	});
+
+	it('resolves a wide diamond DAG without exponential traversal', () => {
+		const files: FileItem[] = [];
+		for (let layer = 0; layer < 24; layer++) {
+			for (const side of ['l', 'r']) {
+				const id = `${layer}${side}`;
+				const target = layer < 23 ? [`${layer + 1}l.md`, `${layer + 1}r.md`] : [];
+				let content = `<!-- mdsh-block id="b" -->\nLayer ${id}\n<!-- /mdsh-block -->`;
+				for (const path of target)
+					content = insertInclude(content, path, 'b', 'h', `Layer ${layer + 1}`);
+				files.push(file(id, `${id}.md`, content));
+			}
+		}
+		const started = performance.now();
+		const reports = buildLinkReport(files);
+		expect(reports).toHaveLength(23 * 2 * 2);
+		expect(reports.every((report) => report.state !== 'cycle')).toBe(true);
+		expect(performance.now() - started).toBeLessThan(500);
+	});
+
 	it('detects cycles', () => {
 		const a = file('a', 'a.md', '<!-- mdsh-block id="x" -->\nA\n<!-- /mdsh-block -->');
 		a.content = insertInclude(a.content, 'b.md', 'y', 'h', 'B').replace('a.md', 'a.md');

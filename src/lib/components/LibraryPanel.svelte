@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { tick } from 'svelte';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { documentKindForFile, documentKindLabelKey } from '#lib/document-kind.js';
 	import { t, i18n } from '#lib/i18n/index.js';
@@ -36,9 +36,6 @@
 	);
 	const selected = $derived(new Set(selectedIds));
 	const selectedMatches = $derived(matches.filter((file) => selected.has(file.id)));
-	onMount(() => {
-		void filesStore.ensureLibraryContent();
-	});
 	$effect(() => {
 		const visibleIds = new Set(matches.map((file) => file.id));
 		const retained = selectedIds.filter((id) => visibleIds.has(id));

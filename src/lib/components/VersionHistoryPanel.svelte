@@ -14,8 +14,7 @@
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { formatSaveAge, reportPersistenceError } from '#lib/storage.js';
-	import { listVersions } from '#lib/version-history.js';
-	import type { VersionRow } from '#lib/db.js';
+	import { getVersion, listVersionSummaries, type VersionSummary } from '#lib/version-history.js';
 	import { History, X, RotateCcw } from '@lucide/svelte';
 	import DiffView from './DiffView.svelte';
 
@@ -26,9 +25,12 @@
 
 	let { open, onClose }: Props = $props();
 
-	let versions = $state<VersionRow[]>([]);
+	let versions = $state<VersionSummary[]>([]);
+	let selectedContent = $state('');
+	let contentLoading = $state(false);
 	let loading = $state(true);
 	let selectedId = $state<string | null>(null);
+	let loadedId = $state<string | null>(null);
 	let closeButton: HTMLButtonElement | null = $state(null);
 
 	const selected = $derived(versions.find((v) => v.id === selectedId) ?? null);
@@ -39,14 +41,16 @@
 		let cancelled = false;
 		loading = true;
 		const id = filesStore.active?.id;
+		loadedId = id ?? null;
 		if (!id) {
 			versions = [];
+			selectedId = null;
 			loading = false;
 			return;
 		}
-		void listVersions(id)
+		void listVersionSummaries(id)
 			.then((rows) => {
-				if (cancelled) return;
+				if (cancelled || filesStore.activeId !== id) return;
 				versions = rows;
 				selectedId = rows[0]?.id ?? null;
 				loading = false;
@@ -72,18 +76,56 @@
 		};
 	});
 
+	$effect(() => {
+		if (!open || !browser || !selectedId) {
+			selectedContent = '';
+			return;
+		}
+		let cancelled = false;
+		contentLoading = true;
+		void getVersion(selectedId)
+			.then((row) => {
+				if (cancelled || selectedId !== row?.id) return;
+				selectedContent = row?.content ?? '';
+				contentLoading = false;
+			})
+			.catch((err) => {
+				if (cancelled) return;
+				selectedContent = '';
+				contentLoading = false;
+				reportError('load version body', err, {
+					notifyUser: t('versionHistory.loadError')
+				});
+			});
+		return () => {
+			cancelled = true;
+		};
+	});
+
 	async function handleRestore(): Promise<void> {
 		const v = selected;
-		const active = filesStore.active;
-		if (!v || !active) return;
+		const targetId = loadedId;
+		if (!v || !targetId || filesStore.activeId !== targetId) {
+			notify.error(t('versionHistory.staleDocument'));
+			return;
+		}
+		const version = await getVersion(v.id);
+		if (!version || version.draftId !== targetId) {
+			notify.error(t('versionHistory.staleDocument'));
+			return;
+		}
 		const ok = await promptStore.confirm({
 			title: t('versionHistory.restoreConfirmTitle'),
 			message: t('versionHistory.restoreConfirmMessage'),
 			confirmLabel: t('versionHistory.restore')
 		});
 		if (!ok) return;
+		if (filesStore.activeId !== targetId || selected?.id !== v.id) {
+			notify.error(t('versionHistory.staleDocument'));
+			return;
+		}
 		try {
-			const restored = await filesStore.restoreVersion(active.id, v.content);
+			const restored = await filesStore.restoreVersion(targetId, version.content);
 			if (!restored) return;
 			notify.success(t('versionHistory.restored'));
 			onClose();
@@ -173,12 +215,16 @@
 					<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 						{#if selected}
 							<div class="min-h-0 flex-1 overflow-auto p-3">
-								<DiffView
-									before={currentContent}
-									after={selected.content}
-									ariaLabel={`${t('versionHistory.preview')} ${t('versionHistory.vsCurrent')}`}
-									maxHeight="55vh"
-								/>
+								{#if contentLoading}
+									<p class="text-sm text-fg-muted">{t('versionHistory.loading')}</p>
+								{:else}
+									<DiffView
+										before={currentContent}
+										after={selectedContent}
+										ariaLabel={`${t('versionHistory.preview')} ${t('versionHistory.vsCurrent')}`}
+										maxHeight="55vh"
+									/>
+								{/if}
 							</div>
 						{/if}
 					</div>

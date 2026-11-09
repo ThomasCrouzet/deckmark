@@ -31,8 +31,20 @@
 
 	const columns = $derived(collectionColumns(rows));
 	const filtered = $derived(filterRows(rows, query));
+	const PAGE_ROWS = 300;
+	let visibleCount = $state(PAGE_ROWS);
 	const sorted = $derived(sortRows(filtered, sortKey, sortDirection));
-	const groups = $derived(groupRows(sorted, groupKey));
+	const visibleRows = $derived(sorted.slice(0, visibleCount));
+	const groups = $derived(groupRows(visibleRows, groupKey));
+	const hasMore = $derived(visibleCount < sorted.length);
+
+	$effect(() => {
+		void query;
+		void sortKey;
+		void sortDirection;
+		void groupKey;
+		visibleCount = PAGE_ROWS;
+	});
 
 	onMount(() => {
 		views = readCollectionViews();
@@ -174,7 +186,7 @@
 			<div class="collection-body">
 				{#if loading}
 					<p role="status">{t('collection.loading')}</p>
-				{:else if rows.length === 0}
+				{:else if sorted.length === 0}
 					<p>{t('collection.empty')}</p>
 				{:else if mode === 'table'}
 					<div class="table-scroll">
@@ -186,7 +198,7 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each sorted as row (row.id)}
+								{#each visibleRows as row (row.id)}
 									<tr>
 										<th scope="row">
 											<button type="button" onclick={() => openRow(row)}>{row.title}</button>
@@ -197,6 +209,15 @@
 							</tbody>
 						</table>
 					</div>
+					{#if hasMore}
+						<button
+							type="button"
+							class="mx-auto my-3 block rounded border border-border px-3 py-1.5 text-xs text-fg-muted"
+							onclick={() => (visibleCount += PAGE_ROWS)}
+						>
+							{t('library.loadMore', { n: Math.min(PAGE_ROWS, sorted.length - visibleCount) })}
+						</button>
+					{/if}
 				{:else}
 					<div class="board" data-testid="collection-board">
 						{#each groups as group (group.key)}

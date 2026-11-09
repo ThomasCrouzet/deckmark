@@ -20,6 +20,35 @@ function makeIndex(initial: FileItem[] = []) {
 	return { index, files };
 }
 
+describe('Deferred metadata projection', () => {
+	it('uses durable title, tags and targets before a closed body is hydrated', () => {
+		const { index } = makeIndex([
+			makeFile({
+				id: 'closed',
+				name: 'closed.md',
+				content: '',
+				contentDeferred: true,
+				derivedMetadata: {
+					id: 'closed',
+					contentHash: 'hash',
+					contentLength: 120,
+					title: 'Durable title',
+					documentTitle: 'Durable title',
+					tags: ['alpha', 'beta'],
+					targets: ['Visible'],
+					hasBlocks: false,
+					hasIncludes: false
+				}
+			}),
+			makeFile({ id: 'visible', name: 'Visible.md', content: '# Visible\n' })
+		]);
+		expect(index.displayTitle('closed')).toBe('Durable title');
+		expect(index.getTags('closed')).toEqual(['alpha', 'beta']);
+		expect(index.allTags).toEqual(['alpha', 'beta']);
+		expect(index.backlinks('visible').map((file) => file.id)).toEqual(['closed']);
+	});
+});
+
 describe('Metadata worker derivation parity', () => {
 	it('reuses plain body edits but fully parses structural edits', () => {
 		const source = {
@@ -220,6 +249,26 @@ describe('MetaIndex - invalidateMeta cache updates', () => {
 	});
 });
 
+describe('MetaIndex - content-only edit', () => {
+	it('keeps wiki buckets and backlink caches for an unchanged location and target set', () => {
+		const { index, files } = makeIndex();
+		files.push(
+			makeFile({ id: 'target', name: 'Target.md', content: '# Target\n' }),
+			makeFile({ id: 'source', name: 'Source.md', content: '[[Target]]\n' })
+		);
+		index.backlinks('target');
+		const detach = vi.spyOn(
+			WikiLinkIndex.prototype as unknown as { detach: (id: string) => void },
+			'detach'
+		);
+		files[1]!.content = '[[Target]] and plain text\n';
+		index.invalidateMeta('source');
+		expect(index.backlinks('target').map((file) => file.id)).toEqual(['source']);
+		expect(detach).not.toHaveBeenCalled();
+		detach.mockRestore();
+	});
+});
+
 describe('MetaIndex - getMeta', () => {
 	it('recalculates after content changes', () => {
 		const { index, files } = makeIndex();
@@ -253,7 +302,7 @@ describe('MetaIndex - front-matter fast path (supported subset)', () => {
 		expect(index.getTags('g2').sort()).toEqual(['delta', 'gamma']);
 	});
 
-	it('multiline tags block is out of fast-path scope (empty tags, no crash)', () => {
+	it('reads multiline tags blocks and block-scalar titles', () => {
 		const { index, files } = makeIndex();
 		files.push(
 			makeFile({
@@ -263,6 +312,34 @@ describe('MetaIndex - front-matter fast path (supported subset)', () => {
 			})
 		);
 		expect(index.displayTitle('ml')).toBe('Multi');
-		expect(index.getTags('ml')).toEqual([]);
+		expect(index.getTags('ml')).toEqual(['one', 'two']);
+	});
+
+	it('reads literal and folded title scalars and quoted tags', () => {
+		const { index, files } = makeIndex();
+		files.push(
+			makeFile({
+				id: 'literal',
+				name: 'literal.md',
+				content: '---\ntitle: |\n  Line one\n  Line two\n---\n'
+			})
+		);
+		files.push(
+			makeFile({
+				id: 'folded',
+				name: 'folded.md',
+				content: '---\ntitle: >-\n  Folded\n  title\n---\n'
+			})
+		);
+		files.push(
+			makeFile({
+				id: 'block',
+				name: 'block.md',
+				content: '---\ntags:\n  - \'alpha beta\' # comment\n  - "gamma"\n---\n'
+			})
+		);
+		expect(index.displayTitle('literal')).toBe('Line one\nLine two');
+		expect(index.displayTitle('folded')).toBe('Folded title');
+		expect(index.getTags('block')).toEqual(['alpha beta', 'gamma']);
 	});
 });

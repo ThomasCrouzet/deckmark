@@ -17,8 +17,13 @@ export interface RenderLayoutIdentity {
 	readonly reason: 'render' | 'resize' | 'media' | 'detach';
 }
 
+/**
+ * A cheap bucket key. Equality still uses the native `isEqualNode` comparison,
+ * so a key collision never reuses a different block.
+ */
 function nodeKey(node: Node): string {
-	return node instanceof Element ? node.outerHTML : `${node.nodeType}:${node.nodeValue}`;
+	if (!(node instanceof Element)) return `#${node.nodeType}`;
+	return `${node.nodeName}|${node.getAttribute('id') ?? ''}|${node.getAttribute('class') ?? ''}`;
 }
 
 function reconcile(article: HTMLElement, html: string): void {
@@ -29,17 +34,19 @@ function reconcile(article: HTMLElement, html: string): void {
 		article.append(template.content);
 		return;
 	}
-	const reusable = new Map<string, { nodes: Node[]; next: number }>();
+	const reusable = new Map<string, Node[]>();
 	for (const node of article.childNodes) {
 		const key = nodeKey(node);
-		const bucket = reusable.get(key) ?? { nodes: [], next: 0 };
-		bucket.nodes.push(node);
-		reusable.set(key, bucket);
+		const bucket = reusable.get(key);
+		if (bucket) bucket.push(node);
+		else reusable.set(key, [node]);
 	}
 	let cursor = article.firstChild;
 	for (const fresh of Array.from(template.content.childNodes)) {
 		const bucket = reusable.get(nodeKey(fresh));
-		const node = bucket?.nodes[bucket.next++] ?? fresh;
+		// Consume equal candidates in order. Scanning the whole bucket for a
+		// later match turns one changed block into quadratic equality work.
+		const node = bucket?.[0]?.isEqualNode(fresh) ? bucket.shift()! : fresh;
 		if (node === cursor) cursor = cursor.nextSibling;
 		else article.insertBefore(node, cursor);
 	}

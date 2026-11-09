@@ -2,7 +2,7 @@ import { Marked, type Tokens } from 'marked';
 import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import { escapeHTML } from '../html-escape';
-import { preprocessWikiLinks, slugify } from '../wiki-links';
+import { HeadingIdAllocator, preprocessWikiLinks, slugify } from '../wiki-links';
 import { RenderCache } from './render-cache';
 import type { RenderStageSample } from './render-stages';
 
@@ -31,12 +31,16 @@ type MathToken = Tokens.Generic & {
 };
 
 export function parseMarkdownSource(input: MarkdownParserInput): MarkdownParserOutput {
+	const executionThread: 'main' | 'worker' =
+		typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope
+			? 'worker'
+			: 'main';
 	const stages: RenderStageSample[] = [];
 	let started = performance.now();
 	const source = input.wikiLinks ? preprocessWikiLinks(input.content) : input.content;
-	stages.push({ stage: 'wiki', durationMs: performance.now() - started, thread: 'main' });
+	stages.push({ stage: 'wiki', durationMs: performance.now() - started, thread: executionThread });
 	const mermaidCodes: string[] = [];
-	const usedSlugs = new Set<string>();
+	const headingIds = new HeadingIdAllocator();
 	let highlightMs = 0;
 	let mathMs = 0;
 	const hits = cache.hits;
@@ -97,10 +101,7 @@ export function parseMarkdownSource(input: MarkdownParserInput): MarkdownParserO
 			heading({ tokens, depth, text }) {
 				const inner = this.parser.parseInline(tokens);
 				const base = slugify(text).slice(0, 80) || `section-${depth}`;
-				let slug = base;
-				let suffix = 2;
-				while (usedSlugs.has(slug)) slug = `${base}-${suffix++}`;
-				usedSlugs.add(slug);
+				const slug = headingIds.allocate(base);
 				if (depth > 3 || !input.headingPermalinks)
 					return `<h${depth} id="${slug}">${inner}</h${depth}>\n`;
 				return `<h${depth} id="${slug}">${inner}<a class="mdsh-anchor" href="#${slug}" tabindex="-1" aria-hidden="true"></a></h${depth}>\n`;
@@ -180,17 +181,21 @@ export function parseMarkdownSource(input: MarkdownParserInput): MarkdownParserO
 	started = performance.now();
 	// Keep document-global references and heading deduplication in one lexer/parser.
 	const tokens = marked.lexer(source);
-	stages.push({ stage: 'tokenize', durationMs: performance.now() - started, thread: 'main' });
+	stages.push({
+		stage: 'tokenize',
+		durationMs: performance.now() - started,
+		thread: executionThread
+	});
 	started = performance.now();
 	const html = marked.parser(tokens);
 	stages.push(
-		{ stage: 'parse', durationMs: performance.now() - started, thread: 'main' },
-		{ stage: 'highlight', durationMs: highlightMs, thread: 'main' },
-		{ stage: 'math', durationMs: mathMs, thread: 'main' },
+		{ stage: 'parse', durationMs: performance.now() - started, thread: executionThread },
+		{ stage: 'highlight', durationMs: highlightMs, thread: executionThread },
+		{ stage: 'math', durationMs: mathMs, thread: executionThread },
 		{
 			stage: 'blocks',
 			durationMs: highlightMs + mathMs,
-			thread: 'main',
+			thread: executionThread,
 			cacheHits: cache.hits - hits,
 			cacheMisses: cache.misses - misses,
 			cache: cache.usage()

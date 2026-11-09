@@ -47,8 +47,14 @@ export interface PatchTarget {
 	relativePath?: string;
 }
 
+/** Hard bound for an untrusted provider reply before any JSON scan. */
+export const MAX_PATCH_REPLY_CHARS = 2_000_000;
+const MAX_PATCH_FILES = 100;
+const MAX_PATCH_HUNKS = 500;
+
 /** Extracts the first JSON patch proposal from a fenced or raw reply. */
 export function parsePatchProposal(reply: string): AiPatchProposal | null {
+	if (reply.length > MAX_PATCH_REPLY_CHARS) return null;
 	const candidates: string[] = [];
 	const fenced = /```(?:json)?\s*([\s\S]*?)```/gi;
 	for (const match of reply.matchAll(fenced)) if (match[1]) candidates.push(match[1]);
@@ -65,7 +71,12 @@ export function parsePatchProposal(reply: string): AiPatchProposal | null {
 					typeof entry.baseHash === 'string' &&
 					Array.isArray(entry.hunks)
 			);
-			if (files.length > 0) return { files };
+			if (
+				files.length > 0 &&
+				files.length <= MAX_PATCH_FILES &&
+				files.every((file) => file.hunks.length <= MAX_PATCH_HUNKS)
+			)
+				return { files };
 		} catch {
 			// Keep looking at the next candidate.
 		}
@@ -103,19 +114,31 @@ function applyHunk(
 	content: string,
 	hunk: AiPatchHunk
 ): { ok: true; content: string } | { ok: false; reason: 'missing' | 'ambiguous' } {
-	const positions: number[] = [];
+	if (hunk.before.length === 0) return { ok: false, reason: 'missing' };
+	const wanted = hunk.occurrence;
+	if (wanted !== undefined && (!Number.isInteger(wanted) || wanted < 1))
+		return { ok: false, reason: 'missing' };
 	let offset = 0;
+	let count = 0;
+	let position = -1;
 	while (offset <= content.length) {
 		const found = content.indexOf(hunk.before, offset);
 		if (found < 0) break;
-		positions.push(found);
+		count += 1;
+		if (wanted !== undefined) {
+			if (count === wanted) {
+				position = found;
+				break;
+			}
+		} else if (position < 0) {
+			position = found;
+		} else {
+			// Stop at the second occurrence: no full positions array is built.
+			return { ok: false, reason: 'ambiguous' };
+		}
 		offset = found + Math.max(1, hunk.before.length);
 	}
-	if (positions.length === 0) return { ok: false, reason: 'missing' };
-	if (positions.length > 1 && !hunk.occurrence) return { ok: false, reason: 'ambiguous' };
-	const index = hunk.occurrence ? hunk.occurrence - 1 : 0;
-	const position = positions[index];
-	if (position === undefined) return { ok: false, reason: 'missing' };
+	if (position < 0) return { ok: false, reason: 'missing' };
 	return {
 		ok: true,
 		content: content.slice(0, position) + hunk.after + content.slice(position + hunk.before.length)
@@ -172,11 +195,12 @@ export function planPatch(
 			});
 			continue;
 		}
-		if (!Array.isArray(patch.hunks) || patch.hunks.length > 500) {
+		if (!Array.isArray(patch.hunks) || patch.hunks.length > MAX_PATCH_HUNKS) {
 			result.rejected.push({ path, reason: 'invalid-hunks' });
 			continue;
 		}
 		let content = before;
+		let hunkBudget = 0;
 		const hunkPlans: PatchFilePlan['hunks'] = [];
 		let failed = false;
 		patch.hunks.forEach((hunk, index) => {
@@ -186,6 +210,12 @@ export function planPatch(
 				hunk.before.length > 200_000 ||
 				hunk.after.length > 200_000
 			) {
+				hunkPlans.push({ index, ok: false, before: '', after: '', reason: 'missing' });
+				failed = true;
+				return;
+			}
+			hunkBudget += hunk.before.length + hunk.after.length;
+			if (hunkBudget > MAX_PATCH_REPLY_CHARS) {
 				hunkPlans.push({ index, ok: false, before: '', after: '', reason: 'missing' });
 				failed = true;
 				return;

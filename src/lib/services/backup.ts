@@ -102,18 +102,28 @@ export function planDraftMerge(
 	const importedIdMap = new Map<string, string>();
 	const dependants = new Map<string, Set<string>>();
 	const byId = new Map(incoming.map((draft) => [draft.id, draft]));
+	const existingByIdentity = new Map<string, DraftRow[]>();
+	const identity = (
+		name: string,
+		createdAt: number,
+		updatedAt: number,
+		projectId: string | undefined,
+		relativePath: string | undefined
+	) => JSON.stringify([name, createdAt, updatedAt, projectId ?? '', relativePath ?? '']);
+	for (const row of existing) {
+		const key = identity(row.name, row.createdAt, row.updatedAt, row.projectId, row.relativePath);
+		const bucket = existingByIdentity.get(key);
+		if (bucket) bucket.push(row);
+		else existingByIdentity.set(key, [row]);
+	}
 	for (const draft of incoming) {
 		const mappedProjectId = draft.projectId
 			? (projectIdMap.get(draft.projectId) ?? draft.projectId)
 			: undefined;
-		const matches = existing.filter(
-			(row) =>
-				row.name === draft.name &&
-				row.createdAt === draft.createdAt &&
-				row.updatedAt === draft.updatedAt &&
-				row.projectId === mappedProjectId &&
-				row.relativePath === draft.relativePath
-		);
+		const matches =
+			existingByIdentity.get(
+				identity(draft.name, draft.createdAt, draft.updatedAt, mappedProjectId, draft.relativePath)
+			) ?? [];
 		const candidate = matches.find((row) => row.content === draft.content) ?? matches[0];
 		if (candidate) candidates.set(draft.id, candidate);
 		importedIdMap.set(draft.id, candidate?.id ?? newId());
@@ -156,6 +166,9 @@ export function planDraftMerge(
 }
 
 export type RestoreMode = 'merge' | 'replace';
+
+/** Backups already validated by `parseBackupWithReport`, including large restores. */
+const validatedBackups = new WeakSet<object>();
 
 export interface RestoreCounts {
 	drafts: number;
@@ -607,21 +620,20 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 			throw new BackupParseError(t('backup.tooLarge'));
 		}
 	}
-	return {
-		backup: {
-			format: BACKUP_FORMAT,
-			schemaVersion,
-			exportedAt: raw.exportedAt,
-			drafts,
-			workspaces,
-			templates,
-			...(raw.snippets === undefined ? {} : { snippets }),
-			projects,
-			projectAssets,
-			comments: commentRows
-		},
-		skipped
+	const backup: BackupFile = {
+		format: BACKUP_FORMAT,
+		schemaVersion,
+		exportedAt: raw.exportedAt,
+		drafts,
+		workspaces,
+		templates,
+		...(raw.snippets === undefined ? {} : { snippets }),
+		projects,
+		projectAssets,
+		comments: commentRows
 	};
+	validatedBackups.add(backup);
+	return { backup, skipped };
 }
 
 /**
@@ -760,7 +772,7 @@ export async function applyBackup(
 	mode: RestoreMode,
 	skipped = 0
 ): Promise<RestoreCounts> {
-	backup = parseBackupWithReport(serializeBackup(backup)).backup;
+	if (!validatedBackups.has(backup)) backup = parseBackupWithReport(serializeBackup(backup)).backup;
 	if (skipped > 0) throw new BackupParseError(t('backup.notMdshBackup'));
 	const projects = backup.projects ?? [];
 	const snippets = backup.snippets ?? [];
@@ -807,27 +819,29 @@ export async function applyBackup(
 					db.projects.toArray(),
 					db.projectAssets.toArray()
 				]);
+				const incomingProjects = new Map(projects.map((project) => [project.id, project]));
+				const incomingDrafts = new Map(backup.drafts.map((draft) => [draft.id, draft]));
 				const unchangedProjects = new Set(
 					currentProjects
-						.filter((project) =>
-							projects.some(
-								(incoming) =>
-									incoming.id === project.id &&
-									incoming.name === project.name &&
-									sameProjectContent(
-										project.id,
-										incoming.id,
-										currentDrafts,
-										backup.drafts,
-										currentAssets,
-										projectAssets
-									)
-							)
-						)
+						.filter((project) => {
+							const incoming = incomingProjects.get(project.id);
+							return (
+								incoming !== undefined &&
+								incoming.name === project.name &&
+								sameProjectContent(
+									project.id,
+									incoming.id,
+									currentDrafts,
+									backup.drafts,
+									currentAssets,
+									projectAssets
+								)
+							);
+						})
 						.map((project) => project.id)
 				);
 				for (const current of currentDrafts) {
-					const incoming = backup.drafts.find((draft) => draft.id === current.id);
+					const incoming = incomingDrafts.get(current.id);
 					if (
 						incoming?.content === current.content &&
 						incoming.name === current.name &&
@@ -943,6 +957,17 @@ export async function applyBackup(
 			);
 			const existingWorkspaces = await db.workspaces.toArray();
 			const workspaceIds = new Set(existingWorkspaces.map((row) => row.id));
+			const workspaceKeys = new Set(
+				existingWorkspaces.map((row) =>
+					JSON.stringify([
+						row.name,
+						row.activeId,
+						row.createdAt,
+						row.updatedAt,
+						row.fileIds.join('\0')
+					])
+				)
+			);
 			const workspacesToPut = backup.workspaces.flatMap((workspace) => {
 				const fileIds = workspace.fileIds.flatMap((id) => {
 					const mapped = importedIdMap.get(id);
@@ -953,62 +978,91 @@ export async function applyBackup(
 					fileIds: [...new Set(fileIds)],
 					activeId: workspace.activeId ? (importedIdMap.get(workspace.activeId) ?? null) : null
 				};
-				const identical = existingWorkspaces.some(
-					(row) =>
-						row.name === mapped.name &&
-						row.activeId === mapped.activeId &&
-						row.createdAt === mapped.createdAt &&
-						row.updatedAt === mapped.updatedAt &&
-						row.fileIds.join('\0') === mapped.fileIds.join('\0')
+				const identical = workspaceKeys.has(
+					JSON.stringify([
+						mapped.name,
+						mapped.activeId,
+						mapped.createdAt,
+						mapped.updatedAt,
+						mapped.fileIds.join('\0')
+					])
 				);
 				if (identical) return [];
 				return [{ ...mapped, id: workspaceIds.has(mapped.id) ? newId() : mapped.id }];
 			});
 			const existingTemplates = await db.templates.toArray();
 			const templateIds = new Set(existingTemplates.map((row) => row.id));
+			const templateKeys = new Set(
+				existingTemplates.map((row) =>
+					JSON.stringify([
+						row.name,
+						row.content,
+						row.builtin,
+						row.kind ?? 'note',
+						row.createdAt,
+						row.updatedAt
+					])
+				)
+			);
 			const templatesToPut = backup.templates.flatMap((template) => {
-				const identical = existingTemplates.some(
-					(row) =>
-						row.name === template.name &&
-						row.content === template.content &&
-						row.builtin === template.builtin &&
-						(row.kind ?? 'note') === (template.kind ?? 'note') &&
-						row.createdAt === template.createdAt &&
-						row.updatedAt === template.updatedAt
+				const identical = templateKeys.has(
+					JSON.stringify([
+						template.name,
+						template.content,
+						template.builtin,
+						template.kind ?? 'note',
+						template.createdAt,
+						template.updatedAt
+					])
 				);
 				if (identical) return [];
 				return [{ ...template, id: templateIds.has(template.id) ? newId() : template.id }];
 			});
 			const existingComments = await db.comments.toArray();
 			const commentIds = new Set(existingComments.map((row) => row.id));
+			const commentKeys = new Set(
+				existingComments.map((row) => JSON.stringify([row.id, row.body, row.status, row.updatedAt]))
+			);
 			const commentsToPut = (backup.comments ?? []).flatMap((comment) => {
 				const mappedDraftId = importedIdMap.get(comment.draftId);
 				if (!mappedDraftId) return [];
 				const mapped = { ...comment, draftId: mappedDraftId };
-				const identical = existingComments.some(
-					(row) =>
-						row.id === mapped.id &&
-						row.body === mapped.body &&
-						row.status === mapped.status &&
-						row.updatedAt === mapped.updatedAt
+				const identical = commentKeys.has(
+					JSON.stringify([mapped.id, mapped.body, mapped.status, mapped.updatedAt])
 				);
 				if (identical) return [];
 				return [{ ...mapped, id: commentIds.has(mapped.id) ? newId() : mapped.id }];
 			});
 			const existingSnippets = await db.snippets.toArray();
 			const snippetIds = new Set(existingSnippets.map((row) => row.id));
+			const snippetKeys = new Set(
+				existingSnippets.map((row) =>
+					JSON.stringify([
+						row.title,
+						row.code,
+						row.language,
+						row.tags.join('\0'),
+						row.folder,
+						row.projectId,
+						row.favorite,
+						row.createdAt,
+						row.updatedAt
+					])
+				)
+			);
 			const snippetsToPut = snippets.flatMap((snippet) => {
-				const identical = existingSnippets.some(
-					(row) =>
-						row.title === snippet.title &&
-						row.code === snippet.code &&
-						row.language === snippet.language &&
-						row.tags.join('\0') === snippet.tags.join('\0') &&
-						row.folder === snippet.folder &&
-						row.projectId === snippet.projectId &&
-						row.favorite === snippet.favorite &&
-						row.createdAt === snippet.createdAt &&
-						row.updatedAt === snippet.updatedAt
+				const identical = snippetKeys.has(
+					JSON.stringify([
+						snippet.title,
+						snippet.code,
+						snippet.language,
+						snippet.tags.join('\0'),
+						snippet.folder,
+						snippet.projectId,
+						snippet.favorite,
+						snippet.createdAt,
+						snippet.updatedAt
+					])
 				);
 				if (identical) return [];
 				return [{ ...snippet, id: snippetIds.has(snippet.id) ? newId() : snippet.id }];

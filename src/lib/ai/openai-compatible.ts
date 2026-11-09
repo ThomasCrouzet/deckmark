@@ -126,6 +126,7 @@ export async function streamChat(
 	if (!response.body)
 		throw new AiProviderError('invalid-response', 'The provider returned no body.');
 	const reader = response.body.getReader();
+	const maxResponseChars = 2_000_000;
 	const decoder = new TextDecoder();
 	let buffer = '';
 	let full = '';
@@ -136,6 +137,10 @@ export async function streamChat(
 			buffer += decoder.decode(value, { stream: true });
 			const lines = buffer.split(/\r?\n/);
 			buffer = lines.pop() ?? '';
+			if (buffer.length > maxResponseChars || full.length > maxResponseChars) {
+				await reader.cancel().catch(() => {});
+				throw new AiProviderError('invalid-response', 'The provider response is too large.');
+			}
 			for (const line of lines) {
 				if (!line.startsWith('data:')) continue;
 				const payload = line.slice(5).trim();
@@ -150,11 +155,16 @@ export async function streamChat(
 				const text = choice?.delta?.content ?? choice?.message?.content;
 				if (typeof text === 'string' && text.length > 0) {
 					full += text;
+					if (full.length > maxResponseChars) {
+						await reader.cancel().catch(() => {});
+						throw new AiProviderError('invalid-response', 'The provider response is too large.');
+					}
 					onDelta(text);
 				}
 			}
 		}
 	} catch (error) {
+		if (error instanceof AiProviderError) throw error;
 		if (error instanceof DOMException && error.name === 'AbortError') {
 			reader.cancel().catch(() => {});
 			throw new AiProviderError('cancelled', 'Request cancelled');

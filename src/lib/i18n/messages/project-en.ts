@@ -52,6 +52,8 @@ export const projectEn = {
 	'projects.importZip': 'Import project ZIP',
 	'projects.importFolder': 'Import folder',
 	'projects.export': 'Export project',
+	'projects.exportUnsaved':
+		'The latest edits are not saved yet, so no ZIP was created. Retry after the save succeeds.',
 	'projects.checkLinks': 'Check links',
 	'projects.noIssues': 'All local links resolve.',
 	'projects.newDocument': 'New project document',
@@ -60,6 +62,8 @@ export const projectEn = {
 	'projects.empty': 'Create a project or import a folder or ZIP archive.',
 	'projects.local':
 		'Documents and assets stay on this device. Export a ZIP to keep a separate copy.',
+	'projects.renameBaselinePending':
+		'The file was renamed. Refresh the project to refresh its disk baseline.',
 	'projects.operationFailed':
 		'The project operation failed. Check the paths, file formats, and size limits, then try again.',
 	'projects.limits': 'Up to 300 documents, 64 MB per project, and 2 MB per image.',

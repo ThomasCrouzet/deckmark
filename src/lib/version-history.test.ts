@@ -4,6 +4,8 @@ import {
 	VERSION_LIMITS,
 	deleteVersionsFor,
 	listVersions,
+	listVersionSummaries,
+	getVersion,
 	pruneVersions,
 	recordVersion,
 	createCheckpoint,
@@ -265,5 +267,20 @@ describe('deleteVersionsFor', () => {
 		await deleteVersionsFor('d1');
 		expect(await db.versions.where('draftId').equals('d1').count()).toBe(0);
 		expect(await db.versions.where('draftId').equals('d2').count()).toBe(1);
+	});
+});
+
+describe('listVersionSummaries', () => {
+	it('returns identities without loading version bodies', async () => {
+		await db.versions.bulkPut([
+			{ id: 'a', draftId: 'd1', name: 'n', content: 'older', createdAt: T0 },
+			{ id: 'b', draftId: 'd1', name: 'n', content: 'newer', createdAt: T0 + 1 },
+			{ id: 'c', draftId: 'd2', name: 'n', content: 'other', createdAt: T0 }
+		]);
+		expect(await listVersionSummaries('d1')).toEqual([
+			{ id: 'b', createdAt: T0 + 1 },
+			{ id: 'a', createdAt: T0 }
+		]);
+		expect((await getVersion('a'))?.content).toBe('older');
 	});
 });

@@ -811,8 +811,10 @@
 	 */
 	$effect(() => {
 		const c = content;
-		monitor?.external(c);
-		if (!view || !activeCM) return;
+		if (!view || !activeCM) {
+			monitor?.external(c);
+			return;
+		}
 		if (nativeActive()) {
 			// A blocked conflict keeps the rejected local work. Do not replace it.
 			if (nativeBlocked) return;
@@ -834,6 +836,7 @@
 		} else if (c === lastEmitted) {
 			return;
 		}
+		monitor?.external(c);
 		applyExternalSource(c, activeCM, view);
 		const pending = pendingSavedPosition;
 		if (pending) {

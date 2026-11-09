@@ -22,16 +22,19 @@
 	let newValue = $state('');
 	let busy = $state(false);
 	let content = $state('');
+	let fileId: string | null = null;
 
 	onMount(() => {
 		const active = filesStore.active;
 		if (!active) return;
+		fileId = active.id;
 		content = active.content;
 		properties = readFrontmatterProperties(content);
 		original = Object.fromEntries(properties.map((entry) => [entry.key, entry.value]));
 		values = { ...original };
+		const id = fileId;
 		void parseFrontmatter(content).then((parsed) => {
-			error = parsed.error ?? '';
+			if (fileId === id) error = parsed.error ?? '';
 		});
 	});
 
@@ -62,10 +65,14 @@
 			onClose();
 			return;
 		}
+		const target = fileId ? filesStore.library.find((entry) => entry.id === fileId) : undefined;
+		if (!target || target.content !== content) {
+			error = t('properties.staleDocument');
+			return;
+		}
 		busy = true;
 		const next = updateFrontmatter(content, changes);
-		const active = filesStore.active;
-		if (active) filesStore.updateContent(active.id, next);
+		filesStore.updateContent(target.id, next);
 		busy = false;
 		onClose();
 	}

@@ -57,6 +57,8 @@ export const projectFr: Record<ProjectMessageKey, string> = {
 	'projects.importZip': 'Importer un projet ZIP',
 	'projects.importFolder': 'Importer un dossier',
 	'projects.export': 'Exporter le projet',
+	'projects.exportUnsaved':
+		"Les dernières modifications ne sont pas encore enregistrées, aucun ZIP n'a été créé. Réessayez après l'enregistrement.",
 	'projects.checkLinks': 'Vérifier les liens',
 	'projects.noIssues': 'Tous les liens locaux sont résolus.',
 	'projects.newDocument': 'Nouveau document du projet',
@@ -65,6 +67,8 @@ export const projectFr: Record<ProjectMessageKey, string> = {
 	'projects.empty': 'Créez un projet ou importez un dossier ou une archive ZIP.',
 	'projects.local':
 		'Les documents et ressources restent sur cet appareil. Exportez un ZIP pour conserver une copie séparée.',
+	'projects.renameBaselinePending':
+		'Le fichier a été renommé. Actualisez le projet pour rafraîchir sa référence disque.',
 	'projects.operationFailed':
 		'L’opération a échoué. Vérifiez les chemins, les formats et les limites de taille, puis réessayez.',
 	'projects.limits': 'Jusqu’à 300 documents, 64 Mo par projet et 2 Mo par image.',

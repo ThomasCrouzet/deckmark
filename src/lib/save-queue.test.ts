@@ -318,6 +318,21 @@ describe('SaveQueue with IndexedDB and actual conflicts', () => {
 		expect((await db.versions.toArray()).map((version) => version.content)).toContain('REMOTE A');
 	});
 
+	it('preserves a conflict without materializing unrelated draft bodies', async () => {
+		const initial = { ...row('a'), content: 'initial', updatedAt: 1 };
+		await db.drafts.put(initial);
+		await db.drafts.put({ ...row('b'), content: 'x'.repeat(100_000), updatedAt: 1 });
+		const q = new SaveQueue(noopCb);
+		q.trackPersisted(initial);
+		await db.drafts.put({ ...initial, content: 'remote', updatedAt: 2 });
+		const all = vi.spyOn(db.drafts, 'toArray');
+		const local = { ...initial, content: 'local', updatedAt: 3 };
+		q.persist(local);
+		await q.flushAwait(() => local);
+		expect(all).not.toHaveBeenCalled();
+		all.mockRestore();
+	});
+
 	it('preserves a branch when only the content length differs', async () => {
 		const initial = { ...row('a'), content: 'same', updatedAt: 1 };
 		await db.drafts.put(initial);

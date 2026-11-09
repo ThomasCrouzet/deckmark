@@ -154,6 +154,8 @@ class FilesStore {
 	}
 
 	loaded = $state(false);
+	/** Monotonic boundary for startup and backup reloads. */
+	private loadGeneration = 0;
 	// §J1 - Error message if IndexedDB access fails at startup (private mode,
 	// storage disabled, corrupted profile). Shown as a banner by +page.
 	loadError = $state<string | null>(null);
@@ -523,8 +525,9 @@ class FilesStore {
 		if (typeof window !== 'undefined') window.location.reload();
 	}
 
-	async load(preferredActiveId: string | null = null): Promise<void> {
-		if (!browser || this.loaded) return;
+	async load(preferredActiveId: string | null = null): Promise<boolean> {
+		if (!browser || this.loaded) return this.loaded;
+		const generation = ++this.loadGeneration;
 		let openTimer: ReturnType<typeof setTimeout> | undefined;
 		try {
 			// A stale tab can hold an older database connection and block the
@@ -534,35 +537,45 @@ class FilesStore {
 			const timeout = new Promise<never>((_resolve, reject) => {
 				openTimer = setTimeout(() => reject(new Error('storage-open-timeout')), 15_000);
 			});
-			await Promise.race([this.loadData(preferredActiveId), timeout]);
+			return await Promise.race([this.loadData(preferredActiveId, generation), timeout]);
 		} catch (err) {
+			// Invalidate the pending read before publishing the failure. A late
+			// IndexedDB result must not replace this state or claim success.
+			if (this.loadGeneration === generation) this.loadGeneration += 1;
 			// §J1 - IndexedDB inaccessible (private browsing, storage disabled,
 			// blocked upgrade, corrupted profile): surface an actionable message.
 			reportError('load IndexedDB', err);
 			this.loadError = t('files.loadError');
+			return false;
 		} finally {
 			// Do not keep a pending timer after a fast load.
 			if (openTimer !== undefined) clearTimeout(openTimer);
 		}
 	}
 
-	private async loadData(preferredActiveId: string | null): Promise<void> {
+	private async loadData(preferredActiveId: string | null, generation: number): Promise<boolean> {
 		// The metadata scan, body budget, and full-row fallback live in an
 		// on-demand chunk so the boot bundle stays small.
 		const { loadDraftLibrary } = await import('./draft-access');
 		const loaded = await loadDraftLibrary(preferredActiveId, readPreference(ACTIVE_ID_KEY));
-		for (const row of loaded.persistedRows) this.saveQueue.trackPersisted(row);
+		if (this.loadGeneration !== generation) return false;
 		// Load the wiki index module before publishing the files. A reactive read
 		// can run as soon as the library is assigned.
 		await this.metaIndex.load();
+		if (this.loadGeneration !== generation) return false;
+		const trash = await loadTrashRows();
+		if (this.loadGeneration !== generation) return false;
+		for (const row of loaded.persistedRows) this.saveQueue.trackPersisted(row);
 		this.files = loaded.files;
 		this.closedFiles = loaded.closedFiles;
 		this.activeId = loaded.activeId;
 		this.metaIndex.invalidateBacklinksIndex();
-		await this.loadTrash();
+		this.trash = trash.map(({ entry }) => entry);
+		this.loadError = null;
 		this.loaded = true;
 		// Background FSA check - no await (must not block the display).
 		void this.refreshBrokenLinks();
+		return true;
 	}
 
 	/**
@@ -600,15 +613,8 @@ class FilesStore {
 		);
 		this.loaded = false;
 		this.loadError = null;
-		await this.load(preferredActiveId);
-		if (broadcast) this.crossTab.post({ type: 'backup-applied' });
-	}
-
-	private async loadTrash(): Promise<void> {
-		const results = await loadTrashRows();
-		for (const { entry } of results) {
-			this.trash.push(entry);
-		}
+		const restored = await this.load(preferredActiveId);
+		if (broadcast && restored) this.crossTab.post({ type: 'backup-applied' });
 	}
 
 	private persistActiveId(): void {
@@ -935,6 +941,20 @@ class FilesStore {
 		if (!detached) return;
 		this.closedFiles.push(detached.file);
 		this.saveQueue.persist(this.capturedDraftRow(detached.file, detached.index, false));
+		void this.flushPendingAwait()
+			.then(() => this.reclaimClosedBodies())
+			.catch(() => undefined);
+	}
+
+	/** Reclaims closed bodies after their durable row is flushed. */
+	private async reclaimClosedBodies(): Promise<void> {
+		const { reclaimClosedBodies } = await import('./draft-content');
+		await reclaimClosedBodies({
+			files: this.files,
+			closedFiles: this.closedFiles,
+			isPending: (id) => this.saveQueue.has(id) || this.pendingContentLoads.has(id),
+			rowFor: (file) => this.capturedDraftRow(file, 0, false)
+		});
 	}
 
 	/** Moves a document to the durable trash. This is distinct from closing a tab. */

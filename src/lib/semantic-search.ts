@@ -149,6 +149,40 @@ export function trainCooccurrenceModel(texts: readonly string[]): Embedder {
 	};
 }
 
+const cooccurrenceModels = new Map<string, Embedder>();
+
+/** Reuses a trained local model for an unchanged corpus revision. */
+export function cachedCooccurrenceEmbedder(corpusKey: string, texts: readonly string[]): Embedder {
+	const cached = cooccurrenceModels.get(corpusKey);
+	if (cached) return cached;
+	const trained = trainCooccurrenceModel(texts);
+	cooccurrenceModels.set(corpusKey, trained);
+	while (cooccurrenceModels.size > 3)
+		cooccurrenceModels.delete(cooccurrenceModels.keys().next().value!);
+	return trained;
+}
+
+const chunkVectors = new Map<string, number[]>();
+
+function chunkHash(text: string): string {
+	let hash = 0x811c9dc5;
+	for (let index = 0; index < text.length; index++) {
+		hash ^= text.charCodeAt(index);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(36);
+}
+
+function embedChunk(embedder: Embedder, text: string): number[] {
+	const key = `${embedder.modelId}:${chunkHash(text)}`;
+	const cached = chunkVectors.get(key);
+	if (cached) return cached;
+	const vector = embedder.embed(text);
+	chunkVectors.set(key, vector);
+	while (chunkVectors.size > 5000) chunkVectors.delete(chunkVectors.keys().next().value!);
+	return vector;
+}
+
 export function modelById(id: string): Embedder {
 	return id === 'cooccurrence-v1'
 		? { ...featureModel, modelId: 'cooccurrence-v1', dims: COOCCURRENCE_DIMENSIONS }
@@ -236,7 +270,7 @@ export function search(
 		.map((row) => {
 			const best = row.chunks
 				.map((chunk) => {
-					const score = cosine(queryVector, embedder.embed(chunk.text));
+					const score = cosine(queryVector, embedChunk(embedder, chunk.text));
 					const content = chunk.text.toLowerCase();
 					const tokenBonus = [...queryTokens].filter((token) => content.includes(token)).length;
 					return { chunk, score: score + tokenBonus * 0.05 };

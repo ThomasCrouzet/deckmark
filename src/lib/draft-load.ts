@@ -10,6 +10,7 @@ import {
 	draftItemFromManifest,
 	draftItemFromRow,
 	readDraftManifests,
+	readDraftMetadata,
 	selectInlineContentIds
 } from './draft-manifest';
 import type { FileItem } from './types';
@@ -34,7 +35,19 @@ export async function loadDraftLibrary(
 		}
 	}
 
+	// The projection hooks stay out of the boot bundle. Install them before
+	// publishing any row, then fill projections written before this version.
+	const hooks = await import('./draft-metadata');
+	hooks.installDraftMetadataHooks();
 	let manifests = await readDraftManifests();
+	const metadata = manifests ? await readDraftMetadata() : null;
+	if (manifests && !metadata) {
+		// The projection is incomplete (for example rows written by another
+		// client or before this version). Keep the full-row fallback for this
+		// boot and fill the projection in the background for the next one.
+		manifests = null;
+		void hooks.backfillDraftMetadata().catch(() => undefined);
+	}
 	let items: FileItem[] = [];
 	let activeIds: string[] = [];
 	let persistedRows: DraftRow[] = [];
@@ -56,7 +69,11 @@ export async function loadDraftLibrary(
 					const row = byId.get(manifest.id);
 					return row
 						? draftItemFromRow(row, linkedIds.has(row.id))
-						: draftItemFromManifest(manifest, linkedIds.has(manifest.id));
+						: draftItemFromManifest(
+								manifest,
+								linkedIds.has(manifest.id),
+								metadata?.get(manifest.id)
+							);
 				});
 			activeIds = manifests.filter((manifest) => manifest.open).map((manifest) => manifest.id);
 			persistedRows = rows;

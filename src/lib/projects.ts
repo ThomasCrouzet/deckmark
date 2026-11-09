@@ -12,7 +12,8 @@ import {
 	relativeDestination
 } from './project-paths';
 import { renameProjectLinks, projectLinkReport } from './project-links';
-import { buildProjectZip, PROJECT_LIMITS, type ProjectInput } from './project-archive';
+import type { ProjectInput } from './project-archive';
+import { PROJECT_SCALE_LIMITS } from './project-limits';
 import { projectDocumentLimit } from './project-limits';
 import { normalizeRename } from './file-utils';
 import { rewriteWikiLinkTargets } from './wiki-links';
@@ -94,7 +95,7 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 		const assets = await db.projectAssets.where('projectId').equals(projectId).toArray();
 		if (
 			documents.length >= projectDocumentLimit() ||
-			documents.length + assets.length >= PROJECT_LIMITS.maxEntries - 3
+			documents.length + assets.length >= PROJECT_SCALE_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project entry limit');
 		if (
@@ -110,13 +111,35 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 	return row.id;
 }
 
+const PROJECT_EXPORT_FLUSH_TIMEOUT_MS = 5000;
+
+/**
+ * Waits for the durable draft barrier. A timeout rejects instead of pretending
+ * that the archive contains the latest edits. The pending write keeps running.
+ */
+async function awaitProjectDraftDurability(): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(
+			() => reject(new Error('project-export-flush-timeout')),
+			PROJECT_EXPORT_FLUSH_TIMEOUT_MS
+		);
+	});
+	try {
+		await Promise.race([filesStore.flushPendingAwait(), timeout]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 export async function exportProject(projectId: string): Promise<boolean> {
-	// A blocked save retry must not block the archive forever: the snapshot below
-	// reads the durable rows, and a slow flush still lands before the ZIP is built.
-	await Promise.race([
-		filesStore.flushPendingAwait().catch(() => undefined),
-		new Promise<void>((resolve) => setTimeout(resolve, 5000))
-	]);
+	try {
+		await awaitProjectDraftDurability();
+	} catch (error) {
+		reportError('project export durability', error);
+		notify.error(t('projects.exportUnsaved'));
+		return false;
+	}
 	const snapshot = await db.transaction(
 		'r',
 		db.projects,
@@ -129,6 +152,7 @@ export async function exportProject(projectId: string): Promise<boolean> {
 		})
 	);
 	if (!snapshot.project) throw new Error('Project no longer exists');
+	const { buildProjectZip } = await import('./project-archive');
 	const blob = await buildProjectZip(
 		snapshot.project.name,
 		snapshot.documents.map((doc) => ({
@@ -327,7 +351,19 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					new Map(snapshot.map((file) => [file.id, file])),
 					rewrite
 				);
-				await nativeRename.commit();
+				try {
+					await nativeRename.commit();
+				} catch {
+					// The disk rename and draft rows already committed. A transient
+					// baseline write failure must not report a false rename failure.
+					await new Promise((resolve) => setTimeout(resolve, 250));
+					try {
+						await nativeRename.commit();
+					} catch (second) {
+						reportError('project rename baseline', second);
+						notify.info(t('projects.renameBaselinePending'));
+					}
+				}
 				return true;
 			} catch (error) {
 				if (nativeRename && !committed) {
@@ -364,8 +400,8 @@ export async function addProjectImage(projectId: string, file: File): Promise<st
 			assets.reduce((total, asset) => total + asset.data.byteLength, 0) +
 			documents.reduce((total, document) => total + encoder.encode(document.content).byteLength, 0);
 		if (
-			size > PROJECT_LIMITS.maxBytes ||
-			documents.length + assets.length >= PROJECT_LIMITS.maxEntries - 3
+			size > PROJECT_SCALE_LIMITS.maxBytes ||
+			documents.length + assets.length >= PROJECT_SCALE_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project size limit');
 		await db.projectAssets.add({ id: newId(), projectId, path, mime, data });

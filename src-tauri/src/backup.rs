@@ -492,37 +492,50 @@ pub async fn desktop_backup_pick_root(
     {
         return roots.selected_root(PathBuf::from(path)).map(Some);
     }
-    let selected = app.dialog().file().set_title(title).blocking_pick_folder();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_title(title).blocking_pick_folder()
+    })
+    .await
+    .map_err(|error| error.to_string())?;
     selected
         .map(|path| roots.selected_root(path.into_path().map_err(|error| error.to_string())?))
         .transpose()
 }
 
 #[tauri::command]
-pub fn desktop_backup_write(
+pub async fn desktop_backup_write(
     roots: tauri::State<'_, BackupRoots>,
     root_id: String,
     payload: String,
     keep: u32,
 ) -> Result<BackupWrite, String> {
-    write_snapshot(&roots.resolve(&root_id)?, payload.as_bytes(), keep)
+    let root = roots.resolve(&root_id)?;
+    tauri::async_runtime::spawn_blocking(move || write_snapshot(&root, payload.as_bytes(), keep))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn desktop_backup_list(
+pub async fn desktop_backup_list(
     roots: tauri::State<'_, BackupRoots>,
     root_id: String,
 ) -> Result<Vec<BackupEntry>, String> {
-    snapshot_entries(&roots.resolve(&root_id)?)
+    let root = roots.resolve(&root_id)?;
+    tauri::async_runtime::spawn_blocking(move || snapshot_entries(&root))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn desktop_backup_read(
+pub async fn desktop_backup_read(
     roots: tauri::State<'_, BackupRoots>,
     root_id: String,
     file_name: String,
 ) -> Result<String, String> {
-    read_snapshot(&roots.resolve(&root_id)?, &file_name)
+    let root = roots.resolve(&root_id)?;
+    tauri::async_runtime::spawn_blocking(move || read_snapshot(&root, &file_name))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]
