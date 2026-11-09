@@ -4,12 +4,21 @@
 // shell, no network listener, and no external agent account.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, realpathSync, statSync, writeSync } from 'node:fs';
+import { realpathSync, statSync, writeSync } from 'node:fs';
+import { opendir, readFile, stat } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { createInterface } from 'node:readline';
 
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_FILES = 500;
+const MAX_DIRECTORIES = 5000;
+const MAX_DEPTH = 64;
+const MAX_VISITED = 20000;
+const MAX_TOTAL_TEXT_BYTES = 8 * 1024 * 1024;
+const MAX_ISSUES = 1000;
+const MAX_REQUEST_BYTES = 1024 * 1024;
+const MAX_PATCH_INPUT_CHARS = 256 * 1024;
+const MAX_INLINE_PATCH_BYTES = 256 * 1024;
+const REQUEST_DEADLINE_MS = 10_000;
 const SENSITIVE =
 	/(^|\/)\.env(\.|$)|(^|\/)\.git(\/|$)|(^|\/)id_(rsa|ed25519)|\.(pem|key|p12|pfx)$/i;
 const TEXT = new Set([
@@ -109,22 +118,100 @@ function classify(path) {
 	return 'binary';
 }
 
-function walk(root, directory = root, output = []) {
-	for (const entry of readdirSync(directory, { withFileTypes: true })) {
-		if (output.length >= MAX_FILES) break;
-		if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.mdsh') continue;
-		const absolute = join(directory, entry.name);
-		const relativePath = relative(root, absolute).split(sep).join('/');
-		if (SENSITIVE.test(relativePath)) continue;
-		if (entry.isDirectory()) walk(root, absolute, output);
-		else if (entry.isFile())
-			output.push({
-				path: relativePath,
-				kind: classify(entry.name),
-				bytes: statSync(absolute).size
-			});
+function deadline() {
+	return Date.now() + REQUEST_DEADLINE_MS;
+}
+
+function checkDeadline(limit) {
+	if (Date.now() > limit) fail('Operation exceeded the 10 s deadline', 'deadline');
+}
+
+// Iterative and asynchronous: the event loop keeps serving protocol messages
+// between directory reads. Directory count, depth, visited entries, files and
+// elapsed time all have explicit budgets.
+async function walk(root, limit) {
+	const output = [];
+	const state = { directories: 0, visited: 0, truncated: false };
+	const stack = [{ directory: root, depth: 0 }];
+	while (stack.length > 0 && output.length < MAX_FILES) {
+		checkDeadline(limit);
+		const { directory, depth } = stack.pop();
+		if (depth > MAX_DEPTH) {
+			state.truncated = true;
+			continue;
+		}
+		state.directories += 1;
+		if (state.directories > MAX_DIRECTORIES) {
+			state.truncated = true;
+			break;
+		}
+		let handle;
+		try {
+			handle = await opendir(directory);
+		} catch {
+			state.truncated = true;
+			continue;
+		}
+		for await (const entry of handle) {
+			state.visited += 1;
+			if (state.visited > MAX_VISITED || output.length >= MAX_FILES) {
+				state.truncated = true;
+				break;
+			}
+			if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.mdsh')
+				continue;
+			const absolute = join(directory, entry.name);
+			const relativePath = relative(root, absolute).split(sep).join('/');
+			if (SENSITIVE.test(relativePath)) continue;
+			if (entry.isDirectory()) {
+				stack.push({ directory: absolute, depth: depth + 1 });
+			} else if (entry.isFile()) {
+				try {
+					const info = await stat(absolute);
+					output.push({ path: relativePath, kind: classify(entry.name), bytes: info.size });
+				} catch {
+					state.truncated = true;
+				}
+			}
+		}
 	}
-	return output;
+	return { files: output, truncated: state.truncated };
+}
+
+async function listFiles(limit) {
+	const files = [];
+	let truncated = false;
+	for (const root of roots) {
+		const result = await walk(root, limit);
+		truncated ||= result.truncated;
+		files.push(...result.files);
+		if (files.length >= MAX_FILES) {
+			truncated = true;
+			break;
+		}
+	}
+	return { files: files.slice(0, MAX_FILES), truncated: truncated || files.length > MAX_FILES };
+}
+
+function lineStarts(text) {
+	const starts = [0];
+	let index = text.indexOf('\n');
+	while (index >= 0) {
+		starts.push(index + 1);
+		index = text.indexOf('\n', index + 1);
+	}
+	return starts;
+}
+
+function lineAt(starts, offset) {
+	let low = 0;
+	let high = starts.length - 1;
+	while (low <= high) {
+		const middle = (low + high) >> 1;
+		if (starts[middle] <= offset) low = middle + 1;
+		else high = middle - 1;
+	}
+	return high + 1;
 }
 
 function toolResult(value, isError = false) {
@@ -196,43 +283,72 @@ const tools = [
 	}
 ];
 
-function readText(absolute) {
-	const info = statSync(absolute);
+async function readText(absolute) {
+	const info = await stat(absolute);
 	if (!info.isFile()) fail('Not a file', 'input');
 	if (info.size > MAX_FILE_BYTES) fail('File exceeds the 1 MiB read limit', 'input');
 	if (!TEXT.has(extname(absolute).toLowerCase()))
 		fail('Binary files are not readable as text', 'input');
-	return readFileSync(absolute, 'utf8');
+	return readFile(absolute, 'utf8');
 }
 
-function callTool(name, args = {}) {
+async function collectFiles(base, limit) {
+	const files = [];
+	let truncated = false;
+	for (const root of base) {
+		const info = await stat(root);
+		if (info.isFile()) {
+			files.push({ absolute: root });
+			continue;
+		}
+		const result = await walk(root, limit);
+		truncated ||= result.truncated;
+		for (const entry of result.files) files.push({ absolute: join(root, entry.path) });
+		if (files.length >= MAX_FILES) {
+			truncated = true;
+			break;
+		}
+	}
+	return { files: files.slice(0, MAX_FILES), truncated: truncated || files.length > MAX_FILES };
+}
+
+async function callTool(name, args = {}) {
+	const limit = deadline();
 	if (!tools.some((tool) => tool.name === name)) fail(`Unknown tool: ${name}`, 'unknown-tool');
 	switch (name) {
 		case 'list_files': {
-			const files = roots.flatMap((root) => walk(root));
-			return toolResult({ files: files.slice(0, MAX_FILES), truncated: files.length > MAX_FILES });
+			return toolResult(await listFiles(limit));
 		}
 		case 'read_file': {
 			const absolute = safePath(args.path);
 			const kind = classify(absolute);
 			if (kind === 'image' || kind === 'pdf')
-				return toolResult({ path: args.path, kind, bytes: statSync(absolute).size, text: null });
-			return toolResult({ path: args.path, kind, text: readText(absolute) });
+				return toolResult({
+					path: args.path,
+					kind,
+					bytes: (await stat(absolute)).size,
+					text: null
+				});
+			return toolResult({ path: args.path, kind, text: await readText(absolute) });
 		}
 		case 'search': {
 			if (typeof args.query !== 'string' || args.query.length === 0)
 				fail('Query is required', 'input');
-			const limit = Math.min(100, Math.max(1, Number(args.limit ?? 50)));
+			const matchLimit = Math.min(100, Math.max(1, Number(args.limit ?? 50)));
 			const base = args.path ? [safePath(args.path)] : roots;
-			const files = base.flatMap((root) =>
-				statSync(root).isFile()
-					? [{ absolute: root }]
-					: walk(root).map((entry) => ({ absolute: join(root, entry.path) }))
-			);
+			const collected = await collectFiles(base, limit);
 			const hits = [];
-			for (const file of files.slice(0, MAX_FILES)) {
+			let totalBytes = 0;
+			let truncated = collected.truncated;
+			for (const file of collected.files) {
+				checkDeadline(limit);
 				if (!TEXT.has(extname(file.absolute).toLowerCase())) continue;
-				const text = readText(file.absolute);
+				const text = await readText(file.absolute);
+				totalBytes += text.length;
+				if (totalBytes > MAX_TOTAL_TEXT_BYTES) {
+					truncated = true;
+					break;
+				}
 				for (const [index, line] of text.split(/\r?\n/).entries()) {
 					if (!line.includes(args.query)) continue;
 					hits.push({
@@ -245,33 +361,45 @@ function callTool(name, args = {}) {
 						line: index + 1,
 						text: line.slice(0, 200)
 					});
-					if (hits.length >= limit) break;
+					if (hits.length >= matchLimit) break;
 				}
-				if (hits.length >= limit) break;
+				if (hits.length >= matchLimit) break;
 			}
-			return toolResult({ query: args.query, hits, truncated: hits.length >= limit });
+			return toolResult({
+				query: args.query,
+				hits,
+				truncated: truncated || hits.length >= matchLimit
+			});
 		}
 		case 'check': {
 			const base = args.path ? [safePath(args.path)] : roots;
-			const files = base.flatMap((root) =>
-				statSync(root).isFile()
-					? [{ absolute: root }]
-					: walk(root).map((entry) => ({ absolute: join(root, entry.path) }))
-			);
+			const collected = await collectFiles(base, limit);
+			const notes = collected.files.filter((file) => classify(file.absolute) === 'note');
 			const names = new Set(
-				files
-					.filter((file) => classify(file.absolute) === 'note')
-					.map((file) =>
-						file.absolute
-							.split(/[\\/]/)
-							.pop()
-							.replace(/\.[^.]+$/, '')
-							.toLowerCase()
-					)
+				notes.map((file) =>
+					file.absolute
+						.split(/[\\/]/)
+						.pop()
+						.replace(/\.[^.]+$/, '')
+						.toLowerCase()
+				)
 			);
 			const issues = [];
-			for (const file of files.filter((entry) => classify(entry.absolute) === 'note')) {
-				const text = readText(file.absolute);
+			let totalBytes = 0;
+			let truncated = collected.truncated;
+			for (const file of notes) {
+				checkDeadline(limit);
+				if (issues.length >= MAX_ISSUES) {
+					truncated = true;
+					break;
+				}
+				const text = await readText(file.absolute);
+				totalBytes += text.length;
+				if (totalBytes > MAX_TOTAL_TEXT_BYTES) {
+					truncated = true;
+					break;
+				}
+				const starts = lineStarts(text);
 				if (text.startsWith('---') && !/^---[\s\S]*?\r?\n---(?:\r?\n|$)/.test(text))
 					issues.push({
 						path: file.absolute,
@@ -280,43 +408,60 @@ function callTool(name, args = {}) {
 						message: 'Unclosed front matter'
 					});
 				for (const match of text.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) {
+					if (issues.length >= MAX_ISSUES) {
+						truncated = true;
+						break;
+					}
 					if (!names.has(match[1].trim().toLowerCase()))
 						issues.push({
 							path: file.absolute,
-							line: text.slice(0, match.index).split('\n').length,
+							line: lineAt(starts, match.index),
 							severity: 'warning',
 							message: `Missing wiki target: ${match[1].trim()}`
 						});
 				}
 			}
-			return toolResult({ issues, count: issues.length });
+			return toolResult({
+				issues,
+				count: issues.length,
+				truncated: truncated || issues.length >= MAX_ISSUES
+			});
 		}
 		case 'project_metadata': {
-			const files = roots.flatMap((root) => walk(root));
+			const collected = await listFiles(limit);
 			const kinds = {};
-			for (const file of files) kinds[file.kind] = (kinds[file.kind] ?? 0) + 1;
+			for (const file of collected.files) kinds[file.kind] = (kinds[file.kind] ?? 0) + 1;
 			return toolResult({
 				roots,
-				files: files.length,
+				files: collected.files.length,
 				kinds,
-				bytes: files.reduce((sum, file) => sum + file.bytes, 0)
+				bytes: collected.files.reduce((sum, file) => sum + file.bytes, 0),
+				truncated: collected.truncated
 			});
 		}
 		case 'propose_patch': {
 			const absolute = safePath(args.path);
-			const text = readText(absolute);
+			const text = await readText(absolute);
 			if (typeof args.before !== 'string' || args.before.length === 0)
 				fail('before is required', 'input');
+			if (
+				args.before.length > MAX_PATCH_INPUT_CHARS ||
+				String(args.after).length > MAX_PATCH_INPUT_CHARS
+			)
+				fail('Patch input exceeds the 256 KiB limit', 'input');
 			const occurrences = text.split(args.before).length - 1;
 			if (occurrences !== 1) fail(`Expected one match, found ${occurrences}`, 'stale');
 			const hash = createHash('sha256').update(text).digest('hex').slice(0, 16);
+			const inlineBodies = text.length <= MAX_INLINE_PATCH_BYTES;
 			return toolResult({
 				path: args.path,
 				baseHash: hash,
 				applied: false,
 				edits: [{ before: args.before, after: String(args.after) }],
-				before: text,
-				after: text.replace(args.before, String(args.after))
+				inlineBodies,
+				...(inlineBodies
+					? { before: text, after: text.replace(args.before, String(args.after)) }
+					: {})
 			});
 		}
 		default:
@@ -328,8 +473,41 @@ function send(message) {
 	process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-const input = createInterface({ input: process.stdin, terminal: false });
-input.on('line', (line) => {
+function toolError(error) {
+	return toolResult(`${error.code ?? 'error'}: ${error.message}`, true);
+}
+
+function withDeadline(work) {
+	let timer;
+	const timeout = new Promise((_resolve, reject) => {
+		timer = setTimeout(() => {
+			const error = new Error('Operation exceeded the 10 s deadline');
+			error.code = 'deadline';
+			reject(error);
+		}, REQUEST_DEADLINE_MS);
+	});
+	return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
+// One tool job runs at a time so results stay ordered. Protocol requests
+// (ping, initialize, shutdown) bypass this queue and keep the server
+// responsive while a heavy walk or scan is still running.
+let toolChain = Promise.resolve();
+function queueToolCall(id, params) {
+	toolChain = toolChain.then(async () => {
+		try {
+			send({
+				jsonrpc: '2.0',
+				id,
+				result: await withDeadline(callTool(params?.name, params?.arguments))
+			});
+		} catch (error) {
+			send({ jsonrpc: '2.0', id, result: toolError(error) });
+		}
+	});
+}
+
+async function handleLine(line) {
 	if (!line.trim()) return;
 	let request;
 	try {
@@ -376,19 +554,7 @@ input.on('line', (line) => {
 			return;
 		}
 		if (request.method === 'tools/call') {
-			try {
-				send({
-					jsonrpc: '2.0',
-					id: request.id,
-					result: callTool(request.params?.name, request.params?.arguments)
-				});
-			} catch (error) {
-				send({
-					jsonrpc: '2.0',
-					id: request.id,
-					result: toolResult(`${error.code ?? 'error'}: ${error.message}`, true)
-				});
-			}
+			queueToolCall(request.id, request.params);
 			return;
 		}
 		send({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Method not found' } });
@@ -399,4 +565,34 @@ input.on('line', (line) => {
 			error: { code: -32603, message: String(error?.message ?? error) }
 		});
 	}
+}
+
+// A capped line reader rejects an oversized request while it is still
+// buffered, before JSON parsing, and then discards the rest of that line.
+let buffered = '';
+let discarding = false;
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+	buffered += chunk;
+	let newline = buffered.indexOf('\n');
+	while (newline >= 0) {
+		const line = buffered.slice(0, newline);
+		buffered = buffered.slice(newline + 1);
+		if (discarding) discarding = false;
+		else if (Buffer.byteLength(line) > MAX_REQUEST_BYTES)
+			send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Request exceeds 1 MiB' } });
+		else void handleLine(line);
+		newline = buffered.indexOf('\n');
+	}
+	if (buffered.length > MAX_REQUEST_BYTES) {
+		buffered = '';
+		if (!discarding) {
+			discarding = true;
+			send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Request exceeds 1 MiB' } });
+		}
+	}
+});
+process.stdin.on('end', () => {
+	if (!discarding && buffered.trim()) void handleLine(buffered);
+	buffered = '';
 });
