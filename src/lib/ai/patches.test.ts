@@ -190,6 +190,79 @@ describe('patch planning', () => {
 		]);
 	});
 
+	it('rejects an ambiguous basename across project folders', () => {
+		const docs = {
+			id: 'a',
+			name: 'README.md',
+			relativePath: 'docs/README.md',
+			content: 'Same body'
+		};
+		const examples = {
+			id: 'b',
+			name: 'README.md',
+			relativePath: 'examples/README.md',
+			content: 'Same body'
+		};
+		const ambiguous: AiPatchProposal = {
+			files: [
+				{
+					path: 'README.md',
+					baseHash: contentHash('Same body'),
+					hunks: [{ before: 'Same', after: 'Changed' }]
+				}
+			]
+		};
+		const plan = planPatch(ambiguous, [docs, examples], ['a', 'b']);
+		expect(plan.files[0]).toMatchObject({ status: 'ambiguous', fileId: null });
+		expect(applyPatchPlan(plan, [docs, examples], ['README.md']).changes).toEqual([]);
+		expect(applyPatchPlan(plan, [docs, examples], ['README.md']).rejected).toEqual(['README.md']);
+	});
+
+	it('resolves an exact relative path when basenames collide', () => {
+		const docs = {
+			id: 'a',
+			name: 'README.md',
+			relativePath: 'docs/README.md',
+			content: 'Docs body'
+		};
+		const examples = {
+			id: 'b',
+			name: 'README.md',
+			relativePath: 'examples/README.md',
+			content: 'Examples body'
+		};
+		const plan = planPatch(
+			{
+				files: [
+					{
+						path: 'examples/README.md',
+						baseHash: contentHash('Examples body'),
+						hunks: [{ before: 'Examples', after: 'Changed' }]
+					}
+				]
+			},
+			[docs, examples],
+			['a', 'b']
+		);
+		expect(plan.files[0]).toMatchObject({ status: 'ready', fileId: 'b' });
+		expect(applyPatchPlan(plan, [docs, examples], ['examples/README.md']).changes).toEqual([
+			{ id: 'b', content: 'Changed body' }
+		]);
+	});
+
+	it('revalidates the canonical path at apply time after a rename', () => {
+		const original = {
+			id: 'a',
+			name: 'guide.md',
+			relativePath: 'notes/guide.md',
+			content: 'Hello world'
+		};
+		const plan = planPatch(proposal(), [original], ['a']);
+		expect(plan.files[0]?.status).toBe('ready');
+		const moved = { ...original, relativePath: 'archive/guide.md' };
+		expect(applyPatchPlan(plan, [moved], ['notes/guide.md']).rejected).toEqual(['notes/guide.md']);
+	});
+
 	it('rejects path traversal and duplicate paths', () => {
 		expect(safePatchPath('../secret')).toBe(false);
 		expect(safePatchPath('/etc/passwd')).toBe(false);

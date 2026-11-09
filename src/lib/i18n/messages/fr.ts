@@ -777,6 +777,7 @@ export const fr: Record<MessageKey, string> = {
 	'ai.patchReady': 'prêt',
 	'ai.patchStale': 'fichier modifié, rechargez la proposition',
 	'ai.patchMissing': 'fichier introuvable',
+	'ai.patchAmbiguous': 'nom de fichier ambigu, utilisez le chemin exact',
 	'ai.patchConflictStatus': 'fragment en conflit',
 	'ai.patchNoop': 'aucun changement',
 	'ai.patchHunk': 'Modification {n}',

@@ -322,6 +322,7 @@
 		if (status === 'ready') return t('ai.patchReady');
 		if (status === 'stale') return t('ai.patchStale');
 		if (status === 'missing') return t('ai.patchMissing');
+		if (status === 'ambiguous') return t('ai.patchAmbiguous');
 		if (status === 'conflict') return t('ai.patchConflictStatus');
 		if (status === 'noop') return t('ai.patchNoop');
 		return status;
@@ -776,6 +777,7 @@
 		color: var(--color-fg-muted);
 	}
 	.patch-file[data-status='stale'] .patch-path em,
+	.patch-file[data-status='ambiguous'] .patch-path em,
 	.patch-file[data-status='conflict'] .patch-path em {
 		color: var(--color-danger);
 	}

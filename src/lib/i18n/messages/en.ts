@@ -763,6 +763,7 @@ export const en = {
 	'ai.patchReady': 'ready',
 	'ai.patchStale': 'file changed, reload the proposal',
 	'ai.patchMissing': 'file not found',
+	'ai.patchAmbiguous': 'ambiguous file name, use the exact path',
 	'ai.patchConflictStatus': 'conflicting hunk',
 	'ai.patchNoop': 'no change',
 	'ai.patchHunk': 'Change {n}',

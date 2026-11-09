@@ -18,10 +18,13 @@ export interface AiPatchProposal {
 	files: AiFilePatch[];
 }
 
-export type PatchFileStatus = 'ready' | 'stale' | 'missing' | 'scope' | 'conflict' | 'noop';
+export type PatchFileStatus =
+	'ready' | 'stale' | 'missing' | 'ambiguous' | 'scope' | 'conflict' | 'noop';
 
 export interface PatchFilePlan {
 	path: string;
+	/** Canonical relative path captured at review time. */
+	canonicalPath: string;
 	fileId: string | null;
 	status: PatchFileStatus;
 	before: string;
@@ -111,8 +114,26 @@ export function safePatchPath(path: string): boolean {
 	);
 }
 
-function findTarget(files: readonly PatchTarget[], path: string): PatchTarget | undefined {
-	return files.find((file) => (file.relativePath ?? file.name) === path || file.name === path);
+type TargetResolution =
+	{ kind: 'found'; file: PatchTarget } | { kind: 'missing' } | { kind: 'ambiguous' };
+
+/**
+ * Resolves a provider path. An exact canonical relative path wins. A bare
+ * basename is only accepted when exactly one file has that name, so a second
+ * project folder with the same name is reported instead of guessed.
+ */
+function findTarget(files: readonly PatchTarget[], path: string): TargetResolution {
+	const exact = files.filter((file) => (file.relativePath ?? file.name) === path);
+	if (exact.length === 1) return { kind: 'found', file: exact[0]! };
+	if (exact.length > 1) return { kind: 'ambiguous' };
+	const byName = files.filter((file) => file.name === path);
+	if (byName.length === 1) return { kind: 'found', file: byName[0]! };
+	if (byName.length > 1) return { kind: 'ambiguous' };
+	return { kind: 'missing' };
+}
+
+function canonicalPathOf(file: PatchTarget): string {
+	return file.relativePath ?? file.name;
 }
 
 type HunkResolution =
@@ -184,10 +205,23 @@ export function planPatch(
 			continue;
 		}
 		seen.add(path);
-		const target = findTarget(files, path);
-		if (!target) {
+		const resolution = findTarget(files, path);
+		if (resolution.kind === 'ambiguous') {
 			result.files.push({
 				path,
+				canonicalPath: path,
+				fileId: null,
+				status: 'ambiguous',
+				before: '',
+				after: '',
+				hunks: []
+			});
+			continue;
+		}
+		if (resolution.kind === 'missing') {
+			result.files.push({
+				path,
+				canonicalPath: path,
 				fileId: null,
 				status: 'missing',
 				before: '',
@@ -196,14 +230,17 @@ export function planPatch(
 			});
 			continue;
 		}
+		const target = resolution.file;
 		if (!allowed.has(target.id)) {
 			result.rejected.push({ path, reason: 'outside-scope' });
 			continue;
 		}
 		const before = target.content;
+		const canonicalPath = canonicalPathOf(target);
 		if (patch.baseHash !== contentHash(before)) {
 			result.files.push({
 				path,
+				canonicalPath,
 				fileId: target.id,
 				status: 'stale',
 				before,
@@ -277,6 +314,7 @@ export function planPatch(
 		const content = failed ? before : applyRanges(before, edits);
 		result.files.push({
 			path,
+			canonicalPath,
 			fileId: target.id,
 			status: failed ? 'conflict' : content === before ? 'noop' : 'ready',
 			before,
@@ -307,7 +345,11 @@ export function applyPatchPlan(
 			continue;
 		}
 		const target = files.find((file) => file.id === entry.fileId);
-		if (!target || contentHash(target.content) !== contentHash(entry.before)) {
+		if (
+			!target ||
+			canonicalPathOf(target) !== entry.canonicalPath ||
+			contentHash(target.content) !== contentHash(entry.before)
+		) {
 			rejected.push(entry.path);
 			continue;
 		}

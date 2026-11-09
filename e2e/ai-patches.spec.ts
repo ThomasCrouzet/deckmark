@@ -125,6 +125,23 @@ async function configureCustomAi(
 	});
 }
 
+async function importProject(
+	page: Page,
+	name: string,
+	files: Record<string, string>
+): Promise<void> {
+	const zip = new (await import('jszip')).default();
+	for (const [path, content] of Object.entries(files)) zip.file(path, content);
+	await page.getByTestId('projects-open').click();
+	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await panel.locator('input[type=file][accept=".zip"]').setInputFiles({
+		name: `${name}.zip`,
+		mimeType: 'application/zip',
+		buffer: await zip.generateAsync({ type: 'nodebuffer' })
+	});
+	await panel.getByRole('button', { name: 'Fermer les projets' }).click();
+}
+
 async function openAiPanel(page: Page) {
 	await openPalette(page);
 	await page
@@ -249,6 +266,54 @@ test('rejects a concurrent source edit before applying', async ({ page }, info: 
 	expect(await page.locator('.cm-content').innerText()).not.toContain('alpha beta');
 	await info.attach('ai-patch-concurrent.json', {
 		body: JSON.stringify({ concurrentEditBlocked: true, sourceKept: 'alpha alpha changed' }),
+		contentType: 'application/json'
+	});
+});
+
+test('refuses an ambiguous basename across project folders', async ({ page }, info: TestInfo) => {
+	await configureCustomAi(page, () => [{ before: '# Home', after: '# Changed' }]);
+	await resetAppState(page);
+	await importProject(page, 'Alpha', { 'README.md': '# Home\n' });
+	await importProject(page, 'Beta', { 'README.md': '# Home\n' });
+	await page.locator('[data-project-root-name="Alpha"] summary').first().click();
+	await page
+		.locator('[data-project-root-name="Alpha"] [data-project-document="README.md"] button')
+		.first()
+		.click();
+	await openAiPanel(page);
+	await page.getByTestId('ai-scope-project').click();
+	await page.getByTestId('ai-action-patch').click();
+	await expect(page.getByTestId('ai-patch-review')).toContainText('ambigu');
+	await expect(page.getByTestId('ai-patch-apply')).toBeDisabled();
+	const rows = await page.evaluate(
+		() =>
+			new Promise<Array<{ name: string; relativePath?: string; content: string }>>(
+				(resolve, reject) => {
+					const request = indexedDB.open('mdsh');
+					request.onerror = () => reject(request.error);
+					request.onsuccess = () => {
+						const database = request.result;
+						const all = database.transaction('drafts').objectStore('drafts').getAll();
+						all.onsuccess = () => {
+							database.close();
+							resolve(
+								all.result.map((row: { name: string; relativePath?: string; content: string }) => ({
+									name: row.name,
+									relativePath: row.relativePath,
+									content: row.content
+								}))
+							);
+						};
+						all.onerror = () => reject(all.error);
+					};
+				}
+			)
+	);
+	const readmes = rows.filter((row) => row.name === 'README.md');
+	expect(readmes).toHaveLength(2);
+	expect(readmes.every((row) => row.content === '# Home\n')).toBe(true);
+	await info.attach('ai-patch-ambiguous.json', {
+		body: JSON.stringify({ ambiguous: true, readmes: readmes.length, unchanged: true }),
 		contentType: 'application/json'
 	});
 });
