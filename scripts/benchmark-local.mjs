@@ -744,7 +744,8 @@ async function runWebBenchmark(options, fixtures) {
 		const largeDocumentOpen = await measureLargeDocumentOpen(page, options.runs);
 		await waitForIdle(page);
 		const typingLarge = await measureInput(page, '.cm-content', options.runs, 'large');
-		const readMode = await measureReadMode(page, expensiveRuns);
+		// Twenty samples make p95 the second-worst value instead of the maximum of five.
+		const readMode = await measureReadMode(page, Math.max(expensiveRuns, 20));
 		await domClick(page, 'button[data-mode="read"]');
 		await page.locator('.mdsh-read .mdsh-preview').waitFor({ state: 'visible', timeout: 60_000 });
 		await page.waitForFunction(
