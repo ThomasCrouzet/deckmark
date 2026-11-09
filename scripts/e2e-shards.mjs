@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { e2eTestKey } from './e2e-test-key.mjs';
 
 const USAGE =
 	'Usage: node scripts/e2e-shards.mjs plan --list <full-list.json> --weights <weights.json> --shards <count> --out <dir>';
@@ -49,8 +50,9 @@ function sha256(value) {
 function collect(report) {
 	const groups = new Map();
 	const keys = [];
-	function walk(suites) {
+	function walk(suites, path) {
 		for (const suite of suites ?? []) {
+			const suitePath = [...path, suite.title ?? ''];
 			for (const spec of suite.specs ?? []) {
 				for (const test of spec.tests ?? []) {
 					if ((test.results ?? []).length > 0) {
@@ -59,7 +61,7 @@ function collect(report) {
 					const file = spec.file ?? suite.file;
 					if (!file) fail('A listed test has no file.');
 					const project = test.projectName ?? '';
-					const key = `${spec.id ?? [suite.file ?? spec.file ?? '', spec.line ?? 0, spec.title ?? ''].join('::')}::${project}`;
+					const key = e2eTestKey(spec, test, suitePath);
 					const groupKey = `${project}::${file}`;
 					const group = groups.get(groupKey) ?? { project, file, tests: [] };
 					group.tests.push(key);
@@ -67,10 +69,10 @@ function collect(report) {
 					keys.push(key);
 				}
 			}
-			walk(suite.suites);
+			walk(suite.suites, suitePath);
 		}
 	}
-	walk(report.suites);
+	walk(report.suites, []);
 	return { groups, keys };
 }
 

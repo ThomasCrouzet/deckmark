@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, test } from 'node:test';
+import { e2eTestKey } from './e2e-test-key.mjs';
 
 const script = resolve(import.meta.dirname, 'check-e2e-manifest.mjs');
 const roots = [];
@@ -92,17 +93,18 @@ function withPartition(reportValue, partition) {
 
 function keysOf(reportValue) {
 	const keys = [];
-	function walk(suites) {
+	function walk(suites, path) {
 		for (const suite of suites ?? []) {
+			const suitePath = [...path, suite.title ?? ''];
 			for (const spec of suite.specs ?? []) {
 				for (const test of spec.tests ?? []) {
-					keys.push(`${spec.id}::${test.projectName}`);
+					keys.push(e2eTestKey(spec, test, suitePath));
 				}
 			}
-			walk(suite.suites);
+			walk(suite.suites, suitePath);
 		}
 	}
-	walk(reportValue.suites);
+	walk(reportValue.suites, []);
 	return keys.sort();
 }
 
@@ -116,7 +118,7 @@ function planFor(expected, shardGroups, shardCount = shardGroups.length) {
 		shard: index + 1,
 		seconds: 10,
 		groups: specs.flatMap((item) => item.tests.map((test) => `${test.projectName}::${item.file}`)),
-		tests: specs.flatMap((item) => item.tests.map((test) => `${item.id}::${test.projectName}`))
+		tests: specs.flatMap((item) => item.tests.map((test) => e2eTestKey(item, test, [''])))
 	}));
 	const plan = {
 		version: 1,
@@ -434,15 +436,27 @@ test('rejects a shard list with a different source', () => {
 	assert.match(result.output, /different effective inputs/);
 });
 
-test('accepts two specs with the same title and line and different ids', () => {
-	const expected = listReport(
-		spec('first', 3, [entry('chromium')], 'id-a'),
-		spec('first', 3, [entry('chromium')], 'id-b')
-	);
-	const actual = report(
-		spec('first', 3, [entry('chromium')], 'id-a'),
-		spec('first', 3, [entry('chromium')], 'id-b')
-	);
+test('accepts the same title and line under different describes', () => {
+	const list = (specValue) => ({
+		...specValue,
+		tests: specValue.tests.map((testValue) => ({ ...testValue, results: [] }))
+	});
+	const first = spec('first', 3, [entry('chromium')]);
+	const second = spec('first', 3, [entry('chromium')]);
+	const expected = {
+		...report(),
+		suites: [
+			{ title: 'alpha', file: 'example.spec.ts', line: 1, specs: [list(first)] },
+			{ title: 'beta', file: 'example.spec.ts', line: 1, specs: [list(second)] }
+		]
+	};
+	const actual = {
+		...report(),
+		suites: [
+			{ title: 'alpha', file: 'example.spec.ts', line: 1, specs: [first] },
+			{ title: 'beta', file: 'example.spec.ts', line: 1, specs: [second] }
+		]
+	};
 	const result = runExecution(expected, actual);
 	assert.equal(result.status, 0, result.output);
 	assert.match(result.output, /Executed: 2/);

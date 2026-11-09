@@ -10,6 +10,7 @@
 //   node scripts/check-e2e-manifest.mjs execution <expected-list.json> <actual-report.json>
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { e2eTestKey } from './e2e-test-key.mjs';
 
 const USAGE = `Usage:
   node scripts/check-e2e-manifest.mjs partition <shard-count> <full-list.json> <shard-list.json>...
@@ -32,25 +33,23 @@ function readReport(path) {
 function collect(report) {
 	const entries = [];
 	let retried = 0;
-	function walk(suites) {
+	function walk(suites, path) {
 		for (const suite of suites ?? []) {
+			const suitePath = [...path, suite.title ?? ''];
 			if (suite.specs) {
 				for (const spec of suite.specs) {
 					for (const test of spec.tests ?? []) {
-						const specId =
-							spec.id ??
-							[suite.file ?? spec.file ?? '', spec.line ?? 0, spec.title ?? ''].join('::');
-						entries.push({ key: `${specId}::${test.projectName ?? ''}`, test });
+						entries.push({ key: e2eTestKey(spec, test, suitePath), test });
 						for (const result of test.results ?? []) {
 							if ((result.retry ?? 0) > 0) retried += 1;
 						}
 					}
 				}
 			}
-			walk(suite.suites);
+			walk(suite.suites, suitePath);
 		}
 	}
-	walk(report.suites);
+	walk(report.suites, []);
 	return { entries, retried };
 }
 
