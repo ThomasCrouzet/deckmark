@@ -23,6 +23,54 @@ export function resolveCommentAnchor(content: string, comment: CommentRow): Comm
 	return { state: 'moved', from: first, to: first + quote.length };
 }
 
+function changeRange(
+	before: string,
+	after: string
+): { from: number; oldTo: number; newTo: number } {
+	let from = 0;
+	while (from < before.length && from < after.length && before[from] === after[from]) from++;
+	let suffix = 0;
+	while (
+		suffix < before.length - from &&
+		suffix < after.length - from &&
+		before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+	)
+		suffix++;
+	return { from, oldTo: before.length - suffix, newTo: after.length - suffix };
+}
+
+/**
+ * Shifts previously resolved anchors by one accepted edit. Quotes outside the
+ * changed range are verified directly instead of scanning the whole note again.
+ */
+export function shiftCommentAnchors(
+	previousContent: string,
+	content: string,
+	comments: readonly CommentRow[],
+	previous: Readonly<Record<string, CommentAnchor>> = {}
+): Record<string, CommentAnchor> {
+	const { oldTo, newTo } = changeRange(previousContent, content);
+	const delta = newTo - oldTo;
+	const result: Record<string, CommentAnchor> = {};
+	for (const comment of comments) {
+		const cached = previous[comment.id];
+		if (cached && comment.quote) {
+			const from = cached.from >= oldTo ? cached.from + delta : cached.from;
+			const to = from + comment.quote.length;
+			if (from >= 0 && content.slice(from, to) === comment.quote) {
+				result[comment.id] = {
+					state: from === comment.from ? 'attached' : 'moved',
+					from,
+					to
+				};
+				continue;
+			}
+		}
+		result[comment.id] = resolveCommentAnchor(content, comment);
+	}
+	return result;
+}
+
 /** Extracts a unique quote around the selection text, or null when ambiguous. */
 export function createAnchor(
 	content: string,

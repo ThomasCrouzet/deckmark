@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAnchor, resolveCommentAnchor } from './comments';
+import { createAnchor, resolveCommentAnchor, shiftCommentAnchors } from './comments';
 import type { CommentRow } from './db';
 
 function comment(quote: string, from: number, to: number): CommentRow {
@@ -39,6 +39,15 @@ describe('comment anchors', () => {
 		expect(resolveCommentAnchor('world world', comment('world', 0, 5)).state).toBe('attached');
 		expect(resolveCommentAnchor('a world b world', comment('world', 0, 5)).state).toBe('ambiguous');
 		expect(resolveCommentAnchor('nothing', comment('world', 0, 5)).state).toBe('detached');
+	});
+
+	it('shifts anchors by one edit without rescanning unchanged quotes', () => {
+		const before = 'Intro. world and tail';
+		const after = 'New intro. world and tail';
+		const first = { c: resolveCommentAnchor(before, comment('world', 7, 12)) };
+		expect(shiftCommentAnchors(before, after, [comment('world', 7, 12)], first)).toEqual({
+			c: { state: 'moved', from: 11, to: 16 }
+		});
 	});
 
 	it('creates anchors only for a unique passage', () => {
