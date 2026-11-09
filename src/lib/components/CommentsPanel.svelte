@@ -19,6 +19,9 @@
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
 
 	let comments = $state<CommentRow[]>([]);
+	const COMMENT_PAGE = 100;
+	let visibleComments = $state(COMMENT_PAGE);
+	const shownComments = $derived(comments.slice(0, visibleComments));
 	let quote = $state('');
 	let body = $state('');
 	let author = $state('');
@@ -30,6 +33,12 @@
 	);
 	let anchors = $state<Record<string, CommentAnchor>>({});
 	let anchorJob = 0;
+
+	$effect(() => {
+		if (!open) return;
+		void boundId;
+		visibleComments = COMMENT_PAGE;
+	});
 
 	let lastAnchorFile: string | null = null;
 	let lastAnchorContent = '';
@@ -198,7 +207,7 @@
 					</button>
 				</section>
 				<section class="comment-list" aria-label={t('comments.list')}>
-					{#each comments as comment (comment.id)}
+					{#each shownComments as comment (comment.id)}
 						<article
 							class="comment"
 							data-anchor={anchorKey(comment)}
@@ -231,6 +240,18 @@
 					{:else}
 						<p class="empty">{t('comments.empty')}</p>
 					{/each}
+					{#if visibleComments < comments.length}
+						<button
+							type="button"
+							class="show-more"
+							data-testid="comments-show-more"
+							onclick={() => (visibleComments += COMMENT_PAGE)}
+						>
+							{t('comments.showMore', {
+								n: Math.min(COMMENT_PAGE, comments.length - visibleComments)
+							})}
+						</button>
+					{/if}
 				</section>
 				<div class="comments-actions">
 					<p>{t('comments.note')}</p>

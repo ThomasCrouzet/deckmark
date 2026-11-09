@@ -673,6 +673,7 @@ export const fr: Record<MessageKey, string> = {
 	'comments.add': 'Ajouter le commentaire',
 	'comments.list': 'Commentaires',
 	'comments.empty': 'Aucun commentaire pour ce document.',
+	'comments.showMore': 'Afficher {n} commentaires de plus',
 	'comments.resolve': 'Résoudre',
 	'comments.reopen': 'Rouvrir',
 	'comments.delete': 'Supprimer',
