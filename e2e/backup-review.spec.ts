@@ -22,6 +22,9 @@ interface Draft {
 	updatedAt: number;
 	order: number;
 	open?: boolean;
+	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
+	mime?: string;
+	data?: string;
 }
 interface Backup {
 	format: string;
@@ -202,6 +205,42 @@ async function inventory(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => resetAppState(page));
+
+test('merge keeps distinct binary payloads with matching text metadata', async ({ page }, info) => {
+	const first = emptyBackup();
+	first.drafts = [
+		{
+			id: 'binary-image',
+			name: 'photo.png',
+			content: '',
+			kind: 'image',
+			mime: 'image/png',
+			data: `data:image/png;base64,${image.toString('base64')}`,
+			createdAt: stamp,
+			updatedAt: stamp,
+			order: 0,
+			open: true
+		}
+	];
+	await attach(info, 'binary-first.json', first);
+	await restore(page, Buffer.from(JSON.stringify(first)), 'Fusionner');
+	const incoming = structuredClone(first);
+	incoming.drafts[0]!.data = `data:image/png;base64,${Buffer.from('other bytes').toString('base64')}`;
+	incoming.exportedAt = stamp + 1;
+	await attach(info, 'binary-incoming.json', incoming);
+	await restore(page, Buffer.from(JSON.stringify(incoming)), 'Fusionner');
+	const state = await inventory(page);
+	await attach(info, 'binary-merged.json', state);
+	const rows = state.drafts.filter((draft) => draft.name === 'photo.png');
+	expect(rows).toHaveLength(2);
+	expect(rows.map((draft) => draft.data).sort()).toEqual(
+		[first.drafts[0]!.data!, incoming.drafts[0]!.data!].sort()
+	);
+	await restore(page, Buffer.from(JSON.stringify(incoming)), 'Fusionner');
+	expect((await inventory(page)).drafts.filter((draft) => draft.name === 'photo.png')).toHaveLength(
+		2
+	);
+});
 
 test.afterEach(async ({ browser }, info) => {
 	await attach(info, 'environment.json', {

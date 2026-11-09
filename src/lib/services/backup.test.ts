@@ -133,6 +133,10 @@ function draft(p: Partial<DraftRow> = {}): DraftRow {
 		createdAt: p.createdAt ?? now,
 		updatedAt: p.updatedAt ?? now,
 		order: p.order ?? 0,
+		...(p.projectId ? { projectId: p.projectId } : {}),
+		...(p.relativePath ? { relativePath: p.relativePath } : {}),
+		...(p.open === undefined ? {} : { open: p.open }),
+		...(p.origin ? { origin: p.origin } : {}),
 		...(p.kind ? { kind: p.kind } : {}),
 		...(p.mime ? { mime: p.mime } : {}),
 		...(p.data ? { data: p.data } : {})
@@ -480,6 +484,137 @@ describe('applyBackup - merge', () => {
 		};
 		await expect(applyBackup(backup, 'merge', 3)).rejects.toBeInstanceOf(BackupParseError);
 		expect(await db.drafts.count()).toBe(0);
+	});
+});
+
+describe('applyBackup - binary document source identity', () => {
+	const IMAGE_PNG = 'data:image/png;base64,iVBORw0KGgo=';
+	const IMAGE_PNG_B = 'data:image/png;base64,iVBORw0KGgoB';
+	const PDF = 'data:application/pdf;base64,JVBERi0xLjQ=';
+
+	it('imports a different binary payload instead of treating equal text as unchanged', async () => {
+		const base = {
+			id: 'img',
+			name: 'img.png',
+			content: '',
+			kind: 'image' as const,
+			mime: 'image/png',
+			createdAt: 1,
+			updatedAt: 2
+		};
+		await db.drafts.put(draft({ ...base, data: IMAGE_PNG }));
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ ...base, data: IMAGE_PNG_B })],
+			workspaces: [],
+			templates: []
+		};
+		const first = await applyBackup(backup, 'merge');
+		expect(first.drafts).toBe(1);
+		const rows = await db.drafts.toArray();
+		expect(rows).toHaveLength(2);
+		expect(rows.find((row) => row.id === 'img')?.data).toBe(IMAGE_PNG);
+		expect(rows.find((row) => row.id !== 'img')?.data).toBe(IMAGE_PNG_B);
+		const second = await applyBackup(backup, 'merge');
+		expect(second.drafts).toBe(0);
+		expect(second.unchanged.drafts).toBe(1);
+		expect(await db.drafts.count()).toBe(2);
+	});
+
+	it('treats a changed document kind or MIME as a distinct source', async () => {
+		const base = {
+			id: 'typed',
+			name: 'typed.png',
+			content: '',
+			createdAt: 1,
+			updatedAt: 2,
+			order: 0
+		};
+		await db.drafts.put(draft({ ...base, kind: 'image', mime: 'image/png', data: IMAGE_PNG }));
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ ...base, kind: 'pdf', mime: 'application/pdf', data: PDF })],
+			workspaces: [],
+			templates: []
+		};
+		expect((await applyBackup(backup, 'merge')).drafts).toBe(1);
+		const imported = (await db.drafts.toArray()).find((row) => row.id !== 'typed');
+		expect(imported).toMatchObject({ kind: 'pdf', mime: 'application/pdf', data: PDF });
+	});
+
+	it('keeps the previous binary bytes as recovery trash during replace', async () => {
+		await db.drafts.put(
+			draft({
+				id: 'img',
+				name: 'img.png',
+				content: '',
+				kind: 'image',
+				mime: 'image/png',
+				data: IMAGE_PNG,
+				createdAt: 1,
+				updatedAt: 2
+			})
+		);
+		await applyBackup(
+			{
+				format: BACKUP_FORMAT,
+				schemaVersion: 1,
+				exportedAt: 0,
+				drafts: [
+					draft({
+						id: 'img',
+						name: 'img.png',
+						content: '',
+						kind: 'image',
+						mime: 'image/png',
+						data: IMAGE_PNG_B,
+						createdAt: 1,
+						updatedAt: 2
+					})
+				],
+				workspaces: [],
+				templates: []
+			},
+			'replace'
+		);
+		expect((await db.drafts.get('img'))?.data).toBe(IMAGE_PNG_B);
+		expect((await db.trashed.get('img'))?.file.data).toBe(IMAGE_PNG);
+	});
+
+	it('imports a project whose binary document payload differs', async () => {
+		const project = { id: 'p', name: 'Project', createdAt: 1, updatedAt: 2 };
+		const metadata = {
+			name: 'img.png',
+			content: '',
+			kind: 'image' as const,
+			mime: 'image/png',
+			projectId: 'p',
+			relativePath: 'img.png',
+			createdAt: 1,
+			updatedAt: 2
+		};
+		await db.projects.put(project);
+		await db.drafts.put(draft({ ...metadata, id: 'local-img', data: IMAGE_PNG }));
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 2,
+			exportedAt: 0,
+			drafts: [draft({ ...metadata, id: 'incoming-img', data: IMAGE_PNG_B })],
+			workspaces: [],
+			templates: [],
+			projects: [project],
+			projectAssets: []
+		};
+		const counts = await applyBackup(backup, 'merge');
+		expect(counts.projects).toBe(1);
+		expect(counts.drafts).toBe(1);
+		const importedProject = (await db.projects.toArray()).find((row) => row.id !== 'p')!;
+		const importedDraft = (await db.drafts.toArray()).find((row) => row.id !== 'local-img')!;
+		expect(importedDraft).toMatchObject({ data: IMAGE_PNG_B, projectId: importedProject.id });
 	});
 });
 

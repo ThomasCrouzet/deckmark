@@ -124,7 +124,7 @@ export function planDraftMerge(
 			existingByIdentity.get(
 				identity(draft.name, draft.createdAt, draft.updatedAt, mappedProjectId, draft.relativePath)
 			) ?? [];
-		const candidate = matches.find((row) => row.content === draft.content) ?? matches[0];
+		const candidate = matches.find((row) => sameDraftSource(row, draft)) ?? matches[0];
 		if (candidate) candidates.set(draft.id, candidate);
 		importedIdMap.set(draft.id, candidate?.id ?? newId());
 		if (documentKind(draft.content) === 'presentation') continue;
@@ -143,7 +143,14 @@ export function planDraftMerge(
 	for (let index = 0; index < queue.length; index++) {
 		const id = queue[index]!;
 		const candidate = candidates.get(id);
-		if (!candidate || candidate.content === rewrite(byId.get(id)!.content)) continue;
+		const incoming = byId.get(id)!;
+		const rewritten = rewrite(incoming.content);
+		if (
+			!candidate ||
+			(candidate.content === rewritten &&
+				sameDraftSource(candidate, { ...incoming, content: rewritten }))
+		)
+			continue;
 		candidates.delete(id);
 		importedIdMap.set(id, newId());
 		queue.push(...(dependants.get(id) ?? []));
@@ -657,6 +664,16 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
 	return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
 }
 
+/** Exact source identity of a draft: text, document kind, MIME and binary payload. */
+function sameDraftSource(left: DraftRow, right: DraftRow): boolean {
+	return (
+		left.content === right.content &&
+		(left.kind ?? 'note') === (right.kind ?? 'note') &&
+		(left.mime ?? '') === (right.mime ?? '') &&
+		(left.data ?? '') === (right.data ?? '')
+	);
+}
+
 function sameProjectContent(
 	incomingProjectId: string,
 	existingProjectId: string,
@@ -685,7 +702,10 @@ function sameProjectContent(
 		if (
 			incoming.relativePath !== existing.relativePath ||
 			incoming.name !== existing.name ||
-			rewriteDraftLinks(incoming.content, idMap) !== existing.content ||
+			!sameDraftSource(
+				{ ...incoming, content: rewriteDraftLinks(incoming.content, idMap) },
+				existing
+			) ||
 			incoming.createdAt !== existing.createdAt ||
 			incoming.updatedAt !== existing.updatedAt ||
 			incoming.open !== existing.open
@@ -848,7 +868,8 @@ export async function applyBackup(
 				for (const current of currentDrafts) {
 					const incoming = incomingDrafts.get(current.id);
 					if (
-						incoming?.content === current.content &&
+						incoming &&
+						sameDraftSource(incoming, current) &&
 						incoming.name === current.name &&
 						incoming.projectId === current.projectId &&
 						incoming.relativePath === current.relativePath &&
