@@ -53,8 +53,10 @@
 	let renderedContent = new SvelteMap<string, RenderedElement>();
 	let failedElements = new SvelteSet<string>();
 	let renderFailed = $derived(failedElements.size > 0);
-	const renderTokens = new SvelteMap<string, symbol>();
-	const cancelRuns = new SvelteMap<string, () => void>();
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient job bookkeeping, never rendered
+	const renderTokens = new Map<string, symbol>();
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient job bookkeeping, never rendered
+	const cancelRuns = new Map<string, () => void>();
 
 	function contentKey(
 		element: PresentationSlide['elements'][number],
