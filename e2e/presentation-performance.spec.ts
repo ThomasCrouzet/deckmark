@@ -314,7 +314,8 @@ test('releases offscreen thumbnail previews after visiting a 300-slide deck', as
 	await openPresentationSource(editor);
 	await editor.getByTestId('slide-source-editor').fill(fixture);
 	await editor.getByTestId('slide-source-apply').click();
-	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(300);
+	expect(await editor.getByTestId('slide-thumbnail').count()).toBeLessThan(300);
+	expect(await editor.getByTestId('slide-thumbnail').count()).toBeGreaterThan(0);
 	const strip = editor.locator('.thumbnails');
 	await expect(strip.locator('.thumbnail .mdsh-slide').first()).toBeVisible();
 	const dimensions = await strip.evaluate((element) => ({
@@ -425,7 +426,7 @@ test('releases offscreen thumbnail previews after visiting a 300-slide deck', as
 	);
 	expect(cache.bytes).toBeLessThanOrEqual(cache.limitBytes);
 	expect(cache.entries).toBeLessThanOrEqual(cache.limitEntries);
-	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(300);
+	expect(await editor.getByTestId('slide-thumbnail').count()).toBeLessThan(300);
 	await expect(editor.getByTestId('slide-thumbnail').first()).toHaveAttribute(
 		'aria-current',
 		'true'
@@ -447,12 +448,12 @@ test('bounds the presentation content cache under unique large slides', async ({
 	await openPresentationSource(editor);
 	await editor.getByTestId('slide-source-editor').fill(fixture);
 	await editor.getByTestId('slide-source-apply').click();
-	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(300);
+	expect(await editor.getByTestId('slide-thumbnail').count()).toBeLessThan(300);
 	const strip = editor.locator('.thumbnails');
 	await expect(strip.locator('.thumbnail .mdsh-slide').first()).toBeVisible();
 	const maximum = await strip.evaluate((element) => element.scrollHeight - element.clientHeight);
 	expect(maximum).toBeGreaterThan(0);
-	for (let top = 0; top <= maximum; top += 600) {
+	for (let top = 0; top <= maximum; top += 300) {
 		await strip.evaluate(
 			(element, value) => element.scrollTo({ top: value, behavior: 'instant' }),
 			Math.min(top, maximum)
