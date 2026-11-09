@@ -34,6 +34,15 @@ describe('ImageMarkdownRoundTrip', () => {
 		const roundTrip = new ImageMarkdownRoundTrip(source);
 		expect(roundTrip.restore(roundTrip.editorMarkdown)).toBe(source);
 	});
+
+	it('keeps alternative text with the moved image when captions disambiguate a reorder', () => {
+		const roundTrip = new ImageMarkdownRoundTrip(
+			'![Avant](same.png "A")\n\n![Après](same.png "B")'
+		);
+		expect(roundTrip.restore('![1.00](same.png "B")\n\n![1.00](same.png "A")')).toBe(
+			'![Après](same.png "B")\n\n![Avant](same.png "A")'
+		);
+	});
 });
 
 describe('applyImageMetadataToHtml', () => {

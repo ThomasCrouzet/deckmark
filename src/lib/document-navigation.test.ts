@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+	completeRenderedHeadings,
 	documentHeadings,
 	documentMatches,
 	HeadingIdAllocator,
-	invalidateDocumentTextIndex
+	invalidateDocumentTextIndex,
+	invalidateRenderedHeadings
 } from './document-navigation';
 
 function originalAllocate(headings: readonly string[]): string[] {
@@ -20,6 +22,20 @@ function originalAllocate(headings: readonly string[]): string[] {
 }
 
 describe('document navigation', () => {
+	it('shares one rendered heading projection until a DOM mutation invalidates it', () => {
+		const root = document.createElement('article');
+		root.innerHTML = '<h1>One</h1><h2>Two</h2>';
+		const first = completeRenderedHeadings(root);
+		expect(first.map((heading) => heading.text)).toEqual(['One', 'Two']);
+		expect(completeRenderedHeadings(root)).toBe(first);
+		root.querySelector('h1')!.textContent = 'Changed';
+		expect(completeRenderedHeadings(root)).toBe(first);
+		invalidateRenderedHeadings(root);
+		expect(completeRenderedHeadings(root).map((heading) => heading.text)).toEqual([
+			'Changed',
+			'Two'
+		]);
+	});
 	it('allocates heading IDs with the original suffix order', () => {
 		const cases = [
 			['x', 'x', 'x'],

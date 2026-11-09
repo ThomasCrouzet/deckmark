@@ -8,7 +8,8 @@ const counterKey = 'deckmark:editor-perf-counters';
 const largeId = 'perf-large';
 const sourceId = 'perf-source';
 
-test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+// DOM trace snapshots distort input timings on multi-megabyte documents.
+test.use({ locale: 'en-US', reducedMotion: 'reduce', trace: 'off' });
 
 type Counters = Record<string, number>;
 
@@ -252,6 +253,326 @@ test('ordinary visual typing avoids full-document validation', async ({ page }, 
 		body: stored.slice(-(typed.length + 200)),
 		contentType: 'text/markdown'
 	});
+});
+
+async function openVisualEditor(page: Page) {
+	await page.locator('[data-mode=wysiwyg]').click();
+	const dialog = page.getByRole('dialog', {
+		name: /Render this large document|Afficher ce document volumineux/
+	});
+	await dialog.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+	if (await dialog.isVisible().catch(() => false)) {
+		await dialog.getByRole('button', { name: /Render document|Afficher le document/ }).click();
+	}
+	await expect(page.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'true', {
+		timeout: 180_000
+	});
+}
+
+test('visual heading input does not validate the full document for an id update', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await seedNote(page, largeId, largeNote(240_000));
+	await page.reload();
+	await openVisualEditor(page);
+	const heading = page.locator('.ProseMirror h1').first();
+	await heading.click();
+	await page.keyboard.press('Home');
+	const before = await readCounters(page);
+	await page.keyboard.type('Heading ');
+	await expect(heading).toHaveAttribute('id', 'heading-performance-note');
+	await attachCounters(info, before, await readCounters(page));
+	expect(delta(before, await readCounters(page)).noteTypeFallback ?? 0).toBe(0);
+	await expect.poll(() => storedContent(page, largeId)).toContain('# Heading Performance note');
+});
+
+async function installVisualInputProbe(page: Page) {
+	await page.locator('.ProseMirror').evaluate((element) => {
+		const samples: number[] = [];
+		const longTasks: number[] = [];
+		const stages: Record<string, number[]> = {};
+		window.addEventListener('deckmark:editor-perf', (event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string; value?: number }>).detail;
+			if (detail.kind !== 'duration' || detail.value === undefined) return;
+			(stages[detail.name] ??= []).push(detail.value);
+		});
+		(element as HTMLElement).addEventListener(
+			'beforeinput',
+			() => {
+				const started = performance.now();
+				requestAnimationFrame(() =>
+					requestAnimationFrame(() => samples.push(performance.now() - started))
+				);
+			},
+			true
+		);
+		if (typeof PerformanceObserver !== 'undefined') {
+			try {
+				new PerformanceObserver((list) => {
+					for (const entry of list.getEntries()) longTasks.push(entry.duration);
+				}).observe({ type: 'longtask', buffered: false });
+			} catch {
+				// The engine does not expose long-task entries.
+			}
+		}
+		(window as unknown as { __visualInputProbe: unknown }).__visualInputProbe = {
+			samples,
+			longTasks,
+			stages
+		};
+	});
+}
+
+test('rendered heading ids follow duplicate edits and undo', async ({ page }) => {
+	await seedNote(page, largeId, '# Twin\n\n# Twin\n\nTail\n');
+	await page.reload();
+	await openVisualEditor(page);
+	const headings = page.locator('.ProseMirror h1');
+	await expect(headings.nth(1)).toHaveAttribute('id', 'twin-#2');
+	await headings.first().click();
+	await page.keyboard.press('Home');
+	await page.keyboard.type('New ');
+	await expect(headings.first()).toHaveAttribute('id', 'new-twin');
+	await expect(headings.nth(1)).toHaveAttribute('id', 'twin');
+	await page.keyboard.press('ControlOrMeta+z');
+	await expect(headings.first()).toHaveText('Twin');
+	await expect(headings.nth(1)).toHaveAttribute('id', 'twin-#2');
+});
+
+test('large rendered native caret keeps inline marks and an immediate outgoing edit', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	const content = '# Marks\n\nBefore `inline` after **bold**.\n\n' + largeNote(300_000);
+	await seedNote(page, largeId, content);
+	await page.reload();
+	await openVisualEditor(page);
+	const visual = page.locator('.ProseMirror');
+	await visual
+		.locator('code')
+		.first()
+		.evaluate((code) => {
+			const range = document.createRange();
+			range.selectNodeContents(code);
+			range.collapse(false);
+			(code.closest('[contenteditable]') as HTMLElement).focus();
+			window.getSelection()?.removeAllRanges();
+			window.getSelection()?.addRange(range);
+		});
+	await page.keyboard.press('ArrowRight');
+	await page.keyboard.type('X');
+	await expect(visual.locator('code').first()).toHaveText('inline');
+	await expect(visual.locator('p').first()).toHaveText('Before inline Xafter bold.');
+	await page.keyboard.press('ControlOrMeta+z');
+	await expect(visual.locator('p').first()).toHaveText('Before inline after bold.');
+	await page.keyboard.press('ControlOrMeta+Shift+z');
+	await expect(visual.locator('p').first()).toHaveText('Before inline Xafter bold.');
+	await page.locator('[data-mode=source]').click();
+	const expected = content.replace(' after ', ' Xafter ');
+	await expect
+		.poll(async () => (await storedContent(page, largeId)) === expected, { timeout: 30_000 })
+		.toBe(true);
+	await info.attach('native-caret-source.md', {
+		body: await storedContent(page, largeId),
+		contentType: 'text/markdown'
+	});
+});
+
+async function readVisualInputProbe(
+	page: Page
+): Promise<{ samples: number[]; longTasks: number[]; stages: Record<string, number[]> }> {
+	return page.evaluate(
+		() =>
+			(
+				window as unknown as {
+					__visualInputProbe: {
+						samples: number[];
+						longTasks: number[];
+						stages: Record<string, number[]>;
+					};
+				}
+			).__visualInputProbe
+	);
+}
+
+function percentile(values: readonly number[], ratio: number): number {
+	if (!values.length) return 0;
+	const sorted = [...values].sort((left, right) => left - right);
+	return sorted[Math.ceil(sorted.length * ratio) - 1]!;
+}
+
+test('large rendered note keeps keystrokes interactive at the start and end', async ({
+	page
+}, info) => {
+	test.setTimeout(300_000);
+	const content = largeNote(5_000_000);
+	await seedNote(page, largeId, content);
+	await page.reload();
+	await openVisualEditor(page);
+	const visual = page.locator('.ProseMirror');
+	await expect(visual).toBeVisible({ timeout: 180_000 });
+	await installVisualInputProbe(page);
+	const countersBefore = await readCounters(page);
+	const typed = 'abcdefghijklmnopqrstuvwxyz0123456789';
+	const positions: Record<string, number[]> = {};
+	const positionTasks: Record<string, number[]> = {};
+	const navigationTasks: number[] = [];
+	for (const position of ['start', 'end'] as const) {
+		const block = position === 'start' ? visual.locator('h1').first() : visual.locator('p').last();
+		await block.click();
+		await page.keyboard.press(position === 'start' ? 'Home' : 'End');
+		// Warm the caret, layout and one publish before measuring steady typing.
+		// The first key after a long scroll is a navigation cost, not input lag.
+		await page.keyboard.insertText('warm');
+		// A 5 MB document can keep painting after the caret jump. Let that
+		// navigation cost finish before the steady typing samples start.
+		await page.waitForTimeout(2_000);
+		navigationTasks.push(...(await readVisualInputProbe(page)).longTasks);
+		await page.evaluate(() => {
+			const probe = (
+				window as unknown as { __visualInputProbe: { samples: number[]; longTasks: number[] } }
+			).__visualInputProbe;
+			probe.samples.length = 0;
+			probe.longTasks.length = 0;
+		});
+		for (const character of typed) {
+			await page.keyboard.insertText(character);
+			// Let each key settle so the sample measures that key, not a queue.
+			await page.waitForTimeout(80);
+		}
+		await page.waitForTimeout(600);
+		positions[position] = (await readVisualInputProbe(page)).samples;
+		positionTasks[position] = (await readVisualInputProbe(page)).longTasks;
+		await page.evaluate(() => {
+			(
+				window as unknown as { __visualInputProbe: { longTasks: number[] } }
+			).__visualInputProbe.longTasks.length = 0;
+		});
+	}
+	const countersAfter = await readCounters(page);
+	const counterDelta = delta(countersBefore, countersAfter);
+	await attachCounters(info, countersBefore, countersAfter);
+	const probe = await readVisualInputProbe(page);
+	probe.samples = Object.values(positions).flat();
+	probe.longTasks = Object.values(positionTasks).flat();
+	const p50 = percentile(probe.samples, 0.5);
+	const p95 = percentile(probe.samples, 0.95);
+	const longestTask = probe.longTasks.length ? Math.max(...probe.longTasks) : 0;
+	const stageSummary = Object.fromEntries(
+		Object.entries(probe.stages).map(([name, values]) => [
+			name,
+			{ count: values.length, p50: percentile(values, 0.5), p95: percentile(values, 0.95) }
+		])
+	);
+	console.log(
+		'[perf] visual large',
+		JSON.stringify({
+			samples: probe.samples,
+			p50,
+			p95,
+			longestTask,
+			stages: stageSummary,
+			counters: counterDelta
+		})
+	);
+	await info.attach('visual-large-input.json', {
+		body: JSON.stringify(
+			{
+				fixture: {
+					generator: 'largeNote',
+					bytes: Buffer.byteLength(content),
+					sha256: createHash('sha256').update(content).digest('hex')
+				},
+				method:
+					'36 trusted insertText events at the start and 36 at the end. Each sample is beforeinput to the second animation frame. Long tasks are engine-reported.',
+				samples: probe.samples,
+				positions,
+				positionTasks,
+				navigationTasks,
+				browser: page.context().browser()?.version(),
+				longTasks: probe.longTasks,
+				stages: stageSummary,
+				counters: counterDelta,
+				p50,
+				p95,
+				longestTask
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	expect(probe.samples.length).toBeGreaterThanOrEqual(72);
+	expect(p95, 'rendered keystrokes must stay interactive on a 5 MB note').toBeLessThan(100);
+	expect(
+		longestTask,
+		'autosave and reconciliation must not add long main-thread tasks'
+	).toBeLessThan(250);
+	await expect
+		.poll(async () => (await storedContent(page, largeId)).length, { timeout: 30_000 })
+		.toBe(content.length + typed.length * 2 + 8);
+});
+
+test('large rendered note stays interactive while autosave runs between keys', async ({
+	page
+}, info) => {
+	test.setTimeout(180_000);
+	const content = largeNote(1_000_000);
+	await seedNote(page, largeId, content);
+	await page.reload();
+	await openVisualEditor(page);
+	const visual = page.locator('.ProseMirror');
+	await expect(visual).toBeVisible({ timeout: 120_000 });
+	await installVisualInputProbe(page);
+	await visual.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	const typed = 'abcdefghij';
+	for (const character of typed) {
+		await page.keyboard.insertText(character);
+		// Long enough for the 400 ms autosave and a quiet-period publish to run.
+		await page.waitForTimeout(1_100);
+	}
+	const probe = await readVisualInputProbe(page);
+	const p95 = percentile(probe.samples, 0.95);
+	const longestTask = probe.longTasks.length ? Math.max(...probe.longTasks) : 0;
+	const stageSummary = Object.fromEntries(
+		Object.entries(probe.stages).map(([name, values]) => [
+			name,
+			{ count: values.length, p50: percentile(values, 0.5), p95: percentile(values, 0.95) }
+		])
+	);
+	console.log(
+		'[perf] visual autosave',
+		JSON.stringify({ samples: probe.samples, p95, longestTask, stages: stageSummary })
+	);
+	await info.attach('visual-autosave-input.json', {
+		body: JSON.stringify(
+			{
+				fixture: {
+					generator: 'largeNote',
+					bytes: Buffer.byteLength(content),
+					sha256: createHash('sha256').update(content).digest('hex')
+				},
+				method:
+					'Ten trusted insertText events spaced 1.1 s apart so the autosave, version history and quiet-period reconciliation run between keys.',
+				samples: probe.samples,
+				longTasks: probe.longTasks,
+				stages: stageSummary,
+				p95,
+				longestTask
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	expect(probe.samples.length).toBeGreaterThanOrEqual(typed.length);
+	expect(p95, 'autosave must not make the next keystroke slow').toBeLessThan(100);
+	expect(longestTask, 'autosave must not create a long main-thread task').toBeLessThan(250);
+	await expect
+		.poll(async () => (await storedContent(page, largeId)).includes(typed), { timeout: 30_000 })
+		.toBe(true);
 });
 
 test('ordinary source typing keeps CRLF bytes without rebuilding the full source', async ({

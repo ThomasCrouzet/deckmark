@@ -43,6 +43,13 @@
 	let lastAnchorFile: string | null = null;
 	let lastAnchorContent = '';
 	let lastAnchors: Record<string, CommentAnchor> = {};
+	// A metadata-only status or author change keeps the same quote and offsets.
+	// Reuse the prior resolution instead of checking every comment again.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient cache, never rendered
+	const resolvedAnchors = new Map<
+		string,
+		{ content: string; quote: string; from: number; to: number; anchor: CommentAnchor }
+	>();
 	$effect(() => {
 		const content = boundFile?.content ?? '';
 		const fileId = boundFile?.id ?? null;
@@ -50,12 +57,38 @@
 		const job = ++anchorJob;
 		const timer = setTimeout(() => {
 			if (job !== anchorJob) return;
+			const resolve = (comment: CommentRow): CommentAnchor => {
+				const cached = resolvedAnchors.get(comment.id);
+				if (
+					cached &&
+					cached.content === content &&
+					cached.quote === comment.quote &&
+					cached.from === comment.from &&
+					cached.to === comment.to
+				)
+					return cached.anchor;
+				return resolveCommentAnchor(content, comment);
+			};
 			anchors =
 				fileId === lastAnchorFile && lastAnchorContent !== content
 					? shiftCommentAnchors(lastAnchorContent, content, list, lastAnchors)
-					: (Object.fromEntries(
-							list.map((comment) => [comment.id, resolveCommentAnchor(content, comment)])
-						) as Record<string, CommentAnchor>);
+					: (Object.fromEntries(list.map((comment) => [comment.id, resolve(comment)])) as Record<
+							string,
+							CommentAnchor
+						>);
+			const live = new Set(list.map((comment) => comment.id));
+			for (const id of resolvedAnchors.keys()) if (!live.has(id)) resolvedAnchors.delete(id);
+			for (const comment of list) {
+				const anchor = anchors[comment.id];
+				if (anchor)
+					resolvedAnchors.set(comment.id, {
+						content,
+						quote: comment.quote,
+						from: comment.from,
+						to: comment.to,
+						anchor
+					});
+			}
 			lastAnchorFile = fileId;
 			lastAnchorContent = content;
 			lastAnchors = anchors;

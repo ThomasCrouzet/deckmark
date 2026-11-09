@@ -6,6 +6,7 @@
 		documentMatches,
 		focusDocumentHeading,
 		invalidateDocumentTextIndex,
+		invalidateRenderedHeadings,
 		sourceHeadingIndex,
 		type DocumentHeading
 	} from '#lib/document-navigation.js';
@@ -83,6 +84,7 @@
 		const update = () => {
 			clearHighlights();
 			const documentRoot = target();
+			invalidateRenderedHeadings(documentRoot);
 			if (selectedKind === 'outline') {
 				headings =
 					selectedMode === 'source'
@@ -105,6 +107,7 @@
 		};
 		const observer = new MutationObserver(() => {
 			invalidateDocumentTextIndex(target());
+			invalidateRenderedHeadings(target());
 			schedule();
 		});
 		const preserveCaret = () => {
@@ -123,6 +126,7 @@
 		};
 	});
 	function jump(heading: (typeof headings)[number], index: number) {
+		invalidateRenderedHeadings(target());
 		// Resolve the heading again at click time. A render can replace the nodes
 		// held by the list, and a detached node cannot scroll into view.
 		const fresh =

@@ -3,6 +3,7 @@
 		completeRenderedHeadings,
 		focusDocumentHeading,
 		headingIndexForLine,
+		invalidateRenderedHeadings,
 		sourceHeadingIndex,
 		type DocumentHeading
 	} from '#lib/document-navigation.js';
@@ -38,15 +39,17 @@
 
 	$effect(() => {
 		const root = container;
-		const text = content;
 		const selectedMode = mode;
+		const text = selectedMode === 'source' ? content : '';
 		let timer: ReturnType<typeof setTimeout>;
 		let intersection: IntersectionObserver | null = null;
+		const headingIndexes = new WeakMap<Element, number>();
 		const modeOrRootChanged = selectedMode !== previousMode || root !== previousRoot;
 		const renderedRoot = () =>
 			root?.querySelector<HTMLElement>(
 				selectedMode === 'read' ? '.mdsh-preview' : '.ProseMirror'
 			) ?? null;
+		invalidateRenderedHeadings(renderedRoot());
 		const publishRenderedVisibility = () => {
 			if (selectedMode === 'source') return;
 			onEmpty(!renderedRoot()?.querySelector('h1,h2,h3,h4,h5,h6'));
@@ -80,14 +83,64 @@
 					},
 					{ root, rootMargin: '0px 0px -70% 0px', threshold: 0 }
 				);
-				for (const item of items) if (item.element) intersection.observe(item.element);
+				for (const [index, item] of items.entries()) {
+					if (!item.element) continue;
+					headingIndexes.set(item.element, index);
+					intersection.observe(item.element);
+				}
 			}
 		};
 		const schedule = () => {
 			clearTimeout(timer);
 			timer = setTimeout(update, 120);
 		};
-		const observer = new MutationObserver(() => {
+		const headingSelector = 'h1,h2,h3,h4,h5,h6';
+		const isHeadingNode = (node: Node): boolean =>
+			node.nodeType === Node.ELEMENT_NODE &&
+			((node as Element).matches(headingSelector) ||
+				(node as Element).querySelector(headingSelector) !== null);
+		const observer = new MutationObserver((records) => {
+			let headingsChanged = false;
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local mutation batch, never rendered
+			const changedText = new Set<Element>();
+			for (const record of records) {
+				const parent =
+					record.target instanceof Element ? record.target : record.target.parentElement;
+				const heading = parent?.closest(headingSelector);
+				if (heading) {
+					changedText.add(heading);
+					continue;
+				}
+				if (record.type === 'characterData') {
+					if (record.target.parentElement?.closest(headingSelector)) headingsChanged = true;
+				} else if (record.type === 'childList') {
+					if (
+						[...record.addedNodes, ...record.removedNodes].some(isHeadingNode) ||
+						(record.target instanceof Element &&
+							(record.target.matches(headingSelector) ||
+								record.target.closest(headingSelector) !== null ||
+								record.target.matches('.ProseMirror, .mdsh-preview')))
+					)
+						headingsChanged = true;
+				}
+				if (headingsChanged) break;
+			}
+			if (!headingsChanged && changedText.size) {
+				invalidateRenderedHeadings(renderedRoot());
+				for (const heading of changedText) {
+					const index = headingIndexes.get(heading);
+					const item = index === undefined ? undefined : items[index];
+					if (!item || item.element !== heading) {
+						headingsChanged = true;
+						break;
+					}
+					item.text = heading.textContent ?? '';
+				}
+			}
+			// Paragraph text and inline marks do not change heading topology. Rebuilding
+			// every heading subscription after each keystroke would stall a large note.
+			if (!headingsChanged) return;
+			invalidateRenderedHeadings(renderedRoot());
 			publishRenderedVisibility();
 			schedule();
 		});
@@ -107,6 +160,7 @@
 		const root =
 			container?.querySelector<HTMLElement>(mode === 'read' ? '.mdsh-preview' : '.ProseMirror') ??
 			null;
+		invalidateRenderedHeadings(root);
 		return completeRenderedHeadings(root);
 	}
 

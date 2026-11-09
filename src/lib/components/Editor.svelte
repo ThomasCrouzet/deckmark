@@ -23,6 +23,11 @@
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { stripFrontmatter } from '#lib/frontmatter.js';
 	import { SourceFidelity } from '#lib/source-fidelity.js';
+	import {
+		createIncrementalMarkdown,
+		updateIncrementalMarkdown,
+		type IncrementalMarkdownState
+	} from '#lib/markdown-incremental.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
@@ -43,6 +48,7 @@
 	let container: HTMLElement;
 	let crepe: CrepeType | null = null;
 	let restoreMountedMarkdown: ((markdown: string) => string) | null = null;
+	let serializeMountedMarkdown: (() => string) | null = null;
 	let imageObserver: MutationObserver | null = null;
 	let imageResizeObserver: ResizeObserver | null = null;
 	let loadError = $state(false);
@@ -135,12 +141,16 @@
 				AddMarkStep,
 				RemoveMarkStep,
 				ReplaceStep,
+				ReplaceAroundStep,
 				isHistoryTransaction,
 				Decoration,
 				DecorationSet,
 				prosePlugin,
 				remarkPlugin,
 				remarkPreserveEmptyLinePlugin,
+				syncHeadingIdPlugin,
+				incrementalHeadingIds,
+				listener,
 				linkTooltipConfig: linkTooltipConfigCtx,
 				imageBlockConfig: imageBlockConfigCtx,
 				inlineImageConfig: inlineImageConfigCtx,
@@ -169,6 +179,21 @@
 			if (isHistoryTransaction(transaction)) return true;
 			for (const [index, step] of transaction.steps.entries()) {
 				if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) continue;
+				// Milkdown updates heading IDs with setNodeMarkup after text input.
+				// This wrapper-only step cannot introduce a presentation delimiter.
+				if (
+					step instanceof ReplaceAroundStep &&
+					step.gapFrom === step.from + 1 &&
+					step.gapTo === step.to - 1 &&
+					step.insert === 1 &&
+					step.slice.openStart === 0 &&
+					step.slice.openEnd === 0 &&
+					step.slice.content.childCount === 1 &&
+					step.slice.content.firstChild?.type.name === 'heading' &&
+					step.slice.content.firstChild.content.size === 0 &&
+					transaction.docs[index]?.nodeAt(step.from)?.type.name === 'heading'
+				)
+					continue;
 				if (!(step instanceof ReplaceStep)) return true;
 				let structural = false;
 				step.slice.content.descendants((node) => {
@@ -379,10 +404,9 @@
 				if (token !== mountToken || revision !== markdownRevision) return;
 				let markdown: string;
 				try {
-					markdown = instance.editor.action((ctx) =>
-						ctx.get(serializerCtx)(ctx.get(editorViewCtx).state.doc)
-					);
-				} catch {
+					markdown = serializeIncrementalMarkdown();
+				} catch (error) {
+					reportError('visual editor serialization', error);
 					return;
 				}
 				if (token !== mountToken || revision !== markdownRevision) return;
@@ -612,6 +636,7 @@
 				[Crepe.Feature.TopBar]: false
 			},
 			featureConfigs: {
+				[Crepe.Feature.Cursor]: { virtual: initial.length < 256 * 1024 },
 				[Crepe.Feature.BlockEdit]: blockEditConfig,
 				[Crepe.Feature.Toolbar]: toolbarConfig,
 				[Crepe.Feature.LinkTooltip]: linkTooltipConfig,
@@ -626,6 +651,11 @@
 			}
 		});
 		await instance.editor.remove(remarkPreserveEmptyLinePlugin);
+		// The revision plugin owns publication. The unused listener serializes
+		// the complete document during initialization even with no subscribers.
+		await instance.editor.remove(listener);
+		await instance.editor.remove(syncHeadingIdPlugin);
+		instance.editor.use(incrementalHeadingIds);
 		instance.editor.use(wikiLinkPlugins);
 		installTableBreaks(instance.editor);
 		installTableParagraph(instance.editor);
@@ -636,9 +666,9 @@
 		instance.editor.use(tabIndentPlugin);
 		instance.editor.use(noteTypePlugin);
 		instance.editor.use(markdownRevisionPlugin);
+		instance.setReadonly(true);
 		try {
 			await instance.create();
-			editorBaseline = instance.getMarkdown();
 		} catch (err) {
 			if (token === mountToken) loadError = true;
 			reportError('Crepe mount', err);
@@ -649,6 +679,36 @@
 			await instance.destroy().catch(() => {});
 			return;
 		}
+		// Reuse unchanged ProseMirror blocks instead of walking the full document
+		// on every publish. This keeps a keystroke in a multi-megabyte note from
+		// waiting for a multi-second Milkdown serializer pass.
+		let incrementalMarkdown: IncrementalMarkdownState | null = null;
+		const resetIncrementalMarkdown = () => {
+			return instance.editor.action((ctx) => {
+				incrementalMarkdown = createIncrementalMarkdown(
+					ctx.get(editorViewCtx).state.doc,
+					ctx.get(serializerCtx)
+				);
+				return incrementalMarkdown.markdown;
+			});
+		};
+		const serializeIncrementalMarkdown = (): string => {
+			return instance.editor.action((ctx) => {
+				const doc = ctx.get(editorViewCtx).state.doc;
+				const serialize = ctx.get(serializerCtx);
+				if (!incrementalMarkdown) {
+					incrementalMarkdown = createIncrementalMarkdown(doc, serialize);
+					return incrementalMarkdown.markdown;
+				}
+				const result = updateIncrementalMarkdown(incrementalMarkdown, doc, serialize);
+				incrementalMarkdown = result.state;
+				if (result.full) recordEditorCounter('markdownIncrementalFallback');
+				else recordEditorCounter('markdownIncrementalBlock');
+				return result.state.markdown;
+			});
+		};
+		editorBaseline = resetIncrementalMarkdown();
+		serializeMountedMarkdown = serializeIncrementalMarkdown;
 		const resetFidelity = () => {
 			instance.editor.action((ctx) => {
 				const remark = ctx.get(remarkCtx);
@@ -656,7 +716,7 @@
 				const serializer = ctx.get(serializerCtx);
 				fidelity = new SourceFidelity(
 					frontmatter.content,
-					roundTrip.restore(instance.getMarkdown()),
+					roundTrip.restore(serializeIncrementalMarkdown()),
 					(markdown) => remark.parse(markdown),
 					(markdown) => {
 						const images = new ImageMarkdownRoundTrip(markdown);
@@ -880,7 +940,6 @@
 		proseMirror?.addEventListener('beforeinput', handleHistory);
 		removeHistoryListener = () => proseMirror?.removeEventListener('beforeinput', handleHistory);
 		proseMirror?.setAttribute('aria-label', t('editor.ariaLabel'));
-		instance.setReadonly(readonly);
 		saveMountedPosition = () => {
 			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
 			editorStateCache.setPosition(idForMount, 'wysiwyg', {
@@ -960,6 +1019,9 @@
 		fullImageScan();
 		mountedFileId = idForMount;
 		await restoreEditorPosition(instance, idForMount, token);
+		// Re-enable editing before the caret request. A read-only ProseMirror
+		// element cannot take focus, so the new note would lose its caret.
+		instance.setReadonly(readonly);
 		// A new note waits for the lazy editor before it can take the caret.
 		// The request survives the modal close and the asynchronous mount.
 		const focusedControl = document.activeElement;
@@ -979,7 +1041,7 @@
 			if (token !== mountToken) return;
 			try {
 				saveMountedPosition?.();
-				const markdown = restoreMarkdown(instance.getMarkdown());
+				const markdown = restoreMarkdown(serializeIncrementalMarkdown());
 				lastEditorMarkdown = markdown;
 				onFlush?.(idForMount, markdown);
 				cancelPendingWork();
@@ -1001,7 +1063,7 @@
 			editorBaseline = null;
 			fidelity = null;
 			instance.editor.action(replaceAll(roundTrip.editorMarkdown));
-			editorBaseline = instance.getMarkdown();
+			editorBaseline = resetIncrementalMarkdown();
 			resetFidelity();
 			applyImageAlternatives();
 		};
@@ -1040,11 +1102,13 @@
 			// (the late event is rejected by the `token === mountToken` guard).
 			if (id && onFlush) {
 				try {
-					onFlush(id, restoreMarkdown?.(instance.getMarkdown()) ?? instance.getMarkdown());
+					const markdown = serializeMountedMarkdown?.() ?? instance.getMarkdown();
+					onFlush(id, restoreMarkdown?.(markdown) ?? markdown);
 				} catch (err) {
 					reportError('Crepe flush on unmount', err);
 				}
 			}
+			serializeMountedMarkdown = null;
 			await instance.destroy().catch(() => {});
 		}
 	}
@@ -1106,6 +1170,7 @@
 <div
 	bind:this={container}
 	class="mdsh-editor"
+	class:mdsh-long-document={content.length >= 256 * 1024}
 	role="region"
 	aria-label={t('editor.ariaLabel')}
 	tabindex="0"

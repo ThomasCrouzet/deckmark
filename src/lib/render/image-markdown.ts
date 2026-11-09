@@ -65,8 +65,10 @@ function formatImageLine(image: ParsedImageLine): string {
 	return `![${escapeAlt(image.alt)}](${image.source}${title})`;
 }
 
-function imageKey(source: string, occurrence: number): string {
-	return `${occurrence}:${source}`;
+function imageKey(source: string, title: string, occurrence: number): string {
+	// The title travels with the image through a reorder. The occurrence still
+	// disambiguates identical source and caption pairs that have no stable node ID.
+	return `${occurrence}:${source}\u0000${title}`;
 }
 
 function numericRatio(value: string): number | null {
@@ -115,12 +117,13 @@ export class ImageMarkdownRoundTrip {
 				output.push(line);
 				continue;
 			}
-			const occurrence = occurrences.get(image.source) ?? 0;
-			occurrences.set(image.source, occurrence + 1);
+			const identity = `${image.source}\u0000${image.title}`;
+			const occurrence = occurrences.get(identity) ?? 0;
+			occurrences.set(identity, occurrence + 1);
 			const meta = IMAGE_META_LINE.exec(lines[index + 1] ?? '');
 			const ratio = meta ? (numericRatio(meta[1] ?? '') ?? 1) : 1;
 			const alt = image.alt;
-			this.state.set(imageKey(image.source, occurrence), { alt, ratio });
+			this.state.set(imageKey(image.source, image.title, occurrence), { alt, ratio });
 			output.push(formatImageLine({ ...image, alt: ratio.toFixed(2) }));
 			if (meta) {
 				output.push(lines[index + 1] ?? '');
@@ -156,9 +159,10 @@ export class ImageMarkdownRoundTrip {
 				if (!IMAGE_META_LINE.test(line)) output.push(line);
 				continue;
 			}
-			const occurrence = occurrences.get(image.source) ?? 0;
-			occurrences.set(image.source, occurrence + 1);
-			const key = imageKey(image.source, occurrence);
+			const identity = `${image.source}\u0000${image.title}`;
+			const occurrence = occurrences.get(identity) ?? 0;
+			occurrences.set(identity, occurrence + 1);
+			const key = imageKey(image.source, image.title, occurrence);
 			const current = this.state.get(key);
 			const ratio = numericRatio(image.alt) ?? current?.ratio ?? 1;
 			const alt = current?.alt ?? this.uploadedAlt.get(image.source) ?? image.title;

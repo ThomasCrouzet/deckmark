@@ -1,5 +1,40 @@
 # Test policy and evidence
 
+## Large rendered input risks
+
+Retain local input latency at both ends of a 5 MB note. Keep each raw
+beforeinput-to-second-frame sample, not only the last position. This measures
+browser frame scheduling, not physical display latency. Record warmup input
+and navigation tasks separately from steady input and its final save. Keep the
+100 ms p95 input budget and the 250 ms long-task budget. Disable Playwright DOM
+tracing for timing runs. Retain JSON samples and screenshots instead.
+The 1 MB slow-input case includes publication and the 400 ms draft save between
+keys. Compare saved source bytes after edits and immediate mode changes.
+
+Incremental serialization must preserve block separators, lists, empty blocks,
+inline marks, images, tables, undo and structural edits. Source fidelity and
+document revision workflows check exact exports and outgoing snapshots. Offscreen
+layout must still permit selection, find and outline navigation.
+
+The mounted editor must remain read-only until source reconciliation is ready.
+Heading ID updates must keep duplicate IDs consistent after edits and undo.
+The ID timer must stop when the editor is destroyed. Large notes use the native
+caret. Retain inline mark editing and keyboard selection through browser checks.
+Plain headings and paragraphs use scoped source reconciliation. Structural edits
+retain the conservative whole-document path.
+
+Run `npx playwright test e2e/editor-input-latency.spec.ts --grep 'large rendered'
+--project=chromium --workers=1 --retries=0 --trace=off`. Retain the JSON and HTML reports,
+fixture hash, browser version, source revision, working diff, command and raw
+measurements. Run source-fidelity, document-revisions, toc-modes and navigation
+workflows for correctness. Chromium timings do not establish native WebView or
+other browser performance.
+
+The retained `markdown-incremental.test.ts` checks the serializer work bound:
+an unchanged top-level block must not be serialized after a local edit. Browser
+export checks establish source bytes but do not identify that internal work.
+Use the browser source-fidelity corpus for actual Milkdown serialization.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading

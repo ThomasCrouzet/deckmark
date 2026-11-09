@@ -110,6 +110,8 @@ test('does not convert a note through the note source editor', async ({ page }) 
 	await expect(page.getByRole('alert')).toContainText('cannot become a presentation');
 	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
+	// Wait for the 400 ms save delay and a margin so the draft is durable before reload.
+	await page.waitForTimeout(600);
 	await page.reload();
 	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
 	await expect(source).not.toContainText('mdsh-presentation');

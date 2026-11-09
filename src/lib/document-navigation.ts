@@ -24,9 +24,19 @@ export function renderedDocumentHeadings(root: HTMLElement | null): DocumentHead
 	return completeRenderedHeadings(root).slice(0, 300);
 }
 
+const renderedHeadingIndexes = new WeakMap<HTMLElement, DocumentHeading[]>();
+
+/** Drops the cached rendered heading projection after a DOM mutation. */
+export function invalidateRenderedHeadings(root?: HTMLElement | null): void {
+	if (root) renderedHeadingIndexes.delete(root);
+}
+
 /** Reads every visible heading, without the legacy outline bound. */
 export function completeRenderedHeadings(root: HTMLElement | null): DocumentHeading[] {
-	return Array.from(root?.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6') ?? []).map(
+	if (!root) return [];
+	const cached = renderedHeadingIndexes.get(root);
+	if (cached) return cached;
+	const headings = Array.from(root.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')).map(
 		(element) => ({
 			text: element.textContent ?? '',
 			level: Number(element.tagName.slice(1)),
@@ -34,6 +44,8 @@ export function completeRenderedHeadings(root: HTMLElement | null): DocumentHead
 			element
 		})
 	);
+	renderedHeadingIndexes.set(root, headings);
+	return headings;
 }
 
 /** Moves the viewport and, in Edit mode, the caret to a heading. */
