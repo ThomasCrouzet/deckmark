@@ -341,6 +341,55 @@ test.describe('Editor width', () => {
 		}
 	});
 
+	test('keeps editable blocks in layout for a long WebKit note', async ({
+		page,
+		browserName
+	}, testInfo) => {
+		const paragraph = 'A large note paragraph keeps one stable sentence for the paint check. ';
+		const content = Array.from(
+			{ length: 400 },
+			(_, index) => `## Section ${index}\n\n${paragraph.repeat(10)}`
+		).join('\n\n');
+		expect(content.length).toBeGreaterThan(256 * 1024);
+		await writeSourceContent(page, content);
+		const wysiwyg = page.locator('button[data-mode="wysiwyg"]');
+		await wysiwyg.click();
+		const confirm = page.getByRole('button', { name: 'Afficher le document' });
+		if (await confirm.isVisible().catch(() => false)) await confirm.click();
+		await expect(wysiwyg).toHaveAttribute('aria-checked', 'true', { timeout: 20_000 });
+		const editor = page.locator('.mdsh-editor');
+		await expect(editor).toHaveClass(/mdsh-long-document/, { timeout: 20_000 });
+		const first = page.locator('.ProseMirror > p').first();
+		await expect(first).toBeVisible({ timeout: 20_000 });
+		await first.click();
+		await page.keyboard.press('End');
+		await page.keyboard.press('Enter');
+		await page.keyboard.type('Visible after Enter.');
+		// Capture paint evidence before any style or rectangle probe.
+		await testInfo.attach('long-note-after-enter', {
+			body: await page.screenshot(),
+			contentType: 'image/png'
+		});
+		await expect(page.locator('.ProseMirror')).toContainText('Visible after Enter.');
+		const observed = await page.evaluate(() => {
+			const element = document.querySelector('.ProseMirror > p');
+			const style = element ? getComputedStyle(element) : null;
+			return {
+				vendor: navigator.vendor,
+				webkitClass: Boolean(document.querySelector('.mdsh-webkit-engine')),
+				contentVisibility: style?.contentVisibility ?? null,
+				containIntrinsicSize: style?.containIntrinsicSize ?? null
+			};
+		});
+		await testInfo.attach('long-note-content-visibility.json', {
+			body: JSON.stringify({ browserName, ...observed }, null, 2),
+			contentType: 'application/json'
+		});
+		// Apple WebKit keeps editable blocks in the layout tree. Other engines
+		// retain the offscreen skip because their computed style stays auto.
+		expect(observed.contentVisibility).toBe(browserName === 'webkit' ? 'visible' : 'auto');
+	});
+
 	for (const { mode, scroller: selector, content } of modes) {
 		for (const zeroGutter of [false, true]) {
 			const scrollbarTest = zeroGutter ? test : nativeScrollbarTest;

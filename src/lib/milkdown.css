@@ -85,15 +85,24 @@ milkdown-editor,
 
 /* Very large visual documents keep every block in the ProseMirror model, but
    the browser can skip layout and paint for offscreen blocks. This preserves
-   selection, find, IME and export while keeping a keystroke in view cheap. */
-.mdsh-editor.mdsh-long-document .ProseMirror > * {
+   selection, find, IME and export while keeping a keystroke in view cheap.
+   Apple WebKit can keep an edited subtree blank until a forced layout, so the
+   editor marks that engine family with `mdsh-webkit-engine` and live blocks
+   stay in the layout tree. The smaller scroll cost on WebKit is the accepted
+   trade-off until a contained read-only or active-block strategy passes the
+   paint checks. */
+.mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine) .ProseMirror > * {
 	content-visibility: auto;
 	contain-intrinsic-size: auto 2.4em;
 }
-.mdsh-editor.mdsh-long-document .ProseMirror > :is(pre, table, .milkdown-code-block) {
+.mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine)
+	.ProseMirror
+	> :is(pre, table, .milkdown-code-block) {
 	contain-intrinsic-size: auto 12em;
 }
-.mdsh-editor.mdsh-long-document .ProseMirror > :is(h1, h2, h3, h4, h5, h6) {
+.mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine)
+	.ProseMirror
+	> :is(h1, h2, h3, h4, h5, h6) {
 	contain-intrinsic-size: auto 3.2em;
 }
 

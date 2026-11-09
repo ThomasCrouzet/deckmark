@@ -71,6 +71,11 @@
 	let saveMountedPosition: (() => void) | null = null;
 	let refreshMountedDiagrams: (() => void) | null = null;
 
+	// Safari and WKWebView can keep an editable content-visibility subtree blank
+	// until a forced layout. Vendor is an engine-family gate, not a version
+	// guess, so every Apple WebKit build keeps live blocks in the layout tree.
+	const webkitEngine = typeof navigator !== 'undefined' && /Apple/i.test(navigator.vendor ?? '');
+
 	// These tokens can start a presentation marker, an escaped line or a framed
 	// presentation element. A change that touches one of them must keep the full
 	// note/presentation validation.
@@ -1188,6 +1193,7 @@
 	bind:this={container}
 	class="mdsh-editor"
 	class:mdsh-long-document={content.length >= 256 * 1024}
+	class:mdsh-webkit-engine={webkitEngine}
 	role="region"
 	aria-label={t('editor.ariaLabel')}
 	tabindex="0"
