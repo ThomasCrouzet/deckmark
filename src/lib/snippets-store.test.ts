@@ -99,6 +99,44 @@ describe('portable snippet import', () => {
 		expect(await db.snippets.count()).toBe(3);
 	});
 
+	it('does not let a delayed body read revert a newer save', async () => {
+		await db.snippets.put(snippetRow('stale'));
+		await snippetsStore.reload();
+		const old = (await db.snippets.get('stale'))!;
+		let release: ((row: SnippetRow) => void) | undefined;
+		const pending = new Promise<SnippetRow>((resolve) => (release = resolve));
+		const get = vi.spyOn(db.snippets, 'get').mockReturnValue(pending as never);
+		const reading = snippetsStore.contentFor('stale');
+		await db.snippets.put({ ...old, code: 'newer body', updatedAt: 20 });
+		snippetsStore.rows = snippetsStore.rows.map((row) =>
+			row.id === 'stale'
+				? { ...row, code: 'newer body', updatedAt: 20, contentDeferred: false }
+				: row
+		);
+		release?.(old);
+		await expect(reading).resolves.toBe('newer body');
+		expect(snippetsStore.rows.find((row) => row.id === 'stale')).toMatchObject({
+			code: 'newer body',
+			updatedAt: 20
+		});
+		get.mockRestore();
+	});
+
+	it('does not delete a row created while a missing read was pending', async () => {
+		await db.snippets.put(snippetRow('missing'));
+		await snippetsStore.reload();
+		let release: ((row: undefined) => void) | undefined;
+		const pending = new Promise<undefined>((resolve) => (release = resolve));
+		const get = vi.spyOn(db.snippets, 'get').mockReturnValue(pending as never);
+		const reading = snippetsStore.contentFor('missing');
+		snippetsStore.rows = [snippetRow('missing', { updatedAt: 30, code: 'created later' })];
+		const created = snippetsStore.rows.find((row) => row.id === 'missing');
+		release?.(undefined);
+		await reading;
+		expect(snippetsStore.rows.find((row) => row.id === 'missing')).toBe(created);
+		get.mockRestore();
+	});
+
 	it('rolls back every row when the transaction write fails', async () => {
 		const put = vi.spyOn(db.snippets, 'bulkPut').mockRejectedValue(new Error('quota'));
 		await expect(snippetsStore.importRows([snippetRow('new')])).rejects.toThrow('quota');

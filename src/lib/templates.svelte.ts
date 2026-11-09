@@ -62,6 +62,8 @@ class TemplatesStore {
 	/** User templates (persisted). The builtin ones come from `BUILTIN_TEMPLATES`. */
 	userTemplates = $state<TemplateRow[]>([]);
 	loaded = $state(false);
+	/** Latest catalog load. An older asynchronous read must not publish. */
+	private loadGeneration = 0;
 
 	/** Displayable list: builtin first, then user templates (recent first). */
 	get choices(): TemplateChoice[] {
@@ -84,8 +86,9 @@ class TemplatesStore {
 
 	async load(): Promise<void> {
 		if (!browser || this.loaded) return;
+		const generation = ++this.loadGeneration;
 		const manifests = await readTemplateManifests();
-		this.userTemplates = manifests
+		const next = manifests
 			? manifests
 					.sort((a, b) => b.updatedAt - a.updatedAt)
 					.map((manifest) => ({
@@ -99,6 +102,8 @@ class TemplatesStore {
 						contentDeferred: true
 					}))
 			: await db.templates.orderBy('updatedAt').reverse().toArray();
+		if (generation !== this.loadGeneration) return;
+		this.userTemplates = next;
 		this.loaded = true;
 	}
 
@@ -106,25 +111,37 @@ class TemplatesStore {
 	async contentFor(id: string): Promise<string | null> {
 		if (id.startsWith('builtin:'))
 			return BUILTIN_TEMPLATES.find((template) => template.id === id)?.content ?? null;
-		const row = await db.templates.get(id);
+		const requestGeneration = this.loadGeneration;
 		const item = this.userTemplates.find((template) => template.id === id);
+		const expectedUpdatedAt = item?.updatedAt;
+		const row = await db.templates.get(id);
+		if (this.loadGeneration !== requestGeneration) {
+			const current = this.userTemplates.find((template) => template.id === id);
+			if (current && !current.contentDeferred) return current.content;
+			return (await db.templates.get(id))?.content ?? null;
+		}
+		const current = this.userTemplates.find((template) => template.id === id);
 		if (!row) {
-			if (item) this.userTemplates = this.userTemplates.filter((template) => template.id !== id);
+			if (current && current.updatedAt === expectedUpdatedAt)
+				this.userTemplates = this.userTemplates.filter((template) => template.id !== id);
 			return null;
 		}
-		if (item) {
-			item.content = row.content;
-			item.name = row.name;
-			item.kind = row.kind ?? documentKind(row.content);
-			item.updatedAt = row.updatedAt;
-			item.contentDeferred = false;
+		if (!current || current.updatedAt !== expectedUpdatedAt || row.updatedAt < current.updatedAt) {
+			if (current && !current.contentDeferred) return current.content;
+			return (await db.templates.get(id))?.content ?? null;
 		}
+		current.content = row.content;
+		current.name = row.name;
+		current.kind = row.kind ?? documentKind(row.content);
+		current.updatedAt = row.updatedAt;
+		current.contentDeferred = false;
 		return row.content;
 	}
 
 	/** §1.1 - Reloads after a backup restore. */
 	async reload(): Promise<void> {
 		this.loaded = false;
+		this.loadGeneration += 1;
 		await this.load();
 	}
 
@@ -149,10 +166,14 @@ class TemplatesStore {
 			if (hydrated === null) return null;
 			content = hydrated;
 		}
+		// The catalog row can be replaced by a save or a cross-window update
+		// while the deferred body loads. Read the current row after the await.
+		const current = this.userTemplates.find((t) => t.id === id);
+		if (!current) return null;
 		return {
-			name: `${user.name}.md`,
+			name: `${current.name}.md`,
 			content: applyTemplateVars(content, now),
-			kind: user.kind ?? documentKind(content)
+			kind: current.kind ?? documentKind(content)
 		};
 	}
 
@@ -213,7 +234,13 @@ class TemplatesStore {
 	async update(id: string, name: string, content: string): Promise<boolean> {
 		const current = this.userTemplates.find((template) => template.id === id);
 		if (!current || !name.trim()) return false;
-		const next = { ...current, name: name.trim(), content, updatedAt: Date.now() };
+		const next = {
+			...current,
+			name: name.trim(),
+			content,
+			updatedAt: Date.now(),
+			contentDeferred: false
+		};
 		try {
 			await db.templates.put($state.snapshot(next));
 		} catch (error) {

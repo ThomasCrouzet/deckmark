@@ -111,6 +111,8 @@ class SnippetsStore {
 	loaded = $state(false);
 	private subscription: Subscription | undefined;
 	private loading: Promise<void> | undefined;
+	/** Latest catalog publication. Older async reads must not replace it. */
+	private catalogGeneration = 0;
 
 	async load(): Promise<void> {
 		if (!browser || typeof indexedDB === 'undefined') return;
@@ -122,23 +124,29 @@ class SnippetsStore {
 				db.snippets.orderBy('updatedAt').reverse().primaryKeys()
 			).subscribe({
 				next: (ids) => {
+					const generation = ++this.catalogGeneration;
 					void (async () => {
 						const manifests = await readSnippetManifests();
+						if (generation !== this.catalogGeneration) return;
+						let nextRows: SnippetRow[];
 						if (manifests) {
 							const byId = new Map(manifests.map((manifest) => [manifest.id, manifest]));
-							this.rows = ids
+							nextRows = ids
 								.map((id) => byId.get(id))
 								.filter((manifest): manifest is SnippetManifest => !!manifest)
 								.map(manifestRow);
 						} else {
-							this.rows = await db.snippets.orderBy('updatedAt').reverse().toArray();
+							nextRows = await db.snippets.orderBy('updatedAt').reverse().toArray();
 						}
+						if (generation !== this.catalogGeneration) return;
+						this.rows = nextRows;
 						this.loaded = true;
 						if (first) {
 							first = false;
 							resolve();
 						}
 					})().catch((error: unknown) => {
+						this.catalogGeneration += 1;
 						if (this.loaded) reportPersistenceError(error, 'load');
 						this.loaded = false;
 						this.subscription = undefined;
@@ -149,6 +157,7 @@ class SnippetsStore {
 					});
 				},
 				error: (error: unknown) => {
+					this.catalogGeneration += 1;
 					if (this.loaded) reportPersistenceError(error, 'load');
 					this.loaded = false;
 					this.subscription = undefined;
@@ -165,6 +174,7 @@ class SnippetsStore {
 
 	async reload(): Promise<void> {
 		if (this.loading) await this.loading;
+		this.catalogGeneration += 1;
 		this.subscription?.unsubscribe();
 		this.subscription = undefined;
 		this.loaded = false;
@@ -224,21 +234,53 @@ class SnippetsStore {
 
 	/** Reads one exact code body and updates the resident catalog row. */
 	async contentFor(id: string): Promise<string | null> {
-		const row = await db.snippets.get(id);
+		const requestGeneration = this.catalogGeneration;
 		const item = this.rows.find((entry) => entry.id === id);
+		const expectedUpdatedAt = item?.updatedAt;
+		const row = await db.snippets.get(id);
+		// A newer catalog publication or row revision wins over this read.
 		if (!row) {
-			if (item) this.rows = this.rows.filter((entry) => entry.id !== id);
+			const current = this.rows.find((entry) => entry.id === id);
+			if (
+				this.catalogGeneration === requestGeneration &&
+				current &&
+				current.updatedAt === expectedUpdatedAt
+			)
+				this.rows = this.rows.filter((entry) => entry.id !== id);
 			return null;
 		}
-		if (item) {
-			item.title = row.title;
-			item.code = row.code;
-			item.language = row.language;
-			item.tags = row.tags;
-			item.favorite = row.favorite;
-			item.updatedAt = row.updatedAt;
-			item.contentDeferred = false;
+		const current = this.rows.find((entry) => entry.id === id);
+		const stale =
+			this.catalogGeneration !== requestGeneration ||
+			!current ||
+			current.updatedAt !== expectedUpdatedAt ||
+			row.updatedAt < current.updatedAt;
+		if (stale) {
+			// A save, rename, favorite toggle or cross-tab write replaced the row
+			// while the body read was pending. Apply only the exact current
+			// revision; an older body must never replace newer resident fields.
+			const latest = await db.snippets.get(id);
+			const latestCurrent = this.rows.find((entry) => entry.id === id);
+			if (latest && latestCurrent && latest.updatedAt === latestCurrent.updatedAt) {
+				latestCurrent.title = latest.title;
+				latestCurrent.code = latest.code;
+				latestCurrent.language = latest.language;
+				latestCurrent.tags = latest.tags;
+				latestCurrent.favorite = latest.favorite;
+				latestCurrent.updatedAt = latest.updatedAt;
+				latestCurrent.contentDeferred = false;
+				return latest.code;
+			}
+			if (latestCurrent && !latestCurrent.contentDeferred) return latestCurrent.code;
+			return latest?.code ?? null;
 		}
+		current.title = row.title;
+		current.code = row.code;
+		current.language = row.language;
+		current.tags = row.tags;
+		current.favorite = row.favorite;
+		current.updatedAt = row.updatedAt;
+		current.contentDeferred = false;
 		return row.code;
 	}
 
