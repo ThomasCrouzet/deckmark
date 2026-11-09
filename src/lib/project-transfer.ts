@@ -135,7 +135,7 @@ async function projectAssetPathList(projectId: string): Promise<string[]> {
 		.where('[projectId+path]')
 		.between([projectId, ''], [projectId, '\uffff'])
 		.keys();
-	return keys.map((key) => String((key as [string, string])[1]));
+	return keys.map((key) => String(Array.isArray(key) ? key[1] : ''));
 }
 
 function sourceFileFromRow(row: DraftRow): SourceFile {

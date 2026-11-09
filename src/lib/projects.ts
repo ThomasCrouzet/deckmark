@@ -110,13 +110,13 @@ export async function createProjectDocument(
 				.where('[projectId+relativePath]')
 				.between([projectId, ''], [projectId, upper])
 				.keys()
-		).map((key) => String((key as [string, string])[1]));
+		).map((key) => String(Array.isArray(key) ? key[1] : ''));
 		const assetPaths = (
 			await db.projectAssets
 				.where('[projectId+path]')
 				.between([projectId, ''], [projectId, upper])
 				.keys()
-		).map((key) => String((key as [string, string])[1]));
+		).map((key) => String(Array.isArray(key) ? key[1] : ''));
 		if (
 			documentPaths.length >= projectDocumentLimit() ||
 			documentPaths.length + assetPaths.length >= PROJECT_SCALE_LIMITS.maxEntries - 3
