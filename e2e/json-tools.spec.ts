@@ -222,7 +222,12 @@ test('keeps full JSON diagnostics off the input thread at 1, 5 and 10 MB', async
 			samples.push(paint - start);
 			rawSamples.push({ start, inputEnd, paint, latency: paint - start });
 		}
-		if (bytes >= 5_000_000) await page.getByTestId('json-validate').click();
+		if (bytes >= 5_000_000) {
+			// The source publish is throttled. Let the last keystroke reach the
+			// document state so the manual check is not invalidated in flight.
+			await page.waitForTimeout(600);
+			await page.getByTestId('json-validate').click();
+		}
 		await expect(page.getByTestId('json-status')).toHaveText('JSON valide', {
 			timeout: 20_000
 		});
