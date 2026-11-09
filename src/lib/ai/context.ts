@@ -67,7 +67,11 @@ function selectedFiles(request: AiContextRequest): AiContextFile[] {
 	const ids = new Set(request.selectedIds ?? []);
 	const byScope =
 		request.scope === 'project'
-			? request.files.filter((file) => !request.projectId || file.projectId === request.projectId)
+			? // Project scope is an explicit consent boundary. A missing project id
+				// means no project was approved, never the whole library.
+				request.projectId
+				? request.files.filter((file) => file.projectId === request.projectId)
+				: []
 			: request.scope === 'files'
 				? request.files.filter((file) => ids.has(file.id))
 				: request.files.filter((file) => file.id === request.activeId);

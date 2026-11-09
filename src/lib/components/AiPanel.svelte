@@ -22,6 +22,8 @@
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
 
 	let scope = $state<AiContextScope>('document');
+	/** Exact project approved through the Project scope button. */
+	let projectScopeId = $state<string | null>(null);
 	let selectedIds = $state<string[]>([]);
 	let ignore = $state('.env, secrets/, *.pem, *.key');
 	let prompt = $state('');
@@ -66,6 +68,13 @@
 	const active = $derived(filesStore.active);
 	const projectSelected = $derived(!!active?.projectId);
 
+	// Invalidate a Project approval when the active project disappears or
+	// differs. A later send must not widen to another project silently.
+	$effect(() => {
+		if (scope !== 'project') return;
+		if (projectScopeId && active?.projectId !== projectScopeId) projectScopeId = null;
+	});
+
 	onMount(() => {
 		selectionText = window.getSelection()?.toString() ?? '';
 		if (filesStore.activeId) selectedIds = [filesStore.activeId];
@@ -80,7 +89,7 @@
 			selection: selectionText,
 			files: filesStore.library,
 			selectedIds,
-			projectId: active?.projectId ?? null,
+			projectId: scope === 'project' ? projectScopeId : null,
 			ignorePatterns: ignore
 				.split(',')
 				.map((value) => value.trim())
@@ -227,6 +236,15 @@
 		return t('ai.reason_budget');
 	}
 
+	function selectScope(value: AiContextScope) {
+		if (value === 'project') {
+			if (!projectSelected) return;
+			// This click is the explicit approval of the current project.
+			projectScopeId = active?.projectId ?? null;
+		}
+		scope = value;
+	}
+
 	function toggleFile(id: string) {
 		selectedIds = selectedIds.includes(id)
 			? selectedIds.filter((value) => value !== id)
@@ -282,7 +300,7 @@
 			const frozen = {
 				scope,
 				activeId: filesStore.activeId,
-				projectId: active?.projectId ?? null,
+				projectId: scope === 'project' ? projectScopeId : null,
 				selectedIds: [...selectedIds],
 				selection: selectionText,
 				ignorePatterns: ignore
@@ -293,6 +311,11 @@
 			};
 			const sameIds = (left: readonly string[], right: readonly string[]) =>
 				left.length === right.length && left.every((value, index) => value === right[index]);
+			if (frozen.scope === 'project' && !frozen.projectId) {
+				// Project scope without an approved project is never the library.
+				error = t('ai.noContext');
+				return;
+			}
 			const needed =
 				frozen.scope === 'files'
 					? frozen.selectedIds
@@ -326,7 +349,7 @@
 			const contextChanged =
 				scope !== frozen.scope ||
 				filesStore.activeId !== frozen.activeId ||
-				(active?.projectId ?? null) !== frozen.projectId ||
+				(scope === 'project' ? projectScopeId : null) !== frozen.projectId ||
 				!sameIds(selectedIds, frozen.selectedIds) ||
 				selectionText !== frozen.selection ||
 				!sameIds(
@@ -464,7 +487,7 @@
 							<button
 								type="button"
 								aria-pressed={scope === value}
-								onclick={() => (scope = value as AiContextScope)}
+								onclick={() => selectScope(value as AiContextScope)}
 								disabled={value === 'project' && !projectSelected}
 								data-testid={`ai-scope-${value}`}>{t(label)}</button
 							>

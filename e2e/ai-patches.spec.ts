@@ -77,7 +77,8 @@ type MockHunk = { before: string; after: string; occurrence?: number };
 async function configureCustomAi(
 	page: Page,
 	buildHunks: (content: string) => MockHunk[]
-): Promise<void> {
+): Promise<Array<Record<string, unknown>>> {
+	const requests: Array<Record<string, unknown>> = [];
 	await page.addInitScript(() => {
 		localStorage.setItem(
 			'mdsh:ai',
@@ -105,7 +106,10 @@ async function configureCustomAi(
 			});
 			return;
 		}
-		const body = route.request().postDataJSON() as { messages: Array<{ content: string }> };
+		const body = route.request().postDataJSON() as Record<string, unknown> & {
+			messages: Array<{ content: string }>;
+		};
+		requests.push(body);
 		const prompt = body.messages.at(-1)?.content ?? '';
 		const file = /<file path="([^"]+)" hash="([^"]+)">\n([\s\S]*?)\n<\/file>/.exec(prompt);
 		if (!file) {
@@ -129,6 +133,7 @@ async function configureCustomAi(
 			body: `data: ${chunk}\n\ndata: [DONE]\n\n`
 		});
 	});
+	return requests;
 }
 
 async function configureSequenceAi(
@@ -432,6 +437,35 @@ test('rejects a source change during hydration without sending a request', async
 	expect(requests).toHaveLength(0);
 	await info.attach('ai-snapshot-source.json', {
 		body: JSON.stringify({ requests: requests.length, sourceChanged: true }),
+		contentType: 'application/json'
+	});
+});
+
+test('Project scope sends only the approved project files', async ({ page }, info: TestInfo) => {
+	const requests = await configureCustomAi(page, (content) => [
+		{ before: content.split('\n')[0]!, after: '# Changed' }
+	]);
+	await resetAppState(page);
+	await importProject(page, 'Alpha', { 'a.md': '# Alpha\n\nALPHA SECRET' });
+	await importProject(page, 'Beta', { 'b.md': '# Beta\n\nBETA SECRET' });
+	await page.locator('[data-project-root-name="Alpha"] summary').first().click();
+	await page
+		.locator('[data-project-root-name="Alpha"] [data-project-document="a.md"] button')
+		.first()
+		.click();
+	await openAiPanel(page);
+	await page.getByTestId('ai-scope-project').click();
+	await expect(page.getByTestId('ai-manifest')).toContainText('a.md');
+	await page.getByTestId('ai-action-explain').click();
+	await expect(page.getByTestId('ai-output')).toBeVisible();
+	const body = JSON.stringify(requests[0]);
+	expect(body).toContain('ALPHA SECRET');
+	expect(body).not.toContain('BETA SECRET');
+	await info.attach('ai-project-scope.json', {
+		body: JSON.stringify({
+			requests: requests.length,
+			betaExcluded: !body.includes('BETA SECRET')
+		}),
 		contentType: 'application/json'
 	});
 });
