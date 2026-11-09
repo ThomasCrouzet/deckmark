@@ -277,7 +277,7 @@
 						: undefined;
 				if (commit) pendingHint = null;
 				if (editorBaseline === null || markdown === editorBaseline) return sourceMarkdown;
-				const restored = roundTrip.restore(markdown, commit);
+				const restored = roundTrip.restore(markdown, commit, hint);
 				return frontmatter.raw + (fidelity?.restore(restored, commit, hint) ?? restored);
 			});
 		lastEditorMarkdown = initial;

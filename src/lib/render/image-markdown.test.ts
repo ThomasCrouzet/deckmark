@@ -1,8 +1,17 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyImageMetadataToHtml, ImageMarkdownRoundTrip } from './image-markdown';
+
+function imageHeavyMarkdown(count = 120): string {
+	const blocks: string[] = [];
+	for (let index = 0; index < count; index += 1) {
+		blocks.push(`Paragraph ${index} keeps a stable sentence.`);
+		if (index % 5 === 0) blocks.push(`![Figure ${index}](fig${index}.png "Caption ${index}")`);
+	}
+	return blocks.join('\n\n');
+}
 
 describe('ImageMarkdownRoundTrip', () => {
 	it('keeps Unicode alternative text and captions after WYSIWYG editing', () => {
@@ -42,6 +51,75 @@ describe('ImageMarkdownRoundTrip', () => {
 		expect(roundTrip.restore('![1.00](same.png "B")\n\n![1.00](same.png "A")')).toBe(
 			'![Après](same.png "B")\n\n![Avant](same.png "A")'
 		);
+	});
+
+	it('splices prose edits without scanning lines or rebuilding image state', () => {
+		const source = imageHeavyMarkdown();
+		const roundTrip = new ImageMarkdownRoundTrip(source);
+		// The first full restore establishes the accepted baseline.
+		roundTrip.restore(roundTrip.editorMarkdown);
+		const input = roundTrip.editorMarkdown;
+		const before = 'Paragraph 7 keeps a stable sentence.';
+		const at = input.indexOf(before);
+		expect(at).toBeGreaterThan(0);
+		const changed = input.replace(before, 'Paragraph 7 has brighter prose.');
+		const expected = new ImageMarkdownRoundTrip(source).restore(changed);
+		const spy = vi.spyOn(String.prototype, 'split');
+		try {
+			expect(
+				roundTrip.restore(changed, true, {
+					previousFrom: at,
+					previousTo: at + before.length,
+					nextFrom: at,
+					nextTo: at + 'Paragraph 7 has brighter prose.'.length
+				})
+			).toBe(expected);
+			expect(spy).not.toHaveBeenCalled();
+		} finally {
+			spy.mockRestore();
+		}
+		// A later prose edit reuses the shifted image positions.
+		const secondBefore = 'Paragraph 9 keeps a stable sentence.';
+		const secondAt = changed.indexOf(secondBefore);
+		const second = changed.replace(secondBefore, 'Paragraph 9 closes the check.');
+		expect(
+			roundTrip.restore(second, true, {
+				previousFrom: secondAt,
+				previousTo: secondAt + secondBefore.length,
+				nextFrom: secondAt,
+				nextTo: secondAt + 'Paragraph 9 closes the check.'.length
+			})
+		).toBe(new ImageMarkdownRoundTrip(source).restore(second));
+	});
+
+	it('falls back when an image line or image membership changes', () => {
+		const source = imageHeavyMarkdown();
+		const changedTrip = new ImageMarkdownRoundTrip(source);
+		changedTrip.restore(changedTrip.editorMarkdown);
+		const input = changedTrip.editorMarkdown;
+		const image = '![1.00](fig5.png "Caption 5")';
+		const at = input.indexOf(image);
+		const changed = input.replace(image, '![1.00](other.png "Caption 5")');
+		expect(
+			changedTrip.restore(changed, true, {
+				previousFrom: at,
+				previousTo: at + image.length,
+				nextFrom: at,
+				nextTo: at + '![1.00](other.png "Caption 5")'.length
+			})
+		).toBe(new ImageMarkdownRoundTrip(source).restore(changed));
+
+		const addedTrip = new ImageMarkdownRoundTrip(source);
+		addedTrip.restore(addedTrip.editorMarkdown);
+		const added = `${addedTrip.editorMarkdown}\n\n![New](new.png "New caption")`;
+		expect(
+			addedTrip.restore(added, true, {
+				previousFrom: addedTrip.editorMarkdown.length,
+				previousTo: addedTrip.editorMarkdown.length,
+				nextFrom: addedTrip.editorMarkdown.length,
+				nextTo: added.length
+			})
+		).toBe(new ImageMarkdownRoundTrip(source).restore(added));
 	});
 });
 
