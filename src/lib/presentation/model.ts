@@ -969,7 +969,23 @@ function serializeSlideSource(slide: PresentationSlide): string {
 	return blocks.join('\n\n');
 }
 
+export interface PresentationSerializeCache {
+	slides: Map<string, { fingerprint: string; source: string }>;
+}
+
+export function createPresentationSerializeCache(): PresentationSerializeCache {
+	return { slides: new Map() };
+}
+
 export function serializePresentation(input: PresentationDeck): string {
+	return serializePresentationCached(input, createPresentationSerializeCache());
+}
+
+/** Reuses unchanged slide source blocks across one editor session. */
+export function serializePresentationCached(
+	input: PresentationDeck,
+	cache: PresentationSerializeCache
+): string {
 	recordEditorCounter('presentation.serialize');
 	if (input.original !== undefined && input.originalFingerprint === deckFingerprint(input)) {
 		return input.original;
@@ -978,7 +994,18 @@ export function serializePresentation(input: PresentationDeck): string {
 	void _original;
 	void _fingerprint;
 	const deck = validateDeck(candidate, true);
-	const body = deck.slides.map(serializeSlideSource).join('\n\n---\n\n');
+	const body = deck.slides
+		.map((slide) => {
+			const fingerprint = JSON.stringify(slide);
+			const cached = cache.slides.get(slide.id);
+			if (cached?.fingerprint === fingerprint) return cached.source;
+			const source = serializeSlideSource(slide);
+			cache.slides.set(slide.id, { fingerprint, source });
+			return source;
+		})
+		.join('\n\n---\n\n');
+	const live = new Set(deck.slides.map((slide) => slide.id));
+	for (const id of cache.slides.keys()) if (!live.has(id)) cache.slides.delete(id);
 	const slides = deck.slides.map((slide) => ({
 		...slide,
 		elements: slide.elements.map((element) =>

@@ -70,6 +70,20 @@ function equal(a: MarkdownNode, b: MarkdownNode): boolean {
 }
 
 function apply(source: string, patches: Patch[]): string {
+	const sorted = patches.toSorted((left, right) => left.start - right.start);
+	const chunks: string[] = [];
+	let cursor = 0;
+	for (const patch of sorted) {
+		if (patch.start < cursor) return applyLegacy(source, patches);
+		chunks.push(source.slice(cursor, patch.start), patch.value);
+		cursor = patch.end;
+	}
+	chunks.push(source.slice(cursor));
+	return chunks.join('');
+}
+
+/** Fallback for an unexpected overlapping patch set. */
+function applyLegacy(source: string, patches: Patch[]): string {
 	let result = source;
 	for (const patch of patches.toSorted((a, b) => b.start - a.start)) {
 		result = result.slice(0, patch.start) + patch.value + result.slice(patch.end);

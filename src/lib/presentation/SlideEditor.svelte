@@ -108,6 +108,58 @@
 	let slideDragIndex: number | null = null;
 	let thumbnailTouch: { pointerId: number; from: number; startY: number; startX: number } | null =
 		null;
+	let filmstrip: HTMLDivElement | null = $state(null);
+	let filmstripWidth = $state(160);
+	let filmstripHeight = $state(600);
+	let filmstripScroll = $state(0);
+	let filmstripHorizontal = $state(false);
+	const FILMSTRIP_OVERSCAN = 4;
+	const FILMSTRIP_SMALL_DECK = 40;
+	const thumbnailItemHeight = $derived.by(() => {
+		const previewWidth = Math.max(40, filmstripWidth - 43);
+		const ratio = editor.deck.width / editor.deck.height;
+		return Math.max(56, Math.round(previewWidth / ratio + 24));
+	});
+	const thumbnailWindow = $derived.by(() => {
+		const count = editor.deck.slides.length;
+		if (filmstripHorizontal || count <= FILMSTRIP_SMALL_DECK)
+			return { start: 0, end: count, virtual: false };
+		const visible = Math.ceil(filmstripHeight / thumbnailItemHeight) + FILMSTRIP_OVERSCAN * 2;
+		const start = Math.max(
+			0,
+			Math.floor(filmstripScroll / thumbnailItemHeight) - FILMSTRIP_OVERSCAN
+		);
+		return { start, end: Math.min(count, start + visible), virtual: true };
+	});
+	$effect(() => {
+		const element = filmstrip;
+		if (!element) return;
+		const update = () => {
+			filmstripWidth = element.clientWidth;
+			filmstripHeight = element.clientHeight;
+			const style = getComputedStyle(element);
+			filmstripHorizontal = style.display === 'flex' && style.flexDirection === 'row';
+		};
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(element);
+		return () => observer.disconnect();
+	});
+	$effect(() => {
+		const element = filmstrip;
+		if (!element || filmstripHorizontal) return;
+		const index = editor.index;
+		untrack(() => {
+			const top = index * thumbnailItemHeight;
+			if (
+				top < element.scrollTop ||
+				top + thumbnailItemHeight > element.scrollTop + element.clientHeight
+			) {
+				element.scrollTop = Math.max(0, top - element.clientHeight / 2 + thumbnailItemHeight / 2);
+				filmstripScroll = element.scrollTop;
+			}
+		});
+	});
 	let userMessage = $state('');
 	type ClipboardShortcut = {
 		kind: 'copy' | 'cut' | 'paste';
@@ -1038,11 +1090,24 @@
 							}}><Plus size={16} />{t('slides.add')}</button
 						>
 					</div>
-					<div class="thumbnails">
-						{#each editor.deck.slides as slide, index (slide.id)}
+					<div
+						class="thumbnails"
+						bind:this={filmstrip}
+						onscroll={(event) =>
+							(filmstripScroll = (event.currentTarget as HTMLDivElement).scrollTop)}
+					>
+						{#if thumbnailWindow.virtual && thumbnailWindow.start > 0}
+							<div
+								aria-hidden="true"
+								style:height={`${thumbnailWindow.start * thumbnailItemHeight}px`}
+							></div>
+						{/if}
+						{#each editor.deck.slides.slice(thumbnailWindow.start, thumbnailWindow.end) as slide, offset (slide.id)}
+							{@const index = thumbnailWindow.start + offset}
 							<button
 								class="slide-thumbnail"
 								class:current={index === editor.index}
+								style:height={thumbnailWindow.virtual ? `${thumbnailItemHeight - 10}px` : undefined}
 								data-testid="slide-thumbnail"
 								data-slide-id={slide.id}
 								data-slide-index={index}
@@ -1081,6 +1146,12 @@
 								</span>
 							</button>
 						{/each}
+						{#if thumbnailWindow.virtual && thumbnailWindow.end < editor.deck.slides.length}
+							<div
+								aria-hidden="true"
+								style:height={`${(editor.deck.slides.length - thumbnailWindow.end) * thumbnailItemHeight}px`}
+							></div>
+						{/if}
 					</div>
 					<div class="filmstrip-bottom">
 						<button
@@ -1657,6 +1728,7 @@
 	}
 	.slide-thumbnail {
 		display: flex;
+		box-sizing: border-box;
 		align-items: flex-start;
 		width: 100%;
 		gap: 7px;

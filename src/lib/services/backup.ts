@@ -447,6 +447,11 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 	} catch {
 		throw new BackupParseError(t('backup.invalidJson'));
 	}
+	return validateBackupValue(raw);
+}
+
+/** Validates a generated or imported backup value without a second JSON parse. */
+export function validateBackupValue(raw: unknown): ParsedBackup {
 	if (!isObject(raw) || raw.format !== BACKUP_FORMAT) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
 	}
@@ -772,7 +777,7 @@ export async function applyBackup(
 	mode: RestoreMode,
 	skipped = 0
 ): Promise<RestoreCounts> {
-	if (!validatedBackups.has(backup)) backup = parseBackupWithReport(serializeBackup(backup)).backup;
+	if (!validatedBackups.has(backup)) backup = validateBackupValue(backup).backup;
 	if (skipped > 0) throw new BackupParseError(t('backup.notMdshBackup'));
 	const projects = backup.projects ?? [];
 	const snippets = backup.snippets ?? [];

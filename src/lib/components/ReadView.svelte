@@ -392,6 +392,7 @@
 				signal: controller.signal,
 				instanceId,
 				mermaidTheme,
+				priority: 'active',
 				headingPermalinks: true,
 				allowRemoteImages: false
 			});

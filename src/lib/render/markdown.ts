@@ -113,7 +113,8 @@ async function renderMermaidDiagram(
 	code: string,
 	theme: MermaidTheme,
 	namespace: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	priority: 'active' | 'background' = 'background'
 ): Promise<string> {
 	if (!browser) {
 		return `<pre class="mermaid-source"><code>${escapeHTML(code)}</code></pre>`;
@@ -125,7 +126,13 @@ async function renderMermaidDiagram(
 		if (svg === undefined) {
 			let pending = inFlightDiagrams.get(key);
 			if (!pending) {
-				pending = renderMermaidSvg(createRenderInstanceId(), code, theme).finally(() => {
+				pending = renderMermaidSvg(
+					createRenderInstanceId(),
+					code,
+					theme,
+					undefined,
+					priority
+				).finally(() => {
 					inFlightDiagrams.delete(key);
 				});
 				inFlightDiagrams.set(key, pending);
@@ -309,7 +316,8 @@ async function renderMarkdownCore(
 			parsed.mermaidCodes[i]!,
 			opts.mermaidTheme ?? 'default',
 			`${namespace}-${i}`,
-			signal
+			signal,
+			opts.priority ?? 'background'
 		);
 		diagrams.push(`<div class="mermaid-block">${svg}</div>`);
 		if (i % 16 === 15)
