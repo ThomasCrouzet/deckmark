@@ -5,6 +5,8 @@ import {
 	createSlide,
 	parsePresentation,
 	serializePresentation,
+	serializePresentationCached,
+	createPresentationSerializeCache,
 	type PresentationDeck,
 	type PresentationElement,
 	type PresentationElementType
@@ -49,6 +51,7 @@ export class PresentationEditor {
 	private operationStart: string | null = null;
 	private operationSource: string | null = null;
 	private operationDeck: PresentationDeck | null = null;
+	private serializeCache = createPresentationSerializeCache();
 	private operationChanged = false;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
 	private maximumTimer: ReturnType<typeof setTimeout> | undefined;
@@ -133,7 +136,7 @@ export class PresentationEditor {
 		if (!defer) {
 			let source: string;
 			try {
-				source = serializePresentation(this.deck);
+				source = serializePresentationCached(this.deck, this.serializeCache);
 			} catch (error) {
 				return this.failed(error);
 			}
@@ -182,7 +185,7 @@ export class PresentationEditor {
 	publish(source?: string): boolean {
 		this.stopTimers();
 		try {
-			const snapshot = source ?? serializePresentation(this.deck);
+			const snapshot = source ?? serializePresentationCached(this.deck, this.serializeCache);
 			if (snapshot !== this.source) this.write(snapshot, this.source);
 			this.source = snapshot;
 			this.pending = false;
@@ -213,7 +216,10 @@ export class PresentationEditor {
 		if (!this.commit(true)) return;
 		const previous = this.undoEntries.at(-1);
 		if (!previous) return;
-		this.redoEntries = [...this.redoEntries, serializePresentation(this.deck)];
+		this.redoEntries = [
+			...this.redoEntries,
+			serializePresentationCached(this.deck, this.serializeCache)
+		];
 		this.undoEntries = this.undoEntries.slice(0, -1);
 		this.deck = parsePresentation(previous);
 		this.index = Math.min(this.index, this.deck.slides.length - 1);
@@ -225,7 +231,10 @@ export class PresentationEditor {
 		if (!this.commit(true)) return;
 		const next = this.redoEntries.at(-1);
 		if (!next) return;
-		this.undoEntries = [...this.undoEntries, serializePresentation(this.deck)];
+		this.undoEntries = [
+			...this.undoEntries,
+			serializePresentationCached(this.deck, this.serializeCache)
+		];
 		this.redoEntries = this.redoEntries.slice(0, -1);
 		this.deck = parsePresentation(next);
 		this.index = Math.min(this.index, this.deck.slides.length - 1);
