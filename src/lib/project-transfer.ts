@@ -403,30 +403,36 @@ export async function transferProjectSelection(
 	const sourceAfter = new Set<string>();
 	const destinationAfter = new Set<string>();
 	if (crossProject) {
+		// A move removes the selected entries from the source project. A copy
+		// leaves every source entry in place.
 		for (const row of documents)
-			if (!selectedDocuments.some((doc) => doc.id === row.id))
+			if (options.mode === 'copy' || !selectedDocuments.some((doc) => doc.id === row.id))
 				sourceAfter.add(pathKey(row.oldPath));
 		for (const asset of assets)
-			if (!selectedAssets.some((entry) => entry.id === asset.id))
+			if (options.mode === 'copy' || !selectedAssets.some((entry) => entry.id === asset.id))
 				sourceAfter.add(pathKey(asset.path));
 		for (const row of targetDocsBefore) destinationAfter.add(pathKey(row.relativePath));
 	} else {
-		for (const row of documents)
+		for (const row of documents) {
+			const selected = selectedDocuments.some((doc) => doc.id === row.id);
 			sourceAfter.add(
 				pathKey(
-					selectedDocuments.some((doc) => doc.id === row.id)
+					selected && options.mode === 'move'
 						? (moved.get(pathKey(row.oldPath)) ?? row.oldPath)
 						: row.oldPath
 				)
 			);
-		for (const asset of assets)
+		}
+		for (const asset of assets) {
+			const selected = selectedAssets.some((entry) => entry.id === asset.id);
 			sourceAfter.add(
 				pathKey(
-					selectedAssets.some((entry) => entry.id === asset.id)
+					selected && options.mode === 'move'
 						? (moved.get(pathKey(asset.path)) ?? asset.path)
 						: asset.path
 				)
 			);
+		}
 	}
 	for (const planned of plannedDocuments) destinationAfter.add(pathKey(planned.newPath));
 	for (const planned of plannedAssets) destinationAfter.add(pathKey(planned.newPath));
@@ -475,7 +481,9 @@ export async function transferProjectSelection(
 		);
 	}
 	const changedExisting: DraftRow[] = [];
-	if (sourceProjectId) {
+	// A copy keeps the originals canonical, so no existing source document has
+	// a link to retarget and no existing row joins the insert batch.
+	if (sourceProjectId && options.mode === 'move') {
 		for (const row of documents) {
 			if (selectedDocuments.some((doc) => doc.id === row.id)) continue;
 			const rewritten = rewriteDocumentContent(row.content, row.oldPath, row.oldPath, {

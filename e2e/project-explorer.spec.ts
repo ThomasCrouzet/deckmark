@@ -413,6 +413,47 @@ test('copy keeps the source document and creates a new identity', async ({ page 
 	});
 });
 
+test('copy leaves existing siblings and their links unchanged', async ({ page }, info) => {
+	await importProject(page, 'Explorer', {
+		'README.md': '# Home\n\n[Guide](notes/guide.md)\n',
+		'notes/guide.md': '# Guide\n\n[Home](../README.md)\n'
+	});
+	const root = await projectRoot(page, 'Explorer');
+	await expand(page, 'Explorer');
+	const notes = root.locator('[data-project-folder="notes"]');
+	await ensureExpanded(notes);
+	const before = await storedState(page);
+	const source = before.drafts.find((draft) => draft.relativePath === 'notes/guide.md')!;
+	const readme = before.drafts.find((draft) => draft.relativePath === 'README.md')!;
+	await notes
+		.locator('[data-project-document="notes/guide.md"] [data-project-action="move-document"]')
+		.click();
+	const dialog = page.getByRole('dialog', { name: 'Déplacer ou copier' });
+	await dialog.getByTestId('project-move-folder').fill('copies');
+	await dialog.getByTestId('project-move-copy').click();
+	await ensureExpanded(root.locator('[data-project-folder="copies"]'));
+	await expect(root.locator('[data-project-document="copies/guide.md"]')).toBeVisible();
+	const after = await storedState(page);
+	const original = after.drafts.find((draft) => draft.id === source.id)!;
+	const copied = after.drafts.find((draft) => draft.relativePath === 'copies/guide.md')!;
+	const readmeAfter = after.drafts.find((draft) => draft.id === readme.id)!;
+	expect(original.content).toBe(source.content);
+	expect(readmeAfter.content).toBe(readme.content);
+	expect(readmeAfter.content).toContain('[Guide](notes/guide.md)');
+	expect(readmeAfter.updatedAt).toBe(readme.updatedAt);
+	expect(copied.id).not.toBe(source.id);
+	expect(copied.content).toContain('[Home](../README.md)');
+	expect(after.drafts).toHaveLength(before.drafts.length + 1);
+	await info.attach('project-copy-existing.json', {
+		body: JSON.stringify({ original, copied, readmeAfter }, null, 2),
+		contentType: 'application/json'
+	});
+	await info.attach('project-copy-existing.png', {
+		body: await page.screenshot(),
+		contentType: 'image/png'
+	});
+});
+
 test('moves a document to another project with the same identity', async ({ page }, info) => {
 	await importProject(page, 'First', { 'README.md': '# First\n' });
 	await importProject(page, 'Second', { 'notes/guide.md': '# Guide\n' });
