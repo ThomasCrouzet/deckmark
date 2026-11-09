@@ -169,6 +169,55 @@ await check('failed scheduled writes wait one interval and report the error', as
 	assert.match(app.api.getDesktopBackupState().lastError, /disk full/);
 });
 
+const flush = async (count = 80) => {
+	for (let index = 0; index < count; index++) await Promise.resolve();
+};
+
+await check('a pending write for the old folder never fulfils the new folder', async () => {
+	const pending = [];
+	const app = boot(
+		{ ...fixture, lastSuccessAt: null },
+		() => new Promise((resolve) => pending.push(resolve))
+	);
+	app.api.startDesktopBackupScheduler();
+	await app.advance(0);
+	const writes = () => app.calls.filter((call) => call.command === 'desktop_backup_write');
+	assert.equal(pending.length, 1);
+	assert.equal(writes()[0].args.rootId, fixture.rootId);
+	await app.api.chooseBackupFolder('Choose folder');
+	assert.equal(app.preferences().rootId, 'picked-id');
+	const manual = app.api.writeBackupNow();
+	await flush();
+	assert.equal(pending.length, 1, 'the new folder must wait for the old write');
+	pending[0]({ fileName: 'a.json' });
+	await flush();
+	assert.equal(pending.length, 2);
+	assert.equal(writes()[1].args.rootId, 'picked-id');
+	pending[1]({ fileName: 'b.json' });
+	const result = await manual;
+	assert.equal(result.rootId, 'picked-id');
+	assert.equal(result.fileName, 'b.json');
+	assert.equal(app.preferences().rootId, 'picked-id');
+	assert.equal(app.preferences().lastSuccessAt, initialTime);
+});
+
+await check('repeated requests for one folder share a single native write', async () => {
+	const pending = [];
+	const app = boot(
+		{ ...fixture, lastSuccessAt: null },
+		() => new Promise((resolve) => pending.push(resolve))
+	);
+	app.api.startDesktopBackupScheduler();
+	await app.advance(0);
+	const first = app.api.writeBackupNow();
+	const second = app.api.writeBackupNow();
+	assert.equal(first, second);
+	assert.equal(app.calls.filter((call) => call.command === 'desktop_backup_write').length, 1);
+	pending[0]({ fileName: 'one.json' });
+	assert.equal((await first).rootId, fixture.rootId);
+	assert.equal((await second).fileName, 'one.json');
+});
+
 const report = {
 	command: 'node scripts/verify-desktop-backup-scheduler.mjs',
 	revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),

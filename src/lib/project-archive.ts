@@ -8,6 +8,7 @@ import {
 } from './project-links';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { documentKindForFile, isBinaryDocument } from './document-kind';
+import { decodeBinaryDataBytes } from './data-url';
 import type { ProjectAssetRow } from './db';
 type JSZipObject = import('jszip').JSZipObject;
 
@@ -19,6 +20,8 @@ export interface ProjectDocumentInput {
 	relativePath: string;
 	content: string;
 	kind?: 'note' | 'presentation' | 'code' | 'image' | 'pdf';
+	/** MIME recorded for a typed document. */
+	mime?: string;
 	/** Base64 data URL for an image or PDF document. */
 	data?: string;
 }
@@ -247,6 +250,9 @@ export async function buildProjectZip(
 		else wikiById.set(candidate.id, [candidate]);
 	}
 	const exportedDocuments: ProjectDocumentInput[] = [];
+	// The same inline image data URL can occur in many documents. Decode and
+	// hash it once per export, then reuse the generated asset path.
+	const inlineImageCache = new Map<string, { path: string }>();
 	for (const document of documents) {
 		const documentPath = projectPath(document.relativePath);
 		const documentKey = pathKey(documentPath);
@@ -254,18 +260,18 @@ export async function buildProjectZip(
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
 		const typeInfo = { ...document, name: documentPath };
 		if (isBinaryDocument(typeInfo)) {
-			const data = document.data ?? '';
-			const bytes = Uint8Array.from(atob(data.slice(data.indexOf(',') + 1)), (character) =>
-				character.charCodeAt(0)
-			);
-			if (bytes.byteLength > IMPORT_LIMITS.maxFileBytes)
-				throw new Error('Project document size limit');
+			const kind = documentKindForFile(typeInfo);
+			const { bytes } = await decodeBinaryDataBytes(document.data, {
+				expectedKind: kind === 'image' || kind === 'pdf' ? kind : undefined,
+				expectedMime: document.mime,
+				maxBytes: kind === 'image' ? MAX_IMAGE_BYTES : IMPORT_LIMITS.maxFileBytes
+			});
 			occupied.add(documentKey);
 			exportedDocuments.push({
 				...(document.id ? { id: document.id } : {}),
 				relativePath: documentPath,
 				content: '',
-				kind: documentKindForFile(typeInfo)
+				kind
 			});
 			zip.file(documentPath, bytes, entryOptions);
 			continue;
@@ -281,11 +287,18 @@ export async function buildProjectZip(
 						return relativeDestination(documentPath, matches[0]!.relativePath) + suffix;
 					});
 		validateMarkdownContent(portableContent);
-		if (new TextEncoder().encode(portableContent).length > IMPORT_LIMITS.maxFileBytes)
+		// UTF-8 byte length is never smaller than the UTF-16 length. Use the
+		// cheap bound here and encode the final rewritten text exactly once.
+		if (portableContent.length > IMPORT_LIMITS.maxFileBytes)
 			throw new Error('Project document size limit');
 		occupied.add(documentKey);
 		const replacements = new Map<string, string>();
 		for (const { source } of projectDestinations(portableContent)) {
+			const cached = inlineImageCache.get(source);
+			if (cached) {
+				replacements.set(source, relativeDestination(documentPath, cached.path));
+				continue;
+			}
 			const match =
 				/^data:(image\/(?:png|jpeg|gif|webp|svg\+xml|avif));base64,([a-z\d+/=\s]+)$/i.exec(source);
 			if (!match || source.length > MAX_IMAGE_BYTES * 1.5 + 1024) continue;
@@ -320,6 +333,7 @@ export async function buildProjectZip(
 				occupied.add(key);
 				exportedAssets.set(key, { path, mime: match[1]!, data });
 			}
+			inlineImageCache.set(source, { path });
 			replacements.set(source, relativeDestination(documentPath, path));
 		}
 		const content = rewriteProjectDestinations(
@@ -358,12 +372,13 @@ export async function buildProjectZip(
 		for (const entry of Object.values(zip.files)) entry.date = options.date;
 	}
 	const output = await zip.generateAsync({
-		type: 'blob',
+		type: 'arraybuffer',
 		compression: 'DEFLATE',
 		compressionOptions: { level: 6 }
 	});
-	checkZipDirectory(new Uint8Array(await output.arrayBuffer()));
-	return output;
+	const bytes = new Uint8Array(output);
+	checkZipDirectory(bytes);
+	return new Blob([bytes], { type: 'application/zip' });
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {

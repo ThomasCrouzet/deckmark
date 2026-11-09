@@ -18,7 +18,7 @@ import type { FileItem } from '#lib/types.js';
 import type { ProjectAssetRow } from '../db';
 import { stripMdExtension, untitledBasename, untitledFilename } from '#lib/file-utils.js';
 import { abortable, checkAborted } from '../abort';
-import { IMPORT_LIMITS } from '../config';
+import { IMPORT_LIMITS, MAX_IMAGE_BYTES } from '../config';
 import { isPresentation } from '../presentation/detect';
 import { documentKindForFile, isBinaryDocument } from '../document-kind';
 import { activeProfile, applyExportProfile } from '../export-profiles';
@@ -178,10 +178,22 @@ export async function triggerDownload(blob: Blob, filename: string): Promise<boo
 	return true;
 }
 
-/** Decodes a legacy or imported data URL without one synchronous full pass. */
-async function dataUrlBlob(data: string): Promise<Blob> {
-	const { dataUrlToBlob } = await import('../data-url');
-	return dataUrlToBlob(data);
+/** Decodes a binary document and rejects a missing or malformed payload. */
+async function binaryPayload(
+	file: FileItem
+): Promise<{ bytes: Uint8Array<ArrayBuffer>; mime: string }> {
+	const { decodeBinaryDataBytes } = await import('../data-url');
+	const kind = documentKindForFile(file);
+	return decodeBinaryDataBytes(file.data, {
+		expectedKind: kind === 'image' || kind === 'pdf' ? kind : undefined,
+		expectedMime: file.mime,
+		maxBytes: kind === 'image' ? MAX_IMAGE_BYTES : IMPORT_LIMITS.maxFileBytes
+	});
+}
+
+async function binaryBlob(file: FileItem): Promise<Blob> {
+	const { bytes, mime } = await binaryPayload(file);
+	return new Blob([bytes], { type: mime });
 }
 
 /**
@@ -193,7 +205,7 @@ export async function exportMarkdown(file: FileItem): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
 	const kind = documentKindForFile(file);
 	const blob = isBinaryDocument(file)
-		? await dataUrlBlob(file.data ?? '')
+		? await binaryBlob(file)
 		: kind === 'code'
 			? new Blob([file.content], {
 					type: file.mime || 'text/plain;charset=utf-8'
@@ -352,14 +364,24 @@ export async function exportZip(
 	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');
 	const encoder = new TextEncoder();
 	const encoded = new Map<string, Uint8Array>();
+	const binaryBytes = new Map<string, Uint8Array>();
 	let inputBytes = 0;
 	let entries = files.length;
 	for (const file of files) {
-		const data = isBinaryDocument(file) ? null : encoder.encode(file.content);
-		if (data) encoded.set(file.id, data);
-		const size = data ? data.byteLength : (await dataUrlBlob(file.data ?? '')).size;
-		inputBytes += size;
-		if (size > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+		if (isBinaryDocument(file)) {
+			// Decode once. The ZIP entry reuses these exact bytes instead of
+			// decoding the same data URL a second time after the size preflight.
+			const { bytes } = await binaryPayload(file);
+			binaryBytes.set(file.id, bytes);
+			inputBytes += bytes.byteLength;
+			if (bytes.byteLength > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+				throw new Error('Library export size limit');
+			continue;
+		}
+		const data = encoder.encode(file.content);
+		encoded.set(file.id, data);
+		inputBytes += data.byteLength;
+		if (data.byteLength > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
 			throw new Error('Library export size limit');
 	}
 	const projectIds = new Set(files.flatMap((file) => (file.projectId ? [file.projectId] : [])));
@@ -387,6 +409,9 @@ export async function exportZip(
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	let archiveBytes = 0;
+	// Nested project ZIPs exist as a Blob and as its transferred buffer while
+	// the outer archive is assembled. Keep that transient peak bounded.
+	let transientArchiveBytes = 0;
 	const used = new Set<string>();
 	function archiveName(requested: string): string {
 		let name = sanitizeFilename(requested);
@@ -402,9 +427,9 @@ export async function exportZip(
 	}
 	for (const file of files.filter((file) => !file.projectId)) {
 		if (isBinaryDocument(file)) {
-			const blob = await dataUrlBlob(file.data ?? '');
-			archiveBytes += blob.size;
-			zip.file(archiveName(file.name), await blob.arrayBuffer());
+			const buffer = binaryBytes.get(file.id)!;
+			archiveBytes += buffer.byteLength;
+			zip.file(archiveName(file.name), buffer);
 		} else {
 			const data = encoded.get(file.id) ?? encoder.encode(file.content);
 			archiveBytes += data.byteLength;
@@ -427,11 +452,17 @@ export async function exportZip(
 					relativePath: file.relativePath!,
 					content: file.content,
 					...(file.kind ? { kind: file.kind } : {}),
+					...(file.mime ? { mime: file.mime } : {}),
 					...(file.data ? { data: file.data } : {})
 				}));
 			const archive = await buildProjectZip(project.name, documents, assets);
 			archiveBytes += archive.size;
-			if (archiveBytes > IMPORT_LIMITS.maxBatchBytes) throw new Error('Library export size limit');
+			transientArchiveBytes += archive.size * 2;
+			if (
+				archiveBytes > IMPORT_LIMITS.maxBatchBytes ||
+				transientArchiveBytes > IMPORT_LIMITS.maxBatchBytes * 2
+			)
+				throw new Error('Library export size limit');
 			zip.file(archiveName(`${project.name}.zip`), await archive.arrayBuffer());
 		}
 	}

@@ -45,6 +45,8 @@ export interface BackupWrite {
 	size: number;
 	createdAtMs: number;
 	removed: number;
+	/** Native root that actually received this snapshot. */
+	rootId: string;
 }
 
 type Listener = () => void;
@@ -211,35 +213,49 @@ export function disableDesktopBackup(): void {
 	notify();
 }
 
-let pendingWrite: Promise<BackupWrite> | null = null;
+// In-flight snapshots are keyed by the destination root. A pending write to
+// folder A must never satisfy a request for folder B. Requests for different
+// roots run in order; repeated requests for one root share one native write.
+const pendingWrites = new Map<string, Promise<BackupWrite>>();
 
 export function writeBackupNow(): Promise<BackupWrite> {
-	// Manual and scheduled calls share one snapshot build and one native write.
-	pendingWrite ??= performBackupWrite().finally(() => {
-		pendingWrite = null;
-	});
-	return pendingWrite;
-}
-
-async function performBackupWrite(): Promise<BackupWrite> {
 	requireDesktop();
 	const preferences = loadPreferences();
-	if (!preferences.rootId) throw new Error('Choose a backup folder first.');
+	if (!preferences.rootId) return Promise.reject(new Error('Choose a backup folder first.'));
+	const rootId = preferences.rootId;
+	const running = pendingWrites.get(rootId);
+	if (running) return running;
+	const previous = [...pendingWrites.values()];
+	const tracked = (async () => {
+		// Wait for an older destination to finish so the two native writes do
+		// not overlap, then write to the root that this request selected.
+		await Promise.allSettled(previous);
+		return performBackupWrite(rootId);
+	})().finally(() => {
+		pendingWrites.delete(rootId);
+	});
+	pendingWrites.set(rootId, tracked);
+	return tracked;
+}
+
+async function performBackupWrite(rootId: string): Promise<BackupWrite> {
+	requireDesktop();
+	const preferences = loadPreferences();
 	const payload = await buildSnapshot();
-	const result = await invokeDesktop<BackupWrite>('desktop_backup_write', {
-		rootId: preferences.rootId,
+	const result = await invokeDesktop<Omit<BackupWrite, 'rootId'>>('desktop_backup_write', {
+		rootId,
 		payload,
 		keep: clampRetention(preferences.retention)
 	});
 	const current = loadPreferences();
-	if (current.rootId === preferences.rootId) {
+	if (current.rootId === rootId) {
 		current.lastSuccessAt = Date.now();
 		lastError = null;
 		savePreferences(current);
 		if (schedulerActive) restartScheduler(current);
 	}
 	notify();
-	return result;
+	return { ...result, rootId };
 }
 
 export async function listBackupSnapshots(): Promise<BackupEntry[]> {

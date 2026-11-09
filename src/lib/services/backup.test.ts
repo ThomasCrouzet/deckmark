@@ -117,7 +117,11 @@ async function clearAll() {
 		db.templates.clear(),
 		db.versions.clear(),
 		db.trashed.clear(),
-		db.metadata.clear()
+		db.metadata.clear(),
+		db.snippets.clear(),
+		db.projects.clear(),
+		db.projectAssets.clear(),
+		db.comments.clear()
 	]);
 }
 
@@ -133,6 +137,10 @@ function draft(p: Partial<DraftRow> = {}): DraftRow {
 		createdAt: p.createdAt ?? now,
 		updatedAt: p.updatedAt ?? now,
 		order: p.order ?? 0,
+		...(p.projectId ? { projectId: p.projectId } : {}),
+		...(p.relativePath ? { relativePath: p.relativePath } : {}),
+		...(p.open === undefined ? {} : { open: p.open }),
+		...(p.origin ? { origin: p.origin } : {}),
 		...(p.kind ? { kind: p.kind } : {}),
 		...(p.mime ? { mime: p.mime } : {}),
 		...(p.data ? { data: p.data } : {})
@@ -483,6 +491,454 @@ describe('applyBackup - merge', () => {
 	});
 });
 
+describe('applyBackup - binary document source identity', () => {
+	const IMAGE_PNG = 'data:image/png;base64,iVBORw0KGgo=';
+	const IMAGE_PNG_B = 'data:image/png;base64,iVBORw0KGgoB';
+	const PDF = 'data:application/pdf;base64,JVBERi0xLjQ=';
+
+	it('imports a different binary payload instead of treating equal text as unchanged', async () => {
+		const base = {
+			id: 'img',
+			name: 'img.png',
+			content: '',
+			kind: 'image' as const,
+			mime: 'image/png',
+			createdAt: 1,
+			updatedAt: 2
+		};
+		await db.drafts.put(draft({ ...base, data: IMAGE_PNG }));
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ ...base, data: IMAGE_PNG_B })],
+			workspaces: [],
+			templates: []
+		};
+		const first = await applyBackup(backup, 'merge');
+		expect(first.drafts).toBe(1);
+		const rows = await db.drafts.toArray();
+		expect(rows).toHaveLength(2);
+		expect(rows.find((row) => row.id === 'img')?.data).toBe(IMAGE_PNG);
+		expect(rows.find((row) => row.id !== 'img')?.data).toBe(IMAGE_PNG_B);
+		const second = await applyBackup(backup, 'merge');
+		expect(second.drafts).toBe(0);
+		expect(second.unchanged.drafts).toBe(1);
+		expect(await db.drafts.count()).toBe(2);
+	});
+
+	it('treats a changed document kind or MIME as a distinct source', async () => {
+		const base = {
+			id: 'typed',
+			name: 'typed.png',
+			content: '',
+			createdAt: 1,
+			updatedAt: 2,
+			order: 0
+		};
+		await db.drafts.put(draft({ ...base, kind: 'image', mime: 'image/png', data: IMAGE_PNG }));
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ ...base, kind: 'pdf', mime: 'application/pdf', data: PDF })],
+			workspaces: [],
+			templates: []
+		};
+		expect((await applyBackup(backup, 'merge')).drafts).toBe(1);
+		const imported = (await db.drafts.toArray()).find((row) => row.id !== 'typed');
+		expect(imported).toMatchObject({ kind: 'pdf', mime: 'application/pdf', data: PDF });
+	});
+
+	it('keeps the previous binary bytes as recovery trash during replace', async () => {
+		await db.drafts.put(
+			draft({
+				id: 'img',
+				name: 'img.png',
+				content: '',
+				kind: 'image',
+				mime: 'image/png',
+				data: IMAGE_PNG,
+				createdAt: 1,
+				updatedAt: 2
+			})
+		);
+		await applyBackup(
+			{
+				format: BACKUP_FORMAT,
+				schemaVersion: 1,
+				exportedAt: 0,
+				drafts: [
+					draft({
+						id: 'img',
+						name: 'img.png',
+						content: '',
+						kind: 'image',
+						mime: 'image/png',
+						data: IMAGE_PNG_B,
+						createdAt: 1,
+						updatedAt: 2
+					})
+				],
+				workspaces: [],
+				templates: []
+			},
+			'replace'
+		);
+		expect((await db.drafts.get('img'))?.data).toBe(IMAGE_PNG_B);
+		expect((await db.trashed.get('img'))?.file.data).toBe(IMAGE_PNG);
+	});
+
+	it('imports a project whose binary document payload differs', async () => {
+		const project = { id: 'p', name: 'Project', createdAt: 1, updatedAt: 2 };
+		const metadata = {
+			name: 'img.png',
+			content: '',
+			kind: 'image' as const,
+			mime: 'image/png',
+			projectId: 'p',
+			relativePath: 'img.png',
+			createdAt: 1,
+			updatedAt: 2
+		};
+		await db.projects.put(project);
+		await db.drafts.put(draft({ ...metadata, id: 'local-img', data: IMAGE_PNG }));
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 2,
+			exportedAt: 0,
+			drafts: [draft({ ...metadata, id: 'incoming-img', data: IMAGE_PNG_B })],
+			workspaces: [],
+			templates: [],
+			projects: [project],
+			projectAssets: []
+		};
+		const counts = await applyBackup(backup, 'merge');
+		expect(counts.projects).toBe(1);
+		expect(counts.drafts).toBe(1);
+		const importedProject = (await db.projects.toArray()).find((row) => row.id !== 'p')!;
+		const importedDraft = (await db.drafts.toArray()).find((row) => row.id !== 'local-img')!;
+		expect(importedDraft).toMatchObject({ data: IMAGE_PNG_B, projectId: importedProject.id });
+	});
+});
+
+describe('applyBackup - project-scoped snippets', () => {
+	it('remaps snippets to the imported project id before deduplication', async () => {
+		await db.projects.put({ id: 'p', name: 'Current project', createdAt: 1, updatedAt: 2 });
+		await db.snippets.put({
+			id: 'unrelated',
+			title: 'Unrelated',
+			code: 'keep()',
+			language: 'javascript',
+			tags: [],
+			projectId: 'p',
+			favorite: false,
+			createdAt: 1,
+			updatedAt: 2
+		});
+		const incomingProject = { id: 'p', name: 'Incoming project', createdAt: 1, updatedAt: 2 };
+		const snippet = {
+			id: 's',
+			title: 'Project helper',
+			code: 'helper()',
+			language: 'javascript',
+			tags: ['project'],
+			projectId: 'p',
+			favorite: false,
+			createdAt: 3,
+			updatedAt: 4
+		};
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 2,
+			exportedAt: 0,
+			drafts: [],
+			workspaces: [],
+			templates: [],
+			projects: [incomingProject],
+			projectAssets: [],
+			snippets: [snippet]
+		};
+		const counts = await applyBackup(backup, 'merge');
+		expect(counts.projects).toBe(1);
+		expect(counts.snippets).toBe(1);
+		const importedProject = (await db.projects.toArray()).find((row) => row.id !== 'p')!;
+		const importedSnippet = (await db.snippets.toArray()).find((row) => row.id !== 'unrelated')!;
+		expect(importedSnippet.projectId).toBe(importedProject.id);
+		expect(await db.snippets.get('unrelated')).toMatchObject({ projectId: 'p', code: 'keep()' });
+
+		const repeated = await applyBackup(backup, 'merge');
+		expect(repeated.snippets).toBe(0);
+		expect(repeated.unchanged.snippets).toBe(1);
+		expect(await db.snippets.count()).toBe(2);
+		expect((await db.snippets.get(importedSnippet.id))?.projectId).toBe(importedProject.id);
+	});
+
+	it('keeps a standalone snippet standalone', async () => {
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 2,
+			exportedAt: 0,
+			drafts: [],
+			workspaces: [],
+			templates: [],
+			projects: [],
+			projectAssets: [],
+			snippets: [
+				{
+					id: 'standalone',
+					title: 'Standalone',
+					code: 'alone()',
+					language: 'javascript',
+					tags: [],
+					favorite: false,
+					createdAt: 1,
+					updatedAt: 2
+				}
+			]
+		};
+		await applyBackup(backup, 'merge');
+		expect(await db.snippets.get('standalone')).toMatchObject({ id: 'standalone' });
+		expect((await db.snippets.get('standalone'))?.projectId).toBeUndefined();
+	});
+});
+
+describe('applyBackup - editorial comment identity', () => {
+	const comment = (overrides: Record<string, unknown> = {}) => ({
+		id: 'c',
+		draftId: 'a',
+		quote: 'alpha',
+		from: 0,
+		to: 5,
+		body: 'review',
+		author: 'Alice',
+		status: 'open' as const,
+		createdAt: 1,
+		updatedAt: 2,
+		...overrides
+	});
+
+	it('imports a comment that shares the incomplete key but anchors another draft', async () => {
+		await db.drafts.put(draft({ id: 'a', name: 'a.md', content: 'alpha beta' }));
+		await db.comments.put(comment());
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ id: 'b', name: 'b.md', content: 'beta gamma' })],
+			workspaces: [],
+			templates: [],
+			comments: [
+				comment({
+					draftId: 'b',
+					quote: 'beta',
+					from: 6,
+					to: 11,
+					author: 'Bob'
+				}) as never
+			]
+		};
+		const counts = await applyBackup(backup, 'merge');
+		expect(counts.comments).toBe(1);
+		const rows = await db.comments.toArray();
+		expect(rows).toHaveLength(2);
+		const importedDraft = (await db.drafts.toArray()).find((row) => row.id !== 'a')!;
+		const imported = rows.find((row) => row.id !== 'c')!;
+		expect(imported).toMatchObject({
+			draftId: importedDraft.id,
+			quote: 'beta',
+			from: 6,
+			to: 11,
+			author: 'Bob'
+		});
+		expect(await db.comments.get('c')).toMatchObject({ draftId: 'a', quote: 'alpha' });
+
+		const repeated = await applyBackup(backup, 'merge');
+		expect(repeated.comments).toBe(0);
+		expect(await db.comments.count()).toBe(2);
+		expect(await db.comments.get(imported.id)).toMatchObject({ quote: 'beta', author: 'Bob' });
+	});
+
+	it('deduplicates an exact repeat and keeps a same-id comment with another body', async () => {
+		const shared = draft({ id: 'a', name: 'a.md', content: 'alpha', createdAt: 1, updatedAt: 2 });
+		await db.drafts.put(shared);
+		const exact = comment();
+		await db.comments.put(exact);
+		const repeated: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [shared],
+			workspaces: [],
+			templates: [],
+			comments: [exact as never]
+		};
+		const first = await applyBackup(repeated, 'merge');
+		expect(first.comments).toBe(0);
+		expect(first.unchanged.drafts).toBe(1);
+		expect(await db.comments.count()).toBe(1);
+
+		repeated.comments = [comment({ body: 'second review' }) as never];
+		const second = await applyBackup(repeated, 'merge');
+		expect(second.comments).toBe(1);
+		expect(await db.comments.count()).toBe(2);
+		expect(new Set((await db.comments.toArray()).map((row) => row.id)).size).toBe(2);
+	});
+});
+
+describe('applyBackup - replace preserves recovery comments', () => {
+	it('rekeys comments to the retained recovery draft instead of the incoming one', async () => {
+		await db.drafts.put(
+			draft({ id: 'a', name: 'a.md', content: 'CURRENT', createdAt: 1, updatedAt: 2 })
+		);
+		await db.comments.put({
+			id: 'review',
+			draftId: 'a',
+			quote: 'CURRENT',
+			from: 0,
+			to: 7,
+			body: 'Keep this note',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: 3,
+			updatedAt: 4
+		});
+		const incoming: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 1,
+			exportedAt: 0,
+			drafts: [draft({ id: 'a', name: 'a.md', content: 'INCOMING', createdAt: 1, updatedAt: 2 })],
+			workspaces: [],
+			templates: [],
+			comments: []
+		};
+		const counts = await applyBackup(incoming, 'replace');
+		expect((await db.drafts.get('a'))?.content).toBe('INCOMING');
+		const trashed = await db.trashed.get('a');
+		expect(trashed).toBeUndefined();
+		const recovery = (await db.trashed.toArray()).find((row) => row.file.content === 'CURRENT')!;
+		expect(recovery).toBeDefined();
+		expect(recovery.id).not.toBe('a');
+		const comments = await db.comments.toArray();
+		expect(comments).toHaveLength(1);
+		expect(comments[0]).toMatchObject({
+			draftId: recovery.id,
+			quote: 'CURRENT',
+			body: 'Keep this note',
+			author: 'Reviewer'
+		});
+		expect(counts.comments).toBe(1);
+
+		const repeated = await applyBackup(incoming, 'replace');
+		expect(await db.comments.count()).toBe(1);
+		expect(repeated.comments).toBe(1);
+		expect((await db.comments.toArray())[0]).toMatchObject({ draftId: recovery.id });
+	});
+
+	it('remaps recovery comments with the retained project identity', async () => {
+		await db.projects.put({ id: 'p', name: 'Current project', createdAt: 1, updatedAt: 2 });
+		await db.drafts.put(
+			draft({
+				id: 'doc',
+				name: 'doc.md',
+				content: 'CURRENT',
+				projectId: 'p',
+				relativePath: 'doc.md',
+				createdAt: 1,
+				updatedAt: 2
+			})
+		);
+		await db.comments.put({
+			id: 'review',
+			draftId: 'doc',
+			quote: 'CURRENT',
+			from: 0,
+			to: 7,
+			body: 'Project note',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: 3,
+			updatedAt: 4
+		});
+		await applyBackup(
+			{
+				format: BACKUP_FORMAT,
+				schemaVersion: 2,
+				exportedAt: 0,
+				drafts: [
+					draft({
+						id: 'doc',
+						name: 'doc.md',
+						content: 'INCOMING',
+						projectId: 'p',
+						relativePath: 'doc.md',
+						createdAt: 1,
+						updatedAt: 2
+					})
+				],
+				workspaces: [],
+				templates: [],
+				projects: [{ id: 'p', name: 'Incoming project', createdAt: 1, updatedAt: 2 }],
+				projectAssets: [],
+				comments: []
+			},
+			'replace'
+		);
+		const recoveryProject = (await db.projects.toArray()).find((row) => row.id !== 'p')!;
+		expect(recoveryProject).toBeDefined();
+		const recovery = (await db.trashed.toArray()).find((row) => row.file.content === 'CURRENT')!;
+		expect(recovery.file.projectId).toBe(recoveryProject.id);
+		expect((await db.comments.toArray())[0]).toMatchObject({ draftId: recovery.id });
+	});
+
+	it('never attaches a preserved comment to an incoming draft', async () => {
+		await db.drafts.put(
+			draft({ id: 'a', name: 'a.md', content: 'CURRENT', createdAt: 1, updatedAt: 2 })
+		);
+		await db.comments.put({
+			id: 'review',
+			draftId: 'a',
+			quote: 'CURRENT',
+			from: 0,
+			to: 7,
+			body: 'Local review',
+			author: 'Reviewer',
+			status: 'open',
+			createdAt: 3,
+			updatedAt: 4
+		});
+		await applyBackup(
+			{
+				format: BACKUP_FORMAT,
+				schemaVersion: 1,
+				exportedAt: 0,
+				drafts: [draft({ id: 'a', name: 'a.md', content: 'INCOMING', createdAt: 1, updatedAt: 2 })],
+				workspaces: [],
+				templates: [],
+				comments: [
+					{
+						id: 'incoming-review',
+						draftId: 'a',
+						quote: 'INCOMING',
+						from: 0,
+						to: 8,
+						body: 'Backup review',
+						author: 'Backup author',
+						status: 'open',
+						createdAt: 5,
+						updatedAt: 6
+					}
+				]
+			},
+			'replace'
+		);
+		const comments = await db.comments.toArray();
+		expect(comments).toHaveLength(2);
+		expect(comments.find((row) => row.body === 'Backup review')).toMatchObject({ draftId: 'a' });
+		expect(comments.find((row) => row.body === 'Local review')?.draftId).not.toBe('a');
+	});
+});
+
 describe('restoreFromText - plain text', () => {
 	it('rejects an encrypted envelope with an incorrect passphrase', async () => {
 		const clearJson = serializeBackup({
@@ -603,6 +1059,21 @@ describe('downloadBackup - orchestration DOM', () => {
 		);
 		expect(await downloadBackup()).toBe(true);
 		expect(parseBackup(await blobText(capturedBlobs[0]!)).drafts).toHaveLength(301);
+	});
+
+	it('validates the generated snapshot without parsing its own JSON again', async () => {
+		await db.drafts.put(draft({ id: 'only', name: 'only.md', content: 'exact bytes' }));
+		const parse = vi.spyOn(JSON, 'parse');
+		try {
+			expect(await downloadBackup()).toBe(true);
+			expect(parse).not.toHaveBeenCalled();
+		} finally {
+			parse.mockRestore();
+		}
+		const text = await blobText(capturedBlobs[0]!);
+		expect(parseBackup(text).drafts).toEqual([
+			expect.objectContaining({ id: 'only', content: 'exact bytes' })
+		]);
 	});
 
 	it('returns false after desktop dialog cancellation', async () => {

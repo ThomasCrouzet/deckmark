@@ -53,6 +53,79 @@ describe('exportMarkdown - desktop cancel', () => {
 	});
 });
 
+describe('binary document export validation', () => {
+	const png = 'data:image/png;base64,iVBORw0KGgo=';
+	const bytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+	beforeEach(() => {
+		desktopMocks.isDesktop.mockReturnValue(true);
+		desktopMocks.tauriSaveExportBlob.mockReset();
+	});
+
+	afterEach(() => {
+		desktopMocks.isDesktop.mockReturnValue(false);
+	});
+
+	it('rejects a missing payload without opening the native save dialog', async () => {
+		await expect(
+			exportMarkdown(makeFile({ name: 'photo.png', content: '', kind: 'image', mime: 'image/png' }))
+		).rejects.toThrow(/no data/i);
+		expect(desktopMocks.tauriSaveExportBlob).not.toHaveBeenCalled();
+	});
+
+	it('rejects a malformed payload and a contradictory MIME', async () => {
+		await expect(
+			exportMarkdown(
+				makeFile({
+					name: 'photo.png',
+					content: '',
+					kind: 'image',
+					mime: 'image/png',
+					data: 'data:image/png;base64'
+				})
+			)
+		).rejects.toThrow(/no payload/i);
+		await expect(
+			exportMarkdown(
+				makeFile({
+					name: 'manual.pdf',
+					content: '',
+					kind: 'pdf',
+					mime: 'application/pdf',
+					data: png
+				})
+			)
+		).rejects.toThrow(/incompatible type/i);
+		expect(desktopMocks.tauriSaveExportBlob).not.toHaveBeenCalled();
+	});
+
+	it('exports the exact bytes of a valid image', async () => {
+		const saved: Blob[] = [];
+		desktopMocks.tauriSaveExportBlob.mockImplementation(async (blob: Blob) => {
+			saved.push(blob);
+			return true;
+		});
+		expect(
+			await exportMarkdown(
+				makeFile({ name: 'photo.png', content: '', kind: 'image', mime: 'image/png', data: png })
+			)
+		).toBe(true);
+		expect(saved).toHaveLength(1);
+		expect(saved[0]!.type).toBe('image/png');
+		expect(saved[0]!.size).toBe(bytes.length);
+	});
+});
+
+async function readBlob(blob: Blob): Promise<ArrayBuffer> {
+	if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(reader.result as ArrayBuffer);
+		reader.onerror = () => reject(reader.error);
+		reader.readAsArrayBuffer(blob);
+	});
+}
+
 describe('exportZip', () => {
 	let clickSpy: Mock<() => void>;
 	let restoreCreateElement: () => void = () => {};
@@ -169,6 +242,41 @@ describe('exportZip', () => {
 		} finally {
 			proto.file = realFile;
 		}
+	});
+
+	it('rejects a ZIP containing a binary document without data', async () => {
+		await expect(
+			exportZip([
+				makeFile({ id: 'txt', name: 'note.md', content: '# ok' }),
+				makeFile({ id: 'bin', name: 'photo.png', content: '', kind: 'image', mime: 'image/png' })
+			])
+		).rejects.toThrow(/no data/i);
+		expect(clickSpy).not.toHaveBeenCalled();
+	});
+
+	it('writes exact binary bytes into the library ZIP', async () => {
+		const written: Blob[] = [];
+		createObjectURLSpy.mockImplementation((blob: Blob) => {
+			written.push(blob);
+			return 'blob:zip-mocked';
+		});
+		expect(
+			await exportZip([
+				makeFile({
+					id: 'bin',
+					name: 'photo.png',
+					content: '',
+					kind: 'image',
+					mime: 'image/png',
+					data: 'data:image/png;base64,iVBORw0KGgo='
+				})
+			])
+		).toBe(true);
+		const { default: JSZip } = await import('jszip');
+		const zip = await JSZip.loadAsync(await readBlob(written[0]!));
+		expect(new Uint8Array(await zip.file('photo.png')!.async('uint8array'))).toEqual(
+			Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+		);
 	});
 });
 

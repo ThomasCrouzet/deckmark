@@ -124,7 +124,7 @@ export function planDraftMerge(
 			existingByIdentity.get(
 				identity(draft.name, draft.createdAt, draft.updatedAt, mappedProjectId, draft.relativePath)
 			) ?? [];
-		const candidate = matches.find((row) => row.content === draft.content) ?? matches[0];
+		const candidate = matches.find((row) => sameDraftSource(row, draft)) ?? matches[0];
 		if (candidate) candidates.set(draft.id, candidate);
 		importedIdMap.set(draft.id, candidate?.id ?? newId());
 		if (documentKind(draft.content) === 'presentation') continue;
@@ -143,7 +143,14 @@ export function planDraftMerge(
 	for (let index = 0; index < queue.length; index++) {
 		const id = queue[index]!;
 		const candidate = candidates.get(id);
-		if (!candidate || candidate.content === rewrite(byId.get(id)!.content)) continue;
+		const incoming = byId.get(id)!;
+		const rewritten = rewrite(incoming.content);
+		if (
+			!candidate ||
+			(candidate.content === rewritten &&
+				sameDraftSource(candidate, { ...incoming, content: rewritten }))
+		)
+			continue;
 		candidates.delete(id);
 		importedIdMap.set(id, newId());
 		queue.push(...(dependants.get(id) ?? []));
@@ -657,6 +664,31 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
 	return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
 }
 
+/** Exact source identity of a draft: text, document kind, MIME and binary payload. */
+function sameDraftSource(left: DraftRow, right: DraftRow): boolean {
+	return (
+		left.content === right.content &&
+		(left.kind ?? 'note') === (right.kind ?? 'note') &&
+		(left.mime ?? '') === (right.mime ?? '') &&
+		(left.data ?? '') === (right.data ?? '')
+	);
+}
+
+/** Exact editorial-comment identity, including the mapped draft and anchor. */
+function commentIdentity(row: CommentRow): string {
+	return JSON.stringify([
+		row.draftId,
+		row.quote,
+		row.from,
+		row.to,
+		row.body,
+		row.author,
+		row.status,
+		row.createdAt,
+		row.updatedAt
+	]);
+}
+
 function sameProjectContent(
 	incomingProjectId: string,
 	existingProjectId: string,
@@ -685,7 +717,10 @@ function sameProjectContent(
 		if (
 			incoming.relativePath !== existing.relativePath ||
 			incoming.name !== existing.name ||
-			rewriteDraftLinks(incoming.content, idMap) !== existing.content ||
+			!sameDraftSource(
+				{ ...incoming, content: rewriteDraftLinks(incoming.content, idMap) },
+				existing
+			) ||
 			incoming.createdAt !== existing.createdAt ||
 			incoming.updatedAt !== existing.updatedAt ||
 			incoming.open !== existing.open
@@ -819,10 +854,11 @@ export async function applyBackup(
 			if (mode === 'replace') {
 				// Keep a durable recovery point, including writes from other tabs that
 				// committed immediately before this transaction acquired the database.
-				const [currentDrafts, currentProjects, currentAssets] = await Promise.all([
+				const [currentDrafts, currentProjects, currentAssets, currentComments] = await Promise.all([
 					db.drafts.toArray(),
 					db.projects.toArray(),
-					db.projectAssets.toArray()
+					db.projectAssets.toArray(),
+					db.comments.toArray()
 				]);
 				const incomingProjects = new Map(projects.map((project) => [project.id, project]));
 				const incomingDrafts = new Map(backup.drafts.map((draft) => [draft.id, draft]));
@@ -845,10 +881,12 @@ export async function applyBackup(
 						})
 						.map((project) => project.id)
 				);
+				const trashIdMap = new Map<string, string>();
 				for (const current of currentDrafts) {
 					const incoming = incomingDrafts.get(current.id);
 					if (
-						incoming?.content === current.content &&
+						incoming &&
+						sameDraftSource(incoming, current) &&
 						incoming.name === current.name &&
 						incoming.projectId === current.projectId &&
 						incoming.relativePath === current.relativePath &&
@@ -856,9 +894,18 @@ export async function applyBackup(
 					)
 						continue;
 					await preserveTrashEntry(current.id);
+					// Editorial comments are stored by draft id. When an incoming
+					// draft reuses this id, give the recovery copy its own id so
+					// the saved comments never attach to the incoming content.
+					let trashId = current.id;
+					if (incoming && currentComments.some((row) => row.draftId === current.id)) {
+						do trashId = newId();
+						while (incomingDrafts.has(trashId));
+						trashIdMap.set(current.id, trashId);
+					}
 					await db.trashed.put({
-						id: current.id,
-						file: current,
+						id: trashId,
+						file: trashId === current.id ? current : { ...current, id: trashId },
 						order: current.order,
 						trashedAt: Date.now()
 					});
@@ -892,6 +939,7 @@ export async function applyBackup(
 						recoveryAssets.push({ ...asset, id: assetId, projectId: mappedId });
 					}
 				}
+				const retainedOriginalIds = new Set(retained.map((row) => row.id));
 				for (let index = 0; index < retained.length; index++) {
 					const row = retained[index]!;
 					// Keep standalone trash references until restoration resolves the collision.
@@ -911,6 +959,26 @@ export async function applyBackup(
 						}
 					}))
 				);
+				// Re-attach existing review comments to the retained recovery
+				// identity instead of discarding them with the replaced drafts.
+				const currentDraftIds = new Set(currentDrafts.map((row) => row.id));
+				const recoveryCommentDraftId = (id: string) =>
+					draftIdMap.get(id) ?? trashIdMap.get(id) ?? id;
+				const incomingComments = backup.comments ?? [];
+				const commentIds = new Set(incomingComments.map((row) => row.id));
+				const commentKeys = new Set(incomingComments.map(commentIdentity));
+				const recoveryComments: CommentRow[] = [];
+				for (const comment of currentComments) {
+					if (!currentDraftIds.has(comment.draftId) && !retainedOriginalIds.has(comment.draftId))
+						continue;
+					const mapped = { ...comment, draftId: recoveryCommentDraftId(comment.draftId) };
+					const key = commentIdentity(mapped);
+					if (commentKeys.has(key)) continue;
+					commentKeys.add(key);
+					const id = commentIds.has(mapped.id) ? newId() : mapped.id;
+					commentIds.add(id);
+					recoveryComments.push({ ...mapped, id });
+				}
 				await Promise.all([
 					db.drafts.clear(),
 					db.workspaces.clear(),
@@ -929,7 +997,7 @@ export async function applyBackup(
 					db.snippets.bulkPut(snippets),
 					db.projects.bulkPut([...projects, ...recoveryProjects]),
 					db.projectAssets.bulkPut([...projectAssets, ...recoveryAssets]),
-					db.comments.bulkPut(backup.comments ?? [])
+					db.comments.bulkPut([...incomingComments, ...recoveryComments])
 				]);
 				counts.drafts = backup.drafts.length;
 				counts.workspaces = backup.workspaces.length;
@@ -937,7 +1005,7 @@ export async function applyBackup(
 				counts.snippets = snippets.length;
 				counts.projects = projects.length;
 				counts.projectAssets = projectAssets.length;
-				counts.comments = backup.comments?.length ?? 0;
+				counts.comments = incomingComments.length + recoveryComments.length;
 				if (backup.snippets !== undefined) counts.unchanged.snippets = 0;
 				return;
 			}
@@ -1025,18 +1093,21 @@ export async function applyBackup(
 			});
 			const existingComments = await db.comments.toArray();
 			const commentIds = new Set(existingComments.map((row) => row.id));
-			const commentKeys = new Set(
-				existingComments.map((row) => JSON.stringify([row.id, row.body, row.status, row.updatedAt]))
-			);
+			const admittedComments = new Set(existingComments.map(commentIdentity));
 			const commentsToPut = (backup.comments ?? []).flatMap((comment) => {
-				const mappedDraftId = importedIdMap.get(comment.draftId);
+				const mappedDraftId =
+					importedIdMap.get(comment.draftId) ??
+					(existing.some((row) => row.id === comment.draftId) ? comment.draftId : undefined);
 				if (!mappedDraftId) return [];
 				const mapped = { ...comment, draftId: mappedDraftId };
-				const identical = commentKeys.has(
-					JSON.stringify([mapped.id, mapped.body, mapped.status, mapped.updatedAt])
-				);
-				if (identical) return [];
-				return [{ ...mapped, id: commentIds.has(mapped.id) ? newId() : mapped.id }];
+				const identity = commentIdentity(mapped);
+				// Deduplicate on the complete row, including the mapped draft and
+				// the anchor, so a colliding ID cannot suppress another review.
+				if (admittedComments.has(identity)) return [];
+				admittedComments.add(identity);
+				const id = commentIds.has(mapped.id) ? newId() : mapped.id;
+				commentIds.add(id);
+				return [{ ...mapped, id }];
 			});
 			const existingSnippets = await db.snippets.toArray();
 			const snippetIds = new Set(existingSnippets.map((row) => row.id));
@@ -1056,21 +1127,30 @@ export async function applyBackup(
 				)
 			);
 			const snippetsToPut = snippets.flatMap((snippet) => {
+				// Apply the project ID remap before deduplication so an imported
+				// snippet follows its restored project after an ID collision.
+				const mappedProjectId = snippet.projectId
+					? (projectPlan.projectIdMap.get(snippet.projectId) ?? snippet.projectId)
+					: undefined;
+				const mapped = {
+					...snippet,
+					...(mappedProjectId ? { projectId: mappedProjectId } : {})
+				};
 				const identical = snippetKeys.has(
 					JSON.stringify([
-						snippet.title,
-						snippet.code,
-						snippet.language,
-						snippet.tags.join('\0'),
-						snippet.folder,
-						snippet.projectId,
-						snippet.favorite,
-						snippet.createdAt,
-						snippet.updatedAt
+						mapped.title,
+						mapped.code,
+						mapped.language,
+						mapped.tags.join('\0'),
+						mapped.folder,
+						mapped.projectId,
+						mapped.favorite,
+						mapped.createdAt,
+						mapped.updatedAt
 					])
 				);
 				if (identical) return [];
-				return [{ ...snippet, id: snippetIds.has(snippet.id) ? newId() : snippet.id }];
+				return [{ ...mapped, id: snippetIds.has(mapped.id) ? newId() : mapped.id }];
 			});
 			await Promise.all([
 				db.drafts.bulkPut(draftsToPut.filter((row): row is DraftRow => row !== null)),
@@ -1143,8 +1223,13 @@ export async function downloadBackup(
 	await ensureDurable();
 	const now = Date.now();
 	const backup = await collectBackup(now);
+	// Validate the normalized snapshot before encoding it. Parsing the freshly
+	// generated JSON again would allocate a second full document tree for no
+	// additional guarantee. Imported text still goes through
+	// `parseBackupWithReport` (untrusted input).
+	validateBackupValue(backup);
 	const json = serializeBackup(backup);
-	parseBackupWithReport(json);
+	assertBackupTextSize(json);
 	const stamp = new Date(now).toISOString().slice(0, 10);
 	if (passphrase) {
 		const envelope = await encryptString(json, passphrase);
