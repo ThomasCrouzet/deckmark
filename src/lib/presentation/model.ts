@@ -282,7 +282,11 @@ function validateSlide(
 	};
 }
 
-function validateDeck(value: unknown, allowFrontmatter: boolean): PresentationDeck {
+function validateDeck(
+	value: unknown,
+	allowFrontmatter: boolean,
+	cache?: PresentationSerializeCache
+): PresentationDeck {
 	if (!isRecord(value)) fail('Presentation metadata must be an object.');
 	const keys = ['version', 'width', 'height', 'theme', 'slides'];
 	if (allowFrontmatter) keys.push('frontmatter');
@@ -296,9 +300,25 @@ function validateDeck(value: unknown, allowFrontmatter: boolean): PresentationDe
 	if (!Array.isArray(value.slides)) fail('presentation.slides must be an array.');
 	if (value.slides.length === 0) fail('presentation.slides must contain one slide.');
 	if (value.slides.length > MAX_SLIDES) fail('presentation.slides has too many slides.');
-	const slides = value.slides.map((slide, index) =>
-		validateSlide(slide, `presentation.slides[${index}]`, width, height)
-	);
+	const incremental = cache !== undefined && cache.width === width && cache.height === height;
+	const slides = value.slides.map((slide, index) => {
+		const path = `presentation.slides[${index}]`;
+		if (!incremental || !isRecord(slide)) return validateSlide(slide, path, width, height);
+		const rawFingerprint = JSON.stringify(slide);
+		const id = readId(slide.id, `${path}.id`);
+		const cached = cache.slides.get(id);
+		if (cached?.rawFingerprint === rawFingerprint) return cached.slide;
+		const validated = validateSlide(slide, path, width, height);
+		cache.slides.set(id, {
+			rawFingerprint,
+			sourceFingerprint: '',
+			source: '',
+			slide: validated,
+			width,
+			height
+		});
+		return validated;
+	});
 	const slideIds = new Set<string>();
 	const elementIds = new Set<string>();
 	for (const slide of slides) {
@@ -321,6 +341,10 @@ function validateDeck(value: unknown, allowFrontmatter: boolean): PresentationDe
 			}
 			result.frontmatter = frontmatter;
 		}
+	}
+	if (cache) {
+		cache.width = width;
+		cache.height = height;
 	}
 	return result;
 }
@@ -970,7 +994,19 @@ function serializeSlideSource(slide: PresentationSlide): string {
 }
 
 export interface PresentationSerializeCache {
-	slides: Map<string, { fingerprint: string; source: string }>;
+	slides: Map<
+		string,
+		{
+			rawFingerprint: string;
+			sourceFingerprint: string;
+			source: string;
+			slide: PresentationSlide;
+			width: number;
+			height: number;
+		}
+	>;
+	width?: number;
+	height?: number;
 }
 
 export function createPresentationSerializeCache(): PresentationSerializeCache {
@@ -993,14 +1029,21 @@ export function serializePresentationCached(
 	const { original: _original, originalFingerprint: _fingerprint, ...candidate } = input;
 	void _original;
 	void _fingerprint;
-	const deck = validateDeck(candidate, true);
+	const deck = validateDeck(candidate, true, cache);
 	const body = deck.slides
 		.map((slide) => {
-			const fingerprint = JSON.stringify(slide);
+			const sourceFingerprint = JSON.stringify(slide);
 			const cached = cache.slides.get(slide.id);
-			if (cached?.fingerprint === fingerprint) return cached.source;
+			if (cached?.sourceFingerprint === sourceFingerprint && cached.source) return cached.source;
 			const source = serializeSlideSource(slide);
-			cache.slides.set(slide.id, { fingerprint, source });
+			cache.slides.set(slide.id, {
+				rawFingerprint: cached?.rawFingerprint ?? sourceFingerprint,
+				sourceFingerprint,
+				source,
+				slide,
+				width: deck.width,
+				height: deck.height
+			});
 			return source;
 		})
 		.join('\n\n---\n\n');
