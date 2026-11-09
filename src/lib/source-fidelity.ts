@@ -245,7 +245,7 @@ export class SourceFidelity {
 		if (markdown === this.cachedMarkdown) return this.cachedSource;
 		if (markdown === this.markdown) return this.source;
 		const scoped = measureEditorStage('sourceFidelityScopeAttempt', () =>
-			this.restoreParagraph(markdown)
+			this.restoreTextBlock(markdown)
 		);
 		if (scoped !== null) {
 			if (commit) {
@@ -261,7 +261,7 @@ export class SourceFidelity {
 		return measureEditorStage('sourceFidelityFull', () => this.restoreFull(markdown, commit));
 	}
 
-	private restoreParagraph(markdown: string): ScopedRestore | null {
+	private restoreTextBlock(markdown: string): ScopedRestore | null {
 		const before = this.baseline.children ?? [];
 		const range = changeRange(this.markdown, markdown);
 		let from = 0;
@@ -274,7 +274,7 @@ export class SourceFidelity {
 		const block = before[from];
 		if (
 			!block?.position ||
-			block.type !== 'paragraph' ||
+			(block.type !== 'paragraph' && block.type !== 'heading') ||
 			range.from < start(block) ||
 			range.oldTo > end(block) ||
 			block.children?.length !== 1 ||
@@ -289,7 +289,7 @@ export class SourceFidelity {
 		const original = originals[from]!;
 		if (
 			!original.position ||
-			original.type !== 'paragraph' ||
+			original.type !== block.type ||
 			original.children?.length !== 1 ||
 			original.children[0]?.type !== 'text' ||
 			!original.children[0].position ||
@@ -305,7 +305,7 @@ export class SourceFidelity {
 		const after = tree.children?.[0];
 		if (
 			tree.children?.length !== 1 ||
-			after?.type !== 'paragraph' ||
+			after?.type !== block.type ||
 			after.children?.length !== 1 ||
 			after.children[0]?.type !== 'text' ||
 			start(after) !== 0 ||
@@ -332,7 +332,7 @@ export class SourceFidelity {
 		const sourceNode = sourceTree.children?.[0];
 		if (
 			sourceTree.children?.length !== 1 ||
-			sourceNode?.type !== 'paragraph' ||
+			sourceNode?.type !== block.type ||
 			start(sourceNode) !== 0 ||
 			end(sourceNode) !== candidate.length
 		)
@@ -353,7 +353,7 @@ export class SourceFidelity {
 		};
 	}
 
-	/** Advance both baselines by the one bounded paragraph this edit replaced. */
+	/** Advance both baselines by the one bounded text block this edit replaced. */
 	private acceptScoped(markdown: string, scoped: ScopedRestore): void {
 		if (scoped.sourceIndex < 0) return;
 		const baseline = this.baseline.children ?? [];

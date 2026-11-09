@@ -31,6 +31,23 @@ describe('durable draft metadata', () => {
 		});
 	});
 
+	it('ignores fenced, indented and inline-code targets in one pass', async () => {
+		await db.drafts.put(
+			row({
+				content:
+					'[[Visible]]\n\n```md\n[[Fenced]]\n```\n\n    [[Indented]]\n\n`[[Inline]]`\n\n[[Last]]'
+			})
+		);
+		const metadata = await readDraftMetadata();
+		expect(metadata?.get('meta-note')?.targets).toEqual(['Visible', 'Last']);
+	});
+
+	it('keeps targets below an unfinished fence like the previous scanner', async () => {
+		await db.drafts.put(row({ content: '```md\n[[Still visible]]\n' }));
+		const metadata = await readDraftMetadata();
+		expect(metadata?.get('meta-note')?.targets).toEqual(['Still visible']);
+	});
+
 	it('updates the projection when content changes', async () => {
 		await db.drafts.put(row());
 		await db.drafts.update('meta-note', {

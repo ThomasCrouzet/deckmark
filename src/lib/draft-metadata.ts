@@ -91,18 +91,46 @@ function isNoteRow(row: DraftRow): boolean {
 	return /\.(?:md|markdown|mdx)$/i.test(row.name);
 }
 
-function textTargets(content: string): string[] {
-	const { body } = splitFrontmatter(content);
-	const withoutFences = body
-		.replace(/^ {0,3}(```+|~~~+)[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*$/gm, '')
-		.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*$/gm, '')
-		.replace(/^(?: {4}|\t).*$/gm, '')
-		.replace(/`[^`\n]*`/g, '');
-	const targets = new Set<string>();
-	for (const match of withoutFences.matchAll(/\[\[([^[\]|\n]+)(?:\|[^[\]\n]*)?\]\]/g)) {
+function collectTargets(line: string, targets: Set<string>): void {
+	if (/^(?: {4}|\t)/.test(line)) return;
+	const searchable = line.replace(/`[^`\n]*`/g, '');
+	for (const match of searchable.matchAll(/\[\[([^[\]|\n]+)(?:\|[^[\]\n]*)?\]\]/g)) {
 		const target = match[1]?.trim();
 		if (target) targets.add(target);
 	}
+}
+
+/** One pass over lines avoids several full-document replacement copies. */
+function textTargets(content: string): string[] {
+	const { body } = splitFrontmatter(content);
+	const targets = new Set<string>();
+	let fence = '';
+	let unclosed: string[] = [];
+	for (const line of body.split(/\r?\n/)) {
+		const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+		if (fence) {
+			if (
+				marker &&
+				marker[0] === fence[0] &&
+				marker.length >= fence.length &&
+				line.trim() === marker
+			) {
+				fence = '';
+				unclosed = [];
+			} else if (marker) continue;
+			else unclosed.push(line);
+			continue;
+		}
+		if (marker) {
+			fence = marker;
+			unclosed = [];
+			continue;
+		}
+		collectTargets(line, targets);
+	}
+	// Keep the existing behaviour for an unfinished fence: only the marker line
+	// is removed, so visible-looking targets below it still count.
+	if (fence) for (const line of unclosed) collectTargets(line, targets);
 	return [...targets];
 }
 
@@ -118,6 +146,13 @@ export function draftMetadataFor(row: DraftRow): DraftMetadata {
 	const fallback = fallbackTitle(row.name, body);
 	const title = fast.title?.trim() || fallback;
 	const note = isNoteRow(row);
+	let hasBlocks = false;
+	let hasIncludes = false;
+	for (const match of row.content.matchAll(/<!--\s*mdsh-(block|include)\b/g)) {
+		if (match[1] === 'block') hasBlocks = true;
+		else hasIncludes = true;
+		if (hasBlocks && hasIncludes) break;
+	}
 	return {
 		id: row.id,
 		contentHash: hashContent(row.content),
@@ -126,8 +161,8 @@ export function draftMetadataFor(row: DraftRow): DraftMetadata {
 		documentTitle: title,
 		tags: note ? (fast.tags ?? []) : [],
 		targets: note ? textTargets(row.content) : [],
-		hasBlocks: /<!--\s*mdsh-block\b/.test(row.content),
-		hasIncludes: /<!--\s*mdsh-include\b/.test(row.content)
+		hasBlocks,
+		hasIncludes
 	};
 }
 
