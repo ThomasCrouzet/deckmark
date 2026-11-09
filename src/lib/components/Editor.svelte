@@ -9,6 +9,7 @@
 	import type { Crepe as CrepeType } from '@milkdown/crepe';
 	import type { EditorView } from '@milkdown/kit/prose/view';
 	import type { Transaction } from '@milkdown/kit/prose/state';
+	import type { Slice } from '@milkdown/kit/prose/model';
 	import { onDestroy, untrack } from 'svelte';
 	import { renderMermaidPreview } from '../milkdown-mermaid-preview';
 	import { reportError } from '#lib/report.js';
@@ -180,11 +181,33 @@
 		]);
 		if (token !== mountToken) return;
 		// A note may not become a presentation while the visual editor holds it.
-		// Ordinary text edits take this fast path. Structural edits, HTML atoms,
-		// delimiter changes, paste and history replacements keep full validation.
+		// Ordinary text edits and safe block splits take this fast path. Paste,
+		// history replacements and marker-bearing slices keep full validation.
 		const couldAffectPresentationBoundary = (transaction: Transaction): boolean => {
 			if (transaction.getMeta('uiEvent') === 'paste') return true;
 			if (isHistoryTransaction(transaction)) return true;
+			// A structural split or join can add or remove empty blocks. Only text
+			// and HTML atoms can introduce a presentation delimiter, so inspect the
+			// inserted slice instead of serializing the whole note.
+			const safeSlice = (slice: Slice): boolean => {
+				let safe = true;
+				slice.content.descendants((node) => {
+					if (node.isText) return;
+					const value = node.attrs.value;
+					if (
+						node.type.name === 'html' &&
+						typeof value === 'string' &&
+						(includesPresentationToken(value) || touchesStructuralSyntax(value))
+					) {
+						safe = false;
+						return;
+					}
+					if (includesPresentationToken(node.textContent)) safe = false;
+				});
+				if (!safe) return false;
+				const text = slice.content.textBetween(0, slice.content.size, '\n', '\n');
+				return !includesPresentationToken(text) && !touchesStructuralSyntax(text);
+			};
 			for (const [index, step] of transaction.steps.entries()) {
 				if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) continue;
 				// Milkdown updates heading IDs with setNodeMarkup after text input.
@@ -202,14 +225,8 @@
 					transaction.docs[index]?.nodeAt(step.from)?.type.name === 'heading'
 				)
 					continue;
-				if (!(step instanceof ReplaceStep)) return true;
-				let structural = false;
-				step.slice.content.descendants((node) => {
-					if (!node.isText) structural = true;
-				});
-				if (structural) return true;
-				const inserted = step.slice.content.textBetween(0, step.slice.content.size, '\n');
-				if (includesPresentationToken(inserted) || touchesStructuralSyntax(inserted)) return true;
+				if (!(step instanceof ReplaceStep) && !(step instanceof ReplaceAroundStep)) return true;
+				if (!safeSlice(step.slice)) return true;
 				const beforeDoc = transaction.docs[index] ?? transaction.before;
 				const removed = step.to > step.from ? beforeDoc.textBetween(step.from, step.to, '\n') : '';
 				if (touchesStructuralSyntax(removed)) return true;
