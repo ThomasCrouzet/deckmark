@@ -51,6 +51,24 @@ describe('workspaceStore.restore', () => {
 		expect(filesStore.activeId).toBeNull();
 	});
 
+	it('keeps only the latest workspace when an older restore is slow', async () => {
+		const a = filesStore.createNew('a.md', '# A');
+		const b = filesStore.createNew('b.md', '# B');
+		await filesStore.flushPending();
+		filesStore.closeMany([a.id, b.id], { trash: false, keepDB: true });
+		workspaceStore.workspaces = [wsRow('one', 'One', [a.id]), wsRow('two', 'Two', [b.id])];
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const flush = vi.spyOn(filesStore, 'flushPendingAwait').mockReturnValueOnce(gate);
+		const first = workspaceStore.restore('one');
+		const second = workspaceStore.restore('two');
+		release();
+		await Promise.all([first, second]);
+		expect(filesStore.files.map((file) => file.id)).toEqual([b.id]);
+		expect(filesStore.activeId).toBe(b.id);
+		flush.mockRestore();
+	});
+
 	it('closes tabs outside the workspace without database deletion', async () => {
 		// The workspace has {a}, and the current session has {a, b}.
 		// Restore must close b in the view but keep it in the database through closeMany's keepDB branch.

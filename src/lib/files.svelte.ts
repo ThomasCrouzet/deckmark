@@ -1185,7 +1185,9 @@ class FilesStore {
 	 * An explicit `trash: true` still delegates to the separate deletion action.
 	 */
 	closeMany(ids: string[], opts: { trash?: boolean; keepDB?: boolean } = {}): void {
-		const toClose = ids.filter((id) => this.files.some((f) => f.id === id));
+		if (ids.length === 0 || this.files.length === 0) return;
+		const requested = new Set(ids);
+		const toClose = this.files.filter((file) => requested.has(file.id)).map((file) => file.id);
 		if (toClose.length === 0) return;
 		for (const id of toClose) this.close(id, opts);
 	}
@@ -1236,30 +1238,46 @@ class FilesStore {
 	 * Restores a workspace from the metadata projection. Open tabs stay bodyless
 	 * until one is activated; only the active document pays the hydration cost.
 	 */
-	async openWorkspace(ids: readonly string[]): Promise<void> {
+	async openWorkspace(
+		ids: readonly string[],
+		isCurrent: () => boolean = () => true
+	): Promise<void> {
 		if (!browser || ids.length === 0) return;
 		const { readDraftManifests, readDraftMetadata, draftItemFromManifest } =
 			await import('./draft-manifest');
+		if (!isCurrent()) return;
 		const manifests = await readDraftManifests();
+		if (!isCurrent()) return;
 		if (!manifests) {
 			const rows = await db.drafts.bulkGet([...ids]);
+			if (!isCurrent()) return;
 			this.openMany(rows.filter((row): row is DraftRow => row !== undefined));
 			return;
 		}
 		const metadata = await readDraftMetadata();
+		if (!isCurrent()) return;
 		const byId = new Map(manifests.map((manifest) => [manifest.id, manifest]));
+		const closedById = new Map(this.closedFiles.map((file) => [file.id, file]));
 		const items: FileItem[] = [];
 		for (const id of ids) {
 			const manifest = byId.get(id);
 			if (!manifest) continue;
-			const closed = this.closedFiles.find((file) => file.id === id);
+			const closed = closedById.get(id);
 			items.push(closed ?? draftItemFromManifest(manifest, false, metadata?.get(id)));
 		}
-		const added = this.insertOpenItems(items);
+		// Persist the durable open flag before publishing the tabs. A failed
+		// transaction must not leave visible tabs that vanish on reload.
+		const openIds = new Set(this.files.map((file) => file.id));
+		const added = items.filter((item) => !openIds.has(item.id));
 		if (added.length === 0) return;
 		await db.transaction('rw', db.drafts, async () => {
-			for (const id of added) await db.drafts.update(id, { open: true });
+			await db.drafts
+				.where('id')
+				.anyOf(added.map((item) => item.id))
+				.modify({ open: true });
 		});
+		if (!isCurrent()) return;
+		this.insertOpenItems(added);
 	}
 
 	private insertOpenItems(items: readonly FileItem[]): string[] {
@@ -1269,6 +1287,7 @@ class FilesStore {
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- transient local map
 		const closedById = new Map(this.closedFiles.map((file) => [file.id, file]));
 		const addedIds: string[] = [];
+		const nextFiles = this.files.slice();
 		for (const item of items) {
 			if (!item || existing.has(item.id)) continue;
 			const closed = closedById.get(item.id) ?? null;
@@ -1284,11 +1303,13 @@ class FilesStore {
 				}
 				closedById.delete(item.id);
 			}
-			this.files.push(chosen);
+			nextFiles.push(chosen);
 			existing.add(item.id);
 			addedIds.push(item.id);
 		}
 		if (addedIds.length === 0) return [];
+		// One reactive publication for the whole tab set, not one per tab.
+		this.files = nextFiles;
 		this.closedFiles = this.closedFiles.filter((file) => !existing.has(file.id));
 		this.metaIndex.invalidateBacklinksIndex();
 		// Background: restore linkedToDisk flags for re-opened workspace tabs.
