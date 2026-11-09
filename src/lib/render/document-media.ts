@@ -99,18 +99,42 @@ function normalizedImagePath(value: string): string | null {
 	return path.replace(/^\.\//, '').replace(/^\/+/, '');
 }
 
-function matchingFile(source: string, files: readonly File[]): File | null {
-	const path = normalizedImagePath(source);
-	if (!path) return null;
-	const basename = path.split('/').pop();
-	const exact = files.filter((file) => {
-		const selected = normalizedImagePath(file.webkitRelativePath || file.name);
-		return selected === path || selected?.endsWith(`/${path}`);
-	});
-	if (exact.length === 1) return exact[0] ?? null;
-	if (exact.length > 1) return null;
-	const byName = files.filter((file) => file.name === basename);
-	return byName.length === 1 ? (byName[0] ?? null) : null;
+interface FileMatcher {
+	match(source: string): File | null;
+}
+
+/** Builds one normalized index for all selected files, then matches in O(1). */
+function createFileMatcher(files: readonly File[]): FileMatcher {
+	const byName = new Map<string, File[]>();
+	const byNormalizedBasename = new Map<string, File[]>();
+	for (const file of files) {
+		const sameName = byName.get(file.name);
+		if (sameName) sameName.push(file);
+		else byName.set(file.name, [file]);
+		const normalized = normalizedImagePath(file.webkitRelativePath || file.name);
+		const basename = normalized?.split('/').pop();
+		if (!basename) continue;
+		const candidates = byNormalizedBasename.get(basename);
+		if (candidates) candidates.push(file);
+		else byNormalizedBasename.set(basename, [file]);
+	}
+	return {
+		match(source: string): File | null {
+			const path = normalizedImagePath(source);
+			if (!path) return null;
+			const basename = path.split('/').pop()!;
+			// Only files with this basename can satisfy the exact or suffix rule.
+			const candidates = byNormalizedBasename.get(basename) ?? [];
+			const exact = candidates.filter((file) => {
+				const selected = normalizedImagePath(file.webkitRelativePath || file.name);
+				return selected === path || selected?.endsWith(`/${path}`);
+			});
+			if (exact.length === 1) return exact[0] ?? null;
+			if (exact.length > 1) return null;
+			const sameName = byName.get(basename) ?? [];
+			return sameName.length === 1 ? (sameName[0] ?? null) : null;
+		}
+	};
 }
 
 export async function incorporateDocumentImages(
@@ -121,13 +145,14 @@ export async function incorporateDocumentImages(
 	const issues: MediaIssue[] = [];
 	let totalBytes = 0;
 	const destinations = markdownImageDestinations(markdown);
+	const matcher = opts.files ? createFileMatcher(opts.files) : null;
 	for (const { source } of destinations) {
 		checkAborted(opts.signal);
 		const isBlob = /^blob:/i.test(source.trim());
 		if (isLocalImageSource(source) && !isBlob) continue;
 		if (replacements.has(source)) continue;
 		try {
-			const file = opts.files ? matchingFile(source, opts.files) : null;
+			const file = matcher ? matcher.match(source) : null;
 			if (opts.files && !file) {
 				issues.push({ source, reason: 'unreadable' });
 				continue;
