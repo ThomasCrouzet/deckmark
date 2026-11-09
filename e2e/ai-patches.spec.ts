@@ -1,5 +1,11 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import {
+	createFirstFile,
+	openPalette,
+	resetAppState,
+	seedFiles,
+	writeSourceContent
+} from './helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -128,7 +134,8 @@ async function configureCustomAi(
 async function configureSequenceAi(
 	page: Page,
 	sequence: Array<(content: string) => MockHunk[]>
-): Promise<void> {
+): Promise<Array<Record<string, unknown>>> {
+	const requests: Array<Record<string, unknown>> = [];
 	await page.addInitScript(() => {
 		localStorage.setItem(
 			'mdsh:ai',
@@ -157,7 +164,10 @@ async function configureSequenceAi(
 			});
 			return;
 		}
-		const body = route.request().postDataJSON() as { messages: Array<{ content: string }> };
+		const body = route.request().postDataJSON() as Record<string, unknown> & {
+			messages: Array<{ content: string }>;
+		};
+		requests.push(body);
 		const prompt = body.messages.at(-1)?.content ?? '';
 		const file = /<file path="([^"]+)" hash="([^"]+)">\n([\s\S]*?)\n<\/file>/.exec(prompt);
 		if (!file) {
@@ -181,6 +191,7 @@ async function configureSequenceAi(
 			body: `data: ${chunk}\n\ndata: [DONE]\n\n`
 		});
 	});
+	return requests;
 }
 
 async function importProject(
@@ -360,6 +371,67 @@ test('resets hunk approvals when a new proposal reuses the same path and status'
 	expect(await page.locator('.cm-content').innerText()).not.toContain('A1');
 	await info.attach('ai-patch-reset.json', {
 		body: JSON.stringify({ proposalA: [0, 1], proposalB: [0, 1], applied: 'A2 beta G2' }),
+		contentType: 'application/json'
+	});
+});
+
+test('rejects a scope change during hydration without sending a request', async ({
+	page
+}, info: TestInfo) => {
+	const requests = await configureSequenceAi(page, [() => [{ before: 'Alpha', after: 'A' }]]);
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'Alpha.md', content: '# Alpha\n\nAlpha body' },
+		{ name: 'Beta.md', content: '# Beta\n\nBeta body' }
+	]);
+	await openAiPanel(page);
+	await page.getByTestId('ai-scope-files').click();
+	await page
+		.getByTestId('ai-panel')
+		.locator('label')
+		.filter({ hasText: 'Alpha.md' })
+		.locator('input')
+		.check();
+	await page.evaluate(() => {
+		(window as unknown as { __mdshAiHydrationDelay?: number }).__mdshAiHydrationDelay = 600;
+	});
+	await page.getByTestId('ai-action-explain').click();
+	await expect(page.getByTestId('ai-stop')).toBeVisible();
+	// Change the approved scope before hydration completes.
+	await page.getByTestId('ai-scope-document').click();
+	await expect(page.getByTestId('ai-error')).toContainText(/contexte|context/i);
+	expect(requests).toHaveLength(0);
+	await info.attach('ai-snapshot-scope.json', {
+		body: JSON.stringify({ requests: requests.length, scopeChanged: true }),
+		contentType: 'application/json'
+	});
+});
+
+test('rejects a source change during hydration without sending a request', async ({
+	page
+}, info: TestInfo) => {
+	const requests = await configureSequenceAi(page, [() => [{ before: 'Alpha', after: 'A' }]]);
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, '# Guide\n\nAlpha body');
+	await openAiPanel(page);
+	await page.evaluate(() => {
+		(window as unknown as { __mdshAiHydrationDelay?: number }).__mdshAiHydrationDelay = 600;
+	});
+	await page.getByTestId('ai-action-explain').click();
+	await expect(page.getByTestId('ai-stop')).toBeVisible();
+	await page.evaluate(() => {
+		const api = (
+			window as unknown as {
+				__mdshTest?: { forceNativeConflict: (text: string) => boolean };
+			}
+		).__mdshTest;
+		api?.forceNativeConflict('# Guide\n\nChanged body');
+	});
+	await expect(page.getByTestId('ai-error')).toContainText(/contexte|context|modifi/i);
+	expect(requests).toHaveLength(0);
+	await info.attach('ai-snapshot-source.json', {
+		body: JSON.stringify({ requests: requests.length, sourceChanged: true }),
 		contentType: 'application/json'
 	});
 });

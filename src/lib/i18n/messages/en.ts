@@ -762,6 +762,7 @@ export const en = {
 	'ai.patchReview': 'Review proposed changes',
 	'ai.patchReady': 'ready',
 	'ai.patchStale': 'file changed, reload the proposal',
+	'ai.contextChanged': 'The context changed before sending. Review the scope and send again.',
 	'ai.patchMissing': 'file not found',
 	'ai.patchAmbiguous': 'ambiguous file name, use the exact path',
 	'ai.patchConflictStatus': 'conflicting hunk',

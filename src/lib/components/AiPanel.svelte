@@ -237,6 +237,17 @@
 		selectionText = window.getSelection()?.toString() ?? '';
 	}
 
+	// Test-build-only seam. It makes the hydration window deterministic for the
+	// E2E snapshot cases and is removed from production builds.
+	async function waitForTestHydrationDelay(): Promise<void> {
+		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS !== '1' || typeof window === 'undefined')
+			return;
+		const delay = (window as unknown as { __mdshAiHydrationDelay?: unknown })
+			.__mdshAiHydrationDelay;
+		if (typeof delay === 'number' && Number.isFinite(delay) && delay > 0)
+			await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 5000)));
+	}
+
 	async function run(instruction: string) {
 		if (streaming) return;
 		const text = instruction.trim();
@@ -266,34 +277,88 @@
 		lastPrompt = text;
 		controller = new AbortController();
 		try {
-			// Hydrate only the scope the user approved. Selection scope reads the
-			// captured selection, and the active document is already resident.
-			const needed =
-				scope === 'files'
-					? selectedIds
-					: scope === 'project'
-						? filesStore.library
-								.filter((file) => file.projectId === active?.projectId)
-								.map((file) => file.id)
-						: scope === 'document' && filesStore.activeId
-							? [filesStore.activeId]
-							: [];
-			await filesStore.ensureContent(
-				needed.filter((id) => !filesStore.active || id !== filesStore.active.id)
-			);
-			if (controller.signal.aborted) return;
-			const request = buildContext({
+			// Freeze the approved request before any asynchronous hydration. The
+			// outbound context must never be rebuilt from live UI variables.
+			const frozen = {
 				scope,
 				activeId: filesStore.activeId,
-				selection: selectionText,
-				files: filesStore.library,
-				selectedIds,
 				projectId: active?.projectId ?? null,
+				selectedIds: [...selectedIds],
+				selection: selectionText,
 				ignorePatterns: ignore
 					.split(',')
 					.map((value) => value.trim())
 					.filter(Boolean),
 				maxTokens: aiStore.settings.maxTokens > 1024 ? aiStore.settings.maxTokens : 24000
+			};
+			const sameIds = (left: readonly string[], right: readonly string[]) =>
+				left.length === right.length && left.every((value, index) => value === right[index]);
+			const needed =
+				frozen.scope === 'files'
+					? frozen.selectedIds
+					: frozen.scope === 'project'
+						? filesStore.library
+								.filter((file) => file.projectId === frozen.projectId)
+								.map((file) => file.id)
+						: frozen.scope === 'document' && frozen.activeId
+							? [frozen.activeId]
+							: [];
+			const revisions: Array<{
+				id: string;
+				deferred: boolean;
+				hash: string;
+				updatedAt: number;
+			}> = [];
+			for (const file of filesStore.library) {
+				if (!needed.includes(file.id)) continue;
+				revisions.push({
+					id: file.id,
+					deferred: !!file.contentDeferred,
+					hash: file.contentDeferred ? '' : contentHash(file.content),
+					updatedAt: file.updatedAt
+				});
+			}
+			await waitForTestHydrationDelay();
+			await filesStore.ensureContent(
+				needed.filter((id) => !filesStore.active || id !== filesStore.active.id)
+			);
+			if (controller.signal.aborted) return;
+			const contextChanged =
+				scope !== frozen.scope ||
+				filesStore.activeId !== frozen.activeId ||
+				(active?.projectId ?? null) !== frozen.projectId ||
+				!sameIds(selectedIds, frozen.selectedIds) ||
+				selectionText !== frozen.selection ||
+				!sameIds(
+					ignore
+						.split(',')
+						.map((value) => value.trim())
+						.filter(Boolean),
+					frozen.ignorePatterns
+				) ||
+				(aiStore.settings.maxTokens > 1024 ? aiStore.settings.maxTokens : 24000) !==
+					frozen.maxTokens;
+			const revisionChanged = needed.some((id) => {
+				const file = filesStore.library.find((entry) => entry.id === id);
+				const snapshot = revisions.find((entry) => entry.id === id);
+				if (!file || !snapshot) return true;
+				return snapshot.deferred
+					? file.updatedAt !== snapshot.updatedAt
+					: file.contentDeferred || contentHash(file.content) !== snapshot.hash;
+			});
+			if (contextChanged || revisionChanged) {
+				error = t('ai.contextChanged');
+				return;
+			}
+			const request = buildContext({
+				scope: frozen.scope,
+				activeId: frozen.activeId,
+				selection: frozen.selection,
+				files: filesStore.library,
+				selectedIds: frozen.selectedIds,
+				projectId: frozen.projectId,
+				ignorePatterns: frozen.ignorePatterns,
+				maxTokens: frozen.maxTokens
 			});
 			lastAllowedIds = request.manifest
 				.filter((entry) => entry.includedTokens > 0)
