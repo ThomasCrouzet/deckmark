@@ -190,9 +190,8 @@ class WorkspaceStore {
 		const openIds = new Set(filesStore.files.map((f) => f.id));
 		const toReopen = ws.fileIds.filter((wsId) => !openIds.has(wsId));
 		if (toReopen.length > 0) {
-			let rows: Awaited<ReturnType<typeof db.drafts.bulkGet>>;
 			try {
-				rows = await db.drafts.bulkGet(toReopen);
+				await filesStore.openWorkspace(toReopen);
 			} catch (err) {
 				// IDB read failure: without this catch, restore() rejected silently
 				// (the WorkspacesPanel caller has no .catch) - the user did not
@@ -200,9 +199,6 @@ class WorkspaceStore {
 				reportPersistenceError(err, 'load');
 				return;
 			}
-			// bulkGet order matches toReopen; openMany appends - we reorder below.
-			const validRows = rows.filter((r): r is NonNullable<typeof r> => Boolean(r));
-			if (validRows.length > 0) filesStore.openMany(validRows);
 		}
 
 		// 2. Close the tabs outside the workspace WITHOUT touching the DB.
@@ -215,6 +211,7 @@ class WorkspaceStore {
 
 		// 3. Activate the target if it exists (otherwise fallback already handled by close).
 		if (ws.activeId && filesStore.files.some((f) => f.id === ws.activeId)) {
+			await filesStore.ensureContent([ws.activeId]);
 			filesStore.setActive(ws.activeId);
 		}
 	}

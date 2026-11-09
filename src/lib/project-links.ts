@@ -52,15 +52,40 @@ function referenceLabel(value: string): string {
 	return value.replace(/\\(.)/g, '$1').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+const destinationCache: Array<{
+	markdown: string;
+	destinations: ProjectDestination[];
+}> = [];
+const DESTINATION_CACHE_CHARS = 4 * 1024 * 1024;
+
+function cacheDestinations(
+	markdown: string,
+	destinations: ProjectDestination[]
+): ProjectDestination[] {
+	destinationCache.unshift({ markdown, destinations });
+	let chars = 0;
+	for (let index = destinationCache.length - 1; index >= 0; index--) {
+		chars += destinationCache[index]!.markdown.length;
+		if (destinationCache.length > 8 || chars > DESTINATION_CACHE_CHARS)
+			destinationCache.splice(index, 1);
+	}
+	return destinations;
+}
+
 /** Find source ranges without changing code, front matter, labels, or titles. */
 export function projectDestinations(markdown: string): ProjectDestination[] {
+	const cached = destinationCache.find((entry) => entry.markdown === markdown);
+	if (cached) return cached.destinations;
 	const prefix = /^\uFEFF+/.exec(markdown)?.[0].length ?? 0;
 	if (prefix)
-		return projectDestinations(markdown.slice(prefix)).map((destination) => ({
-			...destination,
-			start: destination.start + prefix,
-			end: destination.end + prefix
-		}));
+		return cacheDestinations(
+			markdown,
+			projectDestinations(markdown.slice(prefix)).map((destination) => ({
+				...destination,
+				start: destination.start + prefix,
+				end: destination.end + prefix
+			}))
+		);
 	const out: ProjectDestination[] = [];
 	const definitions: Array<{ destination: ProjectDestination; label: string }> = [];
 	const imageReferences = new Set<string>();
@@ -161,7 +186,7 @@ export function projectDestinations(markdown: string): ProjectDestination[] {
 	for (const definition of definitions) {
 		if (imageReferences.has(definition.label)) definition.destination.image = true;
 	}
-	return out;
+	return cacheDestinations(markdown, out);
 }
 
 function readDestination(text: string, at: number): Omit<ProjectDestination, 'image'> | null {

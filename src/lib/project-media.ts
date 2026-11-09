@@ -23,11 +23,20 @@ export interface ProjectContext {
 	relativePath: string;
 }
 
+const contextCache = new Map<string, { value: ProjectContext | undefined; at: number }>();
+const CONTEXT_TTL_MS = 5000;
+
 export async function projectContextFor(fileId: string): Promise<ProjectContext | undefined> {
+	const cached = contextCache.get(fileId);
+	if (cached && Date.now() - cached.at < CONTEXT_TTL_MS) return cached.value;
 	const file = await db.drafts.get(fileId);
-	return file?.projectId && file.relativePath
-		? { projectId: file.projectId, relativePath: file.relativePath }
-		: undefined;
+	const value =
+		file?.projectId && file.relativePath
+			? { projectId: file.projectId, relativePath: file.relativePath }
+			: undefined;
+	contextCache.set(fileId, { value, at: Date.now() });
+	while (contextCache.size > 512) contextCache.delete(contextCache.keys().next().value!);
+	return value;
 }
 
 export async function projectImageSource(
