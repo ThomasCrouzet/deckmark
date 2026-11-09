@@ -18,6 +18,17 @@ function clone<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** Copies the deck structure while sharing immutable strings and element values. */
+function snapshotDeck(deck: PresentationDeck): PresentationDeck {
+	return {
+		...deck,
+		slides: deck.slides.map((slide) => ({
+			...slide,
+			elements: slide.elements.map((element) => ({ ...element }))
+		}))
+	};
+}
+
 let clipboard: PresentationElement[] = [];
 
 /** Keep one undo entry for each completed user operation. */
@@ -37,6 +48,7 @@ export class PresentationEditor {
 	clipboardAvailable = $state(clipboard.length > 0);
 	private operationStart: string | null = null;
 	private operationSource: string | null = null;
+	private operationDeck: PresentationDeck | null = null;
 	private operationChanged = false;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
 	private maximumTimer: ReturnType<typeof setTimeout> | undefined;
@@ -75,6 +87,7 @@ export class PresentationEditor {
 			this.redoEntries = [];
 			this.operationStart = null;
 			this.operationSource = null;
+			this.operationDeck = null;
 			this.operationChanged = false;
 		} catch {
 			this.error = true;
@@ -94,6 +107,7 @@ export class PresentationEditor {
 		if (this.operationStart === null) {
 			this.operationStart = this.source;
 			this.operationSource = this.source;
+			this.operationDeck = snapshotDeck(this.deck);
 			this.operationChanged = false;
 		}
 	}
@@ -108,11 +122,13 @@ export class PresentationEditor {
 		if (!force && !this.operationChanged) {
 			this.operationStart = null;
 			this.operationSource = null;
+			this.operationDeck = null;
 			return this.flush();
 		}
 		const previous = this.operationSource ?? this.operationStart;
 		this.operationStart = null;
 		this.operationSource = null;
+		this.operationDeck = null;
 		this.operationChanged = false;
 		if (!defer) {
 			let source: string;
@@ -179,9 +195,10 @@ export class PresentationEditor {
 
 	cancel() {
 		if (this.operationStart === null) return;
-		this.deck = parsePresentation(this.operationStart);
+		this.deck = this.operationDeck ?? parsePresentation(this.operationStart);
 		this.operationStart = null;
 		this.operationSource = null;
+		this.operationDeck = null;
 	}
 
 	change(operation: () => void) {
