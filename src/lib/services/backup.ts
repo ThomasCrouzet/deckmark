@@ -1143,8 +1143,13 @@ export async function downloadBackup(
 	await ensureDurable();
 	const now = Date.now();
 	const backup = await collectBackup(now);
+	// Validate the normalized snapshot before encoding it. Parsing the freshly
+	// generated JSON again would allocate a second full document tree for no
+	// additional guarantee. Imported text still goes through
+	// `parseBackupWithReport` (untrusted input).
+	validateBackupValue(backup);
 	const json = serializeBackup(backup);
-	parseBackupWithReport(json);
+	assertBackupTextSize(json);
 	const stamp = new Date(now).toISOString().slice(0, 10);
 	if (passphrase) {
 		const envelope = await encryptString(json, passphrase);

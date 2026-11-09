@@ -247,6 +247,9 @@ export async function buildProjectZip(
 		else wikiById.set(candidate.id, [candidate]);
 	}
 	const exportedDocuments: ProjectDocumentInput[] = [];
+	// The same inline image data URL can occur in many documents. Decode and
+	// hash it once per export, then reuse the generated asset path.
+	const inlineImageCache = new Map<string, { path: string }>();
 	for (const document of documents) {
 		const documentPath = projectPath(document.relativePath);
 		const documentKey = pathKey(documentPath);
@@ -281,11 +284,18 @@ export async function buildProjectZip(
 						return relativeDestination(documentPath, matches[0]!.relativePath) + suffix;
 					});
 		validateMarkdownContent(portableContent);
-		if (new TextEncoder().encode(portableContent).length > IMPORT_LIMITS.maxFileBytes)
+		// UTF-8 byte length is never smaller than the UTF-16 length. Use the
+		// cheap bound here and encode the final rewritten text exactly once.
+		if (portableContent.length > IMPORT_LIMITS.maxFileBytes)
 			throw new Error('Project document size limit');
 		occupied.add(documentKey);
 		const replacements = new Map<string, string>();
 		for (const { source } of projectDestinations(portableContent)) {
+			const cached = inlineImageCache.get(source);
+			if (cached) {
+				replacements.set(source, relativeDestination(documentPath, cached.path));
+				continue;
+			}
 			const match =
 				/^data:(image\/(?:png|jpeg|gif|webp|svg\+xml|avif));base64,([a-z\d+/=\s]+)$/i.exec(source);
 			if (!match || source.length > MAX_IMAGE_BYTES * 1.5 + 1024) continue;
@@ -320,6 +330,7 @@ export async function buildProjectZip(
 				occupied.add(key);
 				exportedAssets.set(key, { path, mime: match[1]!, data });
 			}
+			inlineImageCache.set(source, { path });
 			replacements.set(source, relativeDestination(documentPath, path));
 		}
 		const content = rewriteProjectDestinations(
@@ -358,12 +369,13 @@ export async function buildProjectZip(
 		for (const entry of Object.values(zip.files)) entry.date = options.date;
 	}
 	const output = await zip.generateAsync({
-		type: 'blob',
+		type: 'arraybuffer',
 		compression: 'DEFLATE',
 		compressionOptions: { level: 6 }
 	});
-	checkZipDirectory(new Uint8Array(await output.arrayBuffer()));
-	return output;
+	const bytes = new Uint8Array(output);
+	checkZipDirectory(bytes);
+	return new Blob([bytes], { type: 'application/zip' });
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {

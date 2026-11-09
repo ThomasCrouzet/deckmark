@@ -605,6 +605,21 @@ describe('downloadBackup - orchestration DOM', () => {
 		expect(parseBackup(await blobText(capturedBlobs[0]!)).drafts).toHaveLength(301);
 	});
 
+	it('validates the generated snapshot without parsing its own JSON again', async () => {
+		await db.drafts.put(draft({ id: 'only', name: 'only.md', content: 'exact bytes' }));
+		const parse = vi.spyOn(JSON, 'parse');
+		try {
+			expect(await downloadBackup()).toBe(true);
+			expect(parse).not.toHaveBeenCalled();
+		} finally {
+			parse.mockRestore();
+		}
+		const text = await blobText(capturedBlobs[0]!);
+		expect(parseBackup(text).drafts).toEqual([
+			expect.objectContaining({ id: 'only', content: 'exact bytes' })
+		]);
+	});
+
 	it('returns false after desktop dialog cancellation', async () => {
 		desktopMocks.isDesktop.mockReturnValue(true);
 		desktopMocks.tauriSaveExportBlob.mockResolvedValue(false);
