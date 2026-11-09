@@ -37,6 +37,8 @@ export interface RenderOptions {
 	fileId?: string;
 	/** Null means the captured file has no project, even before its draft save. */
 	projectContext?: import('../project-media').ProjectContext | null;
+	/** Receives the parsed HTML before costly diagrams are ready. */
+	onPartialHtml?: (html: string) => void;
 	/** Mermaid theme: `default` (light) for PDF, `dark` for the app preview. */
 	mermaidTheme?: MermaidTheme;
 	/**
@@ -302,6 +304,7 @@ async function renderMarkdownCore(
 	checkAborted(signal);
 	for (const stage of parsed.stages) recordRenderStage(stage, opts.fileId);
 	let html = applyImageMetadataToHtml(parsed.source, parsed.html);
+	opts.onPartialHtml?.(html);
 	const namespace =
 		opts.instanceId && /^mdsh-render-\d+$/.test(opts.instanceId)
 			? opts.instanceId
