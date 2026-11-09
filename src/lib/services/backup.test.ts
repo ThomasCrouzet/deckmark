@@ -117,7 +117,11 @@ async function clearAll() {
 		db.templates.clear(),
 		db.versions.clear(),
 		db.trashed.clear(),
-		db.metadata.clear()
+		db.metadata.clear(),
+		db.snippets.clear(),
+		db.projects.clear(),
+		db.projectAssets.clear(),
+		db.comments.clear()
 	]);
 }
 
@@ -615,6 +619,87 @@ describe('applyBackup - binary document source identity', () => {
 		const importedProject = (await db.projects.toArray()).find((row) => row.id !== 'p')!;
 		const importedDraft = (await db.drafts.toArray()).find((row) => row.id !== 'local-img')!;
 		expect(importedDraft).toMatchObject({ data: IMAGE_PNG_B, projectId: importedProject.id });
+	});
+});
+
+describe('applyBackup - project-scoped snippets', () => {
+	it('remaps snippets to the imported project id before deduplication', async () => {
+		await db.projects.put({ id: 'p', name: 'Current project', createdAt: 1, updatedAt: 2 });
+		await db.snippets.put({
+			id: 'unrelated',
+			title: 'Unrelated',
+			code: 'keep()',
+			language: 'javascript',
+			tags: [],
+			projectId: 'p',
+			favorite: false,
+			createdAt: 1,
+			updatedAt: 2
+		});
+		const incomingProject = { id: 'p', name: 'Incoming project', createdAt: 1, updatedAt: 2 };
+		const snippet = {
+			id: 's',
+			title: 'Project helper',
+			code: 'helper()',
+			language: 'javascript',
+			tags: ['project'],
+			projectId: 'p',
+			favorite: false,
+			createdAt: 3,
+			updatedAt: 4
+		};
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 2,
+			exportedAt: 0,
+			drafts: [],
+			workspaces: [],
+			templates: [],
+			projects: [incomingProject],
+			projectAssets: [],
+			snippets: [snippet]
+		};
+		const counts = await applyBackup(backup, 'merge');
+		expect(counts.projects).toBe(1);
+		expect(counts.snippets).toBe(1);
+		const importedProject = (await db.projects.toArray()).find((row) => row.id !== 'p')!;
+		const importedSnippet = (await db.snippets.toArray()).find((row) => row.id !== 'unrelated')!;
+		expect(importedSnippet.projectId).toBe(importedProject.id);
+		expect(await db.snippets.get('unrelated')).toMatchObject({ projectId: 'p', code: 'keep()' });
+
+		const repeated = await applyBackup(backup, 'merge');
+		expect(repeated.snippets).toBe(0);
+		expect(repeated.unchanged.snippets).toBe(1);
+		expect(await db.snippets.count()).toBe(2);
+		expect((await db.snippets.get(importedSnippet.id))?.projectId).toBe(importedProject.id);
+	});
+
+	it('keeps a standalone snippet standalone', async () => {
+		const backup: BackupFile = {
+			format: BACKUP_FORMAT,
+			schemaVersion: 2,
+			exportedAt: 0,
+			drafts: [],
+			workspaces: [],
+			templates: [],
+			projects: [],
+			projectAssets: [],
+			snippets: [
+				{
+					id: 'standalone',
+					title: 'Standalone',
+					code: 'alone()',
+					language: 'javascript',
+					tags: [],
+					favorite: false,
+					createdAt: 1,
+					updatedAt: 2
+				}
+			]
+		};
+		await applyBackup(backup, 'merge');
+		expect(await db.snippets.get('standalone')).toMatchObject({ id: 'standalone' });
+		expect((await db.snippets.get('standalone'))?.projectId).toBeUndefined();
 	});
 });
 

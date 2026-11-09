@@ -35,6 +35,17 @@ interface Backup {
 	templates: unknown[];
 	projects: Array<{ id: string; name: string; createdAt: number; updatedAt: number }>;
 	projectAssets: Array<{ id: string; projectId: string; path: string; mime: string; data: string }>;
+	snippets?: Array<{
+		id: string;
+		title: string;
+		code: string;
+		language: string;
+		tags: string[];
+		projectId?: string;
+		favorite: boolean;
+		createdAt: number;
+		updatedAt: number;
+	}>;
 }
 
 function emptyBackup(): Backup {
@@ -293,6 +304,26 @@ async function historyRows(page: Page) {
 	);
 }
 
+async function snippetRows(page: Page) {
+	return page.evaluate(
+		() =>
+			new Promise<Array<{ id: string; projectId?: string; title: string }>>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('snippets');
+					const rows = transaction.objectStore('snippets').getAll();
+					transaction.oncomplete = () => {
+						database.close();
+						resolve(rows.result);
+					};
+					transaction.onabort = () => reject(transaction.error);
+				};
+			})
+	);
+}
+
 for (const closed of [false, true]) {
 	test(`standalone replacement restores A and keeps ${closed ? 'closed' : 'open'} B and history`, async ({
 		page
@@ -400,6 +431,42 @@ test('standalone replacement keeps B and the original trash reference after a fa
 		body: exported,
 		contentType: 'application/json'
 	});
+});
+
+test('merge remaps a project-scoped snippet to the imported project', async ({ page }, info) => {
+	await importProject(page, info);
+	const original = JSON.parse((await exportBackup(page)).toString()) as Backup;
+	const source = original.projects[0]!;
+	const incoming = emptyBackup();
+	incoming.projects = [{ ...source, name: 'Incoming project' }];
+	incoming.drafts = [{ ...original.drafts.find((row) => row.relativePath === 'README.md')! }];
+	incoming.projectAssets = [{ ...original.projectAssets[0]! }];
+	incoming.snippets = [
+		{
+			id: 'project-helper',
+			title: 'Project helper',
+			code: 'helper()',
+			language: 'javascript',
+			tags: [],
+			projectId: source.id,
+			favorite: false,
+			createdAt: stamp,
+			updatedAt: stamp
+		}
+	];
+	await attach(info, 'snippet-incoming.json', incoming);
+	await restore(page, Buffer.from(JSON.stringify(incoming)), 'Fusionner');
+	const projects = (await inventory(page)).projects;
+	const importedProject = projects.find((project) => project.id !== source.id)!;
+	expect(importedProject).toBeDefined();
+	const snippets = await snippetRows(page);
+	await attach(info, 'snippet-merged.json', { projects, snippets });
+	expect(snippets).toEqual([
+		expect.objectContaining({ id: 'project-helper', projectId: importedProject.id })
+	]);
+	await restore(page, Buffer.from(JSON.stringify(incoming)), 'Fusionner');
+	expect(await snippetRows(page)).toEqual(snippets);
+	expect((await inventory(page)).projects).toHaveLength(2);
 });
 
 test('a failed recovery asset write rolls back the complete replacement', async ({

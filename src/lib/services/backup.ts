@@ -1077,21 +1077,30 @@ export async function applyBackup(
 				)
 			);
 			const snippetsToPut = snippets.flatMap((snippet) => {
+				// Apply the project ID remap before deduplication so an imported
+				// snippet follows its restored project after an ID collision.
+				const mappedProjectId = snippet.projectId
+					? (projectPlan.projectIdMap.get(snippet.projectId) ?? snippet.projectId)
+					: undefined;
+				const mapped = {
+					...snippet,
+					...(mappedProjectId ? { projectId: mappedProjectId } : {})
+				};
 				const identical = snippetKeys.has(
 					JSON.stringify([
-						snippet.title,
-						snippet.code,
-						snippet.language,
-						snippet.tags.join('\0'),
-						snippet.folder,
-						snippet.projectId,
-						snippet.favorite,
-						snippet.createdAt,
-						snippet.updatedAt
+						mapped.title,
+						mapped.code,
+						mapped.language,
+						mapped.tags.join('\0'),
+						mapped.folder,
+						mapped.projectId,
+						mapped.favorite,
+						mapped.createdAt,
+						mapped.updatedAt
 					])
 				);
 				if (identical) return [];
-				return [{ ...snippet, id: snippetIds.has(snippet.id) ? newId() : snippet.id }];
+				return [{ ...mapped, id: snippetIds.has(mapped.id) ? newId() : mapped.id }];
 			});
 			await Promise.all([
 				db.drafts.bulkPut(draftsToPut.filter((row): row is DraftRow => row !== null)),
