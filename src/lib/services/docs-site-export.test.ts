@@ -279,6 +279,66 @@ describe('documentation site output', () => {
 		expect(new TextDecoder().decode(raw)).toContain('onload');
 	});
 
+	it('sanitizes a code document published at an SVG path', async () => {
+		const raw =
+			'<svg xmlns="http://www.w3.org/2000/svg" onload="window.__svgTestMarker=1"><script>window.__svgTestMarker=2</script><rect width="4" height="4"/></svg>';
+		const result = await buildDocsSite(
+			source({
+				documents: [
+					{
+						id: 'home',
+						relativePath: 'README.md',
+						content: '# Home\n\n[Vector](assets/vector.svg)\n'
+					},
+					{
+						id: 'vector',
+						relativePath: 'assets/vector.svg',
+						kind: 'code',
+						mime: 'text/plain',
+						content: raw
+					}
+				]
+			})
+		);
+		const published = text(result, 'assets/vector.svg');
+		expect(published).not.toContain('onload');
+		expect(published).not.toContain('<script');
+		expect(published).toContain('<rect');
+		expect(result.report.assets).toContainEqual({
+			source: 'assets/vector.svg',
+			path: 'assets/vector.svg'
+		});
+	});
+
+	it('rejects a code document at an SVG path that is not a safe standalone SVG', async () => {
+		await expect(
+			buildDocsSite(
+				source({
+					documents: [
+						{ id: 'home', relativePath: 'README.md', content: '# Home\n' },
+						{
+							id: 'vector',
+							relativePath: 'assets/vector.svg',
+							kind: 'code',
+							content: 'not an SVG document'
+						}
+					]
+				})
+			)
+		).rejects.toMatchObject({
+			name: 'DocsSiteExportError',
+			report: {
+				issues: expect.arrayContaining([
+					expect.objectContaining({
+						code: 'asset-unsafe',
+						severity: 'error',
+						path: 'assets/vector.svg'
+					})
+				])
+			}
+		});
+	});
+
 	it('stops before ZIP creation when the signal is cancelled', async () => {
 		const controller = new AbortController();
 		controller.abort();
