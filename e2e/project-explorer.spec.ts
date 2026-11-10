@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test, type Page } from '@playwright/test';
-import { resetAppState, seedFiles } from './helpers';
+import { resetAppState, seedFiles, writeSourceContent } from './helpers';
 
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
@@ -449,6 +449,39 @@ test('copy leaves existing siblings and their links unchanged', async ({ page },
 		contentType: 'application/json'
 	});
 	await info.attach('project-copy-existing.png', {
+		body: await page.screenshot(),
+		contentType: 'image/png'
+	});
+});
+
+test('opens a mixed-case project Markdown link in read mode', async ({ page }, info) => {
+	await importProject(page, 'Links', {
+		'docs/Guide.md': '# Guide\n\nCanonical target.\n',
+		'notes/reader.md': '# Reader\n\n[Read guide](../docs/guide.md)\n'
+	});
+	const root = await projectRoot(page, 'Links');
+	await expand(page, 'Links');
+	await ensureExpanded(root.locator('[data-project-folder="notes"]'));
+	const paths = (await storedState(page)).drafts.map((draft) => draft.relativePath);
+	expect(paths).toContain('docs/Guide.md');
+	expect(paths).toContain('notes/reader.md');
+	await root.locator('[data-project-document="notes/reader.md"] button[data-file-id]').click();
+	const fileName = page.locator('input[aria-label^="Nom du fichier"]');
+	await expect(fileName).toHaveValue('reader');
+	// Write the authored mixed-case destination after import, so no migration
+	// pass can repair it before Read mode resolves the stored path.
+	await writeSourceContent(page, '# Reader\n\n[Read guide](../docs/guide.md)\n');
+	await page.locator('button[data-mode="read"]').click();
+	const link = page.getByRole('link', { name: 'Read guide' });
+	expect(await link.getAttribute('href')).toBe('../docs/guide.md');
+	await link.click();
+	await expect(fileName).toHaveValue('Guide');
+	await expect(page.locator('.mdsh-preview')).toContainText('Canonical target');
+	await info.attach('project-read-case-link.json', {
+		body: JSON.stringify({ destination: '../docs/guide.md', target: 'docs/Guide.md' }, null, 2),
+		contentType: 'application/json'
+	});
+	await info.attach('project-read-case-link.png', {
 		body: await page.screenshot(),
 		contentType: 'image/png'
 	});

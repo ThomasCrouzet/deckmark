@@ -808,15 +808,34 @@ class FilesStore {
 	async openProjectLink(sourceId: string, destination: string): Promise<void> {
 		const source = this.library.find((file) => file.id === sourceId);
 		if (!source?.projectId || !source.relativePath) return;
-		const { resolveProjectPath } = await import('./project-paths');
+		const { resolveProjectPath, pathKey } = await import('./project-paths');
 		const path = resolveProjectPath(source.relativePath, destination);
-		const target = this.library.find(
-			(file) => file.projectId === source.projectId && file.relativePath === path
-		);
-		if (!target) {
+		if (!path) {
 			notify.error(t('projects.linkMissing'));
 			return;
 		}
+		let key: string;
+		try {
+			key = pathKey(path);
+		} catch {
+			notify.error(t('projects.linkMissing'));
+			return;
+		}
+		const matches = this.library.filter((file) => {
+			if (file.projectId !== source.projectId || !file.relativePath) return false;
+			try {
+				return pathKey(file.relativePath) === key;
+			} catch {
+				return false;
+			}
+		});
+		// Portable project identity is case-insensitive. A malformed legacy
+		// library can still contain two rows for one key; never pick arbitrarily.
+		if (matches.length !== 1) {
+			notify.error(t('projects.linkMissing'));
+			return;
+		}
+		const target = matches[0]!;
 		const fragment = destination.split('#').slice(1).join('#');
 		if (fragment) {
 			try {
