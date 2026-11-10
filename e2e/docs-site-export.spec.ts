@@ -392,3 +392,161 @@ test('documentation site avoids a user asset that has the internal directory nam
 		contentType: 'application/json'
 	});
 });
+
+test('documentation site report stays bound to its origin project', async ({ page }, testInfo) => {
+	await resetAppState(page);
+	await page.evaluate(async () => {
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const database = request.result;
+				const transaction = database.transaction(['drafts', 'projects'], 'readwrite');
+				const drafts = transaction.objectStore('drafts');
+				const projects = transaction.objectStore('projects');
+				projects.put({ id: 'alpha', name: 'Alpha', createdAt: 1, updatedAt: 1 });
+				projects.put({ id: 'beta', name: 'Beta', createdAt: 1, updatedAt: 2 });
+				projects.put({ id: 'gamma', name: 'Gamma', createdAt: 1, updatedAt: 3 });
+				drafts.put({
+					id: 'alpha-home',
+					name: 'README.md',
+					projectId: 'alpha',
+					relativePath: 'README.md',
+					content: '# Alpha\n\n[Missing](#absent)\n',
+					kind: 'note',
+					order: 0,
+					open: true,
+					createdAt: 1,
+					updatedAt: 1
+				});
+				drafts.put({
+					id: 'beta-home',
+					name: 'README.md',
+					projectId: 'beta',
+					relativePath: 'README.md',
+					content: '# Beta\n',
+					kind: 'note',
+					order: 0,
+					open: true,
+					createdAt: 1,
+					updatedAt: 1
+				});
+				drafts.put({
+					id: 'beta-guide',
+					name: 'guide.md',
+					projectId: 'beta',
+					relativePath: 'guide.md',
+					content: '# Beta guide\n',
+					kind: 'note',
+					order: 1,
+					open: true,
+					createdAt: 1,
+					updatedAt: 1
+				});
+				drafts.put({
+					id: 'gamma-home',
+					name: 'README.md',
+					projectId: 'gamma',
+					relativePath: 'README.md',
+					content: '# Gamma\n\n[Vector](assets/broken.svg)\n',
+					kind: 'note',
+					order: 0,
+					open: true,
+					createdAt: 1,
+					updatedAt: 1
+				});
+				drafts.put({
+					id: 'gamma-vector',
+					name: 'broken.svg',
+					projectId: 'gamma',
+					relativePath: 'assets/broken.svg',
+					content: 'not an SVG document',
+					kind: 'code',
+					order: 1,
+					open: true,
+					createdAt: 1,
+					updatedAt: 1
+				});
+				transaction.oncomplete = () => {
+					database.close();
+					resolve();
+				};
+				transaction.onerror = () => reject(transaction.error);
+			};
+		});
+	});
+	await page.reload();
+	await page.getByTestId('projects-open').click();
+	const projects = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await projects.getByRole('button', { name: 'Exporter le site de documentation' }).click();
+	const panel = page.getByRole('dialog', { name: 'Exporter le site de documentation' });
+	const selector = panel.getByTestId('docs-site-project');
+	const summary = panel.getByTestId('docs-site-summary');
+	const reportButton = panel.getByTestId('docs-site-export-report');
+
+	await selector.selectOption('alpha');
+	await saveDownload(page, testInfo, 'alpha-site.zip');
+	await expect(summary).toContainText('1 page(s)');
+	await expect(summary).toContainText('1 avertissement(s)');
+
+	const alphaReportPath = await saveReport(page, testInfo, 'alpha-report.json');
+	expect(JSON.parse(await readFile(alphaReportPath, 'utf8')).siteName).toBe('Alpha');
+
+	await selector.selectOption('beta');
+	await expect(summary).toHaveCount(0);
+	await expect(reportButton).toBeDisabled();
+
+	await saveDownload(page, testInfo, 'beta-site.zip');
+	await expect(summary).toContainText('2 page(s)');
+	const betaReportDownload = page.waitForEvent('download');
+	await reportButton.click();
+	const betaDownload = await betaReportDownload;
+	expect(betaDownload.suggestedFilename()).toBe('Beta-site-report.json');
+	const betaReportPath = testInfo.outputPath('beta-report.json');
+	await betaDownload.saveAs(betaReportPath);
+	const betaReport = JSON.parse(await readFile(betaReportPath, 'utf8'));
+	expect(betaReport.siteName).toBe('Beta');
+	expect(betaReport.pages.map((entry: { path: string }) => entry.path)).toEqual([
+		'guide.html',
+		'index.html'
+	]);
+
+	await panel.getByTestId('docs-site-search-toggle').uncheck();
+	await expect(summary).toHaveCount(0);
+	await expect(reportButton).toBeDisabled();
+	await saveDownload(page, testInfo, 'beta-no-search.zip');
+	await expect(panel.getByText('Index de recherche : non inclus')).toBeVisible();
+	await expect(reportButton).toBeEnabled();
+
+	await selector.selectOption('gamma');
+	await expect(summary).toHaveCount(0);
+	await expect(reportButton).toBeDisabled();
+	await panel.getByTestId('docs-site-run').click();
+	await expect(summary).toContainText('1 erreur(s)');
+	await expect(reportButton).toBeEnabled();
+	await expect(panel.getByTestId('docs-site-report-origin')).toHaveText('Gamma');
+
+	const gammaReportDownload = page.waitForEvent('download');
+	await reportButton.click();
+	await selector.selectOption('beta');
+	const gammaDownload = await gammaReportDownload;
+	expect(gammaDownload.suggestedFilename()).toBe('Gamma-site-report.json');
+	const gammaReportPath = testInfo.outputPath('gamma-report.json');
+	await gammaDownload.saveAs(gammaReportPath);
+	const gammaReport = JSON.parse(await readFile(gammaReportPath, 'utf8'));
+	expect(gammaReport.siteName).toBe('Gamma');
+	expect(gammaReport.summary.errors).toBe(1);
+	await expect(summary).toHaveCount(0);
+	await expect(reportButton).toBeDisabled();
+	await expect(panel.getByTestId('docs-site-report-origin')).toHaveCount(0);
+
+	await testInfo.attach('report-origin.json', {
+		body: JSON.stringify({
+			alpha: { siteName: 'Alpha', pages: 1 },
+			beta: { siteName: betaReport.siteName, pages: betaReport.pages.length },
+			gamma: { siteName: gammaReport.siteName, errors: gammaReport.summary.errors },
+			filenames: [betaDownload.suggestedFilename(), gammaDownload.suggestedFilename()]
+		}),
+		contentType: 'application/json'
+	});
+});

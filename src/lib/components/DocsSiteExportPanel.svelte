@@ -34,12 +34,28 @@
 	let busy = $state(false);
 	let error = $state(false);
 	let cancelled = $state(false);
-	let report = $state<DocsSiteReport | null>(null);
 	let closeButton = $state<HTMLButtonElement | null>(null);
 	let activeController: AbortController | null = null;
 	let runToken = 0;
 
-	const selectedProject = $derived(projects.find((project) => project.id === selected) ?? null);
+	interface BoundReport {
+		report: DocsSiteReport;
+		projectId: string;
+		projectName: string;
+		includeSearchIndex: boolean;
+	}
+
+	// A report belongs to the project and options that produced it. It is never
+	// a property of whatever the selector shows later.
+	let reportBinding = $state<BoundReport | null>(null);
+	const report = $derived(reportBinding?.report ?? null);
+
+	function resetReport(): void {
+		if (busy) return;
+		reportBinding = null;
+		error = false;
+		cancelled = false;
+	}
 
 	onMount(() => {
 		if (initialProjectId) selected = initialProjectId;
@@ -67,6 +83,7 @@
 
 	function updateSearchIndex(event: Event): void {
 		includeSearchIndex = (event.currentTarget as HTMLInputElement).checked;
+		resetReport();
 	}
 
 	function errorReport(failure: unknown): DocsSiteReport | null {
@@ -90,10 +107,13 @@
 		busy = true;
 		error = false;
 		cancelled = false;
-		report = null;
+		reportBinding = null;
+		const originSearchIndex = includeSearchIndex;
+		let originName = projects.find((project) => project.id === projectId)?.name ?? 'project';
 		try {
 			const snapshot = await projectSiteSnapshot(projectId);
 			if (token !== runToken) return;
+			originName = snapshot.project.name;
 			const [{ buildDocsSite }, { sanitizeFilename, triggerDownload }] = await Promise.all([
 				import('#lib/services/docs-site-export.js'),
 				import('#lib/services/export.js')
@@ -110,7 +130,12 @@
 				{ signal: controller.signal }
 			);
 			if (token !== runToken) return;
-			report = result.report;
+			reportBinding = {
+				report: result.report,
+				projectId,
+				projectName: originName,
+				includeSearchIndex: originSearchIndex
+			};
 			const saved = await triggerDownload(
 				result.blob,
 				sanitizeFilename(`${snapshot.project.name}-site.zip`)
@@ -121,7 +146,12 @@
 			if (token !== runToken) return;
 			const failureReport = errorReport(failure);
 			if (failureReport) {
-				report = failureReport;
+				reportBinding = {
+					report: failureReport,
+					projectId,
+					projectName: originName,
+					includeSearchIndex: originSearchIndex
+				};
 				error = true;
 			} else if (isAbort(failure) || controller.signal.aborted) {
 				cancelled = true;
@@ -156,7 +186,8 @@
 	}
 
 	async function exportReport(): Promise<void> {
-		if (!report) return;
+		const binding = reportBinding;
+		if (!binding) return;
 		try {
 			const [{ serializeDocsSiteReport }, { sanitizeFilename, triggerDownload }] =
 				await Promise.all([
@@ -164,8 +195,8 @@
 					import('#lib/services/export.js')
 				]);
 			const saved = await triggerDownload(
-				new Blob([serializeDocsSiteReport(report)], { type: 'application/json' }),
-				sanitizeFilename(`${selectedProject?.name ?? 'project'}-site-report.json`)
+				new Blob([serializeDocsSiteReport(binding.report)], { type: 'application/json' }),
+				sanitizeFilename(`${binding.projectName || 'project'}-site-report.json`)
 			);
 			if (saved) notify.success(td('docsSite.reportExported'));
 		} catch (failure) {
@@ -212,6 +243,7 @@
 				<select
 					data-testid="docs-site-project"
 					bind:value={selected}
+					onchange={resetReport}
 					disabled={busy}
 					class="min-w-0 rounded border border-border bg-bg px-2 py-2 text-sm text-fg"
 				>
@@ -264,6 +296,9 @@
 					{td('docsSite.exporting')}
 				</p>
 			{:else if report}
+				<p data-testid="docs-site-report-origin" class="text-xs text-fg-muted">
+					{reportBinding?.projectName}
+				</p>
 				<p data-testid="docs-site-summary" class="text-sm text-fg-muted">
 					{td('docsSite.summary', {
 						pages: report.summary.pages,
