@@ -30,6 +30,7 @@
 	}
 
 	interface Preview {
+		rootId: string;
 		path: string;
 		fileName: string;
 		text: string;
@@ -61,6 +62,13 @@
 	let busy = $state(false);
 	let listBusy = $state(false);
 	let errorText = $state('');
+	// A list or read result belongs to the folder that started it. The epoch
+	// changes with the selected root; the serials reject an older request of
+	// the same root. Only the active request may publish state or clear busy.
+	let rootEpoch = 0;
+	let listSerial = 0;
+	let previewSerial = 0;
+	let lastRootId = getDesktopBackupState().rootId;
 
 	function formatDate(value: number): string {
 		return new Intl.DateTimeFormat(i18n.locale, {
@@ -78,19 +86,55 @@
 		reportError('desktop backup', error);
 	}
 
+	function syncBackupState(): void {
+		const next = getDesktopBackupState();
+		const rootChanged = next.rootId !== lastRootId;
+		backupState = next;
+		if (rootChanged) {
+			lastRootId = next.rootId;
+			invalidateRoot();
+		}
+	}
+
+	/**
+	 * Drops every row and preview that belongs to the previous root before the
+	 * new list starts. The loading and error text also belong to the old root.
+	 */
+	function invalidateRoot(): void {
+		rootEpoch += 1;
+		snapshots = [];
+		preview = null;
+		retentionWarning = null;
+		errorText = '';
+		listBusy = false;
+	}
+
 	async function refreshSnapshots(): Promise<void> {
-		if (!backupState.root) {
+		const rootId = backupState.rootId;
+		if (!rootId) {
 			snapshots = [];
+			listBusy = false;
 			return;
 		}
+		const epoch = rootEpoch;
+		const request = ++listSerial;
 		listBusy = true;
+		errorText = '';
 		try {
-			snapshots = await listBackupSnapshots();
+			const entries = await listBackupSnapshots(rootId);
+			if (epoch !== rootEpoch || request !== listSerial || backupState.rootId !== rootId) {
+				return;
+			}
+			snapshots = entries;
 			errorText = '';
 		} catch (error) {
+			if (epoch !== rootEpoch || request !== listSerial || backupState.rootId !== rootId) {
+				return;
+			}
+			snapshots = [];
 			showError(error, 'settings.desktopBackupReadFailed');
 		} finally {
-			listBusy = false;
+			if (request === listSerial) listBusy = false;
 		}
 	}
 
@@ -193,22 +237,32 @@
 
 	async function previewSnapshot(entry: BackupEntry): Promise<void> {
 		if (busy) return;
+		const rootId = backupState.rootId;
+		if (!rootId || entry.rootId !== rootId) return;
+		const epoch = rootEpoch;
+		const request = ++previewSerial;
 		busy = true;
 		errorText = '';
 		try {
-			const text = await readBackupSnapshot(entry.fileName);
+			const text = await readBackupSnapshot(rootId, entry.fileName);
+			if (epoch !== rootEpoch || request !== previewSerial || backupState.rootId !== rootId) {
+				return;
+			}
 			const { backup } = parseBackupWithReport(text);
-			preview = { path: entry.path, fileName: entry.fileName, text, backup };
+			preview = { rootId, path: entry.path, fileName: entry.fileName, text, backup };
 		} catch (error) {
+			if (epoch !== rootEpoch || request !== previewSerial || backupState.rootId !== rootId) {
+				return;
+			}
 			preview = null;
 			showError(error, 'settings.desktopBackupReadFailed');
 		} finally {
-			busy = false;
+			if (request === previewSerial) busy = false;
 		}
 	}
 
 	async function restorePreview(): Promise<void> {
-		if (!preview || busy) return;
+		if (!preview || busy || preview.rootId !== backupState.rootId) return;
 		busy = true;
 		errorText = '';
 		try {
@@ -230,9 +284,7 @@
 	}
 
 	onMount(() => {
-		const unsubscribe = subscribeDesktopBackup(() => {
-			backupState = getDesktopBackupState();
-		});
+		const unsubscribe = subscribeDesktopBackup(syncBackupState);
 		void refreshSnapshots();
 		return unsubscribe;
 	});
@@ -381,14 +433,14 @@
 			<p class="text-xs text-fg-muted">{t('settings.desktopBackupEmpty')}</p>
 		{:else}
 			<ul class="space-y-1 text-xs">
-				{#each snapshots as entry (entry.path)}
+				{#each snapshots as entry (`${entry.rootId}:${entry.path}`)}
 					<li class="flex flex-wrap items-center gap-2 border-t border-border py-1.5">
 						<span class="min-w-0 flex-1 break-all font-mono text-fg">{entry.fileName}</span>
 						<span class="text-fg-dim">{formatStorageBytes(entry.size)}</span>
 						<span class="text-fg-dim">{formatDate(entry.modifiedMs)}</span>
 						<button
 							class="rounded border border-border px-2 py-1"
-							disabled={busy}
+							disabled={busy || entry.rootId !== backupState.rootId}
 							onclick={() => void previewSnapshot(entry)}
 						>
 							{t('settings.desktopBackupPreview')}

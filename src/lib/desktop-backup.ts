@@ -37,6 +37,8 @@ export interface BackupEntry {
 	fileName: string;
 	size: number;
 	modifiedMs: number;
+	/** Native root that produced this list row. */
+	rootId: string;
 }
 
 export interface BackupWrite {
@@ -258,19 +260,32 @@ async function performBackupWrite(rootId: string): Promise<BackupWrite> {
 	return { ...result, rootId };
 }
 
-export async function listBackupSnapshots(): Promise<BackupEntry[]> {
-	const preferences = loadPreferences();
-	if (!preferences.rootId) return [];
-	const entries = await invokeDesktop<BackupEntry[]>('desktop_backup_list', {
-		rootId: preferences.rootId
+/**
+ * Lists the snapshots of one authorized root. The caller passes the root that
+ * it displayed, so a late result stays bound to the folder that produced it.
+ * Each row carries that root identity back to the caller.
+ */
+export async function listBackupSnapshots(rootId: string): Promise<BackupEntry[]> {
+	if (!rootId) return [];
+	const entries = await invokeDesktop<Omit<BackupEntry, 'rootId'>[]>('desktop_backup_list', {
+		rootId
 	});
-	return entries;
+	return entries.map((entry) => ({ ...entry, rootId }));
 }
 
-export async function readBackupSnapshot(fileName: string): Promise<string> {
+/**
+ * Reads one snapshot from the authorized root that displayed it. The current
+ * preference must still select that root before the read starts. A later root
+ * change cannot retarget this call because the native command receives the
+ * captured identity.
+ */
+export async function readBackupSnapshot(rootId: string, fileName: string): Promise<string> {
 	const preferences = loadPreferences();
-	if (!preferences.rootId) throw new Error('Choose a backup folder first.');
-	return invokeDesktop<string>('desktop_backup_read', { rootId: preferences.rootId, fileName });
+	if (!rootId) throw new Error('Choose a backup folder first.');
+	if (preferences.rootId !== rootId) {
+		throw new Error('The backup folder changed before the snapshot read started.');
+	}
+	return invokeDesktop<string>('desktop_backup_read', { rootId, fileName });
 }
 
 function stopTimer(): void {
