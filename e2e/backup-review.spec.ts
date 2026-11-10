@@ -1,5 +1,11 @@
 import { test, expect, type Download, type Page, type TestInfo } from '@playwright/test';
-import { createFirstFile, renameActiveFile, resetAppState, writeSourceContent } from './helpers';
+import {
+	createFirstFile,
+	openPalette,
+	renameActiveFile,
+	resetAppState,
+	writeSourceContent
+} from './helpers';
 import { presentationFixture } from './presentation-helpers';
 
 const image = Buffer.from(
@@ -289,9 +295,13 @@ async function standaloneReplacement(page: Page, info: TestInfo) {
 	const state = await inventory(page);
 	await attach(info, 'standalone-replaced.json', state);
 	const id = original.drafts[0]!.id;
-	expect(state.trashed).toEqual([
-		expect.objectContaining({ id, file: expect.objectContaining({ id, content: '# Version A\n' }) })
-	]);
+	const trashed = state.trashed[0]!;
+	expect(state.trashed).toHaveLength(1);
+	// The retained copy takes a new owner identity so its history never attaches
+	// to the unrelated incoming draft that reuses the original id.
+	expect(trashed.id).not.toBe(id);
+	expect(trashed.file.id).toBe(trashed.id);
+	expect(trashed.file.content).toBe('# Version A\n');
 	expect(state.drafts).toEqual([expect.objectContaining({ id, content: '# Version B\n' })]);
 	return id;
 }
@@ -314,6 +324,48 @@ async function historyRows(page: Page) {
 				};
 			})
 	);
+}
+
+async function activeDraftRow(page: Page): Promise<Draft> {
+	const drafts = (await inventory(page)).drafts;
+	return drafts.find((row) => row.open !== false) ?? drafts[0]!;
+}
+
+async function seedVersion(
+	page: Page,
+	draft: { id: string; name: string },
+	content: string
+): Promise<void> {
+	await page.evaluate(
+		({ current, versionContent }) =>
+			new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('versions', 'readwrite');
+					transaction.objectStore('versions').put({
+						id: `e2e-version-${Date.now()}`,
+						draftId: current.id,
+						name: current.name,
+						content: versionContent,
+						createdAt: Date.now() - 60_000
+					});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			}),
+		{ current: draft, versionContent: content }
+	);
+}
+
+async function openCommand(page: Page, label: string): Promise<void> {
+	await openPalette(page);
+	await page.getByRole('combobox').fill(label);
+	await page.keyboard.press('Enter');
 }
 
 async function snippetRows(page: Page) {
@@ -367,6 +419,265 @@ async function commentRows(page: Page) {
 	);
 }
 
+test('replace keeps old history with the recovery branch, not an unrelated same-id draft', async ({
+	page
+}, info) => {
+	await createFirstFile(page);
+	await renameActiveFile(page, 'same');
+	await writeSourceContent(page, '# Private note\n');
+	const privateDraft = await activeDraftRow(page);
+	await seedVersion(page, privateDraft, '# Previous private revision\n');
+
+	const original = JSON.parse((await exportBackup(page)).toString()) as Backup;
+	const id = original.drafts[0]!.id;
+	const incoming = structuredClone(original);
+	incoming.drafts[0]!.name = 'Public.md';
+	incoming.drafts[0]!.content = '# Unrelated incoming note\n';
+	incoming.drafts[0]!.updatedAt += 1;
+	incoming.exportedAt = stamp + 1;
+	await attach(info, 'ownership-incoming.json', incoming);
+	await restore(page, Buffer.from(JSON.stringify(incoming)));
+
+	const state = await inventory(page);
+	const history = await historyRows(page);
+	await attach(info, 'ownership-after-replace.json', { state, history });
+	const live = state.drafts.find((row) => row.id === id)!;
+	expect(live.name).toBe('Public.md');
+	expect(live.content).toBe('# Unrelated incoming note\n');
+	expect(history.filter((row) => row.draftId === id)).toEqual([]);
+	const recovery = state.trashed.find((row) => row.file.content === '# Private note\n')!;
+	expect(recovery).toBeDefined();
+	expect(recovery.id).not.toBe(id);
+	expect(history.filter((row) => row.draftId === recovery.id).map((row) => row.content)).toContain(
+		'# Previous private revision\n'
+	);
+
+	await page.locator('.mdsh-file-row').filter({ hasText: 'Public' }).click();
+	await openCommand(page, 'Historique des versions');
+	const incomingHistory = page.getByRole('dialog', { name: /Historique des versions/ });
+	await expect(incomingHistory).toContainText('Aucune version enregistrée');
+	await expect(
+		incomingHistory.getByRole('button', { name: 'Restaurer cette version' })
+	).toHaveCount(0);
+	await page.keyboard.press('Escape');
+
+	await page.reload();
+	const reloaded = await inventory(page);
+	const reloadedHistory = await historyRows(page);
+	await attach(info, 'ownership-after-reload.json', {
+		state: reloaded,
+		history: reloadedHistory
+	});
+	expect(reloaded.drafts.find((row) => row.id === id)?.content).toBe('# Unrelated incoming note\n');
+	expect(reloadedHistory.filter((row) => row.draftId === id)).toEqual([]);
+	expect(reloadedHistory.filter((row) => row.draftId === recovery.id).length).toBeGreaterThan(0);
+
+	const trash = page
+		.locator('aside details')
+		.filter({ has: page.locator('summary', { hasText: /^Corbeille/ }) });
+	await trash.locator('summary').click();
+	await trash.getByRole('button', { name: 'Restaurer same.md', exact: true }).click();
+	await expect(page.locator('.cm-content')).toContainText('# Private note');
+
+	await openCommand(page, 'Historique des versions');
+	const recoveryHistory = page.getByRole('dialog', { name: /Historique des versions/ });
+	const listed = recoveryHistory.getByRole('list', { name: 'Versions disponibles' });
+	await listed.getByRole('button').last().click();
+	await expect(recoveryHistory).toContainText('# Previous private revision');
+	await recoveryHistory.getByRole('button', { name: 'Restaurer cette version' }).click();
+	await page
+		.getByRole('dialog', { name: 'Restaurer cette version ?' })
+		.getByRole('button', { name: 'Restaurer' })
+		.click();
+	await expect(page.locator('.cm-content')).toContainText('# Previous private revision');
+	await attach(info, 'ownership-recovered.json', {
+		state: await inventory(page),
+		history: await historyRows(page)
+	});
+});
+
+test('replace preserves history for an identical same-id draft', async ({ page }, info) => {
+	await createFirstFile(page);
+	await renameActiveFile(page, 'same');
+	await writeSourceContent(page, '# Stable\n');
+	const draft = await activeDraftRow(page);
+	await seedVersion(page, draft, '# Earlier stable revision\n');
+	const original = JSON.parse((await exportBackup(page)).toString()) as Backup;
+	const id = original.drafts[0]!.id;
+	await attach(info, 'identical-incoming.json', original);
+	await restore(page, Buffer.from(JSON.stringify(original)));
+
+	const history = await historyRows(page);
+	await attach(info, 'identical-after-replace.json', {
+		state: await inventory(page),
+		history
+	});
+	expect((await inventory(page)).drafts.find((row) => row.id === id)?.content).toBe('# Stable\n');
+	expect(history.filter((row) => row.draftId === id).map((row) => row.content)).toContain(
+		'# Earlier stable revision\n'
+	);
+	await openCommand(page, 'Historique des versions');
+	const panel = page.getByRole('dialog', { name: /Historique des versions/ });
+	await panel
+		.getByRole('list', { name: 'Versions disponibles' })
+		.getByRole('button')
+		.last()
+		.click();
+	await expect(panel).toContainText('# Earlier stable revision');
+});
+
+test('project replacement keeps recovered history under the recovery project branch', async ({
+	page
+}, info) => {
+	await importProject(page, info);
+	const guide = await activeDraftRow(page);
+	await seedVersion(page, guide, '# Earlier project revision\n');
+	const original = JSON.parse((await exportBackup(page)).toString()) as Backup;
+	const incoming = structuredClone(original);
+	const incomingGuide = incoming.drafts.find((row) => row.relativePath === 'notes/guide.md')!;
+	incomingGuide.content = '# Incoming project note\n';
+	incomingGuide.updatedAt += 1;
+	incoming.exportedAt = stamp + 1;
+	await attach(info, 'project-ownership-incoming.json', incoming);
+	await restore(page, Buffer.from(JSON.stringify(incoming)));
+
+	const state = await inventory(page);
+	const history = await historyRows(page);
+	await attach(info, 'project-ownership-after-replace.json', { state, history });
+	expect(state.drafts.find((row) => row.id === incomingGuide.id)?.content).toBe(
+		'# Incoming project note\n'
+	);
+	expect(history.filter((row) => row.draftId === incomingGuide.id)).toEqual([]);
+	const recovery = state.trashed.find((row) => row.file.content.includes('# Earlier trash'))!;
+	expect(recovery).toBeDefined();
+	expect(recovery.id).not.toBe(incomingGuide.id);
+	expect(recovery.file.projectId).not.toBe(incoming.projects[0]!.id);
+	expect(state.projects.some((project) => project.id === recovery.file.projectId)).toBe(true);
+	expect(history.filter((row) => row.draftId === recovery.id).map((row) => row.content)).toContain(
+		'# Earlier project revision\n'
+	);
+});
+
+test('replace removes orphan history that the incoming draft does not own', async ({
+	page
+}, info) => {
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('versions', 'readwrite');
+					transaction.objectStore('versions').put({
+						id: 'orphan-version',
+						draftId: 'orphan-draft',
+						name: 'orphan.md',
+						content: '# Previous orphan owner\n',
+						createdAt: Date.now() - 60_000
+					});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			})
+	);
+	const incoming = emptyBackup();
+	incoming.drafts = [
+		{
+			id: 'orphan-draft',
+			name: 'orphan.md',
+			content: '# New owner\n',
+			createdAt: stamp,
+			updatedAt: stamp,
+			order: 0,
+			open: true
+		}
+	];
+	await attach(info, 'orphan-incoming.json', incoming);
+	await restore(page, Buffer.from(JSON.stringify(incoming)));
+	const state = await inventory(page);
+	const history = await historyRows(page);
+	await attach(info, 'orphan-after-replace.json', { state, history });
+	expect(state.drafts.find((row) => row.id === 'orphan-draft')?.content).toBe('# New owner\n');
+	expect(history.filter((row) => row.draftId === 'orphan-draft')).toEqual([]);
+});
+
+test('permanent purge of a recovery branch removes its history', async ({ page }, info) => {
+	await standaloneReplacement(page, info);
+	const trashId = (await inventory(page)).trashed[0]!.id;
+	const before = await historyRows(page);
+	expect(before.filter((row) => row.draftId === trashId).length).toBeGreaterThan(0);
+	await page.evaluate(
+		(target) =>
+			new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('trashed', 'readwrite');
+					const store = transaction.objectStore('trashed');
+					const read = store.get(target);
+					read.onsuccess = () =>
+						store.put({
+							...read.result,
+							trashedAt: Date.now() - 31 * 24 * 60 * 60 * 1000
+						});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			}),
+		trashId
+	);
+	await page.reload();
+	await expect.poll(async () => (await inventory(page)).trashed.length).toBe(0);
+	const after = await historyRows(page);
+	await attach(info, 'expired-recovery-history.json', { before, after, trashId });
+	expect(after.filter((row) => row.draftId === trashId)).toEqual([]);
+});
+
+test('replace rekeys history when an incoming binary reuses a text draft id', async ({
+	page
+}, info) => {
+	await createFirstFile(page);
+	await renameActiveFile(page, 'same');
+	await writeSourceContent(page, '# Text owner\n');
+	const draft = await activeDraftRow(page);
+	await seedVersion(page, draft, '# Earlier text revision\n');
+	const original = JSON.parse((await exportBackup(page)).toString()) as Backup;
+	const incoming = structuredClone(original);
+	const id = incoming.drafts[0]!.id;
+	incoming.drafts[0] = {
+		...incoming.drafts[0]!,
+		name: 'photo.png',
+		content: '',
+		kind: 'image',
+		mime: 'image/png',
+		data: `data:image/png;base64,${image.toString('base64')}`,
+		updatedAt: incoming.drafts[0]!.updatedAt + 1
+	};
+	incoming.exportedAt = stamp + 1;
+	await attach(info, 'binary-ownership-incoming.json', incoming);
+	await restore(page, Buffer.from(JSON.stringify(incoming)));
+
+	const state = await inventory(page);
+	const history = await historyRows(page);
+	await attach(info, 'binary-ownership-after-replace.json', { state, history });
+	expect(state.drafts.find((row) => row.id === id)?.kind).toBe('image');
+	expect(history.filter((row) => row.draftId === id)).toEqual([]);
+	const recovery = state.trashed.find((row) => row.file.content === '# Text owner\n')!;
+	expect(recovery).toBeDefined();
+	expect(recovery.id).not.toBe(id);
+	expect(history.filter((row) => row.draftId === recovery.id).map((row) => row.content)).toContain(
+		'# Earlier text revision\n'
+	);
+});
+
 for (const closed of [false, true]) {
 	test(`standalone replacement restores A and keeps ${closed ? 'closed' : 'open'} B and history`, async ({
 		page
@@ -374,7 +685,10 @@ for (const closed of [false, true]) {
 		const id = await standaloneReplacement(page, info);
 		const history = await historyRows(page);
 		await attach(info, 'history-before.json', history);
-		expect(history.filter((row) => row.draftId === id).length).toBeGreaterThan(0);
+		const replaced = await inventory(page);
+		const trashId = replaced.trashed[0]!.id;
+		expect(history.filter((row) => row.draftId === trashId).length).toBeGreaterThan(0);
+		expect(history.filter((row) => row.draftId === id)).toEqual([]);
 		if (closed) {
 			await page
 				.locator('.mdsh-file-row')
@@ -413,7 +727,7 @@ for (const closed of [false, true]) {
 				.sort()
 		).toEqual(
 			history
-				.filter((row) => row.draftId === id)
+				.filter((row) => row.draftId === trashId)
 				.map((row) => row.content)
 				.sort()
 		);
@@ -423,12 +737,16 @@ for (const closed of [false, true]) {
 	});
 }
 
-test('standalone replacement keeps B and the original trash reference after a failed copy', async ({
-	page
-}, info) => {
+test('replace rolls back the history move when a recovery write fails', async ({ page }, info) => {
 	const id = await standaloneReplacement(page, info);
 	const before = await inventory(page);
 	const history = await historyRows(page);
+	const active = before.drafts.find((row) => row.id === id)!;
+	const incoming = emptyBackup();
+	incoming.drafts = [
+		{ ...active, name: 'Probe.md', content: '# Rollback probe\n', updatedAt: active.updatedAt + 1 }
+	];
+	await attach(info, 'history-rollback-incoming.json', incoming);
 	await page.evaluate((originalId) => {
 		const put = IDBObjectStore.prototype.put;
 		IDBObjectStore.prototype.put = function (...args) {
@@ -436,33 +754,36 @@ test('standalone replacement keeps B and the original trash reference after a fa
 			if (
 				this.name === 'trashed' &&
 				row.id !== originalId &&
-				row.file?.content === '# Version A\n'
+				row.file?.content === '# Version B\n'
 			) {
 				IDBObjectStore.prototype.put = put;
 				this.transaction.abort();
-				throw new DOMException('Trash copy interrupted', 'QuotaExceededError');
+				throw new DOMException('Recovery copy interrupted', 'QuotaExceededError');
 			}
 			return put.apply(this, args);
 		};
 	}, id);
-	await page.locator('aside summary').filter({ hasText: 'Actions du document' }).click();
+	await settings(page);
+	await page.locator('input[type=file][accept*="json"]').setInputFiles({
+		name: 'rollback.json',
+		mimeType: 'application/json',
+		buffer: Buffer.from(JSON.stringify(incoming))
+	});
 	await page
-		.locator('aside')
-		.getByRole('button', { name: 'Déplacer le document dans la corbeille', exact: true })
+		.getByRole('dialog', { name: 'Restaurer la sauvegarde' })
+		.getByRole('button', { name: 'Remplacer', exact: true })
 		.click();
-	await page
-		.getByRole('dialog', { name: 'Déplacer ce document dans la corbeille ?', exact: true })
-		.getByRole('button', { name: 'Confirmer', exact: true })
-		.click();
-	await expect(page.getByRole('alert')).toBeVisible();
-	await attach(info, 'standalone-copy-rollback.json', {
+	await expect(
+		page.getByRole('alert').filter({ hasText: /Recovery copy interrupted|échoué/i })
+	).toBeVisible();
+	await attach(info, 'history-rollback-failed.json', {
 		state: await inventory(page),
 		history: await historyRows(page)
 	});
 	await expect(page.locator('.cm-content')).toContainText('# Version B');
 	await page.reload();
 	const after = await inventory(page);
-	await attach(info, 'standalone-copy-failure.json', {
+	await attach(info, 'history-rollback-after.json', {
 		before,
 		after,
 		history: await historyRows(page)
@@ -470,7 +791,7 @@ test('standalone replacement keeps B and the original trash reference after a fa
 	expect(after).toEqual(before);
 	expect(await historyRows(page)).toEqual(history);
 	const exported = await exportBackup(page);
-	await info.attach('standalone-after-failure.json', {
+	await info.attach('history-rollback-backup.json', {
 		body: exported,
 		contentType: 'application/json'
 	});
