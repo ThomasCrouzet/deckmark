@@ -53,6 +53,7 @@
 	let bound: HTMLElement | null = null;
 	let unbind: (() => void) | null = null;
 	let scheduled = 0;
+	let bindFrame = 0;
 
 	/** Coalesces content mutations into one geometry read per frame. */
 	function scheduleUpdate(): void {
@@ -63,10 +64,22 @@
 		});
 	}
 
+	/** Coalesces root mutations into one scroller-identity check per frame. */
+	function scheduleBind(): void {
+		if (bindFrame) return;
+		bindFrame = requestAnimationFrame(() => {
+			bindFrame = 0;
+			bind();
+		});
+	}
+
 	function bind() {
 		const element = scroller();
 		if (element === bound) {
-			update();
+			// A content mutation did not replace the live scroller. Defer the
+			// scrollHeight/clientHeight read to the coalesced update instead of
+			// forcing layout in the mutation task.
+			scheduleUpdate();
 			return;
 		}
 		unbind?.();
@@ -97,13 +110,15 @@
 		if (!root) return;
 		// Edit, Source and Read mount their scroll container lazily. Observe the
 		// content root so a late mount still binds, and a file switch rebinds.
-		bind();
-		const rootObserver = new MutationObserver(bind);
+		scheduleBind();
+		const rootObserver = new MutationObserver(scheduleBind);
 		rootObserver.observe(root, { childList: true, subtree: true });
 		return () => {
 			rootObserver.disconnect();
 			if (scheduled) cancelAnimationFrame(scheduled);
 			scheduled = 0;
+			if (bindFrame) cancelAnimationFrame(bindFrame);
+			bindFrame = 0;
 			unbind?.();
 			unbind = null;
 			bound = null;

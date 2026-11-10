@@ -47,6 +47,7 @@
 		elements: HTMLElement[];
 		tops: number[];
 		headings: readonly SourceHeading[];
+		source: string;
 	}
 
 	const RATIO_KEY = 'mdsh:split-ratio';
@@ -76,6 +77,7 @@
 	let sourceIndex = untrack(() => sourceHeadingIndex(previewContent));
 	let previewLayout: PreviewLayout | null = null;
 	let layoutFrame = 0;
+	let layoutFull = true;
 	let observedArticle: HTMLElement | null = null;
 	let paneResizeObserver: ResizeObserver | null = null;
 
@@ -142,7 +144,64 @@
 		return result;
 	}
 
-	/** Measures every rendered heading once for the current article layout. */
+	const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6';
+
+	/** Returns the first line that differs between two sources. */
+	function changedSourceLine(previous: string, next: string): number | null {
+		const limit = Math.min(previous.length, next.length);
+		let prefix = 0;
+		while (prefix < limit && previous.charCodeAt(prefix) === next.charCodeAt(prefix)) prefix++;
+		if (prefix === previous.length && prefix === next.length) return null;
+		let line = 1;
+		for (let index = 0; index < prefix; index++) if (next.charCodeAt(index) === 10) line++;
+		return line;
+	}
+
+	/** Returns the first heading at or after a one-based source line. */
+	function firstHeadingIndexForLine(headings: readonly SourceHeading[], line: number): number {
+		let low = 0;
+		let high = headings.length - 1;
+		let result = headings.length;
+		while (low <= high) {
+			const middle = (low + high) >> 1;
+			if (headings[middle]!.line >= line) {
+				result = middle;
+				high = middle - 1;
+			} else {
+				low = middle + 1;
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * Returns the first heading whose geometry can have changed. Stable heading
+	 * identity keeps the earlier offsets; a line change starts at the next
+	 * heading. Added, removed or reordered headings restart the index.
+	 */
+	function firstChangedHeading(
+		previous: PreviewLayout,
+		nextSource: string,
+		headings: readonly SourceHeading[]
+	): number {
+		if (previous.headings.length !== headings.length) return 0;
+		let different = 0;
+		while (
+			different < headings.length &&
+			previous.headings[different]!.id === headings[different]!.id
+		)
+			different++;
+		if (different < headings.length) return different;
+		const line = changedSourceLine(previous.source, nextSource);
+		if (line === null) return headings.length;
+		return firstHeadingIndexForLine(headings, line);
+	}
+
+	/**
+	 * Measures only the heading suffix touched by a content edit. Resize, theme,
+	 * media and font changes still remeasure every heading. Earlier offsets stay
+	 * valid because the source index and heading identity are unchanged.
+	 */
 	function buildPreviewLayout(): void {
 		const article = previewArticle;
 		const scroller = previewPane?.querySelector<HTMLElement>('.mdsh-read') ?? null;
@@ -150,18 +209,34 @@
 			previewLayout = null;
 			return;
 		}
-		const elements = Array.from(article.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'));
+		const previous = previewLayout;
+		const headings = currentSourceIndex().headings;
+		const elements = Array.from(article.querySelectorAll<HTMLElement>(HEADING_SELECTOR));
+		let startIndex = 0;
+		if (
+			!layoutFull &&
+			previous &&
+			previous.scroller === scroller &&
+			previous.elements.length === elements.length
+		) {
+			startIndex = Math.min(
+				firstChangedHeading(previous, previewContent, headings),
+				elements.length
+			);
+		}
+		layoutFull = false;
 		const scrollerTop = scroller.getBoundingClientRect().top;
 		const scrollTop = scroller.scrollTop;
-		const tops = elements.map(
-			(element) => element.getBoundingClientRect().top - scrollerTop + scrollTop
-		);
-		previewLayout = { scroller, elements, tops, headings: currentSourceIndex().headings };
+		const tops = startIndex > 0 && previous ? previous.tops.slice(0, startIndex) : [];
+		for (let index = startIndex; index < elements.length; index++)
+			tops[index] = elements[index]!.getBoundingClientRect().top - scrollerTop + scrollTop;
+		previewLayout = { scroller, elements, tops, headings, source: previewContent };
 		lastPreviewSection = -1;
 		syncPreviewToSourceLine(currentSourceLine);
 	}
 
-	function schedulePreviewLayout(): void {
+	function schedulePreviewLayout(full = false): void {
+		if (full) layoutFull = true;
 		if (layoutFrame) return;
 		layoutFrame = requestAnimationFrame(() => {
 			layoutFrame = 0;
@@ -271,7 +346,7 @@
 		onArticleRef(el);
 		previewLayout = null;
 		observeArticle(el);
-		if (el) schedulePreviewLayout();
+		if (el) schedulePreviewLayout(true);
 	}
 
 	$effect(() => {
@@ -300,34 +375,36 @@
 		updateLayout();
 		media.addEventListener('change', updateLayout);
 		root?.addEventListener('scroll', handlePreviewScroll, true);
-		// Layout invalidation is coalesced into one rAF measurement. Scroll
-		// handlers never enumerate heading nodes or read heading geometry.
+		// Layout invalidation is coalesced into one rAF measurement. A content
+		// mutation records a source revision, so buildPreviewLayout remeasures
+		// only the heading suffix after the changed line. Scroll handlers never
+		// enumerate heading nodes or read heading geometry.
 		const previewObserver = new MutationObserver(() => {
 			lastPreviewSection = -1;
 			schedulePreviewLayout();
 		});
 		if (previewPane)
 			previewObserver.observe(previewPane, { childList: true, subtree: true, characterData: true });
-		const themeObserver = new MutationObserver(() => schedulePreviewLayout());
+		const themeObserver = new MutationObserver(() => schedulePreviewLayout(true));
 		themeObserver.observe(document.documentElement, {
 			attributes: true,
 			attributeFilter: ['class', 'style', 'data-theme']
 		});
-		paneResizeObserver = new ResizeObserver(() => schedulePreviewLayout());
+		paneResizeObserver = new ResizeObserver(() => schedulePreviewLayout(true));
 		if (previewPane) paneResizeObserver.observe(previewPane);
 		observeArticle(previewArticle);
 		const handleMediaLoad = (event: Event) => {
 			const target = event.target;
 			if (target instanceof HTMLElement && target.matches('img, video, iframe')) {
-				schedulePreviewLayout();
+				schedulePreviewLayout(true);
 			}
 		};
 		previewPane?.addEventListener('load', handleMediaLoad, true);
 		previewPane?.addEventListener('error', handleMediaLoad, true);
-		const updateFonts = () => schedulePreviewLayout();
+		const updateFonts = () => schedulePreviewLayout(true);
 		document.fonts?.addEventListener('loadingdone', updateFonts);
 		void document.fonts?.ready.then(updateFonts);
-		schedulePreviewLayout();
+		schedulePreviewLayout(true);
 		return () => {
 			media.removeEventListener('change', updateLayout);
 			root?.removeEventListener('scroll', handlePreviewScroll, true);
