@@ -86,6 +86,48 @@ describe('deckmark CLI', () => {
 		expect(JSON.parse(empty.stdout).total).toBe(0);
 	});
 
+	it('caps search results to the lexicographically first matches under concurrency', async () => {
+		const directory = join(project, 'ordered');
+		await mkdir(directory);
+		await writeFile(join(directory, 'a.md'), `${'x'.repeat(200)}\n`.repeat(40_000) + 'needle\n');
+		await writeFile(join(directory, 'b.md'), 'needle\n');
+		await writeFile(join(directory, 'c.md'), 'needle\n');
+		try {
+			for (let attempt = 0; attempt < 3; attempt++) {
+				const first = run(project, [
+					'search',
+					'needle',
+					'ordered',
+					'--json',
+					'--max-results',
+					'1',
+					'--concurrency',
+					'4'
+				]);
+				expect(first.status).toBe(0);
+				expect(
+					JSON.parse(first.stdout).matches.map((match: { path: string }) => match.path)
+				).toEqual(['a.md']);
+			}
+			const second = run(project, [
+				'search',
+				'needle',
+				'ordered',
+				'--json',
+				'--max-results',
+				'2',
+				'--concurrency',
+				'4'
+			]);
+			expect(second.status).toBe(0);
+			expect(
+				JSON.parse(second.stdout).matches.map((match: { path: string }) => match.path)
+			).toEqual(['a.md', 'b.md']);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
 	it('reports the inspection of a note and a presentation', async () => {
 		const note = run(project, ['inspect', 'notes/valid.md', '--json']);
 		expect(note.status).toBe(0);
