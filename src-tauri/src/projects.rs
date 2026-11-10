@@ -718,7 +718,7 @@ fn collect_snapshot(session: &ProjectSession) -> Result<Vec<ProjectEntry>, Strin
             .checked_add(entry.size)
             .ok_or("native project snapshot size overflow")?;
         if total_bytes > MAX_SNAPSHOT_BYTES {
-            return Err("native project snapshot exceeds the 64 MiB limit".to_string());
+            return Err("native project snapshot exceeds the 256 MiB limit".to_string());
         }
         entries.push(entry);
     }
@@ -1140,7 +1140,7 @@ fn write_entry(
         .checked_add(contents.len() as u64)
         .ok_or("native project snapshot size overflow")?;
     if new_total > MAX_SNAPSHOT_BYTES {
-        return Err("native project snapshot exceeds the 64 MiB limit".to_string());
+        return Err("native project snapshot exceeds the 256 MiB limit".to_string());
     }
     atomic_project_replace(session, relative_path, contents, expected_revision)?;
     read_entry(session, relative_path)

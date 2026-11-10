@@ -278,6 +278,32 @@ does not publish Desktop installers.
   Git, the native vault, and quick capture are Desktop Complete features. Signed update delivery is
   implemented but dormant while it is on standby.
 
+### Project capability matrix
+
+The TypeScript limits in `src/lib/project-limits.ts` and the Rust limits in
+`src-tauri/src/projects.rs` must agree. One project budget applies to portable
+import and export, native pick, reconnect and refresh, directory drag and drop,
+internal copy and move, and documentation-site export.
+
+| Capability | Web Light | Desktop Complete |
+| --- | --- | --- |
+| Documents | 300 | 3,000 |
+| Entries (documents and assets) | 1,300 | 6,500 |
+| Uncompressed project bytes | 64 MiB | 256 MiB |
+| Directory levels | 8 | 16 |
+| One document | 16 MiB | 16 MiB |
+| One image | 2 MiB | 2 MiB |
+
+A backup is a separate JSON recovery format with its own 64 MiB import budget.
+A Desktop project that is valid at 256 MiB can therefore be too large for that
+JSON route. Use the project ZIP for portable recovery of such a project.
+
+The entry limit counts stored documents and assets. An import into an existing
+project reserves three entries for the generated project manifest and link
+report. A new project ZIP may use the full stored entry count, and its export
+fails if the generated metadata would exceed the same limit.
+
+
 ## Release note checklist
 
 Each release note must:

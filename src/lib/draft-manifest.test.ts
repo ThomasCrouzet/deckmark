@@ -11,6 +11,7 @@ function manifest(id: string, order: number, open: boolean, contentLength = 100)
 		order,
 		open,
 		contentLength,
+		contentBytes: contentLength,
 		hasData: false
 	};
 }

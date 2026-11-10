@@ -26,6 +26,7 @@ export interface DraftManifest {
 	sourceFileId?: string;
 	open: boolean;
 	contentLength: number;
+	contentBytes: number;
 	hasData: boolean;
 }
 
@@ -44,7 +45,8 @@ type EncodedManifest = [
 	string,
 	0 | 1,
 	number,
-	0 | 1
+	0 | 1,
+	number
 ];
 
 /**
@@ -70,6 +72,7 @@ export function encodeDraftManifest(
 		| 'data'
 	>
 ): string {
+	const contentBytes = row.projectId ? new TextEncoder().encode(row.content).byteLength : 0;
 	const encoded: EncodedManifest = [
 		DRAFT_MANIFEST_VERSION,
 		row.id,
@@ -85,7 +88,8 @@ export function encodeDraftManifest(
 		row.sourceFileId ?? '',
 		row.open === false ? 0 : 1,
 		row.content.length,
-		row.data ? 1 : 0
+		row.data ? 1 : 0,
+		contentBytes
 	];
 	return JSON.stringify(encoded);
 }

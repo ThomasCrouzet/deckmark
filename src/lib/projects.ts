@@ -6,7 +6,12 @@ import { filesStore } from './files.svelte';
 import { projectPath, pathKey, imageMime } from './project-paths';
 import { projectLinkReport } from './project-links';
 import type { ProjectInput } from './project-archive';
-import { PROJECT_SCALE_LIMITS } from './project-limits';
+import {
+	PROJECT_SCALE_LIMITS,
+	assertProjectCapacity,
+	draftBytes,
+	projectOccupancy
+} from './project-limits';
 import { projectDocumentLimit } from './project-limits';
 import { validateMarkdownContent } from './import-limits';
 import { notify } from './notify.svelte';
@@ -50,6 +55,17 @@ export async function importProject(input: ProjectInput): Promise<ProjectRow> {
 		...assets.map((asset) => pathKey(asset.path))
 	];
 	if (new Set(keys).size !== keys.length) throw new Error('Duplicate project path');
+	assertProjectCapacity(
+		{ documents: 0, assets: 0, bytes: 0 },
+		{
+			documents: rows.length,
+			assets: assets.length,
+			bytes:
+				rows.reduce((total, row) => total + draftBytes(row.content), 0) +
+				assets.reduce((total, asset) => total + asset.data.byteLength, 0)
+		},
+		0
+	);
 	await db.transaction('rw', db.projects, db.projectAssets, db.drafts, async () => {
 		await db.projects.add(project);
 		await db.projectAssets.bulkAdd(assets);
@@ -262,35 +278,6 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 		rename(id, requested)
 	);
 }
-/** Reads exact project occupancy from index keys only, without body rows. */
-async function projectOccupancy(projectId: string): Promise<{
-	documents: number;
-	assets: number;
-	bytes: number;
-}> {
-	const manifestKeys = await db.drafts.orderBy('manifest').keys();
-	let documentCount = 0;
-	let documentBytes = 0;
-	for (const raw of manifestKeys) {
-		try {
-			const key = JSON.parse(String(raw)) as unknown[];
-			if (key[3] !== projectId) continue;
-			documentCount += 1;
-			if (typeof key[13] === 'number') documentBytes += key[13];
-		} catch {
-			/* An invalid manifest key is not a project document. */
-		}
-	}
-	const assetKeys = await db.projectAssets
-		.where('[projectId+bytes]')
-		.between([projectId, -Infinity], [projectId, Infinity])
-		.keys();
-	let bytes = documentBytes;
-	for (const key of assetKeys)
-		if (Array.isArray(key) && typeof key[1] === 'number') bytes += key[1];
-	return { documents: documentCount, assets: assetKeys.length, bytes };
-}
-
 export async function addProjectImage(
 	projectId: string,
 	file: File,
@@ -309,11 +296,7 @@ export async function addProjectImage(
 	await db.transaction('rw', db.projects, db.drafts, db.projectAssets, async () => {
 		if (!(await db.projects.get(projectId))) throw new Error('Project no longer exists');
 		const occupancy = await projectOccupancy(projectId);
-		if (
-			occupancy.bytes + data.byteLength > PROJECT_SCALE_LIMITS.maxBytes ||
-			occupancy.documents + occupancy.assets >= PROJECT_SCALE_LIMITS.maxEntries - 3
-		)
-			throw new Error('Project size limit');
+		assertProjectCapacity(occupancy, { documents: 0, assets: 1, bytes: data.byteLength });
 		await db.projectAssets.add({ id: newId(), projectId, path, mime, data });
 	});
 	const { invalidateProjectMediaCache } = await import('./project-media');

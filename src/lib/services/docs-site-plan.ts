@@ -3,7 +3,7 @@
 // It does not render HTML, use storage, or start requests.
 
 import { IMPORT_LIMITS } from '../config';
-import { projectDocumentLimit } from '../project-limits';
+import { assertProjectCapacity, draftBytes } from '../project-limits';
 import { sourceHeadingIndex } from '../document-navigation';
 import { stripFileExtension } from '../file-utils';
 import {
@@ -288,7 +288,6 @@ function buildMaps(
 
 /** Builds the deterministic page and asset plan without rendering content. */
 export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
-	if (input.documents.length > projectDocumentLimit()) throw new Error('Project document limit');
 	const locale = input.locale === 'fr' ? 'fr' : 'en';
 	const name = input.name.trim() || 'Documentation';
 	const includeSearchIndex = input.includeSearchIndex !== false;
@@ -301,6 +300,19 @@ export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
 	const assets = input.assets
 		.map((asset) => ({ ...asset, path: projectPath(asset.path) }))
 		.toSorted((a, b) => compareText(a.path, b.path));
+
+	assertProjectCapacity(
+		{ documents: 0, assets: 0, bytes: 0 },
+		{
+			documents: documents.length,
+			assets: assets.length,
+			bytes:
+				documents.reduce(
+					(total, document) => total + draftBytes(document.content) + (document.data?.length ?? 0),
+					0
+				) + assets.reduce((total, asset) => total + asset.data.byteLength, 0)
+		}
+	);
 
 	const seen = new Set<string>();
 	for (const path of [

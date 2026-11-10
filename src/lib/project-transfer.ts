@@ -8,8 +8,12 @@ import {
 	isMarkdownExtension
 } from './document-kind';
 import { validateMarkdownContent } from './import-limits';
-import { PROJECT_SCALE_LIMITS } from './project-limits';
-import { projectDocumentLimit } from './project-limits';
+import {
+	PROJECT_SCALE_LIMITS,
+	assertProjectCapacity,
+	draftBytes,
+	projectOccupancy
+} from './project-limits';
 import {
 	pathKey,
 	projectPath,
@@ -673,6 +677,22 @@ export async function transferProjectSelection(
 			);
 			if (occupiedNow && !plannedVariant) throw new Error('Project path already exists');
 		}
+		const replacingDocuments =
+			sourceProjectId === options.targetProjectId && options.mode === 'move'
+				? [...selectedDocuments, ...changedExisting]
+				: [];
+		const replacingAssets =
+			sourceProjectId === options.targetProjectId && options.mode === 'move' ? selectedAssets : [];
+		const occupancy = await projectOccupancy(options.targetProjectId);
+		assertProjectCapacity(occupancy, {
+			documents: written.length - replacingDocuments.length,
+			assets: writtenAssets.length - replacingAssets.length,
+			bytes:
+				written.reduce((total, row) => total + draftBytes(row.content), 0) +
+				writtenAssets.reduce((total, asset) => total + asset.data.byteLength, 0) -
+				replacingDocuments.reduce((total, row) => total + draftBytes(row.content), 0) -
+				replacingAssets.reduce((total, asset) => total + asset.data.byteLength, 0)
+		});
 		if (options.mode === 'move') {
 			for (const row of [...selectedDocuments, ...changedExisting]) {
 				await db.versions.add({
@@ -920,12 +940,14 @@ export async function importProjectEntries(
 		if (!(await db.projects.get(projectId))) throw new Error('Project no longer exists');
 		const existingDocuments = await db.drafts.where('projectId').equals(projectId).toArray();
 		const existingAssets = await db.projectAssets.where('projectId').equals(projectId).toArray();
-		if (
-			existingDocuments.length + drafts.length > projectDocumentLimit() ||
-			existingDocuments.length + drafts.length + existingAssets.length + assets.length >=
-				PROJECT_SCALE_LIMITS.maxEntries - 3
-		)
-			throw new Error('Project entry limit');
+		const occupancy = await projectOccupancy(projectId);
+		assertProjectCapacity(occupancy, {
+			documents: drafts.length,
+			assets: assets.length,
+			bytes:
+				drafts.reduce((total, row) => total + draftBytes(row.content), 0) +
+				assets.reduce((total, asset) => total + asset.data.byteLength, 0)
+		});
 		const occupied = occupiedPaths(existingDocuments, existingAssets, new Set(), new Set());
 		for (const path of paths)
 			if (occupied.has(path)) throw new Error('Project path already exists');
