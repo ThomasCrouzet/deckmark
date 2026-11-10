@@ -5,8 +5,12 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { db } from '#lib/db.js';
 	import {
+		clearScope,
+		compatibleRows,
 		featureModel,
 		indexFiles,
+		scopeKey,
+		scopedRows,
 		search,
 		SEMANTIC_MODELS,
 		type Embedder,
@@ -14,6 +18,7 @@
 		type SemanticModelId,
 		cachedCooccurrenceEmbedder
 	} from '#lib/semantic-search.js';
+	import { LatestOnly } from '#lib/semantic-search-query.js';
 	import { contentHash } from '#lib/ai/patches.js';
 	import { t } from '#lib/i18n/index.js';
 	import type { FileItem } from '#lib/types.js';
@@ -36,8 +41,18 @@
 	let count = $state(0);
 	let projectId = $state<string | null>(null);
 	let modelId = $state<SemanticModelId>('feature-hash-v1');
-	let embedder: Embedder = featureModel;
-	let modelMismatch = $state(false);
+	let incompatibleRows = $state(0);
+	let staleRows = $state(0);
+	let clearFailed = $state(false);
+
+	/** Latest query and latest count read. An older read cannot publish. */
+	const searchJob = new LatestOnly();
+	const countJob = new LatestOnly();
+	let trainedEmbedder: { key: string; embedder: Embedder } | null = null;
+	// Hashes keyed by content identity, so repeated queries do not rescan every
+	// loaded body while an exact content check stays available.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Non-reactive query cache.
+	const contentHashes = new Map<string, { content: string; hash: string }>();
 
 	onMount(() => {
 		enabled = localStorage.getItem(KEY) === '1';
@@ -47,65 +62,151 @@
 		if (enabled) void loadCount();
 	});
 
-	async function loadCount() {
-		const rows = await scopeRows();
-		count = rows.length;
+	$effect(() => {
+		// A closed panel must not publish a late read when it opens again.
+		if (!open) {
+			searchJob.invalidate();
+			countJob.invalidate();
+		}
+	});
+
+	function inScope(file: FileItem, scope: string | null): boolean {
+		return scope ? file.projectId === scope : !file.projectId;
 	}
 
-	async function scopeRows() {
-		if (projectId) return db.semanticIndex.where('projectId').equals(projectId).toArray();
-		const all = await db.semanticIndex.toArray();
-		return all.filter((row) => row.projectId === null);
+	function scopeFiles(scope: string | null): FileItem[] {
+		return filesStore.library.filter((file) => inScope(file, scope));
+	}
+
+	function fileHash(file: FileItem): string {
+		const cached = contentHashes.get(file.id);
+		if (cached && cached.content === file.content) return cached.hash;
+		const hash = contentHash(file.content);
+		contentHashes.set(file.id, { content: file.content, hash });
+		return hash;
+	}
+
+	/**
+	 * Cheap scope revision. A document edit or cross-tab reload changes
+	 * `updatedAt`, so an in-flight query can detect that its snapshot is old
+	 * without hashing every body on each keystroke.
+	 */
+	function scopeSignature(scope: string | null): string {
+		return `${scopeKey(scope)}|${scopeFiles(scope)
+			.map((file) => `${file.id}:${file.updatedAt}`)
+			.join(',')}`;
+	}
+
+	async function hydrate(files: readonly FileItem[]): Promise<void> {
+		await filesStore.ensureContent(
+			files.filter((file) => file.contentDeferred).map((file) => file.id)
+		);
+	}
+
+	async function resolveEmbedder(
+		scope: string | null,
+		signature: string,
+		model: SemanticModelId
+	): Promise<Embedder> {
+		if (model === 'feature-hash-v1') return featureModel;
+		const key = `${model}|${signature}`;
+		if (trainedEmbedder?.key === key) return trainedEmbedder.embedder;
+		const files = scopeFiles(scope);
+		await hydrate(files);
+		const corpusKey = `${scopeKey(scope)}|${files
+			.map((file) => `${file.id}:${contentHash(file.content)}`)
+			.join(',')}`;
+		const trained = cachedCooccurrenceEmbedder(
+			corpusKey,
+			files.map((file) => file.content)
+		);
+		trainedEmbedder = { key, embedder: trained };
+		return trained;
+	}
+
+	function isCurrentSource(
+		row: { draftId: string; contentHash: string; updatedAt: number },
+		file: FileItem | undefined,
+		scope: string | null
+	): boolean {
+		if (!file || !inScope(file, scope)) return false;
+		// A loaded body gives an exact byte comparison. A deferred body is in
+		// storage: its write time must not be later than the index row.
+		if (!file.contentDeferred) return fileHash(file) === row.contentHash;
+		return file.updatedAt <= row.updatedAt;
+	}
+
+	async function loadCount() {
+		const token = countJob.begin();
+		const scope = projectId;
+		const rows = await scopedRows(db.semanticIndex, scope);
+		if (!countJob.isCurrent(token) || scope !== projectId) return;
+		count = rows.length;
 	}
 
 	function setEnabled(value: boolean) {
 		enabled = value;
 		localStorage.setItem(KEY, value ? '1' : '0');
+		searchJob.invalidate();
+		countJob.invalidate();
+		clearFailed = false;
 		if (!value) {
 			results = [];
 			count = 0;
+			staleRows = 0;
+			incompatibleRows = 0;
 		} else {
 			void loadCount();
 		}
 	}
 
-	async function scopeFiles() {
-		const files = filesStore.library.filter((file) =>
-			projectId ? file.projectId === projectId : !file.projectId
-		);
-		await filesStore.ensureContent(
-			files.filter((file) => file.contentDeferred).map((file) => file.id)
-		);
-		return files;
+	function changeScope() {
+		searchJob.invalidate();
+		countJob.invalidate();
+		results = [];
+		staleRows = 0;
+		incompatibleRows = 0;
+		clearFailed = false;
+		// Retain the saved trained model if the scope corpus did not change.
+		void loadCount();
+		if (query.trim()) void runSearch();
 	}
 
-	async function ensureEmbedder(files: FileItem[]) {
-		embedder =
-			modelId === 'cooccurrence-v1'
-				? cachedCooccurrenceEmbedder(
-						`${projectId ?? 'library'}|${files
-							.map((file) => `${file.id}:${contentHash(file.content)}`)
-							.join(',')}`,
-						files.map((file) => file.content)
-					)
-				: featureModel;
+	function changeModel() {
+		localStorage.setItem('mdsh:semantic-model', modelId);
+		searchJob.invalidate();
+		staleRows = 0;
+		incompatibleRows = 0;
+		void runSearch();
 	}
 
 	async function buildIndex() {
 		if (!enabled || indexing) return;
+		const scope = projectId;
+		const model = modelId;
+		const signature = scopeSignature(scope);
 		indexing = true;
+		// A search that started before the rebuild must not republish.
+		searchJob.invalidate();
+		countJob.invalidate();
 		try {
-			const files = await scopeFiles();
-			const existing = await scopeRows();
-			await ensureEmbedder(files);
-			const rows = indexFiles(files, existing, projectId, embedder);
-			modelMismatch = false;
+			const files = scopeFiles(scope);
+			await hydrate(files);
+			const embedder = await resolveEmbedder(scope, signature, model);
+			const existing = await scopedRows(db.semanticIndex, scope);
+			const rows = indexFiles(files, existing, scope, embedder);
 			await db.transaction('rw', db.semanticIndex, async () => {
-				if (projectId) await db.semanticIndex.where('projectId').equals(projectId).delete();
-				else await db.semanticIndex.filter((row) => row.projectId === null).delete();
+				await clearScope(db.semanticIndex, scope);
 				if (rows.length) await db.semanticIndex.bulkPut($state.snapshot(rows));
 			});
-			count = rows.length;
+			searchJob.invalidate();
+			countJob.invalidate();
+			if (scope === projectId) {
+				count = rows.length;
+				staleRows = 0;
+				incompatibleRows = 0;
+				if (query.trim()) void runSearch();
+			}
 		} finally {
 			indexing = false;
 		}
@@ -113,20 +214,62 @@
 
 	async function runSearch() {
 		if (!enabled) return;
-		const rows = await scopeRows();
-		modelMismatch = rows.some((row) => row.modelId !== modelId);
-		if (modelMismatch) {
-			results = [];
+		const token = searchJob.begin();
+		const scope = projectId;
+		const text = query;
+		const model = modelId;
+		const signature = scopeSignature(scope);
+		const embedder = await resolveEmbedder(scope, signature, model);
+		if (!searchJob.isCurrent(token)) return;
+		if (
+			scope !== projectId ||
+			text !== query ||
+			model !== modelId ||
+			signature !== scopeSignature(projectId)
+		)
 			return;
-		}
-		await ensureEmbedder(await scopeFiles());
-		results = search(rows, query, embedder);
+		const rows = await scopedRows(db.semanticIndex, scope);
+		if (!searchJob.isCurrent(token)) return;
+		if (
+			scope !== projectId ||
+			text !== query ||
+			model !== modelId ||
+			signature !== scopeSignature(projectId)
+		)
+			return;
+		const files = new Map(scopeFiles(scope).map((file) => [file.id, file]));
+		const compatible = compatibleRows(rows, embedder, (row) =>
+			isCurrentSource(row, files.get(row.draftId), scope)
+		);
+		incompatibleRows = compatible.incompatible;
+		staleRows = compatible.stale;
+		results = search(compatible.rows, text, embedder);
 	}
 
 	async function clearIndex() {
-		await db.semanticIndex.clear();
-		count = 0;
-		results = [];
+		if (!enabled || indexing) return;
+		const scope = projectId;
+		clearFailed = false;
+		// Pending reads may still return rows that this action deletes.
+		searchJob.invalidate();
+		countJob.invalidate();
+		try {
+			await clearScope(db.semanticIndex, scope);
+		} catch {
+			if (scope === projectId) clearFailed = true;
+			return;
+		}
+		if (scope === projectId) {
+			results = [];
+			count = 0;
+			staleRows = 0;
+			incompatibleRows = 0;
+		}
+		// A query started during the delete read the old rows.
+		searchJob.invalidate();
+		countJob.invalidate();
+		void loadCount();
+		if (query.trim()) void runSearch();
 	}
 
 	function openHit(hit: SemanticHit) {
@@ -169,11 +312,7 @@
 				{#if enabled}
 					<label>
 						<span>{t('semantic.scope')}</span>
-						<select
-							bind:value={projectId}
-							onchange={() => void loadCount()}
-							data-testid="semantic-scope"
-						>
+						<select bind:value={projectId} onchange={changeScope} data-testid="semantic-scope">
 							<option value={null}>{t('semantic.library')}</option>
 							{#if filesStore.active?.projectId}
 								<option value={filesStore.active.projectId}>{t('semantic.project')}</option>
@@ -189,21 +328,22 @@
 						>
 							{t('semantic.build')}
 						</button>
-						<button type="button" onclick={() => void clearIndex()} data-testid="semantic-clear">
+						<button
+							type="button"
+							disabled={indexing}
+							onclick={() => void clearIndex()}
+							data-testid="semantic-clear"
+						>
 							{t('semantic.clear')}
 						</button>
 						<span role="status">{t('semantic.count', { n: count })}</span>
 					</div>
+					{#if clearFailed}
+						<p class="note" role="alert">{t('semantic.clearError')}</p>
+					{/if}
 					<label>
 						<span>{t('semantic.model')}</span>
-						<select
-							bind:value={modelId}
-							onchange={() => {
-								localStorage.setItem('mdsh:semantic-model', modelId);
-								modelMismatch = true;
-							}}
-							data-testid="semantic-model"
-						>
+						<select bind:value={modelId} onchange={changeModel} data-testid="semantic-model">
 							{#each SEMANTIC_MODELS as model (model.id)}
 								<option value={model.id}>{model.name} · {model.dims}</option>
 							{/each}
@@ -212,8 +352,10 @@
 					<p class="note">
 						{SEMANTIC_MODELS.find((model) => model.id === modelId)?.description}
 					</p>
-					{#if modelMismatch}
+					{#if incompatibleRows > 0}
 						<p class="note" role="status">{t('semantic.rebuild')}</p>
+					{:else if staleRows > 0}
+						<p class="note" role="status">{t('semantic.stale')}</p>
 					{/if}
 					<label>
 						<span>{t('semantic.query')}</span>

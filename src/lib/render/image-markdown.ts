@@ -186,6 +186,10 @@ export class ImageMarkdownRoundTrip {
 
 	restore(markdown: string, commit = true, hint?: ImageChangeHint): string {
 		if (this.lastInput !== null && markdown === this.lastInput) return this.lastOutput;
+		// A document without an image line needs no round-trip rewrite. The
+		// cheap marker scan avoids splitting and scanning a large note on text
+		// changes that cannot introduce an image.
+		if (!markdown.includes('![')) return markdown;
 		if (commit && hint && this.lastInput !== null) {
 			const scoped = this.restoreScoped(markdown, hint);
 			if (scoped !== null) {

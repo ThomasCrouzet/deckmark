@@ -50,12 +50,116 @@ function isTextPath(path: string): boolean {
 	return isMarkdownExtension(path) || isCodeExtension(path);
 }
 
-interface SearchMatch {
+export interface SearchMatch {
 	path: string;
 	line: number;
 	column: number;
 	endColumn: number;
 	snippet: string;
+}
+
+export interface OrderedSearchOptions {
+	query: string;
+	caseSensitive: boolean;
+	wholeWord: boolean;
+	regex: boolean;
+	maxResults: number;
+	concurrency: number;
+	/** Reads the content of one path. Throws when the file cannot be read. */
+	read: (path: string) => Promise<string>;
+	deadline?: Deadline;
+}
+
+export interface OrderedSearchResult {
+	matches: SearchMatch[];
+	regexError: string | null;
+	/** True only when the result limit stopped the scan before every path was examined. */
+	truncated: boolean;
+}
+
+/**
+ * Searches sorted paths with bounded concurrency and commits matches in path
+ * order. Each read starts with its stable path index. A completed read waits in
+ * a small pending map until every earlier index has completed, so a fast later
+ * file cannot take a slot that belongs to an earlier path. The final match list
+ * is therefore the lexicographically first N matches for any completion order.
+ */
+export async function searchPathsInOrder(
+	paths: readonly string[],
+	options: OrderedSearchOptions
+): Promise<OrderedSearchResult> {
+	const total = paths.length;
+	const query = options.query;
+	const pending = new Map<number, SearchMatch[]>();
+	const matches: SearchMatch[] = [];
+	let nextToStart = 0;
+	let nextToCommit = 0;
+	let stopped = false;
+	let regexError: string | null = null;
+
+	const flush = () => {
+		while (!stopped && pending.has(nextToCommit)) {
+			const fileMatches = pending.get(nextToCommit)!;
+			pending.delete(nextToCommit);
+			nextToCommit += 1;
+			for (const match of fileMatches) {
+				matches.push(match);
+				if (matches.length >= options.maxResults) {
+					stopped = true;
+					break;
+				}
+			}
+		}
+	};
+
+	const worker = async () => {
+		for (;;) {
+			if (stopped || regexError) return;
+			const index = nextToStart++;
+			if (index >= total) return;
+			const path = paths[index]!;
+			options.deadline?.check();
+			const content = await options.read(path);
+			options.deadline?.check();
+			if (stopped || regexError) return;
+			const result = matchInCorpus(
+				[{ id: path, name: basename(path), content }],
+				{
+					query: query,
+					caseSensitive: options.caseSensitive,
+					wholeWord: options.wholeWord,
+					useRegex: options.regex
+				},
+				options.maxResults
+			);
+			if (result.regexError) {
+				regexError = result.regexError;
+				return;
+			}
+			const fileMatches: SearchMatch[] = [];
+			for (const hit of result.hits) {
+				const ellipsis = hit.snippet.startsWith('…') ? 1 : 0;
+				fileMatches.push({
+					path: hit.fileId,
+					line: hit.line,
+					column: hit.matchStart + 1 - ellipsis,
+					endColumn: hit.matchEnd + 1 - ellipsis,
+					snippet: hit.snippet
+				});
+			}
+			pending.set(index, fileMatches);
+			flush();
+		}
+	};
+
+	await Promise.all(
+		Array.from({ length: Math.max(1, Math.min(options.concurrency, total)) }, () => worker())
+	);
+	return {
+		matches,
+		regexError,
+		truncated: matches.length >= options.maxResults && nextToCommit < total
+	};
 }
 
 export async function runSearch(input: SearchInput): Promise<number> {
@@ -65,60 +169,24 @@ export async function runSearch(input: SearchInput): Promise<number> {
 	const deadline = new Deadline(input.timeoutMs);
 	const scope = await resolveScope(input.input, deadline);
 	const paths = scope.files.filter(isTextPath);
-	const order = new Map(paths.map((path, index) => [path, index]));
-	const matches: SearchMatch[] = [];
-	let regexError: string | null = null;
-	let next = 0;
-	// Read and match a few files at a time. Stop taking new files as soon as the
-	// result limit is met, so an early hit does not load the rest of the corpus.
-	const worker = async () => {
-		for (;;) {
-			if (matches.length >= input.maxResults || regexError) return;
-			const index = next++;
-			const path = paths[index];
-			if (path === undefined) return;
-			deadline.check();
-			const content = await readText(scope.root, path);
-			if (matches.length >= input.maxResults || regexError) return;
-			const result = matchInCorpus(
-				[{ id: path, name: basename(path), content }],
-				{
-					query,
-					caseSensitive: input.caseSensitive,
-					wholeWord: input.wholeWord,
-					useRegex: input.regex
-				},
-				input.maxResults - matches.length
-			);
-			if (result.regexError) {
-				regexError = result.regexError;
-				return;
-			}
-			for (const hit of result.hits) {
-				const ellipsis = hit.snippet.startsWith('…') ? 1 : 0;
-				matches.push({
-					path: hit.fileId,
-					line: hit.line,
-					column: hit.matchStart + 1 - ellipsis,
-					endColumn: hit.matchEnd + 1 - ellipsis,
-					snippet: hit.snippet
-				});
-				if (matches.length >= input.maxResults) return;
-			}
-		}
-	};
-	await Promise.all(
-		Array.from({ length: Math.max(1, Math.min(input.concurrency, paths.length)) }, () => worker())
-	);
-	if (regexError)
-		throw new CliError(EXIT.USAGE, 'invalid-regex', `Invalid regular expression: ${regexError}`);
-	matches.sort(
-		(left, right) =>
-			(order.get(left.path) ?? 0) - (order.get(right.path) ?? 0) ||
-			left.line - right.line ||
-			left.column - right.column
-	);
-	const truncated = matches.length >= input.maxResults;
+	const result = await searchPathsInOrder(paths, {
+		query,
+		caseSensitive: input.caseSensitive,
+		wholeWord: input.wholeWord,
+		regex: input.regex,
+		maxResults: input.maxResults,
+		concurrency: input.concurrency,
+		read: (path) => readText(scope.root, path),
+		deadline
+	});
+	if (result.regexError)
+		throw new CliError(
+			EXIT.USAGE,
+			'invalid-regex',
+			`Invalid regular expression: ${result.regexError}`
+		);
+	const matches = result.matches;
+	const truncated = result.truncated;
 	if (input.json) {
 		process.stdout.write(
 			`${JSON.stringify(

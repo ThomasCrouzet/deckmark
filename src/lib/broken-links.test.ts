@@ -27,7 +27,12 @@ describe('computeBrokenLinks', () => {
 		});
 
 		expect(updates).toHaveLength(1);
-		expect(updates[0]).toEqual({ id: 'f1', brokenLink: true, handleMissing: true });
+		expect(updates[0]).toEqual({
+			id: 'f1',
+			brokenLink: true,
+			handleMissing: true,
+			link: { kind: 'handle', handle: null }
+		});
 		expect(checkHandleFn).not.toHaveBeenCalled();
 	});
 
@@ -39,7 +44,12 @@ describe('computeBrokenLinks', () => {
 			getPathLinkFn: vi.fn().mockResolvedValue({ kind: 'path', path: '/tmp/gone.md' }),
 			checkPathFn: vi.fn().mockResolvedValue('broken')
 		});
-		expect(updates[0]).toEqual({ id: 'p1', brokenLink: true, handleMissing: false });
+		expect(updates[0]).toEqual({
+			id: 'p1',
+			brokenLink: true,
+			handleMissing: false,
+			link: { kind: 'path', path: '/tmp/gone.md' }
+		});
 	});
 
 	it('marks an existing broken handle as broken but not missing', async () => {
@@ -55,7 +65,12 @@ describe('computeBrokenLinks', () => {
 		});
 
 		expect(updates).toHaveLength(1);
-		expect(updates[0]).toEqual({ id: 'f2', brokenLink: true, handleMissing: false });
+		expect(updates[0]).toEqual({
+			id: 'f2',
+			brokenLink: true,
+			handleMissing: false,
+			link: { kind: 'handle', handle: fakeHandle }
+		});
 	});
 
 	it('does not mark a handle as broken when it needs permission', async () => {

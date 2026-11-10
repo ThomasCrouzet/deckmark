@@ -29,6 +29,30 @@ export interface ExportProfileDocument {
 const STORAGE_KEY = 'mdsh:export-profiles';
 export const ACTIVE_PROFILE_KEY = 'mdsh:export-profile-active';
 
+/** A profile file must stay small enough for one local import step. */
+export const MAX_PROFILE_DOCUMENT_BYTES = 512 * 1024;
+export const MAX_PROFILES = 100;
+const MAX_PROFILE_ID = 128;
+const MAX_PROFILE_NAME = 200;
+const MAX_PROFILE_TEXT = 500;
+
+export type ExportProfileErrorCode =
+	'unsupported' | 'missing' | 'empty' | 'invalid' | 'duplicate' | 'excess' | 'oversized';
+
+/**
+ * A rejected import with a stable code. The lazy panel owns the translated
+ * text, so this boot module keeps no user-facing message strings.
+ */
+export class ExportProfileError extends Error {
+	readonly code: ExportProfileErrorCode;
+
+	constructor(code: ExportProfileErrorCode) {
+		super(code);
+		this.name = 'ExportProfileError';
+		this.code = code;
+	}
+}
+
 export const DEFAULT_PROFILES: readonly ExportProfile[] = [
 	{
 		id: 'builtin:a4-document',
@@ -66,8 +90,11 @@ function validProfile(value: unknown): value is ExportProfile {
 	return (
 		typeof profile.id === 'string' &&
 		profile.id.length > 0 &&
+		profile.id.length <= MAX_PROFILE_ID &&
+		profile.id === profile.id.trim() &&
 		typeof profile.name === 'string' &&
 		profile.name.trim().length > 0 &&
+		profile.name.length <= MAX_PROFILE_NAME &&
 		(profile.format === 'html' || profile.format === 'pdf') &&
 		(profile.pageSize === 'A4' || profile.pageSize === 'Letter' || profile.pageSize === 'Legal') &&
 		(profile.fontFamily === 'serif' ||
@@ -81,10 +108,28 @@ function validProfile(value: unknown): value is ExportProfile {
 		profile.fontSizePt <= 24 &&
 		typeof profile.includeCover === 'boolean' &&
 		typeof profile.header === 'string' &&
+		profile.header.length <= MAX_PROFILE_TEXT &&
 		typeof profile.footer === 'string' &&
+		profile.footer.length <= MAX_PROFILE_TEXT &&
 		Number.isFinite(profile.createdAt) &&
 		Number.isFinite(profile.updatedAt)
 	);
+}
+
+/**
+ * Keeps the first valid entry for each identifier. A collection written by an
+ * older client can contain duplicate keys, which a keyed list cannot render.
+ */
+function sanitizeStoredProfiles(values: readonly unknown[]): ExportProfile[] {
+	const seen = new Set<string>();
+	const profiles: ExportProfile[] = [];
+	for (const value of values) {
+		if (profiles.length >= MAX_PROFILES) break;
+		if (!validProfile(value) || seen.has(value.id)) continue;
+		seen.add(value.id);
+		profiles.push(value);
+	}
+	return profiles;
 }
 
 export function readProfiles(): ExportProfile[] {
@@ -96,15 +141,55 @@ export function readProfiles(): ExportProfile[] {
 			? parsed
 			: (parsed as Partial<ExportProfileDocument>)?.profiles;
 		if (!Array.isArray(values)) return [...DEFAULT_PROFILES];
-		const profiles = values.filter(validProfile);
+		const profiles = sanitizeStoredProfiles(values);
 		return profiles.length > 0 ? profiles : [...DEFAULT_PROFILES];
 	} catch {
 		return [...DEFAULT_PROFILES];
 	}
 }
 
+/** Writes only a complete, renderable collection. A refusal changes nothing. */
 export function saveProfiles(profiles: readonly ExportProfile[]): void {
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles.filter(validProfile)));
+	if (profiles.length === 0) throw new ExportProfileError('empty');
+	if (profiles.length > MAX_PROFILES) throw new ExportProfileError('excess');
+	const valid = profiles.filter(validProfile);
+	if (valid.length !== profiles.length) throw new ExportProfileError('invalid');
+	if (new Set(valid.map((profile) => profile.id)).size !== valid.length)
+		throw new ExportProfileError('duplicate');
+	localStorage.setItem(STORAGE_KEY, JSON.stringify(valid));
+}
+
+/**
+ * Persists the collection and the active identity in one step. A failed write
+ * restores both stored values, so the panel keeps the previous collection.
+ */
+export function persistProfileSelection(
+	profiles: readonly ExportProfile[],
+	activeId: string | null
+): void {
+	if (activeId !== null && !profiles.some((profile) => profile.id === activeId))
+		throw new ExportProfileError('invalid');
+	const previousCollection = localStorage.getItem(STORAGE_KEY);
+	const previousActive = localStorage.getItem(ACTIVE_PROFILE_KEY);
+	try {
+		saveProfiles(profiles);
+		if (activeId === null) localStorage.removeItem(ACTIVE_PROFILE_KEY);
+		else localStorage.setItem(ACTIVE_PROFILE_KEY, activeId);
+	} catch (failure) {
+		restoreStoredValue(STORAGE_KEY, previousCollection);
+		restoreStoredValue(ACTIVE_PROFILE_KEY, previousActive);
+		throw failure;
+	}
+}
+
+/** Rollback is best effort and must not hide the original write failure. */
+function restoreStoredValue(key: string, value: string | null): void {
+	try {
+		if (value === null) localStorage.removeItem(key);
+		else localStorage.setItem(key, value);
+	} catch {
+		// Keep the failure that stopped the write.
+	}
 }
 
 /**
@@ -148,12 +233,23 @@ export function serializeProfiles(profiles: ExportProfile[]): string {
 }
 
 export function parseProfiles(json: string): ExportProfile[] {
-	const value = JSON.parse(json) as Partial<ExportProfileDocument>;
-	if (value.format !== 'mdsh-export-profiles' || value.schemaVersion !== 1)
-		throw new Error('Unsupported export profile file');
-	if (!Array.isArray(value.profiles)) throw new Error('Missing profiles');
+	if (new TextEncoder().encode(json).byteLength > MAX_PROFILE_DOCUMENT_BYTES)
+		throw new ExportProfileError('oversized');
+	let value: Partial<ExportProfileDocument> | null;
+	try {
+		value = JSON.parse(json) as Partial<ExportProfileDocument> | null;
+	} catch {
+		throw new ExportProfileError('invalid');
+	}
+	if (!value || value.format !== 'mdsh-export-profiles' || value.schemaVersion !== 1)
+		throw new ExportProfileError('unsupported');
+	if (!Array.isArray(value.profiles)) throw new ExportProfileError('missing');
+	if (value.profiles.length === 0) throw new ExportProfileError('empty');
+	if (value.profiles.length > MAX_PROFILES) throw new ExportProfileError('excess');
 	const profiles = value.profiles.filter(validProfile);
-	if (profiles.length !== value.profiles.length) throw new Error('Invalid profile');
+	if (profiles.length !== value.profiles.length) throw new ExportProfileError('invalid');
+	if (new Set(profiles.map((profile) => profile.id)).size !== profiles.length)
+		throw new ExportProfileError('duplicate');
 	return profiles;
 }
 

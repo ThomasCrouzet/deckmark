@@ -582,6 +582,9 @@ export const fr: Record<MessageKey, string> = {
 		'Facultatif. Il utilise des traits locaux de mots et de caractères. Aucun modèle à télécharger et aucune requête réseau.',
 	'semantic.model': 'Modèle',
 	'semantic.rebuild': 'L’index a été construit avec un autre modèle. Reconstruisez l’index.',
+	'semantic.stale':
+		'Certains documents indexés ont changé. Reconstruisez l’index pour les inclure.',
+	'semantic.clearError': 'Impossible d’effacer l’index sélectionné. Réessayez.',
 	'semantic.scope': 'Portée de l’index',
 	'semantic.library': 'Documents de la bibliothèque',
 	'semantic.project': 'Projet actif',
@@ -615,6 +618,8 @@ export const fr: Record<MessageKey, string> = {
 	'blocks.state_missing': 'source absente',
 	'blocks.state_frozen': 'figé',
 	'blocks.state_cycle': 'cycle détecté',
+	'blocks.state_ambiguous': 'source ambiguë',
+	'blocks.stale': 'Le document a changé. Actualisez le panneau et réessayez.',
 	'exportProfiles.title': 'Profils d’export',
 	'exportProfiles.command': 'Gérer les profils d’export',
 	'exportProfiles.commandHint':

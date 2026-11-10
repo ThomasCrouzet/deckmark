@@ -320,8 +320,12 @@
 		}
 		try {
 			const rows = parseSnippetExport(await file.text());
-			const count = await snippetsStore.importRows(rows);
-			status = t('snippets.imported', { n: count });
+			const report = await snippetsStore.importRows(rows);
+			status = t('snippets.importReport', {
+				added: report.added,
+				preserved: report.preserved,
+				unchanged: report.unchanged
+			});
 			notify.success(status);
 			await tick();
 			inputEl?.focus();

@@ -7,6 +7,7 @@ import {
 import { CliError, EXIT } from './exit';
 import {
 	Deadline,
+	isWithinRoot,
 	mapPool,
 	readText,
 	requireDirectory,
@@ -42,7 +43,7 @@ async function resolveScope(input: string, rootOption: string | undefined): Prom
 		const file = await requireFile(absolute);
 		root = rootOption ? await requireDirectory(resolve(rootOption)) : dirname(file);
 		const fromRoot = toProjectPath(relative(root, file));
-		if (fromRoot.startsWith('..') || fromRoot === '')
+		if (fromRoot === '' || !isWithinRoot(root, file))
 			throw new CliError(EXIT.INPUT, 'input-outside-root', `File is outside the root: ${input}`);
 		filter = fromRoot;
 		files = true;
@@ -51,7 +52,7 @@ async function resolveScope(input: string, rootOption: string | undefined): Prom
 		const directory = await requireDirectory(absolute);
 		root = rootOption ? await requireDirectory(resolve(rootOption)) : directory;
 		const fromRoot = relative(root, directory);
-		if (fromRoot.startsWith('..'))
+		if (!isWithinRoot(root, directory))
 			throw new CliError(
 				EXIT.INPUT,
 				'input-outside-root',

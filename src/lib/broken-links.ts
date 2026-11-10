@@ -9,14 +9,15 @@ import type { PathLinkRecord } from './disk-link';
  * `brokenLink` (and resets `linkedToDisk` when the handle disappears entirely)
  * directly on the corresponding `FileItem`.
  */
+export type BrokenLinkIdentity =
+	{ kind: 'path'; path: string } | { kind: 'handle'; handle: FileSystemFileHandle | null };
+
 export interface BrokenLinkUpdate {
 	id: string;
 	brokenLink: boolean;
-	// `null` if the handle no longer exists at all in IDB - in that case the
-	// store must also reset `linkedToDisk` to false on the state side. If
-	// `false`, we leave `linkedToDisk` as is: the handle exists, only its
-	// physical file is problematic.
 	handleMissing: boolean;
+	/** The link that was actually checked, so a late result can be fenced. */
+	link: BrokenLinkIdentity;
 }
 
 /**
@@ -53,20 +54,27 @@ export async function computeBrokenLinks(
 				updates[index] = {
 					id: file.id,
 					brokenLink: status === 'broken',
-					handleMissing: false
+					handleMissing: false,
+					link: { kind: 'path', path: pathRec.path }
 				};
 				continue;
 			}
 			const handle = await get(file.id);
 			if (!handle) {
-				updates[index] = { id: file.id, brokenLink: true, handleMissing: true };
+				updates[index] = {
+					id: file.id,
+					brokenLink: true,
+					handleMissing: true,
+					link: { kind: 'handle', handle: null }
+				};
 				continue;
 			}
 			const status = await check(handle);
 			updates[index] = {
 				id: file.id,
 				brokenLink: status === 'broken',
-				handleMissing: false
+				handleMissing: false,
+				link: { kind: 'handle', handle }
 			};
 		}
 	};

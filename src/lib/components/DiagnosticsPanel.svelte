@@ -11,7 +11,7 @@
 	import { diagnosticEvents } from '#lib/report.js';
 	import {
 		buildDiagnosticReport,
-		documentStats,
+		collectDocumentStats,
 		downloadDiagnosticReport,
 		type DiagnosticMetadata
 	} from '#lib/diagnostics.js';
@@ -30,6 +30,28 @@
 	let preview = $state('');
 	let status = $state('');
 	let section = $state<HTMLElement | null>(null);
+	let buildController: AbortController | null = null;
+
+	interface LibraryScanProbe {
+		deferredBefore: number;
+		deferredAfter: number;
+		residentCharsBefore: number;
+		residentCharsAfter: number;
+		scanned: number;
+		documents: number;
+		complete: boolean;
+		elapsedMs: number;
+	}
+
+	function residentChars(): number {
+		return filesStore.library.reduce((total, file) => total + file.content.length, 0);
+	}
+
+	function publishScanProbe(probe: LibraryScanProbe): void {
+		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS !== '1' || typeof window === 'undefined')
+			return;
+		(window as unknown as { __MDSH_DIAGNOSTICS__?: LibraryScanProbe }).__MDSH_DIAGNOSTICS__ = probe;
+	}
 
 	async function metadata(): Promise<DiagnosticMetadata> {
 		const storage = navigator.storage;
@@ -65,21 +87,65 @@
 	}
 
 	async function buildPreview(): Promise<void> {
+		buildController?.abort();
+		const controller = new AbortController();
+		buildController = controller;
+		const deferredBefore = filesStore.library.filter((file) => file.contentDeferred).length;
+		const charsBefore = residentChars();
+		const startedAt = performance.now();
+		preview = '';
 		status = '';
 		try {
-			if (includeStats) await filesStore.ensureLibraryContent();
+			// Pending edits must reach IndexedDB before the durable rows are read.
+			await filesStore.flushPendingAwait();
+			const savedAt = filesStore.lastSavedAt;
+			const identity = new Set(filesStore.library.map((file) => `${file.id}:${file.updatedAt}`));
+			const stats = includeStats
+				? await collectDocumentStats({
+						signal: controller.signal,
+						onProgress: ({ scanned, documents }) => {
+							if (controller.signal.aborted) return;
+							status = `${td('settings.diagnosticsScanning')} ${scanned} / ${documents}`;
+						},
+						isStillCurrent: (documents) =>
+							filesStore.lastSavedAt === savedAt &&
+							filesStore.library.length === documents &&
+							filesStore.library.every((file) => identity.has(`${file.id}:${file.updatedAt}`))
+					})
+				: null;
+			if (controller.signal.aborted) return;
+			if (stats?.cancelled) status = td('settings.diagnosticsCancelled');
+			else if (stats && !stats.complete) status = td('settings.diagnosticsPartial');
+			else status = '';
 			preview = buildDiagnosticReport({
 				metadata: await metadata(),
 				events: diagnosticEvents(),
-				stats: includeStats ? documentStats(filesStore.library) : null,
+				stats,
 				description
 			});
+			if (stats) {
+				publishScanProbe({
+					deferredBefore,
+					deferredAfter: filesStore.library.filter((file) => file.contentDeferred).length,
+					residentCharsBefore: charsBefore,
+					residentCharsAfter: residentChars(),
+					scanned: stats.documents,
+					documents: filesStore.library.length,
+					complete: stats.complete,
+					elapsedMs: Math.round(performance.now() - startedAt)
+				});
+			}
 		} catch {
+			if (controller.signal.aborted) return;
 			status = td('settings.diagnosticsFailed');
+		} finally {
+			if (buildController === controller) buildController = null;
 		}
 	}
 
 	function cancel(): void {
+		buildController?.abort();
+		buildController = null;
 		preview = '';
 		status = '';
 		open = false;
@@ -96,7 +162,10 @@
 			void tick().then(() => section?.scrollIntoView({ block: 'start' }));
 		};
 		window.addEventListener('mdsh:report-problem', showReport);
-		return () => window.removeEventListener('mdsh:report-problem', showReport);
+		return () => {
+			window.removeEventListener('mdsh:report-problem', showReport);
+			buildController?.abort();
+		};
 	});
 </script>
 

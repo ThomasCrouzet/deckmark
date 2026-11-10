@@ -5,3 +5,9 @@
 # There are no known false positives.
 [extend]
 useDefault = true
+
+# The AI provider tests use this literal as a rejected fake key. It has no
+# value outside the test fixture and is not a real credential.
+[[allowlists]]
+description = "Synthetic key literal in the AI provider test fixtures."
+regexes = ['''sk-live-SECRET1234567890''']

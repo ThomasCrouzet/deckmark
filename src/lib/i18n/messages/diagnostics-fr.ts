@@ -11,5 +11,10 @@ export const diagnosticsFr: Record<string, string> = {
 	'settings.diagnosticsBuild': 'Prévisualiser le rapport',
 	'settings.diagnosticsDownload': 'Télécharger le rapport',
 	'settings.diagnosticsCancel': 'Annuler',
+	'settings.diagnosticsScanning': 'Comptage des documents',
+	'settings.diagnosticsCancelled':
+		'L’analyse a été annulée. Les statistiques sont partielles et ne décrivent pas la bibliothèque.',
+	'settings.diagnosticsPartial':
+		'La bibliothèque a changé pendant l’analyse. Les statistiques sont partielles et le rapport est incomplet.',
 	'settings.diagnosticsFailed': 'Le rapport n’a pas pu être créé.'
 };

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 import { resetAppState } from './helpers';
+import { databaseState, importBackup } from './storage-evidence';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -8,11 +9,51 @@ const sentinelBody = 'SENTINEL_DOCUMENT_BODY_4c1f';
 const sentinelName = 'SENTINEL_FILE_NAME_77a2.md';
 const sessionValue = 'sentinel_session_value_5b8d';
 
-async function openEnglish(page: Page): Promise<void> {
-	await resetAppState(page);
+interface DiagnosticsProbe {
+	deferredBefore: number;
+	deferredAfter: number;
+	residentCharsBefore: number;
+	residentCharsAfter: number;
+	scanned: number;
+	documents: number;
+	complete: boolean;
+	elapsedMs: number;
+}
+
+async function setEnglish(page: Page): Promise<void> {
 	await page.evaluate(() => localStorage.setItem('mdsh:locale', 'en'));
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+}
+
+async function openEnglish(page: Page): Promise<void> {
+	await resetAppState(page);
+	await setEnglish(page);
+}
+
+function closeNote(index: number) {
+	return {
+		id: `diagnostics-${index}`,
+		name: `Diagnostics ${index}.md`,
+		content: `# Diagnostics ${index}\n\n${'body line for the diagnostics scan\n'.repeat(
+			index === 12 ? 40_000 : index === 13 ? 200_000 : 12_000
+		)}`,
+		createdAt: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_000,
+		order: index,
+		open: index === 0,
+		kind: 'note' as const
+	};
+}
+
+function expectedStats(rows: ReturnType<typeof closeNote>[]) {
+	let totalBytes = 0;
+	let totalLines = 0;
+	for (const row of rows) {
+		totalBytes += Buffer.byteLength(row.content, 'utf8');
+		totalLines += row.content.length === 0 ? 0 : row.content.split('\n').length;
+	}
+	return { documents: rows.length, totalBytes, totalLines, kinds: { note: rows.length } };
 }
 
 async function openDiagnostics(page: Page): Promise<void> {
@@ -76,4 +117,75 @@ test('cancel leaves no report and no download', async ({ page }) => {
 	await page.getByTestId('diagnostics-cancel').click();
 	await expect(page.getByTestId('diagnostics-preview')).toHaveCount(0);
 	await expect(page.getByTestId('diagnostics-open')).toBeVisible();
+});
+
+test('counts deferred document statistics without hydrating closed bodies', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await resetAppState(page);
+	const rows = Array.from({ length: 14 }, (_, index) => closeNote(index));
+	await importBackup(page, {
+		format: 'mdsh-backup',
+		schemaVersion: 1,
+		exportedAt: 1_700_000_000_000,
+		drafts: rows,
+		workspaces: [],
+		templates: []
+	});
+	await expect.poll(async () => (await databaseState(page)).drafts.length).toBe(rows.length);
+	await page.keyboard.press('Escape');
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
+	await setEnglish(page);
+	await openDiagnostics(page);
+	await page.getByTestId('diagnostics-include-stats').check();
+	await page.getByTestId('diagnostics-build').click();
+	const preview = page.getByTestId('diagnostics-preview');
+	await expect(preview).toBeVisible({ timeout: 90_000 });
+	const text = (await preview.textContent()) ?? '';
+	const report = JSON.parse(text) as {
+		documentStats: {
+			documents: number;
+			totalBytes: number;
+			totalLines: number;
+			kinds: Record<string, number>;
+			complete: boolean;
+		};
+	};
+	expect(report.documentStats).toMatchObject(expectedStats(rows));
+	expect(report.documentStats.complete).toBe(true);
+	expect(text).not.toContain('body line for the diagnostics scan');
+	expect(text).not.toContain('Diagnostics 0.md');
+
+	const probe = await page.evaluate(
+		() =>
+			(window as unknown as { __MDSH_DIAGNOSTICS__?: DiagnosticsProbe }).__MDSH_DIAGNOSTICS__ ??
+			null
+	);
+	expect(probe).not.toBeNull();
+	expect(probe!.deferredBefore).toBeGreaterThan(0);
+	expect(probe!.deferredAfter).toBe(probe!.deferredBefore);
+	expect(probe!.residentCharsAfter).toBe(probe!.residentCharsBefore);
+	expect(probe!.scanned).toBe(rows.length);
+
+	await info.attach('diagnostics-library-scan.json', {
+		body: JSON.stringify(
+			{
+				fixture: {
+					documents: rows.length,
+					bytes: report.documentStats.totalBytes,
+					lines: report.documentStats.totalLines
+				},
+				probe,
+				expected: expectedStats(rows)
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
 });

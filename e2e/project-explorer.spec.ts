@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { expect, test, type Page } from '@playwright/test';
-import { resetAppState, seedFiles } from './helpers';
+import { resetAppState, seedFiles, writeSourceContent } from './helpers';
 
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
@@ -408,6 +408,80 @@ test('copy keeps the source document and creates a new identity', async ({ page 
 		contentType: 'application/json'
 	});
 	await info.attach('project-copy.png', {
+		body: await page.screenshot(),
+		contentType: 'image/png'
+	});
+});
+
+test('copy leaves existing siblings and their links unchanged', async ({ page }, info) => {
+	await importProject(page, 'Explorer', {
+		'README.md': '# Home\n\n[Guide](notes/guide.md)\n',
+		'notes/guide.md': '# Guide\n\n[Home](../README.md)\n'
+	});
+	const root = await projectRoot(page, 'Explorer');
+	await expand(page, 'Explorer');
+	const notes = root.locator('[data-project-folder="notes"]');
+	await ensureExpanded(notes);
+	const before = await storedState(page);
+	const source = before.drafts.find((draft) => draft.relativePath === 'notes/guide.md')!;
+	const readme = before.drafts.find((draft) => draft.relativePath === 'README.md')!;
+	await notes
+		.locator('[data-project-document="notes/guide.md"] [data-project-action="move-document"]')
+		.click();
+	const dialog = page.getByRole('dialog', { name: 'Déplacer ou copier' });
+	await dialog.getByTestId('project-move-folder').fill('copies');
+	await dialog.getByTestId('project-move-copy').click();
+	await ensureExpanded(root.locator('[data-project-folder="copies"]'));
+	await expect(root.locator('[data-project-document="copies/guide.md"]')).toBeVisible();
+	const after = await storedState(page);
+	const original = after.drafts.find((draft) => draft.id === source.id)!;
+	const copied = after.drafts.find((draft) => draft.relativePath === 'copies/guide.md')!;
+	const readmeAfter = after.drafts.find((draft) => draft.id === readme.id)!;
+	expect(original.content).toBe(source.content);
+	expect(readmeAfter.content).toBe(readme.content);
+	expect(readmeAfter.content).toContain('[Guide](notes/guide.md)');
+	expect(readmeAfter.updatedAt).toBe(readme.updatedAt);
+	expect(copied.id).not.toBe(source.id);
+	expect(copied.content).toContain('[Home](../README.md)');
+	expect(after.drafts).toHaveLength(before.drafts.length + 1);
+	await info.attach('project-copy-existing.json', {
+		body: JSON.stringify({ original, copied, readmeAfter }, null, 2),
+		contentType: 'application/json'
+	});
+	await info.attach('project-copy-existing.png', {
+		body: await page.screenshot(),
+		contentType: 'image/png'
+	});
+});
+
+test('opens a mixed-case project Markdown link in read mode', async ({ page }, info) => {
+	await importProject(page, 'Links', {
+		'docs/Guide.md': '# Guide\n\nCanonical target.\n',
+		'notes/reader.md': '# Reader\n\n[Read guide](../docs/guide.md)\n'
+	});
+	const root = await projectRoot(page, 'Links');
+	await expand(page, 'Links');
+	await ensureExpanded(root.locator('[data-project-folder="notes"]'));
+	const paths = (await storedState(page)).drafts.map((draft) => draft.relativePath);
+	expect(paths).toContain('docs/Guide.md');
+	expect(paths).toContain('notes/reader.md');
+	await root.locator('[data-project-document="notes/reader.md"] button[data-file-id]').click();
+	const fileName = page.locator('input[aria-label^="Nom du fichier"]');
+	await expect(fileName).toHaveValue('reader');
+	// Write the authored mixed-case destination after import, so no migration
+	// pass can repair it before Read mode resolves the stored path.
+	await writeSourceContent(page, '# Reader\n\n[Read guide](../docs/guide.md)\n');
+	await page.locator('button[data-mode="read"]').click();
+	const link = page.getByRole('link', { name: 'Read guide' });
+	expect(await link.getAttribute('href')).toBe('../docs/guide.md');
+	await link.click();
+	await expect(fileName).toHaveValue('Guide');
+	await expect(page.locator('.mdsh-preview')).toContainText('Canonical target');
+	await info.attach('project-read-case-link.json', {
+		body: JSON.stringify({ destination: '../docs/guide.md', target: 'docs/Guide.md' }, null, 2),
+		contentType: 'application/json'
+	});
+	await info.attach('project-read-case-link.png', {
 		body: await page.screenshot(),
 		contentType: 'image/png'
 	});

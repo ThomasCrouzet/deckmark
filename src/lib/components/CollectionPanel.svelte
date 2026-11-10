@@ -8,9 +8,11 @@
 		collectionColumns,
 		filterRows,
 		groupRows,
+		isCollectionAbort,
 		readCollectionViews,
 		saveCollectionViews,
 		sortRows,
+		type CollectionBuildStats,
 		type CollectionRow,
 		type CollectionView
 	} from '#lib/collection.js';
@@ -18,8 +20,20 @@
 
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
 
+	const ROW_HEIGHT = 30;
+	const COLUMN_WIDTH = 140;
+	const TITLE_WIDTH = 220;
+	const ROW_OVERSCAN = 8;
+	const COLUMN_OVERSCAN = 2;
+	const MAX_RENDERED_ROWS = 200;
+	const MAX_RENDERED_COLUMNS = 30;
+	const BOARD_GROUP_LIMIT = 20;
+	const BOARD_CARD_LIMIT = 20;
+
 	let rows = $state<CollectionRow[]>([]);
-	let loading = $state(true);
+	let loadState = $state<'loading' | 'ready' | 'error'>('loading');
+	let error = $state('');
+	let progress = $state({ done: 0, total: 0 });
 	let query = $state('');
 	let sortKey = $state('title');
 	let sortDirection = $state<'asc' | 'desc'>('asc');
@@ -28,43 +42,155 @@
 	let viewName = $state('');
 	let views = $state<CollectionView[]>([]);
 	let selectedView = $state('');
+	let tableScroll = $state<HTMLElement | null>(null);
+	let scrollTop = $state(0);
+	let scrollLeft = $state(0);
+	let viewportHeight = $state(0);
+	let viewportWidth = $state(0);
+	let boardGroupLimit = $state(BOARD_GROUP_LIMIT);
+	let boardCardLimit = $state(BOARD_CARD_LIMIT);
 
 	const columns = $derived(collectionColumns(rows));
 	const filtered = $derived(filterRows(rows, query));
-	const PAGE_ROWS = 300;
-	let visibleCount = $state(PAGE_ROWS);
 	const sorted = $derived(sortRows(filtered, sortKey, sortDirection));
-	const visibleRows = $derived(sorted.slice(0, visibleCount));
-	const groups = $derived(groupRows(visibleRows, groupKey));
-	const hasMore = $derived(visibleCount < sorted.length);
+	const rowWindow = $derived.by(() => {
+		const height = viewportHeight > 0 ? viewportHeight : ROW_HEIGHT * 20;
+		const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - ROW_OVERSCAN);
+		const count = Math.min(
+			MAX_RENDERED_ROWS,
+			Math.max(1, Math.ceil(height / ROW_HEIGHT) + ROW_OVERSCAN * 2)
+		);
+		const last = Math.min(sorted.length, first + count);
+		return {
+			first,
+			last,
+			rows: sorted.slice(first, last),
+			top: first * ROW_HEIGHT,
+			bottom: Math.max(0, (sorted.length - last) * ROW_HEIGHT)
+		};
+	});
+	const columnWindow = $derived.by(() => {
+		const width = viewportWidth > 0 ? viewportWidth : 800;
+		const first = Math.max(
+			0,
+			Math.floor(Math.max(0, scrollLeft - TITLE_WIDTH) / COLUMN_WIDTH) - COLUMN_OVERSCAN
+		);
+		const count = Math.min(
+			MAX_RENDERED_COLUMNS,
+			Math.max(4, Math.ceil(width / COLUMN_WIDTH) + COLUMN_OVERSCAN * 2)
+		);
+		const last = Math.min(columns.length, first + count);
+		return {
+			first,
+			last,
+			columns: columns.slice(first, last),
+			left: first * COLUMN_WIDTH,
+			right: Math.max(0, (columns.length - last) * COLUMN_WIDTH)
+		};
+	});
+	const allGroups = $derived(groupRows(sorted, groupKey));
+	const visibleGroups = $derived(allGroups.slice(0, boardGroupLimit));
+	const groups = $derived(
+		visibleGroups.map((group) => ({ key: group.key, rows: group.rows.slice(0, boardCardLimit) }))
+	);
+	const hasMoreGroups = $derived(boardGroupLimit < allGroups.length);
+	const hasMoreCards = $derived(
+		allGroups.slice(0, boardGroupLimit).some((group) => group.rows.length > boardCardLimit)
+	);
 
 	$effect(() => {
 		void query;
 		void sortKey;
 		void sortDirection;
 		void groupKey;
-		visibleCount = PAGE_ROWS;
+		boardGroupLimit = BOARD_GROUP_LIMIT;
+		boardCardLimit = BOARD_CARD_LIMIT;
+		scrollTop = 0;
+		if (tableScroll) tableScroll.scrollTop = 0;
+	});
+
+	$effect(() => {
+		const element = tableScroll;
+		if (!element) return;
+		const update = () => {
+			viewportHeight = element.clientHeight;
+			viewportWidth = element.clientWidth;
+			scrollTop = element.scrollTop;
+			scrollLeft = element.scrollLeft;
+		};
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(element);
+		return () => observer.disconnect();
 	});
 
 	let loadJob = 0;
+	let controller: AbortController | null = null;
+
+	async function load() {
+		const job = ++loadJob;
+		controller?.abort();
+		controller = new AbortController();
+		const signal = controller.signal;
+		const started = Date.now();
+		loadState = 'loading';
+		error = '';
+		progress = { done: 0, total: filesStore.library.length };
+		let lastStats: CollectionBuildStats | null = null;
+		try {
+			const value = await buildCollection(filesStore.library, {
+				signal,
+				onProgress: (done, total) => {
+					if (job === loadJob) progress = { done, total };
+				},
+				onStats: (stats) => {
+					lastStats = stats;
+				}
+			});
+			if (job !== loadJob || signal.aborted) return;
+			rows = value;
+			loadState = 'ready';
+			const stats = lastStats as CollectionBuildStats | null;
+			if (stats !== null)
+				exposeProfile({
+					...stats,
+					notes: filesStore.library.length,
+					rows: value.length,
+					columns: collectionColumns(value).length,
+					durationMs: Date.now() - started
+				});
+		} catch (reason) {
+			if (job !== loadJob || signal.aborted || isCollectionAbort(reason)) return;
+			rows = [];
+			error = reason instanceof Error ? reason.message : String(reason);
+			loadState = 'error';
+		}
+	}
+
+	function exposeProfile(stats: CollectionBuildStats & Record<string, number>) {
+		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS !== '1' || typeof window === 'undefined')
+			return;
+		(
+			window as unknown as {
+				__mdshCollectionProfile?: CollectionBuildStats & Record<string, number>;
+			}
+		).__mdshCollectionProfile = stats;
+	}
+
+	function refreshOnFocus() {
+		if (!open || loadState === 'loading') return;
+		void load();
+	}
+
 	onMount(() => {
 		views = readCollectionViews();
-		const job = ++loadJob;
-		void (async () => {
-			try {
-				await filesStore.ensureLibraryContent();
-				if (job !== loadJob) return;
-				const value = await buildCollection(filesStore.library);
-				if (job !== loadJob) return;
-				rows = value;
-			} catch {
-				if (job === loadJob) rows = [];
-			} finally {
-				if (job === loadJob) loading = false;
-			}
-		})();
+		void load();
+		window.addEventListener('focus', refreshOnFocus);
 		return () => {
 			loadJob += 1;
+			controller?.abort();
+			controller = null;
+			window.removeEventListener('focus', refreshOnFocus);
 		};
 	});
 
@@ -194,41 +320,90 @@
 					</button>
 				{/if}
 			</div>
-			<div class="collection-body">
-				{#if loading}
-					<p role="status">{t('collection.loading')}</p>
+			<div class="collection-body" bind:this={tableScroll}>
+				{#if loadState === 'loading'}
+					<p role="status" data-testid="collection-progress">
+						{t('collection.loading')}
+						{#if progress.total > 0}({progress.done}/{progress.total}){/if}
+					</p>
+				{:else if loadState === 'error'}
+					<div class="collection-error" role="alert" data-testid="collection-error">
+						<p>{t('panels.loadFailed')}</p>
+						{#if error}<pre>{error}</pre>{/if}
+						<button type="button" onclick={() => void load()}>{t('source.retry')}</button>
+					</div>
 				{:else if sorted.length === 0}
 					<p>{t('collection.empty')}</p>
 				{:else if mode === 'table'}
 					<div class="table-scroll">
-						<table data-testid="collection-table">
+						<table
+							data-testid="collection-table"
+							aria-rowcount={sorted.length + 1}
+							aria-colcount={columns.length + 1}
+						>
 							<thead>
 								<tr>
-									<th scope="col">{t('collection.titleColumn')}</th>
-									{#each columns as column (column)}<th scope="col">{column}</th>{/each}
+									<th scope="col" style={`width:${TITLE_WIDTH}px`}>{t('collection.titleColumn')}</th
+									>
+									{#if columnWindow.left > 0}
+										<th class="spacer" style={`width:${columnWindow.left}px`} aria-hidden="true"
+										></th>
+									{/if}
+									{#each columnWindow.columns as column (column)}
+										<th scope="col" style={`width:${COLUMN_WIDTH}px`} title={column}>{column}</th>
+									{/each}
+									{#if columnWindow.right > 0}
+										<th class="spacer" style={`width:${columnWindow.right}px`} aria-hidden="true"
+										></th>
+									{/if}
 								</tr>
 							</thead>
 							<tbody>
-								{#each visibleRows as row (row.id)}
-									<tr>
-										<th scope="row">
+								{#if rowWindow.top > 0}
+									<tr class="spacer" aria-hidden="true">
+										<td
+											colspan={columnWindow.columns.length + 3}
+											style={`height:${rowWindow.top}px`}
+										></td>
+									</tr>
+								{/if}
+								{#each rowWindow.rows as row, index (row.id)}
+									<tr style={`height:${ROW_HEIGHT}px`} aria-rowindex={rowWindow.first + index + 2}>
+										<th scope="row" style={`width:${TITLE_WIDTH}px`}>
 											<button type="button" onclick={() => openRow(row)}>{row.title}</button>
 										</th>
-										{#each columns as column (column)}<td>{cell(row, column)}</td>{/each}
+										{#if columnWindow.left > 0}
+											<td class="spacer" style={`width:${columnWindow.left}px`} aria-hidden="true"
+											></td>
+										{/if}
+										{#each columnWindow.columns as column (column)}
+											<td style={`width:${COLUMN_WIDTH}px`} title={cell(row, column)}
+												>{cell(row, column)}</td
+											>
+										{/each}
+										{#if columnWindow.right > 0}
+											<td class="spacer" style={`width:${columnWindow.right}px`} aria-hidden="true"
+											></td>
+										{/if}
 									</tr>
 								{/each}
+								{#if rowWindow.bottom > 0}
+									<tr class="spacer" aria-hidden="true">
+										<td
+											colspan={columnWindow.columns.length + 3}
+											style={`height:${rowWindow.bottom}px`}
+										></td>
+									</tr>
+								{/if}
 							</tbody>
 						</table>
 					</div>
-					{#if hasMore}
-						<button
-							type="button"
-							class="mx-auto my-3 block rounded border border-border px-3 py-1.5 text-xs text-fg-muted"
-							onclick={() => (visibleCount += PAGE_ROWS)}
-						>
-							{t('library.loadMore', { n: Math.min(PAGE_ROWS, sorted.length - visibleCount) })}
-						</button>
-					{/if}
+					<p class="collection-range">
+						{rowWindow.first + 1}-{rowWindow.last} / {sorted.length}
+						{#if columnWindow.first > 0 || columnWindow.last < columns.length}
+							(columns {columnWindow.first + 1}-{columnWindow.last} / {columns.length})
+						{/if}
+					</p>
 				{:else}
 					<div class="board" data-testid="collection-board">
 						{#each groups as group (group.key)}
@@ -245,6 +420,33 @@
 							</section>
 						{/each}
 					</div>
+					{#if hasMoreGroups}
+						<button
+							type="button"
+							class="collection-more"
+							onclick={() => (boardGroupLimit += BOARD_GROUP_LIMIT)}
+						>
+							{t('library.loadMore', {
+								n: Math.min(BOARD_GROUP_LIMIT, allGroups.length - boardGroupLimit)
+							})}
+						</button>
+					{/if}
+					{#if hasMoreCards}
+						<button
+							type="button"
+							class="collection-more"
+							onclick={() => (boardCardLimit += BOARD_CARD_LIMIT)}
+						>
+							{t('library.loadMore', {
+								n: Math.min(
+									BOARD_CARD_LIMIT,
+									Math.max(
+										...allGroups.slice(0, boardGroupLimit).map((group) => group.rows.length)
+									) - boardCardLimit
+								)
+							})}
+						</button>
+					{/if}
 				{/if}
 			</div>
 			<p class="collection-note">{t('collection.note')}</p>
@@ -338,13 +540,48 @@
 		overflow: auto;
 		padding: 10px 16px;
 	}
+	.collection-error {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 8px;
+	}
+	.collection-error button,
+	.collection-more {
+		min-height: 32px;
+		padding: 3px 9px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-xs);
+		background: var(--color-bg-2);
+		color: var(--color-fg);
+	}
 	.table-scroll {
-		overflow: auto;
+		overflow: visible;
 	}
 	table {
-		width: 100%;
+		table-layout: fixed;
 		border-collapse: collapse;
 		font-size: 12px;
+	}
+	table td,
+	table th {
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.spacer {
+		border: 0;
+		padding: 0;
+	}
+	.collection-range {
+		margin: 6px 0 0;
+		font-size: 11px;
+		color: var(--color-fg-muted);
+	}
+	.collection-more {
+		display: block;
+		margin: 8px auto 0;
+		font-size: 11px;
+		color: var(--color-fg-muted);
 	}
 	th,
 	td {

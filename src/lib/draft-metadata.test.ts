@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, type DraftRow } from './db';
-import { readDraftMetadata } from './draft-manifest';
+import { readDraftManifests, readDraftMetadata } from './draft-manifest';
 import { backfillDraftMetadata, installDraftMetadataHooks } from './draft-metadata';
 
 function row(overrides: Partial<DraftRow> = {}): DraftRow {
@@ -29,6 +29,29 @@ describe('durable draft metadata', () => {
 			tags: ['alpha', 'beta'],
 			targets: ['Target']
 		});
+	});
+
+	it('keeps a code extension in the title and manifest kind', async () => {
+		await db.drafts.put(row({ id: 'script', name: 'script.py', content: 'print("hello")\n' }));
+		const metadata = await readDraftMetadata();
+		const manifests = await readDraftManifests();
+		expect(metadata?.get('script')?.title).toBe('script.py');
+		expect(manifests?.find((entry) => entry.id === 'script')?.kind).toBe('code');
+		expect((await db.drafts.get('script'))?.kind).toBeUndefined();
+	});
+
+	it('projects a presentation kind in the manifest without changing the row', async () => {
+		await db.drafts.put(
+			row({
+				id: 'deck',
+				name: 'deck.md',
+				content:
+					'# Deck\n\n<!-- mdsh-presentation\n{"version":1,"width":1280,"height":720,"slides":[]}\n-->\n'
+			})
+		);
+		const manifests = await readDraftManifests();
+		expect(manifests?.find((entry) => entry.id === 'deck')?.kind).toBe('presentation');
+		expect((await db.drafts.get('deck'))?.kind).toBeUndefined();
 	});
 
 	it('ignores fenced, indented and inline-code targets in one pass', async () => {

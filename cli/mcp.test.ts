@@ -1,7 +1,16 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
+import {
+	mkdtempSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+	mkdirSync,
+	symlinkSync,
+	unlinkSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let root = '';
@@ -134,6 +143,20 @@ describe('deckmark MCP server', () => {
 		expect(JSON.stringify(responses[1])).toContain('# Guide');
 	});
 
+	it('reads a Unicode filename through an in-root alias', () => {
+		writeFileSync(join(root, 'notes', 'Über note.md'), 'unicode-content');
+		symlinkSync('notes/Über note.md', join(root, 'unicode-alias.md'));
+		const responses = exchange([
+			JSON.stringify({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'tools/call',
+				params: { name: 'read_file', arguments: { path: 'unicode-alias.md' } }
+			})
+		]);
+		expect(JSON.stringify(responses[0])).toContain('unicode-content');
+	});
+
 	it.each([
 		['null', -32600],
 		['[]', -32600],
@@ -226,6 +249,278 @@ describe('deckmark MCP server', () => {
 			arguments: { path: '.env' }
 		});
 		expect(JSON.stringify(secret.result)).toContain('sensitive');
+	});
+});
+
+// Retained failure risks for the MCP filesystem boundary. A browser cannot
+// start this process or move its directory entries. The risks are: a valid
+// path replaced between authorization and read; an ancestor directory swapped
+// for an outside symlink during a scan; a leaf replaced by a symlink; and a
+// secret file reached through an in-root alias. The checks below repeat the
+// real protocol and compare returned bytes with the approved fixture only.
+describe('MCP authorization races', () => {
+	it('rejects a leaf replaced by a symbolic link after an authorized read', async () => {
+		const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
+		try {
+			writeFileSync(join(root, 'notes', 'approved.md'), 'approved-bytes');
+			writeFileSync(join(outside, 'secret.md'), 'outside-secret');
+			const first = await request('tools/call', {
+				name: 'read_file',
+				arguments: { path: 'notes/approved.md' }
+			});
+			expect(JSON.stringify(first.result)).toContain('approved-bytes');
+			unlinkSync(join(root, 'notes', 'approved.md'));
+			symlinkSync(join(outside, 'secret.md'), join(root, 'notes', 'approved.md'));
+			const second = await request('tools/call', {
+				name: 'read_file',
+				arguments: { path: 'notes/approved.md' }
+			});
+			expect(second.result).toMatchObject({ isError: true });
+			expect(JSON.stringify(second.result)).not.toContain('outside-secret');
+		} finally {
+			rmSync(outside, { recursive: true, force: true });
+		}
+	});
+
+	it.runIf(process.platform === 'win32')(
+		'rejects a Windows directory junction to an outside tree',
+		async () => {
+			const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
+			try {
+				mkdirSync(join(root, 'linked'));
+				writeFileSync(join(outside, 'note.md'), 'outside-secret');
+				rmSync(join(root, 'linked'), { recursive: true, force: true });
+				symlinkSync(outside, join(root, 'linked'), 'junction');
+				const response = await request('tools/call', {
+					name: 'read_file',
+					arguments: { path: 'linked/note.md' }
+				});
+				expect(response.result).toMatchObject({ isError: true });
+				expect(JSON.stringify(response.result)).not.toContain('outside-secret');
+			} finally {
+				rmSync(outside, { recursive: true, force: true });
+			}
+		}
+	);
+
+	it('never returns outside bytes while a directory is swapped repeatedly', async () => {
+		const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
+		const docs = join(root, 'docs');
+		const held = join(root, 'docs-held');
+		mkdirSync(docs);
+		writeFileSync(join(docs, 'note.md'), 'APPROVED-BYTES');
+		writeFileSync(join(outside, 'note.md'), 'OUTSIDE-SECRET');
+		let swapped = false;
+		let running = true;
+		let swaps = 0;
+		const toggle = () => {
+			if (!running) return;
+			try {
+				if (!swapped) {
+					renameSync(docs, held);
+					symlinkSync(outside, docs);
+					swapped = true;
+				} else {
+					unlinkSync(docs);
+					renameSync(held, docs);
+					swapped = false;
+				}
+				swaps += 1;
+			} catch {
+				// The other side of the swap may hold the name for a moment.
+			}
+			setTimeout(toggle, 0);
+		};
+		toggle();
+		let approved = 0;
+		try {
+			for (let index = 0; index < 2000; index++) {
+				const response = await request('tools/call', {
+					name: 'read_file',
+					arguments: { path: 'docs/note.md' }
+				});
+				const text = JSON.stringify(response.result);
+				expect(text).not.toContain('OUTSIDE-SECRET');
+				if ((response.result as { isError?: boolean }).isError) continue;
+				expect(text).toContain('APPROVED-BYTES');
+				approved += 1;
+			}
+		} finally {
+			running = false;
+			await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+			try {
+				if (swapped) unlinkSync(docs);
+				renameSync(held, docs);
+			} catch {
+				// afterEach removes the whole tree.
+			}
+			rmSync(outside, { recursive: true, force: true });
+		}
+		expect(swaps).toBeGreaterThan(0);
+		expect(approved).toBeGreaterThan(0);
+	}, 20_000);
+
+	it('keeps search and propose_patch inside the approved tree during swaps', async () => {
+		const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
+		const docs = join(root, 'docs');
+		const held = join(root, 'docs-held');
+		mkdirSync(docs);
+		writeFileSync(join(docs, 'note.md'), 'APPROVED-BYTES');
+		writeFileSync(join(outside, 'note.md'), 'OUTSIDE-SECRET');
+		let swapped = false;
+		let running = true;
+		const toggle = () => {
+			if (!running) return;
+			try {
+				if (!swapped) {
+					renameSync(docs, held);
+					symlinkSync(outside, docs);
+					swapped = true;
+				} else {
+					unlinkSync(docs);
+					renameSync(held, docs);
+					swapped = false;
+				}
+			} catch {
+				// The other side of the swap may hold the name for a moment.
+			}
+			setTimeout(toggle, 0);
+		};
+		toggle();
+		try {
+			for (let index = 0; index < 120; index++) {
+				const search = await request('tools/call', {
+					name: 'search',
+					arguments: { query: 'SECRET' }
+				});
+				const searchText = (search.result as { content: Array<{ text: string }> }).content[0]!.text;
+				if (!(search.result as { isError?: boolean }).isError) {
+					const report = JSON.parse(searchText) as { hits?: unknown };
+					expect(JSON.stringify(report.hits ?? [])).not.toContain('OUTSIDE-SECRET');
+				}
+				const patch = await request('tools/call', {
+					name: 'propose_patch',
+					arguments: { path: 'docs/note.md', before: 'APPROVED-BYTES', after: 'changed' }
+				});
+				expect(JSON.stringify(patch.result)).not.toContain('OUTSIDE-SECRET');
+			}
+		} finally {
+			running = false;
+			await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+			try {
+				if (swapped) unlinkSync(docs);
+				renameSync(held, docs);
+			} catch {
+				// afterEach removes the whole tree.
+			}
+			rmSync(outside, { recursive: true, force: true });
+		}
+	}, 20_000);
+});
+
+describe('MCP credential exclusions', () => {
+	const stores: Array<[string, string]> = [
+		['.docker/config.json', 'docker-token'],
+		['.pypirc', 'pypi-token'],
+		['.netrc', 'netrc-token'],
+		['.config/gcloud/application_default_credentials.json', 'gcloud-token'],
+		['.aws/credentials', 'aws-token'],
+		['.kube/config', 'kube-token'],
+		['.git-credentials', 'git-token'],
+		['.npmrc', 'npm-token'],
+		['.ssh/id_custom', 'ssh-token']
+	];
+
+	function writeStore(path: string, content: string) {
+		mkdirSync(dirname(join(root, path)), { recursive: true });
+		writeFileSync(join(root, path), content);
+	}
+
+	it.each(stores)('excludes %s from every read-only tool', async (path, marker) => {
+		writeStore(path, marker);
+		const read = await request('tools/call', {
+			name: 'read_file',
+			arguments: { path }
+		});
+		expect(read.result).toMatchObject({ isError: true });
+		expect(JSON.stringify(read.result)).toContain('sensitive');
+		expect(JSON.stringify(read.result)).not.toContain(marker);
+
+		const patch = await request('tools/call', {
+			name: 'propose_patch',
+			arguments: { path, before: marker, after: 'changed' }
+		});
+		expect(patch.result).toMatchObject({ isError: true });
+		expect(JSON.stringify(patch.result)).toContain('sensitive');
+		expect(JSON.stringify(patch.result)).not.toContain(marker);
+
+		const search = await request('tools/call', {
+			name: 'search',
+			arguments: { query: marker }
+		});
+		const searchText = (search.result as { content: Array<{ text: string }> }).content[0]!.text;
+		const report = JSON.parse(searchText) as { hits?: unknown };
+		expect(JSON.stringify(report.hits ?? [])).not.toContain(marker);
+
+		const list = await request('tools/call', { name: 'list_files', arguments: {} });
+		const listText = (list.result as { content: Array<{ text: string }> }).content[0]!.text;
+		expect(JSON.parse(listText).files.map((file: { path: string }) => file.path)).not.toContain(
+			path
+		);
+	});
+
+	it('excludes a credential file reached through an in-root alias', async () => {
+		writeStore('.docker/config.json', 'docker-secret');
+		symlinkSync('.docker/config.json', join(root, 'alias.json'));
+		const read = await request('tools/call', {
+			name: 'read_file',
+			arguments: { path: 'alias.json' }
+		});
+		expect(read.result).toMatchObject({ isError: true });
+		expect(JSON.stringify(read.result)).toContain('sensitive');
+		expect(JSON.stringify(read.result)).not.toContain('docker-secret');
+	});
+
+	it('excludes a credential file when the approved root is the credential directory', () => {
+		const credentialRoot = join(root, '.docker');
+		mkdirSync(credentialRoot);
+		writeFileSync(join(credentialRoot, 'config.json'), 'docker-root-token');
+		const result = spawnSync(
+			process.execPath,
+			[resolve('bin/deckmark-mcp.mjs'), '--root', credentialRoot],
+			{
+				input: `${JSON.stringify({
+					jsonrpc: '2.0',
+					id: 1,
+					method: 'tools/call',
+					params: { name: 'read_file', arguments: { path: 'config.json' } }
+				})}\n`,
+				encoding: 'utf8',
+				timeout: 5000
+			}
+		);
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('sensitive');
+		expect(result.stdout).not.toContain('docker-root-token');
+	});
+
+	it('keeps benign JSON, TOML and note files readable', async () => {
+		writeFileSync(join(root, 'config.json'), '{"setting":true}');
+		writeFileSync(join(root, 'config.toml'), 'setting = true');
+		const read = await request('tools/call', {
+			name: 'read_file',
+			arguments: { path: 'config.json' }
+		});
+		expect(JSON.stringify(read.result)).toContain('setting');
+		const toml = await request('tools/call', {
+			name: 'read_file',
+			arguments: { path: 'config.toml' }
+		});
+		expect(JSON.stringify(toml.result)).toContain('setting');
+		const list = await request('tools/call', { name: 'list_files', arguments: {} });
+		const listText = (list.result as { content: Array<{ text: string }> }).content[0]!.text;
+		const paths = JSON.parse(listText).files.map((file: { path: string }) => file.path);
+		expect(paths).toEqual(expect.arrayContaining(['config.json', 'config.toml', 'notes/guide.md']));
 	});
 });
 

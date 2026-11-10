@@ -79,6 +79,26 @@ describe('export-ops - notification feedback (§J3)', () => {
 		expect(notify.toasts).toHaveLength(0);
 	});
 
+	it('returns explicit outcomes for cancel, download initiation and failure', async () => {
+		const files = [file('a')];
+		const localDeps = { getFiles: () => files as readonly FileItem[], scheduleSave: vi.fn() };
+		vi.mocked(services.exportMarkdown).mockResolvedValue(false);
+		await expect(exportMarkdown('a', localDeps)).resolves.toEqual({
+			outcome: 'cancelled',
+			durable: false
+		});
+		vi.mocked(services.exportMarkdown).mockResolvedValue(true);
+		await expect(exportMarkdown('a', localDeps)).resolves.toEqual({
+			outcome: 'initiated',
+			durable: false
+		});
+		vi.mocked(services.exportMarkdown).mockRejectedValue(new Error('write failed'));
+		await expect(exportMarkdown('a', localDeps)).resolves.toEqual({
+			outcome: 'failed',
+			durable: false
+		});
+	});
+
 	it('does not report success after desktop exportHTML cancellation', async () => {
 		vi.mocked(services.exportHTML).mockResolvedValue(false);
 		await exportHTML('a', deps);
@@ -87,7 +107,7 @@ describe('export-ops - notification feedback (§J3)', () => {
 
 	it('does not mark a concurrent edit as exported', async () => {
 		const files = [file('a')];
-		let finish: (value: boolean) => void = () => {};
+		let finish: ((value: boolean) => void) | undefined;
 		vi.mocked(services.exportMarkdown).mockImplementation(
 			() =>
 				new Promise((resolve) => {
@@ -96,8 +116,9 @@ describe('export-ops - notification feedback (§J3)', () => {
 		);
 		const scheduleSave = vi.fn();
 		const pending = exportMarkdown('a', { getFiles: () => files, scheduleSave });
+		await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
 		files[0]!.content = 'nouvelle saisie';
-		finish(true);
+		finish!(true);
 		await pending;
 		expect(files[0]!.dirty).toBe(true);
 		expect(scheduleSave).not.toHaveBeenCalled();

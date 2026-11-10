@@ -4,6 +4,7 @@
 // frontmatter and wiki scanners into the boot bundle.
 
 import { db, type DraftRow } from './db';
+import { stripMdExtension } from './file-names';
 import { fastFrontmatter } from './metadata-derive';
 export const DRAFT_METADATA_VERSION = 2;
 
@@ -137,7 +138,9 @@ function textTargets(content: string): string[] {
 function fallbackTitle(name: string, body: string): string {
 	const heading = /^[ \t]*#[ \t]+(.+?)[ \t]*$/m.exec(body)?.[1]?.trim();
 	if (heading) return heading;
-	return name.replace(/\.[^.]+$/, '') || name;
+	// Code and binary names keep their extension, like the live metadata
+	// projection. Only Markdown extensions are display suffixes.
+	return stripMdExtension(name) || name;
 }
 
 export function draftMetadataFor(row: DraftRow): DraftMetadata {

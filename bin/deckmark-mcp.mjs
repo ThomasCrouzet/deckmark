@@ -4,8 +4,8 @@
 // shell, no network listener, and no external agent account.
 
 import { createHash } from 'node:crypto';
-import { realpathSync, statSync, writeSync } from 'node:fs';
-import { opendir, readFile, stat } from 'node:fs/promises';
+import { constants, realpathSync, statSync, writeSync } from 'node:fs';
+import { open, opendir } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -19,8 +19,48 @@ const MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_PATCH_INPUT_CHARS = 256 * 1024;
 const MAX_INLINE_PATCH_BYTES = 256 * 1024;
 const REQUEST_DEADLINE_MS = 10_000;
-const SENSITIVE =
-	/(^|\/)\.env(\.|$)|(^|\/)\.git(\/|$)|(^|\/)id_(rsa|ed25519)|\.(pem|key|p12|pfx)$/i;
+const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
+const NONBLOCK = constants.O_NONBLOCK ?? 0;
+// Credential-bearing path components. The list keeps ordinary source and
+// configuration files readable, so it names credential stores and not every
+// `.json`, `.toml` or `.yml` file.
+const SENSITIVE_PATTERNS = [
+	/(^|\/)\.env(\.|$)/i,
+	/(^|\/)\.git(\/|$)/i,
+	/(^|\/)id_(rsa|ed25519|ecdsa|dsa)(\.|$)/i,
+	/\.(pem|key|p12|pfx|jks|keystore)$/i,
+	/(^|\/)\.ssh(\/|$)/i,
+	/(^|\/)\.gnupg(\/|$)/i,
+	/(^|\/)\.aws(\/|$)/i,
+	/(^|\/)\.azure(\/|$)/i,
+	/(^|\/)\.kube(\/|$)/i,
+	/(^|\/)\.docker(\/|$)/i,
+	/(^|\/)\.config\/gcloud(\/|$)/i,
+	/(^|\/)\.config\/gh(\/|$)/i,
+	/(^|\/)\.config\/containers(\/|$)/i,
+	/(^|\/)\.config\/azure(\/|$)/i,
+	/(^|\/)\.config\/git\/credentials$/i,
+	/(^|\/)\.netrc$/i,
+	/(^|\/)_netrc$/i,
+	/(^|\/)\.pypirc$/i,
+	/(^|\/)\.git-credentials$/i,
+	/(^|\/)\.npmrc$/i,
+	/(^|\/)\.yarnrc\.yml$/i,
+	/(^|\/)\.vault-token$/i,
+	/(^|\/)\.pgpass$/i,
+	/(^|\/)\.my\.cnf$/i,
+	/(^|\/)\.htpasswd$/i,
+	/(^|\/)\.terraformrc$/i,
+	/(^|\/)\.cargo\/credentials(\.toml)?$/i,
+	/(^|\/)\.gem\/credentials$/i,
+	/(^|\/)\.password-store(\/|$)/i,
+	/(^|\/)\.m2\/settings(-security)?\.xml$/i
+];
+
+function isSensitivePath(path) {
+	const normalized = path.split('\\').join('/');
+	return SENSITIVE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
 const TEXT = new Set([
 	'.md',
 	'.markdown',
@@ -87,7 +127,7 @@ function safePath(requested) {
 	if (typeof requested !== 'string' || requested.length === 0) fail('Path is required');
 	if (isAbsolute(requested) || requested.split(/[\\/]/).includes('..'))
 		fail('Path traversal rejected', 'unsafe-path');
-	if (SENSITIVE.test(requested)) fail('Sensitive files are excluded', 'sensitive');
+	if (isSensitivePath(requested)) fail('Sensitive files are excluded', 'sensitive');
 	const matches = new Set();
 	for (const root of roots) {
 		const candidate = resolve(root, requested);
@@ -98,7 +138,7 @@ function safePath(requested) {
 			continue;
 		}
 		if (real !== root && !real.startsWith(root + sep)) continue;
-		if (SENSITIVE.test(relative(root, real).split(sep).join('/')))
+		if (isSensitivePath(relative(root, real).split(sep).join('/')) || isSensitivePath(real))
 			fail('Sensitive files are excluded', 'sensitive');
 		matches.add(real);
 	}
@@ -106,6 +146,88 @@ function safePath(requested) {
 	const [real] = matches;
 	if (!real) fail('Path is outside the approved roots or does not exist', 'outside-root');
 	return real;
+}
+
+// Maps one canonical path to its approved root and checks the secret denylist.
+// Every actual read repeats this decision on the opened object, so a path that
+// was valid before a concurrent rename cannot authorize later bytes.
+function approvedRealPath(real) {
+	for (const root of roots) {
+		if (real === root || real.startsWith(root + sep)) {
+			const inside = relative(root, real).split(sep).join('/');
+			if (isSensitivePath(inside) || isSensitivePath(real))
+				fail('Sensitive files are excluded', 'sensitive');
+			return { root, relativePath: inside };
+		}
+	}
+	fail('Path is outside the approved roots or changed during the operation', 'outside-root');
+}
+
+// Returns the canonical path of an open descriptor when the platform exposes it.
+// The descriptor, not the requested string, then identifies the object that the
+// read uses.
+function descriptorPath(fd) {
+	for (const base of ['/proc/self/fd', '/dev/fd']) {
+		try {
+			const resolved = realpathSync(`${base}/${fd}`);
+			if (resolved === base || resolved.startsWith(base + sep)) continue;
+			return resolved;
+		} catch {
+			// The platform does not expose descriptor paths. The identity check
+			// below still compares the opened inode with the canonical path.
+		}
+	}
+	return null;
+}
+
+// Opens a canonical file without following a leaf symlink, then binds the
+// approved-root decision to that descriptor. The caller reads from the returned
+// handle, so a later path swap cannot change the bytes.
+async function openAuthorized(absolute) {
+	let handle;
+	try {
+		handle = await open(absolute, constants.O_RDONLY | NOFOLLOW | NONBLOCK);
+	} catch {
+		fail('Path is outside the approved roots or changed during the operation', 'unsafe-path');
+	}
+	try {
+		const info = await handle.stat();
+		if (!info.isFile()) fail('Not a file', 'input');
+		let canonical;
+		try {
+			canonical = realpathSync(absolute);
+		} catch {
+			fail('Path is outside the approved roots or changed during the operation', 'unsafe-path');
+		}
+		const authorized = approvedRealPath(canonical);
+		const fromDescriptor = descriptorPath(handle.fd);
+		if (fromDescriptor !== null) {
+			const pinned = approvedRealPath(fromDescriptor);
+			if (pinned.relativePath !== authorized.relativePath)
+				fail('Path changed during the operation', 'unsafe-path');
+		}
+		let current;
+		try {
+			current = statSync(canonical);
+		} catch {
+			fail('Path is outside the approved roots or changed during the operation', 'unsafe-path');
+		}
+		if (current.dev !== info.dev || current.ino !== info.ino)
+			fail('The file identity changed during the operation', 'unsafe-path');
+		return { handle, info, canonical, root: authorized.root };
+	} catch (error) {
+		await handle.close().catch(() => {});
+		throw error;
+	}
+}
+
+async function withAuthorizedFile(absolute, work) {
+	const opened = await openAuthorized(absolute);
+	try {
+		return await work(opened);
+	} finally {
+		await opened.handle.close().catch(() => {});
+	}
 }
 
 function classify(path) {
@@ -146,8 +268,14 @@ async function walk(root, limit) {
 			break;
 		}
 		let handle;
+		let listingDirectory;
 		try {
-			handle = await opendir(directory);
+			// Re-resolve the directory before it is opened. File reads repeat this
+			// decision on their own descriptor.
+			const realDirectory = realpathSync(directory);
+			approvedRealPath(realDirectory);
+			listingDirectory = realDirectory;
+			handle = await opendir(realDirectory);
 		} catch {
 			state.truncated = true;
 			continue;
@@ -160,15 +288,15 @@ async function walk(root, limit) {
 			}
 			if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.mdsh')
 				continue;
-			const absolute = join(directory, entry.name);
+			const absolute = join(listingDirectory, entry.name);
 			const relativePath = relative(root, absolute).split(sep).join('/');
-			if (SENSITIVE.test(relativePath)) continue;
+			if (isSensitivePath(relativePath)) continue;
 			if (entry.isDirectory()) {
 				stack.push({ directory: absolute, depth: depth + 1 });
 			} else if (entry.isFile()) {
 				try {
-					const info = await stat(absolute);
-					output.push({ path: relativePath, kind: classify(entry.name), bytes: info.size });
+					const bytes = await authorizedSize(absolute);
+					output.push({ path: relativePath, kind: classify(entry.name), bytes });
 				} catch {
 					state.truncated = true;
 				}
@@ -284,19 +412,32 @@ const tools = [
 ];
 
 async function readText(absolute) {
-	const info = await stat(absolute);
-	if (!info.isFile()) fail('Not a file', 'input');
-	if (info.size > MAX_FILE_BYTES) fail('File exceeds the 1 MiB read limit', 'input');
 	if (!TEXT.has(extname(absolute).toLowerCase()))
 		fail('Binary files are not readable as text', 'input');
-	return readFile(absolute, 'utf8');
+	return withAuthorizedFile(absolute, async ({ handle, info }) => {
+		if (info.size > MAX_FILE_BYTES) fail('File exceeds the 1 MiB read limit', 'input');
+		const bytes = await handle.readFile();
+		// Recheck the bytes that were actually read, not only the earlier stat size.
+		if (bytes.byteLength > MAX_FILE_BYTES) fail('File exceeds the 1 MiB read limit', 'input');
+		return bytes.toString('utf8');
+	});
+}
+
+async function authorizedSize(absolute) {
+	return withAuthorizedFile(absolute, async ({ info }) => info.size);
 }
 
 async function collectFiles(base, limit) {
 	const files = [];
 	let truncated = false;
 	for (const root of base) {
-		const info = await stat(root);
+		let info;
+		try {
+			info = statSync(root);
+		} catch {
+			truncated = true;
+			continue;
+		}
 		if (info.isFile()) {
 			files.push({ absolute: root });
 			continue;
@@ -326,7 +467,7 @@ async function callTool(name, args = {}) {
 				return toolResult({
 					path: args.path,
 					kind,
-					bytes: (await stat(absolute)).size,
+					bytes: await authorizedSize(absolute),
 					text: null
 				});
 			return toolResult({ path: args.path, kind, text: await readText(absolute) });

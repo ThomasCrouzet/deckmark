@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db } from './db';
-import type { DraftRow, TrashedRow } from './db';
+import type { CommentRow, DraftRow, TrashedRow } from './db';
 import { TIMERS } from './config';
 import {
 	loadTrashRows,
 	moveToTrash,
+	purgeManyPermanently,
 	restoreFromTrash,
 	purgePermanently,
 	persistReorder
@@ -32,17 +33,50 @@ function trashedRow(id: string, trashedAt: number, order = 0): TrashedRow {
 	return { id, file: draftRow(id, order), order, trashedAt };
 }
 
+/** Fabrique un commentaire éditorial attaché à un brouillon. */
+function commentRow(id: string, draftId: string): CommentRow {
+	return {
+		id,
+		draftId,
+		quote: `citation ${id}`,
+		from: 0,
+		to: 5,
+		body: `corps ${id}`,
+		author: 'Relecteur',
+		status: 'open',
+		createdAt: T0,
+		updatedAt: T0
+	};
+}
+
+/** Fabrique une image binaire dont seuls les octets distinguent les branches. */
+function binaryRow(id: string, data: string, updatedAt = T0): DraftRow {
+	return {
+		id,
+		name: `${id}.png`,
+		content: '',
+		kind: 'image',
+		mime: 'image/png',
+		data,
+		createdAt: T0,
+		updatedAt,
+		order: 0
+	};
+}
+
 beforeEach(async () => {
 	installTrashSummaryHooks();
 	await db.drafts.clear();
 	await db.trashed.clear();
 	await db.versions.clear();
+	await db.comments.clear();
 });
 afterEach(async () => {
 	vi.restoreAllMocks();
 	await db.drafts.clear();
 	await db.trashed.clear();
 	await db.versions.clear();
+	await db.comments.clear();
 });
 
 describe('loadTrashRows', () => {
@@ -106,6 +140,90 @@ describe('restoreFromTrash', () => {
 	});
 });
 
+describe('revision-safe trash variants', () => {
+	it('preserves a concurrent binary branch when only the data payload differs', async () => {
+		await db.drafts.put(binaryRow('image', 'data:image/png;base64,B', 2));
+
+		expect(
+			await moveToTrash('image', binaryRow('image', 'data:image/png;base64,A', 1), 0, T0)
+		).toBe(true);
+
+		expect((await db.trashed.get('image'))?.file.data).toBe('data:image/png;base64,A');
+		const variants = (await db.drafts.toArray()).filter((row) => row.id !== 'image');
+		expect(variants).toHaveLength(1);
+		expect(variants[0]).toMatchObject({
+			kind: 'image',
+			mime: 'image/png',
+			data: 'data:image/png;base64,B',
+			open: false
+		});
+	});
+
+	it('preserves a concurrent branch when only the MIME type differs', async () => {
+		const durable = { ...binaryRow('mime', 'data:image/png;base64,A'), mime: 'image/webp' };
+		await db.drafts.put(durable);
+
+		await moveToTrash('mime', binaryRow('mime', 'data:image/png;base64,A'), 0, T0);
+
+		const variant = (await db.drafts.toArray()).find((row) => row.id !== 'mime');
+		expect(variant).toMatchObject({ mime: 'image/webp', data: 'data:image/png;base64,A' });
+	});
+
+	it('preserves a concurrent branch when only the project location differs', async () => {
+		const durable: DraftRow = {
+			...draftRow('location'),
+			content: 'same',
+			projectId: 'project-one',
+			relativePath: 'docs/location.md'
+		};
+		await db.drafts.put(durable);
+
+		await moveToTrash(
+			'location',
+			{
+				...draftRow('location'),
+				content: 'same',
+				projectId: 'project-two',
+				relativePath: 'old/location.md'
+			},
+			0,
+			T0
+		);
+
+		const variant = (await db.drafts.toArray()).find((row) => row.id !== 'location');
+		expect(variant).toMatchObject({ projectId: 'project-one' });
+		expect(variant?.relativePath).toMatch(/^docs\/location/);
+	});
+
+	it('does not create a variant for identical content with a stale timestamp', async () => {
+		await db.drafts.put({ ...draftRow('identical'), updatedAt: 9 });
+
+		await moveToTrash('identical', { ...draftRow('identical'), updatedAt: 1 }, 0, T0);
+
+		expect(await db.drafts.toArray()).toEqual([]);
+		expect((await db.trashed.get('identical'))?.file.updatedAt).toBe(1);
+	});
+
+	it('keeps the exact binary branch when the trash transaction fails', async () => {
+		await db.drafts.put(binaryRow('safe-binary', 'data:image/png;base64,B', 2));
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		vi.spyOn(db.trashed, 'put').mockRejectedValue(new Error('quota'));
+
+		expect(
+			await moveToTrash(
+				'safe-binary',
+				binaryRow('safe-binary', 'data:image/png;base64,A', 1),
+				0,
+				T0
+			)
+		).toBe(false);
+		expect(await db.drafts.get('safe-binary')).toMatchObject({
+			data: 'data:image/png;base64,B'
+		});
+		expect(await db.trashed.get('safe-binary')).toBeUndefined();
+	});
+});
+
 describe('purgePermanently', () => {
 	it('also deletes file history without orphan snapshots', async () => {
 		await db.trashed.put(trashedRow('p3', T0, 0));
@@ -116,6 +234,79 @@ describe('purgePermanently', () => {
 
 		expect(await db.trashed.get('p3')).toBeUndefined();
 		expect(await db.versions.where('draftId').equals('p3').count()).toBe(0);
+	});
+});
+
+describe('comments on permanently deleted drafts', () => {
+	it('removes comments with an unowned draft', async () => {
+		await db.trashed.put(trashedRow('orphan', T0));
+		await db.comments.put(commentRow('comment-orphan', 'orphan'));
+
+		await purgePermanently('orphan');
+
+		expect(await db.comments.where('draftId').equals('orphan').count()).toBe(0);
+	});
+
+	it('removes comments when automatic expiry purges the entry', async () => {
+		await db.trashed.put(trashedRow('expired', T0 - TIMERS.trashRetentionMs));
+		await db.comments.put(commentRow('comment-expired', 'expired'));
+
+		expect(await loadTrashRows(T0)).toEqual([]);
+
+		expect(await db.comments.where('draftId').equals('expired').count()).toBe(0);
+	});
+
+	it('removes comments only for entries without a live draft during a bulk purge', async () => {
+		await db.drafts.put(draftRow('live'));
+		await db.trashed.bulkPut([trashedRow('gone', T0), trashedRow('live', T0)]);
+		await db.comments.bulkPut([
+			commentRow('comment-gone', 'gone'),
+			commentRow('comment-live', 'live')
+		]);
+
+		await purgeManyPermanently(['gone', 'live']);
+
+		expect(await db.comments.where('draftId').equals('gone').count()).toBe(0);
+		expect(await db.comments.where('draftId').equals('live').count()).toBe(1);
+	});
+
+	it('keeps comments after trash and restore', async () => {
+		await db.trashed.put(trashedRow('restored', T0));
+		await db.comments.put(commentRow('comment-restored', 'restored'));
+
+		expect(await restoreFromTrash('restored', draftRow('restored'))).toBe(true);
+
+		expect((await db.comments.toArray()).map((comment) => comment.draftId)).toEqual(['restored']);
+	});
+
+	it('copies comments to a preserved conflict branch', async () => {
+		await db.drafts.put({ ...draftRow('variant'), content: 'remote' });
+		await db.comments.put(commentRow('comment-variant', 'variant'));
+
+		await moveToTrash('variant', { ...draftRow('variant'), content: 'local' }, 0, T0);
+
+		const comments = await db.comments.toArray();
+		expect(comments).toHaveLength(2);
+		expect(comments.map((comment) => comment.body)).toEqual([
+			'corps comment-variant',
+			'corps comment-variant'
+		]);
+		expect(comments.map((comment) => comment.draftId)).toContain('variant');
+		const preserved = (await db.drafts.toArray()).find((row) => row.id !== 'variant');
+		expect(comments.map((comment) => comment.draftId)).toContain(preserved?.id);
+	});
+
+	it('keeps comments when the purge transaction fails', async () => {
+		await db.trashed.put(trashedRow('safe-purge', T0));
+		await db.comments.put(commentRow('comment-safe', 'safe-purge'));
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		vi.spyOn(db.comments, 'bulkDelete').mockRejectedValue(new Error('quota'));
+
+		await expect(purgeManyPermanently(['safe-purge'])).rejects.toThrow('quota');
+		vi.restoreAllMocks();
+
+		expect(await db.trashed.get('safe-purge')).toBeDefined();
+		expect(await db.comments.where('draftId').equals('safe-purge').count()).toBe(1);
 	});
 });
 

@@ -93,6 +93,71 @@ async function commitRemote(page: Page, row: DraftRow, remove = false): Promise<
 	);
 }
 
+async function seedBinaryDraft(page: Page, row: DraftRow): Promise<void> {
+	await page.evaluate(async (seed) => {
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const database = request.result;
+				const transaction = database.transaction('drafts', 'readwrite');
+				transaction.objectStore('drafts').put(seed);
+				transaction.oncomplete = () => {
+					database.close();
+					resolve();
+				};
+				transaction.onerror = () => reject(transaction.error);
+			};
+		});
+		localStorage.setItem('mdsh:activeId', seed.id);
+	}, row);
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+}
+
+async function commitRemoteSilently(page: Page, row: DraftRow): Promise<void> {
+	await page.evaluate(async (remote) => {
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const database = request.result;
+				const transaction = database.transaction('drafts', 'readwrite');
+				transaction.objectStore('drafts').put(remote);
+				transaction.oncomplete = () => {
+					database.close();
+					resolve();
+				};
+				transaction.onerror = () => reject(transaction.error);
+			};
+		});
+	}, row);
+}
+
+async function storedDraftRows(page: Page): Promise<{ drafts: DraftRow[]; trash: DraftRow[] }> {
+	return page.evaluate(
+		() =>
+			new Promise<{ drafts: DraftRow[]; trash: DraftRow[] }>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction(['drafts', 'trashed']);
+					const drafts = transaction.objectStore('drafts').getAll();
+					const trash = transaction.objectStore('trashed').getAll();
+					transaction.oncomplete = () => {
+						database.close();
+						resolve({
+							drafts: drafts.result as DraftRow[],
+							trash: (trash.result as Array<{ file: DraftRow }>).map((entry) => entry.file)
+						});
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			})
+	);
+}
+
 async function persistedDraft(page: Page, id: string): Promise<unknown> {
 	return page.evaluate(
 		(id) =>
@@ -112,6 +177,70 @@ async function persistedDraft(page: Page, id: string): Promise<unknown> {
 		id
 	);
 }
+
+test('keeps a newer remote binary payload when the stale local row moves to trash', async ({
+	page,
+	context
+}, info) => {
+	await resetAppState(page);
+	const local: DraftRow = {
+		id: 'binary-review',
+		name: 'binary-review.png',
+		content: '',
+		kind: 'image',
+		mime: 'image/png',
+		data: 'data:image/png;base64,bG9jYWw=',
+		createdAt: 1_700_000_000_000,
+		updatedAt: 1_700_000_000_001,
+		order: 0,
+		open: true
+	};
+	await seedBinaryDraft(page, local);
+	const sender = await context.newPage();
+	await sender.route('**/api/__cross_window_sender__', (route) =>
+		route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Sender</title>' })
+	);
+	await sender.goto('/api/__cross_window_sender__');
+	const remote: DraftRow = {
+		...local,
+		data: 'data:image/png;base64,cmVtb3Rl',
+		updatedAt: local.updatedAt + 10
+	};
+	await commitRemoteSilently(sender, remote);
+	await expect
+		.poll(async () => (await storedDraftRows(page)).drafts.find((row) => row.id === local.id)?.data)
+		.toBe(remote.data);
+
+	const library = page.locator('aside').getByRole('button', { name: /^Bibliothèque de documents/ });
+	await library.click();
+	const dialog = page.getByRole('dialog', { name: 'Bibliothèque de documents', exact: true });
+	await dialog.getByRole('checkbox', { name: `Sélectionner ${local.name}`, exact: true }).check();
+	await dialog.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
+	await page
+		.getByRole('dialog', { name: 'Supprimer 1 document(s) ?', exact: true })
+		.getByRole('button', { name: 'Supprimer la sélection', exact: true })
+		.click();
+
+	let after = await storedDraftRows(page);
+	await expect
+		.poll(async () => {
+			after = await storedDraftRows(page);
+			return after.trash.map((row) => row.data);
+		})
+		.toEqual([local.data]);
+	const variant = after.drafts.find((row) => row.id !== local.id);
+	expect(variant).toMatchObject({
+		kind: 'image',
+		mime: 'image/png',
+		data: remote.data,
+		open: false
+	});
+	await info.attach('binary-conflict.json', {
+		body: JSON.stringify({ local, remote, after }, null, 2),
+		contentType: 'application/json'
+	});
+	await sender.close();
+});
 
 for (const change of ['write', 'remove'] as const) {
 	test(`a pending new-draft sync respects a later ${change}`, async ({ page, context }, info) => {

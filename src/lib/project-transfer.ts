@@ -105,25 +105,71 @@ function basename(path: string): string {
 	return path.split('/').pop()!;
 }
 
-function documentSnapshots(projectId: string | undefined): SourceFile[] {
-	if (!projectId) return [];
-	return filesStore.library
-		.filter((file) => file.projectId === projectId && file.relativePath)
-		.map((file) => ({
-			id: file.id,
-			name: file.name,
-			content: file.content,
-			oldPath: file.relativePath!,
-			projectId,
-			createdAt: file.createdAt,
-			updatedAt: file.updatedAt,
-			order: filesStore.library.indexOf(file),
-			...(file.kind ? { kind: file.kind } : {}),
-			...(file.mime ? { mime: file.mime } : {}),
-			...(file.data ? { data: file.data } : {}),
-			...(file.origin ? { origin: file.origin } : {}),
-			open: filesStore.files.includes(file)
-		}));
+interface ProjectDocumentMetadata {
+	id: string;
+	relativePath: string;
+}
+
+/** Reads project document identity and path from manifest keys only. */
+async function projectDocumentMetadata(projectId: string): Promise<ProjectDocumentMetadata[]> {
+	const keys = await db.drafts.orderBy('manifest').keys();
+	const documents: ProjectDocumentMetadata[] = [];
+	for (const raw of keys) {
+		try {
+			const key = JSON.parse(String(raw)) as unknown[];
+			if (key[3] !== projectId) continue;
+			const id = key[1];
+			const relativePath = key[4];
+			if (typeof id === 'string' && typeof relativePath === 'string' && relativePath)
+				documents.push({ id, relativePath });
+		} catch {
+			/* An invalid manifest key is not a project document. */
+		}
+	}
+	return documents;
+}
+
+/** Reads project asset paths from the compound index without binary data. */
+async function projectAssetPathList(projectId: string): Promise<string[]> {
+	const keys = await db.projectAssets
+		.where('[projectId+path]')
+		.between([projectId, ''], [projectId, '\uffff'])
+		.keys();
+	return keys.map((key) => String(Array.isArray(key) ? key[1] : ''));
+}
+
+function sourceFileFromRow(row: DraftRow): SourceFile {
+	return {
+		id: row.id,
+		name: row.name,
+		content: row.content,
+		oldPath: row.relativePath ?? row.name,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
+		order: row.order,
+		...(row.kind ? { kind: row.kind } : {}),
+		...(row.mime ? { mime: row.mime } : {}),
+		...(row.data ? { data: row.data } : {}),
+		...(row.origin ? { origin: row.origin } : {}),
+		open: row.open ?? true
+	};
+}
+
+function occupiedFromPaths(
+	documentPaths: readonly string[],
+	assetPaths: readonly string[],
+	exclude: ReadonlySet<string>
+): Map<string, string> {
+	const occupied = new Map<string, string>();
+	for (const path of documentPaths) {
+		const key = pathKey(path);
+		if (!exclude.has(key)) occupied.set(key, path);
+	}
+	for (const path of assetPaths) {
+		const key = pathKey(path);
+		if (!exclude.has(key)) occupied.set(key, path);
+	}
+	return occupied;
 }
 
 function occupiedPaths(
@@ -262,19 +308,49 @@ export async function transferProjectSelection(
 	options: TransferOptions
 ): Promise<TransferResult> {
 	await filesStore.flushPendingAwait();
-	const sourceProjectIdForContent = selection.projectId;
-	if (sourceProjectIdForContent) await filesStore.ensureProjectContent(sourceProjectIdForContent);
-	await filesStore.ensureContent(selection.documentIds ?? []);
 	const targetFolder = options.targetFolder ? projectPath(options.targetFolder) : undefined;
 	const prefix = folderPrefix(targetFolder);
 	const sourceProjectId = selection.projectId;
 	const folder = selection.folder ? projectPath(selection.folder) : undefined;
 	if (folder && targetFolder && (targetFolder === folder || targetFolder.startsWith(`${folder}/`)))
 		throw new Error('A folder cannot move into itself');
-	const documents = documentSnapshots(sourceProjectId);
-	const assets = sourceProjectId
-		? await db.projectAssets.where('projectId').equals(sourceProjectId).toArray()
-		: [];
+
+	// Read source identity and paths first. Bodies load only for the selected
+	// entries, except for a move where inbound links can come from any
+	// nonselected document in the source project.
+	let sourceDocuments: ProjectDocumentMetadata[] = [];
+	let sourceAssetPaths: string[] = [];
+	let sourceDocumentRows: DraftRow[] = [];
+	let sourceAssetRows: ProjectAssetRow[] = [];
+	if (sourceProjectId) {
+		[sourceDocuments, sourceAssetPaths] = await Promise.all([
+			projectDocumentMetadata(sourceProjectId),
+			projectAssetPathList(sourceProjectId)
+		]);
+		if (selection.documentIds) {
+			const rows = await db.drafts.bulkGet(selection.documentIds);
+			sourceDocumentRows = rows.filter(
+				(row): row is DraftRow => !!row && row.projectId === sourceProjectId && !!row.relativePath
+			);
+		} else if (folder) {
+			[sourceDocumentRows, sourceAssetRows] = await Promise.all([
+				db.drafts
+					.where('[projectId+relativePath]')
+					.between([sourceProjectId, `${folder}/`], [sourceProjectId, `${folder}/\uffff`])
+					.toArray(),
+				db.projectAssets
+					.where('[projectId+path]')
+					.between([sourceProjectId, `${folder}/`], [sourceProjectId, `${folder}/\uffff`])
+					.toArray()
+			]);
+		}
+		if (options.mode === 'move')
+			sourceDocumentRows = await db.drafts.where('projectId').equals(sourceProjectId).toArray();
+	} else {
+		await filesStore.ensureContent(selection.documentIds ?? []);
+	}
+	const documents = sourceDocumentRows.map(sourceFileFromRow);
+	const assets = sourceAssetRows;
 	const selectedDocuments = documents.filter((row) =>
 		selection.documentIds
 			? selection.documentIds.includes(row.id)
@@ -307,55 +383,34 @@ export async function transferProjectSelection(
 	if (!sources.length && !selectedAssets.length)
 		return { status: 'empty', documents: 0, assets: 0, renamed: [], unresolved: [] };
 
+	const destinationDocuments =
+		sourceProjectId === options.targetProjectId
+			? sourceDocuments
+			: await projectDocumentMetadata(options.targetProjectId);
+	const destinationAssetPaths =
+		sourceProjectId === options.targetProjectId
+			? sourceAssetPaths
+			: await projectAssetPathList(options.targetProjectId);
 	const destinationDocs: Array<{ id: string; projectId: string; relativePath: string }> =
-		sourceProjectId === options.targetProjectId
-			? documents.map((row) => ({
-					id: row.id,
-					projectId: options.targetProjectId,
-					relativePath: row.oldPath
-				}))
-			: await db.drafts
-					.where('projectId')
-					.equals(options.targetProjectId)
-					.toArray()
-					.then((rows) =>
-						rows
-							.filter((row): row is DraftRow & { relativePath: string } => !!row.relativePath)
-							.map((row) => ({
-								id: row.id,
-								projectId: options.targetProjectId,
-								relativePath: row.relativePath
-							}))
-					);
-	const destinationAssets =
-		sourceProjectId === options.targetProjectId
-			? assets
-			: await db.projectAssets.where('projectId').equals(options.targetProjectId).toArray();
-	const excludeDocuments = new Set(
+		destinationDocuments.map((doc) => ({
+			id: doc.id,
+			projectId: options.targetProjectId,
+			relativePath: doc.relativePath
+		}));
+	// Only a same-project move removes the selected source paths. A copy keeps
+	// them occupied, so a copied path must never collide with its original.
+	const excludeKeys = new Set(
 		options.mode === 'move' && options.targetProjectId === sourceProjectId
-			? selectedDocuments.map((row) => row.id)
+			? [
+					...selectedDocuments.map((row) => pathKey(row.oldPath)),
+					...selectedAssets.map((asset) => pathKey(asset.path))
+				]
 			: []
 	);
-	const excludeAssets = new Set(
-		options.mode === 'move' && options.targetProjectId === sourceProjectId
-			? selectedAssets.map((asset) => asset.id)
-			: []
-	);
-	const destinationRows: DraftRow[] = destinationDocs.map((doc) => ({
-		id: doc.id,
-		name: basename(doc.relativePath),
-		content: '',
-		projectId: options.targetProjectId,
-		relativePath: doc.relativePath,
-		createdAt: 0,
-		updatedAt: 0,
-		order: 0
-	}));
-	const occupied = occupiedPaths(
-		destinationRows,
-		destinationAssets,
-		excludeDocuments,
-		excludeAssets
+	const occupied = occupiedFromPaths(
+		destinationDocuments.map((doc) => doc.relativePath),
+		destinationAssetPaths,
+		excludeKeys
 	);
 	const added = new Set<string>();
 	const plannedDocuments: PlannedDocument[] = sources.map((source) => ({
@@ -398,47 +453,52 @@ export async function transferProjectSelection(
 	for (const planned of plannedAssets) moved.set(pathKey(planned.source.path), planned.newPath);
 	const crossProject = !!sourceProjectId && sourceProjectId !== options.targetProjectId;
 	const targetDocsBefore = destinationDocs.filter(
-		(row) => !excludeDocuments.has(row.id) && !selectedDocuments.some((doc) => doc.id === row.id)
+		(row) => !(options.mode === 'move' && moved.has(pathKey(row.relativePath)))
 	);
 	const sourceAfter = new Set<string>();
 	const destinationAfter = new Set<string>();
+	const allSourceDocumentPaths = sourceProjectId
+		? sourceDocuments.map((doc) => doc.relativePath)
+		: documents.map((row) => row.oldPath);
+	const allSourceAssetPaths = sourceProjectId
+		? sourceAssetPaths
+		: selectedAssets.map((asset) => asset.path);
 	if (crossProject) {
-		for (const row of documents)
-			if (!selectedDocuments.some((doc) => doc.id === row.id))
-				sourceAfter.add(pathKey(row.oldPath));
-		for (const asset of assets)
-			if (!selectedAssets.some((entry) => entry.id === asset.id))
-				sourceAfter.add(pathKey(asset.path));
+		// A move removes the selected entries from the source project. A copy
+		// leaves every source entry in place.
+		for (const path of allSourceDocumentPaths) {
+			const key = pathKey(path);
+			if (options.mode === 'copy' || !moved.has(key)) sourceAfter.add(key);
+		}
+		for (const path of allSourceAssetPaths) {
+			const key = pathKey(path);
+			if (options.mode === 'copy' || !moved.has(key)) sourceAfter.add(key);
+		}
 		for (const row of targetDocsBefore) destinationAfter.add(pathKey(row.relativePath));
 	} else {
-		for (const row of documents)
-			sourceAfter.add(
-				pathKey(
-					selectedDocuments.some((doc) => doc.id === row.id)
-						? (moved.get(pathKey(row.oldPath)) ?? row.oldPath)
-						: row.oldPath
-				)
-			);
-		for (const asset of assets)
-			sourceAfter.add(
-				pathKey(
-					selectedAssets.some((entry) => entry.id === asset.id)
-						? (moved.get(pathKey(asset.path)) ?? asset.path)
-						: asset.path
-				)
-			);
+		for (const path of allSourceDocumentPaths) {
+			const key = pathKey(path);
+			sourceAfter.add(options.mode === 'move' && moved.has(key) ? pathKey(moved.get(key)!) : key);
+		}
+		for (const path of allSourceAssetPaths) {
+			const key = pathKey(path);
+			sourceAfter.add(options.mode === 'move' && moved.has(key) ? pathKey(moved.get(key)!) : key);
+		}
 	}
 	for (const planned of plannedDocuments) destinationAfter.add(pathKey(planned.newPath));
 	for (const planned of plannedAssets) destinationAfter.add(pathKey(planned.newPath));
-	for (const asset of destinationAssets)
-		if (!excludeAssets.has(asset.id)) destinationAfter.add(pathKey(asset.path));
-	const sourceDocs = [
-		...selectedDocuments,
-		...documents.filter((row) => !selectedDocuments.some((doc) => doc.id === row.id))
-	].map((row) => ({
+	for (const path of destinationAssetPaths) {
+		const key = pathKey(path);
+		if (!(options.mode === 'move' && moved.has(key))) destinationAfter.add(key);
+	}
+	const sourceDocs = (
+		sourceProjectId
+			? sourceDocuments
+			: documents.map((row) => ({ id: row.id, relativePath: row.oldPath }))
+	).map((row) => ({
 		id: row.id,
 		projectId: 'source',
-		relativePath: row.oldPath
+		relativePath: row.relativePath
 	}));
 	const destinationWikiDocs = [
 		...targetDocsBefore.map((row) => ({
@@ -475,7 +535,9 @@ export async function transferProjectSelection(
 		);
 	}
 	const changedExisting: DraftRow[] = [];
-	if (sourceProjectId) {
+	// A copy keeps the originals canonical, so no existing source document has
+	// a link to retarget and no existing row joins the insert batch.
+	if (sourceProjectId && options.mode === 'move') {
 		for (const row of documents) {
 			if (selectedDocuments.some((doc) => doc.id === row.id)) continue;
 			const rewritten = rewriteDocumentContent(row.content, row.oldPath, row.oldPath, {
@@ -597,19 +659,14 @@ export async function transferProjectSelection(
 					throw new Error('The document changed during the transfer');
 			}
 		}
-		const durableDocuments = await db.drafts
-			.where('projectId')
-			.equals(options.targetProjectId)
-			.toArray();
-		const durableAssets = await db.projectAssets
-			.where('projectId')
-			.equals(options.targetProjectId)
-			.toArray();
-		const stillOccupied = occupiedPaths(
-			durableDocuments,
-			durableAssets,
-			options.mode === 'move' ? excludeDocuments : new Set(),
-			options.mode === 'move' ? excludeAssets : new Set()
+		const [durableDocuments, durableAssetPaths] = await Promise.all([
+			projectDocumentMetadata(options.targetProjectId),
+			projectAssetPathList(options.targetProjectId)
+		]);
+		const stillOccupied = occupiedFromPaths(
+			durableDocuments.map((doc) => doc.relativePath),
+			durableAssetPaths,
+			options.mode === 'move' ? excludeKeys : new Set()
 		);
 		for (const planned of [...plannedDocuments, ...plannedAssets]) {
 			const occupiedNow = stillOccupied.has(pathKey(planned.newPath));
@@ -687,22 +744,65 @@ function dataTransferEntries(dataTransfer: DataTransfer): EntryLike[] {
 	return entries;
 }
 
-async function readEntry(entry: EntryLike, parent: string, output: DroppedFile[]): Promise<void> {
-	if (output.length >= PROJECT_SCALE_LIMITS.maxEntries) throw new Error('Project entry limit');
-	const path = parent ? `${parent}/${entry.name}` : entry.name;
-	if (entry.isFile) {
-		const file = await new Promise<File>((resolve, reject) => entry.file(resolve, reject));
-		output.push({ file, relativePath: path });
-		return;
-	}
-	if (!entry.isDirectory) return;
-	const reader = entry.createReader();
-	while (true) {
-		const entries = await new Promise<EntryLike[]>((resolve, reject) =>
-			reader.readEntries(resolve, reject)
-		);
-		if (!entries.length) break;
-		for (const child of entries) await readEntry(child, path, output);
+const DISCOVERY_TIME_BUDGET_MS = 30_000;
+const DISCOVERY_VISITED_FACTOR = 4;
+const DISCOVERY_DIRECTORY_FACTOR = 2;
+
+/**
+ * Walks the dropped tree with explicit depth, visited-entry, directory and
+ * elapsed-time budgets. The queue grows on the heap, so a deep tree cannot
+ * grow the JavaScript call stack. A branch over the depth limit fails before
+ * its children are read.
+ */
+async function readEntryTree(
+	root: EntryLike,
+	parent: string,
+	output: DroppedFile[]
+): Promise<void> {
+	const maxVisited = PROJECT_SCALE_LIMITS.maxEntries * DISCOVERY_VISITED_FACTOR;
+	const maxDirectories = PROJECT_SCALE_LIMITS.maxEntries * DISCOVERY_DIRECTORY_FACTOR;
+	const maxDepth = PROJECT_SCALE_LIMITS.maxDepth;
+	const started = Date.now();
+	const stack: Array<{ entry: EntryLike; parent: string; depth: number }> = [
+		{ entry: root, parent, depth: 0 }
+	];
+	let visited = 0;
+	let directories = 0;
+	let queued = 1;
+	while (stack.length > 0) {
+		if (Date.now() - started > DISCOVERY_TIME_BUDGET_MS)
+			throw new Error('Project discovery time limit');
+		const current = stack.pop()!;
+		queued -= 1;
+		visited += 1;
+		if (visited > maxVisited) throw new Error('Project discovery entry limit');
+		const path = current.parent ? `${current.parent}/${current.entry.name}` : current.entry.name;
+		if (current.entry.isFile) {
+			if (output.length >= PROJECT_SCALE_LIMITS.maxEntries) throw new Error('Project entry limit');
+			const file = await new Promise<File>((resolve, reject) =>
+				current.entry.file(resolve, reject)
+			);
+			output.push({ file, relativePath: path });
+			continue;
+		}
+		if (!current.entry.isDirectory) continue;
+		if (current.depth >= maxDepth) throw new Error('Project directory depth limit');
+		directories += 1;
+		if (directories > maxDirectories) throw new Error('Project discovery directory limit');
+		const reader = current.entry.createReader();
+		const children: EntryLike[] = [];
+		while (true) {
+			const batch = await new Promise<EntryLike[]>((resolve, reject) =>
+				reader.readEntries(resolve, reject)
+			);
+			if (!batch.length) break;
+			children.push(...batch);
+			queued += batch.length;
+			if (visited + queued > maxVisited) throw new Error('Project discovery entry limit');
+		}
+		for (let index = children.length - 1; index >= 0; index -= 1) {
+			stack.push({ entry: children[index]!, parent: path, depth: current.depth + 1 });
+		}
 	}
 }
 
@@ -711,7 +811,7 @@ export async function readDroppedFiles(dataTransfer: DataTransfer): Promise<Drop
 	const entries = dataTransferEntries(dataTransfer);
 	if (entries.length) {
 		const output: DroppedFile[] = [];
-		for (const entry of entries) await readEntry(entry, '', output);
+		for (const entry of entries) await readEntryTree(entry, '', output);
 		return output;
 	}
 	return Array.from(dataTransfer.files ?? []).map((file) => ({
