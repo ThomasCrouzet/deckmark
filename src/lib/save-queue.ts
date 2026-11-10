@@ -204,73 +204,90 @@ export class SaveQueue {
 		let preserved: DraftRow | undefined;
 		let written = row;
 		try {
-			await db.transaction('rw', db.drafts, db.versions, db.projectAssets, async () => {
-				const current = await db.drafts.get(row.id);
-				if (superseded()) throw SAVE_SUPERSEDED;
-				const baseline = this.persistedRows.get(row.id);
-				const durableLocationChanged = Boolean(
-					current &&
-					baseline &&
-					(current.projectId !== baseline.projectId ||
-						current.relativePath !== baseline.relativePath)
-				);
-				if (current && durableLocationChanged) {
-					const relocated = { ...row };
-					delete relocated.projectId;
-					delete relocated.relativePath;
-					written = {
-						...relocated,
-						name: current.name,
-						...(current.projectId && current.relativePath
-							? { projectId: current.projectId, relativePath: current.relativePath }
-							: {})
-					};
-				}
-				const changedSinceRead = current
-					? !baseline ||
-						current.updatedAt !== baseline.updatedAt ||
-						!sameDraftIdentity(current, baseline)
-					: false;
-				if (current && changedSinceRead && !sameDraftIdentity(current, written)) {
-					const occupancy = await conflict.conflictOccupancy(current.projectId);
-					const [documents, assets] = occupancy
-						? [[], []]
-						: await Promise.all([db.drafts.toArray(), db.projectAssets.toArray()]);
-					const variant = conflict.projectConflictVariant(
-						current,
-						documents,
-						assets,
-						occupancy?.occupied
+			await db.transaction(
+				'rw',
+				db.drafts,
+				db.versions,
+				db.projectAssets,
+				db.comments,
+				async () => {
+					const current = await db.drafts.get(row.id);
+					if (superseded()) throw SAVE_SUPERSEDED;
+					const baseline = this.persistedRows.get(row.id);
+					const durableLocationChanged = Boolean(
+						current &&
+						baseline &&
+						(current.projectId !== baseline.projectId ||
+							current.relativePath !== baseline.relativePath)
 					);
-					preserved = {
-						...variant,
-						id: newId(),
-						name:
-							variant.relativePath === current.relativePath
-								? uniqueName(
-										occupancy ? occupancy.names : documents.map((document) => document.name),
-										current.name
-									)
-								: variant.name,
-						order:
-							(occupancy
-								? occupancy.maxOrder
-								: documents.reduce((max, document) => Math.max(max, document.order), -1)) + 1,
-						open: false
-					};
-					await db.drafts.put(preserved);
-					await db.versions.put({
-						id: newId(),
-						draftId: current.id,
-						name: current.name,
-						content: current.content,
-						createdAt: Date.now()
-					});
+					if (current && durableLocationChanged) {
+						const relocated = { ...row };
+						delete relocated.projectId;
+						delete relocated.relativePath;
+						written = {
+							...relocated,
+							name: current.name,
+							...(current.projectId && current.relativePath
+								? { projectId: current.projectId, relativePath: current.relativePath }
+								: {})
+						};
+					}
+					const changedSinceRead = current
+						? !baseline ||
+							current.updatedAt !== baseline.updatedAt ||
+							!sameDraftIdentity(current, baseline)
+						: false;
+					if (current && changedSinceRead && !sameDraftIdentity(current, written)) {
+						const occupancy = await conflict.conflictOccupancy(current.projectId);
+						const [documents, assets] = occupancy
+							? [[], []]
+							: await Promise.all([db.drafts.toArray(), db.projectAssets.toArray()]);
+						const variant = conflict.projectConflictVariant(
+							current,
+							documents,
+							assets,
+							occupancy?.occupied
+						);
+						preserved = {
+							...variant,
+							id: newId(),
+							name:
+								variant.relativePath === current.relativePath
+									? uniqueName(
+											occupancy ? occupancy.names : documents.map((document) => document.name),
+											current.name
+										)
+									: variant.name,
+							order:
+								(occupancy
+									? occupancy.maxOrder
+									: documents.reduce((max, document) => Math.max(max, document.order), -1)) + 1,
+							open: false
+						};
+						await db.drafts.put(preserved);
+						await db.versions.put({
+							id: newId(),
+							draftId: current.id,
+							name: current.name,
+							content: current.content,
+							createdAt: Date.now()
+						});
+						const comments = await db.comments.where('draftId').equals(current.id).toArray();
+						if (comments.length) {
+							await db.comments.bulkPut(
+								comments.map((comment) => ({
+									...comment,
+									id: newId(),
+									draftId: preserved!.id
+								}))
+							);
+						}
+					}
+					if (superseded()) throw SAVE_SUPERSEDED;
+					await db.drafts.put(written);
+					if (superseded()) throw SAVE_SUPERSEDED;
 				}
-				if (superseded()) throw SAVE_SUPERSEDED;
-				await db.drafts.put(written);
-				if (superseded()) throw SAVE_SUPERSEDED;
-			});
+			);
 		} catch (error) {
 			if (error === SAVE_SUPERSEDED) return null;
 			throw error;
