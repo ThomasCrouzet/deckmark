@@ -7,8 +7,20 @@ import { isDesktop } from './desktop';
 import { filesStore } from './files.svelte';
 import { importProject } from './projects';
 import type { ProjectInput } from './project-archive';
-import { pathKey, projectPath } from './project-paths';
-import { shouldReadProjectEntry } from './project-refresh';
+import { pathKey, projectPath, projectWikiCandidates, relativeDestination } from './project-paths';
+import { shouldReadProjectEntry } from './project-archive';
+import { documentKindForFile } from './document-kind';
+import { renameProjectLinks } from './project-links';
+import { normalizeRename } from './file-utils';
+import { rewriteWikiLinkTargets } from './wiki-links';
+import { notify } from './notify.svelte';
+import { t } from './i18n';
+import { reportError } from './report';
+import {
+	removeProjectRenameJournal,
+	updateProjectRenameStage,
+	writeProjectRenameJournal
+} from './project-rename-journal';
 import {
 	manifestNativeProject,
 	openNativeProject,
@@ -1034,4 +1046,166 @@ export function renameNativeProjectDocument(
 	return reserveProjectRename(projectId, () =>
 		renameNativeProjectDocumentInternal(projectId, oldPath, newPath)
 	);
+}
+
+// Rename orchestration stays in this lazy bundle to keep the boot bundle within
+// its size budget. The journal and native receipt remain the source of truth
+// for crash recovery.
+let renameQueue: Promise<unknown> = Promise.resolve();
+
+export function renameProjectDocument(id: string, requested: string): Promise<boolean> {
+	const operation = renameQueue
+		.catch(() => {})
+		.then(async () => {
+			let nativeRename: import('./projects-native').NativeRenameReceipt | undefined;
+			let committed = false;
+			let renameJournalId: string | null = null;
+			try {
+				await filesStore.flushPendingAwait();
+				const document = filesStore.library.find((file) => file.id === id);
+				if (!document?.projectId || !document.relativePath) return false;
+				await filesStore.ensureProjectContent(document.projectId);
+				const name = normalizeRename(requested, document.name);
+				if (name.includes('/') || name.includes('\\')) throw new Error('Use a filename');
+				const oldPath = document.relativePath;
+				const newPath = projectPath([...oldPath.split('/').slice(0, -1), name].join('/'));
+				if (oldPath === newPath) return true;
+				const snapshot = filesStore.library
+					.filter((file) => file.projectId === document.projectId)
+					.map((file) => ({ ...file }));
+				const rewrite = (content: string, fileId: string) => {
+					const file = snapshot.find((entry) => entry.id === fileId)!;
+					const kind = documentKindForFile(file);
+					if (kind !== 'note' && kind !== 'presentation') return content;
+					const from = file.relativePath!;
+					const linked = renameProjectLinks(content, from, oldPath, newPath);
+					if (kind !== 'note') return linked;
+					return rewriteWikiLinkTargets(linked, (target) => {
+						const candidates = projectWikiCandidates(file, target, snapshot);
+						if (candidates.length !== 1 || candidates[0]!.id !== id || target === id) return target;
+						const suffix = target.match(/#.*$/)?.[0] ?? '';
+						const next = relativeDestination(from === oldPath ? newPath : from, newPath);
+
+						return (
+							(/\.(?:md|markdown|mdx|txt)$/i.test(target.split('#', 1)[0]!)
+								? next
+								: next.replace(/\.(?:md|markdown|mdx|txt)$/i, '')) + suffix
+						);
+					});
+				};
+				const rewritten = snapshot
+					.map((file) => {
+						const content = rewrite(file.content, file.id);
+						return { file, content, relativePath: file.id === id ? newPath : file.relativePath! };
+					})
+					.filter((entry) => entry.content !== entry.file.content || entry.file.id === id);
+				const { renameNativeProjectDocument } = await import('./projects-native');
+				renameJournalId = newId();
+				await writeProjectRenameJournal({
+					id: renameJournalId,
+					projectId: document.projectId,
+					oldPath,
+					newPath,
+					stage: 'prepared',
+					updatedAt: Date.now()
+				});
+				nativeRename = await renameNativeProjectDocument(document.projectId, oldPath, newPath);
+				if (renameJournalId) {
+					await updateProjectRenameStage(renameJournalId, 'disk-renamed').catch(() => {});
+				}
+				const rows = await db.transaction(
+					'rw',
+					db.drafts,
+					db.projectAssets,
+					db.versions,
+					async () => {
+						const durable = await db.drafts
+							.where('projectId')
+							.equals(document.projectId!)
+							.toArray();
+						const assets = await db.projectAssets
+							.where('projectId')
+							.equals(document.projectId!)
+							.toArray();
+						if (
+							durable.some(
+								(row) => row.id !== id && pathKey(row.relativePath!) === pathKey(newPath)
+							) ||
+							assets.some((asset) => pathKey(asset.path) === pathKey(newPath))
+						)
+							throw new Error('Project path already exists');
+						const result: DraftRow[] = [];
+						for (const entry of rewritten) {
+							const before = durable.find((row) => row.id === entry.file.id);
+							const current = filesStore.library.find((file) => file.id === entry.file.id);
+							if (
+								!before ||
+								before.content !== entry.file.content ||
+								before.relativePath !== entry.file.relativePath ||
+								current?.content !== entry.file.content
+							)
+								throw new Error('The document changed during rename');
+							await db.versions.add({
+								id: newId(),
+								draftId: before.id,
+								name: before.name,
+								content: before.content,
+								createdAt: Date.now()
+							});
+							result.push({
+								...before,
+								name: before.id === id ? name : before.name,
+								relativePath: entry.relativePath,
+								content: entry.content,
+								updatedAt: Date.now()
+							});
+						}
+						await db.drafts.bulkPut(result);
+						return result;
+					}
+				);
+				committed = true;
+				if (renameJournalId) {
+					await updateProjectRenameStage(renameJournalId, 'db-rewritten').catch(() => {});
+				}
+				filesStore.acceptProjectRows(
+					rows,
+					new Map(snapshot.map((file) => [file.id, file])),
+					rewrite
+				);
+				let baselineCommitted = false;
+				try {
+					await nativeRename.commit();
+					baselineCommitted = true;
+				} catch {
+					// The disk rename and draft rows already committed. A transient
+					// baseline write failure must not report a false rename failure.
+					await new Promise((resolve) => setTimeout(resolve, 250));
+					try {
+						await nativeRename.commit();
+						baselineCommitted = true;
+					} catch (second) {
+						reportError('project rename baseline', second);
+						notify.info(t('projects.renameBaselinePending'));
+					}
+				}
+				if (renameJournalId && baselineCommitted)
+					await removeProjectRenameJournal(renameJournalId).catch(() => {});
+				return true;
+			} catch (error) {
+				if (nativeRename && !committed) {
+					try {
+						await nativeRename.rollback();
+						if (renameJournalId) await removeProjectRenameJournal(renameJournalId).catch(() => {});
+					} catch (rollbackError) {
+						reportError('project rename rollback', rollbackError);
+					}
+				}
+				reportError('project rename', error);
+				notify.error(t('projects.operationFailed'));
+				return false;
+			}
+		});
+	renameQueue = operation;
+	return operation;
 }

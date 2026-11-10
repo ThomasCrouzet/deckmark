@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PROJECT_REFRESH_RACY_WINDOW_MS, shouldReadProjectEntry } from './project-refresh';
-import type { ProjectEntryStamp } from './project-refresh';
+import { PROJECT_REFRESH_RACY_WINDOW_MS, shouldReadProjectEntry } from './project-archive';
+import type { ProjectEntryStamp } from './project-archive';
 
 function stamp(overrides: Partial<ProjectEntryStamp> = {}): ProjectEntryStamp {
 	return {
