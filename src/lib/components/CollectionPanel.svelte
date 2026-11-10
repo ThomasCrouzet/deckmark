@@ -103,25 +103,49 @@
 		void sortKey;
 		void sortDirection;
 		void groupKey;
+		void mode;
 		boardGroupLimit = BOARD_GROUP_LIMIT;
 		boardCardLimit = BOARD_CARD_LIMIT;
 		scrollTop = 0;
-		if (tableScroll) tableScroll.scrollTop = 0;
+		scrollLeft = 0;
+		if (tableScroll) {
+			tableScroll.scrollTop = 0;
+			tableScroll.scrollLeft = 0;
+		}
 	});
 
 	$effect(() => {
 		const element = tableScroll;
 		if (!element) return;
-		const update = () => {
+		const measure = () => {
 			viewportHeight = element.clientHeight;
 			viewportWidth = element.clientWidth;
+		};
+		const update = () => {
 			scrollTop = element.scrollTop;
 			scrollLeft = element.scrollLeft;
 		};
+		let frame = 0;
+		const schedule = () => {
+			if (frame !== 0) return;
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				update();
+			});
+		};
+		measure();
 		update();
-		const observer = new ResizeObserver(update);
+		const observer = new ResizeObserver(() => {
+			measure();
+			update();
+		});
 		observer.observe(element);
-		return () => observer.disconnect();
+		element.addEventListener('scroll', schedule, { passive: true });
+		return () => {
+			observer.disconnect();
+			element.removeEventListener('scroll', schedule);
+			if (frame !== 0) cancelAnimationFrame(frame);
+		};
 	});
 
 	let loadJob = 0;
@@ -560,6 +584,8 @@
 	}
 	table {
 		table-layout: fixed;
+		width: max-content;
+		min-width: 100%;
 		border-collapse: collapse;
 		font-size: 12px;
 	}
