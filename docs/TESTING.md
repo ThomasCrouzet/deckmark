@@ -640,6 +640,37 @@ The browser case replaces the native path backend with FSA handles. The
 native grant reference count still needs the isolated cleanup cases and a
 Desktop smoke check.
 
+### Disk-link health checks
+
+A health scan awaits link and file-status I/O after a library load or a
+cross-tab change. Retain these failure risks:
+
+- A late old-path result can mark a repaired link broken or clear its linked
+  state.
+- A newer successful scan can finish before an older scan resumes publication.
+- A reload can replace the object under the same id.
+- A truly missing or broken link must still be reported, including FSA
+  permission-needed and native path failure.
+
+`src/lib/disk-sync.test.ts` and `src/lib/broken-links.test.ts` keep the checked
+link epoch, path, revision and handle identity with deferred I/O. The browser
+suite cannot hold one publication between the link read and the compare-and-set.
+Run:
+
+```sh
+npx vitest run src/lib/disk-sync.test.ts src/lib/broken-links.test.ts --maxWorkers=1
+```
+
+`e2e/disk-link-health.spec.ts` checks the observable result: a late failed read
+leaves a repaired handle linked and saving to its new file. Run:
+
+```sh
+npx playwright test e2e/disk-link-health.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The browser case uses OPFS handles. Native path checks still need the isolated
+cases and a Desktop smoke check.
+
 `disk-workflows.spec.ts` checks the visible disk and copy behavior. The cases are:
 
 - A browser without the File System Access API downloads a copy. The status stays

@@ -1424,3 +1424,66 @@ describe('native capability acknowledgment', () => {
 		expect(file.brokenLink).toBe(false);
 	});
 });
+
+describe('stale broken-link publication', () => {
+	const pathLink = {
+		record: { kind: 'path' as const, path: '/tmp/current.md' },
+		epoch: 'epoch'
+	};
+
+	it('lets a newer completed scan win over an older late result', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		const file = makeFile({ id: 'overlap', linkedToDisk: true, brokenLink: false });
+		let release!: (value: typeof pathLink) => void;
+		let reads = 0;
+		vi.mocked(fsa.getPathLinkWithEpoch).mockImplementation(async () => {
+			reads += 1;
+			if (reads === 2) {
+				return new Promise((resolve) => {
+					release = resolve;
+				});
+			}
+			return pathLink;
+		});
+		vi.mocked(diskTauri.tauriCheckPath).mockResolvedValueOnce('broken').mockResolvedValueOnce('ok');
+
+		const older = refreshBrokenLinks([file], (id) => (id === file.id ? file : undefined));
+		await vi.waitFor(() => expect(reads).toBe(2));
+		await refreshBrokenLinks([file], (id) => (id === file.id ? file : undefined));
+		expect(file.brokenLink).toBe(false);
+
+		release(pathLink);
+		await older;
+
+		expect(file.brokenLink).toBe(false);
+		expect(file.linkedToDisk).toBe(true);
+	});
+
+	it('drops a result when the same id now names another object', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		const first = makeFile({ id: 'replaced', linkedToDisk: true, brokenLink: false });
+		const second = makeFile({ id: 'replaced', linkedToDisk: true, brokenLink: false });
+		let current = first;
+		let release!: (value: typeof pathLink) => void;
+		let reads = 0;
+		vi.mocked(fsa.getPathLinkWithEpoch).mockImplementation(async () => {
+			reads += 1;
+			if (reads === 2) {
+				return new Promise((resolve) => {
+					release = resolve;
+				});
+			}
+			return pathLink;
+		});
+		vi.mocked(diskTauri.tauriCheckPath).mockResolvedValue('broken');
+
+		const scan = refreshBrokenLinks([first], () => current);
+		await vi.waitFor(() => expect(reads).toBe(2));
+		current = second;
+		release(pathLink);
+		await scan;
+
+		expect(first.brokenLink).toBe(false);
+		expect(second.brokenLink).toBe(false);
+	});
+});

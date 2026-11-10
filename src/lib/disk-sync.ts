@@ -1064,20 +1064,28 @@ export async function refreshBrokenLinks(
 ): Promise<void> {
 	if (!browser || !isDiskLinkingAvailable()) return;
 	const scan = ++brokenLinkScan;
-	const versions = new Map(
-		files.filter((file) => file.linkedToDisk).map((file) => [file.id, linkVersion(file.id)])
-	);
+	const linked = files.filter((file) => file.linkedToDisk);
+	const targets = new Map(linked.map((file) => [file.id, file]));
+	const versions = new Map(linked.map((file) => [file.id, linkVersion(file.id)]));
+	const epoch = await getDiskLinkEpoch();
 	const updates = await computeBrokenLinks(files, {
 		getHandleFn: getHandle,
 		checkHandleFn: checkHandle,
+		getFsaLinkFn: getFsaLink,
 		getPathLinkFn: getPathLink,
+		getPathLinkWithEpochFn: getPathLinkWithEpoch,
+		getEpochFn: async () => epoch,
 		checkPathFn: tauriCheckPath
 	});
 	if (scan !== brokenLinkScan) return;
 	for (const u of updates) {
+		if (scan !== brokenLinkScan) return;
 		if (versions.get(u.id) !== linkVersion(u.id)) continue;
+		const target = targets.get(u.id);
 		const file = getFileMutable(u.id);
-		if (!file || !file.linkedToDisk) continue;
+		// A reload or import can replace the object under the same id. The
+		// checked result belongs to the old object and must not reach the new one.
+		if (!target || file !== target || !file.linkedToDisk) continue;
 		// A written file whose link revision did not persist still needs a
 		// visible repair state. A health check on the old link cannot clear it.
 		if (pendingDiskLinkWrites.has(u.id)) {
@@ -1085,18 +1093,39 @@ export async function refreshBrokenLinks(
 			continue;
 		}
 		if (u.link.kind === 'path') {
-			const current = await getPathLink(u.id).catch(() => null);
-			if (!current || current.path !== u.link.path) continue;
+			const current = await getPathLinkWithEpoch(u.id).catch(() => null);
+			if (scan !== brokenLinkScan) return;
+			if (versions.get(u.id) !== linkVersion(u.id)) continue;
+			if (
+				!current ||
+				current.epoch !== u.link.epoch ||
+				current.record.path !== u.link.path ||
+				current.revision !== u.link.revision
+			)
+				continue;
 		} else {
-			const current = await getHandle(u.id).catch(() => null);
+			const stored = await getFsaLink(u.id).catch(() => null);
+			// The injected handle reader in unit tests has no epoch wrapper.
+			const current = stored?.handle ?? (await getHandle(u.id).catch(() => null));
+			if (scan !== brokenLinkScan) return;
+			if (versions.get(u.id) !== linkVersion(u.id)) continue;
 			if (u.link.handle) {
-				if (!current || !(await sameHandle(current, u.link.handle))) continue;
+				if (
+					!current ||
+					(stored !== null && stored.epoch !== u.link.epoch) ||
+					!(await sameHandle(current, u.link.handle))
+				)
+					continue;
 			} else if (current) {
 				// The IDB handle was restored or replaced after the check.
 				continue;
 			}
 		}
-		if (!file.linkedToDisk) continue;
+		// The awaited records and the compare-and-set must still see the same
+		// scan, link version and object before the result becomes visible.
+		if (scan !== brokenLinkScan) return;
+		if (versions.get(u.id) !== linkVersion(u.id)) continue;
+		if (getFileMutable(u.id) !== target || !file.linkedToDisk) continue;
 		file.brokenLink = u.brokenLink;
 		// If the handle no longer exists in IDB, we also unlink on the state side:
 		// the file stays in the sidebar but loses its "linked" indicator.
