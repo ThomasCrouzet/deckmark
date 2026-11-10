@@ -1,5 +1,8 @@
+import { execFileSync } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { openPalette, resetAppState, seedFiles } from './helpers';
+import { openPalette, resetAppState, seedFiles, writeSourceContent } from './helpers';
+import { databaseState, importBackup } from './storage-evidence';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -76,4 +79,306 @@ test('opens a note from the table', async ({ page }) => {
 	await page.getByTestId('collection-table').getByRole('button', { name: 'Beta' }).click();
 	await expect(page.getByTestId('collection-panel')).toHaveCount(0);
 	await expect(page.locator('.cm-content')).toContainText('# Beta');
+});
+
+const FIELD_COUNT = 100;
+const NOTE_COUNT = 3000;
+
+function largeCollectionFixture(now: number) {
+	const fields = Array.from({ length: FIELD_COUNT }, (_, index) => `field${index}`);
+	const drafts = Array.from({ length: NOTE_COUNT }, (_, index) => {
+		const rows = fields.map((field, position) => `${field}: value ${index}-${position}`);
+		return {
+			id: `collection-perf-${index}`,
+			name: `Note ${index}.md`,
+			content: [
+				'---',
+				`title: Note ${index}`,
+				...rows,
+				`status: group-${index % 7}`,
+				`priority: ${index === NOTE_COUNT - 1 ? 999 : index % 13}`,
+				'---',
+				'',
+				`# Note ${index}`,
+				// Keep the corpus above the 8 MiB inline budget so the reload
+				// defers most bodies, as it does for a large real library.
+				'Body text. '.repeat(300)
+			].join('\n'),
+			createdAt: now,
+			updatedAt: now,
+			order: index,
+			open: index === 0
+		};
+	});
+	return {
+		format: 'mdsh-backup',
+		schemaVersion: 1,
+		exportedAt: now,
+		drafts,
+		workspaces: [
+			{
+				id: 'collection-perf-workspace',
+				name: 'Collection',
+				fileIds: [drafts[0]!.id],
+				activeId: drafts[0]!.id,
+				createdAt: now,
+				updatedAt: now
+			}
+		],
+		templates: []
+	};
+}
+
+async function closeCollection(page: Page) {
+	await page
+		.getByTestId('collection-panel')
+		.getByRole('button', { name: 'Fermer' })
+		.first()
+		.click();
+	await expect(page.getByTestId('collection-panel')).toHaveCount(0);
+}
+
+async function openLargeCollection(page: Page) {
+	const started = Date.now();
+	await openCollection(page);
+	await expect(page.getByTestId('collection-table')).toBeVisible({ timeout: 180_000 });
+	return Date.now() - started;
+}
+
+async function persistedProjectionCount(page: Page) {
+	return page.evaluate(
+		() =>
+			new Promise<number>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const tx = database.transaction('metadata');
+					const keys = tx.objectStore('metadata').getAllKeys();
+					keys.onerror = () => {
+						database.close();
+						reject(keys.error);
+					};
+					keys.onsuccess = () => {
+						database.close();
+						resolve(
+							keys.result.filter(
+								(key) => typeof key === 'string' && key.startsWith('collection-row:')
+							).length
+						);
+					};
+				};
+			})
+	);
+}
+
+async function collectionProfile(page: Page) {
+	return page.evaluate(
+		() =>
+			(
+				window as unknown as {
+					__mdshCollectionProfile?: Record<string, number>;
+				}
+			).__mdshCollectionProfile ?? null
+	);
+}
+
+async function writeArtifact(name: string, value: unknown) {
+	await mkdir('test-results', { recursive: true });
+	await writeFile(
+		`test-results/${name}`,
+		JSON.stringify(
+			{
+				command:
+					'npx playwright test e2e/collection-views.spec.ts --project=chromium --workers=1 --retries=0',
+				sourceRevision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+				environment: { node: process.version, platform: process.platform, arch: process.arch },
+				...((value as Record<string, unknown>) ?? {})
+			},
+			null,
+			2
+		)
+	);
+}
+
+async function collectionDom(page: Page) {
+	return page.evaluate(() => {
+		const table = document.querySelector('[data-testid="collection-table"]');
+		return {
+			rows: table?.querySelectorAll('tbody tr').length ?? 0,
+			cells: table?.querySelectorAll('tbody td, tbody th').length ?? 0,
+			headers: table?.querySelectorAll('thead th').length ?? 0,
+			nodes: document.querySelectorAll('*').length
+		};
+	});
+}
+
+test('bounds a 3000-row, 100-column collection and reuses persisted metadata', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(300_000);
+	await resetAppState(page);
+	const fixture = largeCollectionFixture(Date.now());
+	await importBackup(page, fixture);
+	await expect.poll(async () => (await databaseState(page)).drafts.length).toBe(NOTE_COUNT);
+	await page.keyboard.press('Escape');
+	// Reload so the library starts with deferred bodies, as it does after boot.
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+
+	const firstOpenMs = await openLargeCollection(page);
+	const firstProfile = await collectionProfile(page);
+	const firstDom = await collectionDom(page);
+	const table = page.getByTestId('collection-table');
+	await expect(table.locator('tbody tr').first()).toContainText('Note 0');
+
+	await page.getByTestId('collection-filter').fill('value 2999-42');
+	await expect(table).toContainText('Note 2999');
+	await expect(table.locator('tbody tr')).toHaveCount(1);
+	await page.getByTestId('collection-filter').fill('');
+	await page.getByTestId('collection-sort').selectOption('priority');
+	await page.getByTestId('collection-direction').click();
+	await expect(table.locator('tbody tr').first()).toContainText('Note 2999');
+	await page.getByTestId('collection-group').selectOption('status');
+	await page.getByRole('button', { name: 'Tableau blanc' }).click();
+	const board = page.getByTestId('collection-board');
+	await expect(board).toContainText('group-0');
+	await expect(board).toContainText('group-6');
+	const boardCards = await board.locator('.board-card').count();
+	await closeCollection(page);
+	const persistedRows = await persistedProjectionCount(page);
+
+	const secondOpenMs = await openLargeCollection(page);
+	const secondProfile = await collectionProfile(page);
+	const secondDom = await collectionDom(page);
+	await expect(table).toContainText('Note 0');
+
+	expect(firstProfile?.bodyReads).toBeGreaterThan(0);
+	expect(secondProfile?.bodyReads).toBe(0);
+	expect(secondProfile?.reused).toBe(NOTE_COUNT);
+	expect(firstDom.rows).toBeLessThanOrEqual(600);
+	expect(firstDom.cells).toBeLessThanOrEqual(600 * 40);
+	expect(secondDom.rows).toBeLessThanOrEqual(600);
+	expect(boardCards).toBeLessThanOrEqual(600);
+	expect(secondOpenMs).toBeLessThan(firstOpenMs);
+	expect(persistedRows).toBe(NOTE_COUNT);
+
+	const fixtureBytes = fixture.drafts.reduce((total, draft) => total + draft.content.length, 0);
+	const result = {
+		notes: NOTE_COUNT,
+		fields: FIELD_COUNT,
+		fixtureBytes,
+		firstOpenMs,
+		secondOpenMs,
+		firstDom,
+		secondDom,
+		firstProfile,
+		secondProfile,
+		boardCards,
+		persistedRows
+	};
+	await writeArtifact('collection-scale.json', {
+		fixture: { notes: NOTE_COUNT, columns: FIELD_COUNT + 3, fixtureBytes },
+		result
+	});
+	await info.attach('collection-scale.json', {
+		body: JSON.stringify(result, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('cancels a pending collection load when the panel closes', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	await importBackup(page, largeCollectionFixture(Date.now()));
+	await expect.poll(async () => (await databaseState(page)).drafts.length).toBe(NOTE_COUNT);
+	await page.keyboard.press('Escape');
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	const failures: string[] = [];
+	page.on('pageerror', (error) => failures.push(error.message));
+	await openPalette(page);
+	await page
+		.getByRole('dialog', { name: 'Palette de commandes' })
+		.getByRole('option', { name: /vues tableau/i })
+		.click();
+	await expect(page.getByTestId('collection-panel')).toBeVisible();
+	await closeCollection(page);
+	await page.waitForTimeout(1500);
+	expect(failures).toEqual([]);
+	await writeArtifact('collection-cancel.json', {
+		fixture: { notes: NOTE_COUNT },
+		result: { closed: true, pageErrors: failures }
+	});
+	await info.attach('collection-cancel.json', {
+		body: JSON.stringify({ closed: true, pageErrors: failures }),
+		contentType: 'application/json'
+	});
+});
+
+test('reparses only the changed note after a collection edit', async ({ page }, info: TestInfo) => {
+	await resetAppState(page);
+	await seedFiles(page, files);
+	await openCollection(page);
+	await expect(page.getByTestId('collection-table')).toContainText('Gamma');
+	await closeCollection(page);
+	await writeSourceContent(
+		page,
+		'---\ntitle: Gamma renamed\ntags: [docs]\nstatus: active\npriority: 3\n---\n\n# Gamma\n'
+	);
+	await openCollection(page);
+	const table = page.getByTestId('collection-table');
+	await expect(table).toContainText('Gamma renamed');
+	const profile = await collectionProfile(page);
+	expect(profile?.parsed).toBe(1);
+	expect(profile?.reused).toBe(2);
+	await writeArtifact('collection-incremental.json', {
+		fixture: { notes: files.length },
+		result: { parsed: profile?.parsed, reused: profile?.reused }
+	});
+	await info.attach('collection-incremental.json', {
+		body: JSON.stringify({ parsed: profile?.parsed, reused: profile?.reused }),
+		contentType: 'application/json'
+	});
+});
+
+test('backfills rows whose persisted collection projection is missing', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await seedFiles(page, files);
+	await openCollection(page);
+	await expect(page.getByTestId('collection-table')).toContainText('Alpha');
+	await closeCollection(page);
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const tx = database.transaction('metadata', 'readwrite');
+					tx.objectStore('metadata').clear();
+					tx.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					tx.onabort = () => {
+						database.close();
+						reject(tx.error);
+					};
+				};
+			})
+	);
+	await openCollection(page);
+	const table = page.getByTestId('collection-table');
+	await expect(table).toContainText('Alpha');
+	await expect(table).toContainText('Beta');
+	await expect(table).toContainText('Gamma');
+	await info.attach('collection-backfill.json', {
+		body: JSON.stringify({ projectionsCleared: true, rebuilt: 3 }),
+		contentType: 'application/json'
+	});
 });
