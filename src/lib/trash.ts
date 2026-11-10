@@ -11,8 +11,7 @@ import { db, newId } from './db';
 import type { DraftRow, TrashedRow } from './db';
 import type { TrashedFile } from './types';
 import { TIMERS } from './config';
-import { deleteHandle } from './fsa';
-import { isDesktop } from './desktop';
+import { withDiskLinkLock } from './disk-2';
 import { reportPersistenceError } from './storage';
 import { uniqueName } from './file-utils';
 import { pathKey } from './project-paths';
@@ -20,12 +19,10 @@ import { projectConflictVariant } from './project-conflicts';
 import { sameDraftIdentity } from './draft-identity';
 
 async function deletePurgedDiskLink(id: string): Promise<void> {
-	if (isDesktop()) {
-		const { deleteUnownedDiskLink } = await import('./disk-cleanup');
-		await deleteUnownedDiskLink(id);
-	} else {
-		await deleteHandle(id);
-	}
+	// Both backends use the same owner, generation and path fences. A bare
+	// handle delete could remove a link that another window wrote again.
+	const { deleteUnownedDiskLink } = await import('./disk-cleanup');
+	await deleteUnownedDiskLink(id);
 }
 
 /**
@@ -325,44 +322,48 @@ export async function restoreFromTrash(
 ): Promise<boolean> {
 	let preserved: DraftRow | undefined;
 	let restored = draftRow;
-	try {
-		await db.transaction(
-			'rw',
-			[db.drafts, db.trashed, db.versions, db.projectAssets, db.comments],
-			async () => {
-				preserved = await preserveCurrentVariant(draftRow.id, draftRow);
-				if (draftRow.projectId && draftRow.relativePath) {
-					const [projectDocuments, projectAssets] = await Promise.all([
-						db.drafts.where('projectId').equals(draftRow.projectId).toArray(),
-						db.projectAssets.where('projectId').equals(draftRow.projectId).toArray()
-					]);
-					const restoredPathKey = pathKey(draftRow.relativePath);
-					const occupied =
-						projectDocuments.some(
-							(document) =>
-								document.id !== draftRow.id &&
-								document.relativePath &&
-								pathKey(document.relativePath) === restoredPathKey
-						) || projectAssets.some((asset) => pathKey(asset.path) === restoredPathKey);
-					if (occupied) {
-						restored = projectConflictVariant(draftRow, projectDocuments, projectAssets);
+	// A purge cleanup takes the same document fence. A restore must not become
+	// a new owner between that cleanup's owner read and its link delete.
+	return withDiskLinkLock(id, async () => {
+		try {
+			await db.transaction(
+				'rw',
+				[db.drafts, db.trashed, db.versions, db.projectAssets, db.comments],
+				async () => {
+					preserved = await preserveCurrentVariant(draftRow.id, draftRow);
+					if (draftRow.projectId && draftRow.relativePath) {
+						const [projectDocuments, projectAssets] = await Promise.all([
+							db.drafts.where('projectId').equals(draftRow.projectId).toArray(),
+							db.projectAssets.where('projectId').equals(draftRow.projectId).toArray()
+						]);
+						const restoredPathKey = pathKey(draftRow.relativePath);
+						const occupied =
+							projectDocuments.some(
+								(document) =>
+									document.id !== draftRow.id &&
+									document.relativePath &&
+									pathKey(document.relativePath) === restoredPathKey
+							) || projectAssets.some((asset) => pathKey(asset.path) === restoredPathKey);
+						if (occupied) {
+							restored = projectConflictVariant(draftRow, projectDocuments, projectAssets);
+						}
 					}
+					if (restored.id !== id) {
+						await copyVersionHistory(id, restored.id);
+						await copyComments(id, restored.id);
+					}
+					await db.drafts.put(restored);
+					await db.trashed.delete(id);
 				}
-				if (restored.id !== id) {
-					await copyVersionHistory(id, restored.id);
-					await copyComments(id, restored.id);
-				}
-				await db.drafts.put(restored);
-				await db.trashed.delete(id);
-			}
-		);
-		if (preserved) onPreserved?.(preserved);
-		onRestored?.(restored);
-		return true;
-	} catch (err) {
-		reportPersistenceError(err, 'save');
-		return false;
-	}
+			);
+			if (preserved) onPreserved?.(preserved);
+			onRestored?.(restored);
+			return true;
+		} catch (err) {
+			reportPersistenceError(err, 'save');
+			return false;
+		}
+	});
 }
 
 /**

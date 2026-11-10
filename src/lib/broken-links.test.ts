@@ -31,7 +31,7 @@ describe('computeBrokenLinks', () => {
 			id: 'f1',
 			brokenLink: true,
 			handleMissing: true,
-			link: { kind: 'handle', handle: null }
+			link: { kind: 'handle', handle: null, epoch: 'legacy' }
 		});
 		expect(checkHandleFn).not.toHaveBeenCalled();
 	});
@@ -48,7 +48,7 @@ describe('computeBrokenLinks', () => {
 			id: 'p1',
 			brokenLink: true,
 			handleMissing: false,
-			link: { kind: 'path', path: '/tmp/gone.md' }
+			link: { kind: 'path', path: '/tmp/gone.md', epoch: 'legacy' }
 		});
 	});
 
@@ -69,7 +69,7 @@ describe('computeBrokenLinks', () => {
 			id: 'f2',
 			brokenLink: true,
 			handleMissing: false,
-			link: { kind: 'handle', handle: fakeHandle }
+			link: { kind: 'handle', handle: fakeHandle, epoch: 'legacy' }
 		});
 	});
 

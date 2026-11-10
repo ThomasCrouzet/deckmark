@@ -585,6 +585,38 @@ describe('rename linked files', () => {
 		expect(diskTauri.tauriForgetPath).toHaveBeenCalledWith('/tmp/note.md');
 		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
 	});
+
+	it('keeps a native grant that another linked draft still uses', async () => {
+		vi.mocked(fsa.getPathLinkWithEpoch).mockResolvedValue({
+			record: { kind: 'path', path: '/tmp/shared.md' },
+			epoch: 'epoch'
+		});
+		vi.mocked(fsa.listDiskLinks).mockResolvedValue([
+			{ id: 'a', kind: 'path', path: '/tmp/shared.md', label: 'shared.md' },
+			{ id: 'b', kind: 'path', path: '/tmp/shared.md', label: 'shared.md' }
+		]);
+		const first = makeFile({ id: 'a', linkedToDisk: true });
+		const second = makeFile({ id: 'b', linkedToDisk: true });
+
+		await unlinkFromDisk('a', testDeps([first, second]));
+
+		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
+		expect(fsa.deleteHandle).not.toHaveBeenCalledWith('b');
+		expect(diskTauri.tauriForgetPath).not.toHaveBeenCalled();
+		expect(first.linkedToDisk).toBe(false);
+		expect(second.linkedToDisk).toBe(true);
+	});
+
+	it('keeps the link and grant when the handle delete fails', async () => {
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(fsa.deleteHandle).mockRejectedValueOnce(new Error('IndexedDB'));
+		const file = makeFile({ linkedToDisk: true });
+
+		await expect(unlinkFromDisk('a', testDeps([file]))).rejects.toThrow('IndexedDB');
+
+		expect(diskTauri.tauriForgetPath).not.toHaveBeenCalled();
+		expect(file.linkedToDisk).toBe(true);
+	});
 });
 
 describe('saveToDisk desktop capability backend', () => {
@@ -1390,5 +1422,68 @@ describe('native capability acknowledgment', () => {
 		releaseCheck('broken');
 		await refreshing;
 		expect(file.brokenLink).toBe(false);
+	});
+});
+
+describe('stale broken-link publication', () => {
+	const pathLink = {
+		record: { kind: 'path' as const, path: '/tmp/current.md' },
+		epoch: 'epoch'
+	};
+
+	it('lets a newer completed scan win over an older late result', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		const file = makeFile({ id: 'overlap', linkedToDisk: true, brokenLink: false });
+		let release!: (value: typeof pathLink) => void;
+		let reads = 0;
+		vi.mocked(fsa.getPathLinkWithEpoch).mockImplementation(async () => {
+			reads += 1;
+			if (reads === 2) {
+				return new Promise((resolve) => {
+					release = resolve;
+				});
+			}
+			return pathLink;
+		});
+		vi.mocked(diskTauri.tauriCheckPath).mockResolvedValueOnce('broken').mockResolvedValueOnce('ok');
+
+		const older = refreshBrokenLinks([file], (id) => (id === file.id ? file : undefined));
+		await vi.waitFor(() => expect(reads).toBe(2));
+		await refreshBrokenLinks([file], (id) => (id === file.id ? file : undefined));
+		expect(file.brokenLink).toBe(false);
+
+		release(pathLink);
+		await older;
+
+		expect(file.brokenLink).toBe(false);
+		expect(file.linkedToDisk).toBe(true);
+	});
+
+	it('drops a result when the same id now names another object', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		const first = makeFile({ id: 'replaced', linkedToDisk: true, brokenLink: false });
+		const second = makeFile({ id: 'replaced', linkedToDisk: true, brokenLink: false });
+		let current = first;
+		let release!: (value: typeof pathLink) => void;
+		let reads = 0;
+		vi.mocked(fsa.getPathLinkWithEpoch).mockImplementation(async () => {
+			reads += 1;
+			if (reads === 2) {
+				return new Promise((resolve) => {
+					release = resolve;
+				});
+			}
+			return pathLink;
+		});
+		vi.mocked(diskTauri.tauriCheckPath).mockResolvedValue('broken');
+
+		const scan = refreshBrokenLinks([first], () => current);
+		await vi.waitFor(() => expect(reads).toBe(2));
+		current = second;
+		release(pathLink);
+		await scan;
+
+		expect(first.brokenLink).toBe(false);
+		expect(second.brokenLink).toBe(false);
 	});
 });
