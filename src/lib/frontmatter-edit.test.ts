@@ -55,4 +55,60 @@ describe('front matter property edits', () => {
 	it('rejects unsafe keys', () => {
 		expect(() => setFrontmatterProperty(source, 'a: b', 'x')).toThrow('Invalid');
 	});
+
+	it('reads block-style sequence values', () => {
+		const block = '---\ntags:\n  - old\n  - obsolete\nstatus: draft\n---\n\n# Body\n';
+		const tags = readFrontmatterProperties(block).find((entry) => entry.key === 'tags');
+		expect(tags?.value).toEqual(['old', 'obsolete']);
+		expect(tags?.kind).toBe('tags');
+	});
+
+	it('replaces a block-style sequence without leaving the old items', () => {
+		const block = '---\ntags:\n  - old\n  - obsolete\nstatus: draft\n---\n\n# Body\n';
+		const next = setFrontmatterProperty(block, 'tags', ['new']);
+		expect(next).toBe('---\ntags:\n  - new\nstatus: draft\n---\n\n# Body\n');
+		expect(readFrontmatterProperties(next).find((entry) => entry.key === 'tags')?.value).toEqual([
+			'new'
+		]);
+		expect(setFrontmatterProperty(next, 'tags', ['new'])).toBe(next);
+	});
+
+	it('keeps CRLF and the block indentation when replacing a block sequence', () => {
+		const block =
+			'---\r\ntags:\r\n    - old\r\n    - obsolete\r\nstatus: draft\r\n---\r\n\r\nBody\r\n';
+		const next = setFrontmatterProperty(block, 'tags', ['one', 'two']);
+		expect(next).toBe(
+			'---\r\ntags:\r\n    - one\r\n    - two\r\nstatus: draft\r\n---\r\n\r\nBody\r\n'
+		);
+	});
+
+	it('keeps the BOM when replacing a block sequence', () => {
+		const block = '\uFEFF---\ntags:\n  - old\n---\n\nBody\n';
+		const next = setFrontmatterProperty(block, 'tags', ['new']);
+		expect(next).toBe('\uFEFF---\ntags:\n  - new\n---\n\nBody\n');
+	});
+
+	it('keeps a trailing comment on an inline sequence', () => {
+		const inline = '---\ntags: [old, obsolete] # keep\n---\n\nBody\n';
+		const next = setFrontmatterProperty(inline, 'tags', ['new']);
+		expect(next).toBe('---\ntags: [new] # keep\n---\n\nBody\n');
+	});
+
+	it('does not alter an unchanged block sequence when another key changes', () => {
+		const block = '---\ntags:\n  - old\n  - obsolete\nstatus: draft\n---\n\nBody\n';
+		const next = setFrontmatterProperty(block, 'status', 'final');
+		expect(next).toBe('---\ntags:\n  - old\n  - obsolete\nstatus: final\n---\n\nBody\n');
+	});
+
+	it('does not offer a nested mapping as an editable property', () => {
+		const nested = '---\nmeta:\n  owner: Ada\n  state: ready\ntitle: Nested\n---\n\nBody\n';
+		const keys = readFrontmatterProperties(nested).map((entry) => entry.key);
+		expect(keys).toEqual(['title']);
+	});
+
+	it('does not offer nested sequence or mapping items as editable tags', () => {
+		const nested = '---\ntags:\n  - - nested\nmeta:\n  - owner: Ada\ntitle: Kept\n---\n\nBody\n';
+		const keys = readFrontmatterProperties(nested).map((entry) => entry.key);
+		expect(keys).toEqual(['title']);
+	});
 });

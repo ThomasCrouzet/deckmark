@@ -10,6 +10,9 @@ export interface FrontmatterProperty {
 	raw: string;
 }
 
+type BlockStyle =
+	'inline' | 'block-sequence' | 'block-scalar' | 'mapping' | 'empty' | 'unsupported';
+
 interface LineRange {
 	key: string;
 	start: number;
@@ -17,7 +20,11 @@ interface LineRange {
 	valueStart: number;
 	valueEnd: number;
 	inline: string;
-	block: boolean;
+	style: BlockStyle;
+	items: string[];
+	indent: string;
+	/** End of the value region. A block sequence includes its item lines. */
+	blockEnd: number;
 }
 
 interface Block {
@@ -27,6 +34,12 @@ interface Block {
 	close: string;
 	content: string;
 	eol: string;
+}
+
+interface SourceLine {
+	text: string;
+	start: number;
+	end: number;
 }
 
 function blockOf(markdown: string): Block | null {
@@ -44,68 +57,221 @@ function blockOf(markdown: string): Block | null {
 	};
 }
 
-function keyRanges(yaml: string): LineRange[] {
-	const ranges: LineRange[] = [];
-	const lines = yaml.split(/\r?\n/);
-	let offset = 0;
-	let current: LineRange | null = null;
-	for (const line of lines) {
-		const match = /^([A-Za-z0-9_.-]+)[ \t]*:([ \t]*)(.*)$/.exec(line);
-		if (match) {
-			if (current) {
-				current.end = offset;
-				if (current.valueEnd === 0) current.valueEnd = offset;
-			}
-			const key = match[1]!;
-			const afterColon = match[2]!.length;
-			const inline = match[3] ?? '';
-			const valueStart = offset + key.length + 1 + afterColon;
-			current = {
-				key,
-				start: offset,
-				end: yaml.length,
-				valueStart,
-				valueEnd: valueStart + inline.length,
-				inline,
-				block: inline.trim() === ''
-			};
-			ranges.push(current);
-		} else if (current && current.inline.trim() === '') {
-			current.block = true;
-		}
-		offset += line.length + (yaml[offset + line.length] === '\r' ? 2 : 1);
+function splitLines(text: string, base: number): SourceLine[] {
+	const lines: SourceLine[] = [];
+	let start = 0;
+	for (let index = 0; index <= text.length; index++) {
+		if (index !== text.length && text[index] !== '\n') continue;
+		const raw = text.slice(start, index);
+		const value = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+		lines.push({ text: value, start: base + start, end: base + start + value.length });
+		start = index + 1;
 	}
-	return ranges;
+	return lines;
+}
+
+/** Splits an inline value from a trailing YAML comment outside quoted text. */
+function splitInlineComment(raw: string): { value: string; comment: string } {
+	let single = false;
+	let double = false;
+	for (let index = 0; index < raw.length; index++) {
+		const character = raw[index]!;
+		if (character === "'" && !double) {
+			if (single && raw[index + 1] === "'") index++;
+			else single = !single;
+		} else if (character === '"' && !single) {
+			if (double && raw[index - 1] === '\\') continue;
+			double = !double;
+		} else if (character === '#' && !single && !double) {
+			if (index === 0 || /\s/.test(raw[index - 1]!)) {
+				return { value: raw.slice(0, index).trimEnd(), comment: raw.slice(index - 1) };
+			}
+		}
+	}
+	return { value: raw.trimEnd(), comment: '' };
 }
 
 function unquote(raw: string): string {
 	const trimmed = raw.trim();
-	if (
-		(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-		(trimmed.startsWith("'") && trimmed.endsWith("'"))
-	) {
-		return trimmed.slice(1, -1);
+	if (trimmed.length >= 2 && trimmed.startsWith("'") && trimmed.endsWith("'"))
+		return trimmed.slice(1, -1).replaceAll("''", "'");
+	if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+		return trimmed
+			.slice(1, -1)
+			.replace(/\\(["\\/bfnrt])/g, (_match, code: string) => {
+				const escapes: Record<string, string> = {
+					'"': '"',
+					'\\': '\\',
+					'/': '/',
+					b: '\b',
+					f: '\f',
+					n: '\n',
+					r: '\r',
+					t: '\t'
+				};
+				return escapes[code] ?? code;
+			})
+			.trim();
 	}
 	return trimmed;
 }
 
+/** Splits a flow sequence body on commas that are outside quotes and brackets. */
+function splitList(inner: string): string[] {
+	const items: string[] = [];
+	let current = '';
+	let single = false;
+	let double = false;
+	let depth = 0;
+	for (let index = 0; index < inner.length; index++) {
+		const character = inner[index]!;
+		if (character === "'" && !double) {
+			if (single && inner[index + 1] === "'") {
+				current += "''";
+				index++;
+				continue;
+			}
+			single = !single;
+			current += character;
+		} else if (character === '"' && !single) {
+			if (double && inner[index - 1] === '\\') {
+				current += character;
+				continue;
+			}
+			double = !double;
+			current += character;
+		} else if (!single && !double && (character === '[' || character === '{')) {
+			depth++;
+			current += character;
+		} else if (!single && !double && (character === ']' || character === '}')) {
+			depth--;
+			current += character;
+		} else if (character === ',' && !single && !double && depth === 0) {
+			items.push(current);
+			current = '';
+		} else current += character;
+	}
+	items.push(current);
+	return items.map((item) => unquote(item)).filter(Boolean);
+}
+
+function parseSequenceItem(line: string): { item: string; indent: string } | null {
+	const match = /^([ \t]+)-(?:[ \t]+(.*))?$/.exec(line);
+	if (!match) return null;
+	if (!match[2]) return null;
+	const { value, comment } = splitInlineComment(match[2]);
+	if (comment || !value) return null;
+	const trimmed = value.trim();
+	const quoted = /^['"]/.test(trimmed);
+	if (!quoted) {
+		// A nested sequence, mapping, explicit key or flow collection is not a
+		// scalar tag. Keep it in the source instead of rewriting it as text.
+		if (/^[-?:[{]/.test(trimmed)) return null;
+		if (/:(\s|$)/.test(trimmed)) return null;
+	}
+	const item = unquote(value);
+	return item ? { item, indent: match[1]! } : null;
+}
+
+function finishRange(range: LineRange, end: number, yaml: string): void {
+	range.end = end;
+	range.blockEnd = range.valueEnd;
+	const newline = yaml.indexOf('\n', range.valueEnd);
+	if (newline === -1 || newline >= end) {
+		range.style = range.inline === '' ? 'empty' : 'inline';
+		return;
+	}
+	const continuation = yaml.slice(newline + 1, end);
+	const lines = splitLines(continuation, newline + 1).filter((line) => line.text.trim() !== '');
+	if (lines.length === 0) {
+		range.style = range.inline === '' ? 'empty' : 'inline';
+		return;
+	}
+	const commentOnly = lines.filter((line) => /^[ \t]*#/.test(line.text));
+	const meaningful = lines.filter((line) => !/^[ \t]*#/.test(line.text));
+	if (meaningful.length === 0) {
+		range.style = range.inline === '' ? 'empty' : 'inline';
+		return;
+	}
+	if (range.inline !== '') {
+		range.style = /^[|>]/.test(range.inline) ? 'block-scalar' : 'unsupported';
+		return;
+	}
+	if (commentOnly.length > 0) {
+		// A rewrite would remove an inner comment. Keep the source authoritative.
+		range.style = 'unsupported';
+		return;
+	}
+	const items: string[] = [];
+	let indent = '';
+	let blockEnd = range.valueEnd;
+	for (const line of lines) {
+		const parsed = parseSequenceItem(line.text);
+		if (!parsed) {
+			range.style = 'mapping';
+			return;
+		}
+		indent ||= parsed.indent;
+		if (parsed.indent !== indent) {
+			range.style = 'unsupported';
+			return;
+		}
+		items.push(parsed.item);
+		blockEnd = line.end;
+	}
+	range.style = 'block-sequence';
+	range.items = items;
+	range.indent = indent;
+	range.blockEnd = blockEnd;
+}
+
+function keyRanges(yaml: string): LineRange[] {
+	const ranges: LineRange[] = [];
+	let current: LineRange | null = null;
+	for (const line of splitLines(yaml, 0)) {
+		const match = /^([A-Za-z0-9_.-]+)[ \t]*:([ \t]*)(.*)$/.exec(line.text);
+		if (!match) continue;
+		if (current) finishRange(current, line.start, yaml);
+		const key = match[1]!;
+		const afterColon = match[2]!.length;
+		const valueStart = line.start + key.length + 1 + afterColon;
+		const { value } = splitInlineComment(match[3] ?? '');
+		current = {
+			key,
+			start: line.start,
+			end: yaml.length,
+			valueStart,
+			valueEnd: valueStart + value.length,
+			inline: value,
+			style: 'inline',
+			items: [],
+			indent: '  ',
+			blockEnd: valueStart + value.length
+		};
+		ranges.push(current);
+	}
+	if (current) finishRange(current, yaml.length, yaml);
+	return ranges;
+}
+
 function classify(key: string, raw: string): FrontmatterProperty['kind'] {
 	if (key === 'tags' || key === 'aliases') return 'tags';
-	if (/^(true|false)$/i.test(raw.trim())) return 'boolean';
-	if (/^-?\d+(?:\.\d+)?$/.test(raw.trim())) return 'number';
-	if (/^\d{4}-\d{2}-\d{2}/.test(unquote(raw))) return 'date';
-	if (/^\[[\s\S]*\]$/.test(raw.trim())) return 'tags';
-	return raw.trim() === '' ? 'other' : 'string';
+	const trimmed = raw.trim();
+	if (/^\[[\s\S]*\]$/.test(trimmed)) return 'tags';
+	if (trimmed === '') return 'other';
+	if (/^['"]/.test(trimmed)) return 'string';
+	if (/^(true|false)$/i.test(trimmed)) return 'boolean';
+	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return 'number';
+	if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return 'date';
+	return 'string';
 }
 
 function valueOf(kind: FrontmatterProperty['kind'], raw: string): FrontmatterValue {
 	const text = unquote(raw);
 	if (kind === 'tags') {
-		const inner = raw.trim().startsWith('[') ? raw.trim().slice(1, -1) : text;
-		return inner
-			.split(',')
-			.map((item) => unquote(item).trim())
-			.filter(Boolean);
+		const trimmed = raw.trim();
+		if (trimmed.startsWith('[') && trimmed.endsWith(']')) return splitList(trimmed.slice(1, -1));
+		return splitList(text);
 	}
 	if (kind === 'boolean') return text.toLowerCase() === 'true';
 	if (kind === 'number') return Number(text);
@@ -116,29 +282,86 @@ function valueOf(kind: FrontmatterProperty['kind'], raw: string): FrontmatterVal
 export function readFrontmatterProperties(markdown: string): FrontmatterProperty[] {
 	const block = blockOf(markdown);
 	if (!block) return [];
-	return keyRanges(block.yaml).map((range) => {
-		const raw = block.yaml.slice(range.valueStart, range.valueEnd);
-		const kind = classify(range.key, raw);
-		return { key: range.key, kind, raw, value: valueOf(kind, raw) };
-	});
+	const properties: FrontmatterProperty[] = [];
+	for (const range of keyRanges(block.yaml)) {
+		if (range.style === 'block-sequence') {
+			properties.push({
+				key: range.key,
+				kind: 'tags',
+				raw: block.yaml.slice(range.valueStart, range.blockEnd),
+				value: range.items
+			});
+			continue;
+		}
+		if (
+			range.style === 'mapping' ||
+			range.style === 'block-scalar' ||
+			range.style === 'unsupported'
+		)
+			continue;
+		const kind = classify(range.key, range.inline);
+		properties.push({
+			key: range.key,
+			kind,
+			raw: range.inline,
+			value: valueOf(kind, range.inline)
+		});
+	}
+	return properties;
+}
+
+const YAML_NON_STRING = [
+	/^(?:~|null|Null|NULL)$/,
+	/^(?:true|True|TRUE|false|False|FALSE)$/,
+	/^[-+]?(?:0|[1-9][0-9_]*)(?:\.[0-9_]*)?(?:[eE][-+]?[0-9]+)?$/,
+	/^[-+]?\.[0-9_]+(?:[eE][-+]?[0-9]+)?$/,
+	/^[-+]?0[xX][0-9a-fA-F_]+$/,
+	/^[-+]?0[oO][0-7_]+$/,
+	/^[-+]?0[bB][01_]+$/,
+	/^[-+]?\.(?:inf|Inf|INF|nan|NaN|NAN)$/,
+	/^\d{4}-\d{1,2}-\d{1,2}(?:[Tt ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s*(?:Z|[-+]\d{1,2}(?::\d{2})?))?)?$/
+];
+
+/**
+ * Quotes a string when YAML would read the plain form as another type or when
+ * the plain form is not valid at the start of a scalar.
+ */
+function hasControlCharacters(value: string): boolean {
+	for (const character of value) {
+		const code = character.codePointAt(0) ?? 0;
+		if (code < 0x20 || code === 0x7f) return true;
+	}
+	return false;
 }
 
 function quote(value: string): string {
-	return /^[^\s#:[\]{},&*!|>'"%@`-].*$/.test(value) && !/:\s|\s#/.test(value)
-		? value
-		: `'${value.replaceAll("'", "''")}'`;
+	if (hasControlCharacters(value)) return JSON.stringify(value);
+	const needsQuotes =
+		value.length === 0 ||
+		value.trim() !== value ||
+		/^[-?:,[\]{}#&*!|>'"%@`]/.test(value) ||
+		/:\s|\s#/.test(value) ||
+		/[[]{}]/.test(value) ||
+		value.includes(':') ||
+		YAML_NON_STRING.some((pattern) => pattern.test(value));
+	if (!needsQuotes) return value;
+	return `'${value.replaceAll("'", "''")}'`;
+}
+
+function quoteOrPlain(value: string): string {
+	return quote(value);
 }
 
 function renderValue(
 	value: FrontmatterValue,
-	previous: Pick<LineRange, 'inline' | 'block'> | undefined,
+	previous: LineRange | undefined,
 	eol: string
 ): string {
 	if (value === null) return '';
 	if (Array.isArray(value)) {
-		const items = value.map((item) => quote(String(item)));
-		if (previous?.inline.trim().startsWith('[')) return `[${items.join(', ')}]`;
-		if (previous?.block) return `${eol}${items.map((item) => `  - ${item}`).join(eol)}`;
+		const items = value.map((item) => quoteOrPlain(String(item)));
+		if (previous?.style === 'block-sequence')
+			return `${eol}${items.map((item) => `${previous.indent}- ${item}`).join(eol)}`;
 		return `[${items.join(', ')}]`;
 	}
 	if (typeof value === 'boolean') return value ? 'true' : 'false';
@@ -165,8 +388,10 @@ export function setFrontmatterProperty(
 	const block = blockOf(markdown);
 	if (!block) {
 		if (remove) return markdown;
-		const eol = markdown.includes('\r\n') ? '\r\n' : '\n';
-		return `---${eol}${key}: ${renderValue(normalized, undefined, eol)}${eol}---${eol}${eol}${markdown}`;
+		const prefix = markdown.startsWith('\uFEFF') ? '\uFEFF' : '';
+		const body = markdown.slice(prefix.length);
+		const eol = body.includes('\r\n') ? '\r\n' : '\n';
+		return `${prefix}---${eol}${key}: ${renderValue(normalized, undefined, eol)}${eol}---${eol}${eol}${body}`;
 	}
 	const ranges = keyRanges(block.yaml);
 	const range = ranges.find((entry) => entry.key === key);
@@ -177,18 +402,19 @@ export function setFrontmatterProperty(
 		const yaml = (before + after).replace(/\r?\n$/, '');
 		return `${block.prefix}${block.open}${yaml}${block.close}${block.content}`;
 	}
+	if (
+		range?.style === 'mapping' ||
+		range?.style === 'block-scalar' ||
+		range?.style === 'unsupported'
+	)
+		throw new Error(`Unsupported YAML value for ${key}`);
 	const rendered = renderValue(normalized, range, block.eol);
 	if (!range) {
 		const yaml = `${block.yaml}${block.yaml ? block.eol : ''}${key}: ${rendered}`;
 		return `${block.prefix}${block.open}${yaml}${block.close}${block.content}`;
 	}
-	if (range.block && !rendered.startsWith(block.eol)) {
-		// The old value used following lines. Replace the whole block.
-		const yaml =
-			block.yaml.slice(0, range.start) + `${key}: ${rendered}` + block.yaml.slice(range.end);
-		return `${block.prefix}${block.open}${yaml}${block.close}${block.content}`;
-	}
-	const yaml = block.yaml.slice(0, range.valueStart) + rendered + block.yaml.slice(range.valueEnd);
+	const valueEnd = range.style === 'block-sequence' ? range.blockEnd : range.valueEnd;
+	const yaml = block.yaml.slice(0, range.valueStart) + rendered + block.yaml.slice(valueEnd);
 	return `${block.prefix}${block.open}${yaml}${block.close}${block.content}`;
 }
 

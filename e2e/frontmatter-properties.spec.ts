@@ -61,6 +61,39 @@ test('edits typed front matter and preserves unrelated bytes', async ({ page }, 
 	});
 });
 
+test('replaces a block-style tag list without leaving old items', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial = '---\ntags:\n  - old\n  - obsolete\nstatus: draft\n---\n\n# Body\n\nKeep.\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-tags').locator('input')).toHaveValue('old, obsolete');
+	await page.getByTestId('frontmatter-tags').locator('input').fill('new, next');
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+
+	const updated = await source(page);
+	expect(updated).toContain('tags:\n  - new\n  - next\n');
+	expect(updated).not.toContain('old');
+	expect(updated).not.toContain('obsolete');
+	expect(updated).toContain('status: draft');
+	expect(updated).toContain('# Body\n\nKeep.\n');
+
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-tags').locator('input')).toHaveValue('new, next');
+	await page.getByTestId('frontmatter-status').locator('input').fill('final');
+	await page.getByTestId('frontmatter-save').click();
+	const renamed = await source(page);
+	expect(renamed).toContain('tags:\n  - new\n  - next\n');
+	expect(renamed).toContain('status: final');
+	await info.attach('frontmatter-block-tags.json', {
+		body: JSON.stringify({ initial, updated, renamed }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 test('reports malformed YAML and refuses to edit it', async ({ page }, info: TestInfo) => {
 	await resetAppState(page);
 	await createFirstFile(page);
