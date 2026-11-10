@@ -347,6 +347,16 @@ selected-symlink case skips there. Run
 The browser suite cannot detect these races. The installed-package workflow
 still checks the normal command workflows.
 
+`cli/text-only.test.ts` keeps the text-only input policy for `inspect`, HTML
+export, and Markdown export. A browser cannot run the Node CLI or its real
+filesystem boundary. The cases use an ASCII PDF whose bytes are valid UTF-8 and
+a PDF with invalid UTF-8 bytes. A PDF extension is a binary document in both
+cases. The checks require the same error code, no standard output, and no output
+file. They also keep note, text, code, presentation, and ZIP asset behavior.
+Run `npx vitest run cli/text-only.test.ts --maxWorkers=1`. The installed-package
+suite `scripts/pack-cli.test.mjs` repeats the PDF rejection with the installed
+CLI in the CLI package workflow on Linux, Windows, and macOS.
+
 `e2e/binary-review.spec.ts` compares image and PDF bytes after disk copy actions,
 library ZIP export, and project ZIP export. Binary copies must stay unlinked.
 An oversized restored PDF must produce an export error. `e2e/pdf-viewer.spec.ts`

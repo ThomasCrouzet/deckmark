@@ -61,7 +61,7 @@ The exit codes are stable for scripts.
 | --- | --- | --- |
 | `0` | Success | The command completed. |
 | `1` | Failure | An unexpected failure occurred. |
-| `2` | Usage | An option, command, format, or output extension is not supported. |
+| `2` | Usage | An option, command, format, input kind, or output extension is not supported. |
 | `3` | Input | An input path is missing, unreadable, too large, or not UTF-8 text. |
 | `4` | Unsafe path | An output path contains `..` or leaves the working directory. |
 | `5` | Check failed | `check` found errors. With `--strict`, it also fails on warnings. |
@@ -191,6 +191,12 @@ deckmark export . --format zip --out project.zip --name my-project
 | `html` | One Markdown note. | The same output as `render`. |
 | `zip` | A directory or one Markdown file. | A portable project archive. |
 
+`md` accepts Markdown, text, and code files. `html` accepts Markdown notes only.
+Both formats reject image and PDF inputs with `unsupported-format` and exit `2`
+before they create an output file. A PDF extension is a binary document, even
+when its bytes decode as UTF-8. `zip` keeps binary files such as PDF and images
+as project assets.
+
 For `zip`, a directory is a project. A file becomes the only document. The
 archive uses the shared `buildProjectZip` function. It includes project
 documents, assets, embedded image extraction, `.mdsh/project.json`, and
@@ -227,7 +233,7 @@ The JSON output uses the `deckmark-inspect/1` schema:
 | --- | --- | --- |
 | `schema` | string | `deckmark-inspect/1`. |
 | `path` | string | Input path. |
-| `kind` | string | `note`, `presentation`, `code`, or `image`. |
+| `kind` | string | `note`, `presentation`, or `code`. |
 | `title` | string | Front matter title, first H1, or file name. |
 | `frontmatter` | object | Parsed YAML values. |
 | `headings[]` | array | Items with `level`, `text`, and `line`. |
@@ -242,7 +248,8 @@ The JSON output uses the `deckmark-inspect/1` schema:
 | `statistics.words` | number | Word count without front matter. |
 | `statistics.characters` | number | Source character count. |
 
-Image inspection is not supported. The command exits `3` for an image file.
+Image and PDF inspection are not supported. The command exits `3` for a binary
+document and writes no report.
 
 ## JSON errors
 

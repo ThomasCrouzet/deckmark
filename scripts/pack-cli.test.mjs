@@ -1389,6 +1389,59 @@ test('concurrent CLI and MCP access leaves project documents unchanged', async (
 	assert.equal(treeHash(fixtureRoot), hashBefore);
 });
 
+test('installed CLI rejects PDF inputs in text-only inspect and export', () => {
+	const textOnlyRoot = mkdtempSync(join(tmpdir(), 'deckmark-cli-text-'));
+	const asciiPdf = [
+		'%PDF-1.4',
+		'1 0 obj',
+		'<< /Type /Catalog /Pages 2 0 R >>',
+		'endobj',
+		'trailer',
+		'<< /Root 1 0 R >>',
+		'%%EOF',
+		''
+	].join('\n');
+	const binaryPdf = Buffer.concat([
+		Buffer.from(
+			'%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n',
+			'latin1'
+		),
+		Buffer.from([0xff, 0xfe, 0x00, 0x80, 0x81, 0x82, 0x00]),
+		Buffer.from('\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n', 'latin1')
+	]);
+	try {
+		writeFileSync(join(textOnlyRoot, 'ascii.pdf'), asciiPdf);
+		writeFileSync(join(textOnlyRoot, 'binary.pdf'), binaryPdf);
+		for (const input of ['ascii.pdf', 'binary.pdf']) {
+			const inspect = cli(['inspect', input, '--json'], { cwd: textOnlyRoot });
+			assert.equal(
+				inspect.status,
+				3,
+				`${input} inspect: ${inspect.stderr} ${inspect.error?.message ?? ''}`
+			);
+			assert.equal(inspect.stdout, '');
+			assert.equal(JSON.parse(inspect.stderr).code, 'input-not-text');
+
+			for (const [format, suffix] of [
+				['html', 'html'],
+				['md', 'md']
+			]) {
+				const target = join(textOnlyRoot, `${input}.${suffix}`);
+				const result = cli(['export', input, '--format', format, '--out', target, '--json'], {
+					cwd: textOnlyRoot
+				});
+				assert.equal(result.status, 2, `${input} ${format}: ${result.stderr}`);
+				assert.equal(result.stdout, '');
+				assert.equal(JSON.parse(result.stderr).code, 'unsupported-format');
+				assert.equal(existsSync(target), false, `${input} ${format} created an output`);
+			}
+		}
+		OBSERVED.textOnlyPdf = { ascii: 'input-not-text', binary: 'input-not-text', outputs: 0 };
+	} finally {
+		rmSync(textOnlyRoot, { recursive: true, force: true });
+	}
+});
+
 test('uninstall removes only the package and keeps documents', async () => {
 	assert.ok(existsSync(packageRoot));
 	const projectHash = treeHash(fixtureRoot);
