@@ -975,6 +975,204 @@ test('verify rejects an unlisted payload file, an unexpected entry, a symbolic l
 	assert.equal(verifyPackage().status, 0);
 });
 
+// Checksum-file risks. The JSON manifest and the payload stay intact while one
+// checksum artifact is damaged, so a verifier that reads only the listed names
+// accepts a package that `sha256sum -c` rejects. The cases mutate one field at a
+// time and restore the package after each run.
+function verifyWithMutation(mutator) {
+	const sumsPath = join(PACKAGE, 'SHA256SUMS');
+	const manifestPath = join(PACKAGE, 'deckmark-build.json');
+	const sums = readFileSync(sumsPath, 'utf8');
+	const manifestText = readFileSync(manifestPath, 'utf8');
+	try {
+		mutator({ sumsPath, manifestPath, sums, manifestText });
+		return verifyPackage();
+	} finally {
+		writeFileSync(sumsPath, sums);
+		writeFileSync(manifestPath, manifestText);
+	}
+}
+
+function sumsLines(sumsPath) {
+	const text = readFileSync(sumsPath, 'utf8');
+	return text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n');
+}
+
+function writeSums(sumsPath, lines) {
+	writeFileSync(sumsPath, `${lines.join('\n')}\n`);
+}
+
+test('verify rejects a corrupted SHA256SUMS digest, syntax, order, and size', () => {
+	const cases = [];
+	const expectRejected = (label, mutator, detail) => {
+		const result = verifyWithMutation(mutator);
+		cases.push({ mutation: label, exit: result.status, stderr: result.stderr.trim() });
+		assert.notEqual(result.status, 0, `${label} was accepted`);
+		assert.match(result.stderr, detail);
+	};
+
+	expectRejected(
+		'first digest replaced with zeroes',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			lines[0] = `${'0'.repeat(64)}${lines[0].slice(64)}`;
+			writeSums(sumsPath, lines);
+		},
+		/SHA256SUMS digest differs from deckmark-build\.json/
+	);
+
+	expectRejected(
+		'first digest has one changed hex digit',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			const digit = lines[0][0] === '0' ? '1' : '0';
+			lines[0] = `${digit}${lines[0].slice(1)}`;
+			writeSums(sumsPath, lines);
+		},
+		/SHA256SUMS digest differs from deckmark-build\.json/
+	);
+
+	expectRejected(
+		'digest has a non-hex character',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			lines[0] = `x${lines[0].slice(1)}`;
+			writeSums(sumsPath, lines);
+		},
+		/Invalid SHA256SUMS line 1: expected 64 hex digits, two spaces, and a relative path/
+	);
+
+	expectRejected(
+		'one-space separator',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			lines[0] = `${lines[0].slice(0, 64)} ${lines[0].slice(66)}`;
+			writeSums(sumsPath, lines);
+		},
+		/Invalid SHA256SUMS line 1/
+	);
+
+	expectRejected(
+		'carriage return in the line',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			lines[0] = `${lines[0]}\r`;
+			writeSums(sumsPath, lines);
+		},
+		/LF line endings, not CR/
+	);
+
+	expectRejected(
+		'reordered checksum list',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			writeSums(sumsPath, [lines[1], lines[0], ...lines.slice(2)]);
+		},
+		/SHA256SUMS does not list the manifest files in canonical order/
+	);
+
+	expectRejected(
+		'missing checksum line',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			writeSums(sumsPath, lines.slice(1));
+		},
+		/Missing from SHA256SUMS: /
+	);
+
+	expectRejected(
+		'duplicate checksum line',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			writeSums(sumsPath, [...lines, lines[0]]);
+		},
+		/Duplicate SHA256SUMS entry/
+	);
+
+	expectRejected(
+		'unlisted checksum path',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			writeSums(sumsPath, [...lines, `${'0'.repeat(64)}  lib/not-in-package.mjs`]);
+		},
+		/Unknown file in SHA256SUMS: lib\/not-in-package\.mjs/
+	);
+
+	expectRejected(
+		'backslash path separator',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			lines[0] = lines[0].replace('bin/', 'bin\\');
+			writeSums(sumsPath, lines);
+		},
+		/Invalid SHA256SUMS path: bin\\/
+	);
+
+	expectRejected(
+		'parent traversal in a checksum path',
+		({ sumsPath }) => {
+			const lines = sumsLines(sumsPath);
+			lines[0] = `${lines[0].slice(0, 66)}../outside.mjs`;
+			writeSums(sumsPath, lines);
+		},
+		/Invalid SHA256SUMS path: \.\.\/outside\.mjs/
+	);
+
+	expectRejected(
+		'empty checksum file',
+		({ sumsPath }) => {
+			writeFileSync(sumsPath, '');
+		},
+		/Missing SHA256SUMS|empty/
+	);
+
+	expectRejected(
+		'declared byte length changed',
+		({ manifestPath, manifestText }) => {
+			const tampered = JSON.parse(manifestText);
+			const first = Object.keys(tampered.files).sort()[0];
+			tampered.files[first].bytes += 1;
+			writeFileSync(manifestPath, `${JSON.stringify(tampered, null, 2)}\n`);
+		},
+		/Declared size .* differs from the actual size/
+	);
+
+	expectRejected(
+		'manifest digest changed',
+		({ manifestPath, manifestText }) => {
+			const tampered = JSON.parse(manifestText);
+			const first = Object.keys(tampered.files).sort()[0];
+			tampered.files[first].sha256 = '0'.repeat(64);
+			writeFileSync(manifestPath, `${JSON.stringify(tampered, null, 2)}\n`);
+		},
+		/SHA256SUMS digest differs from deckmark-build\.json|Hash mismatch/
+	);
+
+	NEGATIVE.verify.push(...cases);
+	assert.equal(verifyPackage().status, 0);
+});
+
+test('verify accepts an uppercase SHA256SUMS digest that matches the manifest', () => {
+	const result = verifyWithMutation(({ sumsPath }) => {
+		const lines = sumsLines(sumsPath).map((line) => {
+			const [digest, path] = [line.slice(0, 64), line.slice(66)];
+			return `${digest.toUpperCase()}  ${path}`;
+		});
+		writeSums(sumsPath, lines);
+	});
+	assert.equal(result.status, 0, result.stderr);
+});
+
+test('the package checksum file passes an independent sha256sum check', () => {
+	if (process.platform === 'win32') return;
+	const command = process.platform === 'darwin' ? 'shasum' : 'sha256sum';
+	const args =
+		process.platform === 'darwin' ? ['-a', '256', '-c', 'SHA256SUMS'] : ['-c', 'SHA256SUMS'];
+	const result = run(command, args, { cwd: PACKAGE, env: process.env });
+	assert.equal(result.status, 0, result.stderr);
+	OBSERVED.checksumTool = `${command} ${args.join(' ')}`;
+});
+
 test('installed CLI runs with no external Node, PATH, or checkout', () => {
 	const version = cli(['--version']);
 	assert.equal(version.status, 0, version.stderr);

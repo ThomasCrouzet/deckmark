@@ -880,6 +880,44 @@ function inspectPayload(dir, manifest) {
 	}
 }
 
+const CHECKSUM_LINE = /^([0-9a-fA-F]{64}) {2}(.+)$/;
+
+// SHA256SUMS is a strict artifact: one LF-terminated line per payload file, in
+// the canonical sorted order that writeManifest() produces. The parser accepts
+// uppercase hex because sha256sum -c accepts it, and normalizes it for the
+// comparison. Everything else fails with the line number.
+function parseChecksumFile(text) {
+	if (text.length === 0) fail('SHA256SUMS is empty: the file must list every payload file.');
+	if (text.includes('\r')) {
+		fail('Invalid SHA256SUMS: the file must use LF line endings, not CR.');
+	}
+	if (!text.endsWith('\n')) fail('Invalid SHA256SUMS: the file must end with one LF.');
+	const entries = new Map();
+	const lines = text.slice(0, -1).split('\n');
+	for (let index = 0; index < lines.length; index += 1) {
+		const line = lines[index];
+		const match = CHECKSUM_LINE.exec(line);
+		if (!match) {
+			fail(
+				`Invalid SHA256SUMS line ${index + 1}: expected 64 hex digits, two spaces, and a relative path.`
+			);
+		}
+		const path = match[2];
+		const segments = path.split('/');
+		if (
+			path.startsWith('/') ||
+			path.includes('\\') ||
+			path.includes('\0') ||
+			segments.some((segment) => segment === '' || segment === '.' || segment === '..')
+		) {
+			fail(`Invalid SHA256SUMS path: ${path}`);
+		}
+		if (entries.has(path)) fail(`Duplicate SHA256SUMS entry: ${path}`);
+		entries.set(path, match[1].toLowerCase());
+	}
+	return entries;
+}
+
 function verifyManifest(dir, manifest, options) {
 	if (manifest.schema !== SCHEMA) fail(`Unsupported manifest schema: ${manifest.schema}`);
 	const version = packageVersion();
@@ -902,20 +940,38 @@ function verifyManifest(dir, manifest, options) {
 	}
 	inspectPayload(dir, manifest);
 	const files = manifest.files ?? {};
-	const listed = readFileSync(join(dir, 'SHA256SUMS'), 'utf8')
-		.trim()
-		.split('\n')
-		.filter(Boolean)
-		.map((line) => line.slice(66));
+	const sumsPath = join(dir, 'SHA256SUMS');
+	if (!existsSync(sumsPath)) fail(`Missing SHA256SUMS: ${sumsPath}`);
+	const sums = parseChecksumFile(readFileSync(sumsPath, 'utf8'));
+	const listed = [...sums.keys()];
+	for (const path of listed) {
+		if (!Object.hasOwn(files, path)) fail(`Unknown file in SHA256SUMS: ${path}`);
+	}
 	const expected = Object.keys(files).sort();
+	const missing = expected.filter((path) => !sums.has(path));
+	if (missing.length > 0) fail(`Missing from SHA256SUMS: ${missing.join(', ')}`);
 	if (JSON.stringify(listed) !== JSON.stringify(expected)) {
-		fail('SHA256SUMS does not list the manifest files.');
+		fail('SHA256SUMS does not list the manifest files in canonical order.');
 	}
 	for (const path of expected) {
+		const record = files[path];
+		if (typeof record?.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(record.sha256)) {
+			fail(`Invalid manifest checksum for ${path}: expected 64 lowercase hex digits.`);
+		}
+		if (!Number.isSafeInteger(record.bytes) || record.bytes < 0) {
+			fail(`Invalid manifest size for ${path}: expected a non-negative integer.`);
+		}
 		const absolute = join(dir, path.split('/').join(sep));
 		if (!existsSync(absolute)) fail(`Missing file: ${path}`);
+		if (sums.get(path) !== record.sha256) {
+			fail(`SHA256SUMS digest differs from deckmark-build.json: ${path}`);
+		}
 		const actual = fileSha(absolute);
-		if (actual !== files[path].sha256) fail(`Hash mismatch: ${path}`);
+		if (actual !== record.sha256) fail(`Hash mismatch: ${path}`);
+		const size = statSync(absolute).size;
+		if (size !== record.bytes) {
+			fail(`Declared size ${record.bytes} differs from the actual size ${size}: ${path}`);
+		}
 	}
 	if (manifest.target.platform === process.platform && manifest.target.arch === process.arch) {
 		const node = join(dir, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node');
