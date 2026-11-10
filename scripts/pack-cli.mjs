@@ -10,7 +10,7 @@
 //   node scripts/pack-cli.mjs verify --dir build/cli-pack [--expect-version <version>]
 //     [--expect-platform <platform>] [--expect-arch <arch>]
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
 	copyFileSync,
@@ -276,6 +276,16 @@ function isOwnedPackage(directory) {
 	return readdirSync(directory).every((entry) => TOP_LEVEL_ENTRIES.has(entry));
 }
 
+// A directory can vanish or change between two checks. A failed read is an
+// ownership failure, never a reason to delete the path.
+function isOwnedPackageSafe(directory) {
+	try {
+		return isOwnedPackage(directory);
+	} catch {
+		return false;
+	}
+}
+
 // The packer deletes the output directory before it renames the new build into
 // place. Refuse every output that can hold data the packer does not own. There
 // is no flag that bypasses this check.
@@ -325,6 +335,243 @@ function assertArchivePath(archive) {
 		fail(`Refusing to replace ${archive}: it is a directory.`);
 	}
 	if (!info.isFile()) fail(`Refusing to replace ${archive}: it is not a regular file.`);
+}
+
+const PROMOTION_SCHEMA = 'deckmark-cli-promotion/1';
+
+function transactionMarker(out) {
+	return join(dirname(out), `.${basename(out)}.pack-transaction.json`);
+}
+
+function randomSuffix() {
+	return randomBytes(6).toString('hex');
+}
+
+function backupPath(out) {
+	return join(dirname(out), `.${basename(out)}.backup-${randomSuffix()}`);
+}
+
+function archiveTemporaryPath(archive) {
+	const extension = archive.endsWith('.zip')
+		? '.zip'
+		: archive.endsWith('.tar.gz')
+			? '.tar.gz'
+			: '';
+	const name = extension ? basename(archive).slice(0, -extension.length) : basename(archive);
+	return join(dirname(archive), `.${name}.archive-${randomSuffix()}${extension}`);
+}
+
+// The marker is the durable record of one promotion. Write it to a sibling
+// temporary file first so a crash cannot leave a partial marker that names the
+// wrong backup.
+function writeTransactionMarker(marker, state) {
+	const temporary = `${marker}.tmp-${randomSuffix()}`;
+	writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`);
+	try {
+		renameWithRetry(temporary, marker);
+	} catch (error) {
+		rmSync(temporary, { force: true });
+		throw error;
+	}
+}
+
+function promotionState(state, out, marker) {
+	const backup = typeof state?.backup === 'string' ? resolve(state.backup) : '';
+	const valid =
+		state?.schema === PROMOTION_SCHEMA &&
+		typeof state.out === 'string' &&
+		resolve(state.out) === out &&
+		backup !== '' &&
+		dirname(backup) === dirname(out) &&
+		basename(backup).startsWith(`.${basename(out)}.backup-`);
+	if (!valid) {
+		throw new Error(
+			`Refusing the interrupted promotion marker ${marker}: it does not name this output. ` +
+				'Inspect the marker and the sibling backup before you pack again.'
+		);
+	}
+	return { backup, state };
+}
+
+/**
+ * Complete or undo one interrupted promotion before a new build starts.
+ * A crash between the two renames leaves the output absent and the previous
+ * package in the sibling backup. A crash after the new rename leaves both. A
+ * marker that records a failed rollback fails closed because the state is
+ * unknown.
+ */
+export function reconcileInterruptedPromotion(out, options = {}) {
+	const platform = options.platform ?? process.platform;
+	const rename = options.rename ?? renameSync;
+	const pause = options.pause ?? sleepSync;
+	const remove = options.remove ?? rmSync;
+	const exists = options.exists ?? existsSync;
+	const report = options.report ?? (() => {});
+	const target = resolve(out);
+	const marker = transactionMarker(target);
+	if (!exists(marker)) return { recovered: false };
+	let parsed;
+	try {
+		parsed = JSON.parse(readFileSync(marker, 'utf8'));
+	} catch {
+		throw new Error(
+			`Cannot read the interrupted promotion marker ${marker}. ` +
+				'Inspect the marker and the sibling backup before you pack again.'
+		);
+	}
+	const { backup, state } = promotionState(parsed, target, marker);
+	if (state.rollback === true) {
+		throw new Error(
+			`The interrupted promotion marker ${marker} records a failed rollback` +
+				`${state.failure ? ` (${state.failure})` : ''}. ` +
+				`Inspect ${target} and ${backup} before you pack again.`
+		);
+	}
+	if (exists(target)) {
+		// The new package is in place. The previous package is no longer needed.
+		if (exists(backup)) {
+			remove(backup, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		}
+		remove(marker, { force: true });
+		report(`completed an interrupted promotion of ${target} and removed the stale backup`);
+		return { recovered: true };
+	}
+	if (!exists(backup)) {
+		remove(marker, { force: true });
+		return { recovered: false };
+	}
+	if (!isOwnedPackage(backup)) {
+		throw new Error(
+			`Refusing to restore ${backup}: it has no valid deckmark-build.json marker. ` +
+				'Inspect the backup and the promotion marker before you pack again.'
+		);
+	}
+	renameWithRetry(backup, target, { platform, rename, pause });
+	remove(marker, { force: true });
+	report(`restored the previous package at ${target} after an interrupted promotion`);
+	return { recovered: true };
+}
+
+/**
+ * Replace one package with a tested stage. The previous package moves to a
+ * sibling backup and returns if any later step fails. The backup is removed
+ * only after the directory and the optional archive are committed.
+ */
+export function promotePackage(options) {
+	const stage = resolve(options.stage);
+	const out = resolve(options.out);
+	const archive = options.archive ? resolve(options.archive) : '';
+	if (!existsSync(stage)) throw new Error(`Missing staged package: ${stage}`);
+	if (archive && typeof options.createArchive !== 'function') {
+		throw new Error('An archive target needs a createArchive function.');
+	}
+	const platform = options.platform ?? process.platform;
+	const rename = options.rename ?? renameSync;
+	const pause = options.pause ?? sleepSync;
+	const remove = options.remove ?? rmSync;
+	const exists = options.exists ?? existsSync;
+	const report = options.report ?? (() => {});
+	const warn = options.warn ?? (() => {});
+	const move = (from, to) => renameWithRetry(from, to, { platform, rename, pause });
+	const marker = transactionMarker(out);
+	const backup = backupPath(out);
+	const temporaryArchive = archive ? archiveTemporaryPath(archive) : '';
+	const hadPrevious = exists(out);
+	if (hadPrevious && !isOwnedPackageSafe(out)) {
+		throw new Error(`Refusing to replace ${out}: it has no valid deckmark-build.json marker.`);
+	}
+	const state = {
+		schema: PROMOTION_SCHEMA,
+		out,
+		backup,
+		archive,
+		stage,
+		pid: process.pid,
+		startedAt: new Date().toISOString()
+	};
+	writeTransactionMarker(marker, state);
+	let promoted = false;
+	let previousMoved = false;
+	try {
+		if (hadPrevious) {
+			move(out, backup);
+			previousMoved = true;
+			// Recheck ownership at the destructive boundary. A path that changed
+			// after assertSafeOutput() returns to its place through the rollback.
+			if (!isOwnedPackageSafe(backup)) {
+				throw new Error(
+					`Refusing to replace ${out}: the directory changed and has no valid deckmark-build.json marker.`
+				);
+			}
+		}
+		move(stage, out);
+		promoted = true;
+		if (archive) {
+			options.createArchive(temporaryArchive);
+			if (!exists(temporaryArchive)) {
+				throw new Error(`The archive tool did not write ${temporaryArchive}.`);
+			}
+			move(temporaryArchive, archive);
+		}
+	} catch (error) {
+		const failure = error instanceof Error ? error.message : String(error);
+		// Record the failed rollback before it starts. A later invocation must not
+		// guess which package is current when recovery also fails.
+		try {
+			writeTransactionMarker(marker, { ...state, rollback: true, failure });
+		} catch {
+			// Keep the original marker. The error below still names the state.
+		}
+		try {
+			if (promoted && exists(out)) {
+				remove(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+			}
+			if (previousMoved && exists(backup)) move(backup, out);
+			if (temporaryArchive && exists(temporaryArchive)) remove(temporaryArchive, { force: true });
+		} catch (recoveryError) {
+			const detail = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
+			throw new Error(
+				`Promotion failed: ${failure}. Recovery also failed: ${detail}. ` +
+					`Inspect ${out}, ${backup}, and ${marker} before the next pack.`,
+				{ cause: recoveryError }
+			);
+		}
+		try {
+			remove(marker, { force: true });
+		} catch (markerError) {
+			const detail = markerError instanceof Error ? markerError.message : String(markerError);
+			throw new Error(
+				`Promotion failed: ${failure}. The previous package state was restored, ` +
+					`but the transaction marker ${marker} remains: ${detail}`,
+				{ cause: markerError }
+			);
+		}
+		throw new Error(
+			`Promotion failed: ${failure}. ` +
+				(hadPrevious
+					? `The previous package at ${out} was restored.`
+					: `The output ${out} was not replaced.`),
+			{ cause: error }
+		);
+	}
+	let backupRetained = '';
+	if (previousMoved && exists(backup)) {
+		try {
+			remove(backup, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		} catch (error) {
+			backupRetained = backup;
+			const detail = error instanceof Error ? error.message : String(error);
+			warn(`installed ${out}, but the previous package backup at ${backup} remains: ${detail}`);
+		}
+	}
+	try {
+		remove(marker, { force: true });
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		warn(`installed ${out}, but the transaction marker ${marker} remains: ${detail}`);
+	}
+	report(`installed ${out}${archive ? ` and ${archive}` : ''}`);
+	return { backupRetained };
 }
 
 function posixLauncher(libName) {
@@ -468,6 +715,9 @@ async function pack(options) {
 		name = releaseName(version);
 	}
 	const out = assertSafeOutput(name ? join(dirname(requestedOut), name) : requestedOut, '--out');
+	reconcileInterruptedPromotion(out, {
+		report: (line) => process.stdout.write(`pack-cli: ${line}\n`)
+	});
 
 	const source = sourceIdentity();
 	if (source.dirty && !options.allowDirty) {
@@ -531,19 +781,32 @@ async function pack(options) {
 		smokeMcp(stage);
 
 		// The output directory is now known to be new, empty, or a package that
-		// this tool built. Replace it with the finished stage.
-		rmSync(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-		renameWithRetry(stage, out);
+		// this tool built. Replace it with the finished stage through a recoverable
+		// swap. The previous package returns if the archive also fails.
+		const archive = options.archive
+			? `${out}${process.platform === 'win32' ? '.zip' : '.tar.gz'}`
+			: '';
+		if (archive) assertArchivePath(archive);
+		process.stdout.write('pack-cli: promoting the tested package\n');
+		promotePackage({
+			stage,
+			out,
+			archive,
+			createArchive: archive
+				? (temporary) => {
+						const tar = archiveToolPath();
+						if (process.platform === 'win32') {
+							run(tar, ['-a', '-c', '-f', temporary, '-C', parent, basename(out)]);
+						} else {
+							run(tar, ['-czf', temporary, '-C', parent, basename(out)]);
+						}
+					}
+				: undefined,
+			report: (line) => process.stdout.write(`pack-cli: ${line}\n`),
+			warn: (line) => process.stderr.write(`pack-cli: ${line}\n`)
+		});
 
-		if (options.archive) {
-			const archive = `${out}${process.platform === 'win32' ? '.zip' : '.tar.gz'}`;
-			assertArchivePath(archive);
-			const tar = archiveToolPath();
-			if (process.platform === 'win32') {
-				run(tar, ['-a', '-c', '-f', archive, '-C', parent, basename(out)]);
-			} else {
-				run(tar, ['-czf', archive, '-C', parent, basename(out)]);
-			}
+		if (archive) {
 			process.stdout.write(
 				`pack-cli: wrote ${relative(ROOT, archive) || archive} (root ${basename(out)}/, sha256 ${await sha256File(archive)})\n`
 			);

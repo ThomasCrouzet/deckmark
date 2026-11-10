@@ -20,6 +20,7 @@ import {
 	readdirSync,
 	readlinkSync,
 	realpathSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync
@@ -28,7 +29,13 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
-import { renameWithRetry, resolveArchiveTool, windowsLauncherInvocation } from './pack-cli.mjs';
+import {
+	promotePackage,
+	reconcileInterruptedPromotion,
+	renameWithRetry,
+	resolveArchiveTool,
+	windowsLauncherInvocation
+} from './pack-cli.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
@@ -409,6 +416,366 @@ test('Windows package rename retries a transient directory lock', () => {
 		})
 	);
 	assert.equal(linuxCalls, 1);
+});
+
+// Promotion fault risks. A real package build cannot produce these states
+// deterministically: the file system fails between two renames, a power loss
+// leaves one rename committed, or cleanup fails after the new package is in
+// place. The browser suite cannot run this Node script at all. These isolated
+// cases use real temporary directories and real payload files. They inject only
+// the failing operation. The installed-package suite still builds, replaces and
+// runs a real package below.
+function ownedPackageFixture(directory, label) {
+	mkdirSync(join(directory, 'bin'), { recursive: true });
+	writeFileSync(join(directory, 'bin', `${label}.txt`), `${label}\n`);
+	writeFileSync(
+		join(directory, 'deckmark-build.json'),
+		`${JSON.stringify({ schema: 'deckmark-cli-install/1' })}\n`
+	);
+	return directory;
+}
+
+function stageFixture(directory, label) {
+	mkdirSync(join(directory, 'bin'), { recursive: true });
+	writeFileSync(join(directory, 'bin', `${label}.txt`), `${label}\n`);
+	return directory;
+}
+
+function codedError(message, code) {
+	return Object.assign(new Error(message), { code });
+}
+
+function promotionLeftovers(parent, name) {
+	return readdirSync(parent).filter((entry) => entry.startsWith(`.${name}.`));
+}
+
+test('promotion restores the previous package when the staged rename fails', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-'));
+	try {
+		const out = ownedPackageFixture(join(root, 'cli'), 'old');
+		const stage = stageFixture(join(root, 'stage'), 'new');
+		const warnings = [];
+		assert.throws(
+			() =>
+				promotePackage({
+					stage,
+					out,
+					platform: 'linux',
+					rename: (from, to) => {
+						if (from === stage && to === out) {
+							throw codedError('injected promotion failure', 'EACCES');
+						}
+						renameSync(from, to);
+					},
+					report: () => {},
+					warn: (line) => warnings.push(line)
+				}),
+			/injected promotion failure[\s\S]*previous package at .* was restored/
+		);
+		assert.equal(readFileSync(join(out, 'bin', 'old.txt'), 'utf8'), 'old\n');
+		assert.equal(existsSync(stage), true, 'the caller still owns the staged package');
+		assert.deepEqual(promotionLeftovers(root, 'cli'), []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('promotion leaves no output when a new package rename fails', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-new-'));
+	try {
+		const out = join(root, 'cli');
+		const stage = stageFixture(join(root, 'stage'), 'new');
+		assert.throws(
+			() =>
+				promotePackage({
+					stage,
+					out,
+					platform: 'linux',
+					rename: () => {
+						throw codedError('injected new package failure', 'ENOSPC');
+					},
+					report: () => {},
+					warn: () => {}
+				}),
+			/injected new package failure[\s\S]*was not replaced/
+		);
+		assert.equal(existsSync(out), false);
+		assert.equal(existsSync(stage), true);
+		assert.deepEqual(promotionLeftovers(root, 'cli'), []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('promotion retries a transient Windows rename and keeps the new package', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-retry-'));
+	try {
+		const out = ownedPackageFixture(join(root, 'cli'), 'old');
+		const stage = stageFixture(join(root, 'stage'), 'new');
+		let attempts = 0;
+		const delays = [];
+		const result = promotePackage({
+			stage,
+			out,
+			platform: 'win32',
+			rename: (from, to) => {
+				if (from === stage && to === out) {
+					attempts += 1;
+					if (attempts < 3) throw codedError('The directory is in use.', 'EPERM');
+				}
+				renameSync(from, to);
+			},
+			pause: (ms) => delays.push(ms),
+			report: () => {},
+			warn: () => {}
+		});
+		assert.equal(attempts, 3);
+		assert.deepEqual(delays, [100, 200]);
+		assert.equal(result.backupRetained, '');
+		assert.equal(readFileSync(join(out, 'bin', 'new.txt'), 'utf8'), 'new\n');
+		assert.deepEqual(promotionLeftovers(root, 'cli'), []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('promotion restores the previous package after the last Windows attempt fails', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-last-'));
+	try {
+		const out = ownedPackageFixture(join(root, 'cli'), 'old');
+		const stage = stageFixture(join(root, 'stage'), 'new');
+		let attempts = 0;
+		const delays = [];
+		assert.throws(
+			() =>
+				promotePackage({
+					stage,
+					out,
+					platform: 'win32',
+					rename: (from, to) => {
+						if (from === stage && to === out) {
+							attempts += 1;
+							throw codedError('The directory is in use.', 'EPERM');
+						}
+						renameSync(from, to);
+					},
+					pause: (ms) => delays.push(ms),
+					report: () => {},
+					warn: () => {}
+				}),
+			/previous package at .* was restored/
+		);
+		assert.equal(attempts, 20);
+		assert.equal(delays.length, 19);
+		assert.equal(readFileSync(join(out, 'bin', 'old.txt'), 'utf8'), 'old\n');
+		assert.deepEqual(promotionLeftovers(root, 'cli'), []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('promotion keeps a named backup when cleanup after success fails', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-cleanup-'));
+	try {
+		const out = ownedPackageFixture(join(root, 'cli'), 'old');
+		const stage = stageFixture(join(root, 'stage'), 'new');
+		const warnings = [];
+		const result = promotePackage({
+			stage,
+			out,
+			platform: 'linux',
+			remove: (target, options) => {
+				if (String(target).includes('.backup-')) {
+					throw codedError('injected cleanup failure', 'EBUSY');
+				}
+				rmSync(target, options);
+			},
+			report: () => {},
+			warn: (line) => warnings.push(line)
+		});
+		assert.match(result.backupRetained, /\.cli\.backup-[0-9a-f]+$/);
+		assert.equal(existsSync(result.backupRetained), true);
+		assert.equal(readFileSync(join(out, 'bin', 'new.txt'), 'utf8'), 'new\n');
+		assert.equal(warnings.length, 1);
+		assert.match(warnings[0], /remains: injected cleanup failure/);
+		assert.equal(existsSync(join(root, '.cli.pack-transaction.json')), false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('archive failure restores the previous package and keeps the previous archive', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-archive-'));
+	try {
+		const out = ownedPackageFixture(join(root, 'cli'), 'old');
+		const stage = stageFixture(join(root, 'stage'), 'new');
+		const archive = join(root, 'cli.tar.gz');
+		writeFileSync(archive, 'OLD ARCHIVE\n');
+		assert.throws(
+			() =>
+				promotePackage({
+					stage,
+					out,
+					archive,
+					platform: 'linux',
+					createArchive: (temporary) => {
+						writeFileSync(temporary, 'PARTIAL ARCHIVE\n');
+						throw codedError('injected archive failure', 'ENOSPC');
+					},
+					report: () => {},
+					warn: () => {}
+				}),
+			/injected archive failure[\s\S]*previous package at .* was restored/
+		);
+		assert.equal(readFileSync(join(out, 'bin', 'old.txt'), 'utf8'), 'old\n');
+		assert.equal(readFileSync(archive, 'utf8'), 'OLD ARCHIVE\n');
+		assert.equal(
+			readdirSync(root).filter((entry) => entry.includes('.archive-')).length,
+			0,
+			'a partial archive must not remain'
+		);
+		assert.deepEqual(promotionLeftovers(root, 'cli'), []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('archive promotion replaces the archive only after the complete temporary file', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-archive-ok-'));
+	try {
+		const out = ownedPackageFixture(join(root, 'cli'), 'old');
+		const stage = stageFixture(join(root, 'stage'), 'new');
+		const archive = join(root, 'cli.tar.gz');
+		writeFileSync(archive, 'OLD ARCHIVE\n');
+		const seen = [];
+		promotePackage({
+			stage,
+			out,
+			archive,
+			platform: 'linux',
+			createArchive: (temporary) => {
+				seen.push(temporary);
+				writeFileSync(temporary, 'NEW ARCHIVE\n');
+			},
+			report: () => {},
+			warn: () => {}
+		});
+		assert.equal(seen.length, 1);
+		assert.equal(existsSync(seen[0]), false);
+		assert.equal(readFileSync(archive, 'utf8'), 'NEW ARCHIVE\n');
+		assert.equal(readFileSync(join(out, 'bin', 'new.txt'), 'utf8'), 'new\n');
+		assert.deepEqual(promotionLeftovers(root, 'cli'), []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('an interrupted promotion marker restores the previous package before the next build', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-recover-'));
+	try {
+		const out = join(root, 'cli');
+		const backup = ownedPackageFixture(join(root, '.cli.backup-deadbeef'), 'old');
+		const marker = join(root, '.cli.pack-transaction.json');
+		writeFileSync(
+			marker,
+			`${JSON.stringify({
+				schema: 'deckmark-cli-promotion/1',
+				out,
+				backup,
+				archive: '',
+				stage: join(root, 'stage')
+			})}\n`
+		);
+		const lines = [];
+		const result = reconcileInterruptedPromotion(out, {
+			rename: renameSync,
+			remove: rmSync,
+			report: (line) => lines.push(line)
+		});
+		assert.equal(result.recovered, true);
+		assert.equal(existsSync(marker), false);
+		assert.equal(existsSync(backup), false);
+		assert.equal(readFileSync(join(out, 'bin', 'old.txt'), 'utf8'), 'old\n');
+		assert.equal(lines.length, 1);
+		assert.match(lines[0], /restored the previous package/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('an interrupted promotion marker removes a stale backup when the new package is in place', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-recover-new-'));
+	try {
+		const out = ownedPackageFixture(join(root, 'cli'), 'new');
+		const backup = ownedPackageFixture(join(root, '.cli.backup-deadbeef'), 'old');
+		const marker = join(root, '.cli.pack-transaction.json');
+		writeFileSync(
+			marker,
+			`${JSON.stringify({
+				schema: 'deckmark-cli-promotion/1',
+				out,
+				backup,
+				archive: '',
+				stage: join(root, 'stage')
+			})}\n`
+		);
+		const result = reconcileInterruptedPromotion(out, {
+			rename: renameSync,
+			remove: rmSync,
+			report: () => {}
+		});
+		assert.equal(result.recovered, true);
+		assert.equal(existsSync(marker), false);
+		assert.equal(existsSync(backup), false);
+		assert.equal(readFileSync(join(out, 'bin', 'new.txt'), 'utf8'), 'new\n');
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('an unreadable promotion marker fails closed and names the marker', () => {
+	const root = mkdtempSync(join(tmpdir(), 'deckmark-promote-marker-'));
+	try {
+		const out = join(root, 'cli');
+		const marker = join(root, '.cli.pack-transaction.json');
+		writeFileSync(marker, '{not json\n');
+		assert.throws(
+			() =>
+				reconcileInterruptedPromotion(out, {
+					rename: renameSync,
+					remove: rmSync,
+					report: () => {}
+				}),
+			/Cannot read the interrupted promotion marker .*pack-transaction\.json/
+		);
+		assert.equal(existsSync(marker), true);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('a second pack replaces the previous package and leaves no staging or backup', () => {
+	const parent = mkdtempSync(join(tmpdir(), 'deckmark-replace-'));
+	try {
+		const out = join(parent, 'pkg');
+		for (const attempt of [1, 2]) {
+			const pack = run(process.execPath, [PACK_SCRIPT, '--out', out, '--allow-dirty'], {
+				cwd: ROOT,
+				env: process.env,
+				timeout: 300_000
+			});
+			assert.equal(pack.status, 0, `pack attempt ${attempt} failed:\n${pack.stderr}`);
+			const verify = run(process.execPath, [PACK_SCRIPT, 'verify', '--dir', out], {
+				cwd: ROOT,
+				env: process.env
+			});
+			assert.equal(verify.status, 0, `verify attempt ${attempt} failed:\n${verify.stderr}`);
+		}
+		assert.deepEqual(promotionLeftovers(parent, 'pkg'), []);
+		OBSERVED.replacement = { attempts: 2, leftovers: [] };
+	} finally {
+		rmSync(parent, { recursive: true, force: true });
+	}
 });
 
 test('Windows launcher builds one prequoted cmd.exe line for verbatim spawn', () => {
