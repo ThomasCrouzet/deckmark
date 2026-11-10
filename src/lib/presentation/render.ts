@@ -188,18 +188,24 @@ export function renderPresentationElementContentCached(
 		return active;
 	}
 	contentCacheMisses++;
+	const owner: { promise: Promise<string> | null } = { promise: null };
 	const rendered = renderPresentationElementContent(element, options).then(
 		(html) => {
-			inFlightContent.delete(key);
+			// Only the task that owns this map entry may remove it, so a stale
+			// completion cannot erase a newer pending render for the same key.
+			if (inFlightContent.get(key) === owner.promise) inFlightContent.delete(key);
 			cacheContent(key, element.content, html);
 			return html;
 		},
 		(error: unknown) => {
-			inFlightContent.delete(key);
+			if (inFlightContent.get(key) === owner.promise) inFlightContent.delete(key);
 			throw error;
 		}
 	);
-	inFlightContent.set(key, rendered);
+	owner.promise = rendered;
+	// A caller-owned cancellable promise must never enter the shared map: an
+	// unrelated unsignaled export or view could adopt and then lose it.
+	if (!options.signal) inFlightContent.set(key, rendered);
 	return rendered;
 }
 
