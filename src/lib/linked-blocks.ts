@@ -1,5 +1,6 @@
 import { contentHash } from './ai/patches';
 import { documentKindForFile } from './document-kind';
+import { pathKey, resolveProjectPath } from './project-paths';
 import type { FileItem } from './types';
 
 export interface LinkedBlock {
@@ -117,15 +118,112 @@ export function locateInclude(
 	return matches.length === 1 ? matches[0]! : null;
 }
 
-/** One-pass index that keeps the original first-match precedence. */
-function sourceIndex(files: readonly FileItem[]): Map<string, FileItem> {
-	const index = new Map<string, FileItem>();
+interface SourceBucket {
+	byPath: Map<string, FileItem[]>;
+	byName: Map<string, FileItem[]>;
+	byStem: Map<string, FileItem[]>;
+}
+
+interface SourceIndex {
+	projects: Map<string, SourceBucket>;
+	standalone: SourceBucket;
+}
+
+function newBucket(): SourceBucket {
+	return { byPath: new Map(), byName: new Map(), byStem: new Map() };
+}
+
+function addCandidate(bucket: Map<string, FileItem[]>, key: string, file: FileItem): void {
+	const matches = bucket.get(key);
+	if (matches) matches.push(file);
+	else bucket.set(key, [file]);
+}
+
+function sourceIndex(files: readonly FileItem[]): SourceIndex {
+	const index: SourceIndex = { projects: new Map(), standalone: newBucket() };
 	for (const file of files) {
-		for (const key of [pathOf(file), file.name, file.name.replace(/\.[^.]+$/, '')]) {
-			if (!index.has(key)) index.set(key, file);
+		if (documentKindForFile(file) !== 'note') continue;
+		let bucket: SourceBucket;
+		let path: string;
+		if (file.projectId && file.relativePath) {
+			try {
+				path = pathKey(file.relativePath);
+			} catch {
+				continue;
+			}
+			bucket = index.projects.get(file.projectId) ?? newBucket();
+			index.projects.set(file.projectId, bucket);
+		} else {
+			bucket = index.standalone;
+			path = pathOf(file);
 		}
+		const name = file.name.toLowerCase();
+		addCandidate(bucket.byPath, path, file);
+		addCandidate(bucket.byName, name, file);
+		addCandidate(bucket.byStem, name.replace(/\.[^.]+$/, ''), file);
 	}
 	return index;
+}
+
+interface SourceResolution {
+	file?: FileItem | undefined;
+	ambiguous: boolean;
+}
+
+function unique(matches: FileItem[] | undefined): SourceResolution | null {
+	if (!matches?.length) return null;
+	return matches.length === 1
+		? { file: matches[0], ambiguous: false }
+		: { file: undefined, ambiguous: true };
+}
+
+/**
+ * Resolves a source inside the consumer project only. Stand-alone documents
+ * resolve against other stand-alone documents and never against a project.
+ */
+function resolveSource(
+	consumer: FileItem,
+	sourcePath: string,
+	index: SourceIndex
+): SourceResolution {
+	const bucket =
+		consumer.projectId && consumer.relativePath
+			? index.projects.get(consumer.projectId)
+			: index.standalone;
+	if (!bucket) return { file: undefined, ambiguous: false };
+	const paths: string[] = [];
+	if (consumer.projectId && consumer.relativePath) {
+		const root = (() => {
+			try {
+				return pathKey(sourcePath);
+			} catch {
+				return null;
+			}
+		})();
+		if (root) paths.push(root);
+		const relative = resolveProjectPath(consumer.relativePath, sourcePath);
+		if (relative) {
+			try {
+				const key = pathKey(relative);
+				if (!paths.includes(key)) paths.push(key);
+			} catch {
+				/* Invalid relative candidate. */
+			}
+		}
+	} else {
+		paths.push(sourcePath);
+	}
+	for (const path of paths) {
+		const resolved = unique(bucket.byPath.get(path));
+		if (resolved) return resolved;
+	}
+	const name = sourcePath.split('/').pop() ?? '';
+	if (name) {
+		const resolved = unique(bucket.byName.get(name.toLowerCase()));
+		if (resolved) return resolved;
+	}
+	const resolved = unique(bucket.byStem.get(name.replace(/\.[^.]+$/, '').toLowerCase()));
+	return resolved ?? { file: undefined, ambiguous: false };
 }
 
 /** Iterative Tarjan SCC. The call stack stays bounded for deep chains. */
@@ -183,7 +281,7 @@ function stronglyConnectedComponents(graph: Map<string, string[]>): {
 }
 
 interface LinkContext {
-	sources: Map<string, FileItem>;
+	sources: SourceIndex;
 	blocksByFile: Map<string, Map<string, LinkedBlock[]>>;
 	component: Map<string, number>;
 	selfLoop: Set<string>;
@@ -206,8 +304,8 @@ function linkContext(files: readonly FileItem[]): LinkContext {
 		graph.set(
 			file.id,
 			extractIncludes(file).flatMap((include) => {
-				const id = sources.get(include.sourcePath)?.id;
-				return id ? [id] : [];
+				const source = resolveSource(file, include.sourcePath, sources).file;
+				return source ? [source.id] : [];
 			})
 		);
 	}
@@ -216,10 +314,11 @@ function linkContext(files: readonly FileItem[]): LinkContext {
 }
 
 function reportFor(file: FileItem, include: LinkedInclude, context: LinkContext): LinkReport {
-	const source = context.sources.get(include.sourcePath);
+	const resolution = resolveSource(file, include.sourcePath, context.sources);
+	const source = resolution.file;
 	const matches = source ? (context.blocksByFile.get(source.id)?.get(include.blockId) ?? []) : [];
 	const block = matches.length === 1 ? matches[0] : undefined;
-	const ambiguous = matches.length > 1;
+	const ambiguous = resolution.ambiguous || matches.length > 1;
 	const cycle =
 		source !== undefined &&
 		context.component.get(source.id) === context.component.get(file.id) &&
