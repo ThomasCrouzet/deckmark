@@ -353,8 +353,17 @@ variables inside parallel tests. Evidence is in `/tmp/opencode/git-ci-fix/`.
 Native AI tests bind keys to canonical endpoints, reject caller-selected key IDs,
 and check that pending HTTP requests yield. They use an in-memory secret store
 and loopback servers with synthetic keys. Browser tests cannot execute this Rust
-boundary. Run `cargo test --manifest-path src-tauri/Cargo.toml ai::tests` and
-`cargo test --manifest-path src-tauri/Cargo.toml vault::tests`. Keep the report in
+boundary. The retained cancellation risks are a cancel that arrives before the
+command registers, a connection that stays open during headers or a streaming
+body, a stalled response that reaches the full timeout, a second window that
+cancels another request, a request that stays registered after completion, and
+later requests that fail after one cancellation. A loopback server holds the
+response and records the request arrival. Each case checks the stable
+`cancelled` code, a measured bound below the request timeout, and no secret or
+prompt text in the error. Run
+`cargo test --manifest-path src-tauri/Cargo.toml ai::tests` and
+`cargo test --manifest-path src-tauri/Cargo.toml vault::tests`. The frontend
+`AbortSignal` still needs a Desktop panel check. Keep the report in
 `/tmp/opencode/ai-review-cargo-final-evidence.json`. The operating-system keyring
 still needs a desktop session. Old host-only entries require key re-entry.
 
