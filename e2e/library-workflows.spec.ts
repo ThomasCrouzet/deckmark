@@ -131,6 +131,158 @@ test('a large closed document hydrates on demand for search and export', async (
 	expect(await zip.file('large315.md')!.async('string')).toBe(content);
 });
 
+test('library Replace All previews and applies a deferred closed note', async ({ page }, info) => {
+	test.setTimeout(90_000);
+	const largeAlpha = `# Alpha\n\n${'Deferred body line for the closed note.\n'.repeat(8_000)}needle in closed alpha\n`;
+	expect(largeAlpha.length).toBeGreaterThan(256 * 1024);
+	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
+		name: 'alpha.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from(largeAlpha)
+	});
+	await expect(page.locator('#app-toolbar input')).toHaveValue('alpha', { timeout: 20_000 });
+	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
+		name: 'beta.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from('# Beta\n\nneedle in open beta')
+	});
+	await expect(page.locator('#app-toolbar input')).toHaveValue('beta', { timeout: 20_000 });
+	await page
+		.locator('.mdsh-file-row')
+		.filter({ hasText: 'alpha' })
+		.locator('button')
+		.last()
+		.click();
+	// The reload reads the metadata projection. The closed alpha body stays in Dexie.
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
+	await expect(page.getByText('Documents conservés')).toBeVisible();
+
+	await page.keyboard.press('ControlOrMeta+Shift+f');
+	await page.getByRole('combobox').fill('needle');
+	await expect(page.locator('#search-listbox button').first()).toBeVisible({ timeout: 10_000 });
+	await page.getByTitle('Remplacer dans tous les fichiers').click();
+	await page.getByLabel('Texte de remplacement').fill('replacement');
+	await page.getByRole('button', { name: 'Remplacer tout' }).click();
+
+	// Both notes must enter the preview, including the deferred closed body.
+	await expect(page.getByText('2 fichier(s), 2 remplacement(s)')).toBeVisible({
+		timeout: 15_000
+	});
+	await page.getByRole('button', { name: 'Confirmer le remplacement' }).click();
+	await expect(page.getByRole('dialog', { name: 'Recherche cross-fichiers' })).toHaveCount(0, {
+		timeout: 10_000
+	});
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
+	await page.keyboard.press('ControlOrMeta+Shift+f');
+	await page.getByRole('combobox').fill('replacement');
+	const hits = page.locator('#search-listbox button');
+	await expect(hits).toHaveCount(2, { timeout: 10_000 });
+	await hits.first().click();
+	await expect(page.locator('.cm-content')).toContainText('replacement');
+	const rows = await page.evaluate(
+		() =>
+			new Promise<Array<{ name: string; content: string }>>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const all = request.result.transaction('drafts').objectStore('drafts').getAll();
+					all.onerror = () => reject(all.error);
+					all.onsuccess = () => {
+						request.result.close();
+						resolve(all.result.map((row) => ({ name: row.name, content: row.content })));
+					};
+				};
+			})
+	);
+	const rowFor = (name: string) => rows.find((row) => row.name.startsWith(name));
+	expect(rowFor('alpha')?.content).toBe(
+		largeAlpha.replace('needle in closed alpha', 'replacement in closed alpha')
+	);
+	expect(rowFor('beta')?.content).toBe('# Beta\n\nreplacement in open beta');
+	await info.attach('deferred-replace.json', {
+		body: JSON.stringify({ rows }),
+		contentType: 'application/json'
+	});
+});
+
+test('Replace All reports a failed deferred body read', async ({ page }, info) => {
+	test.setTimeout(90_000);
+	const largeAlpha = `# Alpha\n\n${'Deferred body line for the closed note.\n'.repeat(8_000)}needle in closed alpha\n`;
+	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
+		name: 'alpha.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from(largeAlpha)
+	});
+	await expect(page.locator('#app-toolbar input')).toHaveValue('alpha', { timeout: 20_000 });
+	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
+		name: 'beta.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from('# Beta\n\nneedle in open beta')
+	});
+	await expect(page.locator('#app-toolbar input')).toHaveValue('beta', { timeout: 20_000 });
+	await page
+		.locator('.mdsh-file-row')
+		.filter({ hasText: 'alpha' })
+		.locator('button')
+		.last()
+		.click();
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
+	await expect(page.getByText('Documents conservés')).toBeVisible();
+
+	// Simulate a body that vanished from IndexedDB after the metadata load.
+	const removed = await page.evaluate(
+		() =>
+			new Promise<number>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const all = request.result.transaction('drafts', 'readwrite').objectStore('drafts');
+					const keys = all.getAllKeys();
+					keys.onerror = () => reject(keys.error);
+					keys.onsuccess = () => {
+						const transaction = all.transaction;
+						for (const key of keys.result) all.delete(key);
+						transaction.oncomplete = () => {
+							request.result.close();
+							resolve(keys.result.length);
+						};
+						transaction.onerror = () => reject(transaction.error);
+					};
+				};
+			})
+	);
+	expect(removed).toBeGreaterThan(0);
+
+	await page.keyboard.press('ControlOrMeta+Shift+f');
+	await page.getByRole('combobox').fill('needle');
+	await page.getByTitle('Remplacer dans tous les fichiers').click();
+	await page.getByLabel('Texte de remplacement').fill('replacement');
+	await page.getByRole('button', { name: 'Remplacer tout' }).click();
+	await expect(
+		page.getByRole('dialog', { name: 'Recherche cross-fichiers' }).getByRole('alert')
+	).toContainText('Le remplacement a échoué', {
+		timeout: 15_000
+	});
+	await expect(page.getByRole('region', { name: 'Aperçu du remplacement' })).toHaveCount(0);
+	await info.attach('deferred-replace-failure.json', {
+		body: JSON.stringify({ removedRows: removed }),
+		contentType: 'application/json'
+	});
+});
+
 test('actions expose the library and renaming repairs incoming links', async ({ page }) => {
 	await seedFiles(page, [
 		{ name: 'alpha', content: 'Target' },

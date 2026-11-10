@@ -14,6 +14,87 @@ function corpusText(seed: number, length: number) {
 	}).join('');
 }
 
+test('Replace All covers a 300-note library with a deferred closed body', async ({
+	page
+}, info) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	const now = Date.now();
+	const largeBody = `# Large deferred note\n\nneedle in the deferred body\n${'filler line '.repeat(30_000)}`;
+	expect(largeBody.length).toBeGreaterThan(256 * 1024);
+	const drafts = Array.from({ length: 300 }, (_, index) => ({
+		id: `replace-${index}`,
+		name: `Replace ${index}.md`,
+		content:
+			index === 299
+				? largeBody
+				: `# Note ${index}\n\nneedle in document ${index}\n${'context '.repeat(100)}`,
+		createdAt: now,
+		updatedAt: now,
+		order: index,
+		open: index === 0
+	}));
+	await importBackup(page, {
+		format: 'mdsh-backup',
+		schemaVersion: 1,
+		exportedAt: now,
+		drafts,
+		workspaces: [],
+		templates: []
+	});
+	await expect.poll(async () => (await databaseState(page)).drafts.length).toBe(300);
+	await page.keyboard.press('Escape');
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
+	await expect(page.getByText('Documents conservés')).toBeVisible();
+
+	await page.keyboard.press('ControlOrMeta+Shift+f');
+	await page.getByRole('combobox').fill('needle');
+	await page.getByTitle('Remplacer dans tous les fichiers').click();
+	await page.getByLabel('Texte de remplacement').fill('replacement');
+	await page.getByRole('button', { name: 'Remplacer tout' }).click();
+	await expect(page.getByText('300 fichier(s), 300 remplacement(s)')).toBeVisible({
+		timeout: 120_000
+	});
+	await page.getByRole('button', { name: 'Confirmer le remplacement' }).click();
+	await expect(page.getByRole('dialog', { name: 'Recherche cross-fichiers' })).toHaveCount(0, {
+		timeout: 120_000
+	});
+
+	const state = await databaseState(page);
+	const replaced = state.drafts.filter((row) => row.content.includes('replacement'));
+	const remaining = state.drafts.filter((row) => row.content.includes('needle'));
+	const large = state.drafts.find((row) => row.id === 'replace-299');
+	expect(replaced).toHaveLength(300);
+	expect(remaining).toEqual([]);
+	expect(
+		large?.content.startsWith('# Large deferred note\n\nreplacement in the deferred body')
+	).toBe(true);
+	const artifact = info.outputPath('replace-all-library.json');
+	await writeFile(
+		artifact,
+		JSON.stringify(
+			{
+				documents: drafts.length,
+				largeBodyBytes: Buffer.byteLength(largeBody),
+				replaced: replaced.length,
+				remaining: remaining.length,
+				previewFiles: 300,
+				previewOccurrences: 300
+			},
+			null,
+			2
+		)
+	);
+	await info.attach('replace-all-library.json', {
+		path: artifact,
+		contentType: 'application/json'
+	});
+});
+
 test('large library quota failures retain drafts and roll back replacement', async ({
 	page,
 	context
