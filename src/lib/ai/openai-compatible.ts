@@ -180,6 +180,9 @@ async function request(
 			method: 'POST',
 			headers: headers(apiKey),
 			body: JSON.stringify(body),
+			// A redirected request would forward the approved prompt body to a
+			// different origin. Refuse every redirect before it is followed.
+			redirect: 'error',
 			...(signal ? { signal } : {})
 		});
 	} catch (error) {
@@ -189,7 +192,7 @@ async function request(
 		if (error instanceof TypeError)
 			throw new AiProviderError(
 				'cors',
-				'Network or CORS failure. Check the base URL and provider CORS policy.'
+				'Network, CORS or provider redirect failure. Check the base URL, provider CORS policy and that the endpoint does not redirect.'
 			);
 		throw new AiProviderError('network', error instanceof Error ? error.message : String(error));
 	}
@@ -207,6 +210,9 @@ export async function listModels(
 	try {
 		response = await fetch(providerEndpoint(config.baseUrl, 'models'), {
 			headers: headers(apiKey),
+			// Model discovery can also carry the provider key. A redirect must
+			// not move the request to an unapproved origin.
+			redirect: 'error',
 			...(signal ? { signal } : {})
 		});
 	} catch (error) {
@@ -214,7 +220,10 @@ export async function listModels(
 		if (error instanceof DOMException && error.name === 'AbortError')
 			throw new AiProviderError('cancelled', 'Request cancelled');
 		if (error instanceof TypeError)
-			throw new AiProviderError('cors', 'Network or CORS failure while listing models.');
+			throw new AiProviderError(
+				'cors',
+				'Network, CORS or provider redirect failure while listing models.'
+			);
 		throw new AiProviderError('network', error instanceof Error ? error.message : String(error));
 	}
 	if (!response.ok) throw await failure(response, signal);

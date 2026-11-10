@@ -1,3 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import type { Server } from 'node:http';
+import { createServer } from 'node:https';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import {
 	createFirstFile,
@@ -7,7 +13,7 @@ import {
 	writeSourceContent
 } from './helpers';
 
-test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+test.use({ locale: 'en-US', reducedMotion: 'reduce', ignoreHTTPSErrors: true });
 
 async function configureAi(page: Page, mode: 'valid' | 'stale') {
 	await page.addInitScript(() => {
@@ -270,6 +276,116 @@ async function importProject(
 		buffer: await zip.generateAsync({ type: 'nodebuffer' })
 	});
 	await panel.getByRole('button', { name: 'Fermer les projets' }).click();
+}
+
+function listenOnLoopback(server: Server): Promise<number> {
+	return new Promise((resolve, reject) => {
+		server.once('error', reject);
+		server.listen(0, '127.0.0.1', () => {
+			const address = server.address();
+			if (typeof address === 'object' && address) resolve(address.port);
+			else reject(new Error('The test provider did not bind a port.'));
+		});
+	});
+}
+
+function closeServer(server: Server): Promise<void> {
+	return new Promise((resolve) => server.close(() => resolve()));
+}
+
+/**
+ * Creates a short-lived self-signed certificate for the loopback origins. The
+ * private key exists only in the test process and in a temporary directory. It
+ * is never committed, so the repository stores no key material.
+ */
+function createTlsMaterial(): { key: Buffer; cert: Buffer; directory: string } {
+	const directory = mkdtempSync(join(tmpdir(), 'deckmark-tls-'));
+	const keyPath = join(directory, 'key.pem');
+	const certPath = join(directory, 'cert.pem');
+	execFileSync(
+		'openssl',
+		[
+			'req',
+			'-x509',
+			'-newkey',
+			'rsa:2048',
+			'-nodes',
+			'-keyout',
+			keyPath,
+			'-out',
+			certPath,
+			'-days',
+			'1',
+			'-subj',
+			'/CN=127.0.0.1',
+			'-addext',
+			'subjectAltName=IP:127.0.0.1'
+		],
+		{ stdio: 'ignore' }
+	);
+	return { key: readFileSync(keyPath), cert: readFileSync(certPath), directory };
+}
+
+/**
+ * Starts two real loopback origins. Origin A answers POST with a 307 to B.
+ * Origin B records every request body. A fixed `redirect: 'error'` client must
+ * stop at A; a default client forwards the POST body to the unapproved origin.
+ */
+async function startRedirectProvider(): Promise<{
+	baseUrl: string;
+	requests: Array<{ method: string; url: string }>;
+	destination: Array<{ url: string; body: string }>;
+	close: () => Promise<void>;
+}> {
+	const requests: Array<{ method: string; url: string }> = [];
+	const destination: Array<{ url: string; body: string }> = [];
+	const tls = createTlsMaterial();
+	const cors = {
+		'access-control-allow-origin': '*',
+		'access-control-allow-methods': 'POST, OPTIONS',
+		'access-control-allow-headers': '*'
+	};
+	const destinationServer = createServer({ key: tls.key, cert: tls.cert }, (request, response) => {
+		if (request.method === 'OPTIONS') {
+			response.writeHead(204, cors);
+			response.end();
+			return;
+		}
+		const chunks: Buffer[] = [];
+		request.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+		request.on('end', () => {
+			destination.push({
+				url: request.url ?? '',
+				body: Buffer.concat(chunks).toString('utf8')
+			});
+			response.writeHead(200, { ...cors, 'content-type': 'text/event-stream' });
+			response.end('data: [DONE]\n\n');
+		});
+	});
+	const destinationPort = await listenOnLoopback(destinationServer);
+	const redirectServer = createServer({ key: tls.key, cert: tls.cert }, (request, response) => {
+		requests.push({ method: request.method ?? '', url: request.url ?? '' });
+		if (request.method === 'OPTIONS') {
+			response.writeHead(204, cors);
+			response.end();
+			return;
+		}
+		response.writeHead(307, {
+			...cors,
+			location: `https://127.0.0.1:${destinationPort}/collect`
+		});
+		response.end();
+	});
+	const redirectPort = await listenOnLoopback(redirectServer);
+	return {
+		baseUrl: `https://127.0.0.1:${redirectPort}/v1`,
+		requests,
+		destination,
+		close: async () => {
+			await Promise.all([closeServer(redirectServer), closeServer(destinationServer)]);
+			rmSync(tls.directory, { recursive: true, force: true });
+		}
+	};
 }
 
 async function readDraftRows(
@@ -706,6 +822,59 @@ test('refuses an ambiguous basename across project folders', async ({ page }, in
 		body: JSON.stringify({ ambiguous: true, readmes: readmes.length, unchanged: true }),
 		contentType: 'application/json'
 	});
+});
+
+test('refuses a provider redirect before sending the approved body', async ({
+	page
+}, info: TestInfo) => {
+	const provider = await startRedirectProvider();
+	try {
+		const { baseUrl, requests, destination } = provider;
+		await page.addInitScript((providerUrl) => {
+			localStorage.setItem(
+				'mdsh:ai',
+				JSON.stringify({
+					enabled: true,
+					privacyMode: 'direct',
+					allowBrowserKey: true,
+					baseUrl: providerUrl,
+					model: 'mock-model',
+					temperature: 0.2,
+					maxTokens: 24000
+				})
+			);
+			sessionStorage.setItem('mdsh:ai-key', 'sk-session');
+		}, baseUrl);
+		await resetAppState(page);
+		await createFirstFile(page);
+		await writeSourceContent(page, '# Guide\n\nVisible paragraph.');
+		await openAiPanel(page);
+		await page.getByTestId('ai-prompt').fill('DECKMARK_CANARY_CONTEXT');
+		await page.getByTestId('ai-send').click();
+		// Wait for either the refused request or the unapproved destination.
+		await expect
+			.poll(
+				async () => destination.length > 0 || (await page.getByTestId('ai-error').isVisible()),
+				{ timeout: 5000 }
+			)
+			.toBe(true);
+		expect(destination).toEqual([]);
+		await expect(page.getByTestId('ai-error')).toBeVisible();
+		expect(requests.some((entry) => entry.method === 'POST')).toBe(true);
+		await info.attach('ai-redirect-refused.json', {
+			body: JSON.stringify({
+				redirect: 307,
+				providerRequests: requests,
+				destinationRequests: destination.length,
+				canaryTransmitted: destination.some((entry) =>
+					entry.body.includes('DECKMARK_CANARY_CONTEXT')
+				)
+			}),
+			contentType: 'application/json'
+		});
+	} finally {
+		await provider.close();
+	}
 });
 
 test('blocks a stale patch and keeps the file unchanged', async ({ page }, info: TestInfo) => {
