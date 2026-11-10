@@ -141,6 +141,33 @@ function fileSha(path) {
 	return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
+function sleepSync(ms) {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Windows can hold a directory handle briefly after a child process stops.
+ * Retry only transient Windows errors. Other platforms and other errors fail
+ * at the first attempt.
+ */
+export function renameWithRetry(from, to, options = {}) {
+	const platform = options.platform ?? process.platform;
+	const rename = options.rename ?? renameSync;
+	const pause = options.pause ?? sleepSync;
+	const attempts = platform === 'win32' ? 20 : 1;
+	for (let attempt = 0; ; attempt += 1) {
+		try {
+			rename(from, to);
+			return;
+		} catch (error) {
+			const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+			const transient = code === 'EPERM' || code === 'EBUSY' || code === 'EACCES';
+			if (attempt + 1 >= attempts || !transient) throw error;
+			pause(100 * (attempt + 1));
+		}
+	}
+}
+
 function run(command, args, options = {}) {
 	const result = spawnSync(command, args, { encoding: 'utf8', ...options });
 	if (result.error) throw new Error(`${command}: ${result.error.message}`);
@@ -505,8 +532,8 @@ async function pack(options) {
 
 		// The output directory is now known to be new, empty, or a package that
 		// this tool built. Replace it with the finished stage.
-		rmSync(out, { recursive: true, force: true });
-		renameSync(stage, out);
+		rmSync(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		renameWithRetry(stage, out);
 
 		if (options.archive) {
 			const archive = `${out}${process.platform === 'win32' ? '.zip' : '.tar.gz'}`;

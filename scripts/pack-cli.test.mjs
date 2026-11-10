@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
-import { resolveArchiveTool, windowsLauncherInvocation } from './pack-cli.mjs';
+import { renameWithRetry, resolveArchiveTool, windowsLauncherInvocation } from './pack-cli.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
@@ -366,6 +366,49 @@ test('Windows archive tool is resolved from SystemRoot, not from PATH', () => {
 		() => resolveArchiveTool({ platform: 'win32', env: { SystemRoot: root }, exists: () => false }),
 		/Cannot find the Windows archive tool: .*System32.*tar\.exe/
 	);
+});
+
+test('Windows package rename retries a transient directory lock', () => {
+	let calls = 0;
+	const delays = [];
+	renameWithRetry('stage', 'release', {
+		platform: 'win32',
+		rename: () => {
+			calls += 1;
+			if (calls < 3) {
+				const error = new Error('The directory is in use.');
+				error.code = 'EPERM';
+				throw error;
+			}
+		},
+		pause: (ms) => delays.push(ms)
+	});
+	assert.equal(calls, 3);
+	assert.deepEqual(delays, [100, 200]);
+
+	assert.throws(
+		() =>
+			renameWithRetry('stage', 'release', {
+				platform: 'win32',
+				rename: () => {
+					throw Object.assign(new Error('Missing directory.'), { code: 'ENOENT' });
+				},
+				pause: () => assert.fail('A permanent error must not pause.')
+			}),
+		/ENOENT|Missing directory/
+	);
+	let linuxCalls = 0;
+	assert.throws(() =>
+		renameWithRetry('stage', 'release', {
+			platform: 'linux',
+			rename: () => {
+				linuxCalls += 1;
+				throw Object.assign(new Error('Locked.'), { code: 'EPERM' });
+			},
+			pause: () => assert.fail('Linux must not retry.')
+		})
+	);
+	assert.equal(linuxCalls, 1);
 });
 
 test('Windows launcher builds one prequoted cmd.exe line for verbatim spawn', () => {
