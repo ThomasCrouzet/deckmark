@@ -8,7 +8,6 @@ import { filesStore } from './files.svelte';
 import { importProject } from './projects';
 import type { ProjectInput } from './project-archive';
 import { pathKey, projectPath, projectWikiCandidates, relativeDestination } from './project-paths';
-import { shouldReadProjectEntry } from './project-archive';
 import { documentKindForFile } from './document-kind';
 import { renameProjectLinks } from './project-links';
 import { normalizeRename } from './file-utils';
@@ -1208,4 +1207,36 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 		});
 	renameQueue = operation;
 	return operation;
+}
+
+export interface ProjectEntryStamp {
+	kind: 'markdown' | 'asset';
+	relativePath: string;
+	mtimeMs: number;
+	size: number;
+	first: number;
+	second: number;
+	revision: string;
+}
+
+export type ProjectEntryMetadata = Omit<ProjectEntryStamp, 'revision'>;
+
+/** Window in which a file write may share its timestamp with a scan. */
+export const PROJECT_REFRESH_RACY_WINDOW_MS = 2_000;
+
+export function shouldReadProjectEntry(
+	known: ProjectEntryStamp | undefined,
+	current: ProjectEntryMetadata,
+	now = Date.now()
+): boolean {
+	if (!known || known.revision === '') return true;
+	if (
+		known.kind !== current.kind ||
+		known.mtimeMs !== current.mtimeMs ||
+		known.size !== current.size ||
+		known.first !== current.first ||
+		known.second !== current.second
+	)
+		return true;
+	return Math.abs(now - current.mtimeMs) < PROJECT_REFRESH_RACY_WINDOW_MS;
 }

@@ -21,7 +21,7 @@
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { isFilesDrag } from '#lib/ui/image-drop.svelte.js';
-	import { PROJECT_DRAG_TYPE } from '#lib/project-drag.js';
+	import { PROJECT_DRAG_TYPE } from '#lib/projects.js';
 	import type { TransferResult, TransferSelection } from '#lib/project-transfer.js';
 	import { createProjectDocument, renameProject } from '#lib/projects.js';
 	import type { ProjectRoot } from '#lib/project-explorer.svelte.js';

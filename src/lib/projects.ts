@@ -13,6 +13,8 @@ import { notify } from './notify.svelte';
 import { t } from './i18n';
 import { reportError } from './report';
 
+export const PROJECT_DRAG_TYPE = 'application/x-mdsh-project';
+
 export async function importProject(input: ProjectInput): Promise<ProjectRow> {
 	if (!browser || typeof indexedDB === 'undefined') throw new Error('Storage is not available');
 	await filesStore.flushPendingAwait();

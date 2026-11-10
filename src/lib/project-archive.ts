@@ -564,35 +564,3 @@ export async function buildProjectZip(
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
 	return left.length === right.length && left.every((byte, index) => byte === right[index]);
 }
-
-export interface ProjectEntryStamp {
-	kind: 'markdown' | 'asset';
-	relativePath: string;
-	mtimeMs: number;
-	size: number;
-	first: number;
-	second: number;
-	revision: string;
-}
-
-export type ProjectEntryMetadata = Omit<ProjectEntryStamp, 'revision'>;
-
-/** Window in which a file write may share its timestamp with a scan. */
-export const PROJECT_REFRESH_RACY_WINDOW_MS = 2_000;
-
-export function shouldReadProjectEntry(
-	known: ProjectEntryStamp | undefined,
-	current: ProjectEntryMetadata,
-	now = Date.now()
-): boolean {
-	if (!known || known.revision === '') return true;
-	if (
-		known.kind !== current.kind ||
-		known.mtimeMs !== current.mtimeMs ||
-		known.size !== current.size ||
-		known.first !== current.first ||
-		known.second !== current.second
-	)
-		return true;
-	return Math.abs(now - current.mtimeMs) < PROJECT_REFRESH_RACY_WINDOW_MS;
-}
