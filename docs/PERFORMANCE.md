@@ -24,11 +24,12 @@ Code at 50 KB/1 MB/5 MB, JSON at 50 KB/1 MB/5 MB/10 MB, and decks with
 sentinel. Sizes use decimal bytes. The fixture command returns exact content,
 byte count and SHA-256. Decks use the existing version 1 format.
 
-Source, Code, JSON and Split have Web browser adapters. The matrix also lists
-WYSIWYG, Read, annotation, slide canvas, slide text, slide notes and Advanced
-Presentation Source. Those stress adapters are not implemented. A selected
-unavailable case fails and stays in the report. Listing a case is not execution
-or coverage proof. Native stress transport is also not implemented.
+Source, Code, JSON and Split have Web browser adapters. Read, slide text and
+slide notes have a separate mode suite described below. The stress matrix still
+lists WYSIWYG, Read, annotation, slide canvas, slide text, slide notes and
+Advanced Presentation Source; only the three mode-suite workloads are executable
+today. The other rows stay unavailable and fail when selected. Listing a case is
+not execution or coverage proof. Native stress transport is also not implemented.
 
 Build and record a clean committed root production build, then select a bounded
 set of cases. Set `OUT` to an existing local directory outside the repository.
@@ -94,7 +95,72 @@ profiles, missing identities and failed byte/history/reload checks. At least
 samples per position. Read the raw samples; do not claim a stable per-position
 tail. There is no minimum-of-three stress statistic.
 
-### Version 2 report contract
+#
+## Read and slide mode benchmarks
+
+`scripts/benchmark-modes.mjs` covers the Read render path and the speaker text
+and notes input paths that the insert stress contract cannot express. It uses the
+same clean production build and provenance checks as the stress suite.
+
+```sh
+node scripts/benchmark-modes.mjs --list
+node scripts/benchmark-modes.mjs --fixture read-rich-30
+BASE_PATH='' npm run build
+node scripts/build-provenance.mjs write --kind web-benchmark --instrumentation none
+node scripts/benchmark-modes.mjs --prebuilt --runs 20 \
+  --cases read/read-rich-30/lib-0,slide-text/deck-20/lib-0,slide-notes/deck-20/lib-0 \
+  --output "$OUT/modes-chromium.json"
+```
+
+Fixtures are a 30-diagram Read document with math, tables and a tail sentinel, a
+1 MB Read document, and the existing 20/100/300-slide decks. Read samples reload
+and switch from Source to Read, so each sample is a cold render. Slide samples
+reload between saves so the 400 ms draft queue starts clean.
+
+| Raw metric | Boundary |
+| --- | --- |
+| `firstContentMs` | Read mode click to the first article text with the tail sentinel. Includes script and parse work, not compositor paint. |
+| `fullRenderMs` | Read mode click to the last expected Mermaid SVG. |
+| `inputToFrameMs` | Trusted `beforeinput` in the slide text or notes textarea to the second animation frame. Not a physical key or an IME. |
+| `inputDispatchMs` | Input capture to its queued microtask. |
+| `saveObservedMs` | Input capture to the exact IndexedDB source, including the 400 ms draft delay and polling. |
+
+The suite checks the exact fixture and export bytes, the 30 diagram count, the
+Read tail sentinel, the replayed slide field after every insertion, per-deck undo
+and redo, the Markdown export, and reload recovery. The audit rejects missing or
+duplicated cases, wrong counts, non-finite metrics, lost bytes, a wrong final
+source, missing undo/redo, missing receipt files and over-budget values.
+
+`scripts/benchmark-budgets.json` has a `modes` section. The Web Light Chromium
+profile is blocking with these reviewed local limits:
+
+| Metric | Limit |
+| --- | --- |
+| `readFirstContentMs` | 400 ms |
+| `readFullRenderMs` | 2500 ms |
+| `slideInputToFrameMs` | 60 ms |
+| `slideInputDispatchMs` | 5 ms |
+| `slideSaveObservedMs` | 2000 ms |
+
+The resource limits are 10000 DOM nodes, zero canvas pixels and 128 MiB heap.
+Firefox and WebKit remain report-only. The limits come from a clean 20-run
+Chromium production run on 2026-11-10. The observed p95 values were 243.8 ms,
+1472.5 ms, 29.6 ms, 0.1 ms and 866.3 ms (slide text; notes 793.9 ms). A copy with a 900 ms first-content
+value and 5000 ms slide saves fails the strict audit with `over-budget`.
+
+Strict audit:
+
+```sh
+node scripts/benchmark-modes-audit.mjs --report "$OUT/modes-chromium.json" \
+  --receipt "$OUT/external-trust.json" --receipt-sha256 "$RECEIPT_SHA256" \
+  --cases read/read-rich-30/lib-0,slide-text/deck-20/lib-0,slide-notes/deck-20/lib-0
+```
+
+WYSIWYG, annotation, slide canvas, Advanced Presentation Source and native mode
+transport remain unavailable. Do not treat the mode suite as evidence for those
+workloads.
+
+## Version 2 report contract
 
 `scripts/benchmark-stress-contract.mjs` defines method `codemirror-insert/1`.
 It preserves target-capture beforeinput, the second animation frame, queued
@@ -172,17 +238,40 @@ profile. They contain synthetic times, not new browser measurements or product
 references. Preserve original positive/negative reports without rewriting them.
 
 The new `stress` section in `scripts/benchmark-budgets.json` separates Web Light
-production from Desktop Complete release and debug profiles. All new profiles
-are **report-only and uncalibrated**. A strict stress audit therefore fails until
-limits and a review reference are supplied. `--enforce-budgets` makes that audit
-result govern the measurement command exit. Without enforcement, functional
-failures still exit nonzero. An audit with `--report-only` can exit zero but
-retains `enforced: false` and its failed status. It is not a strict gate pass.
+production from Desktop Complete release and debug profiles. The Web Light
+Chromium profile now carries reviewed local limits for the Source, Code, JSON and
+Split 1 MB cases. The other browsers, the remaining modes and all native profiles
+are **report-only and uncalibrated**. A strict stress audit still requires the
+external artifact receipt and a complete case selection. `--enforce-budgets`
+makes the audit result govern the measurement command exit. Without enforcement,
+functional failures still exit nonzero. An audit with `--report-only` can exit
+zero but retains `enforced: false` and its failed status. It is not a strict gate
+pass.
 
-Parent review must approve platform latency and resource limits, full native
-adapters, remaining modes and CI workload selection before #327 is accepted.
-This delivery does not change release workflows or claim full cross-mode CI.
-Do not copy debug native limits into a release profile or auto-raise a limit.
+The Chromium limits come from one clean `eda7dea` production build on 2026-11-10.
+Four cases ran 20 times each at `lib-0`:
+
+| Case | input-to-frame p95 | dispatch p95 | save p95 |
+| --- | --- | --- | --- |
+| `source/markdown-1mb/lib-0` | 39.5 ms | 0.1 ms | 513.2 ms |
+| `code/code-1mb/lib-0` | 31.8 ms | 0.1 ms | 578.1 ms |
+| `json/json-1mb/lib-0` | 31.6 ms | 0.1 ms | 499.9 ms |
+| `split/markdown-1mb/lib-0` | 35.7 ms | 0.1 ms | 532.3 ms |
+
+The profile limits are 60 ms, 5 ms and 1200 ms with 200000 DOM nodes, zero canvas
+pixels and 128 MiB heap. They are about 50 percent above the highest observed
+value. The save stage includes the unchanged 400 ms product delay. A mutated copy
+of the same report with 100 ms input-to-frame fails every case with
+`over-budget`; the unmodified report passes the strict audit with an external
+receipt. These local results do not replace a CI baseline or a native measurement.
+
+Parent review must still approve the limits, full native adapters, the remaining
+modes and CI workload selection before #327 can close. Read, slide text and slide
+notes now have the mode suite above. WYSIWYG, annotation, slide canvas and
+Advanced Presentation Source have no stress adapter. Native mode transport is
+also absent. This delivery does not change release workflows or claim full
+cross-mode CI. Do not copy debug native limits into a release profile or
+auto-raise a limit.
 
 The CLI controls run in `npm run test:benchmark-gate` and the standard Node test
 phase. They use labelled synthetic limits, not product baselines. They reject

@@ -589,7 +589,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 			await click('button[data-mode="read"]');
 			result.readModeProgress.phase = 'wait-preview';
 			await waitForContent(
-				`!!document.querySelector('.mdsh-read .mdsh-preview') && (document.querySelector('.mdsh-preview')?.textContent?.length ?? 0) > 100000`,
+				`(() => { const preview = document.querySelector('.mdsh-preview'); return !!preview && preview.getAttribute('aria-busy') === 'false' && (preview.textContent?.length ?? 0) > 100000; })()`,
 				'render large note in read mode',
 				90_000
 			);
@@ -890,7 +890,7 @@ export async function runNativeBenchmark({ options, fixtures, projectRoot }) {
 		await click('button[data-mode="read"]');
 		result.readModeProgress.phase = 'wait-preview-for-scroll';
 		await waitForContent(
-			`(document.querySelector('.mdsh-preview')?.textContent?.length ?? 0) > 100000`,
+			`(() => { const preview = document.querySelector('.mdsh-preview'); return !!preview && preview.getAttribute('aria-busy') === 'false' && (preview.textContent?.length ?? 0) > 100000; })()`,
 			'read mode for scroll',
 			90_000
 		);
