@@ -31,6 +31,25 @@ describe('durable draft metadata', () => {
 		});
 	});
 
+	it('keeps a code extension in the title and projects its kind', async () => {
+		await db.drafts.put(row({ id: 'script', name: 'script.py', content: 'print("hello")\n' }));
+		const metadata = await readDraftMetadata();
+		expect(metadata?.get('script')).toMatchObject({ title: 'script.py', kind: 'code' });
+	});
+
+	it('projects a presentation kind without an explicit row kind', async () => {
+		await db.drafts.put(
+			row({
+				id: 'deck',
+				name: 'deck.md',
+				content:
+					'# Deck\n\n<!-- mdsh-presentation\n{"version":1,"width":1280,"height":720,"slides":[]}\n-->\n'
+			})
+		);
+		const metadata = await readDraftMetadata();
+		expect(metadata?.get('deck')?.kind).toBe('presentation');
+	});
+
 	it('ignores fenced, indented and inline-code targets in one pass', async () => {
 		await db.drafts.put(
 			row({

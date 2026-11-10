@@ -178,7 +178,11 @@ export function draftItemFromManifest(
 			: {}),
 		...(manifest.origin ? { origin: manifest.origin } : {}),
 		...(manifest.sourceFileId ? { sourceFileId: manifest.sourceFileId } : {}),
-		...(manifest.kind ? { kind: manifest.kind } : {}),
+		...(manifest.kind
+			? { kind: manifest.kind }
+			: derivedMetadata?.kind
+				? { kind: derivedMetadata.kind }
+				: {}),
 		...(manifest.mime ? { mime: manifest.mime } : {}),
 		createdAt: manifest.createdAt,
 		updatedAt: manifest.updatedAt,
