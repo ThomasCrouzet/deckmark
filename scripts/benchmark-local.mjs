@@ -738,12 +738,17 @@ async function runWebBenchmark(options, fixtures) {
 
 		await waitForIdle(page);
 		await installInputProbe(page);
-		const typingSource = await measureInput(page, '.cm-content', options.runs, 'source');
+		// Five samples make p95 the maximum, so one browser stall fails a 200 ms
+		// budget while the median stays near 20 ms. Twenty samples make p95 the
+		// second-worst value, which keeps a systematic slowdown failing and drops
+		// a single scheduler hiccup. Same rule as the visual typing metrics below.
+		const inputRuns = Math.max(options.runs, 20);
+		const typingSource = await measureInput(page, '.cm-content', inputRuns, 'source');
 		const typingSourceDriver = await measureDriverTyping(page, options.runs, 'driver');
 		const documentSwitch = await measureDocumentSwitch(page, options.runs);
 		const largeDocumentOpen = await measureLargeDocumentOpen(page, options.runs);
 		await waitForIdle(page);
-		const typingLarge = await measureInput(page, '.cm-content', options.runs, 'large');
+		const typingLarge = await measureInput(page, '.cm-content', inputRuns, 'large');
 		// Twenty samples make p95 the second-worst value instead of the maximum of five.
 		const readMode = await measureReadMode(page, Math.max(expensiveRuns, 20));
 		await domClick(page, 'button[data-mode="read"]');
