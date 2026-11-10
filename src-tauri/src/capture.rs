@@ -126,15 +126,13 @@ pub fn desktop_capture_register(
 ) -> Result<(), String> {
     let parsed = parse_accelerator(&shortcut)?;
     let normalized = shortcut.trim().to_string();
-    if state.shortcut().as_deref() == Some(normalized.as_str()) {
+    let previous = state.shortcut();
+    if previous.as_deref() == Some(normalized.as_str()) {
         return Ok(());
     }
-    if state.shortcut().is_some() {
-        app.global_shortcut()
-            .unregister_all()
-            .map_err(|error| error.to_string())?;
-        state.set(None);
-    }
+    let previous_shortcut = previous.as_deref().map(parse_accelerator).transpose()?;
+    // Register the replacement first. A failure leaves the working binding in
+    // place. Only a successful registration removes the previous binding.
     app.global_shortcut()
         .on_shortcut(parsed, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -144,6 +142,13 @@ pub fn desktop_capture_register(
             }
         })
         .map_err(|error| error.to_string())?;
+    if let Some(previous_shortcut) = previous_shortcut {
+        if let Err(error) = app.global_shortcut().unregister(previous_shortcut) {
+            // Keep the known-good binding usable and drop the new one.
+            let _ = app.global_shortcut().unregister(parsed);
+            return Err(error.to_string());
+        }
+    }
     state.set(Some(normalized));
     Ok(())
 }
@@ -153,9 +158,12 @@ pub fn desktop_capture_unregister(
     app: AppHandle,
     state: tauri::State<'_, CaptureStore>,
 ) -> Result<(), String> {
-    app.global_shortcut()
-        .unregister_all()
-        .map_err(|error| error.to_string())?;
+    let previous = state.shortcut();
+    if let Some(previous) = previous.as_deref().map(parse_accelerator).transpose()? {
+        app.global_shortcut()
+            .unregister(previous)
+            .map_err(|error| error.to_string())?;
+    }
     state.set(None);
     Ok(())
 }

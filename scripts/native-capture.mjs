@@ -104,6 +104,41 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 	assert.equal(statusAfterRegister.rejection, undefined, statusAfterRegister.rejection);
 	assert.equal(statusAfterRegister.value.registered, registered.rejection === undefined);
 
+	const invalidReplacement = record(
+		'invalid replacement keeps the working binding',
+		await invoke('desktop_capture_register', { shortcut: 'Control+Alt+KeyK+Extra' })
+	);
+	assert.equal(typeof invalidReplacement.rejection, 'string');
+	const statusAfterInvalidReplacement = record(
+		'status after an invalid replacement',
+		await invoke('desktop_capture_status')
+	);
+	assert.equal(statusAfterInvalidReplacement.value.shortcut, 'CommandOrControl+Shift+Space');
+
+	const replacement = record(
+		'shortcut replacement registers the new binding',
+		await invoke('desktop_capture_register', { shortcut: 'Control+Alt+KeyK' })
+	);
+	assert.equal(replacement.rejection, undefined, replacement.rejection);
+	const statusAfterReplacement = record(
+		'status after shortcut replacement',
+		await invoke('desktop_capture_status')
+	);
+	assert.deepEqual(statusAfterReplacement.value, {
+		registered: true,
+		shortcut: 'Control+Alt+KeyK'
+	});
+	const restored = record(
+		'shortcut replacement restores the first binding',
+		await invoke('desktop_capture_register', { shortcut: 'CommandOrControl+Shift+Space' })
+	);
+	assert.equal(restored.rejection, undefined, restored.rejection);
+	const statusAfterRestore = record(
+		'status after restoring the first binding',
+		await invoke('desktop_capture_status')
+	);
+	assert.equal(statusAfterRestore.value.shortcut, 'CommandOrControl+Shift+Space');
+
 	const unregistered = record('unregister command', await invoke('desktop_capture_unregister'));
 	assert.equal(unregistered.rejection, undefined, unregistered.rejection);
 	const statusAfterUnregister = record(
