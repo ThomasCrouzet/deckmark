@@ -32,6 +32,35 @@ describe('templatesStore', () => {
 		expect(item.contentDeferred).toBe(false);
 	});
 
+	it('does not let a delayed body read revert a newer template update', async () => {
+		const saved = await templatesStore.save('Old name', 'old body');
+		templatesStore.loaded = false;
+		await templatesStore.load();
+		const old = (await db.templates.get(saved!.id))!;
+		let release: ((row: typeof old) => void) | undefined;
+		const pending = new Promise<typeof old>((resolve) => (release = resolve));
+		const get = vi.spyOn(db.templates, 'get').mockReturnValue(pending as never);
+		const reading = templatesStore.contentFor(saved!.id);
+		await db.templates.put({ ...old, name: 'New name', content: 'new body', updatedAt: 40 });
+		templatesStore.userTemplates = templatesStore.userTemplates.map((template) =>
+			template.id === saved!.id
+				? {
+						...template,
+						name: 'New name',
+						content: 'new body',
+						updatedAt: 40,
+						contentDeferred: false
+					}
+				: template
+		);
+		release?.(old);
+		await expect(reading).resolves.toBe('new body');
+		expect(
+			templatesStore.userTemplates.find((template) => template.id === saved!.id)
+		).toMatchObject({ name: 'New name', content: 'new body', updatedAt: 40 });
+		get.mockRestore();
+	});
+
 	it('treats an older template row without kind as a note', async () => {
 		const now = Date.now();
 		templatesStore.userTemplates = [

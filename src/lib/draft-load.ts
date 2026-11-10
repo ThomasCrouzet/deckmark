@@ -11,6 +11,7 @@ import {
 	draftItemFromRow,
 	readDraftManifests,
 	readDraftMetadata,
+	selectActiveManifestId,
 	selectInlineContentIds
 } from './draft-manifest';
 import type { FileItem } from './types';
@@ -56,18 +57,22 @@ export async function loadDraftLibrary(
 	let items: FileItem[] = [];
 	let activeIds: string[] = [];
 	let persistedRows: DraftRow[] = [];
+	let activeCandidate: string | null = null;
 	if (manifests) {
 		try {
-			const inlineIds = selectInlineContentIds(manifests);
+			// The active tab is the only open body that must be resident at boot.
+			// Its identity comes from the preference and the manifest projection
+			// before any record read.
+			activeCandidate = selectActiveManifestId(manifests, preferredActiveId, fallbackActiveId);
+			const inlineIds = selectInlineContentIds(manifests, activeCandidate);
 			const rows = (await db.drafts.bulkGet([...inlineIds])).filter(
 				(row): row is DraftRow => row !== undefined
 			);
 			const byId = new Map(rows.map((row) => [row.id, row]));
-			// An open tab is always hydrated. If a row vanished between the count
-			// and the read, use the full-row path so the view cannot show an empty
-			// active document.
-			if (manifests.some((manifest) => manifest.open && !byId.has(manifest.id)))
-				throw new Error('draft-manifest-stale');
+			// The active tab is always hydrated. If its row vanished between the
+			// count and the read, use the full-row path so the view cannot show an
+			// empty active document.
+			if (activeCandidate && !byId.has(activeCandidate)) throw new Error('draft-manifest-stale');
 			items = manifests
 				.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
 				.map((manifest) => {
@@ -97,9 +102,10 @@ export async function loadDraftLibrary(
 	const files = items.filter((item) => openIds.has(item.id));
 	const closedFiles = items.filter((item) => !openIds.has(item.id));
 	const requestedActiveId =
-		preferredActiveId && files.some((file) => file.id === preferredActiveId)
+		activeCandidate ??
+		(preferredActiveId && files.some((file) => file.id === preferredActiveId)
 			? preferredActiveId
-			: fallbackActiveId;
+			: fallbackActiveId);
 	const activeId =
 		requestedActiveId && files.some((file) => file.id === requestedActiveId)
 			? requestedActiveId

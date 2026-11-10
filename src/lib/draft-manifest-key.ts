@@ -8,6 +8,7 @@
 // the part that keeps a large library out of the startup JS heap.
 
 import type { DraftRow } from './db';
+import { documentKindForFile } from './document-kind';
 
 export const DRAFT_MANIFEST_VERSION = 1;
 
@@ -78,7 +79,7 @@ export function encodeDraftManifest(
 		row.createdAt,
 		row.updatedAt,
 		row.order,
-		row.kind ?? '',
+		row.kind ?? documentKindForFile(row),
 		row.mime ?? '',
 		row.origin ?? '',
 		row.sourceFileId ?? '',

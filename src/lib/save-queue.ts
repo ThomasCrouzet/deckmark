@@ -357,13 +357,12 @@ export class SaveQueue {
 				if (METRICS)
 					performance.measure('mdsh:document-storage', { start: started, end: performance.now() });
 			}
-			// Put finished: trash discard must reverse a resurrection.
+			// Put finished: trash discard must reverse a resurrection. Compare the
+			// durable row with the stale write before deleting. Another tab can
+			// write a newer row with the same ID while this put was in flight.
 			if (this.discardedIds.has(id)) {
-				try {
-					await db.drafts.delete(id);
-				} catch (err) {
-					this.cb.onError(err);
-				}
+				const { handleDiscardedWrite } = await import('./draft-access');
+				await handleDiscardedWrite(id, row, this.cb.onError);
 				return;
 			}
 			// Invalidate / newer generation: do not notify (and do not delete -

@@ -55,6 +55,8 @@ export const snippetsEn = {
 	'snippets.import': 'Import snippets...',
 	'snippets.exported': 'Snippets exported.',
 	'snippets.imported': 'Imported {n} snippet(s).',
+	'snippets.importReport':
+		'Imported {added} new, preserved {preserved} conflicting, and left {unchanged} unchanged snippet(s).',
 	'snippets.importFailed': 'Could not import the snippets.',
 	'snippets.invalidExport': 'This file is not a valid snippet export.',
 	'snippets.exportTooLarge': 'The snippet export exceeds the size limit.',

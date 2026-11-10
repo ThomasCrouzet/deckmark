@@ -66,6 +66,7 @@ import {
 	renameOnDisk,
 	unlinkFromDisk,
 	refreshBrokenLinks,
+	invalidateBrokenLinkChecks,
 	type DiskSyncDeps
 } from './disk-sync';
 
@@ -932,6 +933,53 @@ describe('native capability acknowledgment', () => {
 		expect(result).toEqual({ files: [], processedTokens: [] });
 		expect(store).toEqual([]);
 	});
+	it('fails closed when the native link registry cannot be read', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		vi.mocked(fsa.listDiskLinks).mockRejectedValueOnce(new Error('registry unavailable'));
+		vi.mocked(diskTauri.tauriOpenNativeGrants).mockResolvedValue({
+			files: [
+				{
+					token: 'retry-token',
+					name: 'same.md',
+					content: 'disk',
+					path: '/tmp/same.md',
+					lastModified: 1,
+					size: 4,
+					revision: 'r1',
+					link: { kind: 'path', path: '/tmp/same.md' }
+				}
+			],
+			failed: 0
+		});
+		const store: FileItem[] = [];
+		const result = await openPathsFromDesktop(
+			[{ token: 'retry-token', path: '/tmp/same.md', stat: null }],
+			testDeps(store)
+		);
+		expect(result).toEqual({ files: [], processedTokens: [] });
+		expect(store).toEqual([]);
+		expect(fsa.savePathLink).not.toHaveBeenCalled();
+		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+
+		// The next read succeeds and activates the original path owner.
+		const existing = makeFile({ id: 'linked', content: 'disk' });
+		vi.mocked(fsa.listDiskLinks).mockResolvedValueOnce([
+			{ id: existing.id, kind: 'path', path: '/tmp/same.md', label: 'same.md' }
+		]);
+		const retry = await openPathsFromDesktop(
+			[{ token: 'retry-token', path: '/tmp/same.md', stat: null }],
+			{
+				getFile: () => existing,
+				getFiles: () => [existing],
+				onCreate: vi.fn(),
+				onActivate: vi.fn(),
+				scheduleSave: vi.fn()
+			}
+		);
+		expect(retry.processedTokens).toEqual(['retry-token']);
+		expect(retry.files).toEqual([existing]);
+	});
+
 	it('also acknowledges a token that reactivates an existing local branch', async () => {
 		vi.mocked(desktop.isDesktop).mockReturnValue(true);
 		const existing = makeFile({ id: 'existing', content: 'local' });
@@ -966,5 +1014,43 @@ describe('native capability acknowledgment', () => {
 		);
 		expect(result.processedTokens).toEqual(['same-token']);
 		expect(result.files).toEqual([existing]);
+	});
+
+	it('drops an old-path health result after the link moved to a new path', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		const file = makeFile({ id: 'relinked', linkedToDisk: true, brokenLink: false });
+		let releaseCheck!: (status: 'ok' | 'broken' | 'permission-needed') => void;
+		const pending = new Promise<'ok' | 'broken' | 'permission-needed'>((resolve) => {
+			releaseCheck = resolve;
+		});
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/old.md' });
+		vi.mocked(diskTauri.tauriCheckPath).mockReturnValue(pending);
+		const refreshing = refreshBrokenLinks([file], (id) => (id === file.id ? file : undefined));
+		await vi.waitFor(() => expect(diskTauri.tauriCheckPath).toHaveBeenCalledWith('/old.md'));
+		// The user relinks the document to a repaired path while the check waits.
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/new.md' });
+		file.brokenLink = false;
+		file.linkedToDisk = true;
+		releaseCheck('broken');
+		await refreshing;
+		expect(file.brokenLink).toBe(false);
+		expect(file.linkedToDisk).toBe(true);
+	});
+
+	it('drops a pending health result after a full reload generation', async () => {
+		vi.mocked(desktop.isDesktop).mockReturnValue(true);
+		const file = makeFile({ id: 'reloaded', linkedToDisk: true, brokenLink: false });
+		let releaseCheck!: (status: 'ok' | 'broken' | 'permission-needed') => void;
+		const pending = new Promise<'ok' | 'broken' | 'permission-needed'>((resolve) => {
+			releaseCheck = resolve;
+		});
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/reloaded.md' });
+		vi.mocked(diskTauri.tauriCheckPath).mockReturnValue(pending);
+		const refreshing = refreshBrokenLinks([file], (id) => (id === file.id ? file : undefined));
+		await vi.waitFor(() => expect(diskTauri.tauriCheckPath).toHaveBeenCalledWith('/reloaded.md'));
+		invalidateBrokenLinkChecks();
+		releaseCheck('broken');
+		await refreshing;
+		expect(file.brokenLink).toBe(false);
 	});
 });

@@ -10,7 +10,6 @@
 import { browser } from '$app/env';
 import {
 	exportHTML as exportHTMLService,
-	exportMarkdown as exportMarkdownService,
 	exportPDF as exportPDFService,
 	exportZip as exportZipService
 } from './services/export';
@@ -67,32 +66,21 @@ export interface ExportDeps {
 }
 
 /**
- * Exports the file `id` as Markdown (direct download or desktop save dialog).
- * Resets `dirty = false` and schedules a save only after a real save/download
- * (`false` from the service = desktop dialog cancelled).
+ * `written` is a durable native disk write. `initiated` is a browser download
+ * that the page cannot observe to completion. Callers must not describe an
+ * initiated download as a disk write.
  */
-export async function exportMarkdown(id: string, deps: ExportDeps): Promise<void> {
-	const file = deps.getFiles().find((f) => f.id === id);
-	if (!file || !browser) return;
-	const snapshot = { ...file };
-	try {
-		const ok = await exportMarkdownService(snapshot);
-		if (!ok) return;
-		const current = deps.getFiles().find((candidate) => candidate.id === id);
-		if (
-			!current ||
-			current.content !== snapshot.content ||
-			current.name !== snapshot.name ||
-			current.data !== snapshot.data ||
-			current.kind !== snapshot.kind ||
-			current.mime !== snapshot.mime
-		)
-			return;
-		current.dirty = false;
-		deps.scheduleSave(id);
-	} catch (err) {
-		reportError('export Markdown', err, { notifyUser: t('export.mdFailed') });
-	}
+export type ExportOutcome = 'written' | 'initiated' | 'cancelled' | 'failed';
+
+export interface ExportResult {
+	outcome: ExportOutcome;
+	durable: boolean;
+}
+
+/** Loads the Markdown export implementation only when a save starts. */
+export async function exportMarkdown(id: string, deps: ExportDeps): Promise<ExportResult> {
+	const { runExportMarkdown } = await import('./draft-access');
+	return runExportMarkdown(id, deps);
 }
 
 /**

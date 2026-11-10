@@ -143,8 +143,8 @@
 				const name = fileName();
 				if (projectId) {
 					const { createProjectDocument } = await import('#lib/projects.js');
-					const id = await createProjectDocument(projectId, name);
-					filesStore.updateContent(id, body);
+					// Reserve the path and commit the final body in one transaction.
+					await createProjectDocument(projectId, name, body);
 				} else {
 					filesStore.createNew(name, body, { origin: 'created', kind: 'note' });
 				}

@@ -15,6 +15,7 @@ import { renameProjectLinks, projectLinkReport } from './project-links';
 import type { ProjectInput } from './project-archive';
 import { PROJECT_SCALE_LIMITS } from './project-limits';
 import { projectDocumentLimit } from './project-limits';
+import { validateMarkdownContent } from './import-limits';
 import { normalizeRename } from './file-utils';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { notify } from './notify.svelte';
@@ -75,8 +76,13 @@ export async function createProject(name: string): Promise<ProjectRow> {
 	});
 }
 
-export async function createProjectDocument(projectId: string, path: string): Promise<string> {
+export async function createProjectDocument(
+	projectId: string,
+	path: string,
+	content = ''
+): Promise<string> {
 	const relativePath = projectPath(/\.(md|markdown|mdx|txt)$/i.test(path) ? path : `${path}.md`);
+	validateMarkdownContent(content);
 
 	if (relativePath.split('/')[0]!.toLowerCase() === '.mdsh')
 		throw new Error('Reserved project path');
@@ -88,7 +94,7 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 		projectId,
 		relativePath,
 		name: relativePath.split('/').pop()!,
-		content: '',
+		content,
 		createdAt: now,
 		updatedAt: now,
 		order: filesStore.library.length,
@@ -96,18 +102,28 @@ export async function createProjectDocument(projectId: string, path: string): Pr
 	};
 	await db.transaction('rw', db.projects, db.projectAssets, db.drafts, async () => {
 		if (!(await db.projects.get(projectId))) throw new Error('Project no longer exists');
-		const documents = await db.drafts.where('projectId').equals(projectId).toArray();
-		const assets = await db.projectAssets.where('projectId').equals(projectId).toArray();
+		// Read compound index keys only. The key cursor returns the stored paths
+		// without loading any existing Markdown body or binary asset payload.
+		const upper = '\uffff';
+		const documentPaths = (
+			await db.drafts
+				.where('[projectId+relativePath]')
+				.between([projectId, ''], [projectId, upper])
+				.keys()
+		).map((key) => String(Array.isArray(key) ? key[1] : ''));
+		const assetPaths = (
+			await db.projectAssets
+				.where('[projectId+path]')
+				.between([projectId, ''], [projectId, upper])
+				.keys()
+		).map((key) => String(Array.isArray(key) ? key[1] : ''));
 		if (
-			documents.length >= projectDocumentLimit() ||
-			documents.length + assets.length >= PROJECT_SCALE_LIMITS.maxEntries - 3
+			documentPaths.length >= projectDocumentLimit() ||
+			documentPaths.length + assetPaths.length >= PROJECT_SCALE_LIMITS.maxEntries - 3
 		)
 			throw new Error('Project entry limit');
-		if (
-			[...documents.map((doc) => doc.relativePath!), ...assets.map((asset) => asset.path)].some(
-				(existing) => pathKey(existing) === pathKey(relativePath)
-			)
-		)
+		const wanted = pathKey(relativePath);
+		if ([...documentPaths, ...assetPaths].some((existing) => pathKey(existing) === wanted))
 			throw new Error('Project path already exists');
 		await db.drafts.add(row);
 	});

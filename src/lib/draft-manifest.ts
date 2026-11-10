@@ -189,17 +189,37 @@ export function draftItemFromManifest(
 	};
 }
 
-/** Keeps the startup body budget bounded while preserving tab order. */
-export function selectInlineContentIds(manifests: readonly DraftManifest[]): Set<string> {
+/** Chooses the active open tab before any body is read. */
+export function selectActiveManifestId(
+	manifests: readonly DraftManifest[],
+	preferredActiveId: string | null,
+	fallbackActiveId: string | null
+): string | null {
+	const openIds = manifests
+		.filter((manifest) => manifest.open)
+		.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+		.map((manifest) => manifest.id);
+	if (preferredActiveId && openIds.includes(preferredActiveId)) return preferredActiveId;
+	if (fallbackActiveId && openIds.includes(fallbackActiveId)) return fallbackActiveId;
+	return openIds[0] ?? null;
+}
+
+/**
+ * Keeps the startup body budget bounded while preserving tab order. Only the
+ * active open tab is read eagerly. Other open tabs stay deferred until the
+ * user activates them. Closed bodies keep their small metadata-first budget.
+ */
+export function selectInlineContentIds(
+	manifests: readonly DraftManifest[],
+	activeId: string | null = null
+): Set<string> {
 	const ids = new Set<string>();
+	if (activeId && manifests.some((manifest) => manifest.id === activeId)) ids.add(activeId);
 	let used = 0;
 	for (const manifest of [...manifests].sort(
 		(a, b) => a.order - b.order || a.id.localeCompare(b.id)
 	)) {
-		if (manifest.open) {
-			ids.add(manifest.id);
-			continue;
-		}
+		if (manifest.open || manifest.id === activeId) continue;
 		if (manifest.hasData) continue;
 		if (manifest.contentLength > DRAFT_CONTENT.maxInlineChars) continue;
 		if (used + manifest.contentLength > DRAFT_CONTENT.closedBudgetChars) continue;

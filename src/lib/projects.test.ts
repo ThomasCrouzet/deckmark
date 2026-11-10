@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from './db';
-import { addProjectImage, createProject } from './projects';
+import { addProjectImage, createProject, createProjectDocument } from './projects';
 
 const PNG_BYTES = Uint8Array.from(
 	atob(
@@ -18,7 +18,69 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
+});
+
+describe('project document creation', () => {
+	it('reads only path metadata and keeps duplicate checks atomic', async () => {
+		const project = await createProject('Notes');
+		const seeded = await db.drafts.where('projectId').equals(project.id).first();
+		await db.drafts.update(seeded!.id, { content: 'large body '.repeat(1000) });
+		await db.projectAssets.add({
+			id: 'asset-1',
+			projectId: project.id,
+			path: 'three.md',
+			mime: 'image/png',
+			data: PNG_BYTES
+		});
+		const draftsWhere = db.drafts.where.bind(db.drafts);
+		const assetsWhere = db.projectAssets.where.bind(db.projectAssets);
+		const draftsSpy = vi.spyOn(db.drafts, 'where').mockImplementation(((index: string) => {
+			if (index === 'projectId') throw new Error('Full project document scan');
+			return draftsWhere(index);
+		}) as typeof db.drafts.where);
+		const assetsSpy = vi.spyOn(db.projectAssets, 'where').mockImplementation(((index: string) => {
+			if (index === 'projectId') throw new Error('Full project asset scan');
+			return assetsWhere(index);
+		}) as typeof db.projectAssets.where);
+
+		const id = await createProjectDocument(project.id, 'two.md');
+		expect(await db.drafts.get(id)).toMatchObject({ relativePath: 'two.md', content: '' });
+		await expect(createProjectDocument(project.id, 'TWO.md')).rejects.toThrow(
+			'Project path already exists'
+		);
+		await expect(createProjectDocument(project.id, 'three.md')).rejects.toThrow(
+			'Project path already exists'
+		);
+		expect(draftsSpy).not.toHaveBeenCalledWith('projectId');
+		expect(assetsSpy).not.toHaveBeenCalledWith('projectId');
+	});
+
+	it('commits the final capture body with the path reservation', async () => {
+		const project = await createProject('Capture');
+		const id = await createProjectDocument(project.id, 'quick.md', '# Captured\n\nExact body.\n');
+		expect(await db.drafts.get(id)).toMatchObject({
+			relativePath: 'quick.md',
+			content: '# Captured\n\nExact body.\n'
+		});
+	});
+
+	it('leaves no empty document when the atomic insert fails', async () => {
+		const project = await createProject('Capture');
+		const before = await db.drafts.where('projectId').equals(project.id).count();
+		const add = vi.spyOn(db.drafts, 'add').mockRejectedValue(new Error('quota'));
+		await expect(
+			createProjectDocument(project.id, 'failed.md', '# Must not remain\n')
+		).rejects.toThrow('quota');
+		add.mockRestore();
+		expect(await db.drafts.where('projectId').equals(project.id).count()).toBe(before);
+		expect(
+			(await db.drafts.where('projectId').equals(project.id).toArray()).some(
+				(row) => row.relativePath === 'failed.md'
+			)
+		).toBe(false);
+	});
 });
 
 describe('project image assets', () => {

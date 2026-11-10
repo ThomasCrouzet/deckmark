@@ -4,3 +4,10 @@
 export { applyDraftContent, buildSearchCorpus } from './draft-content';
 export { loadDraftLibrary } from './draft-load';
 export { MetadataRunner } from './metadata-runner';
+// Rare or deferred actions share this lazy boundary so they do not add a
+// precache entry for each small helper.
+export { resolveProjectLink } from './project-link-target';
+export { handleDiscardedWrite } from './save-reverse-delete';
+export { exportUnlinkedMarkdown, runExportMarkdown } from './export-markdown-op';
+export { exportMarkdown } from './export-ops';
+export { openExportSnapshot } from './open-export-snapshot';

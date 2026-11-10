@@ -13,6 +13,7 @@ vi.mock('./disk-sync', () => ({
 	renameOnDisk: vi.fn(async () => true),
 	unlinkFromDisk: vi.fn(async () => {}),
 	refreshBrokenLinks: vi.fn(async () => {}),
+	invalidateBrokenLinkChecks: vi.fn(),
 	isDiskLinkingAvailable: vi.fn(() => true)
 }));
 
@@ -999,6 +1000,81 @@ describe('defensive workspace reopen and links', () => {
 		} finally {
 			restore.mockRestore();
 		}
+	});
+});
+
+describe('project markdown links', () => {
+	it('uses canonical path keys and rejects an ambiguous duplicate', async () => {
+		const base = { content: '', createdAt: 1, updatedAt: 1, dirty: false, linkedToDisk: false };
+		const reader = {
+			...base,
+			id: 'reader',
+			name: 'reader.md',
+			projectId: 'p',
+			relativePath: 'notes/reader.md'
+		};
+		const guide = {
+			...base,
+			id: 'guide',
+			name: 'Guide.md',
+			projectId: 'p',
+			relativePath: 'docs/Guide.md'
+		};
+		const foreign = {
+			...base,
+			id: 'foreign',
+			name: 'guide.md',
+			projectId: 'q',
+			relativePath: 'docs/guide.md'
+		};
+		filesStore.files = [reader, guide, foreign];
+		filesStore.activeId = 'reader';
+		await filesStore.openProjectLink('reader', '../docs/guide.md#Heading%20One');
+		expect(filesStore.activeId).toBe('guide');
+		expect(filesStore.projectAnchor).toEqual({ id: 'guide', fragment: 'Heading One' });
+
+		const unicode = {
+			...guide,
+			id: 'unicode',
+			name: 'Café.md',
+			relativePath: 'docs/Cafe\u0301.md'
+		};
+		filesStore.files = [reader, unicode, foreign];
+		filesStore.activeId = 'reader';
+		await filesStore.openProjectLink('reader', '../docs/Caf%C3%A9.md');
+		expect(filesStore.activeId).toBe('unicode');
+
+		filesStore.files = [reader, guide, { ...guide, id: 'duplicate' }, foreign];
+		filesStore.activeId = 'reader';
+		notify.clear();
+		await filesStore.openProjectLink('reader', '../docs/guide.md');
+		expect(filesStore.activeId).toBe('reader');
+		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+	});
+});
+
+// The browser workflow restores deferred tabs, but it cannot separate an
+// inactive body placeholder from an empty document through the UI. This
+// isolated case retains the concrete export failure: the ZIP must not encode
+// the placeholder while the durable row holds the text.
+describe('export open hydration', () => {
+	it('hydrates the deferred open tabs before building the archive', async () => {
+		await db.drafts.bulkPut([draftRow('open', 'open.md', '# Durable body')]);
+		const deferred = {
+			id: 'open',
+			name: 'open.md',
+			content: '',
+			createdAt: 1000,
+			updatedAt: 1000,
+			dirty: false,
+			linkedToDisk: false,
+			contentDeferred: true
+		};
+		filesStore.files = [deferred];
+		filesStore.activeId = 'open';
+		await filesStore.exportOpen();
+		expect(filesStore.files[0]?.content).toBe('# Durable body');
+		expect(filesStore.files[0]?.contentDeferred).toBe(false);
 	});
 });
 

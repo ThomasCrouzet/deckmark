@@ -73,26 +73,26 @@ describe('SaveQueue', () => {
 
 	it('sends reverse-delete errors to onError', async () => {
 		vi.useRealTimers();
-		let resolvePut: ((value: string) => void) | undefined;
-		const pendingPut = new Promise<string>((resolve) => {
-			resolvePut = resolve;
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
 		});
-		const put = vi
-			.spyOn(db.drafts, 'put')
-			.mockReturnValue(pendingPut as ReturnType<typeof db.drafts.put>);
 		const del = vi.spyOn(db.drafts, 'delete').mockRejectedValue(new Error('delete failed'));
 		const onError = vi.fn();
 		try {
-			const q = createQueue({ ...noopCb, onError });
+			const q = new SaveQueue({ ...noopCb, onError }, async (written) => {
+				await db.drafts.put(written);
+				await gate;
+			});
 			q.schedule('a', () => row('a'));
 			q.flush((id) => row(id));
+			await vi.waitFor(async () => expect(await db.drafts.get('a')).toBeTruthy());
 			q.discard('a');
-			resolvePut?.('a');
+			release?.();
 			await vi.waitFor(() => expect(onError).toHaveBeenCalled());
 			expect(del).toHaveBeenCalledWith('a');
 		} finally {
-			resolvePut?.('x');
-			put.mockRestore();
+			release?.();
 			del.mockRestore();
 			vi.useFakeTimers();
 		}
@@ -171,24 +171,50 @@ describe('SaveQueue', () => {
 		expect(q.hasDurabilityFailure('a')).toBe(false);
 	});
 
-	it('prevents an active put from restoring a discarded draft', async () => {
-		let resolvePut: ((value: string) => void) | undefined;
-		const pendingPut = new Promise<string>((resolve) => {
-			resolvePut = resolve;
+	it('never deletes a newer row written by another tab after a discard', async () => {
+		vi.useRealTimers();
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
 		});
-		const put = vi
-			.spyOn(db.drafts, 'put')
-			.mockReturnValue(pendingPut as ReturnType<typeof db.drafts.put>);
-		const del = vi.spyOn(db.drafts, 'delete').mockResolvedValue(undefined as never);
-		const onSaved = vi.fn();
-		const q = createQueue({ ...noopCb, onSaved });
-		q.schedule('a', () => row('a'));
-		await vi.advanceTimersByTimeAsync(400);
-		expect(put).toHaveBeenCalledOnce();
-		// User closes/trash while put is in flight.
+		const onError = vi.fn();
+		const q = new SaveQueue({ ...noopCb, onError }, async (written) => {
+			await db.drafts.put(written);
+			await gate;
+		});
+		const stale = { ...row('a'), content: 'stale', updatedAt: 1 };
+		q.schedule('a', () => stale);
+		q.flush(() => stale);
+		await vi.waitFor(async () => expect(await db.drafts.get('a')).toBeTruthy());
 		q.discard('a');
-		resolvePut?.('a');
-		await vi.waitFor(() => expect(del).toHaveBeenCalledWith('a'));
+		// A second tab restores or saves a newer revision with the same ID.
+		await db.drafts.put({ ...row('a'), content: 'newer', updatedAt: 2 });
+		release?.();
+		await vi.waitFor(() => expect(q.has('a')).toBe(false));
+		expect(await db.drafts.get('a')).toMatchObject({ content: 'newer', updatedAt: 2 });
+		expect(onError).toHaveBeenCalledWith(
+			expect.objectContaining({ message: 'save-reverse-delete-conflict' })
+		);
+	});
+
+	it('prevents an active put from restoring a discarded draft', async () => {
+		vi.useRealTimers();
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const onSaved = vi.fn();
+		const q = new SaveQueue({ ...noopCb, onSaved }, async (written) => {
+			await db.drafts.put(written);
+			await gate;
+		});
+		q.schedule('a', () => row('a'));
+		q.flush((id) => row(id));
+		await vi.waitFor(async () => expect(await db.drafts.get('a')).toBeTruthy());
+		// User closes/trash while the put is still in flight.
+		q.discard('a');
+		release?.();
+		await vi.waitFor(async () => expect(await db.drafts.get('a')).toBeUndefined());
 		expect(onSaved).not.toHaveBeenCalled();
 	});
 
