@@ -338,7 +338,11 @@ downloads, ZIP files, screenshots, and JSON reports. Run both specs with
 The native Git tests use real repositories. They check executable filters,
 included configuration, parent-repository confinement, literal diff paths, and
 unstage before the first commit. Check unchanged index and working-tree bytes.
-A browser cannot inspect native subprocesses or the Git index. Run
+The commit cases capture the staged tree and repository identity, then add a
+staged file, restage a file, move HEAD, or switch branch before the commit. A
+rejection must leave HEAD, the index and the committed tree unchanged. The
+initial commit must create exactly the captured tree. A browser cannot inspect
+native subprocesses or the Git index. Run
 `cargo test --manifest-path src-tauri/Cargo.toml git::tests`. The shell marker case
 runs on Unix. Keep the command, source hash, environment, fixtures, and Cargo output.
 Unused global and system LFS settings must permit ordinary Git workflows.

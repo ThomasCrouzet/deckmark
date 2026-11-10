@@ -479,6 +479,9 @@ general file browser are not available.
 For Git, open a disk folder that contains an existing repository. Save draft
 changes to disk before you open **Git changes**. The panel reads disk state,
 shows diffs and recent commits, and lets you stage, unstage, and commit changes.
+A commit uses the exact staged tree and repository identity that you reviewed.
+If another process changes the index, HEAD, or branch before the commit runs,
+DeckMark refuses it and shows the refreshed status for a new confirmation.
 Stage and commit are disabled when the project is inside a parent repository.
 The panel does not provide clone, fetch, push, or pull actions.
 

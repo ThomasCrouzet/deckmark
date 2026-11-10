@@ -64,6 +64,7 @@ pub struct GitStatus {
     nested_scan_truncated: bool,
     outside_changes: usize,
     files: Vec<GitFile>,
+    staged_tree: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -87,7 +88,7 @@ pub struct GitCommit {
     subject: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitResult {
     hash: String,
@@ -648,6 +649,11 @@ fn status_for_root(root: &Path) -> Result<GitStatus, String> {
         .iter()
         .any(|file| file.untracked || file.conflicted || file.worktree != '.');
     let (nested_repositories, nested_scan_truncated) = scan_nested_repositories(root);
+    let staged_tree = if repository.kind == RepositoryKind::SelfRepository {
+        index_tree(root).ok()
+    } else {
+        None
+    };
     Ok(GitStatus {
         repository: if repository.kind == RepositoryKind::SelfRepository {
             "self"
@@ -666,6 +672,7 @@ fn status_for_root(root: &Path) -> Result<GitStatus, String> {
         nested_scan_truncated,
         outside_changes,
         files,
+        staged_tree,
     })
 }
 
@@ -806,7 +813,52 @@ fn validate_commit_message(message: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-fn commit_for_root(root: &Path, message: &str) -> Result<GitCommitResult, String> {
+const REVIEW_REQUIRED: &str = "DeckMark review required: the staged index or repository identity changed after confirmation. Refresh the Git status and confirm the commit again.";
+
+fn index_tree(root: &Path) -> Result<String, String> {
+    let output = run_checked(root, &["write-tree".to_string()])?;
+    Ok(utf8_output(output)?.trim().to_string())
+}
+
+fn head_hash(root: &Path) -> Result<Option<String>, String> {
+    let run = run_git(
+        root,
+        &[
+            "rev-parse".to_string(),
+            "--verify".to_string(),
+            "--quiet".to_string(),
+            "HEAD".to_string(),
+        ],
+    )?;
+    if !run.status.success() {
+        return Ok(None);
+    }
+    Ok(Some(utf8_output(run.stdout)?.trim().to_string()))
+}
+
+fn branch_name(root: &Path) -> Result<Option<String>, String> {
+    let run = run_git(
+        root,
+        &[
+            "symbolic-ref".to_string(),
+            "--short".to_string(),
+            "--quiet".to_string(),
+            "HEAD".to_string(),
+        ],
+    )?;
+    if !run.status.success() {
+        return Ok(None);
+    }
+    Ok(Some(utf8_output(run.stdout)?.trim().to_string()))
+}
+
+fn commit_for_root(
+    root: &Path,
+    message: &str,
+    expected_tree: &str,
+    expected_head: Option<&str>,
+    expected_branch: Option<&str>,
+) -> Result<GitCommitResult, String> {
     require_self_repository(root)?;
     let message = validate_commit_message(message)?;
     let staged = run_git(
@@ -826,23 +878,45 @@ fn commit_for_root(root: &Path, message: &str) -> Result<GitCommitResult, String
         Some(1) => {}
         _ => return Err(git_error(&staged)),
     }
+    let current_tree = index_tree(root)?;
+    let current_head = head_hash(root)?;
+    let current_branch = branch_name(root)?;
+    if current_tree != expected_tree
+        || current_head.as_deref() != expected_head
+        || current_branch.as_deref() != expected_branch
+    {
+        return Err(REVIEW_REQUIRED.to_string());
+    }
+    // Create the commit object from the confirmed tree, not from whatever the
+    // index contains when the commit runs.
+    let mut args = vec![
+        "commit-tree".to_string(),
+        current_tree.clone(),
+        "-m".to_string(),
+        message,
+    ];
+    if let Some(head) = &current_head {
+        args.push("-p".to_string());
+        args.push(head.clone());
+    }
+    let hash = utf8_output(run_checked(root, &args)?)?.trim().to_string();
+    let zero = "0".repeat(40);
+    let old = current_head.as_deref().unwrap_or(&zero);
     run_checked(
         root,
         &[
-            "commit".to_string(),
-            "--no-verify".to_string(),
-            "--quiet".to_string(),
+            "update-ref".to_string(),
             "-m".to_string(),
-            message,
+            "DeckMark commit".to_string(),
+            "HEAD".to_string(),
+            hash.clone(),
+            old.to_string(),
         ],
     )?;
-    let hash = utf8_output(run_checked(
-        root,
-        &["rev-parse".to_string(), "HEAD".to_string()],
-    )?)?;
-    Ok(GitCommitResult {
-        hash: hash.trim().to_string(),
-    })
+    if head_hash(root)?.as_deref() != Some(hash.as_str()) {
+        return Err(REVIEW_REQUIRED.to_string());
+    }
+    Ok(GitCommitResult { hash })
 }
 
 #[tauri::command]
@@ -912,11 +986,22 @@ pub async fn git_commit(
     projects: tauri::State<'_, ProjectStore>,
     root_id: String,
     message: String,
+    expected_tree: String,
+    expected_head: Option<String>,
+    expected_branch: Option<String>,
 ) -> Result<GitCommitResult, String> {
     let session = projects.authorize(&root_id)?;
-    tauri::async_runtime::spawn_blocking(move || commit_for_root(&session.path, &message))
-        .await
-        .map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        commit_for_root(
+            &session.path,
+            &message,
+            &expected_tree,
+            expected_head.as_deref(),
+            expected_branch.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]
@@ -969,6 +1054,22 @@ mod tests {
     fn commit_all(path: &Path, message: &str) {
         git(path, &["add", "-A"]);
         git(path, &["commit", "-q", "-m", message]);
+    }
+
+    fn confirmed_expectation(path: &Path) -> (String, Option<String>, Option<String>) {
+        let status = status_for_root(path).expect("read status for commit confirmation");
+        (
+            status
+                .staged_tree
+                .expect("staged tree for a self repository"),
+            status.head,
+            status.branch,
+        )
+    }
+
+    fn commit_confirmed(path: &Path, message: &str) -> Result<GitCommitResult, String> {
+        let (tree, head, branch) = confirmed_expectation(path);
+        commit_for_root(path, message, &tree, head.as_deref(), branch.as_deref())
     }
 
     fn file<'a>(status: &'a GitStatus, path: &str) -> &'a GitFile {
@@ -1048,13 +1149,206 @@ mod tests {
         let status = status_for_root(&repository.path).expect("read status");
         assert_eq!(file(&status, "note.md").index, 'A');
 
-        let result = commit_for_root(&repository.path, "Add note").expect("create commit");
+        let result = commit_confirmed(&repository.path, "Add note").expect("create commit");
         assert_eq!(result.hash.len(), 40);
         let status = status_for_root(&repository.path).expect("read status");
         assert!(status.clean);
         assert!(!status.dirty);
         let log = log_for_root(&repository.path, 5).expect("read log");
         assert_eq!(log[0].subject, "Add note");
+    }
+
+    fn head_tree(path: &Path) -> String {
+        utf8_output(
+            run_checked(path, &["rev-parse".to_string(), "HEAD^{tree}".to_string()])
+                .expect("read HEAD tree"),
+        )
+        .expect("decode HEAD tree")
+        .trim()
+        .to_string()
+    }
+
+    #[test]
+    fn commit_rejects_a_file_staged_after_confirmation() {
+        let repository = init_repository();
+        write(&repository.path, "safe.md", "safe\n");
+        commit_all(&repository.path, "Initial commit");
+        write(&repository.path, "safe.md", "reviewed\n");
+        stage_for_root(&repository.path, &["safe.md".to_string()]).expect("stage reviewed file");
+        let (tree, head, branch) = confirmed_expectation(&repository.path);
+        write(&repository.path, "private.md", "private\n");
+        stage_for_root(&repository.path, &["private.md".to_string()]).expect("stage extra file");
+
+        let error = commit_for_root(
+            &repository.path,
+            "Reviewed commit",
+            &tree,
+            head.as_deref(),
+            branch.as_deref(),
+        )
+        .expect_err("a later staged file must reject the commit");
+        assert!(error.contains("review required"), "{error}");
+        assert_eq!(
+            head_hash(&repository.path).expect("read head"),
+            head.clone(),
+            "the rejected commit must not move HEAD"
+        );
+        let private = run_git(
+            &repository.path,
+            &[
+                "cat-file".to_string(),
+                "-e".to_string(),
+                "HEAD:private.md".to_string(),
+            ],
+        )
+        .expect("inspect committed tree");
+        assert!(
+            !private.status.success(),
+            "the extra file reached the commit"
+        );
+        let status = status_for_root(&repository.path).expect("read status");
+        assert_eq!(file(&status, "private.md").index, 'A');
+        assert_eq!(file(&status, "safe.md").index, 'M');
+    }
+
+    #[test]
+    fn commit_rejects_a_restaged_file_with_the_same_count() {
+        let repository = init_repository();
+        write(&repository.path, "note.md", "one\n");
+        commit_all(&repository.path, "Initial commit");
+        write(&repository.path, "note.md", "two\n");
+        stage_for_root(&repository.path, &["note.md".to_string()]).expect("stage reviewed bytes");
+        let (tree, head, branch) = confirmed_expectation(&repository.path);
+        write(&repository.path, "note.md", "three\n");
+        stage_for_root(&repository.path, &["note.md".to_string()]).expect("stage later bytes");
+
+        let error = commit_for_root(
+            &repository.path,
+            "Reviewed commit",
+            &tree,
+            head.as_deref(),
+            branch.as_deref(),
+        )
+        .expect_err("later bytes must reject the commit");
+        assert!(error.contains("review required"), "{error}");
+        let committed = utf8_output(
+            run_checked(
+                &repository.path,
+                &["show".to_string(), "HEAD:note.md".to_string()],
+            )
+            .expect("read committed bytes"),
+        )
+        .expect("decode committed bytes");
+        assert_eq!(committed, "one\n");
+    }
+
+    #[test]
+    fn commit_rejects_a_head_changed_after_confirmation() {
+        let repository = init_repository();
+        write(&repository.path, "note.md", "one\n");
+        commit_all(&repository.path, "Initial commit");
+        write(&repository.path, "note.md", "two\n");
+        stage_for_root(&repository.path, &["note.md".to_string()]).expect("stage file");
+        let (tree, head, branch) = confirmed_expectation(&repository.path);
+        write(&repository.path, "outside.md", "outside\n");
+        let outside_tree = head_tree(&repository.path);
+        let outside_head = head_hash(&repository.path)
+            .expect("read head")
+            .expect("head exists");
+        let outside_commit = utf8_output(
+            run_checked(
+                &repository.path,
+                &[
+                    "commit-tree".to_string(),
+                    outside_tree,
+                    "-p".to_string(),
+                    outside_head.clone(),
+                    "-m".to_string(),
+                    "Outside commit".to_string(),
+                ],
+            )
+            .expect("create outside commit"),
+        )
+        .expect("decode outside commit")
+        .trim()
+        .to_string();
+        run_checked(
+            &repository.path,
+            &[
+                "update-ref".to_string(),
+                "HEAD".to_string(),
+                outside_commit.clone(),
+                outside_head,
+            ],
+        )
+        .expect("move HEAD without touching the index");
+
+        let error = commit_for_root(
+            &repository.path,
+            "Reviewed commit",
+            &tree,
+            head.as_deref(),
+            branch.as_deref(),
+        )
+        .expect_err("a moved HEAD must reject the commit");
+        assert!(error.contains("review required"), "{error}");
+        assert_eq!(
+            head_hash(&repository.path).expect("read head").as_deref(),
+            Some(outside_commit.as_str()),
+            "the rejected commit must not replace the outside commit"
+        );
+        let log = log_for_root(&repository.path, 5).expect("read log");
+        assert!(!log.iter().any(|commit| commit.subject == "Reviewed commit"));
+    }
+
+    #[test]
+    fn commit_rejects_a_branch_changed_after_confirmation() {
+        let repository = init_repository();
+        write(&repository.path, "note.md", "one\n");
+        commit_all(&repository.path, "Initial commit");
+        write(&repository.path, "note.md", "two\n");
+        stage_for_root(&repository.path, &["note.md".to_string()]).expect("stage file");
+        let (tree, head, branch) = confirmed_expectation(&repository.path);
+        git(&repository.path, &["checkout", "-q", "-b", "other"]);
+
+        let error = commit_for_root(
+            &repository.path,
+            "Reviewed commit",
+            &tree,
+            head.as_deref(),
+            branch.as_deref(),
+        )
+        .expect_err("a branch change must reject the commit");
+        assert!(error.contains("review required"), "{error}");
+        assert_eq!(
+            branch_name(&repository.path)
+                .expect("read branch")
+                .as_deref(),
+            Some("other")
+        );
+    }
+
+    #[test]
+    fn commit_creates_the_confirmed_tree_before_the_first_commit() {
+        let repository = init_repository();
+        write(&repository.path, "note.md", "first\n");
+        stage_for_root(&repository.path, &["note.md".to_string()]).expect("stage file");
+        let (tree, head, branch) = confirmed_expectation(&repository.path);
+        assert_eq!(head, None);
+        assert_eq!(branch.as_deref(), Some("main"));
+
+        let result = commit_for_root(
+            &repository.path,
+            "Initial commit",
+            &tree,
+            head.as_deref(),
+            branch.as_deref(),
+        )
+        .expect("create initial commit");
+        assert_eq!(head_tree(&repository.path), tree);
+        let status = status_for_root(&repository.path).expect("read status");
+        assert!(status.clean);
+        assert_eq!(result.hash.len(), 40);
     }
 
     #[test]
@@ -1189,7 +1483,7 @@ mod tests {
         );
         assert!(status.outside_changes == 0);
         assert!(stage_for_root(&child, &["page.md".to_string()]).is_err());
-        assert!(commit_for_root(&child, "Message").is_err());
+        assert!(commit_for_root(&child, "Message", "unused", None, None).is_err());
     }
 
     #[test]
@@ -1207,7 +1501,8 @@ mod tests {
         write(&repository.path, "note.md", "before\n");
         stage_for_root(&repository.path, &["note.md".to_string()])
             .expect("stage without LFS attributes");
-        commit_for_root(&repository.path, "Initial commit").expect("commit without LFS attributes");
+        commit_confirmed(&repository.path, "Initial commit")
+            .expect("commit without LFS attributes");
         assert!(
             status_for_root(&repository.path)
                 .expect("clean status")
@@ -1409,7 +1704,10 @@ mod tests {
                     "status" => status_for_root(&repository.path).map(|_| ()),
                     "diff" => diff_for_root(&repository.path, Some("note.md"), false).map(|_| ()),
                     "unstage" => unstage_for_root(&repository.path, &["note.md".to_string()]),
-                    "commit" => commit_for_root(&repository.path, "Blocked commit").map(|_| ()),
+                    "commit" => {
+                        commit_for_root(&repository.path, "Blocked commit", "unused", None, None)
+                            .map(|_| ())
+                    }
                     _ => unreachable!(),
                 };
                 assert!(!marker.exists(), "{operation} executed the {driver} filter");
@@ -1596,6 +1894,6 @@ mod tests {
         assert_eq!(status.conflicts, vec!["note.md"]);
         let entry = file(&status, "note.md");
         assert!(entry.conflicted);
-        assert!(commit_for_root(&repository.path, "Merge").is_err());
+        assert!(commit_for_root(&repository.path, "Merge", "unused", None, None).is_err());
     }
 }

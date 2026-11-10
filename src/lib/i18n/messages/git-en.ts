@@ -51,6 +51,8 @@ export const gitEn = {
 	'git.commit.empty': 'Enter a commit message.',
 	'git.commit.tooLong': 'Use 2000 characters or fewer.',
 	'git.commit.noStaged': 'Stage at least one file before you commit.',
+	'git.commit.reviewRequired':
+		'The staged index or repository changed after you reviewed it. Review the refreshed status and confirm again.',
 	'git.commit.done': 'Commit created: {hash}',
 	'git.log': 'Recent commits',
 	'git.log.empty': 'No commits.',

@@ -23,6 +23,8 @@ export interface GitStatusSnapshot {
 	head: string | null;
 	detached: boolean;
 	initial: boolean;
+	/** Tree object written from the exact index shown to the user. */
+	stagedTree: string | null;
 	clean: boolean;
 	dirty: boolean;
 	conflicts: string[];
@@ -42,6 +44,19 @@ export interface GitCommitEntry {
 
 export interface GitCommitResult {
 	hash: string;
+}
+
+export interface GitCommitReview {
+	/** Index tree captured with the status the user reviewed. */
+	tree: string;
+	head: string | null;
+	branch: string | null;
+}
+
+export const GIT_REVIEW_REQUIRED = 'DeckMark review required';
+
+export function isGitReviewRequired(error: unknown): boolean {
+	return String(error).includes(GIT_REVIEW_REQUIRED);
 }
 
 function ensureDesktopEdition(): void {
@@ -76,6 +91,16 @@ export function gitUnstage(rootId: string, paths: string[]): Promise<void> {
 	return invokeGit<void>('git_unstage', { rootId, paths });
 }
 
-export function gitCommit(rootId: string, message: string): Promise<GitCommitResult> {
-	return invokeGit<GitCommitResult>('git_commit', { rootId, message });
+export function gitCommit(
+	rootId: string,
+	message: string,
+	review: GitCommitReview
+): Promise<GitCommitResult> {
+	return invokeGit<GitCommitResult>('git_commit', {
+		rootId,
+		message,
+		expectedTree: review.tree,
+		expectedHead: review.head,
+		expectedBranch: review.branch
+	});
 }
