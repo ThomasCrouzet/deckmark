@@ -37,8 +37,8 @@ export interface RenderOptions {
 	fileId?: string;
 	/** Null means the captured file has no project, even before its draft save. */
 	projectContext?: import('../project-media').ProjectContext | null;
-	/** Receives the parsed HTML before costly diagrams are ready. */
-	onPartialHtml?: (html: string) => void;
+	/** Receives sanitized HTML before costly diagrams are ready. */
+	onPartialHtml?: (html: string) => void | Promise<void>;
 	/** Mermaid theme: `default` (light) for PDF, `dark` for the app preview. */
 	mermaidTheme?: MermaidTheme;
 	/**
@@ -109,7 +109,10 @@ function instanceSvg(svg: string, namespace: string): string {
 	return template.innerHTML;
 }
 
-const inFlightDiagrams = new Map<string, Promise<string>>();
+const inFlightDiagrams = new Map<
+	string,
+	{ promise: Promise<string>; controller: AbortController; waiters: number }
+>();
 
 async function renderMermaidDiagram(
 	code: string,
@@ -126,20 +129,34 @@ async function renderMermaidDiagram(
 		const key = JSON.stringify([code, theme]);
 		let svg = diagramCache.get(key);
 		if (svg === undefined) {
-			let pending = inFlightDiagrams.get(key);
-			if (!pending) {
-				pending = renderMermaidSvg(
+			let entry = inFlightDiagrams.get(key);
+			if (!entry) {
+				const controller = new AbortController();
+				const promise = renderMermaidSvg(
 					createRenderInstanceId(),
 					code,
 					theme,
-					undefined,
+					controller.signal,
 					priority
 				).finally(() => {
-					inFlightDiagrams.delete(key);
+					if (inFlightDiagrams.get(key)?.promise === promise) inFlightDiagrams.delete(key);
 				});
-				inFlightDiagrams.set(key, pending);
+				// A departing waiter must not surface an unhandled rejection.
+				promise.catch(() => {});
+				entry = { promise, controller, waiters: 0 };
+				inFlightDiagrams.set(key, entry);
 			}
-			svg = await abortable(pending, signal);
+			entry.waiters++;
+			try {
+				svg = await abortable(entry.promise, signal);
+			} finally {
+				entry.waiters--;
+				// Cancel shared work only after every interested render has left.
+				if (entry.waiters === 0) {
+					entry.controller.abort();
+					if (inFlightDiagrams.get(key) === entry) inFlightDiagrams.delete(key);
+				}
+			}
 			checkAborted(signal);
 			diagramCache.set(key, svg);
 		}
@@ -304,7 +321,17 @@ async function renderMarkdownCore(
 	checkAborted(signal);
 	for (const stage of parsed.stages) recordRenderStage(stage, opts.fileId);
 	let html = applyImageMetadataToHtml(parsed.source, parsed.html);
-	opts.onPartialHtml?.(html);
+	if (opts.onPartialHtml) {
+		// Sanitize and neutralize remote sources before the partial mount. Raw
+		// marked output must never reach the DOM, and remote paints must not
+		// start requests. Do not pay this second pass when no consumer asks.
+		const partial = applyRemoteImagePolicy(
+			await abortable(sanitizeHtml(html, MARKDOWN_PURIFY), signal),
+			opts.allowRemoteImages === true
+		);
+		checkAborted(signal);
+		await opts.onPartialHtml(partial);
+	}
 	const namespace =
 		opts.instanceId && /^mdsh-render-\d+$/.test(opts.instanceId)
 			? opts.instanceId

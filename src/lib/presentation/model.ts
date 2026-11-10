@@ -285,7 +285,8 @@ function validateSlide(
 function validateDeck(
 	value: unknown,
 	allowFrontmatter: boolean,
-	cache?: PresentationSerializeCache
+	cache?: PresentationSerializeCache,
+	dirty?: ReadonlySet<string>
 ): PresentationDeck {
 	if (!isRecord(value)) fail('Presentation metadata must be an object.');
 	const keys = ['version', 'width', 'height', 'theme', 'slides'];
@@ -301,22 +302,36 @@ function validateDeck(
 	if (value.slides.length === 0) fail('presentation.slides must contain one slide.');
 	if (value.slides.length > MAX_SLIDES) fail('presentation.slides has too many slides.');
 	const incremental = cache !== undefined && cache.width === width && cache.height === height;
+	const scoped =
+		incremental && dirty !== undefined && cache?.theme === theme && cache.slides.size > 0;
 	const slides = value.slides.map((slide, index) => {
 		const path = `presentation.slides[${index}]`;
-		if (!incremental || !isRecord(slide)) return validateSlide(slide, path, width, height);
-		const rawFingerprint = JSON.stringify(slide);
+		if (!isRecord(slide)) return validateSlide(slide, path, width, height);
 		const id = readId(slide.id, `${path}.id`);
-		const cached = cache.slides.get(id);
-		if (cached?.rawFingerprint === rawFingerprint) return cached.slide;
+		const cached = cache?.slides.get(id);
+		if (incremental && scoped && dirty !== undefined && !dirty.has(id) && cached) {
+			recordEditorCounter('presentation.slide.reuse');
+			return cached.slide;
+		}
+		const rawFingerprint = JSON.stringify(slide);
+		if (incremental && cached?.rawFingerprint === rawFingerprint) {
+			recordEditorCounter('presentation.slide.reuse');
+			return cached.slide;
+		}
 		const validated = validateSlide(slide, path, width, height);
-		cache.slides.set(id, {
-			rawFingerprint,
-			sourceFingerprint: '',
-			source: '',
-			slide: validated,
-			width,
-			height
-		});
+		if (cache) {
+			recordEditorCounter('presentation.slide.validate');
+			cache.slides.set(id, {
+				rawFingerprint,
+				sourceFingerprint: '',
+				source: '',
+				metadata: '',
+				slide: validated,
+				width,
+				height,
+				theme
+			});
+		}
 		return validated;
 	});
 	const slideIds = new Set<string>();
@@ -345,6 +360,7 @@ function validateDeck(
 	if (cache) {
 		cache.width = width;
 		cache.height = height;
+		cache.theme = theme;
 	}
 	return result;
 }
@@ -1000,27 +1016,45 @@ export interface PresentationSerializeCache {
 			rawFingerprint: string;
 			sourceFingerprint: string;
 			source: string;
+			metadata: string;
 			slide: PresentationSlide;
 			width: number;
 			height: number;
+			theme: string;
 		}
 	>;
 	width?: number;
 	height?: number;
+	theme?: string;
 }
 
 export function createPresentationSerializeCache(): PresentationSerializeCache {
 	return { slides: new Map() };
 }
 
+/** Fills the cache once so the next localized edit can reuse unaffected slides. */
+export function primePresentationSerializeCache(
+	deck: PresentationDeck,
+	cache: PresentationSerializeCache
+): void {
+	const { original: _original, originalFingerprint: _fingerprint, ...candidate } = deck;
+	void _original;
+	void _fingerprint;
+	serializePresentationCached(candidate, cache);
+}
+
 export function serializePresentation(input: PresentationDeck): string {
 	return serializePresentationCached(input, createPresentationSerializeCache());
 }
 
-/** Reuses unchanged slide source blocks across one editor session. */
+/**
+ * Reuses unchanged slide source and metadata blocks across one editor session.
+ * `dirty` lists the slides the caller changed. Omit it for a complete check.
+ */
 export function serializePresentationCached(
 	input: PresentationDeck,
-	cache: PresentationSerializeCache
+	cache: PresentationSerializeCache,
+	dirty?: ReadonlySet<string>
 ): string {
 	recordEditorCounter('presentation.serialize');
 	if (input.original !== undefined && input.originalFingerprint === deckFingerprint(input)) {
@@ -1029,39 +1063,62 @@ export function serializePresentationCached(
 	const { original: _original, originalFingerprint: _fingerprint, ...candidate } = input;
 	void _original;
 	void _fingerprint;
-	const deck = validateDeck(candidate, true, cache);
+	const deck = validateDeck(candidate, true, cache, dirty);
+	const scoped =
+		dirty !== undefined &&
+		cache.width === deck.width &&
+		cache.height === deck.height &&
+		cache.theme === deck.theme;
 	const body = deck.slides
 		.map((slide) => {
-			const sourceFingerprint = JSON.stringify(slide);
 			const cached = cache.slides.get(slide.id);
-			if (cached?.sourceFingerprint === sourceFingerprint && cached.source) return cached.source;
+			if (scoped && cached?.source && !dirty.has(slide.id)) {
+				recordEditorCounter('presentation.slide.source.reuse');
+				return cached.source;
+			}
+			const sourceFingerprint = JSON.stringify(slide);
+			if (cached?.sourceFingerprint === sourceFingerprint && cached.source) {
+				recordEditorCounter('presentation.slide.source.reuse');
+				return cached.source;
+			}
 			const source = serializeSlideSource(slide);
+			recordEditorCounter('presentation.slide.source.serialize');
 			cache.slides.set(slide.id, {
 				rawFingerprint: cached?.rawFingerprint ?? sourceFingerprint,
 				sourceFingerprint,
 				source,
+				metadata: cached?.metadata ?? '',
 				slide,
 				width: deck.width,
-				height: deck.height
+				height: deck.height,
+				theme: deck.theme
 			});
 			return source;
 		})
 		.join('\n\n---\n\n');
 	const live = new Set(deck.slides.map((slide) => slide.id));
 	for (const id of cache.slides.keys()) if (!live.has(id)) cache.slides.delete(id);
-	const slides = deck.slides.map((slide) => ({
-		...slide,
-		elements: slide.elements.map((element) =>
-			SOURCE_ELEMENT_TYPES.has(element.type) ? { ...element, content: '' } : element
-		)
-	}));
-	const metadata = JSON.stringify({
-		version: deck.version,
-		width: deck.width,
-		height: deck.height,
-		theme: deck.theme,
-		slides
-	}).replace(/[<>]/g, (character) => (character === '<' ? '\\u003c' : '\\u003e'));
+	const metadataSlides = deck.slides.map((slide) => {
+		const cached = cache.slides.get(slide.id);
+		if (scoped && cached?.metadata && !dirty.has(slide.id)) {
+			recordEditorCounter('presentation.metadata.reuse');
+			return cached.metadata;
+		}
+		const stripped = {
+			...slide,
+			elements: slide.elements.map((element) =>
+				SOURCE_ELEMENT_TYPES.has(element.type) ? { ...element, content: '' } : element
+			)
+		};
+		const fragment = JSON.stringify(stripped).replace(/[<>]/g, (character) =>
+			character === '<' ? '\\u003c' : '\\u003e'
+		);
+		const entry = cache.slides.get(slide.id);
+		if (entry) entry.metadata = fragment;
+		recordEditorCounter('presentation.metadata.serialize');
+		return fragment;
+	});
+	const metadata = `{"version":${JSON.stringify(deck.version)},"width":${JSON.stringify(deck.width)},"height":${JSON.stringify(deck.height)},"theme":${JSON.stringify(deck.theme)},"slides":[${metadataSlides.join(',')}]}`;
 	let result = deck.frontmatter ?? '';
 	if (result && result !== '\uFEFF' && !result.endsWith('\n')) result += '\n';
 	result += body;

@@ -8,17 +8,25 @@
 	"stress": {
 		"version": 1,
 		"minimumRuns": 20,
-		"description": "Separate cross-mode profiles. No stress budget is calibrated or reviewed yet. Report-only is not a strict pass. Existing platform metrics below do not change.",
+		"description": "Separate cross-mode profiles. The Web Light Chromium source, Code, JSON and Split 1 MB cases carry reviewed local limits from a 20-run production build. Other modes, other browsers and all native profiles remain report-only. Report-only is not a strict pass. Existing platform metrics below do not change.",
 		"profiles": {
 			"web-light-chromium-production": {
 				"target": "web",
 				"edition": "web",
 				"renderer": "chromium",
 				"buildMode": "production-static",
-				"role": "report-only",
-				"review": null,
-				"limits": {},
-				"resourceLimits": null
+				"role": "blocking",
+				"review": "Calibrated on 2026-11-10 from a clean eda7dea production build, 20 runs each for source/markdown-1mb/lib-0, code/code-1mb/lib-0, json/json-1mb/lib-0 and split/markdown-1mb/lib-0. The highest observed p95 was 39.5 ms input-to-frame, 0.1 ms dispatch and 578.1 ms save including the 400 ms product delay. Limits keep about 50 percent headroom. Parent review is required before merge.",
+				"limits": {
+					"inputToFrameMs": 60,
+					"inputDispatchMs": 5,
+					"saveObservedMs": 1200
+				},
+				"resourceLimits": {
+					"domNodes": 200000,
+					"canvasPixels": 0,
+					"heapBytes": 134217728
+				}
 			},
 			"web-light-firefox-production": {
 				"target": "web",
@@ -813,6 +821,53 @@
 					"minimumRuns": 3,
 					"note": "Process-tree RSS. The gate uses the median; the p95 and maximum stay in the report."
 				}
+			}
+		}
+	},
+	"modes": {
+		"version": 1,
+		"minimumRuns": 20,
+		"description": "Read and slide mode profiles. The Chromium profile is calibrated from a local 20-run production build; Firefox and WebKit remain report-only. Report-only is not a strict pass.",
+		"profiles": {
+			"web-light-chromium-production": {
+				"target": "web",
+				"edition": "web",
+				"renderer": "chromium",
+				"buildMode": "production-static",
+				"role": "blocking",
+				"review": "Calibrated on 2026-11-10 from a clean 20-run Chromium production run of read/read-rich-30/lib-0, slide-text/deck-20/lib-0 and slide-notes/deck-20/lib-0. Read samples reload before each render; slide samples reload between saves. Limits keep at least 50 percent headroom above the observed p95. Parent review is required before merge.",
+				"limits": {
+					"readFirstContentMs": 400,
+					"readFullRenderMs": 2500,
+					"slideInputToFrameMs": 60,
+					"slideInputDispatchMs": 5,
+					"slideSaveObservedMs": 2000
+				},
+				"resourceLimits": {
+					"domNodes": 10000,
+					"canvasPixels": 0,
+					"heapBytes": 134217728
+				}
+			},
+			"web-light-firefox-production": {
+				"target": "web",
+				"edition": "web",
+				"renderer": "firefox",
+				"buildMode": "production-static",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"web-light-webkit-production": {
+				"target": "web",
+				"edition": "web",
+				"renderer": "webkit",
+				"buildMode": "production-static",
+				"role": "report-only",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
 			}
 		}
 	}

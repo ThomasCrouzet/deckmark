@@ -477,7 +477,14 @@ async function measureReadMode(page, runs) {
 		await domClick(page, 'button[data-mode="read"]');
 		await page.locator('.mdsh-read .mdsh-preview').waitFor({ state: 'visible', timeout: 60_000 });
 		await page.waitForFunction(
-			() => (document.querySelector('.mdsh-preview')?.textContent?.length ?? 0) > 100_000,
+			() => {
+				const preview = document.querySelector('.mdsh-preview');
+				return (
+					!!preview &&
+					preview.getAttribute('aria-busy') === 'false' &&
+					(preview.textContent?.length ?? 0) > 100_000
+				);
+			},
 			undefined,
 			{ timeout: 60_000 }
 		);
@@ -749,7 +756,14 @@ async function runWebBenchmark(options, fixtures) {
 		await domClick(page, 'button[data-mode="read"]');
 		await page.locator('.mdsh-read .mdsh-preview').waitFor({ state: 'visible', timeout: 60_000 });
 		await page.waitForFunction(
-			() => (document.querySelector('.mdsh-preview')?.textContent?.length ?? 0) > 100_000,
+			() => {
+				const preview = document.querySelector('.mdsh-preview');
+				return (
+					!!preview &&
+					preview.getAttribute('aria-busy') === 'false' &&
+					(preview.textContent?.length ?? 0) > 100_000
+				);
+			},
 			undefined,
 			{ timeout: 60_000 }
 		);

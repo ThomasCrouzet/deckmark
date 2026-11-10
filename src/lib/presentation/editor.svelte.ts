@@ -6,6 +6,7 @@ import {
 	parsePresentation,
 	serializePresentation,
 	serializePresentationCached,
+	primePresentationSerializeCache,
 	createPresentationSerializeCache,
 	type PresentationDeck,
 	type PresentationElement,
@@ -41,6 +42,8 @@ export class PresentationEditor {
 	private operationSource: string | null = null;
 	private operationElements: Array<{ slideId: string; element: PresentationElement }> | null = null;
 	private serializeCache = createPresentationSerializeCache();
+	private dirtySlides = new SvelteSet<string>();
+	private dirtyDeck = true;
 	private operationChanged = false;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
 	private maximumTimer: ReturnType<typeof setTimeout> | undefined;
@@ -81,6 +84,15 @@ export class PresentationEditor {
 			this.operationSource = null;
 			this.operationElements = null;
 			this.operationChanged = false;
+			this.serializeCache = createPresentationSerializeCache();
+			this.dirtySlides.clear();
+			this.dirtyDeck = true;
+			try {
+				primePresentationSerializeCache(this.deck, this.serializeCache);
+				this.dirtyDeck = false;
+			} catch {
+				// Keep the conservative full path. The next publish reports a real error.
+			}
 		} catch {
 			this.error = true;
 		}
@@ -103,7 +115,21 @@ export class PresentationEditor {
 				.filter((element) => this.selectedSet.has(element.id))
 				.map((element) => ({ slideId: this.slide.id, element: { ...element } }));
 			this.operationChanged = false;
+			this.markSlideDirty();
 		}
+	}
+
+	private markSlideDirty() {
+		this.dirtySlides.add(this.slide.id);
+	}
+
+	private markDeckDirty() {
+		this.dirtyDeck = true;
+		this.dirtySlides.clear();
+	}
+
+	private dirtyScope(): ReadonlySet<string> | undefined {
+		return this.dirtyDeck ? undefined : this.dirtySlides;
 	}
 
 	/**
@@ -127,7 +153,7 @@ export class PresentationEditor {
 		if (!defer) {
 			let source: string;
 			try {
-				source = serializePresentationCached(this.deck, this.serializeCache);
+				source = serializePresentationCached(this.deck, this.serializeCache, this.dirtyScope());
 			} catch (error) {
 				return this.failed(error);
 			}
@@ -147,6 +173,7 @@ export class PresentationEditor {
 
 	markChanged() {
 		this.operationChanged = true;
+		this.markSlideDirty();
 		this.revision++;
 		this.pending = true;
 		if (this.idleTimer !== undefined) clearTimeout(this.idleTimer);
@@ -176,11 +203,14 @@ export class PresentationEditor {
 	publish(source?: string): boolean {
 		this.stopTimers();
 		try {
-			const snapshot = source ?? serializePresentationCached(this.deck, this.serializeCache);
+			const snapshot =
+				source ?? serializePresentationCached(this.deck, this.serializeCache, this.dirtyScope());
 			if (snapshot !== this.source) this.write(snapshot, this.source);
 			this.source = snapshot;
 			this.pending = false;
 			this.saveError = false;
+			this.dirtySlides.clear();
+			this.dirtyDeck = false;
 			return true;
 		} catch (error) {
 			return this.failed(error);
@@ -197,14 +227,20 @@ export class PresentationEditor {
 				if (index >= 0) slide.elements[index] = element;
 				else slide.elements.push(element);
 			}
-		} else this.deck = parsePresentation(this.operationStart);
+			this.markSlideDirty();
+		} else {
+			this.deck = parsePresentation(this.operationStart);
+			this.markDeckDirty();
+		}
 		this.operationStart = null;
 		this.operationSource = null;
 		this.operationElements = null;
 	}
 
-	change(operation: () => void) {
+	change(operation: () => void, scope: 'slide' | 'deck' = 'slide') {
 		if (this.error) return;
+		if (scope === 'deck') this.markDeckDirty();
+		else this.markSlideDirty();
 		this.begin();
 		operation();
 		this.operationChanged = true;
@@ -221,9 +257,13 @@ export class PresentationEditor {
 		];
 		this.undoEntries = this.undoEntries.slice(0, -1);
 		this.deck = parsePresentation(previous);
+		this.serializeCache = createPresentationSerializeCache();
 		this.index = Math.min(this.index, this.deck.slides.length - 1);
 		this.selected = [];
 		this.publish(previous);
+		// The parsed undo deck is not in the cache. Force the next edit to
+		// validate the complete deck instead of reusing pre-undo fragments.
+		this.markDeckDirty();
 	}
 
 	redo() {
@@ -236,9 +276,11 @@ export class PresentationEditor {
 		];
 		this.redoEntries = this.redoEntries.slice(0, -1);
 		this.deck = parsePresentation(next);
+		this.serializeCache = createPresentationSerializeCache();
 		this.index = Math.min(this.index, this.deck.slides.length - 1);
 		this.selected = [];
 		this.publish(next);
+		this.markDeckDirty();
 	}
 
 	select(id: string, extend = false) {
@@ -269,7 +311,7 @@ export class PresentationEditor {
 				createSlide({ background: this.slide.background })
 			);
 			this.selectSlide(this.index + 1);
-		});
+		}, 'deck');
 	}
 
 	duplicateSlide() {
@@ -279,7 +321,7 @@ export class PresentationEditor {
 			slide.elements = this.cloneElements(slide.elements, false);
 			this.deck.slides.splice(this.index + 1, 0, slide);
 			this.selectSlide(this.index + 1);
-		});
+		}, 'deck');
 	}
 
 	deleteSlide() {
@@ -287,7 +329,7 @@ export class PresentationEditor {
 			this.deck.slides.splice(this.index, 1);
 			if (!this.deck.slides.length) this.deck.slides.push(createSlide());
 			this.selectSlide(Math.min(this.index, this.deck.slides.length - 1));
-		});
+		}, 'deck');
 	}
 
 	moveSlide(from: number, to: number) {
@@ -296,7 +338,7 @@ export class PresentationEditor {
 			const [slide] = this.deck.slides.splice(from, 1);
 			if (slide) this.deck.slides.splice(to, 0, slide);
 			this.selectSlide(to);
-		});
+		}, 'deck');
 	}
 
 	add(type: PresentationElementType, content = '') {
@@ -600,6 +642,6 @@ export class PresentationEditor {
 					element.width *= ratioX;
 					element.height *= ratioY;
 				}
-		});
+		}, 'deck');
 	}
 }

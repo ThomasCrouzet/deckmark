@@ -163,6 +163,64 @@ for (const slideCount of [100, 300]) {
 	}
 }
 
+test('updates one property in a 1000-slide deck without full slide validation', async ({
+	page
+}, info) => {
+	test.skip(info.project.name !== 'chromium', 'Counter evidence uses the Chromium test build.');
+	test.setTimeout(120_000);
+	await resetEnglishApp(page);
+	const fixture = presentationFixture(
+		Array.from({ length: 1000 }, (_, index) => `# Slide ${index + 1}\n\nStable text.`)
+	);
+	await importMarkdown(page, fixture);
+	const editor = await waitForPresentation(page);
+	await editor.getByTestId('slide-object-list-item').first().click();
+	await expect(editor.getByTestId('slide-prop-x')).toBeVisible();
+	const counts = await page.evaluate(() => {
+		const collected: Record<string, number> = {};
+		window.addEventListener('deckmark:editor-perf', (event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+			if (detail.kind === 'counter') collected[detail.name] = (collected[detail.name] ?? 0) + 1;
+		});
+		(window as { __MDSH_COUNTS__?: Record<string, number> }).__MDSH_COUNTS__ = collected;
+		return true;
+	});
+	expect(counts).toBe(true);
+	await editor.getByTestId('slide-prop-x').fill('120');
+	await editor.getByTestId('slide-prop-x').press('Tab');
+	await expect(editor.locator('.save-state')).toHaveText('saved');
+	const measured = await page.evaluate(
+		() => (window as { __MDSH_COUNTS__?: Record<string, number> }).__MDSH_COUNTS__ ?? {}
+	);
+	await openPresentationSource(editor);
+	const source = await editor.getByTestId('slide-source-editor').inputValue();
+	const metadata = source.match(/<!-- mdsh-presentation\n([\s\S]*?)\n-->\s*$/);
+	if (!metadata) throw new Error('Presentation metadata is missing after the property edit.');
+	const parsed = JSON.parse(metadata[1]) as {
+		slides: Array<{ id: string; elements: Array<{ x: number }> }>;
+	};
+	await info.attach('single-property-counters.json', {
+		body: JSON.stringify(
+			{
+				slides: 1000,
+				fixtureSha256: createHash('sha256').update(fixture).digest('hex'),
+				counts: measured,
+				browser: await page.context().browser()!.version(),
+				method: 'One inspector x change through the real input event and save state.'
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	expect(parsed.slides).toHaveLength(1000);
+	expect(parsed.slides[0]!.elements[0]!.x).toBe(120);
+	expect(parsed.slides[1]!.elements[0]!.x).toBe(80);
+	expect(measured['presentation.slide.validate'] ?? 0).toBeLessThanOrEqual(2);
+	expect(measured['presentation.slide.source.reuse'] ?? 0).toBeGreaterThanOrEqual(997);
+	expect(measured['presentation.metadata.reuse'] ?? 0).toBeGreaterThanOrEqual(997);
+});
+
 test('keeps a representative 20-slide deck responsive during a real drag', async ({
 	page
 }, testInfo) => {

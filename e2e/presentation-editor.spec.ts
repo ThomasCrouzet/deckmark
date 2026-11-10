@@ -224,8 +224,14 @@ test('retains input and rejects a stale backup when presentation serialization f
 			JSON.stringify = stringify;
 		};
 		JSON.stringify = ((value: unknown, ...args: unknown[]) => {
-			if (value && typeof value === 'object' && 'slides' in value)
-				throw new Error('Injected presentation serialization failure');
+			const deckLike = value && typeof value === 'object' && 'slides' in value;
+			const slideLike =
+				value &&
+				typeof value === 'object' &&
+				'id' in value &&
+				'notes' in value &&
+				'elements' in value;
+			if (deckLike || slideLike) throw new Error('Injected presentation serialization failure');
 			return Reflect.apply(stringify, JSON, [value, ...args]);
 		}) as typeof JSON.stringify;
 	});
@@ -919,6 +925,32 @@ test('aligns and distributes a negative line without losing its geometry', async
 		),
 		contentType: 'application/json'
 	});
+});
+
+test('keeps an undone slide unchanged while editing another slide', async ({ page }) => {
+	await importMarkdown(page, presentationFixture(['# First original', '# Second original']));
+	const editor = await waitForPresentation(page);
+	await expectSaved(editor);
+	const first = objects(editor, 'text').first();
+	await first.dblclick();
+	await editor.getByTestId('slide-text-editor').fill('# First changed');
+	await editor.getByTestId('slide-text-done').click();
+	await expectSaved(editor);
+	await editor.getByTestId('slide-undo').click();
+	await expect(await renderedObject(editor, first)).toContainText('First original');
+
+	await editor.getByTestId('slide-thumbnail').nth(1).click();
+	const second = objects(editor, 'text').first();
+	await second.dblclick();
+	await editor.getByTestId('slide-text-editor').fill('# Second changed');
+	await editor.getByTestId('slide-text-done').click();
+	await expectSaved(editor);
+
+	await openPresentationSource(editor);
+	const source = await editor.getByTestId('slide-source-editor').inputValue();
+	expect(source).toContain('# First original');
+	expect(source).not.toContain('# First changed');
+	expect(source).toContain('# Second changed');
 });
 
 test('commits text once before applying the redo button', async ({ page }, testInfo) => {

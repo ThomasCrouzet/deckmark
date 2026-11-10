@@ -22,7 +22,7 @@ export const requiredStressMetrics = ['inputToFrameMs', 'inputDispatchMs', 'save
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value) => typeof value === 'string' && value.trim().length > 0;
 
-function sourceFailures(report, profile, fail) {
+export function sourceFailures(report, profile, fail) {
 	const source = report.source ?? {};
 	for (const field of ['revision', 'tree'])
 		if (!isDigest(source[field], 40)) fail(`source:invalid-${field}`);
@@ -91,7 +91,7 @@ function sourceFailures(report, profile, fail) {
 		fail('provenance:builder-mismatch');
 }
 
-function trustFailures(report, trust, fail) {
+export function trustFailures(report, trust, fail) {
 	for (const error of trust.errors ?? []) fail(error);
 	const receipt = trust.receipt;
 	if (!object(receipt)) {
@@ -122,7 +122,7 @@ function trustFailures(report, trust, fail) {
 	return receipt;
 }
 
-async function sidecar(descriptor, expected, receipt, label, fail) {
+export async function sidecar(descriptor, expected, receipt, label, fail) {
 	if (
 		!object(descriptor) ||
 		typeof descriptor.path !== 'string' ||

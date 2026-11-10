@@ -886,6 +886,32 @@ test('rejects an injected raw latency regression instead of trusting a forged su
 	assert.match(run.stdout, /over-budget/);
 });
 
+test('enforces the configured Chromium stress profile against a raw tail increase', () => {
+	const configured = JSON.parse(readFileSync(join(root, 'scripts/benchmark-budgets.json'), 'utf8'))
+		.stress.profiles[profile];
+	const run = audit(({ budgets, report, receipt }) => {
+		budgets.stress.profiles[profile] = configured;
+		report.evidenceKind = 'browser-run';
+		receipt.evidenceKind = 'browser-run';
+		for (const sample of report.cases[0].samples)
+			sample.metrics.inputToFrameMs = configured.limits.inputToFrameMs + 1;
+	});
+	assert.equal(run.status, 1, run.stderr + run.stdout);
+	assert.match(run.stdout, /inputToFrameMs:over-budget/);
+});
+
+test('accepts the configured Chromium stress profile within its limits', () => {
+	const configured = JSON.parse(readFileSync(join(root, 'scripts/benchmark-budgets.json'), 'utf8'))
+		.stress.profiles[profile];
+	const run = audit(({ budgets, report, receipt }) => {
+		budgets.stress.profiles[profile] = configured;
+		report.evidenceKind = 'browser-run';
+		receipt.evidenceKind = 'browser-run';
+	});
+	assert.equal(run.status, 0, run.stderr + run.stdout);
+	assert.equal(JSON.parse(run.stdout).status, 'ok');
+});
+
 test('report-only mode discloses low counts and does not claim a strict pass', () => {
 	const run = audit(
 		({ report }) => {

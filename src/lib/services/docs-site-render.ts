@@ -362,7 +362,8 @@ export async function renderDocsSite(
 			headingPermalinks: true,
 			allowRemoteImages: true,
 			preserveLocalImages: true,
-			mermaidTheme: 'default'
+			mermaidTheme: 'default',
+			...(options.signal ? { signal: options.signal } : {})
 		});
 		checkAborted(options.signal);
 		const article = buildArticle(plan, page, rendered, plannedAnchors);

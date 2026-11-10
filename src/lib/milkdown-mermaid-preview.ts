@@ -42,6 +42,7 @@ function makeToken(language: string, content: string): string {
  */
 type ApplyPreview = (value: null | string | HTMLElement) => void;
 const lastTokens = new WeakMap<ApplyPreview, string>();
+const previewControllers = new WeakMap<ApplyPreview, AbortController>();
 
 export function renderMermaidPreview(
 	language: string,
@@ -56,8 +57,12 @@ export function renderMermaidPreview(
 
 	const token = makeToken(language, content) + document.documentElement.getAttribute('data-theme');
 	lastTokens.set(applyPreview, token);
+	// Cancel the previous preview for this block before it starts SVG work.
+	previewControllers.get(applyPreview)?.abort();
+	const controller = new AbortController();
+	previewControllers.set(applyPreview, controller);
 
-	void renderToSvg(trimmed)
+	void renderToSvg(trimmed, controller.signal)
 		.then((html) => {
 			// Stale render (typing in progress on THIS block): discard it to
 			// avoid replacing a more recent render with an older one.
@@ -65,7 +70,7 @@ export function renderMermaidPreview(
 			applyPreview(html);
 		})
 		.catch((err: unknown) => {
-			if (lastTokens.get(applyPreview) !== token) return;
+			if (controller.signal.aborted || lastTokens.get(applyPreview) !== token) return;
 			const msg = err instanceof Error ? err.message : String(err);
 			applyPreview(buildErrorBlock(msg, trimmed));
 		});
@@ -78,16 +83,18 @@ export function renderMermaidPreview(
 /** Re-export so tests drive the same function the preview uses. */
 export { sanitizeMermaidPreviewHtml as sanitizePreviewHtml } from './render/sanitize-html';
 
-async function renderToSvg(code: string): Promise<string> {
+async function renderToSvg(code: string, signal: AbortSignal): Promise<string> {
 	try {
 		const id = `mdsh-wysiwyg-mermaid-${++counter}`;
 		const theme = mermaidThemeFromDataTheme(document.documentElement.getAttribute('data-theme'));
-		const svg = await renderMermaidSvg(id, code, theme);
+		const svg = await renderMermaidSvg(id, code, theme, signal);
+		if (signal.aborted) throw new DOMException('Operation cancelled', 'AbortError');
 		// We wrap the SVG in a container so we can style it and ensure an
 		// auto overflow on wide diagrams.
 		const wrapped = `<div class="mdsh-mermaid-svg">${svg}</div>`;
 		return await sanitizeMermaidPreviewHtml(wrapped);
 	} catch (err) {
+		if (signal.aborted) throw err;
 		const msg = err instanceof Error ? err.message : String(err);
 		return buildErrorBlock(msg, code);
 	}

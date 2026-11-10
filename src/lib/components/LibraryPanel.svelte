@@ -10,10 +10,18 @@
 	import Toasts from './Toasts.svelte';
 	import FileStatusBadge from './FileStatusBadge.svelte';
 	let { onClose }: { onClose: () => void } = $props();
+	let root: HTMLDivElement | undefined = $state();
 	let input: HTMLInputElement | undefined = $state();
 	let query = $state('');
 	let scope = $state('all');
 	let selectedIds = $state<string[]>([]);
+	// Return focus to the dialog after a confirmation so Escape still closes it.
+	$effect(() => {
+		if (promptStore.open) return;
+		void tick().then(() => {
+			if (root && !root.contains(document.activeElement)) root.focus();
+		});
+	});
 	const openIds = $derived(new Set(filesStore.files.map((file) => file.id)));
 	const unresolved = $derived(
 		filesStore.library.flatMap((file) =>
@@ -83,6 +91,14 @@
 	}
 </script>
 
+<svelte:window
+	onkeydown={(event) => {
+		if (event.key !== 'Escape' || filesStore.trashBusy) return;
+		if (root?.contains(event.target as Node)) return;
+		if (event.target instanceof Element && event.target.closest('[role="dialog"]')) return;
+		onClose();
+	}}
+/>
 <div
 	class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-[max(env(safe-area-inset-top),8vh)]"
 	role="dialog"
@@ -91,6 +107,7 @@
 	inert={promptStore.open}
 	aria-hidden={promptStore.open ? 'true' : undefined}
 	tabindex="-1"
+	bind:this={root}
 	use:focusTrap
 	onclick={(event) => {
 		if (event.target === event.currentTarget && !filesStore.trashBusy) onClose();

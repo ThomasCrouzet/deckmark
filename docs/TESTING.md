@@ -155,6 +155,25 @@ reports, trace, fixture source, downloaded HTML and source identity. Performance
 diagnostics must keep raw samples and explicit engine support limits. A diagnostic
 without enforced budgets is not a strict gate result.
 
+The Read preview mounts its parsed HTML before the Mermaid lane finishes. A file
+or theme switch must cancel the obsolete lane, and the final render must replace
+the placeholders without losing headings, anchors or the article identity.
+`rendering.spec.ts` covers this with a 30-diagram note that switches to a
+one-diagram note after the first non-diagram content. It checks the new document,
+the exact diagram count and `mermaid.cancel` counters.
+
+Run `npx playwright test e2e/rendering.spec.ts --project=chromium --workers=1
+--retries=0 --grep 'cancels the obsolete Mermaid lane'`. Keep the attached JSON
+counters, fixture hashes, browser version and command. The counters are local
+diagnostics, not a latency budget.
+
+`src/lib/milkdown-mermaid-preview.test.ts` checks that a second WYSIWYG preview
+request aborts the first signal before SVG work starts. The browser workflow shows
+only the final preview, so it cannot prove that abandoned queued work was
+cancelled. Run `npx vitest run src/lib/milkdown-mermaid-preview.test.ts
+--maxWorkers=1`. This does not establish Mermaid CPU cost or native WebView
+behavior.
+
 ### Incremental visual source reconciliation
 
 Retain these failure risks for issue 310: a scoped patch can target a repeated

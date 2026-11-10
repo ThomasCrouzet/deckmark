@@ -253,7 +253,8 @@ export async function exportHTML(
 			...(file.projectId && file.relativePath
 				? { projectContext: { projectId: file.projectId, relativePath: file.relativePath } }
 				: {}),
-			allowRemoteImages: options.allowNetworkImages === true
+			allowRemoteImages: options.allowNetworkImages === true,
+			...(options.signal ? { signal: options.signal } : {})
 		}),
 		options.signal
 	);
@@ -317,7 +318,8 @@ export async function exportPDF(
 				? { projectContext: { projectId: file.projectId, relativePath: file.relativePath } }
 				: {}),
 			showFrontmatter: false,
-			allowRemoteImages: options.allowNetworkImages === true
+			allowRemoteImages: options.allowNetworkImages === true,
+			...(options.signal ? { signal: options.signal } : {})
 		}),
 		options.signal
 	);

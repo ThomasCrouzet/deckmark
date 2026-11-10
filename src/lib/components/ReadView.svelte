@@ -28,9 +28,11 @@
 		 *  digging through the DOM itself. */
 		onArticleRef?: (el: HTMLElement | null) => void;
 		onRendered?: (article: HTMLElement, content: string, generation: number) => void;
+		/** Split view needs complete geometry before it maps the caret to the preview. */
+		progressive?: boolean;
 	}
 
-	let { fileId, content, onArticleRef, onRendered }: Props = $props();
+	let { fileId, content, onArticleRef, onRendered, progressive = true }: Props = $props();
 	let articleEl: HTMLElement | null = $state(null);
 	let readScroller: HTMLDivElement | null = $state(null);
 	let positionFileId: string | null = null;
@@ -320,6 +322,7 @@
 	// Keep the HTML owner while a same-file refresh is pending.
 	let htmlFileId = $state<string | null>(null);
 	let renderedFileId = $state<string | null>(null);
+	let partialMountedFor = $state<string | null>(null);
 
 	$effect(() => {
 		const anchor = filesStore.projectAnchor;
@@ -396,12 +399,30 @@
 				priority: 'active',
 				headingPermalinks: true,
 				allowRemoteImages: false,
-				onPartialHtml: (partial) => {
-					if (isCurrent()) html = partial;
-				}
+				...(progressive
+					? {
+							onPartialHtml: (partial: string) => {
+								if (!isCurrent() || partialMountedFor === fid) return;
+								html = partial;
+								// Mount the parsed document before costly diagrams finish. The
+								// final render reconciles the diagram placeholders in place.
+								previewMount = {
+									fileId: fid,
+									content: md,
+									html: partial,
+									generation: nextRenderGeneration(),
+									isCurrent,
+									onRendered: () => {}
+								};
+								htmlFileId = fid;
+								hasBlockedRemoteImages = partial.includes('data-mdsh-remote-');
+							}
+						}
+					: {})
 			});
 			if (!isCurrent()) return;
 			html = out;
+			partialMountedFor = fid;
 			previewMount = {
 				fileId: fid,
 				content: md,
