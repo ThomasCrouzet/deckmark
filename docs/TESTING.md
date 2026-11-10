@@ -604,6 +604,42 @@ Browser file APIs cannot make the final revision check and write atomic against 
 
 ## Local file and copy workflows
 
+### Disk-link ownership fences
+
+The `mdsh` owner rows and the `mdsh-fs` link records cannot share one
+IndexedDB transaction. A purge cleanup, a manual unlink, a relink, a restore
+and a backup import can interleave. Retain these failure risks:
+
+- A cleanup reads "no owner", then a restore or import creates the same id and
+  relinks it. The old cleanup must not delete the new record or revoke its path.
+- A link moves from P to P2 during cleanup. The P job must not delete P2.
+- Two live drafts share one native path. Unlinking one must keep the other
+  draft and its capability valid.
+- A failed handle delete must not revoke the grant first.
+- A stale record from an older epoch is still removed without touching a newer
+  record.
+
+`src/lib/disk-2.ts` provides the document and path locks, the durable link
+generation and the captured link identity. `src/lib/disk-cleanup.test.ts`
+keeps the cross-database interleavings with deferred I/O. A browser workflow
+cannot pause between the owner read and the link delete, so these isolated
+cases are required. Run:
+
+```sh
+npx vitest run src/lib/disk-cleanup.test.ts src/lib/disk-sync.test.ts --maxWorkers=1
+```
+
+`e2e/disk-link-ownership.spec.ts` checks the observable result: unlinking one
+of two drafts that share a handle keeps the other draft linked. Run:
+
+```sh
+npx playwright test e2e/disk-link-ownership.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The browser case replaces the native path backend with FSA handles. The
+native grant reference count still needs the isolated cleanup cases and a
+Desktop smoke check.
+
 `disk-workflows.spec.ts` checks the visible disk and copy behavior. The cases are:
 
 - A browser without the File System Access API downloads a copy. The status stays

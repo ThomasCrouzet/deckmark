@@ -38,11 +38,15 @@ import {
 	requestPermission,
 	revisionForFile,
 	revisionForText,
-	saveHandle,
-	savePathLink,
 	writeHandle
 } from './fsa';
 import { computeBrokenLinks } from './broken-links';
+import {
+	revokeUnownedPath,
+	saveFencedHandle,
+	saveFencedPathLink,
+	withDiskLinkLock
+} from './disk-2';
 import {
 	tauriCheckPath,
 	tauriForgetPath,
@@ -135,7 +139,7 @@ async function openFromDiskFsa(deps: DiskSyncDeps, options: ImportOptions): Prom
 			// reference to detect an external modification before a future write.
 			item.diskLastModified = file.lastModified;
 			item.diskSize = file.size;
-			await saveHandle(item.id, handle, await revisionForFile(file), epoch);
+			await saveFencedHandle(item.id, handle, await revisionForFile(file), epoch);
 			pendingDiskLinkWrites.delete(item.id);
 			created.push(item);
 			session.accept();
@@ -263,7 +267,7 @@ async function ingestDesktopOpens(
 					existing.diskRevision ??
 					previous?.revision ??
 					(existing.content === file.content ? file.revision : undefined);
-				await savePathLink(existing.id, file.link, epoch, revision);
+				await saveFencedPathLink(existing.id, file.link, epoch, revision);
 				deps.onActivate?.(existing.id);
 				if (existing.diskRevision === undefined && existing.content === file.content) {
 					existing.diskLastModified = file.lastModified;
@@ -286,7 +290,7 @@ async function ingestDesktopOpens(
 			item.diskLastModified = file.lastModified;
 			item.diskSize = file.size;
 			item.diskRevision = file.revision;
-			await savePathLink(item.id, file.link, epoch, file.revision);
+			await saveFencedPathLink(item.id, file.link, epoch, file.revision);
 			pendingDiskLinkWrites.delete(item.id);
 			created.push(item);
 			if (file.token) processedTokens.push(file.token);
@@ -450,7 +454,7 @@ async function saveToDiskFsa(
 				}
 				if (currentRevision === onDiskRevision) {
 					try {
-						await saveHandle(id, handle, onDiskRevision, epoch);
+						await saveFencedHandle(id, handle, onDiskRevision, epoch);
 					} catch (err) {
 						file.diskLastModified = onDiskFile.lastModified;
 						file.diskSize = onDiskFile.size;
@@ -514,7 +518,7 @@ async function saveToDiskFsa(
 				}
 				if (resolution === 'reload') {
 					try {
-						await saveHandle(id, handle, onDiskRevision, epoch);
+						await saveFencedHandle(id, handle, onDiskRevision, epoch);
 					} catch (error) {
 						reportPersistenceError(error, 'save');
 						return failedResult();
@@ -560,7 +564,7 @@ async function saveToDiskFsa(
 	}
 	let linkPersisted = false;
 	try {
-		await saveHandle(id, handle, writtenRevision, epoch);
+		await saveFencedHandle(id, handle, writtenRevision, epoch);
 		linkPersisted = true;
 		pendingDiskLinkWrites.delete(id);
 	} catch (err) {
@@ -676,7 +680,7 @@ async function saveToDiskDesktop(
 				.catch(() => null);
 			if (diskContent === content) {
 				try {
-					await savePathLink(id, pathRec, epoch, currentMeta.revision);
+					await saveFencedPathLink(id, pathRec, epoch, currentMeta.revision);
 				} catch (err) {
 					return desktopLinkPersistenceFailure(
 						id,
@@ -745,7 +749,7 @@ async function saveToDiskDesktop(
 						return failedResult();
 					}
 					try {
-						await savePathLink(id, pathRec, epoch, external.stat.revision);
+						await saveFencedPathLink(id, pathRec, epoch, external.stat.revision);
 					} catch (error) {
 						reportPersistenceError(error, 'save');
 						return failedResult();
@@ -788,7 +792,7 @@ async function saveToDiskDesktop(
 		}
 	}
 	try {
-		await savePathLink(id, pathRec, epoch, written.revision);
+		await saveFencedPathLink(id, pathRec, epoch, written.revision);
 		pendingDiskLinkWrites.delete(id);
 	} catch (err) {
 		return desktopLinkPersistenceFailure(
@@ -946,11 +950,16 @@ function applyDiskContent(id: string, file: FileItem, content: string, deps: Dis
  */
 export async function unlinkFromDisk(id: string, deps: DiskSyncDeps): Promise<void> {
 	markDiskLinkChanged(id);
-	if (isDesktop()) {
-		const link = await getPathLink(id);
-		if (link) await tauriForgetPath(link.path);
-	}
-	await deleteHandle(id);
+	let pathToRevoke: string | null = null;
+	// The document fence keeps a concurrent relink or purge cleanup from
+	// reusing this record between the read and the delete.
+	await withDiskLinkLock(id, async () => {
+		const link = await getPathLinkWithEpoch(id);
+		// Delete the association first: a failed handle delete must leave the
+		// link and its native grant untouched.
+		await deleteHandle(id);
+		if (link && isDesktop()) pathToRevoke = link.record.path;
+	});
 	pendingDiskLinkWrites.delete(id);
 	const file = deps.getFile(id);
 	if (!file) return;
@@ -958,6 +967,15 @@ export async function unlinkFromDisk(id: string, deps: DiskSyncDeps): Promise<vo
 	// Intentional unlink: clear the broken-link badge (sidebar keys on brokenLink alone).
 	file.brokenLink = false;
 	deps.scheduleSave(id);
+	// Only the last owner releases the shared path capability. The document lock
+	// is already released, so a queued relink writes its record first.
+	if (pathToRevoke) {
+		try {
+			await revokeUnownedPath(pathToRevoke, tauriForgetPath);
+		} catch (error) {
+			reportError('forget disk grant', error);
+		}
+	}
 }
 
 /** Rename a linked file before the store commits its display name. */
@@ -980,7 +998,7 @@ export async function renameOnDisk(id: string, name: string, deps: DiskSyncDeps)
 			file.diskRevision ?? link.revision ?? null
 		);
 		try {
-			await savePathLink(
+			await saveFencedPathLink(
 				id,
 				{ kind: 'path', path: renamed.path },
 				link.epoch,

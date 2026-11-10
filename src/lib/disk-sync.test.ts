@@ -585,6 +585,38 @@ describe('rename linked files', () => {
 		expect(diskTauri.tauriForgetPath).toHaveBeenCalledWith('/tmp/note.md');
 		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
 	});
+
+	it('keeps a native grant that another linked draft still uses', async () => {
+		vi.mocked(fsa.getPathLinkWithEpoch).mockResolvedValue({
+			record: { kind: 'path', path: '/tmp/shared.md' },
+			epoch: 'epoch'
+		});
+		vi.mocked(fsa.listDiskLinks).mockResolvedValue([
+			{ id: 'a', kind: 'path', path: '/tmp/shared.md', label: 'shared.md' },
+			{ id: 'b', kind: 'path', path: '/tmp/shared.md', label: 'shared.md' }
+		]);
+		const first = makeFile({ id: 'a', linkedToDisk: true });
+		const second = makeFile({ id: 'b', linkedToDisk: true });
+
+		await unlinkFromDisk('a', testDeps([first, second]));
+
+		expect(fsa.deleteHandle).toHaveBeenCalledWith('a');
+		expect(fsa.deleteHandle).not.toHaveBeenCalledWith('b');
+		expect(diskTauri.tauriForgetPath).not.toHaveBeenCalled();
+		expect(first.linkedToDisk).toBe(false);
+		expect(second.linkedToDisk).toBe(true);
+	});
+
+	it('keeps the link and grant when the handle delete fails', async () => {
+		vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+		vi.mocked(fsa.deleteHandle).mockRejectedValueOnce(new Error('IndexedDB'));
+		const file = makeFile({ linkedToDisk: true });
+
+		await expect(unlinkFromDisk('a', testDeps([file]))).rejects.toThrow('IndexedDB');
+
+		expect(diskTauri.tauriForgetPath).not.toHaveBeenCalled();
+		expect(file.linkedToDisk).toBe(true);
+	});
 });
 
 describe('saveToDisk desktop capability backend', () => {
