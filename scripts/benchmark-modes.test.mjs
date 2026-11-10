@@ -12,6 +12,7 @@ import { libraryIdentity, provenanceInputs, sha256 } from './benchmark-stress-co
 const root = resolve(import.meta.dirname, '..');
 const directory = mkdtempSync(join(tmpdir(), 'deckmark-mode-controls-'));
 const profile = 'web-light-chromium-production';
+const nativeProfile = 'native-complete-linux-webkitgtk-debug';
 let sequence = 0;
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const canonical = (value) =>
@@ -408,8 +409,70 @@ function control() {
 	return { budgets, report, receipt };
 }
 
-function audit(change = () => {}) {
+function nativeControl() {
 	const value = control();
+	const binarySha = digest('synthetic native binary');
+	const nativeLimits = {
+		readFirstContentMs: 100,
+		readFullRenderMs: 200,
+		slideInputToFrameMs: 20,
+		slideInputDispatchMs: 5,
+		slideSaveObservedMs: 500,
+		wysiwygInputToFrameMs: 20,
+		wysiwygInputDispatchMs: 5,
+		wysiwygSaveObservedMs: 500,
+		canvasPointerToFrameMs: 20,
+		canvasSaveObservedMs: 500,
+		annotationPointerToFrameMs: 20,
+		annotationPaintedPixels: 10000,
+		slideSourceInputToFrameMs: 20,
+		slideSourceInputDispatchMs: 5,
+		slideSourceApplyObservedMs: 500
+	};
+	value.budgets.modes.profiles[nativeProfile] = {
+		target: 'native',
+		edition: 'desktop',
+		renderer: 'webkitgtk',
+		buildMode: 'debug',
+		role: 'blocking',
+		evidenceKind: 'native-run',
+		review: 'Synthetic CLI control only. Not a product baseline.',
+		limits: nativeLimits,
+		resourceLimits: { domNodes: 5000, canvasPixels: 10000 }
+	};
+	const report = value.report;
+	report.profile = nativeProfile;
+	report.target = 'native';
+	report.edition = 'desktop';
+	report.buildMode = 'debug';
+	report.evidenceKind = 'native-run';
+	report.renderer = { name: 'webkitgtk', version: '605.1.15' };
+	report.source.buildTreeSha256 = binarySha;
+	report.buildProvenance = {
+		schemaVersion: 1,
+		kind: 'native-benchmark',
+		createdAt: '2026-01-01T00:00:00.000Z',
+		source: report.source.revision,
+		sourceTree: report.source.tree,
+		edition: 'desktop',
+		version: '0.0.0',
+		basePath: '',
+		buildMode: 'debug',
+		instrumentation: 'none',
+		inputs: { workingDiffSha256: digest(''), untrackedCount: 0 },
+		builder: { node: 'v22.23.4', platform: 'linux', release: 'control', arch: 'x64' },
+		binary: { path: 'src-tauri/target/debug/deckmark', bytes: 1234, sha256: binarySha },
+		tree: { files: 1, sha256: binarySha }
+	};
+	value.receipt.evidenceKind = 'native-run';
+	value.receipt.provenanceSha256 = digest(canonical(report.buildProvenance));
+	value.receipt.buildTree = structuredClone(report.buildProvenance.tree);
+	value.receipt.inputs = structuredClone(report.buildProvenance.inputs);
+	return value;
+}
+
+function audit(change = () => {}, build = control) {
+	const value = build();
 	change(value);
 	const prefix = join(directory, `audit-${sequence++}`);
 	writeFileSync(`${prefix}-report.json`, JSON.stringify(value.report));
@@ -437,6 +500,24 @@ test('accepts complete Read and slide evidence against synthetic limits', () => 
 	assert.equal(result.status, 'ok');
 	assert.equal(result.cases['read/read-rich-30/lib-0'].metrics.firstContentMs.runs, 20);
 	assert.equal(result.cases['slide-text/deck-20/lib-0'].metrics.saveObservedMs.runs, 20);
+});
+
+test('accepts complete native mode evidence against synthetic limits', () => {
+	const run = audit(() => {}, nativeControl);
+	assert.equal(run.status, 0, run.stderr + run.stdout);
+	const result = JSON.parse(run.stdout);
+	assert.equal(result.status, 'ok');
+	assert.equal(result.evidenceKind, 'native-run');
+	assert.equal(result.profile, nativeProfile);
+	assert.equal(result.cases['read/read-rich-30/lib-0'].metrics.firstContentMs.runs, 20);
+});
+
+test('rejects a native binary hash that does not match the report', () => {
+	const run = audit(({ report }) => {
+		report.buildProvenance.binary.sha256 = digest('other native binary');
+	}, nativeControl);
+	assert.equal(run.status, 1, run.stderr + run.stdout);
+	assert.match(run.stdout, /native-build:binary-mismatch/);
 });
 
 const malformed = [

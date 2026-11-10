@@ -878,6 +878,91 @@
 				"review": null,
 				"limits": {},
 				"resourceLimits": null
+			},
+			"native-complete-linux-webkitgtk-debug": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "webkitgtk",
+				"buildMode": "debug",
+				"role": "blocking",
+				"evidenceKind": "native-run",
+				"review": "Recorded local Linux WebKitGTK debug baseline from the native mode matrix on 2026-11-10. The native run launches the isolated smoke binary once per case, reloads between samples and reads the real save-dialog bytes. Limits keep headroom above the observed p95. Parent review is required before merge.",
+				"limits": {
+					"readFirstContentMs": 20000,
+					"readFullRenderMs": 25000,
+					"slideInputToFrameMs": 120,
+					"slideInputDispatchMs": 10,
+					"slideSaveObservedMs": 2500,
+					"wysiwygInputToFrameMs": 1500,
+					"wysiwygInputDispatchMs": 20,
+					"wysiwygSaveObservedMs": 3000,
+					"canvasPointerToFrameMs": 120,
+					"canvasSaveObservedMs": 2500,
+					"annotationPointerToFrameMs": 120,
+					"annotationPaintedPixels": 10000000,
+					"slideSourceInputToFrameMs": 200,
+					"slideSourceInputDispatchMs": 30,
+					"slideSourceApplyObservedMs": 3000
+				},
+				"resourceLimits": {
+					"domNodes": 200000,
+					"canvasPixels": 16777216
+				}
+			},
+			"native-complete-linux-webkitgtk-release": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "webkitgtk",
+				"buildMode": "release",
+				"role": "report-only",
+				"evidenceKind": "native-run",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-windows-webview2-debug": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "webview2",
+				"buildMode": "debug",
+				"role": "report-only",
+				"evidenceKind": "native-run",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-windows-webview2-release": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "webview2",
+				"buildMode": "release",
+				"role": "report-only",
+				"evidenceKind": "native-run",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-macos-wkwebview-debug": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "wkwebview",
+				"buildMode": "debug",
+				"role": "report-only",
+				"evidenceKind": "native-run",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
+			},
+			"native-complete-macos-wkwebview-release": {
+				"target": "native",
+				"edition": "desktop",
+				"renderer": "wkwebview",
+				"buildMode": "release",
+				"role": "report-only",
+				"evidenceKind": "native-run",
+				"review": null,
+				"limits": {},
+				"resourceLimits": null
 			}
 		}
 	}

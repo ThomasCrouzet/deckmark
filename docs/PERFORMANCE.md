@@ -29,7 +29,8 @@ below covers WYSIWYG, Read, slide text, slide notes, slide canvas, read
 annotation and Advanced Presentation Source. The stress matrix still lists those
 rows as unavailable because they use a different measurement contract; select
 them with `benchmark-modes`. Listing a case is not execution or coverage proof.
-Native stress transport is still not implemented.
+Native stress transport is still not implemented; the separate native mode
+transport is described under the mode benchmarks below.
 
 Build and record a clean committed root production build, then select a bounded
 set of cases. Set `OUT` to an existing local directory outside the repository.
@@ -200,9 +201,64 @@ node scripts/benchmark-modes-audit.mjs --report "$OUT/modes-chromium.json" \
   --cases wysiwyg/read-rich-30/lib-0,slide-canvas/deck-20/lib-0,annotation/read-rich-30/lib-0,slide-source/deck-20/lib-0
 ```
 
-WYSIWYG, annotation, slide canvas, Advanced Presentation Source and native mode
-transport remain unavailable. Do not treat the mode suite as evidence for those
-workloads.
+Native mode transport now covers Read, slide text, slide notes, WYSIWYG,
+annotation, slide canvas and Advanced Presentation Source on Linux WebKitGTK.
+The Windows WebView2 and macOS WKWebView transports remain report-only; the
+Linux baseline is not evidence for them.
+
+### Native mode transport
+
+`scripts/benchmark-modes-native.mjs` runs the same mode matrix against the built
+Tauri WebView through its embedded test WebDriver. It is a separate transport,
+not a browser run. Build the isolated test binary and run the matrix:
+
+```sh
+npm run tauri -- build --debug --features native-smoke --no-bundle \
+  --config src-tauri/tauri.smoke.conf.json
+WEBKIT_DISABLE_DMABUF_RENDERER=1 dbus-run-session -- xvfb-run -a \
+  node scripts/benchmark-modes.mjs --profile native-complete-linux-webkitgtk-debug \
+  --cases "$CASES" --runs 20 --output "$OUT/native-modes.json"
+```
+
+The report keeps the same schema and method contract. Its evidence kind is
+`native-run`; the build provenance names the desktop edition, the debug test
+binary and its SHA-256. Each case starts a fresh isolated app profile and
+reloads between samples where the Web adapter reloads. The input probe uses the
+trusted editing-command channel because this WebKitGTK driver reports injected
+key events as untrusted. A large-note Read confirmation is accepted before the
+mode clock starts.
+
+The desktop Markdown export opens the native save dialog. The Linux transport
+answers that dialog through `xdotool`, then reads the exact written bytes. A
+missing tool is an explicit unsupported result, not a zero-byte export. Windows
+and macOS save dialogs are not automated, so those profiles stay report-only.
+
+The Linux WebKitGTK debug profile carries the recorded local limits:
+
+| Metric | Limit |
+| --- | --- |
+| `readFirstContentMs` | 20000 ms |
+| `readFullRenderMs` | 25000 ms |
+| `slideInputToFrameMs` | 120 ms |
+| `slideInputDispatchMs` | 10 ms |
+| `slideSaveObservedMs` | 2500 ms |
+| `wysiwygInputToFrameMs` | 1500 ms |
+| `wysiwygInputDispatchMs` | 20 ms |
+| `wysiwygSaveObservedMs` | 3000 ms |
+| `canvasPointerToFrameMs` | 120 ms |
+| `canvasSaveObservedMs` | 2500 ms |
+| `annotationPointerToFrameMs` | 120 ms |
+| `annotationPaintedPixels` | 10000000 |
+| `slideSourceInputToFrameMs` | 200 ms |
+| `slideSourceInputDispatchMs` | 30 ms |
+| `slideSourceApplyObservedMs` | 3000 ms |
+
+The resource limits are 200000 DOM nodes and 16777216 backing canvas pixels.
+A debug build is slower than a release build. Do not compare a native debug
+report with a Web production report, a release WebView or another platform.
+The native save dialog, the GTK file chooser and the X11 input tool are part of
+this local Linux evidence; an installer or a packaged release does not contain
+the test driver.
 
 ## Version 2 report contract
 

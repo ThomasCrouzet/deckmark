@@ -83,7 +83,7 @@ export async function modesMain(args) {
 	const source = testSource();
 	const report = {
 		schema: 'deckmark-mode-bench/1',
-		evidenceKind: 'browser-run',
+		evidenceKind: profile.target === 'native' ? 'native-run' : 'browser-run',
 		generatedAt: new Date().toISOString(),
 		profile: options.profile,
 		target: profile.target,
@@ -109,40 +109,42 @@ export async function modesMain(args) {
 			'Read samples reload the page and switch from Source to Read, so each sample is a cold render.',
 			'The slide input clock uses a trusted beforeinput event and a textarea selection. It is not a physical key or an IME.',
 			'The slide save clock includes polling and the 400 ms draft delay; it is not pure transaction CPU.',
-			'Only Read, slide text and slide notes have adapters. Other modes and native stress transport remain unavailable.',
+			'The native run drives the real Tauri WebView through its embedded test WebDriver. It is not a browser process or a packaged installer.',
+			'The native export reads the exact file the product writes after the native save dialog. The test harness answers that dialog; no installer download path is claimed.',
 			'Reports are strict only with enforced budgets, a clean source tree and an external artifact receipt.'
 		],
 		cases: [],
 		failures: []
 	};
 	try {
-		if (profile.target !== 'web')
-			throw new Error(
-				'Native mode transport is not implemented. A browser report cannot satisfy a native profile.'
+		if (profile.target === 'native') {
+			const { runModesNative } = await import('./benchmark-modes-native.mjs');
+			await runModesNative({ report, selected, options, profile });
+		} else {
+			if (!options.prebuilt)
+				throw new Error(
+					'Mode browser runs require --prebuilt and verified production build provenance.'
+				);
+			execFileSync(
+				process.execPath,
+				[
+					'scripts/build-provenance.mjs',
+					'verify',
+					'--kind',
+					'web-benchmark',
+					'--instrumentation',
+					'none'
+				],
+				{ cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }
 			);
-		if (!options.prebuilt)
-			throw new Error(
-				'Mode browser runs require --prebuilt and verified production build provenance.'
+			const provenance = JSON.parse(
+				await readFile(resolve(root, 'build/build-provenance.json'), 'utf8')
 			);
-		execFileSync(
-			process.execPath,
-			[
-				'scripts/build-provenance.mjs',
-				'verify',
-				'--kind',
-				'web-benchmark',
-				'--instrumentation',
-				'none'
-			],
-			{ cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }
-		);
-		const provenance = JSON.parse(
-			await readFile(resolve(root, 'build/build-provenance.json'), 'utf8')
-		);
-		report.source.buildTreeSha256 = provenance.tree.sha256;
-		report.buildProvenance = provenance;
-		const { runModesWeb } = await import('./benchmark-modes-web.mjs');
-		await runModesWeb({ report, selected, options });
+			report.source.buildTreeSha256 = provenance.tree.sha256;
+			report.buildProvenance = provenance;
+			const { runModesWeb } = await import('./benchmark-modes-web.mjs');
+			await runModesWeb({ report, selected, options });
+		}
 	} catch (error) {
 		report.failures.push(String(error.stack ?? error));
 		for (const entry of selected) {

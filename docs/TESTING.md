@@ -1127,6 +1127,40 @@ native stress transport and calibrated release/resource limits remain open.
 Existing browser and native suites still own their existing checks. A catalog
 entry does not replace them. Reports remain local and are not uploaded.
 
+### Native mode transport
+
+`scripts/benchmark-modes-native.mjs` runs the mode matrix against the built Tauri
+WebView through the embedded test WebDriver. Retain these failure risks:
+
+- The WebKitGTK driver reports injected key events as untrusted. The input probe
+  uses the editing command channel and requires a trusted `beforeinput`. A future
+  driver that changes that channel must fail the trusted-input assertion.
+- The native Markdown export opens a GTK save dialog. The Linux run answers it
+  through `xdotool` and reads the exact written bytes. A missing tool must report
+  unsupported, never a zero byte count or a stored-source substitute.
+- A large note opens a render confirmation. The clock starts after acceptance;
+  measuring the confirmation wait as Read render time would mix two workflows.
+- A debug test binary, Xvfb, no window manager and an isolated profile are part
+  of the measurement. Do not compare it with a release WebView, a packaged
+  installer or the Web production profile.
+- Windows WebView2 and macOS WKWebView save dialogs are not automated. Their
+  profiles stay report-only and must not be marked as passed.
+
+Build and run the focused matrix:
+
+```sh
+npm run tauri -- build --debug --features native-smoke --no-bundle \
+  --config src-tauri/tauri.smoke.conf.json
+WEBKIT_DISABLE_DMABUF_RENDERER=1 dbus-run-session -- xvfb-run -a \
+  node scripts/benchmark-modes.mjs --profile native-complete-linux-webkitgtk-debug \
+  --cases "$CASES" --runs 20 --output "$OUT/native-modes.json"
+```
+
+Keep the raw JSON report, the fixture and export sidecars, the external receipt,
+the binary SHA-256, the source identity and the failing screenshots. The native
+transport is not a browser result and does not replace the per-mode browser
+checks.
+
 Use `scripts/benchmark-local.mjs` for repeatable performance evidence. It is one
 command with two separate targets. A web run and a native run never share a
 result, because a browser process and a native WebView have different renderers,
