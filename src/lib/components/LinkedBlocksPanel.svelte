@@ -20,7 +20,7 @@
 
 	let blocks = $state<LinkedBlock[]>([]);
 	let reports = $state<LinkReport[]>([]);
-	let sourceId = $state('');
+	let sourceKey = $state('');
 	const active = $derived(filesStore.active);
 	const activePath = $derived(active ? (active.relativePath ?? active.name) : '');
 
@@ -40,12 +40,13 @@
 		await filesStore.ensureContent(needed);
 		blocks = filesStore.library.flatMap((file) => extractBlocks(file));
 		reports = buildLinkReport(filesStore.library);
-		if (!blocks.some((block) => block.fileId === sourceId)) sourceId = blocks[0]?.fileId ?? '';
+		if (!blocks.some((block) => block.key === sourceKey))
+			sourceKey = sourceKey ? '' : (blocks[0]?.key ?? '');
 	}
 
 	function insert() {
-		if (!active || !sourceId) return;
-		const block = blocks.find((entry) => entry.fileId === sourceId);
+		if (!active || !sourceKey) return;
+		const block = blocks.find((entry) => entry.key === sourceKey);
 		if (!block || block.fileId === active.id) return;
 		filesStore.updateContent(
 			active.id,
@@ -109,18 +110,19 @@
 					<p>{t('blocks.insertHelp')}</p>
 					<div class="insert-row">
 						<select
-							bind:value={sourceId}
+							bind:value={sourceKey}
 							aria-label={t('blocks.source')}
 							data-testid="blocks-source"
 						>
-							{#each blocks as block (block.fileId + block.id)}
-								<option value={block.fileId}>{block.path} · {block.id}</option>
+							{#each blocks as block (block.key)}
+								<option value={block.key}>{block.path} · {block.id}</option>
 							{/each}
 						</select>
 						<button
 							type="button"
 							disabled={!active ||
-								blocks.find((block) => block.fileId === sourceId)?.fileId === active?.id}
+								!sourceKey ||
+								blocks.find((block) => block.key === sourceKey)?.fileId === active?.id}
 							onclick={insert}
 							data-testid="blocks-insert">{t('blocks.insertAction')}</button
 						>
@@ -140,7 +142,9 @@
 							<div class="actions">
 								<button
 									type="button"
-									disabled={report.state === 'missing' || report.state === 'cycle'}
+									disabled={report.state === 'missing' ||
+										report.state === 'cycle' ||
+										report.state === 'ambiguous'}
 									onclick={() => update(report)}>{t('blocks.update')}</button
 								>
 								<button type="button" onclick={() => freeze(report)}>{t('blocks.freeze')}</button>

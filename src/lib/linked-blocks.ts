@@ -6,10 +6,18 @@ export interface LinkedBlock {
 	fileId: string;
 	path: string;
 	id: string;
+	/** Stable selection identity. It includes the occurrence of a repeated block ID. */
+	key: string;
+	occurrence: number;
 	body: string;
 	hash: string;
 	from: number;
 	to: number;
+}
+
+/** Selects one exact block, including repeated IDs in the same source file. */
+export function linkedBlockKey(fileId: string, id: string, occurrence: number): string {
+	return `${fileId}\u0000${id}\u0000${occurrence}`;
 }
 
 export interface LinkedInclude {
@@ -24,7 +32,7 @@ export interface LinkedInclude {
 	to: number;
 }
 
-export type LinkState = 'current' | 'changed' | 'missing' | 'frozen' | 'cycle';
+export type LinkState = 'current' | 'changed' | 'missing' | 'frozen' | 'cycle' | 'ambiguous';
 
 export interface LinkReport {
 	include: LinkedInclude;
@@ -45,12 +53,18 @@ function pathOf(file: FileItem): string {
 export function extractBlocks(file: FileItem): LinkedBlock[] {
 	if (documentKindForFile(file) !== 'note') return [];
 	const blocks: LinkedBlock[] = [];
+	const occurrences = new Map<string, number>();
 	for (const match of file.content.matchAll(BLOCK)) {
 		const body = match[2] ?? '';
+		const id = match[1]!;
+		const occurrence = occurrences.get(id) ?? 0;
+		occurrences.set(id, occurrence + 1);
 		blocks.push({
 			fileId: file.id,
 			path: pathOf(file),
-			id: match[1]!,
+			id,
+			key: linkedBlockKey(file.id, id, occurrence),
+			occurrence,
 			body,
 			hash: contentHash(body.trim()),
 			from: match.index ?? 0,
@@ -146,10 +160,14 @@ function stronglyConnectedComponents(graph: Map<string, string[]>): {
 
 /** Resolves every include without changing any file. */
 export function buildLinkReport(files: readonly FileItem[]): LinkReport[] {
-	const blocksByFile = new Map<string, Map<string, LinkedBlock>>();
+	const blocksByFile = new Map<string, Map<string, LinkedBlock[]>>();
 	for (const file of files) {
-		const blocks = new Map<string, LinkedBlock>();
-		for (const block of extractBlocks(file)) if (!blocks.has(block.id)) blocks.set(block.id, block);
+		const blocks = new Map<string, LinkedBlock[]>();
+		for (const block of extractBlocks(file)) {
+			const matches = blocks.get(block.id);
+			if (matches) matches.push(block);
+			else blocks.set(block.id, [block]);
+		}
 		blocksByFile.set(file.id, blocks);
 	}
 	const sources = sourceIndex(files);
@@ -169,7 +187,9 @@ export function buildLinkReport(files: readonly FileItem[]): LinkReport[] {
 	for (const file of files) {
 		for (const include of extractIncludes(file)) {
 			const source = sources.get(include.sourcePath);
-			const block = source ? blocksByFile.get(source.id)?.get(include.blockId) : undefined;
+			const matches = source ? (blocksByFile.get(source.id)?.get(include.blockId) ?? []) : [];
+			const block = matches.length === 1 ? matches[0] : undefined;
+			const ambiguous = matches.length > 1;
 			const cycle =
 				source !== undefined &&
 				component.get(source.id) === component.get(file.id) &&
@@ -178,13 +198,15 @@ export function buildLinkReport(files: readonly FileItem[]): LinkReport[] {
 				include,
 				state: cycle
 					? 'cycle'
-					: !block
-						? 'missing'
-						: include.mode === 'frozen'
-							? 'frozen'
-							: include.hash === block.hash
-								? 'current'
-								: 'changed',
+					: ambiguous
+						? 'ambiguous'
+						: !block
+							? 'missing'
+							: include.mode === 'frozen'
+								? 'frozen'
+								: include.hash === block.hash
+									? 'current'
+									: 'changed',
 				sourceBody: block?.body ?? '',
 				sourceHash: block?.hash ?? ''
 			});

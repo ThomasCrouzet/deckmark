@@ -6,6 +6,7 @@ import {
 	extractIncludes,
 	freezeInclude,
 	insertInclude,
+	linkedBlockKey,
 	updateInclude
 } from './linked-blocks';
 import type { FileItem } from './types';
@@ -55,6 +56,26 @@ describe('linked blocks', () => {
 		const detached = detachInclude(updated, extractIncludes({ ...consumer, content: updated })[0]!);
 		expect(detached).toContain('Fresh block.');
 		expect(detached).not.toContain('mdsh-include');
+	});
+
+	it('keeps a distinct identity for repeated block IDs and reports ambiguity', () => {
+		const repeated = file(
+			'repeated',
+			'repeated.md',
+			'<!-- mdsh-block id="x" -->\nFirst\n<!-- /mdsh-block -->\n' +
+				'<!-- mdsh-block id="x" -->\nSecond\n<!-- /mdsh-block -->'
+		);
+		const blocks = extractBlocks(repeated);
+		expect(blocks.map((block) => block.key)).toEqual([
+			linkedBlockKey('repeated', 'x', 0),
+			linkedBlockKey('repeated', 'x', 1)
+		]);
+		const consumer = file(
+			'consumer',
+			'consumer.md',
+			insertInclude('', 'repeated.md', 'x', blocks[1]!.hash, blocks[1]!.body)
+		);
+		expect(buildLinkReport([repeated, consumer])[0]?.state).toBe('ambiguous');
 	});
 
 	it('marks only edges inside an SCC as cyclic', () => {

@@ -67,3 +67,29 @@ test('inserts, updates, freezes and detaches a linked block', async ({ page }, i
 	});
 	await info.attach('linked-blocks.png', { body: await page.screenshot() });
 });
+
+test('inserts the selected block when one file defines several blocks', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await seedFiles(page, [
+		{
+			name: 'Source',
+			content:
+				'<!-- mdsh-block id="alpha" -->\nAAA\n<!-- /mdsh-block -->\n\n' +
+				'<!-- mdsh-block id="beta" -->\nBBB\n<!-- /mdsh-block -->\n'
+		},
+		{ name: 'Consumer', content: '# Consumer\n\nIntro follows.\n' }
+	]);
+	await openBlocks(page);
+	await page.getByTestId('blocks-source').selectOption({ index: 1 });
+	await page.getByTestId('blocks-insert').click();
+	const inserted = await sourceText(page);
+	expect(inserted).toContain('block="beta"');
+	expect(inserted).toContain('BBB');
+	expect(inserted).not.toContain('AAA');
+	await info.attach('linked-blocks-multiple.json', {
+		body: JSON.stringify({ inserted }),
+		contentType: 'application/json'
+	});
+});

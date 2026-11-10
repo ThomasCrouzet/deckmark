@@ -615,6 +615,7 @@ export const fr: Record<MessageKey, string> = {
 	'blocks.state_missing': 'source absente',
 	'blocks.state_frozen': 'figé',
 	'blocks.state_cycle': 'cycle détecté',
+	'blocks.state_ambiguous': 'source ambiguë',
 	'exportProfiles.title': 'Profils d’export',
 	'exportProfiles.command': 'Gérer les profils d’export',
 	'exportProfiles.commandHint':

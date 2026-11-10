@@ -603,6 +603,7 @@ export const en = {
 	'blocks.state_missing': 'source missing',
 	'blocks.state_frozen': 'frozen',
 	'blocks.state_cycle': 'cycle detected',
+	'blocks.state_ambiguous': 'ambiguous source',
 	'exportProfiles.title': 'Export profiles',
 	'exportProfiles.command': 'Manage export profiles',
 	'exportProfiles.commandHint': 'Set page size, margins, font, cover, header and footer',
