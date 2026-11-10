@@ -1,6 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import {
+	blockPreferenceStorage,
+	createFirstFile,
+	openPalette,
+	resetAppState,
+	writeSourceContent
+} from './helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -197,6 +203,37 @@ test('permanent purge removes orphaned comments from storage and backups', async
 			null,
 			2
 		),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps a saved comment when the author preference is blocked', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const content = '# Guide\n\nBlocked preference passage.\n';
+	await writeSourceContent(page, content);
+	await blockPreferenceStorage(page, ['mdsh:comment-author']);
+	await openComments(page);
+	await addComment(page, 'Blocked preference passage.', 'Saved once.');
+	await expect(page.getByTestId('comments-panel')).toContainText('Saved once.');
+	await expect(page.getByTestId('comment-body')).toHaveValue('');
+	expect(await storedComments(page)).toHaveLength(1);
+
+	// A second click with the cleared form cannot add a duplicate row.
+	await page.getByTestId('comment-add').click();
+	await expect(page.getByTestId('comment-body')).toHaveValue('');
+	expect(await storedComments(page)).toHaveLength(1);
+
+	// The blocked read does not stop the panel after a reload.
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openComments(page);
+	await expect(page.getByTestId('comments-panel')).toContainText('Saved once.');
+	const rows = await storedComments(page);
+	await info.attach('comments-blocked-preference.json', {
+		body: JSON.stringify({ rows, bodyCleared: true, duplicates: rows.length - 1 }, null, 2),
 		contentType: 'application/json'
 	});
 });

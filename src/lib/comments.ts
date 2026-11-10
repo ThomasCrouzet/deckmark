@@ -1,4 +1,5 @@
 import type { CommentRow } from './db';
+import { readPreference, writePreference } from './misc-2';
 
 export type CommentAnchorState = 'attached' | 'moved' | 'ambiguous' | 'detached';
 
@@ -165,15 +166,18 @@ export function createAnchor(
 	return { from: first, to: first + text.length, quote: text };
 }
 
+const COMMENT_AUTHOR_KEY = 'mdsh:comment-author';
+
+/** The last reviewer label is optional. A blocked read keeps the default. */
 export function commentAuthor(): string {
-	const value = localStorage.getItem('mdsh:comment-author');
+	const value = readPreference(COMMENT_AUTHOR_KEY);
 	return value && value.trim() ? value : '';
 }
 
+/** A failed store must not reject a comment that IndexedDB already saved. */
 export function setCommentAuthor(name: string): void {
 	const value = name.trim();
-	if (value) localStorage.setItem('mdsh:comment-author', value);
-	else localStorage.removeItem('mdsh:comment-author');
+	writePreference(COMMENT_AUTHOR_KEY, value || null);
 }
 
 export function commentReport(comments: readonly CommentRow[], content: string): string {

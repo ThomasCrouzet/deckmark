@@ -21,6 +21,7 @@
 		cachedCooccurrenceEmbedder
 	} from '#lib/semantic-search.js';
 	import { LatestOnly } from '#lib/semantic-search-query.js';
+	import { readPreference, writePreference } from '#lib/misc-2.js';
 	import { t } from '#lib/i18n/index.js';
 	import type { FileItem } from '#lib/types.js';
 
@@ -45,6 +46,7 @@
 	let incompatibleRows = $state(0);
 	let staleRows = $state(0);
 	let clearFailed = $state(false);
+	let preferenceWarning = $state(false);
 
 	/** Latest query and latest count read. An older read cannot publish. */
 	const searchJob = new LatestOnly();
@@ -56,8 +58,8 @@
 	const contentRevisions = new Map<string, { content: string; revision: string }>();
 
 	onMount(() => {
-		enabled = localStorage.getItem(KEY) === '1';
-		const savedModel = localStorage.getItem('mdsh:semantic-model');
+		enabled = readPreference(KEY) === '1';
+		const savedModel = readPreference('mdsh:semantic-model');
 		modelId = savedModel === 'cooccurrence-v1' ? 'cooccurrence-v1' : 'feature-hash-v1';
 		projectId = filesStore.active?.projectId ?? null;
 		if (enabled) void loadCount();
@@ -147,7 +149,7 @@
 
 	function setEnabled(value: boolean) {
 		enabled = value;
-		localStorage.setItem(KEY, value ? '1' : '0');
+		preferenceWarning = !writePreference(KEY, value ? '1' : '0');
 		searchJob.invalidate();
 		countJob.invalidate();
 		clearFailed = false;
@@ -174,7 +176,7 @@
 	}
 
 	function changeModel() {
-		localStorage.setItem('mdsh:semantic-model', modelId);
+		preferenceWarning = !writePreference('mdsh:semantic-model', modelId);
 		searchJob.invalidate();
 		staleRows = 0;
 		incompatibleRows = 0;
@@ -310,6 +312,11 @@
 					<span>{t('semantic.enable')}</span>
 				</label>
 				<p class="note">{t('semantic.note')}</p>
+				{#if preferenceWarning}
+					<p class="note" role="status" data-testid="semantic-preference-note">
+						{t('semantic.preferenceNote')}
+					</p>
+				{/if}
 				{#if enabled}
 					<label>
 						<span>{t('semantic.scope')}</span>
