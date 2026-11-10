@@ -132,3 +132,93 @@ describe('CLI input confinement', () => {
 		expect(JSON.parse(result.stdout).title).toBe('Real note');
 	});
 });
+
+describe('CLI root scope with double-dot names', () => {
+	it('accepts an in-root file under a directory whose name starts with two dots', async () => {
+		const project = join(base, 'dot-name', 'project');
+		await mkdir(join(project, '..notes'), { recursive: true });
+		await writeFile(join(project, '..notes', 'guide.md'), '# Valid\n\nText.\n');
+
+		const result = runCli(project, ['check', '..notes/guide.md', '--root', '.', '--json']);
+
+		expect(result.status, result.stderr).toBe(0);
+		const report = JSON.parse(result.stdout);
+		expect(report.schema).toBe('mdsh-docs-check/1');
+		expect(report.documents).toBe(1);
+		expect(report.summary).toEqual({ errors: 0, warnings: 0 });
+	});
+
+	it('accepts an in-root directory whose name starts with two dots', async () => {
+		const project = join(base, 'dot-directory', 'project');
+		await mkdir(join(project, '..notes'), { recursive: true });
+		await writeFile(join(project, '..notes', 'guide.md'), '# Valid\n\nText.\n');
+
+		const result = runCli(project, ['check', '..notes', '--root', '.', '--json']);
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout).documents).toBe(1);
+	});
+
+	it('accepts an in-root file name that starts with two dots', async () => {
+		const project = join(base, 'dot-file', 'project');
+		await mkdir(project, { recursive: true });
+		await writeFile(join(project, '...md'), '# Dots\n\nText.\n');
+
+		const result = runCli(project, ['check', '...md', '--root', '.', '--json']);
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout).documents).toBe(1);
+	});
+
+	it('accepts an in-root Unicode directory whose name starts with two dots', async () => {
+		const project = join(base, 'dot-unicode', 'project');
+		await mkdir(join(project, '..café'), { recursive: true });
+		await writeFile(join(project, '..café', 'guide.md'), '# Valid\n\nText.\n');
+
+		const result = runCli(project, ['check', '..café', '--root', '.', '--json']);
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout).documents).toBe(1);
+	});
+
+	it('still denies a parent-directory escape and an outside symlink', async () => {
+		const project = join(base, 'escape', 'project');
+		const outside = join(base, 'escape', 'outside');
+		await mkdir(project, { recursive: true });
+		await mkdir(outside, { recursive: true });
+		await writeFile(join(outside, 'guide.md'), '# Outside\n');
+
+		const parent = runCli(project, ['check', '../outside/guide.md', '--root', '.', '--json']);
+		expect(parent.status).toBe(3);
+		expect(JSON.parse(parent.stderr).code).toBe('input-outside-root');
+
+		const absolute = runCli(project, ['check', join(outside, 'guide.md'), '--root', '.', '--json']);
+		expect(absolute.status).toBe(3);
+		expect(JSON.parse(absolute.stderr).code).toBe('input-outside-root');
+	});
+
+	it.skipIf(isWindows)('still denies an in-root symlink to an outside root', async () => {
+		const project = join(base, 'escape-link', 'project');
+		const outside = join(base, 'escape-link', 'outside');
+		await mkdir(project, { recursive: true });
+		await mkdir(outside, { recursive: true });
+		await writeFile(join(outside, 'guide.md'), '# Outside\n');
+		await symlink(join(outside, 'guide.md'), join(project, 'guide.md'));
+
+		const result = runCli(project, ['check', 'guide.md', '--root', '.', '--json']);
+
+		expect(result.status).toBe(3);
+		expect(JSON.parse(result.stderr).code).toBe('input-outside-root');
+	});
+
+	it('reports a stable relative display path for a double-dot name in the working directory', async () => {
+		const project = join(base, 'display', 'project');
+		await mkdir(join(project, '..notes'), { recursive: true });
+		await writeFile(join(project, '..notes', 'guide.md'), '# Valid\n\nText.\n');
+
+		const result = runCli(project, ['render', '..notes/guide.md', '--json']);
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout).input).toBe('..notes/guide.md');
+	});
+});

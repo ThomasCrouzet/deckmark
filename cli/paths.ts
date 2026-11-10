@@ -59,20 +59,23 @@ export function toProjectPath(path: string): string {
 
 /**
  * True when `target` is `root` or a descendant of it. The test uses a path
- * component boundary, so `..notes` is inside while `..` is outside.
+ * component boundary, so `..notes` is inside while `..` is outside. The
+ * platform path module also applies the Windows case-insensitive rule.
  */
 export function isWithinRoot(root: string, target: string): boolean {
-	if (target === root) return true;
-	const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
-	return target.startsWith(prefix);
+	const fromRoot = relative(root, target);
+	return (
+		fromRoot === '' ||
+		(!isAbsolute(fromRoot) && fromRoot !== '..' && !fromRoot.startsWith(`..${sep}`))
+	);
 }
 
 export function displayPath(path: string): string {
 	const absolute = resolve(path);
-	const fromCwd = relative(process.cwd(), absolute);
-	if (!fromCwd) return '.';
-	return !fromCwd.startsWith('..') && !isAbsolute(fromCwd)
-		? toProjectPath(fromCwd)
+	const cwd = resolve(process.cwd());
+	if (absolute === cwd) return '.';
+	return isWithinRoot(cwd, absolute)
+		? toProjectPath(relative(cwd, absolute))
 		: toProjectPath(absolute);
 }
 
