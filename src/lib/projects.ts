@@ -45,7 +45,10 @@ export async function importProject(input: ProjectInput): Promise<ProjectRow> {
 		createdAt: now,
 		updatedAt: now,
 		order: filesStore.library.length + index,
-		open: false
+		open: false,
+		...(document.kind ? { kind: document.kind } : {}),
+		...(document.mime ? { mime: document.mime } : {}),
+		...(document.data ? { data: document.data } : {})
 	}));
 	const assets: ProjectAssetRow[] = input.assets.map((asset) => ({
 		...asset,

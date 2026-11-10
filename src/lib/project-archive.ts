@@ -36,6 +36,91 @@ export interface ProjectInput {
 	assets: ProjectAssetInput[];
 }
 
+type ProjectDocumentKind = NonNullable<ProjectDocumentInput['kind']>;
+
+interface ProjectManifestRole {
+	kind: ProjectDocumentKind;
+	mime?: string;
+}
+
+interface ParsedProjectManifest {
+	name: string;
+	documents: Map<string, ProjectManifestRole>;
+}
+
+const PROJECT_MANIFEST_PATH = '.mdsh/project.json';
+const PROJECT_MANIFEST_FORMAT = 'mdsh-project';
+const PROJECT_MANIFEST_VERSION = 2;
+const DOCUMENT_KINDS = new Set<ProjectDocumentKind>([
+	'note',
+	'presentation',
+	'code',
+	'image',
+	'pdf'
+]);
+
+function isBinaryKind(kind: ProjectDocumentKind): boolean {
+	return kind === 'image' || kind === 'pdf';
+}
+
+function bytesToDataUrl(mime: string, bytes: Uint8Array): string {
+	let binary = '';
+	for (let offset = 0; offset < bytes.length; offset += 32_768) {
+		binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+	}
+	return `data:${mime};base64,${btoa(binary)}`;
+}
+
+function parseProjectManifest(text: string): ParsedProjectManifest {
+	let value: unknown;
+	try {
+		value = JSON.parse(text);
+	} catch {
+		throw new Error('Invalid project manifest');
+	}
+	if (!value || typeof value !== 'object' || Array.isArray(value))
+		throw new Error('Invalid project manifest');
+	const manifest = value as Record<string, unknown>;
+	if (manifest.format !== PROJECT_MANIFEST_FORMAT) throw new Error('Unknown project format');
+	const version = manifest.schemaVersion;
+	if (version !== 1 && version !== PROJECT_MANIFEST_VERSION)
+		throw new Error('Unsupported project manifest version');
+	if (
+		typeof manifest.name !== 'string' ||
+		manifest.name.trim().length === 0 ||
+		manifest.name.length > 200
+	)
+		throw new Error('Invalid project name');
+	const documents = new Map<string, ProjectManifestRole>();
+	if (version === 2) {
+		if (!Array.isArray(manifest.documents)) throw new Error('Invalid project manifest documents');
+		for (const value of manifest.documents) {
+			if (!value || typeof value !== 'object') throw new Error('Invalid project document entry');
+			const entry = value as Record<string, unknown>;
+			if (typeof entry.path !== 'string') throw new Error('Invalid project document path');
+			const path = projectPath(entry.path);
+			if (path.startsWith('.mdsh/')) throw new Error('Reserved project path');
+			const kind = entry.kind as ProjectDocumentKind;
+			if (!DOCUMENT_KINDS.has(kind)) throw new Error('Invalid project document kind');
+			const key = pathKey(path);
+			if (documents.has(key)) throw new Error('Duplicate project document path');
+			if (isBinaryKind(kind)) {
+				if (typeof entry.mime !== 'string' || entry.mime.length === 0)
+					throw new Error('Missing project document type');
+				if (kind === 'pdf' && entry.mime !== 'application/pdf')
+					throw new Error('Project PDF type does not match');
+				if (kind === 'image' && !entry.mime.startsWith('image/'))
+					throw new Error('Project image type does not match');
+			}
+			documents.set(key, {
+				kind,
+				...(typeof entry.mime === 'string' ? { mime: entry.mime } : {})
+			});
+		}
+	}
+	return { name: manifest.name, documents };
+}
+
 /** Check central-directory limits before the ZIP library builds its entry map. */
 function checkZipDirectory(bytes: Uint8Array): void {
 	if (bytes.length > PROJECT_LIMITS.maxBytes || bytes.length < 22)
@@ -130,13 +215,51 @@ async function readZipEntry(entry: JSZipObject, maximum: number): Promise<Uint8A
 	});
 }
 
-function appendEntry(input: ProjectInput, path: string, data: Uint8Array): void {
+function appendEntry(
+	input: ProjectInput,
+	path: string,
+	data: Uint8Array,
+	roles: Map<string, ProjectManifestRole>
+): void {
 	if (path.startsWith('.mdsh/')) {
-		if (path !== '.mdsh/project.json' && path !== '.mdsh/link-report.json')
+		if (path !== PROJECT_MANIFEST_PATH && path !== '.mdsh/link-report.json')
 			throw new Error('Reserved project path');
 		return;
 	}
 	if (pathKey(path).startsWith('.mdsh/')) throw new Error('Reserved project path');
+	const role = roles.get(pathKey(path));
+	if (role) {
+		if (input.documents.length >= projectDocumentLimit()) throw new Error('Project document limit');
+		if (isBinaryKind(role.kind)) {
+			const mime = role.mime!;
+			const maxBytes = role.kind === 'image' ? MAX_IMAGE_BYTES : IMPORT_LIMITS.maxFileBytes;
+			if (data.length > maxBytes) throw new Error('Project document size limit');
+			if (role.kind === 'image' && imageMime(path) !== mime)
+				throw new Error('Project image type does not match its path');
+			if (role.kind === 'pdf' && !/\.pdf$/i.test(path))
+				throw new Error('Project PDF type does not match its path');
+			input.documents.push({
+				relativePath: path,
+				content: '',
+				kind: role.kind,
+				mime,
+				data: bytesToDataUrl(mime, data)
+			});
+			return;
+		}
+		if (/\.(md|markdown|mdx|txt)$/i.test(path) || role.kind === 'code') {
+			const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
+			validateMarkdownContent(content);
+			input.documents.push({
+				relativePath: path,
+				content,
+				kind: role.kind,
+				...(role.mime ? { mime: role.mime } : {})
+			});
+			return;
+		}
+		throw new Error('Project document type does not match its path');
+	}
 	if (/\.(md|markdown|mdx|txt)$/i.test(path)) {
 		if (input.documents.length >= projectDocumentLimit()) throw new Error('Project document limit');
 		const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
@@ -155,7 +278,21 @@ export async function readProjectZip(file: File): Promise<ProjectInput> {
 	checkZipDirectory(bytes);
 	const { default: JSZip } = await import('jszip');
 	const zip = await JSZip.loadAsync(bytes);
-	const input: ProjectInput = { name: file.name.replace(/\.zip$/i, ''), documents: [], assets: [] };
+	const manifestEntry = zip.file(PROJECT_MANIFEST_PATH);
+	const manifest = manifestEntry
+		? parseProjectManifest(
+				new TextDecoder('utf-8', { fatal: true }).decode(
+					await readZipEntry(manifestEntry, 1024 * 1024)
+				)
+			)
+		: null;
+	const roles = manifest?.documents ?? new Map<string, ProjectManifestRole>();
+	const input: ProjectInput = {
+		name: manifest?.name ?? file.name.replace(/\.zip$/i, ''),
+		documents: [],
+		assets: []
+	};
+	const seen = new Set<string>();
 	let total = 0;
 	for (const entry of Object.values(zip.files)) {
 		if (entry.dir) continue;
@@ -167,8 +304,15 @@ export async function readProjectZip(file: File): Promise<ProjectInput> {
 			Math.min(IMPORT_LIMITS.maxFileBytes, PROJECT_LIMITS.maxBytes - total)
 		);
 		total += data.length;
-		appendEntry(input, path, data);
+		appendEntry(input, path, data, roles);
+		const key = pathKey(path);
+		if (roles.has(key)) {
+			if (seen.has(key)) throw new Error('Duplicate project document path');
+			seen.add(key);
+		}
 	}
+	for (const key of roles.keys())
+		if (!seen.has(key)) throw new Error('Missing project document entry');
 	if (!input.documents.length) throw new Error('The project contains no Markdown documents');
 	return input;
 }
@@ -178,8 +322,22 @@ export async function readProjectFolder(files: readonly File[]): Promise<Project
 		throw new Error('Project entry limit');
 	const first = files[0]!;
 	const name = first.webkitRelativePath.split('/')[0] || 'Project';
-	const input: ProjectInput = { name, documents: [], assets: [] };
+	const manifestFile = files.find((file) => {
+		const relative = file.webkitRelativePath || file.name;
+		const path = projectPath(
+			file.webkitRelativePath ? relative.split('/').slice(1).join('/') : relative
+		);
+		return path === PROJECT_MANIFEST_PATH;
+	});
+	const manifest = manifestFile
+		? parseProjectManifest(
+				new TextDecoder('utf-8', { fatal: true }).decode(await manifestFile.arrayBuffer())
+			)
+		: null;
+	const roles = manifest?.documents ?? new Map<string, ProjectManifestRole>();
+	const input: ProjectInput = { name: manifest?.name ?? name, documents: [], assets: [] };
 	const paths = new Set<string>();
+	const seen = new Set<string>();
 	let size = 0;
 	for (const file of files) {
 		const relative = file.webkitRelativePath || file.name;
@@ -193,8 +351,11 @@ export async function readProjectFolder(files: readonly File[]): Promise<Project
 		size += file.size;
 		if (file.size > IMPORT_LIMITS.maxFileBytes || size > PROJECT_LIMITS.maxBytes)
 			throw new Error('Project size limit');
-		appendEntry(input, path, new Uint8Array(await file.arrayBuffer()));
+		appendEntry(input, path, new Uint8Array(await file.arrayBuffer()), roles);
+		if (roles.has(key)) seen.add(key);
 	}
+	for (const key of roles.keys())
+		if (!seen.has(key)) throw new Error('Missing project document entry');
 	if (!input.documents.length) throw new Error('The project contains no Markdown documents');
 	return input;
 }
@@ -250,6 +411,7 @@ export async function buildProjectZip(
 		else wikiById.set(candidate.id, [candidate]);
 	}
 	const exportedDocuments: ProjectDocumentInput[] = [];
+	const manifestDocuments: Array<{ path: string; kind: ProjectDocumentKind; mime?: string }> = [];
 	// The same inline image data URL can occur in many documents. Decode and
 	// hash it once per export, then reuse the generated asset path.
 	const inlineImageCache = new Map<string, { path: string }>();
@@ -259,13 +421,17 @@ export async function buildProjectZip(
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
 		const typeInfo = { ...document, name: documentPath };
+		const kind = documentKindForFile(typeInfo);
 		if (isBinaryDocument(typeInfo)) {
-			const kind = documentKindForFile(typeInfo);
-			const { bytes } = await decodeBinaryDataBytes(document.data, {
+			const { bytes, mime } = await decodeBinaryDataBytes(document.data, {
 				expectedKind: kind === 'image' || kind === 'pdf' ? kind : undefined,
 				expectedMime: document.mime,
 				maxBytes: kind === 'image' ? MAX_IMAGE_BYTES : IMPORT_LIMITS.maxFileBytes
 			});
+			if (kind === 'image' && imageMime(documentPath) !== mime)
+				throw new Error('Project image type does not match its path');
+			if (kind === 'pdf' && !/\.pdf$/i.test(documentPath))
+				throw new Error('Project PDF type does not match its path');
 			occupied.add(documentKey);
 			exportedDocuments.push({
 				...(document.id ? { id: document.id } : {}),
@@ -273,11 +439,12 @@ export async function buildProjectZip(
 				content: '',
 				kind
 			});
+			manifestDocuments.push({ path: documentPath, kind, mime });
 			zip.file(documentPath, bytes, entryOptions);
 			continue;
 		}
 		const portableContent =
-			documentKindForFile(document) !== 'note'
+			kind !== 'note'
 				? document.content
 				: rewriteWikiLinkTargets(document.content, (target) => {
 						const id = target.split('#', 1)[0]!;
@@ -346,15 +513,28 @@ export async function buildProjectZip(
 		exportedDocuments.push({
 			...(document.id ? { id: document.id } : {}),
 			relativePath: documentPath,
-			content
+			content,
+			kind
 		});
+		manifestDocuments.push({ path: documentPath, kind });
 		zip.file(documentPath, content, entryOptions);
 	}
 	for (const asset of exportedAssets.values())
 		zip.file(projectPath(asset.path), asset.data, entryOptions);
 	zip.file(
-		'.mdsh/project.json',
-		JSON.stringify({ format: 'mdsh-project', schemaVersion: 1, name }, null, 2),
+		PROJECT_MANIFEST_PATH,
+		JSON.stringify(
+			manifestDocuments.some((document) => document.kind !== 'note')
+				? {
+						format: PROJECT_MANIFEST_FORMAT,
+						schemaVersion: PROJECT_MANIFEST_VERSION,
+						name,
+						documents: manifestDocuments
+					}
+				: { format: PROJECT_MANIFEST_FORMAT, schemaVersion: 1, name },
+			null,
+			2
+		),
 		entryOptions
 	);
 	zip.file(
