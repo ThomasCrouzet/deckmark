@@ -9,6 +9,7 @@
 	import type { Crepe as CrepeType } from '@milkdown/crepe';
 	import type { EditorView } from '@milkdown/kit/prose/view';
 	import type { Transaction } from '@milkdown/kit/prose/state';
+	import type { Slice } from '@milkdown/kit/prose/model';
 	import { onDestroy, untrack } from 'svelte';
 	import { renderMermaidPreview } from '../milkdown-mermaid-preview';
 	import { reportError } from '#lib/report.js';
@@ -22,7 +23,7 @@
 	} from '#lib/render/image-markdown.js';
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { stripFrontmatter } from '#lib/frontmatter.js';
-	import { SourceFidelity } from '#lib/source-fidelity.js';
+	import { SourceFidelity, type SourceFidelityHint } from '#lib/source-fidelity.js';
 	import {
 		createIncrementalMarkdown,
 		updateIncrementalMarkdown,
@@ -60,6 +61,9 @@
 	let removeHistoryListener: (() => void) | null = null;
 	let cancelPendingMarkdown: (() => void) | null = null;
 	let removeImageListeners: (() => void) | null = null;
+	// One block hint from the latest incremental serialization. It is consumed
+	// by the matching restore call and never survives a stale publish.
+	let pendingHint: (SourceFidelityHint & { markdown: string }) | null = null;
 	// §C1 - fileId associated with the currently mounted Crepe instance. Captured
 	// at mount to correctly route a late keystroke (flush or asynchronous
 	// `markdownUpdated`) to the right file even after a tab switch.
@@ -67,6 +71,11 @@
 	let refreshMountedLocale: (() => void) | null = null;
 	let saveMountedPosition: (() => void) | null = null;
 	let refreshMountedDiagrams: (() => void) | null = null;
+
+	// Safari and WKWebView can keep an editable content-visibility subtree blank
+	// until a forced layout. Vendor is an engine-family gate, not a version
+	// guess, so every Apple WebKit build keeps live blocks in the layout tree.
+	const webkitEngine = typeof navigator !== 'undefined' && /Apple/i.test(navigator.vendor ?? '');
 
 	// These tokens can start a presentation marker, an escaped line or a framed
 	// presentation element. A change that touches one of them must keep the full
@@ -172,11 +181,33 @@
 		]);
 		if (token !== mountToken) return;
 		// A note may not become a presentation while the visual editor holds it.
-		// Ordinary text edits take this fast path. Structural edits, HTML atoms,
-		// delimiter changes, paste and history replacements keep full validation.
+		// Ordinary text edits and safe block splits take this fast path. Paste,
+		// history replacements and marker-bearing slices keep full validation.
 		const couldAffectPresentationBoundary = (transaction: Transaction): boolean => {
 			if (transaction.getMeta('uiEvent') === 'paste') return true;
 			if (isHistoryTransaction(transaction)) return true;
+			// A structural split or join can add or remove empty blocks. Only text
+			// and HTML atoms can introduce a presentation delimiter, so inspect the
+			// inserted slice instead of serializing the whole note.
+			const safeSlice = (slice: Slice): boolean => {
+				let safe = true;
+				slice.content.descendants((node) => {
+					if (node.isText) return;
+					const value = node.attrs.value;
+					if (
+						node.type.name === 'html' &&
+						typeof value === 'string' &&
+						(includesPresentationToken(value) || touchesStructuralSyntax(value))
+					) {
+						safe = false;
+						return;
+					}
+					if (includesPresentationToken(node.textContent)) safe = false;
+				});
+				if (!safe) return false;
+				const text = slice.content.textBetween(0, slice.content.size, '\n', '\n');
+				return !includesPresentationToken(text) && !touchesStructuralSyntax(text);
+			};
 			for (const [index, step] of transaction.steps.entries()) {
 				if (step instanceof AddMarkStep || step instanceof RemoveMarkStep) continue;
 				// Milkdown updates heading IDs with setNodeMarkup after text input.
@@ -194,14 +225,8 @@
 					transaction.docs[index]?.nodeAt(step.from)?.type.name === 'heading'
 				)
 					continue;
-				if (!(step instanceof ReplaceStep)) return true;
-				let structural = false;
-				step.slice.content.descendants((node) => {
-					if (!node.isText) structural = true;
-				});
-				if (structural) return true;
-				const inserted = step.slice.content.textBetween(0, step.slice.content.size, '\n');
-				if (includesPresentationToken(inserted) || touchesStructuralSyntax(inserted)) return true;
+				if (!(step instanceof ReplaceStep) && !(step instanceof ReplaceAroundStep)) return true;
+				if (!safeSlice(step.slice)) return true;
 				const beforeDoc = transaction.docs[index] ?? transaction.before;
 				const removed = step.to > step.from ? beforeDoc.textBetween(step.from, step.to, '\n') : '';
 				if (touchesStructuralSyntax(removed)) return true;
@@ -240,13 +265,21 @@
 		let editorBaseline: string | null = null;
 		let fidelity: SourceFidelity | null = null;
 		const restoreMarkdown = (markdown: string, commit = true) =>
-			measureEditorStage('restoreMarkdown', () =>
-				editorBaseline === null || markdown === editorBaseline
-					? sourceMarkdown
-					: frontmatter.raw +
-						(fidelity?.restore(roundTrip.restore(markdown, commit), commit) ??
-							roundTrip.restore(markdown, commit))
-			);
+			measureEditorStage('restoreMarkdown', () => {
+				const hint =
+					commit && pendingHint?.markdown === markdown
+						? {
+								previousFrom: pendingHint.previousFrom,
+								previousTo: pendingHint.previousTo,
+								nextFrom: pendingHint.nextFrom,
+								nextTo: pendingHint.nextTo
+							}
+						: undefined;
+				if (commit) pendingHint = null;
+				if (editorBaseline === null || markdown === editorBaseline) return sourceMarkdown;
+				const restored = roundTrip.restore(markdown, commit, hint);
+				return frontmatter.raw + (fidelity?.restore(restored, commit, hint) ?? restored);
+			});
 		lastEditorMarkdown = initial;
 		let alternativesSignature = '';
 		let imageFrame = 0;
@@ -698,12 +731,18 @@
 				const serialize = ctx.get(serializerCtx);
 				if (!incrementalMarkdown) {
 					incrementalMarkdown = createIncrementalMarkdown(doc, serialize);
+					pendingHint = null;
 					return incrementalMarkdown.markdown;
 				}
 				const result = updateIncrementalMarkdown(incrementalMarkdown, doc, serialize);
 				incrementalMarkdown = result.state;
-				if (result.full) recordEditorCounter('markdownIncrementalFallback');
-				else recordEditorCounter('markdownIncrementalBlock');
+				if (result.full) {
+					pendingHint = null;
+					recordEditorCounter('markdownIncrementalFallback');
+				} else {
+					recordEditorCounter('markdownIncrementalBlock');
+					pendingHint = result.scope ? { ...result.scope, markdown: result.state.markdown } : null;
+				}
 				return result.state.markdown;
 			});
 		};
@@ -1171,6 +1210,7 @@
 	bind:this={container}
 	class="mdsh-editor"
 	class:mdsh-long-document={content.length >= 256 * 1024}
+	class:mdsh-webkit-engine={webkitEngine}
 	role="region"
 	aria-label={t('editor.ariaLabel')}
 	tabindex="0"

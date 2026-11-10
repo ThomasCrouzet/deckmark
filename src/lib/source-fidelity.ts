@@ -27,6 +27,20 @@ interface ScopedRestore {
 	sourceNode: MarkdownNode;
 }
 
+/**
+ * A block span from the editor transaction stream. The incremental serializer
+ * knows which top-level block changed and its exact Markdown offsets. This hint
+ * removes the whole-document prefix and suffix comparison that otherwise
+ * locates the block. A span that does not align with the accepted baseline is
+ * stale, so the caller must ignore it.
+ */
+export interface SourceFidelityHint {
+	previousFrom: number;
+	previousTo: number;
+	nextFrom: number;
+	nextTo: number;
+}
+
 type Parse = (markdown: string) => MarkdownNode;
 
 function start(node: MarkdownNode): number {
@@ -241,11 +255,11 @@ export class SourceFidelity {
 	 * case the caches stay on the last accepted document, so a later flush cannot
 	 * serve source text for a document that was never applied.
 	 */
-	restore(markdown: string, commit = true): string {
+	restore(markdown: string, commit = true, hint?: SourceFidelityHint): string {
 		if (markdown === this.cachedMarkdown) return this.cachedSource;
 		if (markdown === this.markdown) return this.source;
 		const scoped = measureEditorStage('sourceFidelityScopeAttempt', () =>
-			this.restoreTextBlock(markdown)
+			this.restoreTextBlock(markdown, hint)
 		);
 		if (scoped !== null) {
 			if (commit) {
@@ -261,22 +275,57 @@ export class SourceFidelity {
 		return measureEditorStage('sourceFidelityFull', () => this.restoreFull(markdown, commit));
 	}
 
-	private restoreTextBlock(markdown: string): ScopedRestore | null {
+	private findChangedBlock(markdown: string): number {
 		const before = this.baseline.children ?? [];
 		const range = changeRange(this.markdown, markdown);
-		let from = 0;
-		let to = before.length;
-		while (from < to) {
-			const middle = (from + to) >>> 1;
-			if (end(before[middle]!) < range.from) from = middle + 1;
-			else to = middle;
+		let low = 0;
+		let high = before.length;
+		while (low < high) {
+			const middle = (low + high) >>> 1;
+			if (end(before[middle]!) < range.from) low = middle + 1;
+			else high = middle;
+		}
+		return low;
+	}
+
+	private restoreTextBlock(markdown: string, hint?: SourceFidelityHint): ScopedRestore | null {
+		const before = this.baseline.children ?? [];
+		let from: number;
+		let hintBlock: { from: number; to: number } | null = null;
+		let range: { from: number; oldTo: number; newTo: number } | null = null;
+		if (hint) {
+			const delta = markdown.length - this.markdown.length;
+			let low = 0;
+			let high = before.length;
+			while (low < high) {
+				const middle = (low + high) >>> 1;
+				if (start(before[middle]!) < hint.previousFrom) low = middle + 1;
+				else high = middle;
+			}
+			const candidate = before[low];
+			if (
+				candidate &&
+				start(candidate) === hint.previousFrom &&
+				end(candidate) === hint.previousTo &&
+				hint.nextFrom === hint.previousFrom &&
+				hint.nextTo <= markdown.length &&
+				hint.nextTo - hint.nextFrom === hint.previousTo - hint.previousFrom + delta
+			) {
+				from = low;
+				hintBlock = { from: hint.nextFrom, to: hint.nextTo };
+				recordEditorCounter('sourceFidelityScopedHint');
+			} else {
+				from = this.findChangedBlock(markdown);
+			}
+		} else {
+			from = this.findChangedBlock(markdown);
 		}
 		const block = before[from];
+		if (!hintBlock) range = changeRange(this.markdown, markdown);
 		if (
 			!block?.position ||
 			(block.type !== 'paragraph' && block.type !== 'heading') ||
-			range.from < start(block) ||
-			range.oldTo > end(block) ||
+			(range !== null && (range.from < start(block) || range.oldTo > end(block))) ||
 			block.children?.length !== 1 ||
 			block.children[0]?.type !== 'text'
 		)
@@ -298,7 +347,9 @@ export class SourceFidelity {
 		)
 			return null;
 		const raw = this.source.slice(start(original), end(original));
-		const next = markdown.slice(start(block), end(block) + markdown.length - this.markdown.length);
+		const next = hintBlock
+			? markdown.slice(hintBlock.from, hintBlock.to)
+			: markdown.slice(start(block), end(block) + markdown.length - this.markdown.length);
 		// References can resolve against definitions outside this paragraph.
 		if (raw.length > 32_768 || next.length > 32_768 || /[[\]]/.test(raw + next)) return null;
 		const tree = this.parse(next);

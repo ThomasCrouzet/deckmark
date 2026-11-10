@@ -188,6 +188,43 @@ test.describe('KaTeX and Mermaid rendering in read mode', () => {
 		await expect(page.locator('.mdsh-preview .mdsh-anchor')).toHaveCount(1);
 	});
 
+	test('keeps later preview paragraphs after an early paragraph edit', async ({ page }, info) => {
+		const paragraphs = Array.from(
+			{ length: 200 },
+			(_, index) => `Paragraph ${index} keeps one stable sentence for the preview.`
+		);
+		const source = `${paragraphs.join('\n\n')}\n\n![Stable](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDfoAAAAASUVORK5CYII=)`;
+		await seedFiles(page, [{ name: 'preview-first-edit', content: source }]);
+		await page.getByTestId('split-view-toggle').click();
+		const preview = page.locator('.mdsh-preview');
+		await expect(preview.locator('p').first()).toBeVisible({ timeout: 20_000 });
+		await expect.poll(() => preview.locator('p').count()).toBeGreaterThanOrEqual(200);
+		const count = await preview.locator('p').count();
+		const second = await preview.locator('p').nth(1).elementHandle();
+		const last = await preview
+			.locator('p')
+			.nth(count - 1)
+			.elementHandle();
+		const editor = page.locator('.cm-content').first();
+		await editor.click();
+		await page.keyboard.press('ControlOrMeta+Home');
+		await page.keyboard.insertText('Changed ');
+		await expect(preview).toContainText('Changed Paragraph 0 keeps one stable sentence');
+		const retained = {
+			second: await second!.evaluate((node) => node.isConnected),
+			last: await last!.evaluate((node) => node.isConnected),
+			first: await preview.locator('p').first().innerText(),
+			count: await preview.locator('p').count()
+		};
+		await info.attach('first-paragraph-edit.json', {
+			body: JSON.stringify({ sourceLength: source.length, retained }, null, 2),
+			contentType: 'application/json'
+		});
+		expect(retained.second).toBe(true);
+		expect(retained.last).toBe(true);
+		expect(retained.count).toBe(count);
+	});
+
 	test('keeps unchanged diagram and code DOM after a split section edit', async ({
 		page
 	}, info) => {

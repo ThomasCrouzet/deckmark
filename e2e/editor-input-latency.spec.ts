@@ -255,6 +255,43 @@ test('ordinary visual typing avoids full-document validation', async ({ page }, 
 	});
 });
 
+test('new visual paragraphs avoid full-document validation on Enter', async ({ page }, info) => {
+	test.setTimeout(120_000);
+	const content = largeNote(240_000);
+	await seedNote(page, largeId, content);
+	await page.evaluate(() => localStorage.setItem('mdsh:mode', 'wysiwyg'));
+	await page.reload();
+	await openVisualEditor(page);
+	const last = page.locator('.ProseMirror > p').last();
+	await expect(last).toBeVisible({ timeout: 60_000 });
+	await last.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	const before = await readCounters(page);
+	await page.keyboard.press('Enter');
+	await page.keyboard.insertText('New paragraph text.');
+	await page.waitForTimeout(700);
+	const after = await readCounters(page);
+	await attachCounters(info, before, after);
+	const change = delta(before, after);
+	expect
+		.soft(change.noteTypeFallback ?? 0, 'a paragraph split and its text must stay local')
+		.toBe(0);
+	expect
+		.soft(change.noteTypeFast ?? 0, 'the new paragraph must take the fast path')
+		.toBeGreaterThan(0);
+	expect
+		.soft(change.markdownIncrementalFallback ?? 0, 'a new paragraph must stay incremental')
+		.toBe(0);
+	expect
+		.soft(change.markdownIncrementalBlock ?? 0, 'the publish must update blocks, not the note')
+		.toBeGreaterThan(0);
+	await expect
+		.poll(async () => (await storedContent(page, largeId)).includes('New paragraph text.'), {
+			timeout: 20_000
+		})
+		.toBe(true);
+});
+
 async function openVisualEditor(page: Page) {
 	await page.locator('[data-mode=wysiwyg]').click();
 	const dialog = page.getByRole('dialog', {
