@@ -293,3 +293,102 @@ test('documentation site export produces an offline navigable ZIP', async ({
 		contentType: 'application/json'
 	});
 });
+
+test('documentation site avoids a user asset that has the internal directory name', async ({
+	page,
+	browser
+}, testInfo) => {
+	await resetAppState(page);
+	await page.evaluate(async () => {
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const database = request.result;
+				const transaction = database.transaction(
+					['drafts', 'projects', 'projectAssets'],
+					'readwrite'
+				);
+				transaction.objectStore('drafts').put({
+					id: 'home',
+					name: 'README.md',
+					projectId: 'collision-project',
+					relativePath: 'README.md',
+					content: '# Home\n\n[Internal](_mdsh)\n',
+					kind: 'note',
+					order: 0,
+					open: true,
+					createdAt: 1,
+					updatedAt: 1
+				});
+				transaction.objectStore('projects').put({
+					id: 'collision-project',
+					name: 'Collision project',
+					createdAt: 1,
+					updatedAt: 1
+				});
+				transaction.objectStore('projectAssets').put({
+					id: 'internal',
+					projectId: 'collision-project',
+					path: '_mdsh',
+					mime: 'application/octet-stream',
+					data: Uint8Array.of(1, 2, 3),
+					bytes: 3
+				});
+				transaction.oncomplete = () => {
+					database.close();
+					resolve();
+				};
+				transaction.onerror = () => reject(transaction.error);
+			};
+		});
+	});
+	await page.reload();
+	await page.getByTestId('projects-open').click();
+	const projects = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await projects.getByRole('button', { name: 'Exporter le site de documentation' }).click();
+	const panel = page.getByRole('dialog', { name: 'Exporter le site de documentation' });
+	await expect(panel).toBeVisible();
+
+	const zipPath = await saveDownload(page, testInfo, 'collision-site.zip');
+	await expect(panel.getByTestId('docs-site-summary')).toContainText('0 erreur(s)');
+	const zipBuffer = await readFile(zipPath);
+	const JSZip = (await import('jszip')).default;
+	const zip = await JSZip.loadAsync(zipBuffer);
+	const paths = Object.keys(zip.files).filter((path) => !zip.files[path]!.dir);
+	expect(paths).toContain('_mdsh');
+	expect(paths).toContain('_mdsh-2/site.css');
+	expect(paths).toContain('_mdsh-2/site.js');
+	expect(paths).toContain('_mdsh-2/search-index.js');
+	expect(paths).not.toContain('_mdsh/site.css');
+	expect([...((await zip.files['_mdsh']!.async('uint8array')) ?? [])]).toEqual([1, 2, 3]);
+
+	const siteRoot = testInfo.outputPath('site');
+	await extractSite(zipBuffer, siteRoot);
+	const stylesheet = await readFile(join(siteRoot, '_mdsh-2/site.css'), 'utf8');
+	const script = await readFile(join(siteRoot, '_mdsh-2/site.js'), 'utf8');
+	expect(stylesheet).toContain('.site-header');
+	expect(script).toContain('[data-site-theme]');
+
+	const offlinePage = await browser.newPage();
+	await offlinePage.goto(`file://${join(siteRoot, 'index.html')}`);
+	await expect(offlinePage.locator('link[rel=stylesheet]')).toHaveAttribute(
+		'href',
+		'_mdsh-2/site.css'
+	);
+	const applied = await offlinePage.evaluate(() => ({
+		margin: getComputedStyle(document.body).margin,
+		theme: document.documentElement.getAttribute('data-theme')
+	}));
+	expect(applied.margin).toBe('0px');
+	expect(applied.theme).toBeNull();
+	await offlinePage.locator('[data-site-theme]').click();
+	await expect(offlinePage.locator('html')).toHaveAttribute('data-theme', /dark|light/);
+	await offlinePage.close();
+
+	await testInfo.attach('collision-site.zip', { path: zipPath, contentType: 'application/zip' });
+	await testInfo.attach('collision-paths.json', {
+		body: JSON.stringify({ paths, styleBytes: stylesheet.length, scriptBytes: script.length }),
+		contentType: 'application/json'
+	});
+});

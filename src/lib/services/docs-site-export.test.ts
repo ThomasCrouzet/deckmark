@@ -339,6 +339,49 @@ describe('documentation site output', () => {
 		});
 	});
 
+	it('avoids an internal directory that is an existing user asset file', () => {
+		const plan = planDocsSite(
+			source({
+				assets: [{ path: '_mdsh', mime: 'application/octet-stream', data: Uint8Array.of(1, 2, 3) }]
+			})
+		);
+
+		expect(plan.assets.map((asset) => asset.outputPath)).toEqual(['_mdsh']);
+		expect(plan.internal.directory).not.toBe('_mdsh');
+		expect(plan.internal.stylesheet.startsWith('_mdsh/')).toBe(false);
+	});
+
+	it('allocates a deterministic suffix around case-folded files and descendants', () => {
+		const plan = planDocsSite(
+			source({
+				assets: [
+					{ path: '_MDSH', mime: 'application/octet-stream', data: Uint8Array.of(1) },
+					{
+						path: '_mdsh-2/nested.png',
+						mime: 'image/png',
+						data: PNG_BYTES
+					}
+				]
+			})
+		);
+
+		expect(plan.internal.directory).toBe('_mdsh-3');
+		expect(plan.assets.map((asset) => asset.outputPath)).toEqual(['_MDSH', '_mdsh-2/nested.png']);
+	});
+
+	it('rejects files and directories that share one output path', () => {
+		expect(() =>
+			planDocsSite(
+				source({
+					assets: [
+						{ path: 'assets', mime: 'application/octet-stream', data: Uint8Array.of(1) },
+						{ path: 'assets/logo.png', mime: 'image/png', data: PNG_BYTES }
+					]
+				})
+			)
+		).toThrow(/output path collision/i);
+	});
+
 	it('stops before ZIP creation when the signal is cancelled', async () => {
 		const controller = new AbortController();
 		controller.abort();

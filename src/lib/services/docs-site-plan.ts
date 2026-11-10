@@ -220,10 +220,35 @@ function internalDirectory(occupied: Set<string>): string {
 	let suffix = 1;
 	while (true) {
 		const directory = suffix === 1 ? '_mdsh' : `_mdsh-${suffix}`;
-		const prefix = `${directory.toLowerCase()}/`;
-		if (![...occupied].some((path) => path.startsWith(prefix))) return directory;
+		if (!occupiedAsFileOrDirectory(occupied, directory)) return directory;
 		suffix++;
 	}
+}
+
+/** A generated directory cannot use a name that is a user file or its parent. */
+function occupiedAsFileOrDirectory(occupied: Set<string>, directory: string): boolean {
+	const key = pathKey(directory);
+	if (occupied.has(key)) return true;
+	const prefix = `${key}/`;
+	for (const path of occupied) if (path.startsWith(prefix)) return true;
+	return false;
+}
+
+/**
+ * A regular file cannot share its output path with the directory that holds
+ * another file. ZIP entries can represent that state, but no ordinary
+ * filesystem can extract it faithfully.
+ */
+function findFileTreeConflict(paths: readonly string[]): [string, string] | null {
+	const keys = new Set(paths.map((path) => pathKey(path)));
+	for (const key of keys) {
+		const parts = key.split('/');
+		for (let index = 1; index < parts.length; index++) {
+			const parent = parts.slice(0, index).join('/');
+			if (keys.has(parent)) return [parent, key];
+		}
+	}
+	return null;
 }
 
 function documentPageKind(document: DocsSiteDocumentInput): boolean {
@@ -396,6 +421,21 @@ export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
 		internal,
 		issues: []
 	});
+
+	const conflict = findFileTreeConflict([
+		...pages.map((page) => page.outputPath),
+		...plannedAssets.map((asset) => asset.outputPath),
+		...files.map((file) => file.outputPath),
+		internal.marker,
+		internal.stylesheet,
+		internal.script,
+		...(includeSearchIndex ? [internal.searchIndex] : [])
+	]);
+	if (conflict) {
+		throw new Error(
+			`Project output path collision: "${conflict[0]}" is a file and a directory of "${conflict[1]}".`
+		);
+	}
 
 	const issues: DocsSiteIssue[] = skipped.map((document) =>
 		issue(
