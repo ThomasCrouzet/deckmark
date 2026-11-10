@@ -70,6 +70,8 @@ pub struct ProjectEntry {
     mtime_ms: f64,
     size: u64,
     revision: String,
+    first: u64,
+    second: u64,
 }
 
 #[derive(Serialize)]
@@ -88,6 +90,8 @@ pub struct ProjectManifestEntry {
     relative_path: String,
     mtime_ms: f64,
     size: u64,
+    first: u64,
+    second: u64,
 }
 
 #[derive(Serialize)]
@@ -636,6 +640,8 @@ fn read_entry(session: &ProjectSession, relative_path: &str) -> Result<ProjectEn
         mtime_ms,
         size,
         revision,
+        first: expected_identity.first,
+        second: expected_identity.second,
     })
 }
 
@@ -757,6 +763,7 @@ fn collect_manifest(session: &ProjectSession) -> Result<Vec<ProjectManifestEntry
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .map(|duration| duration.as_secs_f64() * 1000.0)
             .unwrap_or(0.0);
+        let identity = cap_file_identity(&file)?;
         entries.push(ProjectManifestEntry {
             kind: if kind == EntryKind::Markdown {
                 "markdown"
@@ -766,6 +773,8 @@ fn collect_manifest(session: &ProjectSession) -> Result<Vec<ProjectManifestEntry
             relative_path: relative,
             mtime_ms,
             size: metadata.len(),
+            first: identity.first,
+            second: identity.second,
         });
     }
     validate_root(&session.path, &session.identity)?;

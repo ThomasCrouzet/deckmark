@@ -179,6 +179,22 @@ export async function nativeProjects({
 	const { rootId } = picked.value;
 	let { token } = picked.value;
 	const initial = picked.value.entries.find((entry) => entry.relativePath === 'notes/start.md');
+	const manifestBefore = record(
+		'manifest lists metadata without file contents',
+		await invoke('project_manifest', { token })
+	);
+	assert.equal(manifestBefore.rejection, undefined, manifestBefore.rejection);
+	assert.equal(manifestBefore.value.entries.length, picked.value.entries.length);
+	assert.equal(
+		manifestBefore.value.entries.every(
+			(entry) => !('content' in entry) && !('bytes' in entry) && entry.first && entry.second
+		),
+		true
+	);
+	record('metadata manifest is smaller than the full snapshot', {
+		snapshotBytes: JSON.stringify(picked.value).length,
+		manifestBytes: JSON.stringify(manifestBefore.value).length
+	});
 	for (const relativePath of [
 		'../outside.md',
 		'/tmp/outside.md',
@@ -228,6 +244,25 @@ export async function nativeProjects({
 
 	const staleContent = '# External\n';
 	writeFileSync(notePath, staleContent);
+	const manifestAfter = record(
+		'manifest reports the changed entry without other contents',
+		await invoke('project_manifest', { token })
+	);
+	const manifestEntry = manifestAfter.value.entries.find(
+		(entry) => entry.relativePath === 'notes/start.md'
+	);
+	const beforeEntry = manifestBefore.value.entries.find(
+		(entry) => entry.relativePath === 'notes/start.md'
+	);
+	assert.notDeepEqual(
+		{ size: manifestEntry.size, mtimeMs: manifestEntry.mtimeMs },
+		{ size: beforeEntry.size, mtimeMs: beforeEntry.mtimeMs }
+	);
+	const deltaRead = record(
+		'changed entry read returns exact external bytes',
+		await invoke('project_read', { token, relativePath: 'notes/start.md' })
+	);
+	assert.equal(deltaRead.value.content, staleContent);
 	const stale = record(
 		'stale revision rejects overwrite',
 		await invoke('project_write_text', {
