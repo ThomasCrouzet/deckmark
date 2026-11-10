@@ -71,6 +71,7 @@ export function escapeRegex(s: string): string {
  * characters (e.g. `[[<script>]]`).
  */
 export function preprocessWikiLinks(md: string): string {
+	if (!md.includes('[[')) return md;
 	return mapWikiLinks(md, (target, alias, match) => {
 		const cleanTarget = target.trim();
 		const label = (alias ?? cleanTarget).trim();
@@ -105,6 +106,7 @@ export function decodeWikiTarget(encoded: string): string {
  * preserved. The caller then compares by name/id.
  */
 export function extractWikiLinkTargets(md: string): string[] {
+	if (!md.includes('[[')) return [];
 	const seen = new Set<string>();
 	mapWikiLinks(md, (target, _alias, match) => {
 		if (target.trim()) seen.add(target.trim());
@@ -121,6 +123,7 @@ export interface WikiLinkOccurrence {
 
 /** Lists wiki links with their source offsets, excluding code and front matter. */
 export function wikiLinkOccurrences(md: string): WikiLinkOccurrence[] {
+	if (!md.includes('[[')) return [];
 	const occurrences: WikiLinkOccurrence[] = [];
 	mapWikiLinks(md, (target, _alias, match, start) => {
 		if (target.trim())
@@ -132,6 +135,7 @@ export function wikiLinkOccurrences(md: string): WikiLinkOccurrence[] {
 
 /** Rewrites targets while preserving aliases, whitespace, YAML, and code examples. */
 export function rewriteWikiLinkTargets(md: string, resolve: (target: string) => string): string {
+	if (!md.includes('[[')) return md;
 	return mapWikiLinks(md, (raw, alias, match) => {
 		const target = raw.trim();
 		const next = resolve(target);
