@@ -9,6 +9,11 @@ import type { ExportDeps, ExportResult } from './export-ops';
  * Resets `dirty = false` and schedules a save only after a real save/download.
  * A cancelled dialog or an error returns a non-success outcome.
  */
+export async function exportUnlinkedMarkdown(id: string, deps: ExportDeps): Promise<boolean> {
+	const result = await runExportMarkdown(id, deps);
+	return result.outcome === 'written' || result.outcome === 'initiated';
+}
+
 export async function runExportMarkdown(id: string, deps: ExportDeps): Promise<ExportResult> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return { outcome: 'failed', durable: false };

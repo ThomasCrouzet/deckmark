@@ -345,13 +345,8 @@ export class SaveQueue {
 			// durable row with the stale write before deleting. Another tab can
 			// write a newer row with the same ID while this put was in flight.
 			if (this.discardedIds.has(id)) {
-				try {
-					const { deleteDiscardedWrite } = await import('./draft-access');
-					const outcome = await deleteDiscardedWrite(id, row);
-					if (outcome === 'conflict') this.cb.onError(new Error('save-reverse-delete-conflict'));
-				} catch (err) {
-					this.cb.onError(err);
-				}
+				const { handleDiscardedWrite } = await import('./draft-access');
+				await handleDiscardedWrite(id, row, this.cb.onError);
 				return;
 			}
 			// Invalidate / newer generation: do not notify (and do not delete -

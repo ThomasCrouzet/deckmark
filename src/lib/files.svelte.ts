@@ -44,7 +44,6 @@ import { MetaIndex } from './meta-index';
 import { rewriteWikiLinkTargets } from './wiki-links';
 import { SaveQueue } from './save-queue';
 import {
-	exportMarkdown as exportMarkdownOp,
 	exportAllZip as exportAllZipOp,
 	exportHTML as exportHTMLOp,
 	exportPDF as exportPDFOp,
@@ -807,26 +806,17 @@ class FilesStore {
 
 	async openProjectLink(sourceId: string, destination: string): Promise<void> {
 		const source = this.library.find((file) => file.id === sourceId);
-		if (!source?.projectId || !source.relativePath) return;
-		const { resolveProjectPath } = await import('./project-paths');
-		const { findProjectDocument } = await import('./draft-access');
-		const path = resolveProjectPath(source.relativePath, destination);
-		const target = path ? findProjectDocument(this.library, source.projectId, path) : null;
-		// Portable project identity is case-insensitive. A malformed legacy
-		// library can still contain two rows for one key; never pick arbitrarily.
-		if (!target) {
+		if (!source) return;
+		const { resolveProjectLink } = await import('./draft-access');
+		const link = resolveProjectLink(this.library, source, destination);
+		// Portable identity is case-insensitive. A malformed legacy library with
+		// two rows for one key stays ambiguous and opens nothing.
+		if (!link) {
 			notify.error(t('projects.linkMissing'));
 			return;
 		}
-		const fragment = destination.split('#').slice(1).join('#');
-		if (fragment) {
-			try {
-				this.projectAnchor = { id: target.id, fragment: decodeURIComponent(fragment) };
-			} catch {
-				this.projectAnchor = null;
-			}
-		}
-		this.openDocument(target.id);
+		this.projectAnchor = link.anchor;
+		this.openDocument(link.targetId);
 	}
 
 	async importFiles(
@@ -1781,7 +1771,8 @@ class FilesStore {
 	async export(id: string): Promise<ExportResult> {
 		this.dispatchEditorFlush();
 		await this.ensureContent([id]);
-		return exportMarkdownOp(id, this.exportDeps);
+		const { exportMarkdown } = await import('./draft-access');
+		return exportMarkdown(id, this.exportDeps);
 	}
 	async exportAll(): Promise<void> {
 		this.dispatchEditorFlush();
@@ -1792,22 +1783,15 @@ class FilesStore {
 		this.dispatchEditorFlush();
 		// Capture the open-tab membership before the asynchronous hydration. A
 		// tab closed during the export must not change the archive set.
-		const ids = this.files.map((file) => file.id);
-		if (ids.length === 0) return;
-		try {
-			await this.ensureContent(ids);
-		} catch (error) {
-			reportError('export open hydration', error, { notifyUser: t('export.zipFailed') });
-			return;
-		}
-		const openIds = new Set(ids);
-		const snapshot = this.files.filter((file) => openIds.has(file.id));
+		const { openExportSnapshot } = await import('./draft-access');
+		const snapshot = await openExportSnapshot(this.files, (ids) => this.ensureContent(ids));
 		// A missing or unreadable row leaves the placeholder deferred. Refuse to
 		// build an incomplete archive instead of writing an empty entry.
-		if (snapshot.some((file) => file.contentDeferred)) {
+		if (!snapshot) {
 			notify.error(t('export.zipFailed'));
 			return;
 		}
+		if (snapshot.length === 0) return;
 		return exportAllZipOp({ ...this.exportDeps, getFiles: () => snapshot });
 	}
 	async exportHTML(id: string): Promise<void> {
@@ -2070,8 +2054,8 @@ class FilesStore {
 		const active = this.active;
 		if (active.linkedToDisk && isDiskLinkingAvailable()) return this.saveToDisk(active.id);
 		this.dispatchEditorFlush();
-		const result = await exportMarkdownOp(active.id, this.exportDeps);
-		return result.outcome === 'written' || result.outcome === 'initiated';
+		const { exportUnlinkedMarkdown } = await import('./draft-access');
+		return exportUnlinkedMarkdown(active.id, this.exportDeps);
 	}
 
 	async saveActiveToDisk(): Promise<boolean> {
@@ -2095,8 +2079,8 @@ class FilesStore {
 		if (!browser || !file) return false;
 		this.dispatchEditorFlush();
 		if (!isDiskLinkingAvailable()) {
-			const result = await exportMarkdownOp(id, this.exportDeps);
-			if (result.outcome === 'cancelled' || result.outcome === 'failed') return false;
+			const { exportUnlinkedMarkdown } = await import('./draft-access');
+			if (!(await exportUnlinkedMarkdown(id, this.exportDeps))) return false;
 			notify.info(t('disk.downloadedCopy', { name: file.name }));
 			return true;
 		}

@@ -24,6 +24,20 @@ function samePersistedRow(current: DraftRow, expected: DraftRow): boolean {
  * Removes the row a discarded write committed, but only while it still matches
  * that write. A newer row from another window, restore or backup branch stays.
  */
+/** Applies the conditional cleanup and reports the conflict to the queue. */
+export async function handleDiscardedWrite(
+	id: string,
+	row: DraftRow,
+	onError: (error: unknown) => void
+): Promise<void> {
+	try {
+		const outcome = await deleteDiscardedWrite(id, row);
+		if (outcome === 'conflict') onError(new Error('save-reverse-delete-conflict'));
+	} catch (error) {
+		onError(error);
+	}
+}
+
 export async function deleteDiscardedWrite(
 	id: string,
 	row: DraftRow
