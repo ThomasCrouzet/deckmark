@@ -143,6 +143,20 @@ describe('deckmark MCP server', () => {
 		expect(JSON.stringify(responses[1])).toContain('# Guide');
 	});
 
+	it('reads a Unicode filename through an in-root alias', () => {
+		writeFileSync(join(root, 'notes', 'Über note.md'), 'unicode-content');
+		symlinkSync('notes/Über note.md', join(root, 'unicode-alias.md'));
+		const responses = exchange([
+			JSON.stringify({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'tools/call',
+				params: { name: 'read_file', arguments: { path: 'unicode-alias.md' } }
+			})
+		]);
+		expect(JSON.stringify(responses[0])).toContain('unicode-content');
+	});
+
 	it.each([
 		['null', -32600],
 		['[]', -32600],
@@ -267,6 +281,27 @@ describe('MCP authorization races', () => {
 			rmSync(outside, { recursive: true, force: true });
 		}
 	});
+
+	it.runIf(process.platform === 'win32')(
+		'rejects a Windows directory junction to an outside tree',
+		async () => {
+			const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
+			try {
+				mkdirSync(join(root, 'linked'));
+				writeFileSync(join(outside, 'note.md'), 'outside-secret');
+				rmSync(join(root, 'linked'), { recursive: true, force: true });
+				symlinkSync(outside, join(root, 'linked'), 'junction');
+				const response = await request('tools/call', {
+					name: 'read_file',
+					arguments: { path: 'linked/note.md' }
+				});
+				expect(response.result).toMatchObject({ isError: true });
+				expect(JSON.stringify(response.result)).not.toContain('outside-secret');
+			} finally {
+				rmSync(outside, { recursive: true, force: true });
+			}
+		}
+	);
 
 	it('never returns outside bytes while a directory is swapped repeatedly', async () => {
 		const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
