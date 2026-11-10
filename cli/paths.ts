@@ -317,11 +317,17 @@ function hasTraversal(path: string): boolean {
 /**
  * Resolves an output target and rejects traversal, unsupported extensions,
  * and directories. A relative target must stay below the current directory.
+ * The returned target records the approved parent identity for the write.
  */
-export async function resolveOutput(path: string, format: OutputFormat): Promise<string> {
+export async function resolveOutput(
+	path: string,
+	format: OutputFormat,
+	options: OutputOptions = {}
+): Promise<string> {
 	if (!path.trim() || hasTraversal(path))
 		throw new CliError(EXIT.UNSAFE_PATH, 'unsafe-output', `Unsafe output path: ${path}`);
-	const target = resolve(process.cwd(), path);
+	const base = resolve(options.cwd ?? process.cwd());
+	const target = resolve(base, path);
 	const extension = target.slice(target.lastIndexOf('.')).toLowerCase();
 	if (!OUTPUT_EXTENSIONS[format].includes(extension))
 		throw new CliError(
@@ -329,14 +335,22 @@ export async function resolveOutput(path: string, format: OutputFormat): Promise
 			'unsupported-output',
 			`Output for ${format} needs one of these extensions: ${OUTPUT_EXTENSIONS[format].join(', ')}`
 		);
+	let approval: OutputApproval;
 	if (isAbsolute(path)) {
 		// An explicit absolute path is a user decision. Reject directories below.
+		approval = { confined: false, cwd: base, parent: null };
 	} else {
-		const cwd = await realpath(process.cwd());
+		const cwd = await realpath(base);
 		const parent = await nearestExistingParent(dirname(target));
 		const realParent = await realpath(parent);
-		if (realParent !== cwd && !realParent.startsWith(`${cwd}${sep}`))
+		if (!isWithinRoot(cwd, realParent))
 			throw new CliError(EXIT.UNSAFE_PATH, 'unsafe-output', `Unsafe output path: ${path}`);
+		const info = await stat(realParent);
+		approval = {
+			confined: true,
+			cwd,
+			parent: { real: realParent, dev: info.dev, ino: info.ino }
+		};
 	}
 	try {
 		const info = await stat(target);
@@ -345,8 +359,27 @@ export async function resolveOutput(path: string, format: OutputFormat): Promise
 	} catch (error) {
 		if (error instanceof CliError) throw error;
 	}
+	outputApprovals.set(target, approval);
 	return target;
 }
+
+export interface OutputOptions {
+	cwd?: string;
+}
+
+interface OutputApproval {
+	confined: boolean;
+	cwd: string;
+	parent: { real: string; dev: number; ino: number } | null;
+}
+
+interface DirectoryIdentity {
+	real: string;
+	dev: number;
+	ino: number;
+}
+
+const outputApprovals = new Map<string, OutputApproval>();
 
 async function nearestExistingParent(directory: string): Promise<string> {
 	let current = directory;
@@ -364,7 +397,24 @@ async function nearestExistingParent(directory: string): Promise<string> {
 
 /** Writes through a temporary file in the target directory, then renames. */
 export async function writeOutput(target: string, data: string | Uint8Array): Promise<void> {
+	const approval = outputApprovals.get(target);
+	outputApprovals.delete(target);
+	if (!approval)
+		throw new CliError(
+			EXIT.UNSAFE_PATH,
+			'unsafe-output',
+			`Output path was not approved: ${target}`
+		);
+	await writeApproved(target, data, approval);
+}
+
+async function writeApproved(
+	target: string,
+	data: string | Uint8Array,
+	approval: OutputApproval
+): Promise<void> {
 	const directory = dirname(target);
+	if (approval.confined) await assertApprovedParent(directory, approval, target);
 	try {
 		await mkdir(directory, { recursive: true });
 	} catch {
@@ -374,22 +424,76 @@ export async function writeOutput(target: string, data: string | Uint8Array): Pr
 			`Cannot create output directory: ${directory}`
 		);
 	}
+	const expected = approval.confined
+		? await currentDirectoryIdentity(directory, approval.cwd, target)
+		: null;
 	const temporary = resolve(
 		directory,
 		`.${basename(target)}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
 	);
 	let handle;
 	try {
-		handle = await open(temporary, 'wx', 0o644);
+		handle = await open(
+			temporary,
+			constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW,
+			0o644
+		);
+		if (expected) await assertDirectoryIdentity(directory, expected, target);
 		await handle.writeFile(data);
 		await handle.close();
 		handle = undefined;
+		if (expected) await assertDirectoryIdentity(directory, expected, target);
 		await rename(temporary, target);
-	} catch {
+	} catch (error) {
 		if (handle) await handle.close().catch(() => {});
 		await unlink(temporary).catch(() => {});
+		if (error instanceof CliError) throw error;
 		throw new CliError(EXIT.OUTPUT, 'output-failed', `Cannot write output: ${target}`);
 	}
+}
+
+/** Checks the nearest existing parent before any directory is created. */
+async function assertApprovedParent(
+	directory: string,
+	approval: OutputApproval,
+	target: string
+): Promise<void> {
+	const parent = await nearestExistingParent(directory);
+	const real = await realpath(parent).catch(() => null);
+	if (!real || !isWithinRoot(approval.cwd, real)) throw unsafeOutput(target);
+	if (approval.parent && real === approval.parent.real) {
+		const info = await stat(real);
+		if (info.dev !== approval.parent.dev || info.ino !== approval.parent.ino)
+			throw unsafeOutput(target);
+	}
+}
+
+async function currentDirectoryIdentity(
+	directory: string,
+	root: string,
+	target: string
+): Promise<DirectoryIdentity> {
+	const real = await realpath(directory).catch(() => null);
+	if (!real || !isWithinRoot(root, real)) throw unsafeOutput(target);
+	const info = await stat(real);
+	if (!info.isDirectory()) throw unsafeOutput(target);
+	return { real, dev: info.dev, ino: info.ino };
+}
+
+/** Rejects a parent switch between staging and replacement. */
+async function assertDirectoryIdentity(
+	directory: string,
+	expected: DirectoryIdentity,
+	target: string
+): Promise<void> {
+	const real = await realpath(directory).catch(() => null);
+	if (!real || real !== expected.real) throw unsafeOutput(target);
+	const info = await stat(real);
+	if (info.dev !== expected.dev || info.ino !== expected.ino) throw unsafeOutput(target);
+}
+
+function unsafeOutput(target: string): CliError {
+	return new CliError(EXIT.UNSAFE_PATH, 'unsafe-output', `Unsafe output path: ${target}`);
 }
 
 export class Deadline {

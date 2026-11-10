@@ -1,10 +1,20 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	symlink,
+	writeFile
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readBytes, readText, walkFiles } from './paths';
+import { readBytes, readText, resolveOutput, walkFiles, writeOutput } from './paths';
 
 const isWindows = process.platform === 'win32';
 const directoryLinkType = isWindows ? 'junction' : 'dir';
@@ -221,4 +231,107 @@ describe('CLI root scope with double-dot names', () => {
 		expect(result.status, result.stderr).toBe(0);
 		expect(JSON.parse(result.stdout).input).toBe('..notes/guide.md');
 	});
+});
+
+describe('CLI output confinement', () => {
+	it('refuses an absent parent directory swapped to an outside symlink after approval', async () => {
+		const cwd = join(base, 'output-absent', 'cwd');
+		const outside = join(base, 'output-absent', 'outside');
+		await mkdir(cwd, { recursive: true });
+		await mkdir(outside, { recursive: true });
+		await writeFile(join(outside, 'result.zip'), 'OUTSIDE-SENTINEL');
+
+		const target = await resolveOutput('export/result.zip', 'zip', { cwd });
+		await symlink(outside, join(cwd, 'export'), directoryLinkType);
+
+		await expect(writeOutput(target, 'NEW-CONTENT')).rejects.toMatchObject({
+			name: 'CliError',
+			code: 'unsafe-output'
+		});
+		expect(await readFile(join(outside, 'result.zip'), 'utf8')).toBe('OUTSIDE-SENTINEL');
+		expect(await readdir(outside)).toEqual(['result.zip']);
+	});
+
+	it('refuses an existing parent directory swapped to an outside symlink after approval', async () => {
+		const cwd = join(base, 'output-existing', 'cwd');
+		const outside = join(base, 'output-existing', 'outside');
+		await mkdir(join(cwd, 'export'), { recursive: true });
+		await mkdir(outside, { recursive: true });
+		await writeFile(join(outside, 'result.html'), 'OUTSIDE-SENTINEL');
+
+		const target = await resolveOutput('export/result.html', 'html', { cwd });
+		await rename(join(cwd, 'export'), join(cwd, 'export-old'));
+		await symlink(outside, join(cwd, 'export'), directoryLinkType);
+
+		await expect(writeOutput(target, '<p>NEW</p>')).rejects.toMatchObject({
+			name: 'CliError',
+			code: 'unsafe-output'
+		});
+		expect(await readFile(join(outside, 'result.html'), 'utf8')).toBe('OUTSIDE-SENTINEL');
+		expect(await readdir(outside)).toEqual(['result.html']);
+	});
+
+	it('does not follow a leaf symlink to an outside file', async () => {
+		const cwd = join(base, 'output-leaf', 'cwd');
+		const outside = join(base, 'output-leaf', 'outside');
+		await mkdir(cwd, { recursive: true });
+		await mkdir(outside, { recursive: true });
+		await writeFile(join(outside, 'keep.md'), 'OUTSIDE-SENTINEL');
+
+		const target = await resolveOutput('note.md', 'md', { cwd });
+		await symlink(join(outside, 'keep.md'), target);
+
+		await writeOutput(target, 'LOCAL');
+
+		expect(await readFile(join(outside, 'keep.md'), 'utf8')).toBe('OUTSIDE-SENTINEL');
+		expect(await readFile(target, 'utf8')).toBe('LOCAL');
+	});
+
+	it('writes an ordinary relative output and an absolute output', async () => {
+		const cwd = join(base, 'output-normal', 'cwd');
+		await mkdir(cwd, { recursive: true });
+
+		const relative = await resolveOutput('nested/result.md', 'md', { cwd });
+		await writeOutput(relative, 'RELATIVE');
+		expect(await readFile(join(cwd, 'nested', 'result.md'), 'utf8')).toBe('RELATIVE');
+
+		const absoluteTarget = join(base, 'output-normal', 'absolute', 'result.html');
+		const absolute = await resolveOutput(absoluteTarget, 'html', { cwd });
+		await writeOutput(absolute, '<p>ABSOLUTE</p>');
+		expect(await readFile(absoluteTarget, 'utf8')).toBe('<p>ABSOLUTE</p>');
+	});
+
+	it('keeps the outside sentinel and its own temporary files apart on failure', async () => {
+		const cwd = join(base, 'output-cleanup', 'cwd');
+		const outside = join(base, 'output-cleanup', 'outside');
+		await mkdir(cwd, { recursive: true });
+		await mkdir(outside, { recursive: true });
+		await writeFile(join(outside, 'result.md'), 'OUTSIDE-SENTINEL');
+
+		const target = await resolveOutput('export/result.md', 'md', { cwd });
+		await symlink(outside, join(cwd, 'export'), directoryLinkType);
+
+		await expect(writeOutput(target, 'NEW')).rejects.toBeInstanceOf(Error);
+		const outsideNames = await readdir(outside);
+		expect(outsideNames).toEqual(['result.md']);
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		'reports a write failure without a temporary file',
+		async () => {
+			const cwd = join(base, 'output-failure', 'cwd');
+			await mkdir(join(cwd, 'locked'), { recursive: true });
+			const target = await resolveOutput('locked/result.md', 'md', { cwd });
+			await chmod(join(cwd, 'locked'), 0o500);
+			try {
+				await expect(writeOutput(target, 'NEW')).rejects.toMatchObject({
+					name: 'CliError',
+					code: 'output-failed'
+				});
+				expect(await readdir(join(cwd, 'locked'))).toEqual([]);
+			} finally {
+				await chmod(join(cwd, 'locked'), 0o700);
+			}
+		}
+	);
 });
