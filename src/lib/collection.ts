@@ -52,9 +52,13 @@ export interface CollectionBuildOptions {
 
 const STORAGE_KEY = 'mdsh:collection-views';
 const PROJECTION_PREFIX = 'collection-row:';
-const PROJECTION_VERSION = 1;
+// Version 2 stores YAML non-finite numbers as canonical string tokens. A
+// version 1 row can contain null and is therefore a cache miss.
+const PROJECTION_VERSION = 2;
 const DEFAULT_BATCH_SIZE = 24;
 const PROJECTION_WRITE_BATCH = 200;
+const MAX_PROJECTION_STRING = 100_000;
+const MAX_PROJECTION_ARRAY = 10_000;
 
 interface CachedCollectionRow {
 	/** Exact source for a resident body. Undefined for a deferred projection. */
@@ -88,9 +92,17 @@ export function clearCollectionCache(): void {
 	parsedRows.clear();
 }
 
+// Numeric JSON cannot carry NaN or Infinity. YAML `.nan`, `.inf` and `-.inf`
+// are valid scalars, so the typed projection uses stable string tokens. Display,
+// filter, sort and group read the token like any other string value.
 function scalar(value: unknown): CollectionValue | null {
-	if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
-		return value;
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number') {
+		if (Number.isFinite(value)) return value;
+		if (Number.isNaN(value)) return 'NaN';
+		return value > 0 ? 'Infinity' : '-Infinity';
+	}
+	if (typeof value === 'boolean') return value;
 	if (Array.isArray(value)) return value.map((item) => String(item));
 	if (value instanceof Date) return value.toISOString().slice(0, 10);
 	return null;
@@ -153,6 +165,27 @@ function projectionKey(id: string): string {
 	return `${PROJECTION_PREFIX}${id}`;
 }
 
+function isValidProjectionValue(value: unknown): value is CollectionValue {
+	if (typeof value === 'string') return value.length <= MAX_PROJECTION_STRING;
+	if (typeof value === 'number') return Number.isFinite(value);
+	if (typeof value === 'boolean') return true;
+	if (Array.isArray(value)) {
+		if (value.length > MAX_PROJECTION_ARRAY) return false;
+		return value.every((item) => typeof item === 'string' && item.length <= MAX_PROJECTION_STRING);
+	}
+	return false;
+}
+
+function validProjectionValues(value: unknown): Record<string, CollectionValue> | null {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+	const values: Record<string, CollectionValue> = {};
+	for (const [key, entry] of Object.entries(value)) {
+		if (key.length > 256 || !isValidProjectionValue(entry)) return null;
+		values[key] = entry;
+	}
+	return values;
+}
+
 async function loadStoredRows(ids: readonly string[]): Promise<Map<string, StoredCollectionRow>> {
 	const stored = new Map<string, StoredCollectionRow>();
 	if (ids.length === 0) return stored;
@@ -170,15 +203,16 @@ async function loadStoredRows(ids: readonly string[]): Promise<Map<string, Store
 						parsed.v !== PROJECTION_VERSION ||
 						typeof parsed.revision !== 'string' ||
 						typeof parsed.title !== 'string' ||
-						!parsed.values ||
-						typeof parsed.values !== 'object'
+						parsed.title.length > MAX_PROJECTION_STRING
 					)
 						continue;
+					const values = validProjectionValues(parsed.values);
+					if (!values) continue;
 					stored.set(batch[index]!, {
 						v: PROJECTION_VERSION,
 						revision: parsed.revision,
 						title: parsed.title,
-						values: parsed.values as Record<string, CollectionValue>
+						values
 					});
 				} catch {
 					// A damaged projection is a cache miss, not a load failure.
@@ -376,12 +410,17 @@ export function collectionColumns(rows: readonly CollectionRow[]): string[] {
 	return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
-function comparable(value: CollectionValue | undefined): string | number {
-	if (value === undefined) return '';
-	if (Array.isArray(value)) return value.join(', ').toLowerCase();
-	if (typeof value === 'number') return value;
+function comparable(value: unknown): string | number {
+	if (value === undefined || value === null) return '';
+	if (Array.isArray(value))
+		return value
+			.map((item) => String(item))
+			.join(', ')
+			.toLowerCase();
+	if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
 	if (typeof value === 'boolean') return value ? 0 : 1;
-	return value.toLowerCase();
+	if (typeof value === 'string') return value.toLowerCase();
+	return String(value).toLowerCase();
 }
 
 const sortCaches = new WeakMap<CollectionRow, Map<string, string | number>>();

@@ -3,6 +3,7 @@ import { db } from './db';
 import {
 	buildCollection,
 	clearCollectionCache,
+	collectionColumns,
 	filterRows,
 	groupRows,
 	sortRows,
@@ -185,5 +186,90 @@ describe('collection cache identity', () => {
 		expect(filterRows(rows, 'second').map((row) => row.id)).toEqual(['other']);
 		expect(sortRows(rows, 'priority', 'desc').map((row) => row.id)).toEqual(['same-id', 'other']);
 		expect(groupRows(rows, 'status').map((group) => group.key)).toEqual(['new', 'old']);
+	});
+
+	it('round-trips non-finite YAML numbers through the durable projection', async () => {
+		const content =
+			'---\ntitle: Numeric\nscore: .nan\ncapacity: .inf\nfloor: -.inf\n---\n\n# Numeric\n';
+		const target = deferred('numeric-id', content);
+		const first = await buildCollection([target], {
+			readBodies: async () => new Map([[target.id, content]])
+		});
+		expect(first[0]?.values).toMatchObject({
+			score: 'NaN',
+			capacity: 'Infinity',
+			floor: '-Infinity'
+		});
+		const stored = await db.metadata.get('collection-row:numeric-id');
+		expect(stored?.value).toContain('"score":"NaN"');
+		expect(stored?.value).not.toContain('"score":null');
+
+		clearCollectionCache();
+		const reused = statsOf();
+		const rows = await buildCollection([target], {
+			readBodies: async () => {
+				throw new Error('The stored non-finite projection must not read the body');
+			},
+			onStats: (value) => (reused.stats = value)
+		});
+		expect(reused.stats).toMatchObject({ parsed: 0, reused: 1, bodyReads: 0 });
+		expect(rows[0]?.values).toMatchObject({
+			score: 'NaN',
+			capacity: 'Infinity',
+			floor: '-Infinity'
+		});
+		expect(collectionColumns(rows)).toEqual(['capacity', 'floor', 'score', 'title']);
+		expect(() => sortRows(rows, 'score', 'asc')).not.toThrow();
+		expect(filterRows(rows, 'nan').map((row) => row.id)).toEqual(['numeric-id']);
+		expect(groupRows(rows, 'capacity').map((group) => group.key)).toEqual(['Infinity']);
+	});
+
+	it('sorts and groups a mixed column with non-finite tokens and finite values', async () => {
+		const files = [
+			file('nan', '---\ntitle: NaN note\nscore: .nan\n---\n'),
+			file('inf', '---\ntitle: Inf note\nscore: .inf\n---\n'),
+			file('number', '---\ntitle: Number note\nscore: 7\n---\n'),
+			file('text', '---\ntitle: Text note\nscore: high\n---\n')
+		];
+		const rows = await buildCollection(files, { persist: false });
+		expect(() => sortRows(rows, 'score', 'asc')).not.toThrow();
+		expect(() => sortRows(rows, 'score', 'desc')).not.toThrow();
+		expect(() => groupRows(rows, 'score')).not.toThrow();
+		expect(sortRows(rows, 'score', 'asc')).toHaveLength(files.length);
+	});
+
+	it('treats malformed and invalid stored projections as cache misses', async () => {
+		const content = '---\ntitle: Recovered\nscore: 4\nlabels: [a, b]\n---\n\n# Body\n';
+		const invalidValues = [{ score: null }, { labels: [1, { a: 1 }] }, { labels: [true] }];
+		const variants = ['{"v":2,"revision":"broken"', ...invalidValues.map(() => '')];
+		for (const [index, invalid] of invalidValues.entries()) {
+			clearCollectionCache();
+			const target = deferred(`invalid-${index}`, content);
+			const first = await buildCollection([target], {
+				readBodies: async () => new Map([[target.id, content]])
+			});
+			expect(first[0]?.title).toBe('Recovered');
+			const stored = await db.metadata.get(`collection-row:${target.id}`);
+			if (!stored) throw new Error('The projection was not written');
+			const row = JSON.parse(stored.value) as Record<string, unknown>;
+			variants[index + 1] = JSON.stringify({ ...row, values: invalid });
+			await db.metadata.put({
+				key: `collection-row:${target.id}`,
+				value: variants[index + 1]!
+			});
+		}
+		for (const [index, storedValue] of variants.entries()) {
+			clearCollectionCache();
+			const target = deferred(`invalid-${index}`, content);
+			await db.metadata.put({ key: `collection-row:${target.id}`, value: storedValue });
+			const parsed = statsOf();
+			const rows = await buildCollection([target], {
+				readBodies: async () => new Map([[target.id, content]]),
+				onStats: (value) => (parsed.stats = value)
+			});
+			expect(parsed.stats, String(index)).toMatchObject({ parsed: 1, bodyReads: 1 });
+			expect(rows[0]?.title, String(index)).toBe('Recovered');
+			expect(rows[0]?.values, String(index)).toMatchObject({ score: 4, labels: ['a', 'b'] });
+		}
 	});
 });

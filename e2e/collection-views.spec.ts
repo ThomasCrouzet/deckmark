@@ -81,6 +81,56 @@ test('opens a note from the table', async ({ page }) => {
 	await expect(page.locator('.cm-content')).toContainText('# Beta');
 });
 
+const nonFiniteFiles = [
+	{
+		name: 'NaN',
+		content: '---\ntitle: Not a number\nscore: .nan\n---\n\n# NaN\n'
+	},
+	{
+		name: 'Positive',
+		content: '---\ntitle: Positive infinite\nscore: .inf\n---\n\n# Positive\n'
+	},
+	{
+		name: 'Negative',
+		content: '---\ntitle: Negative infinite\nscore: -.inf\n---\n\n# Negative\n'
+	}
+];
+
+test('sorts and filters non-finite YAML numbers after persistence', async ({
+	page
+}, info: TestInfo) => {
+	const failures: string[] = [];
+	page.on('pageerror', (error) => failures.push(error.message));
+	await resetAppState(page);
+	await seedFiles(page, nonFiniteFiles);
+	await openCollection(page);
+	const table = page.getByTestId('collection-table');
+	for (const title of ['Not a number', 'Positive infinite', 'Negative infinite'])
+		await expect(table).toContainText(title);
+
+	await page.getByTestId('collection-sort').selectOption('score');
+	const rows = table.locator('tbody tr');
+	await expect(rows.first()).toContainText('Negative infinite');
+	await expect(rows.first()).toContainText('-Infinity');
+	await page.getByTestId('collection-direction').click();
+	await expect(rows.first()).toContainText('Not a number');
+	await expect(rows.first()).toContainText('NaN');
+	await page.getByTestId('collection-filter').fill('positive');
+	await expect(rows).toHaveCount(1);
+	await expect(rows.first()).toContainText('Positive infinite');
+	await page.getByTestId('collection-filter').fill('');
+
+	await closeCollection(page);
+	await openCollection(page);
+	await page.getByTestId('collection-sort').selectOption('score');
+	await expect(table.locator('tbody tr').first()).toContainText('Negative infinite');
+	expect(failures.filter((message) => message.includes('toLowerCase'))).toEqual([]);
+	await info.attach('collection-non-finite.json', {
+		body: JSON.stringify({ files: nonFiniteFiles.length, failures }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 const FIELD_COUNT = 100;
 const NOTE_COUNT = 3000;
 
