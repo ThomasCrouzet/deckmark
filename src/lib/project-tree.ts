@@ -34,18 +34,18 @@ function compareNames(left: { name: string }, right: { name: string }): number {
 	return left.name.localeCompare(right.name);
 }
 
-function sortFolder(folder: { folders: ProjectTreeFolder[]; files: FileItem[] }): void {
+function sortRoot(folder: { folders: ProjectTreeFolder[]; files: FileItem[] }): void {
 	folder.folders.sort(compareNames);
 	folder.files.sort(compareNames);
-	for (const child of folder.folders) sortFolder(child);
 }
 
 /**
  * Builds the project tree with one index lookup per path segment.
  *
  * The index key combines the project ID and the normalized full folder path,
- * so sibling width never changes the lookup cost. Children are sorted by name
- * at every level, independently from document order.
+ * so sibling width never changes the lookup cost. Root siblings keep the
+ * existing name order. Nested folders and files keep the incoming document
+ * order, which the library already controls.
  */
 export function buildProjectTree(
 	documents: readonly FileItem[],
@@ -89,7 +89,7 @@ export function buildProjectTree(
 		stats.files++;
 	}
 	const ordered = Array.from(roots.values());
-	for (const root of ordered) sortFolder(root);
+	for (const root of ordered) sortRoot(root);
 	ordered.sort(compareNames);
 	return { roots: ordered, stats };
 }

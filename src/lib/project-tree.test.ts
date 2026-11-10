@@ -32,7 +32,7 @@ describe('project tree build', () => {
 		expect(elapsedMs).toBeLessThan(2000);
 	});
 
-	it('keeps deep paths, sorting, and file identity', () => {
+	it('keeps deep paths, root sorting, and file identity', () => {
 		const { roots } = buildProjectTree(
 			[
 				file(0, 'zeta/deep/a.md', 'a.md'),
@@ -44,7 +44,8 @@ describe('project tree build', () => {
 		);
 		const alpha = roots[0]!.folders.find((folder) => folder.name === 'alpha')!;
 		expect(alpha.folders.map((folder) => folder.name)).toEqual(['deep']);
-		expect(alpha.files.map((item) => item.name)).toEqual(['aa.md', 'b.md']);
+		// Nested files keep the library order; only root siblings sort by name.
+		expect(alpha.files.map((item) => item.name)).toEqual(['b.md', 'aa.md']);
 		const deep = alpha.folders[0]!;
 		expect(deep.path).toBe('alpha/deep');
 		expect(deep.files.map((item) => item.relativePath)).toEqual(['alpha/deep/c.md']);
