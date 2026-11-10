@@ -162,7 +162,7 @@ export async function exportProject(projectId: string): Promise<boolean> {
 		})
 	);
 	if (!snapshot.project) throw new Error('Project no longer exists');
-	const { buildProjectZip } = await import('./project-archive');
+	const { buildProjectZip } = await import('./project-io.js');
 	const blob = await buildProjectZip(
 		snapshot.project.name,
 		snapshot.documents.map((doc) => ({

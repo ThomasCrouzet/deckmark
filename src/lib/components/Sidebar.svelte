@@ -32,7 +32,7 @@
 	import ProjectTree from './ProjectTree.svelte';
 	import { projectExplorer, folderKey, rootKey } from '#lib/project-explorer.svelte.js';
 	import { createProject } from '#lib/projects.js';
-	import { PROJECT_DRAG_TYPE } from '#lib/project-transfer.js';
+	import { PROJECT_DRAG_TYPE } from '#lib/project-drag.js';
 	import { ArrowUp, ArrowDown, FolderPlus } from '@lucide/svelte';
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';

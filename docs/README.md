@@ -21,6 +21,7 @@
 - [Architecture](../ARCHITECTURE.md): design decisions and storage guarantees.
 - [Testing](TESTING.md): commands, failure risks, and repeatable evidence.
 - [Performance](PERFORMANCE.md): measured desktop bottlenecks and results.
+- [Performance roadmap](ROADMAP.md): active and closed performance and integrity register.
 - [GitHub settings](GITHUB_SETTINGS.md): repository controls and release checks.
 - [Desktop signing decision](decisions/desktop-signing.md): current state and revisit trigger.
 - [Desktop updates](UPDATES.md): standby state, signed manifest contract, and rollback policy.

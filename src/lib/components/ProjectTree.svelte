@@ -21,14 +21,8 @@
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { isFilesDrag } from '#lib/ui/image-drop.svelte.js';
-	import {
-		PROJECT_DRAG_TYPE,
-		importProjectEntries,
-		readDroppedFiles,
-		transferProjectSelection,
-		type TransferResult,
-		type TransferSelection
-	} from '#lib/project-transfer.js';
+	import { PROJECT_DRAG_TYPE } from '#lib/project-drag.js';
+	import type { TransferResult, TransferSelection } from '#lib/project-transfer.js';
 	import { createProjectDocument, renameProject } from '#lib/projects.js';
 	import type { ProjectRoot } from '#lib/project-explorer.svelte.js';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -216,6 +210,7 @@
 			if (isFilesDrag(event)) {
 				const dataTransfer = event.dataTransfer;
 				if (!dataTransfer) return;
+				const { importProjectEntries, readDroppedFiles } = await import('#lib/project-io.js');
 				const files = await readDroppedFiles(dataTransfer);
 				const result = await importProjectEntries(projectId, folder, files);
 				if (result.documents || result.assets)
@@ -225,6 +220,7 @@
 			}
 			const selection = readSelection(event);
 			if (!selection) return;
+			const { transferProjectSelection } = await import('#lib/project-io.js');
 			const result = await transferProjectSelection(selection, {
 				mode: event.altKey ? 'copy' : 'move',
 				targetProjectId: projectId,
@@ -315,6 +311,7 @@
 		}
 		const parent = folder.split('/').slice(0, -1).join('/');
 		try {
+			const { transferProjectSelection } = await import('#lib/project-io.js');
 			const result = await transferProjectSelection(
 				{ projectId, folder },
 				{

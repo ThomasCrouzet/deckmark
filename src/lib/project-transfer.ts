@@ -92,8 +92,6 @@ interface RewriteContext {
 	unresolved: Array<{ document: string; destination: string }>;
 }
 
-export const PROJECT_DRAG_TYPE = 'application/x-mdsh-project';
-
 const MARKDOWN_LINK = /\.(?:md|markdown|mdx|txt)$/i;
 
 function folderPrefix(folder: string | undefined): string {

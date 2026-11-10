@@ -389,7 +389,7 @@ export async function exportZip(
 	if (projectIds.size) {
 		const [{ db }, { PROJECT_LIMITS }] = await Promise.all([
 			import('../db'),
-			import('../project-archive')
+			import('../project-io.js')
 		]);
 		for (const projectId of projectIds) {
 			const snapshot: ProjectAssetRow[] = [];
@@ -439,7 +439,7 @@ export async function exportZip(
 	if (projectIds.size) {
 		const [{ db }, { buildProjectZip }] = await Promise.all([
 			import('../db'),
-			import('../project-archive')
+			import('../project-io.js')
 		]);
 		for (const projectId of projectIds) {
 			const project = await db.projects.get(projectId);

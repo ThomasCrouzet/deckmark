@@ -11,7 +11,7 @@
 	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { notify } from '#lib/notify.svelte.js';
-	import { readProjectFolder, readProjectZip } from '#lib/project-archive.js';
+	import { readProjectFolder, readProjectZip } from '#lib/project-io.js';
 	import { normalizeImportedProject, type MigrationReport } from '#lib/import-vault.js';
 	import ProjectTree from './ProjectTree.svelte';
 	import {

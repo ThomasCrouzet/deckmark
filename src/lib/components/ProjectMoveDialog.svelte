@@ -5,11 +5,7 @@
 	import { notify } from '#lib/notify.svelte.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { reportError } from '#lib/report.js';
-	import {
-		transferProjectSelection,
-		type TransferResult,
-		type TransferSelection
-	} from '#lib/project-transfer.js';
+	import type { TransferResult, TransferSelection } from '#lib/project-transfer.js';
 	import type { ProjectRoot } from '#lib/project-explorer.svelte.js';
 
 	interface Props {
@@ -41,6 +37,7 @@
 		busy = true;
 		error = false;
 		try {
+			const { transferProjectSelection } = await import('#lib/project-io.js');
 			const result = await transferProjectSelection(selection, {
 				mode,
 				targetProjectId,
