@@ -133,11 +133,15 @@ export default defineConfig(({ mode }) => {
 									// Startup state, notices, editor counters and small editor helpers
 									// use one offline resource. The counter core stays in the lazy
 									// statistics chunk.
+									// The image and PDF viewers share the binary view helpers. Keep
+									// them in this existing resource to avoid one extra precache entry.
 									if (
 										id.endsWith('/src/lib/files.svelte.ts') ||
 										id.endsWith('/src/lib/components/Toasts.svelte') ||
 										id.endsWith('/src/lib/editor-perf.ts') ||
 										id.endsWith('/src/lib/code/native-adapter.ts') ||
+										id.endsWith('/src/lib/services/binary-view-plan.ts') ||
+										id.endsWith('/src/lib/services/binary-view-render.ts') ||
 										id.endsWith('/src/lib/edition/web/tauri-api-stub.ts')
 									)
 										return 'workspace-state';
