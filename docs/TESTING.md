@@ -299,6 +299,35 @@ its filesystem boundary. Run `npx vitest run cli/mcp.test.ts --maxWorkers=1`.
 The review evidence in `/tmp/opencode/mcp-review-evidence.json` records the command,
 revision, environment, fixture source, hashes, and before-and-after results.
 
+### CLI filesystem boundary risks
+
+`cli/cli-security.test.ts` keeps the access-time identity checks for CLI input
+reads and output writes. A browser cannot run the Node CLI. A spawned process
+also cannot be paused between the directory walk, a metadata check, an open, a
+write, and a rename without a test-only hook. The cases therefore call the
+shared helpers with real temporary directories and real symbolic links.
+
+The retained input risks are a leaf file replaced by a symlink, an ancestor
+directory replaced by a symlink after the walk, the same swap for a binary
+asset, a file that grows past the byte budget, and a relative path that leaves
+the approved root. The explicit user-selected symlink case stays supported.
+The retained output risks are an absent or existing parent directory replaced
+by an outside symlink after approval, a leaf target replaced by a symlink, a
+write failure, and an outside sentinel that must stay unchanged.
+
+Node does not expose directory-relative creation (`openat`) to JavaScript. The
+writer pins the approved parent identity, checks it before the directory
+create, after the create, after the temporary open and before the rename, and
+writes bytes only after the post-open check. A swap that moves the temporary
+file leaves the outside sentinel intact, and the rename cannot find the random
+temporary name.
+
+Directory links run on Unix. Windows file links need an extra privilege, so the
+selected-symlink case skips there. Run
+`npx vitest run cli/cli-security.test.ts --maxWorkers=1`.
+The browser suite cannot detect these races. The installed-package workflow
+still checks the normal command workflows.
+
 `e2e/binary-review.spec.ts` compares image and PDF bytes after disk copy actions,
 library ZIP export, and project ZIP export. Binary copies must stay unlinked.
 An oversized restored PDF must produce an export error. `e2e/pdf-viewer.spec.ts`
