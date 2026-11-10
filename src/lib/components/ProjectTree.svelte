@@ -32,7 +32,7 @@
 	import { createProjectDocument, renameProject } from '#lib/projects.js';
 	import type { ProjectRoot } from '#lib/project-explorer.svelte.js';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-	import type { ProjectTreeResult } from '#lib/project-tree.js';
+	import { buildProjectTree } from '#lib/project-tree.js';
 
 	interface Props {
 		documents: FileItem[];
@@ -75,28 +75,12 @@
 	let moveOpen = $state(false);
 	let moveSelection = $state<TransferSelection | null>(null);
 
-	const emptyTree: ProjectTreeResult = {
-		roots: [],
-		stats: { folders: 0, files: 0, pathSegments: 0, siblingScans: 0 }
-	};
-	let tree = $state<ProjectTreeResult>(emptyTree);
-
-	/**
-	 * The tree builder indexes every full folder path once. It loads in its own
-	 * chunk so the start bundle pays nothing until a project tree is mounted.
-	 * The previous tree stays visible while the new build runs.
-	 */
-	$effect(() => {
-		const docs = documents;
-		const projectList = projects.map((project) => ({ id: project.id, name: project.name }));
-		let active = true;
-		void import('#lib/project-tree.js').then(({ buildProjectTree }) => {
-			if (active) tree = buildProjectTree(docs, projectList);
-		});
-		return () => {
-			active = false;
-		};
-	});
+	const tree = $derived(
+		buildProjectTree(
+			documents,
+			projects.map((project) => ({ id: project.id, name: project.name }))
+		)
+	);
 	const roots = $derived(tree.roots);
 
 	function pageCount(key: string): number {
@@ -533,13 +517,7 @@
 	{/if}
 {/snippet}
 
-<div
-	class="text-sm"
-	data-project-explorer
-	data-project-tree-folders={tree.stats.folders}
-	data-project-tree-files={tree.stats.files}
-	data-project-tree-sibling-scans={tree.stats.siblingScans}
->
+<div class="text-sm" data-project-explorer>
 	{#each roots as project (project.id)}
 		{@const key = rootKey(project.id)}
 		<div
