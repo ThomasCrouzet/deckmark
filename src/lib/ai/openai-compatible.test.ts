@@ -107,6 +107,43 @@ describe('provider endpoints', () => {
 		]);
 	});
 
+	it('refuses redirects for chat and model discovery', async () => {
+		const calls: Array<{ url: string; redirect?: RequestRedirect | undefined }> = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				calls.push({ url, redirect: init?.redirect });
+				if (url.includes('/models')) return streamResponse([encode('{"data":[]}')]);
+				return streamResponse([encode('data: [DONE]\n\n')]);
+			})
+		);
+		await listModels(config, 'sk-test');
+		await streamChat(config, 'sk-test', request, () => {});
+		expect(calls).toHaveLength(2);
+		expect(calls.every((call) => call.redirect === 'error')).toBe(true);
+	});
+
+	it('keeps provider tokens and prompt bytes out of a redirect failure', async () => {
+		const secret = 'sk-redirect-000000000000';
+		const canary = 'DECKMARK_CANARY_CONTEXT';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new TypeError('Failed to fetch');
+			})
+		);
+		const error = await streamChat(
+			config,
+			secret,
+			{ messages: [{ role: 'user', content: canary }] },
+			() => {}
+		).catch((value: unknown) => value);
+		expect(error).toMatchObject({ code: 'cors' });
+		expect((error as Error).message).not.toContain(secret);
+		expect((error as Error).message).not.toContain(canary);
+	});
+
 	it('reports an invalid endpoint before sending a request', async () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal('fetch', fetchMock);

@@ -325,6 +325,47 @@ export function planPatch(
 	return result;
 }
 
+export interface AppliedPatchFile {
+	id: string;
+	canonicalPath: string;
+	content: string;
+}
+
+/**
+ * Plans a revert of a previously applied patch. Every target must keep its
+ * exact accepted bytes and canonical path. One changed file rejects the whole
+ * set. Exact bytes are authoritative; the 32-bit hash is only a hint.
+ */
+export function planRevert(
+	appliedAfter: readonly AppliedPatchFile[],
+	appliedBefore: readonly AppliedPatchFile[],
+	files: readonly PatchTarget[]
+): { changes: Array<{ id: string; content: string }>; rejected: string[] } {
+	const rejected: string[] = [];
+	const seen = new Set<string>();
+	if (appliedAfter.length === 0 || appliedAfter.length !== appliedBefore.length)
+		return { changes: [], rejected: appliedAfter.map((entry) => entry.canonicalPath) };
+	for (const entry of appliedAfter) {
+		const before = appliedBefore.find((candidate) => candidate.id === entry.id);
+		const target = files.find((candidate) => candidate.id === entry.id);
+		if (
+			seen.has(entry.id) ||
+			!before ||
+			before.canonicalPath !== entry.canonicalPath ||
+			!target ||
+			canonicalPathOf(target) !== entry.canonicalPath ||
+			target.content !== entry.content
+		)
+			rejected.push(entry.canonicalPath);
+		seen.add(entry.id);
+	}
+	if (rejected.length > 0) return { changes: [], rejected };
+	return {
+		changes: appliedBefore.map((entry) => ({ id: entry.id, content: entry.content })),
+		rejected: []
+	};
+}
+
 /**
  * Applies approved files and hunks. Rechecks hashes so a stale plan cannot
  * overwrite later edits. Returns the complete set or a rejection list.

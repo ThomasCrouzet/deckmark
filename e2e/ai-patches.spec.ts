@@ -1,3 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import type { Server } from 'node:http';
+import { createServer } from 'node:https';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import {
 	createFirstFile,
@@ -7,7 +13,7 @@ import {
 	writeSourceContent
 } from './helpers';
 
-test.use({ locale: 'en-US', reducedMotion: 'reduce' });
+test.use({ locale: 'en-US', reducedMotion: 'reduce', ignoreHTTPSErrors: true });
 
 async function configureAi(page: Page, mode: 'valid' | 'stale') {
 	await page.addInitScript(() => {
@@ -136,6 +142,62 @@ async function configureCustomAi(
 	return requests;
 }
 
+async function configureMultiFileAi(
+	page: Page,
+	buildHunks: (path: string, content: string) => MockHunk[]
+): Promise<Array<Record<string, unknown>>> {
+	const requests: Array<Record<string, unknown>> = [];
+	await page.addInitScript(() => {
+		localStorage.setItem(
+			'mdsh:ai',
+			JSON.stringify({
+				enabled: true,
+				privacyMode: 'direct',
+				allowBrowserKey: true,
+				baseUrl: 'https://mock.local/v1',
+				model: 'mock-model',
+				temperature: 0.2,
+				maxTokens: 24000
+			})
+		);
+		sessionStorage.setItem('mdsh:ai-key', 'sk-session');
+	});
+	await page.route('https://mock.local/v1/**', async (route) => {
+		if (route.request().method() === 'OPTIONS') {
+			await route.fulfill({
+				status: 204,
+				headers: {
+					'access-control-allow-origin': '*',
+					'access-control-allow-methods': 'POST, OPTIONS',
+					'access-control-allow-headers': '*'
+				}
+			});
+			return;
+		}
+		const body = route.request().postDataJSON() as Record<string, unknown> & {
+			messages: Array<{ content: string }>;
+		};
+		requests.push(body);
+		const prompt = body.messages.at(-1)?.content ?? '';
+		const files = [
+			...prompt.matchAll(/<file path="([^"]+)" hash="([^"]+)">\n([\s\S]*?)\n<\/file>/g)
+		].map(([, path, hash, content]) => ({
+			path: path!,
+			baseHash: hash!,
+			hunks: buildHunks(path!, content!)
+		}));
+		const chunk = JSON.stringify({
+			choices: [{ delta: { content: '```json\n' + JSON.stringify({ files }) + '\n```' } }]
+		});
+		await route.fulfill({
+			status: 200,
+			headers: { 'access-control-allow-origin': '*', 'content-type': 'text/event-stream' },
+			body: `data: ${chunk}\n\ndata: [DONE]\n\n`
+		});
+	});
+	return requests;
+}
+
 async function configureSequenceAi(
 	page: Page,
 	sequence: Array<(content: string) => MockHunk[]>
@@ -216,6 +278,143 @@ async function importProject(
 	await panel.getByRole('button', { name: 'Fermer les projets' }).click();
 }
 
+function listenOnLoopback(server: Server): Promise<number> {
+	return new Promise((resolve, reject) => {
+		server.once('error', reject);
+		server.listen(0, '127.0.0.1', () => {
+			const address = server.address();
+			if (typeof address === 'object' && address) resolve(address.port);
+			else reject(new Error('The test provider did not bind a port.'));
+		});
+	});
+}
+
+function closeServer(server: Server): Promise<void> {
+	return new Promise((resolve) => server.close(() => resolve()));
+}
+
+/**
+ * Creates a short-lived self-signed certificate for the loopback origins. The
+ * private key exists only in the test process and in a temporary directory. It
+ * is never committed, so the repository stores no key material.
+ */
+function createTlsMaterial(): { key: Buffer; cert: Buffer; directory: string } {
+	const directory = mkdtempSync(join(tmpdir(), 'deckmark-tls-'));
+	const keyPath = join(directory, 'key.pem');
+	const certPath = join(directory, 'cert.pem');
+	execFileSync(
+		'openssl',
+		[
+			'req',
+			'-x509',
+			'-newkey',
+			'rsa:2048',
+			'-nodes',
+			'-keyout',
+			keyPath,
+			'-out',
+			certPath,
+			'-days',
+			'1',
+			'-subj',
+			'/CN=127.0.0.1',
+			'-addext',
+			'subjectAltName=IP:127.0.0.1'
+		],
+		{ stdio: 'ignore' }
+	);
+	return { key: readFileSync(keyPath), cert: readFileSync(certPath), directory };
+}
+
+/**
+ * Starts two real loopback origins. Origin A answers POST with a 307 to B.
+ * Origin B records every request body. A fixed `redirect: 'error'` client must
+ * stop at A; a default client forwards the POST body to the unapproved origin.
+ */
+async function startRedirectProvider(): Promise<{
+	baseUrl: string;
+	requests: Array<{ method: string; url: string }>;
+	destination: Array<{ url: string; body: string }>;
+	close: () => Promise<void>;
+}> {
+	const requests: Array<{ method: string; url: string }> = [];
+	const destination: Array<{ url: string; body: string }> = [];
+	const tls = createTlsMaterial();
+	const cors = {
+		'access-control-allow-origin': '*',
+		'access-control-allow-methods': 'POST, OPTIONS',
+		'access-control-allow-headers': '*'
+	};
+	const destinationServer = createServer({ key: tls.key, cert: tls.cert }, (request, response) => {
+		if (request.method === 'OPTIONS') {
+			response.writeHead(204, cors);
+			response.end();
+			return;
+		}
+		const chunks: Buffer[] = [];
+		request.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+		request.on('end', () => {
+			destination.push({
+				url: request.url ?? '',
+				body: Buffer.concat(chunks).toString('utf8')
+			});
+			response.writeHead(200, { ...cors, 'content-type': 'text/event-stream' });
+			response.end('data: [DONE]\n\n');
+		});
+	});
+	const destinationPort = await listenOnLoopback(destinationServer);
+	const redirectServer = createServer({ key: tls.key, cert: tls.cert }, (request, response) => {
+		requests.push({ method: request.method ?? '', url: request.url ?? '' });
+		if (request.method === 'OPTIONS') {
+			response.writeHead(204, cors);
+			response.end();
+			return;
+		}
+		response.writeHead(307, {
+			...cors,
+			location: `https://127.0.0.1:${destinationPort}/collect`
+		});
+		response.end();
+	});
+	const redirectPort = await listenOnLoopback(redirectServer);
+	return {
+		baseUrl: `https://127.0.0.1:${redirectPort}/v1`,
+		requests,
+		destination,
+		close: async () => {
+			await Promise.all([closeServer(redirectServer), closeServer(destinationServer)]);
+			rmSync(tls.directory, { recursive: true, force: true });
+		}
+	};
+}
+
+async function readDraftRows(
+	page: Page
+): Promise<Array<{ id: string; name: string; content: string }>> {
+	return page.evaluate(
+		() =>
+			new Promise<Array<{ id: string; name: string; content: string }>>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const all = database.transaction('drafts').objectStore('drafts').getAll();
+					all.onsuccess = () => {
+						database.close();
+						resolve(
+							all.result.map((row: { id: string; name: string; content: string }) => ({
+								id: row.id,
+								name: row.name,
+								content: row.content
+							}))
+						);
+					};
+					all.onerror = () => reject(all.error);
+				};
+			})
+	);
+}
+
 async function openAiPanel(page: Page) {
 	await openPalette(page);
 	await page
@@ -273,6 +472,113 @@ test('reviews a patch, applies only after approval, and rolls back', async ({
 		contentType: 'application/json'
 	});
 	await info.attach('ai-patch.png', { body: await page.screenshot() });
+});
+
+test('refuses a revert when a later edit collides on the 32-bit hash', async ({
+	page
+}, info: TestInfo) => {
+	await configureCustomAi(page, () => [{ before: 'ORIGINAL', after: '4c6d3c14' }]);
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, 'ORIGINAL');
+	await openAiPanel(page);
+	await page.getByTestId('ai-action-patch').click();
+	await expect(page.getByTestId('ai-patch-review')).toContainText('prêt');
+	await page.getByTestId('ai-patch-apply').click();
+	await expect.poll(() => page.locator('.cm-content').innerText()).toContain('4c6d3c14');
+	// This independent edit has the same FNV-1a 32-bit hash as the applied
+	// bytes but different exact content. Revert must not trust the hash.
+	const edited = await page.evaluate(() => {
+		const api = (
+			window as unknown as {
+				__mdshTest?: { forceNativeConflict: (text: string) => boolean };
+			}
+		).__mdshTest;
+		return api?.forceNativeConflict('34749a0f') ?? false;
+	});
+	expect(edited).toBe(true);
+	await expect.poll(() => page.locator('.cm-content').innerText()).toContain('34749a0f');
+	await page.getByTestId('ai-patch-revert').click();
+	await expect(page.getByTestId('ai-patch-error')).toBeVisible();
+	await expect(page.locator('.cm-content')).toHaveText('34749a0f');
+	expect(await page.locator('.cm-content').innerText()).not.toContain('ORIGINAL');
+	await info.attach('ai-patch-revert-collision.json', {
+		body: JSON.stringify({
+			applied: '4c6d3c14',
+			laterEdit: '34749a0f',
+			hash: 'b8012ee5',
+			revertRefused: true,
+			kept: '34749a0f'
+		}),
+		contentType: 'application/json'
+	});
+});
+
+test('refuses a multi-file revert when one file changed after apply', async ({
+	page
+}, info: TestInfo) => {
+	await configureMultiFileAi(page, (path) =>
+		path.includes('Alpha')
+			? [{ before: 'alpha body', after: 'alpha patched' }]
+			: [{ before: 'beta body', after: 'beta patched' }]
+	);
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'Alpha.md', content: '# Alpha\n\nalpha body' },
+		{ name: 'Beta.md', content: '# Beta\n\nbeta body' }
+	]);
+	await openAiPanel(page);
+	await page.getByTestId('ai-scope-files').click();
+	for (const name of ['Alpha.md', 'Beta.md'])
+		await page
+			.getByTestId('ai-panel')
+			.locator('label')
+			.filter({ hasText: name })
+			.locator('input')
+			.check();
+	await page.getByTestId('ai-action-patch').click();
+	await expect(page.getByTestId('ai-patch-review')).toContainText('prêt');
+	await page.getByTestId('ai-patch-apply').click();
+	await expect(page.getByTestId('ai-patch-applied')).toContainText('2');
+	await expect
+		.poll(async () => {
+			const rows = await readDraftRows(page);
+			return rows.map((row) => row.content).sort();
+		})
+		.toEqual(['# Alpha\n\nalpha patched', '# Beta\n\nbeta patched']);
+	const applied = await readDraftRows(page);
+	const beta = applied.find((row) => row.name === 'Beta.md')!;
+	const edited = await page.evaluate((fileId) => {
+		const api = (
+			window as unknown as {
+				__mdshTest?: {
+					forceNativeConflict: (text: string, fileId?: string) => boolean;
+				};
+			}
+		).__mdshTest;
+		return api?.forceNativeConflict('# Beta\n\nbeta edited later', fileId) ?? false;
+	}, beta.id);
+	expect(edited).toBe(true);
+	await expect.poll(() => page.locator('.cm-content').innerText()).toContain('beta edited later');
+	await page.getByTestId('ai-patch-revert').click();
+	await expect(page.getByTestId('ai-patch-error')).toBeVisible();
+	await expect
+		.poll(async () => {
+			const rows = await readDraftRows(page);
+			return rows.map((row) => row.content).sort();
+		})
+		.toEqual(['# Alpha\n\nalpha patched', '# Beta\n\nbeta edited later']);
+	expect(await page.locator('.cm-content').innerText()).toContain('beta edited later');
+	await info.attach('ai-patch-multi-revert.json', {
+		body: JSON.stringify({
+			applied: ['alpha patched', 'beta patched'],
+			laterEdit: 'beta edited later',
+			reverted: false,
+			alphaKept: 'alpha patched',
+			betaKept: 'beta edited later'
+		}),
+		contentType: 'application/json'
+	});
 });
 
 test('applies an explicit occurrence through the review flow', async ({ page }, info: TestInfo) => {
@@ -516,6 +822,59 @@ test('refuses an ambiguous basename across project folders', async ({ page }, in
 		body: JSON.stringify({ ambiguous: true, readmes: readmes.length, unchanged: true }),
 		contentType: 'application/json'
 	});
+});
+
+test('refuses a provider redirect before sending the approved body', async ({
+	page
+}, info: TestInfo) => {
+	const provider = await startRedirectProvider();
+	try {
+		const { baseUrl, requests, destination } = provider;
+		await page.addInitScript((providerUrl) => {
+			localStorage.setItem(
+				'mdsh:ai',
+				JSON.stringify({
+					enabled: true,
+					privacyMode: 'direct',
+					allowBrowserKey: true,
+					baseUrl: providerUrl,
+					model: 'mock-model',
+					temperature: 0.2,
+					maxTokens: 24000
+				})
+			);
+			sessionStorage.setItem('mdsh:ai-key', 'sk-session');
+		}, baseUrl);
+		await resetAppState(page);
+		await createFirstFile(page);
+		await writeSourceContent(page, '# Guide\n\nVisible paragraph.');
+		await openAiPanel(page);
+		await page.getByTestId('ai-prompt').fill('DECKMARK_CANARY_CONTEXT');
+		await page.getByTestId('ai-send').click();
+		// Wait for either the refused request or the unapproved destination.
+		await expect
+			.poll(
+				async () => destination.length > 0 || (await page.getByTestId('ai-error').isVisible()),
+				{ timeout: 5000 }
+			)
+			.toBe(true);
+		expect(destination).toEqual([]);
+		await expect(page.getByTestId('ai-error')).toBeVisible();
+		expect(requests.some((entry) => entry.method === 'POST')).toBe(true);
+		await info.attach('ai-redirect-refused.json', {
+			body: JSON.stringify({
+				redirect: 307,
+				providerRequests: requests,
+				destinationRequests: destination.length,
+				canaryTransmitted: destination.some((entry) =>
+					entry.body.includes('DECKMARK_CANARY_CONTEXT')
+				)
+			}),
+			contentType: 'application/json'
+		});
+	} finally {
+		await provider.close();
+	}
 });
 
 test('blocks a stale patch and keeps the file unchanged', async ({ page }, info: TestInfo) => {

@@ -72,6 +72,7 @@ pub fn run() {
         .manage(backup::BackupRoots::default())
         .manage(shell::CloseState::default())
         .manage(vault::VaultState::default())
+        .manage(ai::AiRequestRegistry::default())
         .manage(capture::CaptureStore::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -131,6 +132,7 @@ pub fn run() {
             vault::vault_status,
             vault::vault_delete,
             ai::ai_chat,
+            ai::ai_cancel,
             capture::desktop_capture_show,
             capture::desktop_capture_hide,
             capture::desktop_capture_register,

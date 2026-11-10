@@ -64,7 +64,8 @@ const NATIVE_ERRORS: Record<string, { code: AiErrorCode; message: MessageKey }> 
 	network: { code: 'network', message: 'ai.errorNetwork' },
 	'invalid-endpoint': { code: 'invalid-endpoint', message: 'ai.errorInvalidEndpoint' },
 	'missing-key': { code: 'missing-key', message: 'ai.errorMissingKey' },
-	disabled: { code: 'disabled', message: 'ai.errorDisabled' }
+	disabled: { code: 'disabled', message: 'ai.errorDisabled' },
+	cancelled: { code: 'cancelled', message: 'ai.errorCancelled' }
 };
 
 /** Converts a native error code to a user-facing provider error. */
@@ -248,7 +249,7 @@ class AiStore {
 		let reply: string;
 		try {
 			const { aiChat } = await nativeBridge();
-			reply = await aiChat(config, request.messages);
+			reply = await aiChat(config, request.messages, request.signal);
 		} catch (error) {
 			throw nativeAiError(error);
 		}
