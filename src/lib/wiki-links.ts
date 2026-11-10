@@ -202,14 +202,21 @@ function mapWikiLinks(
 	if (prefix)
 		return prefix + mapWikiLinks(md.slice(prefix.length), transform, offset + prefix.length);
 	const indentedCode = indentedCodeOffsets(md);
+	// Raw HTML comments, declarations and tags are inert. A quoted `>` inside a
+	// tag attribute must not end the tag. An unclosed comment stays inert to the
+	// end of the document, as Markdown renders it as comment text.
 	const scanner =
-		/^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)|^(?: {4}|\t)[^\n]*(?:\n|$)|`+|\[\[([^[\]|\n]+)(\|[^[\]\n]*)?\]\]/gm;
+		/<!--(?:[\s\S]*?-->|[\s\S]*$)|<!\[CDATA\[(?:[\s\S]*?\]\]>|[\s\S]*$)|<![A-Za-z][^<>"']*(?:(?:"[^"]*"|'[^']*')[^<>"']*)*>|<\/?[A-Za-z][^<>"']*(?:(?:"[^"]*"|'[^']*')[^<>"']*)*>|^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)|^(?: {4}|\t)[^\n]*(?:\n|$)|`+|\[\[([^[\]|\n]+)(\|[^[\]\n]*)?\]\]/gm;
 	const frontmatter = /^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(md);
 	if (frontmatter) scanner.lastIndex = frontmatter[0].length;
 	let copied = 0;
 	let output = '';
 	let match: RegExpExecArray | null;
 	while ((match = scanner.exec(md))) {
+		if (match[0].startsWith('<')) {
+			scanner.lastIndex = match.index + match[0].length;
+			continue;
+		}
 		let inlineRun: string | undefined;
 		if (match[1]) {
 			const fence = match[1];

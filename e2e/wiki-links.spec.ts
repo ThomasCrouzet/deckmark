@@ -170,6 +170,42 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		await expect(nameInput).toHaveValue('alice', { timeout: 5000 });
 	});
 
+	test('ignores wiki-like text in raw HTML comments and attributes', async ({ page }, testInfo) => {
+		const source =
+			'<!-- documentation TODO [[Old]] -->\n' + '<span title="[[Old]]">Label [[Real]]</span>\n';
+		await seedFiles(page, [
+			{ name: 'old', content: '# Old\n\nTarget for the phantom reference.\n' },
+			{ name: 'real', content: '# Real\n\nTarget for the visible reference.\n' },
+			{ name: 'raw-html', content: source }
+		]);
+		await page.locator('button[data-mode="read"]').click();
+		const preview = page.locator('.mdsh-preview');
+		await expect(preview.locator('a.wiki-link')).toHaveCount(1);
+		await expect(preview.locator('a[data-mdsh-wiki="Real"]')).toBeVisible();
+		const attribute = preview.locator('span[title="[[Old]]"]');
+		await expect(attribute).toBeVisible();
+		await expect(attribute).toHaveAttribute('title', '[[Old]]');
+		await expect(attribute.locator('a.wiki-link')).toHaveCount(1);
+		await expect(attribute.locator('a[data-mdsh-wiki="Real"]')).toBeVisible();
+
+		await page.locator('aside button[aria-label^="old"]').first().click();
+		const backlinks = page.locator('aside [aria-label="Backlinks"]');
+		await expect(backlinks.getByText('raw-html')).toHaveCount(0);
+
+		await page.locator('input[aria-label^="Nom du fichier"]').fill('renamed');
+		await page.locator('input[aria-label^="Nom du fichier"]').press('Enter');
+		await page.waitForTimeout(900);
+		await page.locator('aside button[aria-label^="raw-html"]').first().click();
+		await page.locator('button[data-mode="source"]').click();
+		const saved = (await page.locator('.cm-content').first().innerText()).replace(/\u00a0/g, ' ');
+		expect(saved.trimEnd()).toBe(source.trimEnd());
+		expect(saved).not.toContain('[[renamed]]');
+		await testInfo.attach('wiki-links-raw-html.md', {
+			body: saved,
+			contentType: 'text/markdown'
+		});
+	});
+
 	test('lists incoming files in the sidebar Backlinks section', async ({ page }) => {
 		await seedFiles(page, [
 			// Create the target first. ref-a and ref-b link to it.

@@ -36,6 +36,47 @@ describe('target rewriting', () => {
 	});
 });
 
+describe('raw HTML exclusions', () => {
+	it('ignores wiki-like text inside comments for extraction, rendering and rename', () => {
+		const md = '<!-- documentation TODO [[Old]] -->\nVisible text.\n';
+		expect(extractWikiLinkTargets(md)).toEqual([]);
+		expect(rewriteWikiLinkTargets(md, (target) => (target === 'Old' ? 'New' : target))).toBe(md);
+		expect(preprocessWikiLinks(md)).toBe(md);
+	});
+
+	it('ignores multiline and unclosed comments', () => {
+		const multiline = 'Before\n<!--\n[[Hidden]]\n-->\nAfter [[Visible]]\n';
+		expect(extractWikiLinkTargets(multiline)).toEqual(['Visible']);
+		expect(
+			rewriteWikiLinkTargets(multiline, (target) => (target === 'Hidden' ? 'Changed' : target))
+		).toBe(multiline);
+		const unclosed = 'Before <!-- [[Hidden]]\nAfter [[Visible]]';
+		expect(extractWikiLinkTargets(unclosed)).toEqual([]);
+		expect(preprocessWikiLinks(unclosed)).toBe(unclosed);
+	});
+
+	it('keeps tag attributes intact and renders only visible text', () => {
+		const md =
+			'<span title="[[Old]]" data-note=\'[[Other]]\'>Label [[Real|alias]]</span>\n' +
+			'<div data-x="a > [[Quoted]]">Visible [[Second]]</div>';
+		expect(extractWikiLinkTargets(md)).toEqual(['Real', 'Second']);
+		const rendered = preprocessWikiLinks(md);
+		expect(rendered).toContain('title="[[Old]]"');
+		expect(rendered).toContain("data-note='[[Other]]'");
+		expect(rendered).not.toContain('data-x="a > <a');
+		expect(rendered.match(/class="wiki-link"/g)).toHaveLength(2);
+		expect(rewriteWikiLinkTargets(md, (target) => (target === 'Old' ? 'New' : target))).toBe(md);
+	});
+
+	it('preserves BOM, CRLF and source offsets outside opaque HTML', () => {
+		const md = '\uFEFF# Title\r\n\r\n<!-- [[Old]] -->\r\nText [[Real]]\r\n';
+		expect(extractWikiLinkTargets(md)).toEqual(['Real']);
+		expect(rewriteWikiLinkTargets(md, (target) => (target === 'Real' ? 'New' : target))).toBe(
+			'\uFEFF# Title\r\n\r\n<!-- [[Old]] -->\r\nText [[New]]\r\n'
+		);
+	});
+});
+
 describe('slugify', () => {
 	it('supports a title with hyphens and composed uppercase characters', () => {
 		expect(slugify('Réunion RH - 2026')).toBe('reunion-rh-2026');
