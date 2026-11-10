@@ -15,6 +15,8 @@ export const projectEn = {
 	'projects.deleteDocumentNamed': 'Move {name} to trash',
 	'projects.toggleFolder': 'Expand or collapse {name}',
 	'projects.showAllFiles': 'Show all {n} files',
+	'projects.showMoreFiles': 'Show {n} more files',
+	'projects.showMoreFolders': 'Show {n} more folders',
 	'projects.projectRoot': 'Project root',
 	'projects.dropMove': 'Move to {path}',
 	'projects.dropCopy': 'Copy to {path}',

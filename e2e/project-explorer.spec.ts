@@ -501,10 +501,14 @@ test('bounded rendering keeps a large project responsive', async ({ page }, info
 		});
 	});
 	await expect(rows).toHaveCount(150);
-	await expect(root.getByRole('button', { name: 'Afficher les 320 fichiers' })).toBeVisible();
+	const pageButton = root.locator('[data-project-show-more-files]');
+	await expect(pageButton).toHaveText('Afficher les 150 fichiers suivants');
 	const started = performance.now();
-	await root.getByRole('button', { name: 'Afficher les 320 fichiers' }).click();
+	await pageButton.click();
+	await expect(rows).toHaveCount(300);
+	await pageButton.click();
 	await expect(rows).toHaveCount(320);
+	await expect(pageButton).toHaveCount(0);
 	const elapsedMs = performance.now() - started;
 	const heartbeat = await page.evaluate(() =>
 		(
@@ -533,6 +537,111 @@ test('bounded rendering keeps a large project responsive', async ({ page }, info
 		body: await page.screenshot(),
 		contentType: 'image/png'
 	});
+});
+
+test('bounds sibling folders and files with incremental pages', async ({ page }, info) => {
+	await page.evaluate(async () => {
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const database = request.result;
+				const transaction = database.transaction(['projects', 'drafts'], 'readwrite');
+				const projects = transaction.objectStore('projects');
+				const drafts = transaction.objectStore('drafts');
+				projects.clear();
+				drafts.clear();
+				projects.put({
+					id: 'wide-project',
+					name: 'Wide project',
+					createdAt: 1,
+					updatedAt: 1
+				});
+				let order = 0;
+				const put = (id: string, name: string, relativePath: string) => {
+					drafts.put({
+						id,
+						name,
+						content: '# Note\n',
+						projectId: 'wide-project',
+						relativePath,
+						createdAt: 1,
+						updatedAt: 1,
+						order: order++,
+						open: false
+					});
+				};
+				for (let index = 0; index < 320; index++) {
+					const suffix = String(index).padStart(3, '0');
+					put(`wide-dir-${suffix}`, 'note.md', `dir-${suffix}/note.md`);
+				}
+				for (let index = 0; index < 320; index++) {
+					const suffix = String(index).padStart(3, '0');
+					put(`wide-bulk-${suffix}`, `Note ${suffix}.md`, `bulk/Note ${suffix}.md`);
+				}
+				put('wide-deep', 'three.md', 'deep/one/two/three.md');
+				transaction.oncomplete = () => {
+					database.close();
+					resolve();
+				};
+				transaction.onerror = () => reject(transaction.error);
+			};
+		});
+	});
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	const started = Date.now();
+	const root = page.locator('[data-sidebar-projects] [data-project-root-name="Wide project"]');
+	await expect(root).toBeVisible();
+	await ensureExpanded(root);
+	const folders = root.locator('[data-project-folder]');
+	await expect(folders).toHaveCount(150);
+	const initialMountMs = Date.now() - started;
+
+	await root.locator('[data-project-show-more-folders]').click();
+	await expect(folders).toHaveCount(300);
+	await root.locator('[data-project-show-more-folders]').click();
+	await expect(folders).toHaveCount(322);
+
+	// A collapsed folder must not mount its nested descendants.
+	await expect(root.locator('[data-project-folder="deep/one"]')).toHaveCount(0);
+	await ensureExpanded(root.locator('[data-project-folder="deep"]'));
+	await expect(root.locator('[data-project-folder="deep/one"]')).toHaveCount(1);
+	await expect(root.locator('[data-project-folder="deep/one/two"]')).toHaveCount(0);
+	await expect(root.locator('[data-project-document="deep/one/two/three.md"]')).toHaveCount(0);
+
+	const bulk = root.locator('[data-project-folder="bulk"]');
+	await ensureExpanded(bulk);
+	const bulkRows = bulk.locator('[data-project-document]');
+	await expect(bulkRows).toHaveCount(150);
+	const pageCounts: number[] = [150];
+	for (const expected of [300, 320]) {
+		await bulk.locator('[data-project-show-more-files]').click();
+		await expect(bulkRows).toHaveCount(expected);
+		pageCounts.push(expected);
+	}
+	await expect(bulk.locator('[data-project-show-more-files]')).toHaveCount(0);
+	const mounted = await page.evaluate(
+		() =>
+			document.querySelectorAll(
+				'[data-project-explorer] [data-project-document], [data-project-explorer] [data-project-folder]'
+			).length
+	);
+	await info.attach('project-tree-bounds.json', {
+		body: JSON.stringify(
+			{
+				fixture: '320 sibling folders, 320 files in one folder, deep chain',
+				folderPages: [150, 300, 322],
+				filePages: pageCounts,
+				mountedTreeRows: mounted,
+				initialMountMs
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	await info.attach('project-tree-bounds.png', { body: await page.screenshot() });
 });
 
 test.afterEach(async ({ page, browser }, info) => {
