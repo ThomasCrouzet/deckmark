@@ -474,9 +474,22 @@ test('large rendered note keeps keystrokes interactive at the start and end', as
 			probe.longTasks.length = 0;
 		});
 		for (const character of typed) {
+			const recorded = await page.evaluate(
+				() =>
+					(window as unknown as { __visualInputProbe: { samples: number[] } }).__visualInputProbe
+						.samples.length
+			);
 			await page.keyboard.insertText(character);
-			// Let each key settle so the sample measures that key, not a queue.
-			await page.waitForTimeout(80);
+			// Wait for this key's two-frame sample before the next key. A fixed
+			// delay can let a second input overlap the pending frames, which
+			// doubles one sample and attributes the queue to the previous key.
+			await page.waitForFunction(
+				(count) =>
+					(window as unknown as { __visualInputProbe: { samples: number[] } }).__visualInputProbe
+						.samples.length > count,
+				recorded,
+				{ timeout: 5_000 }
+			);
 		}
 		await page.waitForTimeout(600);
 		positions[position] = (await readVisualInputProbe(page)).samples;
