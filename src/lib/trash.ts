@@ -17,6 +17,7 @@ import { reportPersistenceError } from './storage';
 import { uniqueName } from './file-utils';
 import { pathKey } from './project-paths';
 import { projectConflictVariant } from './project-conflicts';
+import { sameDraftIdentity } from './draft-identity';
 
 async function deletePurgedDiskLink(id: string): Promise<void> {
 	if (isDesktop()) {
@@ -34,12 +35,22 @@ async function deletePurgedDiskLink(id: string): Promise<void> {
  * entries on a late reload) so no snapshot orphans the storage.
  */
 async function fullPurge(id: string): Promise<void> {
-	const hasDraft = await db.transaction('rw', db.drafts, db.trashed, db.versions, async () => {
-		const current = await db.drafts.get(id);
-		await db.trashed.delete(id);
-		if (!current) await db.versions.where('draftId').equals(id).delete();
-		return Boolean(current);
-	});
+	const hasDraft = await db.transaction(
+		'rw',
+		db.drafts,
+		db.trashed,
+		db.versions,
+		db.comments,
+		async () => {
+			const current = await db.drafts.get(id);
+			await db.trashed.delete(id);
+			if (!current) {
+				await db.versions.where('draftId').equals(id).delete();
+				await db.comments.where('draftId').equals(id).delete();
+			}
+			return Boolean(current);
+		}
+	);
 	if (!hasDraft)
 		await deletePurgedDiskLink(id).catch((error) => reportPersistenceError(error, 'delete'));
 }
@@ -49,8 +60,7 @@ async function preserveCurrentVariant(
 	replacement: DraftRow
 ): Promise<DraftRow | undefined> {
 	const current = await db.drafts.get(id);
-	if (!current || (current.name === replacement.name && current.content === replacement.content))
-		return;
+	if (!current || sameDraftIdentity(current, replacement)) return;
 	const [documents, assets] = await Promise.all([db.drafts.toArray(), db.projectAssets.toArray()]);
 	const variant = projectConflictVariant(current, documents, assets);
 	const preserved = {
@@ -68,6 +78,7 @@ async function preserveCurrentVariant(
 	};
 	await db.drafts.put(preserved);
 	await copyVersionHistory(id, preserved.id);
+	await copyComments(id, preserved.id);
 	return preserved;
 }
 
@@ -75,6 +86,18 @@ async function copyVersionHistory(sourceId: string, targetId: string): Promise<v
 	const versions = await db.versions.where('draftId').equals(sourceId).toArray();
 	await db.versions.bulkPut(
 		versions.map((version) => ({ ...version, id: newId(), draftId: targetId }))
+	);
+}
+
+/**
+ * A preserved branch keeps its editorial comments. Both branches receive a
+ * copy, so a later purge of one branch cannot remove the other branch's review.
+ */
+async function copyComments(sourceId: string, targetId: string): Promise<void> {
+	const comments = await db.comments.where('draftId').equals(sourceId).toArray();
+	if (!comments.length) return;
+	await db.comments.bulkPut(
+		comments.map((comment) => ({ ...comment, id: newId(), draftId: targetId }))
 	);
 }
 
@@ -86,6 +109,7 @@ export async function preserveTrashEntry(id: string): Promise<TrashedRow | undef
 	const preserved = { ...previous, id: preservedId, file: { ...previous.file, id: preservedId } };
 	await db.trashed.put(preserved);
 	await copyVersionHistory(id, preservedId);
+	await copyComments(id, preservedId);
 	return preserved;
 }
 
@@ -209,12 +233,16 @@ export async function moveToTrash(
 	let preserved: TrashedRow | undefined;
 	let variant: DraftRow | undefined;
 	try {
-		await db.transaction('rw', [db.drafts, db.trashed, db.versions, db.projectAssets], async () => {
-			variant = await preserveCurrentVariant(id, draftRow);
-			preserved = await preserveTrashEntry(id);
-			await db.drafts.delete(id);
-			await db.trashed.put(row);
-		});
+		await db.transaction(
+			'rw',
+			[db.drafts, db.trashed, db.versions, db.projectAssets, db.comments],
+			async () => {
+				variant = await preserveCurrentVariant(id, draftRow);
+				preserved = await preserveTrashEntry(id);
+				await db.drafts.delete(id);
+				await db.trashed.put(row);
+			}
+		);
 		if (preserved) onPreserved?.(preserved);
 		if (variant) onVariantPreserved?.(variant);
 		return true;
@@ -233,16 +261,20 @@ export async function moveManyToTrash(rows: readonly TrashedRow[]): Promise<{
 	const preserved: TrashedRow[] = [];
 	const variants: DraftRow[] = [];
 	if (unique.length === 0) return { preserved, variants };
-	await db.transaction('rw', [db.drafts, db.trashed, db.versions, db.projectAssets], async () => {
-		for (const row of unique) {
-			const variant = await preserveCurrentVariant(row.id, row.file);
-			if (variant) variants.push(variant);
-			const previous = await preserveTrashEntry(row.id);
-			if (previous) preserved.push(previous);
+	await db.transaction(
+		'rw',
+		[db.drafts, db.trashed, db.versions, db.projectAssets, db.comments],
+		async () => {
+			for (const row of unique) {
+				const variant = await preserveCurrentVariant(row.id, row.file);
+				if (variant) variants.push(variant);
+				const previous = await preserveTrashEntry(row.id);
+				if (previous) preserved.push(previous);
+			}
+			await db.trashed.bulkPut(unique);
+			await db.drafts.bulkDelete(unique.map((row) => row.id));
 		}
-		await db.trashed.bulkPut(unique);
-		await db.drafts.bulkDelete(unique.map((row) => row.id));
-	});
+	);
 	return { preserved, variants };
 }
 
@@ -250,16 +282,27 @@ export async function moveManyToTrash(rows: readonly TrashedRow[]): Promise<{
 export async function purgeManyPermanently(ids: readonly string[]): Promise<void> {
 	const unique = [...new Set(ids)];
 	if (unique.length === 0) return;
-	const unlinkedIds = await db.transaction('rw', db.drafts, db.trashed, db.versions, async () => {
-		const entries = (await db.trashed.bulkGet(unique)).filter(
-			(row): row is TrashedRow => row !== undefined
-		);
-		const drafts = await db.drafts.bulkGet(entries.map((row) => row.id));
-		const removedIds = entries.filter((_row, index) => !drafts[index]).map((row) => row.id);
-		await db.trashed.bulkDelete(entries.map((row) => row.id));
-		if (removedIds.length) await db.versions.where('draftId').anyOf(removedIds).delete();
-		return removedIds;
-	});
+	const unlinkedIds = await db.transaction(
+		'rw',
+		db.drafts,
+		db.trashed,
+		db.versions,
+		db.comments,
+		async () => {
+			const entries = (await db.trashed.bulkGet(unique)).filter(
+				(row): row is TrashedRow => row !== undefined
+			);
+			const drafts = await db.drafts.bulkGet(entries.map((row) => row.id));
+			const removedIds = entries.filter((_row, index) => !drafts[index]).map((row) => row.id);
+			await db.trashed.bulkDelete(entries.map((row) => row.id));
+			if (removedIds.length) {
+				await db.versions.where('draftId').anyOf(removedIds).delete();
+				const commentIds = await db.comments.where('draftId').anyOf(removedIds).primaryKeys();
+				if (commentIds.length) await db.comments.bulkDelete(commentIds);
+			}
+			return removedIds;
+		}
+	);
 	// Disk links use a separate database. Report cleanup failures after the main commit.
 	await Promise.all(
 		unlinkedIds.map((id) =>
@@ -283,29 +326,36 @@ export async function restoreFromTrash(
 	let preserved: DraftRow | undefined;
 	let restored = draftRow;
 	try {
-		await db.transaction('rw', [db.drafts, db.trashed, db.versions, db.projectAssets], async () => {
-			preserved = await preserveCurrentVariant(draftRow.id, draftRow);
-			if (draftRow.projectId && draftRow.relativePath) {
-				const [projectDocuments, projectAssets] = await Promise.all([
-					db.drafts.where('projectId').equals(draftRow.projectId).toArray(),
-					db.projectAssets.where('projectId').equals(draftRow.projectId).toArray()
-				]);
-				const restoredPathKey = pathKey(draftRow.relativePath);
-				const occupied =
-					projectDocuments.some(
-						(document) =>
-							document.id !== draftRow.id &&
-							document.relativePath &&
-							pathKey(document.relativePath) === restoredPathKey
-					) || projectAssets.some((asset) => pathKey(asset.path) === restoredPathKey);
-				if (occupied) {
-					restored = projectConflictVariant(draftRow, projectDocuments, projectAssets);
+		await db.transaction(
+			'rw',
+			[db.drafts, db.trashed, db.versions, db.projectAssets, db.comments],
+			async () => {
+				preserved = await preserveCurrentVariant(draftRow.id, draftRow);
+				if (draftRow.projectId && draftRow.relativePath) {
+					const [projectDocuments, projectAssets] = await Promise.all([
+						db.drafts.where('projectId').equals(draftRow.projectId).toArray(),
+						db.projectAssets.where('projectId').equals(draftRow.projectId).toArray()
+					]);
+					const restoredPathKey = pathKey(draftRow.relativePath);
+					const occupied =
+						projectDocuments.some(
+							(document) =>
+								document.id !== draftRow.id &&
+								document.relativePath &&
+								pathKey(document.relativePath) === restoredPathKey
+						) || projectAssets.some((asset) => pathKey(asset.path) === restoredPathKey);
+					if (occupied) {
+						restored = projectConflictVariant(draftRow, projectDocuments, projectAssets);
+					}
 				}
+				if (restored.id !== id) {
+					await copyVersionHistory(id, restored.id);
+					await copyComments(id, restored.id);
+				}
+				await db.drafts.put(restored);
+				await db.trashed.delete(id);
 			}
-			if (restored.id !== id) await copyVersionHistory(id, restored.id);
-			await db.drafts.put(restored);
-			await db.trashed.delete(id);
-		});
+		);
 		if (preserved) onPreserved?.(preserved);
 		onRestored?.(restored);
 		return true;

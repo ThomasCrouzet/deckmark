@@ -373,6 +373,83 @@ describe('SaveQueue with IndexedDB and actual conflicts', () => {
 		expect((await db.versions.toArray()).map((version) => version.content)).toContain('bbbb');
 	});
 
+	it('preserves a branch when only the binary data payload differs', async () => {
+		const initial: DraftRow = {
+			...row('image'),
+			name: 'image.png',
+			content: '',
+			kind: 'image',
+			mime: 'image/png',
+			data: 'data:image/png;base64,A',
+			updatedAt: 1
+		};
+		await db.drafts.put(initial);
+		const preserved = vi.fn();
+		const q = new SaveQueue({ ...noopCb, onConflictPreserved: preserved });
+		q.trackPersisted(initial);
+		await db.drafts.put({
+			...initial,
+			data: 'data:image/png;base64,B',
+			updatedAt: 2
+		});
+		const local = { ...initial, updatedAt: 3 };
+		q.persist(local);
+		await q.flushAwait(() => local);
+
+		const rows = await db.drafts.toArray();
+		expect(rows.find((draft) => draft.id === 'image')?.data).toBe('data:image/png;base64,A');
+		expect(rows.find((draft) => draft.id !== 'image')).toMatchObject({
+			kind: 'image',
+			mime: 'image/png',
+			data: 'data:image/png;base64,B',
+			open: false
+		});
+		expect(preserved).toHaveBeenCalledOnce();
+	});
+
+	it('preserves a branch when only the MIME type differs', async () => {
+		const initial: DraftRow = {
+			...row('mime'),
+			content: '',
+			kind: 'image',
+			mime: 'image/png',
+			data: 'data:image/png;base64,A',
+			updatedAt: 1
+		};
+		await db.drafts.put(initial);
+		const q = new SaveQueue(noopCb);
+		q.trackPersisted(initial);
+		await db.drafts.put({ ...initial, mime: 'image/webp', updatedAt: 2 });
+		const local = { ...initial, updatedAt: 3 };
+		q.persist(local);
+		await q.flushAwait(() => local);
+
+		const rows = await db.drafts.toArray();
+		expect(rows.find((draft) => draft.id === 'mime')?.mime).toBe('image/png');
+		expect(rows.find((draft) => draft.id !== 'mime')?.mime).toBe('image/webp');
+	});
+
+	it('does not preserve a branch for a timestamp-only durable change', async () => {
+		const initial: DraftRow = {
+			...row('timestamp'),
+			name: 'timestamp.png',
+			content: '',
+			kind: 'image',
+			mime: 'image/png',
+			data: 'data:image/png;base64,A',
+			updatedAt: 1
+		};
+		await db.drafts.put(initial);
+		const q = new SaveQueue(noopCb);
+		q.trackPersisted(initial);
+		await db.drafts.put({ ...initial, updatedAt: 2 });
+		const local = { ...initial, updatedAt: 3 };
+		q.persist(local);
+		await q.flushAwait(() => local);
+
+		expect(await db.drafts.toArray()).toEqual([expect.objectContaining({ id: 'timestamp' })]);
+	});
+
 	it('rejects overwrite when remote branch preservation fails', async () => {
 		const initial = { ...row('a'), content: 'initial', updatedAt: 1 };
 		await db.drafts.put(initial);
