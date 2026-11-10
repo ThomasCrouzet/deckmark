@@ -116,27 +116,62 @@ async function buildZip(files: readonly DocsSiteFile[], signal?: AbortSignal): P
 
 /**
  * A published SVG is a navigable document, so preview-level `<img>` safety is
- * not sufficient. Every SVG asset is sanitized again for publication. The
- * private project asset stays untouched, and a rejected SVG blocks the ZIP.
+ * not sufficient. Every site file whose output path or MIME claims SVG is
+ * sanitized again for publication, including code documents. A `.svg` path is
+ * treated as SVG whatever MIME the source claims. The private project asset
+ * stays untouched, and a rejected SVG blocks the ZIP.
  */
 async function sanitizePublishedSvgAssets(plan: DocsSitePlan): Promise<DocsSiteIssue[]> {
 	const issues: DocsSiteIssue[] = [];
 	const { sanitizeSvgBytes } = await import('../render/image-media');
-	for (const asset of plan.assets) {
-		const declaresSvg = asset.mime.toLowerCase().split(';', 1)[0] === 'image/svg+xml';
-		const namedSvg = /\.svg$/i.test(asset.outputPath);
+	const entries: Array<{
+		sourcePath: string;
+		outputPath: string;
+		mime: string;
+		data: Uint8Array;
+		setData: (data: Uint8Array) => void;
+		setMime: (mime: string) => void;
+	}> = [
+		...plan.assets.map((asset) => ({
+			sourcePath: asset.sourcePath,
+			outputPath: asset.outputPath,
+			mime: asset.mime,
+			data: asset.data,
+			setData: (data: Uint8Array) => {
+				asset.data = data;
+			},
+			setMime: (mime: string) => {
+				asset.mime = mime;
+			}
+		})),
+		...plan.files.map((file) => ({
+			sourcePath: file.sourcePath,
+			outputPath: file.outputPath,
+			mime: file.mime,
+			data: file.data,
+			setData: (data: Uint8Array) => {
+				file.data = data;
+			},
+			setMime: (mime: string) => {
+				file.mime = mime;
+			}
+		}))
+	];
+	for (const entry of entries) {
+		const declaresSvg = entry.mime.toLowerCase().split(';', 1)[0] === 'image/svg+xml';
+		const namedSvg = /\.svg$/i.test(entry.outputPath);
 		if (!declaresSvg && !namedSvg) continue;
 		try {
-			asset.data = await sanitizeSvgBytes(asset.data);
-			asset.mime = 'image/svg+xml';
+			entry.setData(await sanitizeSvgBytes(entry.data));
+			entry.setMime('image/svg+xml');
 		} catch {
 			issues.push(
 				docsSiteIssue(
 					'asset-unsafe',
 					'error',
-					asset.sourcePath,
-					asset.sourcePath,
-					`"${asset.sourcePath}" is not a safe standalone SVG and is not published.`
+					entry.sourcePath,
+					entry.sourcePath,
+					`"${entry.sourcePath}" is not a safe standalone SVG and is not published.`
 				)
 			);
 		}

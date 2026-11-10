@@ -279,6 +279,206 @@ describe('documentation site output', () => {
 		expect(new TextDecoder().decode(raw)).toContain('onload');
 	});
 
+	it('sanitizes a code document published at an SVG path', async () => {
+		const raw =
+			'<svg xmlns="http://www.w3.org/2000/svg" onload="window.__svgTestMarker=1"><script>window.__svgTestMarker=2</script><rect width="4" height="4"/></svg>';
+		const result = await buildDocsSite(
+			source({
+				documents: [
+					{
+						id: 'home',
+						relativePath: 'README.md',
+						content: '# Home\n\n[Vector](assets/vector.svg)\n'
+					},
+					{
+						id: 'vector',
+						relativePath: 'assets/vector.svg',
+						kind: 'code',
+						mime: 'text/plain',
+						content: raw
+					}
+				]
+			})
+		);
+		const published = text(result, 'assets/vector.svg');
+		expect(published).not.toContain('onload');
+		expect(published).not.toContain('<script');
+		expect(published).toContain('<rect');
+		expect(result.report.assets).toContainEqual({
+			source: 'assets/vector.svg',
+			path: 'assets/vector.svg'
+		});
+	});
+
+	it('rejects a code document at an SVG path that is not a safe standalone SVG', async () => {
+		await expect(
+			buildDocsSite(
+				source({
+					documents: [
+						{ id: 'home', relativePath: 'README.md', content: '# Home\n' },
+						{
+							id: 'vector',
+							relativePath: 'assets/vector.svg',
+							kind: 'code',
+							content: 'not an SVG document'
+						}
+					]
+				})
+			)
+		).rejects.toMatchObject({
+			name: 'DocsSiteExportError',
+			report: {
+				issues: expect.arrayContaining([
+					expect.objectContaining({
+						code: 'asset-unsafe',
+						severity: 'error',
+						path: 'assets/vector.svg'
+					})
+				])
+			}
+		});
+	});
+
+	it('avoids an internal directory that is an existing user asset file', () => {
+		const plan = planDocsSite(
+			source({
+				assets: [{ path: '_mdsh', mime: 'application/octet-stream', data: Uint8Array.of(1, 2, 3) }]
+			})
+		);
+
+		expect(plan.assets.map((asset) => asset.outputPath)).toEqual(['_mdsh']);
+		expect(plan.internal.directory).not.toBe('_mdsh');
+		expect(plan.internal.stylesheet.startsWith('_mdsh/')).toBe(false);
+	});
+
+	it('allocates a deterministic suffix around case-folded files and descendants', () => {
+		const plan = planDocsSite(
+			source({
+				assets: [
+					{ path: '_MDSH', mime: 'application/octet-stream', data: Uint8Array.of(1) },
+					{
+						path: '_mdsh-2/nested.png',
+						mime: 'image/png',
+						data: PNG_BYTES
+					}
+				]
+			})
+		);
+
+		expect(plan.internal.directory).toBe('_mdsh-3');
+		expect(plan.assets.map((asset) => asset.outputPath)).toEqual(['_MDSH', '_mdsh-2/nested.png']);
+	});
+
+	it('rejects files and directories that share one output path', () => {
+		expect(() =>
+			planDocsSite(
+				source({
+					assets: [
+						{ path: 'assets', mime: 'application/octet-stream', data: Uint8Array.of(1) },
+						{ path: 'assets/logo.png', mime: 'image/png', data: PNG_BYTES }
+					]
+				})
+			)
+		).toThrow(/output path collision/i);
+	});
+
+	it('decodes percent-escaped fragments once before comparing anchors', () => {
+		const plan = planDocsSite(
+			source({
+				documents: [
+					{
+						id: 'home',
+						relativePath: 'README.md',
+						content: [
+							'# Home',
+							'',
+							'## Install Guide',
+							'',
+							'[Same](#install%2Dguide)',
+							'',
+							'[Cross](guide.md#install%2Dguide)',
+							'',
+							'[Absent](guide.md#missing%2Danchor)',
+							'',
+							'[Twice](guide.md#install%252Dguide)',
+							'',
+							'[Malformed](#install%ZZguide)',
+							''
+						].join('\n')
+					},
+					{
+						id: 'guide',
+						relativePath: 'guide.md',
+						content: '# Guide\n\n## Install Guide\n'
+					}
+				]
+			})
+		);
+
+		const anchors = plan.issues
+			.filter((entry) => entry.code === 'anchor-missing')
+			.map((entry) => [entry.target, entry.message]);
+		expect(anchors).toEqual([
+			['#install%ZZguide', 'Missing anchor "install%ZZguide".'],
+			['guide.md#install%252Dguide', 'Missing anchor "install%2Dguide".'],
+			['guide.md#missing%2Danchor', 'Missing anchor "missing-anchor".']
+		]);
+	});
+
+	it('resolves an encoded fragment to a duplicated heading slug', () => {
+		const plan = planDocsSite(
+			source({
+				documents: [
+					{
+						id: 'home',
+						relativePath: 'README.md',
+						content: '# Home\n\n## Install\n\n## Install\n\n[Jump](#install%2D2)\n'
+					}
+				]
+			})
+		);
+
+		expect(plan.issues).toEqual([]);
+	});
+
+	it('reports one warning for a cross-page encoded anchor and keeps the authored href', async () => {
+		const result = await buildDocsSite(
+			source({
+				documents: [
+					{
+						id: 'home',
+						relativePath: 'README.md',
+						content: [
+							'# Home',
+							'',
+							'## Install Guide',
+							'',
+							'[Same](#install%2Dguide)',
+							'',
+							'[Cross](notes/guide.md#install%2Dguide)',
+							'',
+							'[Absent](notes/guide.md#missing%2Danchor)',
+							''
+						].join('\n')
+					},
+					{
+						id: 'guide',
+						relativePath: 'notes/guide.md',
+						content: '# Guide\n\n## Install Guide\n'
+					}
+				]
+			})
+		);
+
+		const anchors = result.report.issues.filter((entry) => entry.code === 'anchor-missing');
+		expect(anchors).toHaveLength(1);
+		expect(anchors[0]?.target).toBe('notes/guide.md#missing%2Danchor');
+		expect(anchors[0]?.message).toBe('Missing anchor "missing-anchor".');
+		const home = text(result, 'index.html');
+		expect(home).toContain('href="#install%2Dguide"');
+		expect(home).toContain('href="notes/guide.html#install%2Dguide"');
+	});
+
 	it('stops before ZIP creation when the signal is cancelled', async () => {
 		const controller = new AbortController();
 		controller.abort();

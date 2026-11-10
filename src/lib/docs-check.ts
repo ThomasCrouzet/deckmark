@@ -9,6 +9,7 @@ import { parsePresentation, type PresentationDeck } from './presentation/model';
 import { projectDestinations, projectLinkReport } from './project-links';
 import {
 	createProjectWikiIndex,
+	fragmentOf,
 	isExternalDestination,
 	pathKey,
 	projectWikiCandidates,
@@ -334,16 +335,6 @@ function headingIssues(document: DocsCheckDocument, index: DocumentAnchorIndex):
 		previous = heading.level;
 	}
 	return issues;
-}
-
-function fragmentOf(source: string): string | null {
-	const hash = source.indexOf('#');
-	if (hash < 0) return null;
-	try {
-		return decodeURIComponent(source.slice(hash + 1));
-	} catch {
-		return source.slice(hash + 1);
-	}
 }
 
 function anchorExists(index: DocumentAnchorIndex | undefined, fragment: string): boolean {

@@ -6,7 +6,7 @@ import { escapeHTML } from '../file-utils';
 import { getTags } from '../frontmatter';
 import { docsSiteEn, type DocsSiteMessageKey } from '../i18n/messages/docs-site-en';
 import { docsSiteFr } from '../i18n/messages/docs-site-fr';
-import { pathKey, relativeDestination } from '../project-paths';
+import { fragmentOf, pathKey, relativeDestination } from '../project-paths';
 import { renderMarkdownDetailed } from '../render/markdown';
 import {
 	docsSiteIssue,
@@ -58,11 +58,6 @@ function t(plan: DocsSitePlan, key: DocsSiteMessageKey): string {
 	return (MESSAGES[plan.locale] ?? docsSiteEn)[key] ?? docsSiteEn[key] ?? key;
 }
 
-function fragmentOf(destination: string): string {
-	const hash = destination.indexOf('#');
-	return hash < 0 ? '' : destination.slice(hash + 1);
-}
-
 function externalHref(destination: string): boolean {
 	return /^(?:https?:)?\/\//i.test(destination.trim());
 }
@@ -71,10 +66,12 @@ function addAnchorIssue(
 	plan: DocsSitePlan,
 	page: PlannedPage,
 	href: string,
-	issues: DocsSiteIssue[]
+	issues: DocsSiteIssue[],
+	plannedAnchors: ReadonlySet<string>
 ): void {
 	const fragment = fragmentOf(href);
 	if (!fragment) return;
+	if (plannedAnchors.has(anchorKey(page.sourcePath, fragment))) return;
 	const resolved = resolveSiteDestination(plan, page.sourcePath, href, 'link');
 	if (resolved.kind === 'page' && resolved.outputPath) {
 		const target = plan.pageByOutput.get(pathKey(resolved.outputPath));
@@ -91,6 +88,10 @@ function addAnchorIssue(
 			`Missing anchor "${fragment}".`
 		)
 	);
+}
+
+function anchorKey(sourcePath: string, fragment: string): string {
+	return `${sourcePath}\u0000${fragment}`;
 }
 
 function applyRemoteMediaPolicy(
@@ -199,7 +200,8 @@ function applyLinkPolicy(
 	fragment: DocumentFragment,
 	plan: DocsSitePlan,
 	page: PlannedPage,
-	issues: DocsSiteIssue[]
+	issues: DocsSiteIssue[],
+	plannedAnchors: ReadonlySet<string>
 ): void {
 	for (const anchor of fragment.querySelectorAll<HTMLAnchorElement>('a[href]')) {
 		const wiki = anchor.getAttribute('data-mdsh-wiki');
@@ -214,7 +216,7 @@ function applyLinkPolicy(
 			if (resolved.kind === 'page' && resolved.href) {
 				anchor.setAttribute('href', resolved.href);
 				anchor.removeAttribute('data-mdsh-wiki');
-				addAnchorIssue(plan, page, resolved.href, issues);
+				addAnchorIssue(plan, page, resolved.href, issues, plannedAnchors);
 			} else {
 				issues.push(
 					docsSiteIssue(
@@ -236,11 +238,11 @@ function applyLinkPolicy(
 		const resolved = resolveSiteDestination(plan, page.sourcePath, href, 'link');
 		if (resolved.kind === 'page' || resolved.kind === 'asset' || resolved.kind === 'file') {
 			if (resolved.href) anchor.setAttribute('href', resolved.href);
-			addAnchorIssue(plan, page, resolved.href ?? href, issues);
+			addAnchorIssue(plan, page, resolved.href ?? href, issues, plannedAnchors);
 			continue;
 		}
 		if (resolved.kind === 'fragment') {
-			addAnchorIssue(plan, page, href, issues);
+			addAnchorIssue(plan, page, href, issues, plannedAnchors);
 			continue;
 		}
 		if (resolved.kind === 'external') {
@@ -308,7 +310,8 @@ function collectSearchText(fragment: DocumentFragment): string {
 function buildArticle(
 	plan: DocsSitePlan,
 	page: PlannedPage,
-	rendered: Awaited<ReturnType<typeof renderMarkdownDetailed>>
+	rendered: Awaited<ReturnType<typeof renderMarkdownDetailed>>,
+	plannedAnchors: ReadonlySet<string>
 ): {
 	articleHtml: string;
 	description: string | undefined;
@@ -320,7 +323,7 @@ function buildArticle(
 	const issues: DocsSiteIssue[] = [];
 	const template = document.createElement('template');
 	template.innerHTML = rendered.html;
-	applyLinkPolicy(template.content, plan, page, issues);
+	applyLinkPolicy(template.content, plan, page, issues, plannedAnchors);
 	applyRemoteMediaPolicy(template.content, plan, page, issues);
 	const toc = collectToc(template.content);
 	const searchText = collectSearchText(template.content);
@@ -347,6 +350,11 @@ export async function renderDocsSite(
 	checkAborted(options.signal);
 	const pages: RenderedSitePage[] = [];
 	const issues: DocsSiteIssue[] = [...plan.issues];
+	const plannedAnchors = new Set(
+		plan.issues
+			.filter((entry) => entry.code === 'anchor-missing')
+			.map((entry) => anchorKey(entry.path, fragmentOf(entry.target) ?? ''))
+	);
 	for (const page of plan.pages) {
 		checkAborted(options.signal);
 		const rendered = await renderMarkdownDetailed(page.content, {
@@ -357,7 +365,7 @@ export async function renderDocsSite(
 			mermaidTheme: 'default'
 		});
 		checkAborted(options.signal);
-		const article = buildArticle(plan, page, rendered);
+		const article = buildArticle(plan, page, rendered, plannedAnchors);
 		issues.push(...article.issues);
 		pages.push({
 			page,

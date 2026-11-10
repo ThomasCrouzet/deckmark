@@ -103,7 +103,8 @@ export default defineConfig({
 				'**/palette-load-review.spec.ts',
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
-				'**/presentation-format.spec.ts'
+				'**/presentation-format.spec.ts',
+				'**/docs-site-export-svg.spec.ts'
 			]
 		},
 		{
@@ -141,7 +142,9 @@ export default defineConfig({
 				'**/palette-load-review.spec.ts',
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
-				'**/presentation-format.spec.ts'
+				'**/presentation-format.spec.ts',
+				'**/docs-site-export-svg.spec.ts',
+				'**/docs-site-fragments.spec.ts'
 			]
 		},
 		{
