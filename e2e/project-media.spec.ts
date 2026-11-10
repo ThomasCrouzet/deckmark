@@ -108,6 +108,27 @@ test('resolves a project image whose reference differs only by path case', async
 		.locator('input[type=file][accept=".zip"]')
 		.setInputFiles({ name: 'Case-media.zip', mimeType: 'application/zip', buffer: input });
 	await panel.getByRole('button', { name: 'Ouvrir notes/page.md', exact: true }).click();
+	const importedSource = await page.evaluate(
+		() =>
+			new Promise<string>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts');
+					const rows = transaction.objectStore('drafts').getAll();
+					transaction.oncomplete = () => {
+						database.close();
+						resolve(
+							(rows.result as Array<{ content: string }>).map((row) => row.content).join('\n')
+						);
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			})
+	);
+	const reference = /!\[[^\]]*\]\(([^)]+)\)/.exec(importedSource)?.[1];
+	expect(reference).toBeTruthy();
 	await page.locator('[data-mode=read]').click();
 	const previewImage = page.locator('.mdsh-preview img');
 	await expect(previewImage).toHaveCount(1);
@@ -121,7 +142,7 @@ test('resolves a project image whose reference differs only by path case', async
 		.poll(() => visualImage.evaluate((image: HTMLImageElement) => image.naturalWidth))
 		.toBe(1);
 	await page.locator('[data-mode=source]').click();
-	await expect(page.locator('.cm-content')).toContainText('../assets/diagram.png');
+	await expect(page.locator('.cm-content')).toContainText(reference!);
 	await expect(page.locator('.cm-content')).not.toContainText('data:image');
 	await info.attach('case-media-preview.png', { body: await page.screenshot() });
 });
