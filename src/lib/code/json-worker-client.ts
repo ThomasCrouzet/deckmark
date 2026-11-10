@@ -30,7 +30,10 @@ export class JsonWorkerClient {
 			  }
 	): Promise<JsonWorkerReply | null> {
 		if (this.disposed) return Promise.resolve(null);
-		if (input.kind !== 'analyze' && this.active) this.cancel();
+		// An obsolete analysis can occupy the only worker for its full watchdog.
+		// Terminate it as soon as a newer current analysis or action needs the
+		// worker. The caller debounces analysis, so this bounds worker restarts.
+		if (this.active && (input.kind !== 'analyze' || this.activeAnalysisIsStale())) this.cancel();
 		const request = {
 			...input,
 			documentId: this.documentId,
@@ -44,6 +47,14 @@ export class JsonWorkerClient {
 				this.pending = job;
 			} else this.start(job);
 		});
+	}
+
+	private activeAnalysisIsStale(): boolean {
+		const request = this.active?.request;
+		return (
+			request?.kind === 'analyze' &&
+			(request.documentId !== this.documentId || request.revision !== this.revision)
+		);
 	}
 
 	private start(job: Job): void {
