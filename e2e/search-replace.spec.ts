@@ -50,6 +50,63 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 		await expect(panel).toHaveCount(0, { timeout: 5000 });
 	});
 
+	test('fails closed when the replacement worker cannot start', async ({ page }, info) => {
+		const source = '# Note\n\nneedle one\n\nneedle two';
+		await writeSourceContent(page, source);
+		await page.addInitScript(() => {
+			const NativeWorker = Worker;
+			window.Worker = new Proxy(NativeWorker, {
+				construct(target, args) {
+					if (String(args[0]).includes('replace.worker'))
+						throw new Error('Worker blocked for regression proof');
+					return Reflect.construct(target, args);
+				}
+			});
+		});
+		await page.reload();
+		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+			state: 'visible',
+			timeout: 15_000
+		});
+		await page.keyboard.press('ControlOrMeta+Shift+f');
+		await page.getByRole('combobox').fill('needle');
+		await expect(page.locator('#search-listbox button').first()).toBeVisible({ timeout: 10_000 });
+		await page.getByTitle('Remplacer dans tous les fichiers').click();
+		await page.getByLabel('Texte de remplacement').fill('replacement');
+		await page.getByRole('button', { name: 'Remplacer tout' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+		await expect(dialog.getByRole('alert')).toContainText('Recherche indisponible', {
+			timeout: 10_000
+		});
+		await expect(page.getByRole('region', { name: 'Aperçu du remplacement' })).toHaveCount(0);
+		// The panel stays usable after the failure.
+		await page.getByLabel('Texte de remplacement').fill('still editable');
+		await expect(page.getByLabel('Texte de remplacement')).toHaveValue('still editable');
+		const saved = await page.evaluate(
+			() =>
+				new Promise<string>((resolve, reject) => {
+					const request = indexedDB.open('mdsh');
+					request.onerror = () => reject(request.error);
+					request.onsuccess = () => {
+						const rows = request.result.transaction('drafts').objectStore('drafts').getAll();
+						rows.onerror = () => reject(rows.error);
+						rows.onsuccess = () => {
+							request.result.close();
+							const latest = rows.result
+								.filter((row) => row.open !== false)
+								.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+							resolve(latest?.content ?? '');
+						};
+					};
+				})
+		);
+		expect(saved).toBe(source);
+		await info.attach('replace-worker-unavailable.json', {
+			body: JSON.stringify({ source, saved }),
+			contentType: 'application/json'
+		});
+	});
+
 	test('finds text in WYSIWYG without changing mode or content', async ({ page }) => {
 		await writeSourceContent(page, 'texte un\n\ntexte deux');
 		// Select WYSIWYG from the toolbar radio group.

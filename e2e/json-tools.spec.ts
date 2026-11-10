@@ -361,6 +361,40 @@ test('handles empty, deep, invalid huge and duplicate-key JSON in the worker', a
 	});
 });
 
+test('shows the current file JSON status after fast switches', async ({ page }, info) => {
+	test.setTimeout(90_000);
+	await resetAppState(page);
+	const large = `{"items":[${Array.from(
+		{ length: 60_000 },
+		(_, index) => `{"id":${index},"name":"item ${index}"}`
+	).join(',')}]}`;
+	await importJson(page, 'large.json', large);
+	await expect(page.getByTestId('json-status')).toHaveText('JSON valide', { timeout: 30_000 });
+	await importJson(page, 'small.json', '{"ok":true}');
+	await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+	await importJson(page, 'broken.json', '{"broken":}');
+	await expect(page.getByTestId('json-status')).toContainText('JSON invalide');
+
+	const row = (name: string) =>
+		page.locator('.mdsh-file-row').filter({ hasText: name }).locator('button[data-file-id]');
+	// Switch away from the invalid file while its analysis is still settling.
+	await row('large').click();
+	await row('broken').click();
+	await expect(page.getByTestId('json-status')).toContainText('JSON invalide', {
+		timeout: 30_000
+	});
+	await row('large').click();
+	await expect(page.getByTestId('json-status')).toHaveText('JSON valide', { timeout: 30_000 });
+	await info.attach('json-fast-switch.json', {
+		body: JSON.stringify({
+			largeBytes: Buffer.byteLength(large),
+			largeSha256: jsonFixtureHash(large),
+			status: await page.getByTestId('json-status').innerText()
+		}),
+		contentType: 'application/json'
+	});
+});
+
 test('validates and formats JSON after an offline reload', async ({
 	browser,
 	browserName
@@ -476,6 +510,27 @@ test('reports an unavailable JSON worker and keeps editing usable', async ({ pag
 	await info.attach('json-worker-unavailable.txt', {
 		body: await savedContent(page),
 		contentType: 'text/plain'
+	});
+});
+
+test('reports duplicate keys written with an equivalent escape', async ({ page }, info) => {
+	await resetAppState(page);
+	const source = '{"a":1,"\\u0061":2}';
+	await importJson(page, 'escaped-duplicates.json', source);
+	await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+	await expect(page.getByTestId('json-duplicates')).toContainText('"\\u0061"');
+	await page.getByTestId('json-format').click();
+	await expect.poll(() => savedContent(page)).toBe('{\n  "a": 1,\n  "\\u0061": 2\n}');
+	await expect(page.getByTestId('json-duplicates')).toContainText('"\\u0061"');
+	await page.getByTestId('json-minify').click();
+	await expect.poll(() => savedContent(page)).toBe(source);
+	await expect(page.getByTestId('json-duplicates')).toContainText('"\\u0061"');
+	await info.attach('json-escaped-duplicates.json', {
+		body: JSON.stringify({
+			source,
+			duplicates: await page.getByTestId('json-duplicates').innerText()
+		}),
+		contentType: 'application/json'
 	});
 });
 

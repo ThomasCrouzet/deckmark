@@ -7,6 +7,28 @@ import {
 } from './replace';
 
 export const REGEX_EXECUTION_TIMEOUT_MS = 1000;
+/** Largest literal corpus accepted on the main thread without a Worker. */
+export const LITERAL_FALLBACK_MAX_BYTES = 1_000_000;
+
+/**
+ * A literal replacement is a bounded, linear scan. It is safe on small input
+ * when the environment has no Worker at all. A user regular expression is
+ * never accepted here, and a blocked Worker constructor still fails closed.
+ */
+function literalFallback(
+	files: readonly FileSlice[],
+	query: string,
+	replacement: string,
+	opts: ReplaceOptions
+): ReplaceOutcome | null {
+	if (opts.useRegex) return null;
+	let bytes = 0;
+	for (const file of files) {
+		bytes += file.content.length;
+		if (bytes > LITERAL_FALLBACK_MAX_BYTES) return null;
+	}
+	return replaceInFiles(files, query, replacement, opts);
+}
 
 export interface ReplaceWorkerRequest {
 	files: readonly FileSlice[];
@@ -25,7 +47,12 @@ export interface ReplaceWorkerOptions {
 	timeoutMs?: number;
 }
 
-/** Runs user regular expressions in an isolated worker with a hard deadline. */
+/**
+ * Runs user regular expressions in an isolated worker with a hard deadline.
+ * Without a Worker, a small literal corpus may use the bounded synchronous
+ * path. A user regex never runs on the main thread, because no synchronous
+ * timeout can stop it.
+ */
 export function replaceInFilesAsync(
 	files: readonly FileSlice[],
 	query: string,
@@ -33,8 +60,15 @@ export function replaceInFilesAsync(
 	opts: ReplaceOptions,
 	workerOptions: ReplaceWorkerOptions = {}
 ): Promise<ReplaceOutcome> {
-	if (typeof Worker === 'undefined' && !workerOptions.createWorker)
-		return Promise.resolve(replaceInFiles(files, query, replacement, opts));
+	const unavailable = (): ReplaceOutcome => ({
+		results: [],
+		total: 0,
+		regexError: t('search.unavailable')
+	});
+	if (typeof Worker === 'undefined' && !workerOptions.createWorker) {
+		const outcome = literalFallback(files, query, replacement, opts);
+		return Promise.resolve(outcome ?? unavailable());
+	}
 	return new Promise((resolve) => {
 		let worker: WorkerHost;
 		try {
@@ -42,7 +76,7 @@ export function replaceInFilesAsync(
 				? workerOptions.createWorker()
 				: new Worker(new URL('./workers/replace.worker.ts', import.meta.url), { type: 'module' });
 		} catch {
-			resolve(replaceInFiles(files, query, replacement, opts));
+			resolve(unavailable());
 			return;
 		}
 		let settled = false;

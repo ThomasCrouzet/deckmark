@@ -8,9 +8,10 @@
 	import { notify } from '#lib/notify.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { reportPersistenceError } from '#lib/storage.js';
+	import { db } from '#lib/db.js';
 	import { commitReplacements } from '#lib/replacement-commit.js';
 	import { replaceInFilesAsync } from '#lib/replace-worker.js';
-	import type { Hit } from '#lib/types.js';
+	import type { FileItem, Hit } from '#lib/types.js';
 	import type { SearchRequest, SearchResponse } from '#lib/workers/search.worker.js';
 	import { corpusFingerprint, SEARCH_MAX_HITS } from '#lib/search-core.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
@@ -81,15 +82,51 @@
 		scope: 'library' | 'open';
 	}
 
+	interface ReplaceSlice {
+		id: string;
+		name: string;
+		content: string;
+		updatedAt: number;
+		relativePath: string | undefined;
+	}
+
 	let replacementPreview = $state<ReplacePreview | null>(null);
 	let previewIndex = $state(0);
+	/** Invalidates a preview that a closed body read or worker run made stale. */
+	let replaceRequestId = 0;
 	let previewCancelButton: HTMLButtonElement | null = $state(null);
 	const previewFile = $derived(replacementPreview?.files[previewIndex] ?? null);
 
 	function closeReplacementPreview(): void {
+		replaceRequestId += 1;
 		replacementPreview = null;
 		previewIndex = 0;
 		void tick().then(() => inputEl?.focus());
+	}
+
+	/**
+	 * Reads the exact replacement corpus. A deferred closed note keeps its body
+	 * in IndexedDB, so this reads only the scoped rows and never publishes the
+	 * bodies into the store. A missing row fails the whole preview.
+	 */
+	async function readReplacementSlices(files: readonly FileItem[]): Promise<ReplaceSlice[]> {
+		const deferred = files.filter((file) => file.contentDeferred);
+		const rows = deferred.length ? await db.drafts.bulkGet(deferred.map((file) => file.id)) : [];
+		const rowById = new Map(
+			rows.filter((row) => row !== undefined).map((row) => [row.id, row] as const)
+		);
+		const missing = deferred.find((file) => !rowById.has(file.id));
+		if (missing) throw new Error(`Replacement body missing for ${missing.id}`);
+		return files.map((file) => {
+			const row = rowById.get(file.id);
+			return {
+				id: file.id,
+				name: row?.name ?? file.name,
+				content: row?.content ?? file.content,
+				updatedAt: row?.updatedAt ?? file.updatedAt,
+				relativePath: row?.relativePath ?? file.relativePath
+			};
+		});
 	}
 
 	function diffMessage(key: MessageKey, params?: Record<string, string | number>): string {
@@ -337,22 +374,30 @@
 	async function handleReplaceAll(): Promise<void> {
 		const q = debouncedQuery.trim();
 		if (q.length < 2 || replacing) return;
-		replacing = true;
-		queryError = null;
+		const requestId = ++replaceRequestId;
 		const opts = { caseSensitive, wholeWord, useRegex };
 		const replacementValue = replacement;
+		const requestScope = scope;
+		// A scope, query or option change during hydration makes the result stale.
+		const isCurrent = () =>
+			requestId === replaceRequestId &&
+			requestScope === scope &&
+			q === debouncedQuery.trim() &&
+			replacementValue === replacement &&
+			opts.caseSensitive === caseSensitive &&
+			opts.wholeWord === wholeWord &&
+			opts.useRegex === useRegex;
+		replacing = true;
+		queryError = null;
 		try {
 			await filesStore.flushPendingAwait();
-			const slices = corpus
-				.filter((file) => documentKindForFile(file) === 'note')
-				.map((file) => ({
-					id: file.id,
-					name: file.name,
-					content: file.content,
-					updatedAt: file.updatedAt,
-					relativePath: file.relativePath
-				}));
+			if (!isCurrent()) return;
+			const slices = await readReplacementSlices(
+				corpus.filter((file) => documentKindForFile(file) === 'note')
+			);
+			if (!isCurrent()) return;
 			const preview = await replaceInFilesAsync(slices, q, replacementValue, opts);
+			if (!isCurrent()) return;
 			if (preview.regexError) {
 				queryError = preview.regexError;
 				return;
@@ -377,15 +422,17 @@
 				total: preview.total,
 				query: q,
 				replacement: replacementValue,
-				caseSensitive,
-				wholeWord,
-				useRegex,
-				scope
+				caseSensitive: opts.caseSensitive,
+				wholeWord: opts.wholeWord,
+				useRegex: opts.useRegex,
+				scope: requestScope
 			};
 			previewIndex = 0;
 		} catch (error) {
-			queryError = t('search.replaceFailed');
-			reportPersistenceError(error, 'save');
+			if (isCurrent()) {
+				queryError = t('search.replaceFailed');
+				reportPersistenceError(error, 'save');
+			}
 		} finally {
 			replacing = false;
 		}
@@ -397,7 +444,9 @@
 
 			return (
 				current?.name === planned.name &&
-				current.content === planned.before &&
+				// A deferred body is not resident. The durable compare-and-write
+				// below is the authority for its exact bytes.
+				(current.contentDeferred || current.content === planned.before) &&
 				current.updatedAt === planned.updatedAt &&
 				current.relativePath === planned.relativePath
 			);
@@ -422,14 +471,19 @@
 				return;
 			}
 			const expected = new Map(
-				preview.files.map((file) => [
-					file.id,
-					{
-						content: file.before,
-						relativePath: file.relativePath,
-						updatedAt: file.updatedAt
-					}
-				])
+				preview.files.map((file) => {
+					const current = filesStore.library.find((entry) => entry.id === file.id);
+					return [
+						file.id,
+						{
+							// A deferred item holds an empty placeholder. Keep its exact
+							// in-memory value so the committed row replaces it in place.
+							content: current?.contentDeferred ? current.content : file.before,
+							relativePath: file.relativePath,
+							updatedAt: file.updatedAt
+						}
+					];
+				})
 			);
 			const applied = filesStore.acceptProjectRows(committed.rows, expected);
 			if (applied.length === committed.rows.length) {

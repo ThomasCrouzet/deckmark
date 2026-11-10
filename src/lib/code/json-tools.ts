@@ -139,14 +139,32 @@ function locate(text: string, position: number): { line: number; column: number 
 	return { line: lines.length, column: (lines[lines.length - 1]?.length ?? 0) + 1 };
 }
 
-/** Finds object keys that repeat within the same object. */
+/**
+ * Decodes a structurally valid JSON string token to its logical value. The fast
+ * path avoids a parser call for the common unescaped key.
+ */
+function decodedJsonString(raw: string): string {
+	if (!raw.includes('\\')) return raw.slice(1, -1);
+	try {
+		const value = JSON.parse(raw);
+		return typeof value === 'string' ? value : raw;
+	} catch {
+		return raw;
+	}
+}
+
+/**
+ * Finds object keys that repeat within the same object. Keys compare by their
+ * decoded value, so `"a"` and `"\u0061"` are the same JSON property. The raw
+ * spelling of the repeated occurrence is kept for the diagnostic.
+ */
 export function duplicateJsonKeys(tokens: JsonToken[]): string[] {
-	const duplicates = new Set<string>();
-	const stack: Array<Set<string> | null> = [];
+	const duplicates = new Map<string, string>();
+	const stack: Array<Map<string, string> | null> = [];
 	for (let index = 0; index < tokens.length; index++) {
 		const token = tokens[index]!;
 		if (token.raw === '{') {
-			stack.push(new Set());
+			stack.push(new Map());
 			continue;
 		}
 		if (token.raw === '[') {
@@ -161,10 +179,12 @@ export function duplicateJsonKeys(tokens: JsonToken[]): string[] {
 		const next = tokens[index + 1];
 		const current = stack[stack.length - 1];
 		if (!current || next?.raw !== ':') continue;
-		if (current.has(token.raw)) duplicates.add(token.raw);
-		else current.add(token.raw);
+		const key = decodedJsonString(token.raw);
+		if (current.has(key)) {
+			if (!duplicates.has(key)) duplicates.set(key, token.raw);
+		} else current.set(key, token.raw);
 	}
-	return [...duplicates];
+	return [...duplicates.values()];
 }
 
 export function analyzeJsonDocument(text: string): {
