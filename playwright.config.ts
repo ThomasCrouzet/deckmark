@@ -143,7 +143,8 @@ export default defineConfig({
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
-				'**/docs-site-export-svg.spec.ts'
+				'**/docs-site-export-svg.spec.ts',
+				'**/docs-site-fragments.spec.ts'
 			]
 		},
 		{

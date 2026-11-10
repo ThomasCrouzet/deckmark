@@ -31,6 +31,24 @@ export function isExternalDestination(destination: string): boolean {
 	return /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(destination.trim());
 }
 
+/**
+ * Decodes percent escapes in one URL fragment exactly once. A malformed escape
+ * keeps the raw fragment so a validator can report it without stopping export.
+ */
+export function decodeUrlFragment(fragment: string): string {
+	try {
+		return decodeURIComponent(fragment);
+	} catch {
+		return fragment;
+	}
+}
+
+/** Returns the decoded fragment after the first `#`, or null when absent. */
+export function fragmentOf(destination: string): string | null {
+	const hash = destination.indexOf('#');
+	return hash < 0 ? null : decodeUrlFragment(destination.slice(hash + 1));
+}
+
 export function resolveProjectPath(from: string, destination: string): string | null {
 	if (!destination || destination.startsWith('#') || isExternalDestination(destination))
 		return null;

@@ -7,6 +7,7 @@ import { projectDocumentLimit } from '../project-limits';
 import { sourceHeadingIndex } from '../document-navigation';
 import { stripFileExtension } from '../file-utils';
 import {
+	fragmentOf,
 	isExternalDestination,
 	pathKey,
 	projectPath,
@@ -471,11 +472,6 @@ function pathPartFor(destination: string): string {
 	return cut < 0 ? destination : destination.slice(0, cut);
 }
 
-function fragmentFor(destination: string): string {
-	const hash = destination.indexOf('#');
-	return hash < 0 ? '' : destination.slice(hash + 1);
-}
-
 function siteTargets(
 	plan: DocsSitePlan,
 	target: string
@@ -620,7 +616,7 @@ function addAnchorIssue(
 	target: string,
 	issues: DocsSiteIssue[]
 ): void {
-	const fragment = fragmentFor(target);
+	const fragment = fragmentOf(target) ?? '';
 	if (!fragment || !targetPage || targetPage.anchorIds.has(fragment)) return;
 	issues.push(
 		issue('anchor-missing', 'warning', page.sourcePath, target, `Missing anchor "${fragment}".`)
@@ -635,7 +631,7 @@ function checkAnchor(
 ): void {
 	const source = findPage(plan, page.sourcePath);
 	const path = pathPartFor(target);
-	const fragment = fragmentFor(target);
+	const fragment = fragmentOf(target) ?? '';
 	if (!fragment) return;
 	let targetPage: PlannedPage | undefined = source;
 	if (path) {
@@ -696,7 +692,7 @@ function scanPageIssues(plan: DocsSitePlan, page: PlannedPage): DocsSiteIssue[] 
 			continue;
 		}
 		if (destination.image) continue;
-		if (fragmentFor(destination.source)) checkAnchor(plan, page, destination.source, issues);
+		if (fragmentOf(destination.source)) checkAnchor(plan, page, destination.source, issues);
 	}
 	for (const occurrence of wikiLinkOccurrences(page.content)) {
 		const resolved = resolveSiteWikiDestination(plan, page.sourcePath, occurrence.target);

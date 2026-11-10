@@ -118,6 +118,50 @@ describe('documentation check', () => {
 		]);
 	});
 
+	it('decodes percent-escaped fragments once before checking anchors', async () => {
+		const report = await runDocsCheck({
+			documents: [
+				document(
+					'index.md',
+					[
+						'# Index',
+						'',
+						'## Install Guide',
+						'',
+						'[Same](#install%2Dguide)',
+						'[Cross](guide.md#install%2Dguide)',
+						'[Absent](guide.md#missing%2Danchor)',
+						'[Twice](guide.md#install%252Dguide)',
+						'[Malformed](#install%ZZguide)'
+					].join('\n')
+				),
+				document('guide.md', '# Guide\n\n## Install Guide\n')
+			],
+			assets: []
+		});
+
+		expect(report.issues).toMatchObject([
+			{
+				code: 'anchor-missing',
+				path: 'index.md',
+				line: 7,
+				target: 'guide.md#missing%2Danchor'
+			},
+			{
+				code: 'anchor-missing',
+				path: 'index.md',
+				line: 8,
+				target: 'guide.md#install%252Dguide'
+			},
+			{
+				code: 'anchor-missing',
+				path: 'index.md',
+				line: 9,
+				target: '#install%ZZguide'
+			}
+		]);
+	});
+
 	it('reports broken images, missing alt text, and traversal', async () => {
 		const report = await runDocsCheck({
 			documents: [

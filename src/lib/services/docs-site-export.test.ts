@@ -382,6 +382,103 @@ describe('documentation site output', () => {
 		).toThrow(/output path collision/i);
 	});
 
+	it('decodes percent-escaped fragments once before comparing anchors', () => {
+		const plan = planDocsSite(
+			source({
+				documents: [
+					{
+						id: 'home',
+						relativePath: 'README.md',
+						content: [
+							'# Home',
+							'',
+							'## Install Guide',
+							'',
+							'[Same](#install%2Dguide)',
+							'',
+							'[Cross](guide.md#install%2Dguide)',
+							'',
+							'[Absent](guide.md#missing%2Danchor)',
+							'',
+							'[Twice](guide.md#install%252Dguide)',
+							'',
+							'[Malformed](#install%ZZguide)',
+							''
+						].join('\n')
+					},
+					{
+						id: 'guide',
+						relativePath: 'guide.md',
+						content: '# Guide\n\n## Install Guide\n'
+					}
+				]
+			})
+		);
+
+		const anchors = plan.issues
+			.filter((entry) => entry.code === 'anchor-missing')
+			.map((entry) => [entry.target, entry.message]);
+		expect(anchors).toEqual([
+			['#install%ZZguide', 'Missing anchor "install%ZZguide".'],
+			['guide.md#install%252Dguide', 'Missing anchor "install%2Dguide".'],
+			['guide.md#missing%2Danchor', 'Missing anchor "missing-anchor".']
+		]);
+	});
+
+	it('resolves an encoded fragment to a duplicated heading slug', () => {
+		const plan = planDocsSite(
+			source({
+				documents: [
+					{
+						id: 'home',
+						relativePath: 'README.md',
+						content: '# Home\n\n## Install\n\n## Install\n\n[Jump](#install%2D2)\n'
+					}
+				]
+			})
+		);
+
+		expect(plan.issues).toEqual([]);
+	});
+
+	it('reports one warning for a cross-page encoded anchor and keeps the authored href', async () => {
+		const result = await buildDocsSite(
+			source({
+				documents: [
+					{
+						id: 'home',
+						relativePath: 'README.md',
+						content: [
+							'# Home',
+							'',
+							'## Install Guide',
+							'',
+							'[Same](#install%2Dguide)',
+							'',
+							'[Cross](notes/guide.md#install%2Dguide)',
+							'',
+							'[Absent](notes/guide.md#missing%2Danchor)',
+							''
+						].join('\n')
+					},
+					{
+						id: 'guide',
+						relativePath: 'notes/guide.md',
+						content: '# Guide\n\n## Install Guide\n'
+					}
+				]
+			})
+		);
+
+		const anchors = result.report.issues.filter((entry) => entry.code === 'anchor-missing');
+		expect(anchors).toHaveLength(1);
+		expect(anchors[0]?.target).toBe('notes/guide.md#missing%2Danchor');
+		expect(anchors[0]?.message).toBe('Missing anchor "missing-anchor".');
+		const home = text(result, 'index.html');
+		expect(home).toContain('href="#install%2Dguide"');
+		expect(home).toContain('href="notes/guide.html#install%2Dguide"');
+	});
+
 	it('stops before ZIP creation when the signal is cancelled', async () => {
 		const controller = new AbortController();
 		controller.abort();
