@@ -81,12 +81,62 @@ test('opens a note from the table', async ({ page }) => {
 	await expect(page.locator('.cm-content')).toContainText('# Beta');
 });
 
+const nonFiniteFiles = [
+	{
+		name: 'NaN',
+		content: '---\ntitle: Not a number\nscore: .nan\n---\n\n# NaN\n'
+	},
+	{
+		name: 'Positive',
+		content: '---\ntitle: Positive infinite\nscore: .inf\n---\n\n# Positive\n'
+	},
+	{
+		name: 'Negative',
+		content: '---\ntitle: Negative infinite\nscore: -.inf\n---\n\n# Negative\n'
+	}
+];
+
+test('sorts and filters non-finite YAML numbers after persistence', async ({
+	page
+}, info: TestInfo) => {
+	const failures: string[] = [];
+	page.on('pageerror', (error) => failures.push(error.message));
+	await resetAppState(page);
+	await seedFiles(page, nonFiniteFiles);
+	await openCollection(page);
+	const table = page.getByTestId('collection-table');
+	for (const title of ['Not a number', 'Positive infinite', 'Negative infinite'])
+		await expect(table).toContainText(title);
+
+	await page.getByTestId('collection-sort').selectOption('score');
+	const rows = table.locator('tbody tr');
+	await expect(rows.first()).toContainText('Negative infinite');
+	await expect(rows.first()).toContainText('-Infinity');
+	await page.getByTestId('collection-direction').click();
+	await expect(rows.first()).toContainText('Not a number');
+	await expect(rows.first()).toContainText('NaN');
+	await page.getByTestId('collection-filter').fill('positive');
+	await expect(rows).toHaveCount(1);
+	await expect(rows.first()).toContainText('Positive infinite');
+	await page.getByTestId('collection-filter').fill('');
+
+	await closeCollection(page);
+	await openCollection(page);
+	await page.getByTestId('collection-sort').selectOption('score');
+	await expect(table.locator('tbody tr').first()).toContainText('Negative infinite');
+	expect(failures.filter((message) => message.includes('toLowerCase'))).toEqual([]);
+	await info.attach('collection-non-finite.json', {
+		body: JSON.stringify({ files: nonFiniteFiles.length, failures }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 const FIELD_COUNT = 100;
 const NOTE_COUNT = 3000;
 
-function largeCollectionFixture(now: number) {
-	const fields = Array.from({ length: FIELD_COUNT }, (_, index) => `field${index}`);
-	const drafts = Array.from({ length: NOTE_COUNT }, (_, index) => {
+function collectionFixture(now: number, noteCount: number, fieldCount: number) {
+	const fields = Array.from({ length: fieldCount }, (_, index) => `field${index}`);
+	const drafts = Array.from({ length: noteCount }, (_, index) => {
 		const rows = fields.map((field, position) => `${field}: value ${index}-${position}`);
 		return {
 			id: `collection-perf-${index}`,
@@ -96,7 +146,8 @@ function largeCollectionFixture(now: number) {
 				`title: Note ${index}`,
 				...rows,
 				`status: group-${index % 7}`,
-				`priority: ${index === NOTE_COUNT - 1 ? 999 : index % 13}`,
+				`priority: ${index === noteCount - 1 ? 999 : index % 13}`,
+				`sequence: ${index}`,
 				'---',
 				'',
 				`# Note ${index}`,
@@ -127,6 +178,10 @@ function largeCollectionFixture(now: number) {
 		],
 		templates: []
 	};
+}
+
+function largeCollectionFixture(now: number) {
+	return collectionFixture(now, NOTE_COUNT, FIELD_COUNT);
 }
 
 async function closeCollection(page: Page) {
@@ -213,6 +268,168 @@ async function collectionDom(page: Page) {
 	});
 }
 
+test('updates virtual row and column windows on container scroll', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	await importBackup(page, collectionFixture(Date.now(), 300, 60));
+	await expect.poll(async () => (await databaseState(page)).drafts.length).toBe(300);
+	await page.keyboard.press('Escape');
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+	const table = page.getByTestId('collection-table');
+	await page.getByTestId('collection-sort').selectOption('sequence');
+	await expect(table.locator('tbody tr').first()).toContainText('Note 0');
+	const body = page.locator('.collection-body');
+
+	await body.evaluate((element) => {
+		element.scrollTop = 150 * 30;
+	});
+	await expect(table).toContainText('Note 150');
+	await expect(table).not.toContainText('Note 0');
+	const middleDom = await collectionDom(page);
+
+	await body.evaluate((element) => {
+		element.scrollTop = element.scrollHeight;
+	});
+	await expect(table.locator('tbody tr').last()).toContainText('Note 299');
+	await expect(table).not.toContainText('Note 0');
+	const bottomDom = await collectionDom(page);
+
+	const topHeaders = await table.locator('thead th').allTextContents();
+	await body.evaluate((element) => {
+		element.scrollLeft = 26 * 140;
+	});
+	await expect
+		.poll(async () => (await table.locator('thead th').allTextContents()).includes('field32'))
+		.toBe(true);
+	const middleHeaders = await table.locator('thead th').allTextContents();
+
+	await body.evaluate((element) => {
+		element.scrollLeft = element.scrollWidth;
+	});
+	await expect
+		.poll(async () => (await table.locator('thead th').allTextContents()).includes('status'))
+		.toBe(true);
+	const endHeaders = await table.locator('thead th').allTextContents();
+	expect(endHeaders[0]).toBe(topHeaders[0]);
+	expect(middleHeaders).not.toEqual(topHeaders);
+	expect(endHeaders).not.toEqual(topHeaders);
+
+	await page.setViewportSize({ width: 900, height: 640 });
+	await expect
+		.poll(async () => (await table.locator('thead th').allTextContents()).includes('status'))
+		.toBe(true);
+	expect((await collectionDom(page)).rows).toBeLessThanOrEqual(600);
+
+	await page.getByTestId('collection-filter').fill('value 0-42');
+	await expect(table).toContainText('Note 0');
+	await expect(table.locator('tbody tr')).toHaveCount(1);
+	expect(await body.evaluate((element) => element.scrollTop)).toBe(0);
+
+	await writeArtifact('collection-scroll.json', {
+		fixture: { notes: 300, fields: 60 },
+		result: {
+			rowHeight: 30,
+			middleDom,
+			bottomDom,
+			topHeaders,
+			middleHeaders,
+			endHeaders
+		}
+	});
+	await info.attach('collection-scroll.json', {
+		body: JSON.stringify({ middleDom, bottomDom, middleHeaders, endHeaders }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+function missingBodyFixture(now: number) {
+	const body = 'Body text. '.repeat(28_000);
+	return collectionFixtureFromDrafts(
+		now,
+		Array.from({ length: 12 }, (_, index) => ({
+			id: `missing-body-${index}`,
+			name: `Missing ${index}.md`,
+			content: `---\ntitle: Missing ${index}\nstatus: draft\n---\n\n# Missing ${index}\n\n${body}`,
+			createdAt: now,
+			updatedAt: now,
+			order: index,
+			open: index === 0
+		}))
+	);
+}
+
+function collectionFixtureFromDrafts(
+	now: number,
+	drafts: Array<Record<string, unknown> & { id: string; name: string }>
+) {
+	return {
+		format: 'mdsh-backup',
+		schemaVersion: 1,
+		exportedAt: now,
+		drafts,
+		workspaces: [
+			{
+				id: 'collection-missing-workspace',
+				name: 'Collection',
+				fileIds: [drafts[0]!.id],
+				activeId: drafts[0]!.id,
+				createdAt: now,
+				updatedAt: now
+			}
+		],
+		templates: []
+	};
+}
+
+test('reports a missing deferred body instead of showing an empty note', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(180_000);
+	const failures: string[] = [];
+	page.on('pageerror', (error) => failures.push(error.message));
+	await resetAppState(page);
+	await importBackup(page, missingBodyFixture(Date.now()));
+	await expect.poll(async () => (await databaseState(page)).drafts.length).toBe(12);
+	await page.keyboard.press('Escape');
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const tx = database.transaction('drafts', 'readwrite');
+					tx.objectStore('drafts').delete('missing-body-11');
+					tx.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					tx.onabort = () => {
+						database.close();
+						reject(tx.error);
+					};
+				};
+			})
+	);
+	await openCollection(page);
+	const table = page.getByTestId('collection-table');
+	await expect(page.getByTestId('collection-missing')).toContainText('1');
+	await expect(table).toContainText('Missing 1');
+	await expect(table).not.toContainText('Missing 11');
+	await expect(table.locator('tbody tr')).toHaveCount(11);
+	expect(failures).toEqual([]);
+	await info.attach('collection-missing-body.json', {
+		body: JSON.stringify({ notes: 12, removed: 'missing-body-11', shown: 11, failures }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 test('bounds a 3000-row, 100-column collection and reuses persisted metadata', async ({
 	page
 }, info: TestInfo) => {
@@ -231,6 +448,20 @@ test('bounds a 3000-row, 100-column collection and reuses persisted metadata', a
 	const firstDom = await collectionDom(page);
 	const table = page.getByTestId('collection-table');
 	await expect(table.locator('tbody tr').first()).toContainText('Note 0');
+	const body = page.locator('.collection-body');
+	await page.getByTestId('collection-sort').selectOption('sequence');
+	await expect(table.locator('tbody tr').first()).toContainText('Note 0');
+	await body.evaluate((element) => {
+		element.scrollTop = element.scrollHeight;
+	});
+	await expect(table.locator('tbody tr').last()).toContainText('Note 2999');
+	await body.evaluate((element) => {
+		element.scrollLeft = element.scrollWidth;
+	});
+	await expect
+		.poll(async () => (await table.locator('thead th').allTextContents()).includes('status'))
+		.toBe(true);
+	const scrolledDom = await collectionDom(page);
 
 	await page.getByTestId('collection-filter').fill('value 2999-42');
 	await expect(table).toContainText('Note 2999');
@@ -272,6 +503,7 @@ test('bounds a 3000-row, 100-column collection and reuses persisted metadata', a
 		secondOpenMs,
 		firstDom,
 		secondDom,
+		scrolledDom,
 		firstProfile,
 		secondProfile,
 		boardCards,

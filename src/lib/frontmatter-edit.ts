@@ -20,6 +20,11 @@ interface LineRange {
 	valueStart: number;
 	valueEnd: number;
 	inline: string;
+	/** Whitespace between an existing inline value and a trailing comment. */
+	separator: string;
+	comment: string;
+	/** True when at least one space or tab follows the colon. */
+	spaceBeforeValue: boolean;
 	style: BlockStyle;
 	items: string[];
 	indent: string;
@@ -71,7 +76,7 @@ function splitLines(text: string, base: number): SourceLine[] {
 }
 
 /** Splits an inline value from a trailing YAML comment outside quoted text. */
-function splitInlineComment(raw: string): { value: string; comment: string } {
+function splitInlineComment(raw: string): { value: string; separator: string; comment: string } {
 	let single = false;
 	let double = false;
 	for (let index = 0; index < raw.length; index++) {
@@ -84,11 +89,14 @@ function splitInlineComment(raw: string): { value: string; comment: string } {
 			double = !double;
 		} else if (character === '#' && !single && !double) {
 			if (index === 0 || /\s/.test(raw[index - 1]!)) {
-				return { value: raw.slice(0, index).trimEnd(), comment: raw.slice(index - 1) };
+				const before = raw.slice(0, index);
+				const value = before.trimEnd();
+				return { value, separator: before.slice(value.length), comment: raw.slice(index) };
 			}
 		}
 	}
-	return { value: raw.trimEnd(), comment: '' };
+	const value = raw.trimEnd();
+	return { value, separator: raw.slice(value.length), comment: '' };
 }
 
 function unquote(raw: string): string {
@@ -235,7 +243,7 @@ function keyRanges(yaml: string): LineRange[] {
 		const key = match[1]!;
 		const afterColon = match[2]!.length;
 		const valueStart = line.start + key.length + 1 + afterColon;
-		const { value } = splitInlineComment(match[3] ?? '');
+		const { value, separator, comment } = splitInlineComment(match[3] ?? '');
 		current = {
 			key,
 			start: line.start,
@@ -243,6 +251,9 @@ function keyRanges(yaml: string): LineRange[] {
 			valueStart,
 			valueEnd: valueStart + value.length,
 			inline: value,
+			separator,
+			comment,
+			spaceBeforeValue: afterColon > 0,
 			style: 'inline',
 			items: [],
 			indent: '  ',
@@ -308,6 +319,13 @@ export function readFrontmatterProperties(markdown: string): FrontmatterProperty
 		});
 	}
 	return properties;
+}
+
+/** Returns every top-level YAML key, including styles the panel cannot edit. */
+export function readFrontmatterKeys(markdown: string): string[] {
+	const block = blockOf(markdown);
+	if (!block) return [];
+	return [...new Set(keyRanges(block.yaml).map((range) => range.key))];
 }
 
 const YAML_NON_STRING = [
@@ -413,7 +431,14 @@ export function setFrontmatterProperty(
 		range?.style === 'unsupported'
 	)
 		throw new Error(`Unsupported YAML value for ${key}`);
-	const rendered = renderValue(normalized, range, block.eol);
+	const renderedValue = renderValue(normalized, range, block.eol);
+	let rendered = renderedValue;
+	if (range && range.style !== 'block-sequence') {
+		if (rendered !== '' && range.inline === '' && !range.spaceBeforeValue)
+			rendered = ` ${rendered}`;
+		if (rendered !== '' && range.comment !== '' && range.separator === '')
+			rendered = `${rendered} `;
+	}
 	if (!range) {
 		const yaml = `${block.yaml}${block.yaml ? block.eol : ''}${key}: ${rendered}`;
 		return `${block.prefix}${block.open}${yaml}${block.close}${block.content}`;

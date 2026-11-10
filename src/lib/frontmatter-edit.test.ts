@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFrontmatter } from './frontmatter';
 import {
+	readFrontmatterKeys,
 	readFrontmatterProperties,
 	setFrontmatterProperty,
 	updateFrontmatter
@@ -197,5 +198,61 @@ describe('front matter property edits', () => {
 			'true',
 			"O'Reilly"
 		]);
+	});
+
+	it('separates a new value from a comment-only YAML value', async () => {
+		const source = '---\ntitle: # keep this comment\nstatus: draft\n---\n\nBody\n';
+		const next = setFrontmatterProperty(source, 'title', 'New');
+		expect(next).toBe('---\ntitle: New # keep this comment\nstatus: draft\n---\n\nBody\n');
+		const parsed = await parseFrontmatter(next);
+		expect(parsed.data.title).toBe('New');
+		expect(next).toContain('# keep this comment');
+		expect(setFrontmatterProperty(next, 'title', 'New')).toBe(next);
+	});
+
+	it('keeps existing separator whitespace before a comment-only value', async () => {
+		const spaces = '---\ntitle:   # note\n---\n';
+		expect(setFrontmatterProperty(spaces, 'title', 'New')).toBe('---\ntitle:   New # note\n---\n');
+		const tab = '---\ntitle:\t# note\n---\n';
+		expect(setFrontmatterProperty(tab, 'title', 'New')).toBe('---\ntitle:\tNew # note\n---\n');
+	});
+
+	it('writes a value into an empty key without a comment', async () => {
+		const empty = '---\ntitle:\nstatus: draft\n---\n';
+		expect(setFrontmatterProperty(empty, 'title', 'New')).toBe(
+			'---\ntitle: New\nstatus: draft\n---\n'
+		);
+		expect(setFrontmatterProperty(empty, 'title', '')).toBe('---\nstatus: draft\n---\n');
+	});
+
+	it('keeps CRLF and a BOM around comment-only values', async () => {
+		const crlf = '---\r\ntitle: # note\r\nstatus: draft\r\n---\r\n\r\nBody\r\n';
+		expect(setFrontmatterProperty(crlf, 'title', 'New')).toBe(
+			'---\r\ntitle: New # note\r\nstatus: draft\r\n---\r\n\r\nBody\r\n'
+		);
+		const bom = '\uFEFF---\ntitle: # note\n---\n\nBody\n';
+		const next = setFrontmatterProperty(bom, 'title', 'New');
+		expect(next.charCodeAt(0)).toBe(0xfeff);
+		expect(next).toBe('\uFEFF---\ntitle: New # note\n---\n\nBody\n');
+	});
+
+	it('keeps a quoted hash as value text, not a comment', async () => {
+		const quoted = '---\ntitle: "a # b"\n---\n';
+		const next = setFrontmatterProperty(quoted, 'title', 'New');
+		expect(next).toBe('---\ntitle: New\n---\n');
+		expect((await parseFrontmatter(next)).data.title).toBe('New');
+	});
+
+	it('keeps a trailing comment when an existing value changes', async () => {
+		const source = '---\ntitle: Old # note\nstatus: draft\n---\n';
+		const next = setFrontmatterProperty(source, 'title', 'New');
+		expect(next).toBe('---\ntitle: New # note\nstatus: draft\n---\n');
+		expect(setFrontmatterProperty(next, 'title', null)).toBe('---\nstatus: draft\n---\n');
+	});
+
+	it('lists every top-level YAML key, including unsupported styles', () => {
+		const nested = '---\nmeta:\n  owner: Ada\nblock: |\n  line one\nplain: value\n---\n';
+		expect(readFrontmatterKeys(nested)).toEqual(['meta', 'block', 'plain']);
+		expect(readFrontmatterProperties(nested).map((entry) => entry.key)).toEqual(['plain']);
 	});
 });

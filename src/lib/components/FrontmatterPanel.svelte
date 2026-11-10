@@ -5,6 +5,7 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { parseFrontmatter } from '#lib/frontmatter.js';
 	import {
+		readFrontmatterKeys,
 		readFrontmatterProperties,
 		updateFrontmatter,
 		type FrontmatterProperty,
@@ -18,6 +19,8 @@
 	let values = $state<Record<string, FrontmatterValue>>({});
 	let original = $state<Record<string, FrontmatterValue>>({});
 	let error = $state('');
+	let addError = $state('');
+	let saveError = $state('');
 	let newKey = $state('');
 	let newValue = $state('');
 	let busy = $state(false);
@@ -48,7 +51,15 @@
 
 	function add() {
 		const key = newKey.trim();
-		if (!/^[A-Za-z0-9_.-]+$/.test(key) || key in values) return;
+		addError = '';
+		if (!/^[A-Za-z0-9_.-]+$/.test(key)) {
+			addError = t('properties.invalidKey');
+			return;
+		}
+		if (readFrontmatterKeys(content).includes(key) || key in values) {
+			addError = t('properties.keyExists', { key });
+			return;
+		}
 		properties = [...properties, { key, kind: 'string', raw: '', value: newValue.trim() }];
 		original = { ...original, [key]: null };
 		setValue(key, newValue.trim());
@@ -58,6 +69,7 @@
 
 	function save() {
 		if (busy || error) return;
+		saveError = '';
 		const changes = Object.entries(values)
 			.filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(original[key] ?? null))
 			.map(([key, value]) => ({ key, value }));
@@ -67,14 +79,22 @@
 		}
 		const target = fileId ? filesStore.library.find((entry) => entry.id === fileId) : undefined;
 		if (!target || target.content !== content) {
-			error = t('properties.staleDocument');
+			saveError = t('properties.staleDocument');
 			return;
 		}
 		busy = true;
-		const next = updateFrontmatter(content, changes);
-		filesStore.updateContent(target.id, next);
-		busy = false;
-		onClose();
+		try {
+			const next = updateFrontmatter(content, changes);
+			filesStore.updateContent(target.id, next);
+			onClose();
+		} catch (reason) {
+			saveError =
+				reason instanceof Error && reason.message
+					? `${t('properties.saveFailed')} ${reason.message}`
+					: t('properties.saveFailed');
+		} finally {
+			busy = false;
+		}
 	}
 
 	function kindLabel(property: FrontmatterProperty): string {
@@ -177,8 +197,18 @@
 					<button type="button" onclick={add} data-testid="frontmatter-add"
 						>{t('properties.add')}</button
 					>
+					{#if addError}
+						<p class="fm-inline-error" role="alert" data-testid="frontmatter-add-error">
+							{addError}
+						</p>
+					{/if}
 				</div>
 				<p class="fm-note">{t('properties.note')}</p>
+				{#if saveError}
+					<p class="fm-inline-error" role="alert" data-testid="frontmatter-save-error">
+						{saveError}
+					</p>
+				{/if}
 				<div class="fm-actions">
 					<button type="button" onclick={onClose}>{t('slides.cancel')}</button>
 					<button
@@ -327,6 +357,12 @@
 	}
 	.fm-error {
 		padding: 16px;
+		color: var(--color-danger);
+	}
+	.fm-inline-error {
+		flex-basis: 100%;
+		margin: 0;
+		font-size: 11px;
 		color: var(--color-danger);
 	}
 	.fm-error pre {
