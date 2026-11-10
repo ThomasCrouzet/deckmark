@@ -323,6 +323,7 @@ export async function saveToDisk(id: string, deps: DiskSyncDeps): Promise<boolea
 	if (!browser) return false;
 	const file = deps.getFile(id);
 	if (!file) return false;
+	markDiskLinkChanged(id);
 
 	try {
 		if (isBinaryDocument(file)) {
@@ -644,6 +645,7 @@ export async function saveAsToDisk(id: string, deps: DiskSyncDeps): Promise<bool
 	if (!browser) return false;
 	const file = deps.getFile(id);
 	if (!file) return false;
+	markDiskLinkChanged(id);
 	try {
 		if (isBinaryDocument(file)) {
 			const { exportMarkdown } = await import('./services/export');
@@ -735,6 +737,7 @@ function applyDiskContent(id: string, file: FileItem, content: string, deps: Dis
  * for orphans (handle stored without a file in the store).
  */
 export async function unlinkFromDisk(id: string, deps: DiskSyncDeps): Promise<void> {
+	markDiskLinkChanged(id);
 	if (isDesktop()) {
 		const link = await getPathLink(id);
 		if (link) await tauriForgetPath(link.path);
@@ -752,6 +755,7 @@ export async function unlinkFromDisk(id: string, deps: DiskSyncDeps): Promise<vo
 export async function renameOnDisk(id: string, name: string, deps: DiskSyncDeps): Promise<boolean> {
 	const file = deps.getFile(id);
 	if (!browser || !file) return false;
+	markDiskLinkChanged(id);
 	try {
 		if (!isDesktop()) {
 			// Standard browser handles cannot rename files outside the private file system.
@@ -792,28 +796,73 @@ export async function renameOnDisk(id: string, name: string, deps: DiskSyncDeps)
 	}
 }
 
+let brokenLinkScan = 0;
+const linkVersions = new Map<string, number>();
+
+/** Invalidates every pending health check, for example after a full reload. */
+export function invalidateBrokenLinkChecks(): void {
+	brokenLinkScan += 1;
+}
+
+/** Marks one document's link as changed so older checks cannot publish. */
+export function markDiskLinkChanged(id: string): void {
+	linkVersions.set(id, (linkVersions.get(id) ?? 0) + 1);
+}
+
+function linkVersion(id: string): number {
+	return linkVersions.get(id) ?? 0;
+}
+
+function sameHandle(
+	current: FileSystemFileHandle,
+	checked: FileSystemFileHandle
+): Promise<boolean> | boolean {
+	if (current === checked) return true;
+	if (typeof current.isSameEntry === 'function') return current.isSameEntry(checked);
+	return current.name === checked.name && current.kind === checked.kind;
+}
+
 /**
  * Checks all `linkedToDisk` files: if the disk link is no longer resolvable
  * (file moved/deleted), flags `brokenLink: true` on the FileItem. If the link
  * no longer exists in IDB, also resets `linkedToDisk` to false.
  *
- * Pure delegation to `computeBrokenLinks` (testable helper). No-op on SSR
- * when neither FSA nor desktop is available.
+ * A result publishes only while its scan and the checked link are still
+ * current, so a slower old path check cannot revoke a repaired link.
  */
 export async function refreshBrokenLinks(
 	files: readonly FileItem[],
 	getFileMutable: (id: string) => FileItem | undefined
 ): Promise<void> {
 	if (!browser || !isDiskLinkingAvailable()) return;
+	const scan = ++brokenLinkScan;
+	const versions = new Map(
+		files.filter((file) => file.linkedToDisk).map((file) => [file.id, linkVersion(file.id)])
+	);
 	const updates = await computeBrokenLinks(files, {
 		getHandleFn: getHandle,
 		checkHandleFn: checkHandle,
 		getPathLinkFn: getPathLink,
 		checkPathFn: tauriCheckPath
 	});
+	if (scan !== brokenLinkScan) return;
 	for (const u of updates) {
+		if (versions.get(u.id) !== linkVersion(u.id)) continue;
 		const file = getFileMutable(u.id);
-		if (!file) continue;
+		if (!file || !file.linkedToDisk) continue;
+		if (u.link.kind === 'path') {
+			const current = await getPathLink(u.id).catch(() => null);
+			if (!current || current.path !== u.link.path) continue;
+		} else {
+			const current = await getHandle(u.id).catch(() => null);
+			if (u.link.handle) {
+				if (!current || !(await sameHandle(current, u.link.handle))) continue;
+			} else if (current) {
+				// The IDB handle was restored or replaced after the check.
+				continue;
+			}
+		}
+		if (!file.linkedToDisk) continue;
 		file.brokenLink = u.brokenLink;
 		// If the handle no longer exists in IDB, we also unlink on the state side:
 		// the file stays in the sidebar but loses its "linked" indicator.

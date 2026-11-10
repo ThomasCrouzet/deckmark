@@ -622,6 +622,9 @@ class FilesStore {
 		this.pendingCrossTabSyncs.clear();
 		// A quiet reload keeps this tab's view if the document is still open.
 		const preferredActiveId = broadcast ? null : this.activeId;
+		// A pending health check from the old library must not publish later.
+		const { invalidateBrokenLinkChecks } = await import('./disk-sync');
+		invalidateBrokenLinkChecks();
 		// invalidateAll (not discardAll): skip in-flight puts without deleting
 		// IDB rows - discard reverse-delete would wipe restored / reloaded drafts.
 		this.saveQueue.invalidateAll([...this.files, ...this.closedFiles].map((file) => file.id));

@@ -13,6 +13,7 @@ vi.mock('./disk-sync', () => ({
 	renameOnDisk: vi.fn(async () => true),
 	unlinkFromDisk: vi.fn(async () => {}),
 	refreshBrokenLinks: vi.fn(async () => {}),
+	invalidateBrokenLinkChecks: vi.fn(),
 	isDiskLinkingAvailable: vi.fn(() => true)
 }));
 
