@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseFrontmatter } from './frontmatter';
 import {
 	readFrontmatterProperties,
 	setFrontmatterProperty,
@@ -110,5 +111,39 @@ describe('front matter property edits', () => {
 		const nested = '---\ntags:\n  - - nested\nmeta:\n  - owner: Ada\ntitle: Kept\n---\n\nBody\n';
 		const keys = readFrontmatterProperties(nested).map((entry) => entry.key);
 		expect(keys).toEqual(['title']);
+	});
+
+	it('keeps a BOM at offset zero when it creates front matter with CRLF', async () => {
+		const next = setFrontmatterProperty('\uFEFF# Heading\r\n', 'title', 'Hello');
+		expect(next).toBe('\uFEFF---\r\ntitle: Hello\r\n---\r\n\r\n# Heading\r\n');
+		expect(next.charCodeAt(0)).toBe(0xfeff);
+		expect([...new TextEncoder().encode(next).slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+		const parsed = await parseFrontmatter(next);
+		expect(parsed.data).toEqual({ title: 'Hello' });
+		expect(parsed.raw.startsWith('\uFEFF---')).toBe(true);
+		expect(parsed.content).toBe('\r\n# Heading\r\n');
+	});
+
+	it('keeps a BOM at offset zero with LF and an empty body', async () => {
+		expect(setFrontmatterProperty('\uFEFF# Heading\n', 'title', 'Hello')).toBe(
+			'\uFEFF---\ntitle: Hello\n---\n\n# Heading\n'
+		);
+		expect(setFrontmatterProperty('\uFEFF', 'title', 'Hello')).toBe(
+			'\uFEFF---\ntitle: Hello\n---\n\n'
+		);
+		expect(setFrontmatterProperty('', 'title', 'Hello')).toBe('---\ntitle: Hello\n---\n\n');
+	});
+
+	it('keeps a BOM when it edits or removes an existing block', () => {
+		const withBlock = '\uFEFF---\r\ntitle: Old\r\n---\r\n\r\nBody\r\n';
+		const edited = setFrontmatterProperty(withBlock, 'title', 'New');
+		expect(edited).toBe('\uFEFF---\r\ntitle: New\r\n---\r\n\r\nBody\r\n');
+		expect(setFrontmatterProperty(edited, 'title', null)).toBe('\uFEFF---\r\n---\r\n\r\nBody\r\n');
+	});
+
+	it('uses the line style of an existing block for a new key', () => {
+		const mixed = '---\ntitle: Mixed\n---\r\n\r\nBody\r\n';
+		const next = setFrontmatterProperty(mixed, 'author', 'Ada');
+		expect(next).toBe('---\ntitle: Mixed\nauthor: Ada\n---\r\n\r\nBody\r\n');
 	});
 });

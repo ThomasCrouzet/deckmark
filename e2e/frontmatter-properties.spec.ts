@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
 
@@ -90,6 +91,39 @@ test('replaces a block-style tag list without leaving old items', async ({
 	expect(renamed).toContain('status: final');
 	await info.attach('frontmatter-block-tags.json', {
 		body: JSON.stringify({ initial, updated, renamed }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps the BOM at offset zero when it creates front matter', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, '\uFEFF# Heading\n\nBody stays.\n');
+	await openProperties(page);
+	await page.getByTestId('frontmatter-new-key').fill('title');
+	await page.getByTestId('frontmatter-new-value').fill('Hello');
+	await page.getByTestId('frontmatter-add').click();
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+
+	const downloadPromise = page.waitForEvent('download');
+	await page.getByRole('button', { name: 'Exporter' }).first().click();
+	const download = await downloadPromise;
+	const path = await download.path();
+	if (!path) throw new Error('The exported Markdown file is missing');
+	const bytes = await readFile(path);
+	const text = bytes.toString('utf8');
+	expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+	expect(text.startsWith('\uFEFF---\ntitle: Hello\n---\n')).toBe(true);
+	expect(text).toContain('# Heading');
+	expect(text).toContain('Body stays.');
+
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-title').locator('input')).toHaveValue('Hello');
+	await info.attach('frontmatter-bom.json', {
+		body: JSON.stringify({ bytes: bytes.length, startsWithBom: true, text }, null, 2),
 		contentType: 'application/json'
 	});
 });

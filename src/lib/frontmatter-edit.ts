@@ -53,7 +53,7 @@ function blockOf(markdown: string): Block | null {
 		yaml: match[2]!,
 		close: match[3]!,
 		content: body.slice(match[0].length),
-		eol: body.includes('\r\n') ? '\r\n' : '\n'
+		eol: match[1]!.includes('\r\n') ? '\r\n' : '\n'
 	};
 }
 
@@ -399,7 +399,12 @@ export function setFrontmatterProperty(
 		if (!range) return markdown;
 		const before = block.yaml.slice(0, range.start);
 		const after = block.yaml.slice(range.end);
-		const yaml = (before + after).replace(/\r?\n$/, '');
+		const merged = before + after;
+		if (merged === '' || merged === '\n' || merged === '\r\n') {
+			// Do not leave a blank line between the delimiters.
+			return `${block.prefix}${block.open.trimEnd()}${block.close}${block.content}`;
+		}
+		const yaml = merged.replace(/\r?\n$/, '');
 		return `${block.prefix}${block.open}${yaml}${block.close}${block.content}`;
 	}
 	if (
