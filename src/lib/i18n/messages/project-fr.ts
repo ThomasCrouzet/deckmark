@@ -85,5 +85,7 @@ export const projectFr: Record<ProjectMessageKey, string> = {
 	'projects.save': 'Enregistrer le projet sur disque',
 	'projects.unlink': 'Dissocier le dossier du disque',
 	'projects.saved': 'Projet enregistré sur disque.',
-	'projects.refreshed': 'Projet actualisé depuis le disque.'
+	'projects.refreshed': 'Projet actualisé depuis le disque.',
+	'projects.refreshedVerified':
+		'Projet actualisé et révisions du contenu vérifiées depuis le disque.'
 };

@@ -47,6 +47,8 @@ export interface NativeProjectManifestEntry {
 	size: number;
 	first: number;
 	second: number;
+	/** Present only for an authoritative server-side verification. */
+	revision?: string;
 }
 
 export interface NativeProjectManifest {
@@ -95,8 +97,11 @@ export async function refreshNativeProject(token: string): Promise<NativeProject
 	return toSnapshot(await invokeProject<RawProjectSnapshot>('project_refresh', { token }));
 }
 
-export async function manifestNativeProject(token: string): Promise<NativeProjectManifest> {
-	return invokeProject<NativeProjectManifest>('project_manifest', { token });
+export async function manifestNativeProject(
+	token: string,
+	verified = false
+): Promise<NativeProjectManifest> {
+	return invokeProject<NativeProjectManifest>('project_manifest', { token, verified });
 }
 
 export async function readNativeProjectEntry(

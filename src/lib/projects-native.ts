@@ -276,8 +276,12 @@ async function storeManifest(
 	await db.metadata.put({ key: manifestKey(projectId), value: manifestOf(entries) });
 }
 
-async function loadDiskDelta(projectId: string, session: NativeSession): Promise<DiskDelta> {
-	const manifest = await manifestNativeProject(session.token);
+async function loadDiskDelta(
+	projectId: string,
+	session: NativeSession,
+	authoritative = false
+): Promise<DiskDelta> {
+	const manifest = await manifestNativeProject(session.token, authoritative);
 	const stored = (await loadManifest(projectId)) ?? new Map<string, StoredManifestEntry>();
 	const entries = new Map<string, DiskEntry>();
 	const changed: NativeProjectEntry[] = [];
@@ -285,8 +289,8 @@ async function loadDiskDelta(projectId: string, session: NativeSession): Promise
 	for (const entry of manifest.entries) {
 		const previous = stored.get(entry.relativePath);
 		const key = pathKey(entry.relativePath);
-		if (!shouldReadProjectEntry(previous, entry, now)) {
-			entries.set(key, { ...entry, revision: previous!.revision });
+		if (!shouldReadProjectEntry(previous, entry, now, authoritative)) {
+			entries.set(key, { ...entry, revision: entry.revision ?? previous!.revision });
 			continue;
 		}
 		const fresh = await readNativeProjectEntry(session.token, entry.relativePath);
@@ -684,7 +688,8 @@ async function resolveAssetConflict(
 
 async function refreshNativeProjectFromDiskInternal(
 	projectId: string,
-	providedSnapshot?: NativeProjectSnapshot
+	providedSnapshot?: NativeProjectSnapshot,
+	authoritative = false
 ): Promise<NativeProjectReport> {
 	await filesStore.flushPendingAwait();
 	await filesStore.ensureProjectContent(projectId);
@@ -705,7 +710,7 @@ async function refreshNativeProjectFromDiskInternal(
 			stored
 		};
 	} else {
-		delta = await loadDiskDelta(projectId, session);
+		delta = await loadDiskDelta(projectId, session, authoritative);
 		if (!delta.changed.length && !delta.removed.length) {
 			await storeManifest(projectId, delta.stored.values()).catch(() => {});
 			return { succeeded: [], failed: [] };
@@ -791,10 +796,15 @@ async function refreshNativeProjectFromDiskInternal(
 
 export function refreshNativeProjectFromDisk(
 	projectId: string,
-	providedSnapshot?: NativeProjectSnapshot
+	providedSnapshot?: NativeProjectSnapshot,
+	options?: { authoritative?: boolean }
 ): Promise<NativeProjectReport> {
 	return runProjectOperation(projectId, () =>
-		refreshNativeProjectFromDiskInternal(projectId, providedSnapshot)
+		refreshNativeProjectFromDiskInternal(
+			projectId,
+			providedSnapshot,
+			options?.authoritative === true
+		)
 	);
 }
 
@@ -1219,7 +1229,7 @@ export interface ProjectEntryStamp {
 	revision: string;
 }
 
-export type ProjectEntryMetadata = Omit<ProjectEntryStamp, 'revision'>;
+export type ProjectEntryMetadata = Omit<ProjectEntryStamp, 'revision'> & { revision?: string };
 
 /** Window in which a file write may share its timestamp with a scan. */
 export const PROJECT_REFRESH_RACY_WINDOW_MS = 2_000;
@@ -1227,9 +1237,11 @@ export const PROJECT_REFRESH_RACY_WINDOW_MS = 2_000;
 export function shouldReadProjectEntry(
 	known: ProjectEntryStamp | undefined,
 	current: ProjectEntryMetadata,
-	now = Date.now()
+	now = Date.now(),
+	authoritative = false
 ): boolean {
 	if (!known || known.revision === '') return true;
+	if (authoritative && current.revision) return known.revision !== current.revision;
 	if (
 		known.kind !== current.kind ||
 		known.mtimeMs !== current.mtimeMs ||

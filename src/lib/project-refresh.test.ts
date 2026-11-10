@@ -40,4 +40,14 @@ describe('native project refresh decision', () => {
 		expect(shouldReadProjectEntry(stamp({ revision: '' }), stamp(), 10_000)).toBe(true);
 		expect(shouldReadProjectEntry(undefined, stamp(), 10_000)).toBe(true);
 	});
+
+	it('compares the server revision during an authoritative manual refresh', () => {
+		expect(shouldReadProjectEntry(stamp(), stamp({ revision: 'sha256:bbb' }), 10_000, true)).toBe(
+			true
+		);
+		expect(shouldReadProjectEntry(stamp(), stamp({ revision: 'sha256:aaa' }), 10_000, true)).toBe(
+			false
+		);
+		expect(shouldReadProjectEntry(undefined, stamp(), 10_000, true)).toBe(true);
+	});
 });
