@@ -6,7 +6,12 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { documentKindForFile } from '#lib/document-kind.js';
 	import { aiStore, aiErrorMessage } from '#lib/ai/store.svelte.js';
-	import { buildContext, contextSystemPrompt, type AiContextScope } from '#lib/ai/context.js';
+	import {
+		buildContext,
+		contextSystemPrompt,
+		isSecretPath,
+		type AiContextScope
+	} from '#lib/ai/context.js';
 	import { AiProviderError } from '#lib/ai/types.js';
 	import {
 		applyPatchPlan,
@@ -22,6 +27,8 @@
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
 
 	let scope = $state<AiContextScope>('document');
+	/** Exact project approved through the Project scope button. */
+	let projectScopeId = $state<string | null>(null);
 	let selectedIds = $state<string[]>([]);
 	let ignore = $state('.env, secrets/, *.pem, *.key');
 	let prompt = $state('');
@@ -52,6 +59,7 @@
 	let approvedPaths = $state<string[]>([]);
 	let selectedHunks = $state<Record<string, number[]>>({});
 	let planKey = $state('');
+	let requestGeneration = $state(0);
 	let appliedMessage = $state('');
 	let appliedBefore = $state<Array<{ id: string; content: string }>>([]);
 	let appliedAfter = $state<Array<{ id: string; content: string }>>([]);
@@ -64,6 +72,13 @@
 	);
 	const active = $derived(filesStore.active);
 	const projectSelected = $derived(!!active?.projectId);
+
+	// Invalidate a Project approval when the active project disappears or
+	// differs. A later send must not widen to another project silently.
+	$effect(() => {
+		if (scope !== 'project') return;
+		if (projectScopeId && active?.projectId !== projectScopeId) projectScopeId = null;
+	});
 
 	onMount(() => {
 		selectionText = window.getSelection()?.toString() ?? '';
@@ -79,7 +94,7 @@
 			selection: selectionText,
 			files: filesStore.library,
 			selectedIds,
-			projectId: active?.projectId ?? null,
+			projectId: scope === 'project' ? projectScopeId : null,
 			ignorePatterns: ignore
 				.split(',')
 				.map((value) => value.trim())
@@ -97,8 +112,26 @@
 		proposal ? planPatch(proposal, filesStore.library, lastAllowedIds) : null
 	);
 
+	/**
+	 * Identity of the exact reviewed proposal. It covers the hunks, the source
+	 * revision and the request that produced them, not only paths and statuses.
+	 */
+	function proposalIdentity(plan: PatchPlan): string {
+		const files = plan.files.map((file) => {
+			const hunks = file.hunks
+				.map(
+					(hunk) =>
+						`${hunk.index}:${hunk.ok ? 1 : 0}:${hunk.occurrence ?? ''}:${hunk.sourceStart ?? ''}:${hunk.sourceEnd ?? ''}:${contentHash(hunk.before)}:${contentHash(hunk.after)}`
+				)
+				.join(',');
+			return `${file.path}|${file.canonicalPath}|${file.fileId ?? ''}|${file.status}|${contentHash(file.before)}|${contentHash(file.after)}|${hunks}`;
+		});
+		const rejected = plan.rejected.map((entry) => `${entry.path}:${entry.reason}`).join(',');
+		return `${files.join('||')}||${rejected}`;
+	}
+
 	$effect(() => {
-		const key = patchPlan?.files.map((file) => `${file.path}:${file.status}`).join('|') ?? '';
+		const key = patchPlan ? `${requestGeneration}:${proposalIdentity(patchPlan)}` : '';
 		if (!key || key === planKey) return;
 		planKey = key;
 		approvedPaths =
@@ -208,6 +241,15 @@
 		return t('ai.reason_budget');
 	}
 
+	function selectScope(value: AiContextScope) {
+		if (value === 'project') {
+			if (!projectSelected) return;
+			// This click is the explicit approval of the current project.
+			projectScopeId = active?.projectId ?? null;
+		}
+		scope = value;
+	}
+
 	function toggleFile(id: string) {
 		selectedIds = selectedIds.includes(id)
 			? selectedIds.filter((value) => value !== id)
@@ -216,6 +258,17 @@
 
 	function refreshSelection() {
 		selectionText = window.getSelection()?.toString() ?? '';
+	}
+
+	// Test-build-only seam. It makes the hydration window deterministic for the
+	// E2E snapshot cases and is removed from production builds.
+	async function waitForTestHydrationDelay(): Promise<void> {
+		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS !== '1' || typeof window === 'undefined')
+			return;
+		const delay = (window as unknown as { __mdshAiHydrationDelay?: unknown })
+			.__mdshAiHydrationDelay;
+		if (typeof delay === 'number' && Number.isFinite(delay) && delay > 0)
+			await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 5000)));
 	}
 
 	async function run(instruction: string) {
@@ -234,38 +287,114 @@
 		output = '';
 		patchError = '';
 		appliedMessage = '';
+		// A new request owns a new approval generation. No selection or patch
+		// permission from the previous response survives into this one.
+		requestGeneration += 1;
+		planKey = '';
+		approvedPaths = [];
+		selectedHunks = {};
+		lastAllowedIds = [];
+		appliedBefore = [];
+		appliedAfter = [];
 		streaming = true;
 		lastPrompt = text;
 		controller = new AbortController();
 		try {
-			// Hydrate only the scope the user approved. Selection scope reads the
-			// captured selection, and the active document is already resident.
-			const needed =
-				scope === 'files'
-					? selectedIds
-					: scope === 'project'
-						? filesStore.library
-								.filter((file) => file.projectId === active?.projectId)
-								.map((file) => file.id)
-						: scope === 'document' && filesStore.activeId
-							? [filesStore.activeId]
-							: [];
-			await filesStore.ensureContent(
-				needed.filter((id) => !filesStore.active || id !== filesStore.active.id)
-			);
-			if (controller.signal.aborted) return;
-			const request = buildContext({
+			// Freeze the approved request before any asynchronous hydration. The
+			// outbound context must never be rebuilt from live UI variables.
+			const frozen = {
 				scope,
 				activeId: filesStore.activeId,
+				projectId: scope === 'project' ? projectScopeId : null,
+				selectedIds: [...selectedIds],
 				selection: selectionText,
-				files: filesStore.library,
-				selectedIds,
-				projectId: active?.projectId ?? null,
 				ignorePatterns: ignore
 					.split(',')
 					.map((value) => value.trim())
 					.filter(Boolean),
 				maxTokens: aiStore.settings.maxTokens > 1024 ? aiStore.settings.maxTokens : 24000
+			};
+			const sameIds = (left: readonly string[], right: readonly string[]) =>
+				left.length === right.length && left.every((value, index) => value === right[index]);
+			if (frozen.scope === 'project' && !frozen.projectId) {
+				// Project scope without an approved project is never the library.
+				error = t('ai.noContext');
+				return;
+			}
+			// Never hydrate a recognized credential store for a remote request.
+			// The context builder applies the same path policy to the manifest.
+			const secretIds = new Set(
+				filesStore.library
+					.filter((file) => isSecretPath(file.relativePath ?? file.name))
+					.map((file) => file.id)
+			);
+			const needed = (
+				frozen.scope === 'files'
+					? frozen.selectedIds
+					: frozen.scope === 'project'
+						? filesStore.library
+								.filter((file) => file.projectId === frozen.projectId)
+								.map((file) => file.id)
+						: frozen.scope === 'document' && frozen.activeId
+							? [frozen.activeId]
+							: []
+			).filter((id) => !secretIds.has(id));
+			const revisions: Array<{
+				id: string;
+				deferred: boolean;
+				hash: string;
+				updatedAt: number;
+			}> = [];
+			for (const file of filesStore.library) {
+				if (!needed.includes(file.id)) continue;
+				revisions.push({
+					id: file.id,
+					deferred: !!file.contentDeferred,
+					hash: file.contentDeferred ? '' : contentHash(file.content),
+					updatedAt: file.updatedAt
+				});
+			}
+			await waitForTestHydrationDelay();
+			await filesStore.ensureContent(
+				needed.filter((id) => !filesStore.active || id !== filesStore.active.id)
+			);
+			if (controller.signal.aborted) return;
+			const contextChanged =
+				scope !== frozen.scope ||
+				filesStore.activeId !== frozen.activeId ||
+				(scope === 'project' ? projectScopeId : null) !== frozen.projectId ||
+				!sameIds(selectedIds, frozen.selectedIds) ||
+				selectionText !== frozen.selection ||
+				!sameIds(
+					ignore
+						.split(',')
+						.map((value) => value.trim())
+						.filter(Boolean),
+					frozen.ignorePatterns
+				) ||
+				(aiStore.settings.maxTokens > 1024 ? aiStore.settings.maxTokens : 24000) !==
+					frozen.maxTokens;
+			const revisionChanged = needed.some((id) => {
+				const file = filesStore.library.find((entry) => entry.id === id);
+				const snapshot = revisions.find((entry) => entry.id === id);
+				if (!file || !snapshot) return true;
+				return snapshot.deferred
+					? file.updatedAt !== snapshot.updatedAt
+					: file.contentDeferred || contentHash(file.content) !== snapshot.hash;
+			});
+			if (contextChanged || revisionChanged) {
+				error = t('ai.contextChanged');
+				return;
+			}
+			const request = buildContext({
+				scope: frozen.scope,
+				activeId: frozen.activeId,
+				selection: frozen.selection,
+				files: filesStore.library,
+				selectedIds: frozen.selectedIds,
+				projectId: frozen.projectId,
+				ignorePatterns: frozen.ignorePatterns,
+				maxTokens: frozen.maxTokens
 			});
 			lastAllowedIds = request.manifest
 				.filter((entry) => entry.includedTokens > 0)
@@ -322,6 +451,7 @@
 		if (status === 'ready') return t('ai.patchReady');
 		if (status === 'stale') return t('ai.patchStale');
 		if (status === 'missing') return t('ai.patchMissing');
+		if (status === 'ambiguous') return t('ai.patchAmbiguous');
 		if (status === 'conflict') return t('ai.patchConflictStatus');
 		if (status === 'noop') return t('ai.patchNoop');
 		return status;
@@ -370,7 +500,7 @@
 							<button
 								type="button"
 								aria-pressed={scope === value}
-								onclick={() => (scope = value as AiContextScope)}
+								onclick={() => selectScope(value as AiContextScope)}
 								disabled={value === 'project' && !projectSelected}
 								data-testid={`ai-scope-${value}`}>{t(label)}</button
 							>
@@ -776,6 +906,7 @@
 		color: var(--color-fg-muted);
 	}
 	.patch-file[data-status='stale'] .patch-path em,
+	.patch-file[data-status='ambiguous'] .patch-path em,
 	.patch-file[data-status='conflict'] .patch-path em {
 		color: var(--color-danger);
 	}

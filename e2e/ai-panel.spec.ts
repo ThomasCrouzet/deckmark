@@ -46,6 +46,42 @@ async function configureMockAi(page: Page, options: { delay?: number } = {}) {
 	return requests;
 }
 
+async function configureRawStream(page: Page, body: string): Promise<void> {
+	await page.addInitScript(() => {
+		localStorage.setItem(
+			'mdsh:ai',
+			JSON.stringify({
+				enabled: true,
+				privacyMode: 'direct',
+				allowBrowserKey: true,
+				baseUrl: 'https://mock.local/v1',
+				model: 'mock-model',
+				temperature: 0.2,
+				maxTokens: 24000
+			})
+		);
+		sessionStorage.setItem('mdsh:ai-key', 'sk-session');
+	});
+	await page.route('https://mock.local/v1/**', async (route) => {
+		if (route.request().method() === 'OPTIONS') {
+			await route.fulfill({
+				status: 204,
+				headers: {
+					'access-control-allow-origin': '*',
+					'access-control-allow-methods': 'POST, OPTIONS',
+					'access-control-allow-headers': '*'
+				}
+			});
+			return;
+		}
+		await route.fulfill({
+			status: 200,
+			headers: { 'access-control-allow-origin': '*', 'content-type': 'text/event-stream' },
+			body
+		});
+	});
+}
+
 async function openAiPanel(page: Page) {
 	await openPalette(page);
 	const palette = page.getByRole('dialog', { name: 'Palette de commandes' });
@@ -126,6 +162,57 @@ test('cancels a streaming request without changing files', async ({ page }, info
 	await expect(page.locator('.cm-content')).toContainText('Keep this document.');
 	await info.attach('ai-cancel.json', {
 		body: JSON.stringify({ cancelled: true, documentUnchanged: true }),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps a final frame that has no trailing newline', async ({ page }, info: TestInfo) => {
+	await configureRawStream(
+		page,
+		'data: {"choices":[{"delta":{"content":"last"},"finish_reason":"stop"}]}'
+	);
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, 'Keep this document.');
+	await openAiPanel(page);
+	await page.getByTestId('ai-action-explain').click();
+	await expect(page.getByTestId('ai-output')).toContainText('last');
+	await info.attach('ai-final-frame.json', {
+		body: JSON.stringify({ finalFrame: 'last' }),
+		contentType: 'application/json'
+	});
+});
+
+test('shows a provider error frame instead of an empty success', async ({
+	page
+}, info: TestInfo) => {
+	await configureRawStream(
+		page,
+		'data: {"error":{"message":"provider failed","code":"rate_limit"}}\n\n'
+	);
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, 'Keep this document.');
+	await openAiPanel(page);
+	await page.getByTestId('ai-action-explain').click();
+	await expect(page.getByTestId('ai-error')).toContainText('rate-limit');
+	await expect(page.getByTestId('ai-output')).toHaveCount(0);
+	await info.attach('ai-error-frame.json', {
+		body: JSON.stringify({ shown: 'rate-limit', emptySuccess: false }),
+		contentType: 'application/json'
+	});
+});
+
+test('reports premature EOF instead of partial success', async ({ page }, info: TestInfo) => {
+	await configureRawStream(page, 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n');
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, 'Keep this document.');
+	await openAiPanel(page);
+	await page.getByTestId('ai-action-explain').click();
+	await expect(page.getByTestId('ai-error')).toContainText('ended before completion');
+	await info.attach('ai-eof.json', {
+		body: JSON.stringify({ incomplete: true, partialSuccess: false }),
 		contentType: 'application/json'
 	});
 });
