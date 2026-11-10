@@ -179,6 +179,22 @@ export async function nativeProjects({
 	const { rootId } = picked.value;
 	let { token } = picked.value;
 	const initial = picked.value.entries.find((entry) => entry.relativePath === 'notes/start.md');
+	const manifestBefore = record(
+		'manifest lists metadata without file contents',
+		await invoke('project_manifest', { token })
+	);
+	assert.equal(manifestBefore.rejection, undefined, manifestBefore.rejection);
+	assert.equal(manifestBefore.value.entries.length, picked.value.entries.length);
+	assert.equal(
+		manifestBefore.value.entries.every(
+			(entry) => !('content' in entry) && !('bytes' in entry) && entry.first && entry.second
+		),
+		true
+	);
+	record('metadata manifest is smaller than the full snapshot', {
+		snapshotBytes: JSON.stringify(picked.value).length,
+		manifestBytes: JSON.stringify(manifestBefore.value).length
+	});
 	for (const relativePath of [
 		'../outside.md',
 		'/tmp/outside.md',
@@ -228,6 +244,25 @@ export async function nativeProjects({
 
 	const staleContent = '# External\n';
 	writeFileSync(notePath, staleContent);
+	const manifestAfter = record(
+		'manifest reports the changed entry without other contents',
+		await invoke('project_manifest', { token })
+	);
+	const manifestEntry = manifestAfter.value.entries.find(
+		(entry) => entry.relativePath === 'notes/start.md'
+	);
+	const beforeEntry = manifestBefore.value.entries.find(
+		(entry) => entry.relativePath === 'notes/start.md'
+	);
+	assert.notDeepEqual(
+		{ size: manifestEntry.size, mtimeMs: manifestEntry.mtimeMs },
+		{ size: beforeEntry.size, mtimeMs: beforeEntry.mtimeMs }
+	);
+	const deltaRead = record(
+		'changed entry read returns exact external bytes',
+		await invoke('project_read', { token, relativePath: 'notes/start.md' })
+	);
+	assert.equal(deltaRead.value.content, staleContent);
 	const stale = record(
 		'stale revision rejects overwrite',
 		await invoke('project_write_text', {
@@ -686,6 +721,41 @@ export async function nativeProjects({
 	);
 
 	await openProjectDocument('notes/start.md');
+	await execute(
+		`const original = IDBObjectStore.prototype.put;
+		window.__restoreRenameJournalPut = () => { IDBObjectStore.prototype.put = original; };
+		IDBObjectStore.prototype.put = function (value, key) {
+			const row = Array.isArray(value) ? value[0] : value;
+			if (row && typeof row === 'object' && typeof row.key === 'string' &&
+				row.key.startsWith('project-rename-journal:'))
+				throw new DOMException('Injected journal write failure', 'QuotaExceededError');
+			return key === undefined ? original.call(this, value) : original.call(this, value, key);
+		};
+		return true;`
+	);
+	await until(
+		() =>
+			execute(
+				`const input = document.querySelector('#app-toolbar input[type="text"]');
+				if (!input || input.disabled || !input.getClientRects().length) return false;
+				input.focus(); input.value = arguments[0]; input.blur(); return true;`,
+				['ui-blocked']
+			),
+		'rename attempt without a recovery journal',
+		45_000
+	);
+	await new Promise((resolve) => setTimeout(resolve, 750));
+	assert.equal(existsSync(join(fixtureRoot, 'notes', 'ui-blocked.md')), false);
+	assert.equal(readFileSync(notePath, 'utf8'), durableLocal);
+	const blockedRename = record('rename aborts when the recovery journal cannot be persisted', {
+		blockedPath: 'notes/ui-blocked.md',
+		blockedPathExists: existsSync(join(fixtureRoot, 'notes', 'ui-blocked.md')),
+		originalPathExists: existsSync(notePath)
+	});
+	assert.equal(blockedRename.blockedPathExists, false);
+	assert.equal(blockedRename.originalPathExists, true);
+	await execute('window.__restoreRenameJournalPut?.(); return true;');
+
 	await until(
 		() =>
 			execute(

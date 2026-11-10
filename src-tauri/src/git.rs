@@ -759,10 +759,35 @@ fn stage_for_root(root: &Path, paths: &[String]) -> Result<(), String> {
     run_checked(root, &args).map(|_| ())
 }
 
+fn head_exists(root: &Path) -> Result<bool, String> {
+    let head = run_git(
+        root,
+        &[
+            "rev-parse".to_string(),
+            "--verify".to_string(),
+            "--quiet".to_string(),
+            "HEAD".to_string(),
+        ],
+    )?;
+    Ok(head.status.success())
+}
+
 fn unstage_for_root(root: &Path, paths: &[String]) -> Result<(), String> {
     require_self_repository(root)?;
     validate_paths(paths)?;
-    let mut args = vec!["reset".to_string(), "--quiet".to_string(), "--".to_string()];
+    let (command, extra): (&str, &[&str]) = if head_exists(root)? {
+        ("reset", &["--quiet"])
+    } else {
+        // An unborn branch has no HEAD tree. Remove only the requested index
+        // entries and keep the working-tree bytes.
+        (
+            "rm",
+            &["--cached", "--quiet", "--force", "--ignore-unmatch", "-r"],
+        )
+    };
+    let mut args = vec![command.to_string()];
+    args.extend(extra.iter().map(|value| value.to_string()));
+    args.push("--".to_string());
     args.extend(paths.iter().map(|path| format!(":(literal){path}")));
     run_checked(root, &args).map(|_| ())
 }
@@ -1043,6 +1068,39 @@ mod tests {
         let status = status_for_root(&repository.path).expect("read status");
         assert_eq!(file(&status, "note.md").index, '.');
         assert_eq!(file(&status, "note.md").worktree, 'M');
+    }
+
+    #[test]
+    fn unstage_before_the_first_commit_keeps_working_tree_bytes() {
+        let repository = init_repository();
+        write(&repository.path, "note.md", "note bytes\n");
+        write(&repository.path, "keep.md", "keep bytes\n");
+        write(&repository.path, "sp ace été.md", "unicode bytes\n");
+        let paths = vec![
+            "note.md".to_string(),
+            "keep.md".to_string(),
+            "sp ace été.md".to_string(),
+        ];
+        stage_for_root(&repository.path, &paths).expect("stage files");
+        unstage_for_root(&repository.path, &["note.md".to_string()]).expect("unstage one file");
+        let status = status_for_root(&repository.path).expect("read status");
+        assert!(file(&status, "note.md").untracked);
+        assert_eq!(file(&status, "keep.md").index, 'A');
+        assert_eq!(
+            fs::read_to_string(repository.path.join("note.md")).expect("read note"),
+            "note bytes\n"
+        );
+        unstage_for_root(&repository.path, &paths[1..]).expect("unstage remaining files");
+        let status = status_for_root(&repository.path).expect("read status after unstage");
+        assert!(status.files.iter().all(|entry| entry.untracked));
+        assert_eq!(
+            fs::read_to_string(repository.path.join("keep.md")).expect("read keep"),
+            "keep bytes\n"
+        );
+        assert_eq!(
+            fs::read_to_string(repository.path.join("sp ace été.md")).expect("read unicode"),
+            "unicode bytes\n"
+        );
     }
 
     #[test]

@@ -30,6 +30,10 @@ export const desktopBackupFr = {
 	'settings.desktopBackupPreviewHint':
 		'Vérifiez les nombres avant de restaurer. La restauration demande de fusionner ou de remplacer.',
 	'settings.desktopBackupSaved': 'Sauvegarde locale écrite.',
+	'settings.desktopBackupRetentionWarning':
+		'Sauvegarde écrite dans {path} ({size}) le {date}. Le nettoyage de {failed} ancien(s) instantané(s) a échoué : {error}',
+	'settings.desktopBackupRetryCleanup': 'Réessayer le nettoyage',
+	'settings.desktopBackupCleanupDone': 'Les anciens instantanés ont été supprimés.',
 	'settings.desktopBackupFailed': 'Échec de la sauvegarde.',
 	'settings.desktopBackupReadFailed': 'Lecture de l’instantané impossible.',
 	'settings.desktopBackupFolderRequired': 'Choisissez d’abord un dossier de sauvegarde.',

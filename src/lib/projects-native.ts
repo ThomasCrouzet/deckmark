@@ -7,7 +7,19 @@ import { isDesktop } from './desktop';
 import { filesStore } from './files.svelte';
 import { importProject } from './projects';
 import type { ProjectInput } from './project-archive';
-import { pathKey, projectPath } from './project-paths';
+import { pathKey, projectPath, projectWikiCandidates, relativeDestination } from './project-paths';
+import { documentKindForFile } from './document-kind';
+import { renameProjectLinks } from './project-links';
+import { normalizeRename } from './file-utils';
+import { rewriteWikiLinkTargets } from './wiki-links';
+import { notify } from './notify.svelte';
+import { t } from './i18n';
+import { reportError } from './report';
+import {
+	removeProjectRenameJournal,
+	updateProjectRenameStage,
+	writeProjectRenameJournal
+} from './project-rename-journal';
 import {
 	manifestNativeProject,
 	openNativeProject,
@@ -20,6 +32,7 @@ import {
 	writeNativeProjectText,
 	type NativeProjectAssetEntry,
 	type NativeProjectEntry,
+	type NativeProjectManifestEntry,
 	type NativeProjectMarkdownEntry,
 	type NativeProjectSnapshot
 } from './project-tauri';
@@ -104,13 +117,19 @@ function reserveProjectRename(
 				try {
 					const receipt = await run();
 					let finished = false;
+					let released = false;
+					const releaseOnce = () => {
+						if (released) return;
+						released = true;
+						release();
+					};
 					const finish = async (action: () => Promise<void>) => {
 						if (finished) return;
 						try {
 							await action();
-						} finally {
 							finished = true;
-							release();
+						} finally {
+							releaseOnce();
 						}
 					};
 					resolveReady({
@@ -166,34 +185,130 @@ async function storeBaseline(projectId: string, baseline: Record<string, string>
 
 const MANIFEST_PREFIX = 'project-native-manifest:';
 
+interface StoredManifestEntry extends NativeProjectManifestEntry {
+	revision: string;
+}
+
+interface DiskEntry extends NativeProjectManifestEntry {
+	revision: string;
+	mime?: string;
+	content?: string;
+	bytes?: Uint8Array;
+}
+
+interface DiskDelta {
+	entries: Map<string, DiskEntry>;
+	changed: NativeProjectEntry[];
+	removed: string[];
+	stored: Map<string, StoredManifestEntry>;
+}
+
 function manifestKey(projectId: string): string {
 	return `${MANIFEST_PREFIX}${projectId}`;
 }
 
-function manifestOf(snapshot: NativeProjectSnapshot): string {
+function manifestOf(entries: Iterable<StoredManifestEntry>): string {
 	return JSON.stringify(
-		snapshot.entries.map((entry) => ({
-			kind: entry.kind,
-			relativePath: entry.relativePath,
-			mtimeMs: entry.mtimeMs,
-			size: entry.size
-		}))
+		[...entries]
+			.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+			.map((entry) => ({
+				kind: entry.kind,
+				relativePath: entry.relativePath,
+				mtimeMs: entry.mtimeMs,
+				size: entry.size,
+				first: entry.first,
+				second: entry.second,
+				revision: entry.revision
+			}))
 	);
 }
 
-async function loadManifest(projectId: string): Promise<string | null> {
-	const row = await db.metadata.get(manifestKey(projectId));
-	return row?.value ?? null;
+function storedEntry(entry: NativeProjectManifestEntry, revision: string): StoredManifestEntry {
+	return {
+		kind: entry.kind,
+		relativePath: entry.relativePath,
+		mtimeMs: entry.mtimeMs,
+		size: entry.size,
+		first: entry.first,
+		second: entry.second,
+		revision
+	};
 }
 
-async function storeManifest(projectId: string, snapshot: NativeProjectSnapshot): Promise<void> {
-	await db.metadata.put({ key: manifestKey(projectId), value: manifestOf(snapshot) });
+async function loadManifest(projectId: string): Promise<Map<string, StoredManifestEntry> | null> {
+	const row = await db.metadata.get(manifestKey(projectId));
+	if (!row) return null;
+	try {
+		const parsed: unknown = JSON.parse(row.value);
+		if (!Array.isArray(parsed)) return null;
+		const entries = new Map<string, StoredManifestEntry>();
+		for (const value of parsed) {
+			if (!value || typeof value !== 'object') return null;
+			const entry = value as Record<string, unknown>;
+			const kind = entry.kind === 'asset' ? 'asset' : entry.kind === 'markdown' ? 'markdown' : null;
+			if (
+				!kind ||
+				typeof entry.relativePath !== 'string' ||
+				typeof entry.mtimeMs !== 'number' ||
+				typeof entry.size !== 'number'
+			)
+				return null;
+			entries.set(entry.relativePath, {
+				kind,
+				relativePath: entry.relativePath,
+				mtimeMs: entry.mtimeMs,
+				size: entry.size,
+				first: typeof entry.first === 'number' ? entry.first : -1,
+				second: typeof entry.second === 'number' ? entry.second : -1,
+				revision: typeof entry.revision === 'string' ? entry.revision : ''
+			});
+		}
+		return entries;
+	} catch {
+		return null;
+	}
+}
+
+async function storeManifest(
+	projectId: string,
+	entries: Iterable<StoredManifestEntry>
+): Promise<void> {
+	await db.metadata.put({ key: manifestKey(projectId), value: manifestOf(entries) });
+}
+
+async function loadDiskDelta(projectId: string, session: NativeSession): Promise<DiskDelta> {
+	const manifest = await manifestNativeProject(session.token);
+	const stored = (await loadManifest(projectId)) ?? new Map<string, StoredManifestEntry>();
+	const entries = new Map<string, DiskEntry>();
+	const changed: NativeProjectEntry[] = [];
+	const now = Date.now();
+	for (const entry of manifest.entries) {
+		const previous = stored.get(entry.relativePath);
+		const key = pathKey(entry.relativePath);
+		if (!shouldReadProjectEntry(previous, entry, now)) {
+			entries.set(key, { ...entry, revision: previous!.revision });
+			continue;
+		}
+		const fresh = await readNativeProjectEntry(session.token, entry.relativePath);
+		changed.push(fresh);
+		entries.set(key, { ...entry, ...fresh });
+	}
+	const current = new Set(manifest.entries.map((entry) => pathKey(entry.relativePath)));
+	const removed = [...stored.values()]
+		.filter((entry) => !current.has(pathKey(entry.relativePath)))
+		.map((entry) => entry.relativePath);
+	for (const relativePath of removed) stored.delete(relativePath);
+	return { entries, changed, removed, stored };
 }
 
 function revisions(snapshot: NativeProjectSnapshot): Record<string, string> {
 	return Object.fromEntries(
 		snapshot.entries.map((entry) => [projectPath(entry.relativePath), entry.revision])
 	);
+}
+
+function manifestFromSnapshot(snapshot: NativeProjectSnapshot): StoredManifestEntry[] {
+	return snapshot.entries.map((entry) => storedEntry(entry, entry.revision));
 }
 
 function projectInput(snapshot: NativeProjectSnapshot): ProjectInput {
@@ -282,6 +397,7 @@ export async function pickAndImportNativeProject(): Promise<ProjectRow | null> {
 		const linkedProject = { ...imported, nativeRootId: snapshot.rootId, updatedAt: Date.now() };
 		await db.projects.put(linkedProject);
 		await storeBaseline(imported.id, revisions(snapshot));
+		await storeManifest(imported.id, manifestFromSnapshot(snapshot));
 		sessions.set(imported.id, { rootId: snapshot.rootId, token: snapshot.token });
 		return linkedProject;
 	} catch (error) {
@@ -472,19 +588,23 @@ async function resolveDocumentConflict(
 	projectId: string,
 	token: string,
 	row: DraftRow,
-	disk: NativeProjectMarkdownEntry,
+	disk: DiskEntry,
 	baseline: Record<string, string>
 ): Promise<'resolved' | 'cancelled'> {
+	const freshDisk = await readNativeProjectEntry(token, disk.relativePath);
+	if (freshDisk.kind !== 'markdown' || freshDisk.revision !== disk.revision) {
+		throw new Error('Disk document changed during conflict review');
+	}
 	const resolution = await diskConflictStore.resolve({
 		name: row.relativePath ?? row.name,
 		localContent: row.content,
-		diskContent: disk.content
+		diskContent: freshDisk.content
 	});
 	if (resolution === 'cancel') return 'cancelled';
 	if (resolution === 'reload') {
 		await createCheckpoint({ id: row.id, name: row.name, content: row.content });
 		const fresh = await readNativeProjectEntry(token, disk.relativePath);
-		if (fresh.kind !== 'markdown' || fresh.revision !== disk.revision) {
+		if (fresh.kind !== 'markdown' || fresh.revision !== freshDisk.revision) {
 			throw new Error('Disk document changed during conflict review');
 		}
 		await applyDocument(row, fresh, false);
@@ -492,7 +612,7 @@ async function resolveDocumentConflict(
 		await storeBaseline(projectId, baseline);
 		return 'resolved';
 	}
-	await createCheckpoint({ id: row.id, name: row.name, content: disk.content });
+	await createCheckpoint({ id: row.id, name: row.name, content: freshDisk.content });
 	const current = filesStore.library.find((file) => file.id === row.id);
 	if (!fileMatchesRow(current, row)) {
 		throw new Error('Local document changed during conflict review');
@@ -502,7 +622,7 @@ async function resolveDocumentConflict(
 		token,
 		row.relativePath!,
 		row.content,
-		disk.revision
+		freshDisk.revision
 	);
 	baseline[row.relativePath!] = written.revision;
 	await storeBaseline(projectId, baseline);
@@ -521,19 +641,24 @@ async function resolveAssetConflict(
 	projectId: string,
 	token: string,
 	row: ProjectAssetRow,
-	disk: NativeProjectAssetEntry,
+	disk: DiskEntry,
 	baseline: Record<string, string>
 ): Promise<'resolved' | 'cancelled'> {
+	const freshDisk = await readNativeProjectEntry(token, disk.relativePath);
+	if (freshDisk.kind !== 'asset' || freshDisk.revision !== disk.revision) {
+		throw new Error('Disk asset changed during conflict review');
+	}
+	const mime = freshDisk.mime;
 	const resolution = await diskConflictStore.resolve({
 		name: row.path,
 		localContent: dataUrl(row.mime, row.data),
-		diskContent: dataUrl(disk.mime, disk.bytes)
+		diskContent: dataUrl(mime, freshDisk.bytes)
 	});
 	if (resolution === 'cancel') return 'cancelled';
 	if (resolution === 'reload') {
 		await preserveAssetConflict(row, row.mime, row.data, 'local');
 		const fresh = await readNativeProjectEntry(token, disk.relativePath);
-		if (fresh.kind !== 'asset' || fresh.revision !== disk.revision) {
+		if (fresh.kind !== 'asset' || fresh.revision !== freshDisk.revision) {
 			throw new Error('Disk asset changed during conflict review');
 		}
 		await applyAsset(row, fresh);
@@ -550,8 +675,8 @@ async function resolveAssetConflict(
 	) {
 		throw new Error('Local asset changed during conflict review');
 	}
-	await preserveAssetConflict(row, disk.mime, disk.bytes, 'disk');
-	const written = await writeNativeProjectAsset(token, row.path, row.data, disk.revision);
+	await preserveAssetConflict(row, mime, freshDisk.bytes, 'disk');
+	const written = await writeNativeProjectAsset(token, row.path, row.data, freshDisk.revision);
 	baseline[row.path] = written.revision;
 	await storeBaseline(projectId, baseline);
 	return 'resolved';
@@ -563,16 +688,32 @@ async function refreshNativeProjectFromDiskInternal(
 ): Promise<NativeProjectReport> {
 	await filesStore.flushPendingAwait();
 	await filesStore.ensureProjectContent(projectId);
-	let snapshot = providedSnapshot;
-	if (!snapshot) {
-		const active = await ensureSession(projectId);
-		const manifest = await manifestNativeProject(active.token);
-		if ((await loadManifest(projectId)) === JSON.stringify(manifest.entries))
+	const session = await ensureSession(projectId);
+	let delta: DiskDelta;
+	if (providedSnapshot) {
+		const entries = new Map<string, DiskEntry>();
+		const stored = new Map<string, StoredManifestEntry>();
+		for (const entry of providedSnapshot.entries) {
+			const key = pathKey(entry.relativePath);
+			entries.set(key, { ...entry });
+			stored.set(entry.relativePath, storedEntry(entry, entry.revision));
+		}
+		delta = {
+			entries,
+			changed: providedSnapshot.entries,
+			removed: [],
+			stored
+		};
+	} else {
+		delta = await loadDiskDelta(projectId, session);
+		if (!delta.changed.length && !delta.removed.length) {
+			await storeManifest(projectId, delta.stored.values()).catch(() => {});
 			return { succeeded: [], failed: [] };
-		snapshot = await currentSnapshot(projectId);
+		}
 	}
-	const session = sessions.get(projectId);
-	if (!session) throw new Error('Native project session is unavailable');
+	const remember = (entry: NativeProjectEntry, revision: string): void => {
+		delta.stored.set(entry.relativePath, storedEntry(entry, revision));
+	};
 	const baseline = await loadBaseline(projectId);
 	const documents = await db.drafts.where('projectId').equals(projectId).toArray();
 	const assets = await db.projectAssets.where('projectId').equals(projectId).toArray();
@@ -582,14 +723,8 @@ async function refreshNativeProjectFromDiskInternal(
 	>();
 	for (const row of documents) local.set(pathKey(row.relativePath!), { kind: 'markdown', row });
 	for (const row of assets) local.set(pathKey(row.path), { kind: 'asset', row });
-	const diskKeys = new Set<string>();
-	for (const entry of snapshot.entries) {
-		const key = pathKey(entry.relativePath);
-		if (diskKeys.has(key)) throw new Error('Duplicate native project path');
-		diskKeys.add(key);
-	}
 	const report: NativeProjectReport = { succeeded: [], failed: [] };
-	for (const entry of snapshot.entries) {
+	for (const entry of delta.changed) {
 		const path = projectPath(entry.relativePath);
 		const known = local.get(pathKey(path));
 		try {
@@ -597,6 +732,7 @@ async function refreshNativeProjectFromDiskInternal(
 				await addDiskEntry(projectId, entry);
 				baseline[path] = entry.revision;
 				await storeBaseline(projectId, baseline);
+				remember(entry, entry.revision);
 				report.succeeded.push(path);
 				continue;
 			}
@@ -608,13 +744,17 @@ async function refreshNativeProjectFromDiskInternal(
 			if (localRevision === entry.revision) {
 				baseline[path] = entry.revision;
 				await storeBaseline(projectId, baseline);
+				remember(entry, entry.revision);
 				report.succeeded.push(path);
 				continue;
 			}
 			const base = baseline[path];
 			const localDirty = base ? localRevision !== base : localRevision !== entry.revision;
 			const externalChanged = base !== entry.revision;
-			if (!externalChanged) continue;
+			if (!externalChanged) {
+				remember(entry, entry.revision);
+				continue;
+			}
 			if (!localDirty) {
 				const fresh = await readNativeProjectEntry(session.token, path);
 				if (fresh.revision !== entry.revision || fresh.kind !== known.kind) {
@@ -626,6 +766,7 @@ async function refreshNativeProjectFromDiskInternal(
 					await applyAsset(known.row, fresh);
 				baseline[path] = fresh.revision;
 				await storeBaseline(projectId, baseline);
+				remember(entry, fresh.revision);
 				report.succeeded.push(path);
 				continue;
 			}
@@ -636,14 +777,15 @@ async function refreshNativeProjectFromDiskInternal(
 						? await resolveAssetConflict(projectId, session.token, known.row, entry, baseline)
 						: 'cancelled';
 			if (resolved === 'cancelled') throw new Error('Conflict review was cancelled');
+			remember(entry, entry.revision);
 			report.succeeded.push(path);
 		} catch (error) {
 			report.failed.push({ path, operation: 'refresh', message: String(error) });
 		}
 	}
+	await storeManifest(projectId, delta.stored.values()).catch(() => {});
 	if (report.failed.length)
 		throw new NativeProjectOperationError('Native project refresh failed', report);
-	await storeManifest(projectId, snapshot).catch(() => {});
 	return report;
 }
 
@@ -679,15 +821,13 @@ async function reviewMissingAsset(row: ProjectAssetRow): Promise<'overwrite' | '
 async function saveNativeProjectInternal(projectId: string): Promise<NativeProjectReport> {
 	await filesStore.flushPendingAwait();
 	await filesStore.ensureProjectContent(projectId);
-	const snapshot = await currentSnapshot(projectId);
-	const session = sessions.get(projectId)!;
-	const disk = new Map<string, NativeProjectEntry>();
-	for (const entry of snapshot.entries) {
-		const key = pathKey(entry.relativePath);
-		if (disk.has(key)) throw new Error('Duplicate native project path');
-		disk.set(key, entry);
-	}
+	const session = await ensureSession(projectId);
+	const delta = await loadDiskDelta(projectId, session);
+	const disk = delta.entries;
 	const baseline = await loadBaseline(projectId);
+	const remember = (entry: NativeProjectManifestEntry & { revision: string }): void => {
+		delta.stored.set(entry.relativePath, storedEntry(entry, entry.revision));
+	};
 	const documents = await db.drafts.where('projectId').equals(projectId).toArray();
 	const assets = await db.projectAssets.where('projectId').equals(projectId).toArray();
 	const report: NativeProjectReport = { succeeded: [], failed: [] };
@@ -700,6 +840,7 @@ async function saveNativeProjectInternal(projectId: string): Promise<NativeProje
 			if (entry?.revision === localRevision) {
 				baseline[path] = entry.revision;
 				await storeBaseline(projectId, baseline);
+				remember(entry);
 				report.succeeded.push(path);
 				continue;
 			}
@@ -712,6 +853,7 @@ async function saveNativeProjectInternal(projectId: string): Promise<NativeProje
 					baseline
 				);
 				if (resolved === 'cancelled') throw new Error('Conflict review was cancelled');
+				remember({ ...entry, revision: baseline[path]! });
 				report.succeeded.push(path);
 				continue;
 			}
@@ -733,6 +875,7 @@ async function saveNativeProjectInternal(projectId: string): Promise<NativeProje
 			);
 			baseline[path] = written.revision;
 			await storeBaseline(projectId, baseline);
+			remember(written);
 			const after = filesStore.library.find((file) => file.id === row.id);
 			if (
 				after &&
@@ -755,12 +898,14 @@ async function saveNativeProjectInternal(projectId: string): Promise<NativeProje
 			if (entry?.revision === localRevision) {
 				baseline[path] = entry.revision;
 				await storeBaseline(projectId, baseline);
+				remember(entry);
 				report.succeeded.push(path);
 				continue;
 			}
 			if (entry && baseline[path] !== entry.revision) {
 				const resolved = await resolveAssetConflict(projectId, session.token, row, entry, baseline);
 				if (resolved === 'cancelled') throw new Error('Conflict review was cancelled');
+				remember({ ...entry, revision: baseline[path]! });
 				report.succeeded.push(path);
 				continue;
 			}
@@ -782,11 +927,13 @@ async function saveNativeProjectInternal(projectId: string): Promise<NativeProje
 			);
 			baseline[path] = written.revision;
 			await storeBaseline(projectId, baseline);
+			remember(written);
 			report.succeeded.push(path);
 		} catch (error) {
 			report.failed.push({ path, operation: 'save', message: String(error) });
 		}
 	}
+	await storeManifest(projectId, delta.stored.values()).catch(() => {});
 	if (report.failed.length)
 		throw new NativeProjectOperationError('Native project save failed', report);
 	return report;
@@ -827,6 +974,7 @@ async function disconnectNativeProjectInternal(projectId: string): Promise<void>
 	await db.transaction('rw', db.projects, db.metadata, async () => {
 		await db.projects.put({ ...localProject, updatedAt: Date.now() });
 		await db.metadata.delete(baselineKey(projectId));
+		await db.metadata.delete(manifestKey(projectId));
 	});
 	sessions.delete(projectId);
 }
@@ -897,4 +1045,198 @@ export function renameNativeProjectDocument(
 	return reserveProjectRename(projectId, () =>
 		renameNativeProjectDocumentInternal(projectId, oldPath, newPath)
 	);
+}
+
+// Rename orchestration stays in this lazy bundle to keep the boot bundle within
+// its size budget. The journal and native receipt remain the source of truth
+// for crash recovery.
+let renameQueue: Promise<unknown> = Promise.resolve();
+
+export function renameProjectDocument(id: string, requested: string): Promise<boolean> {
+	const operation = renameQueue
+		.catch(() => {})
+		.then(async () => {
+			let nativeRename: import('./projects-native').NativeRenameReceipt | undefined;
+			let committed = false;
+			let renameJournalId: string | null = null;
+			try {
+				await filesStore.flushPendingAwait();
+				const document = filesStore.library.find((file) => file.id === id);
+				if (!document?.projectId || !document.relativePath) return false;
+				await filesStore.ensureProjectContent(document.projectId);
+				const name = normalizeRename(requested, document.name);
+				if (name.includes('/') || name.includes('\\')) throw new Error('Use a filename');
+				const oldPath = document.relativePath;
+				const newPath = projectPath([...oldPath.split('/').slice(0, -1), name].join('/'));
+				if (oldPath === newPath) return true;
+				const snapshot = filesStore.library
+					.filter((file) => file.projectId === document.projectId)
+					.map((file) => ({ ...file }));
+				const rewrite = (content: string, fileId: string) => {
+					const file = snapshot.find((entry) => entry.id === fileId)!;
+					const kind = documentKindForFile(file);
+					if (kind !== 'note' && kind !== 'presentation') return content;
+					const from = file.relativePath!;
+					const linked = renameProjectLinks(content, from, oldPath, newPath);
+					if (kind !== 'note') return linked;
+					return rewriteWikiLinkTargets(linked, (target) => {
+						const candidates = projectWikiCandidates(file, target, snapshot);
+						if (candidates.length !== 1 || candidates[0]!.id !== id || target === id) return target;
+						const suffix = target.match(/#.*$/)?.[0] ?? '';
+						const next = relativeDestination(from === oldPath ? newPath : from, newPath);
+
+						return (
+							(/\.(?:md|markdown|mdx|txt)$/i.test(target.split('#', 1)[0]!)
+								? next
+								: next.replace(/\.(?:md|markdown|mdx|txt)$/i, '')) + suffix
+						);
+					});
+				};
+				const rewritten = snapshot
+					.map((file) => {
+						const content = rewrite(file.content, file.id);
+						return { file, content, relativePath: file.id === id ? newPath : file.relativePath! };
+					})
+					.filter((entry) => entry.content !== entry.file.content || entry.file.id === id);
+				const { renameNativeProjectDocument } = await import('./projects-native');
+				renameJournalId = newId();
+				await writeProjectRenameJournal({
+					id: renameJournalId,
+					projectId: document.projectId,
+					oldPath,
+					newPath,
+					stage: 'prepared',
+					updatedAt: Date.now()
+				});
+				nativeRename = await renameNativeProjectDocument(document.projectId, oldPath, newPath);
+				if (renameJournalId) {
+					await updateProjectRenameStage(renameJournalId, 'disk-renamed').catch(() => {});
+				}
+				const rows = await db.transaction(
+					'rw',
+					db.drafts,
+					db.projectAssets,
+					db.versions,
+					async () => {
+						const durable = await db.drafts
+							.where('projectId')
+							.equals(document.projectId!)
+							.toArray();
+						const assets = await db.projectAssets
+							.where('projectId')
+							.equals(document.projectId!)
+							.toArray();
+						if (
+							durable.some(
+								(row) => row.id !== id && pathKey(row.relativePath!) === pathKey(newPath)
+							) ||
+							assets.some((asset) => pathKey(asset.path) === pathKey(newPath))
+						)
+							throw new Error('Project path already exists');
+						const result: DraftRow[] = [];
+						for (const entry of rewritten) {
+							const before = durable.find((row) => row.id === entry.file.id);
+							const current = filesStore.library.find((file) => file.id === entry.file.id);
+							if (
+								!before ||
+								before.content !== entry.file.content ||
+								before.relativePath !== entry.file.relativePath ||
+								current?.content !== entry.file.content
+							)
+								throw new Error('The document changed during rename');
+							await db.versions.add({
+								id: newId(),
+								draftId: before.id,
+								name: before.name,
+								content: before.content,
+								createdAt: Date.now()
+							});
+							result.push({
+								...before,
+								name: before.id === id ? name : before.name,
+								relativePath: entry.relativePath,
+								content: entry.content,
+								updatedAt: Date.now()
+							});
+						}
+						await db.drafts.bulkPut(result);
+						return result;
+					}
+				);
+				committed = true;
+				if (renameJournalId) {
+					await updateProjectRenameStage(renameJournalId, 'db-rewritten').catch(() => {});
+				}
+				filesStore.acceptProjectRows(
+					rows,
+					new Map(snapshot.map((file) => [file.id, file])),
+					rewrite
+				);
+				let baselineCommitted = false;
+				try {
+					await nativeRename.commit();
+					baselineCommitted = true;
+				} catch {
+					// The disk rename and draft rows already committed. A transient
+					// baseline write failure must not report a false rename failure.
+					await new Promise((resolve) => setTimeout(resolve, 250));
+					try {
+						await nativeRename.commit();
+						baselineCommitted = true;
+					} catch (second) {
+						reportError('project rename baseline', second);
+						notify.info(t('projects.renameBaselinePending'));
+					}
+				}
+				if (renameJournalId && baselineCommitted)
+					await removeProjectRenameJournal(renameJournalId).catch(() => {});
+				return true;
+			} catch (error) {
+				if (nativeRename && !committed) {
+					try {
+						await nativeRename.rollback();
+						if (renameJournalId) await removeProjectRenameJournal(renameJournalId).catch(() => {});
+					} catch (rollbackError) {
+						reportError('project rename rollback', rollbackError);
+					}
+				}
+				reportError('project rename', error);
+				notify.error(t('projects.operationFailed'));
+				return false;
+			}
+		});
+	renameQueue = operation;
+	return operation;
+}
+
+export interface ProjectEntryStamp {
+	kind: 'markdown' | 'asset';
+	relativePath: string;
+	mtimeMs: number;
+	size: number;
+	first: number;
+	second: number;
+	revision: string;
+}
+
+export type ProjectEntryMetadata = Omit<ProjectEntryStamp, 'revision'>;
+
+/** Window in which a file write may share its timestamp with a scan. */
+export const PROJECT_REFRESH_RACY_WINDOW_MS = 2_000;
+
+export function shouldReadProjectEntry(
+	known: ProjectEntryStamp | undefined,
+	current: ProjectEntryMetadata,
+	now = Date.now()
+): boolean {
+	if (!known || known.revision === '') return true;
+	if (
+		known.kind !== current.kind ||
+		known.mtimeMs !== current.mtimeMs ||
+		known.size !== current.size ||
+		known.first !== current.first ||
+		known.second !== current.second
+	)
+		return true;
+	return Math.abs(now - current.mtimeMs) < PROJECT_REFRESH_RACY_WINDOW_MS;
 }

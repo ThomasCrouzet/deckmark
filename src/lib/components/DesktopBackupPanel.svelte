@@ -18,7 +18,8 @@
 		setBackupRetention,
 		subscribeDesktopBackup,
 		writeBackupNow,
-		type BackupEntry
+		type BackupEntry,
+		type BackupWrite
 	} from '#lib/desktop-backup.js';
 	import { formatStorageBytes } from '#lib/storage.js';
 	import { notify } from '#lib/notify.svelte.js';
@@ -35,11 +36,28 @@
 		backup: BackupFile;
 	}
 
+	interface RetentionResult {
+		removed: number;
+		failed: number;
+		error?: string | null;
+	}
+
+	interface RetentionWarning {
+		path: string;
+		fileName: string;
+		size: number;
+		createdAtMs: number;
+		removed: number;
+		failed: number;
+		error: string;
+	}
+
 	let { onRestore }: Props = $props();
 
 	let backupState = $state(getDesktopBackupState());
 	let snapshots = $state<BackupEntry[]>([]);
 	let preview = $state<Preview | null>(null);
+	let retentionWarning = $state<RetentionWarning | null>(null);
 	let busy = $state(false);
 	let listBusy = $state(false);
 	let errorText = $state('');
@@ -83,6 +101,7 @@
 			const selected = await chooseBackupFolder(t('settings.desktopBackupChooseTitle'));
 			if (selected) {
 				preview = null;
+				retentionWarning = null;
 				await refreshSnapshots();
 			}
 		} catch (error) {
@@ -117,9 +136,53 @@
 		errorText = '';
 		try {
 			if (!backupState.root) throw new Error(t('settings.desktopBackupFolderRequired'));
-			await writeBackupNow();
+			const result = (await writeBackupNow()) as BackupWrite & {
+				retention?: RetentionResult;
+			};
+			if (result.retention && result.retention.failed > 0) {
+				retentionWarning = {
+					path: result.path,
+					fileName: result.fileName,
+					size: result.size,
+					createdAtMs: result.createdAtMs,
+					removed: result.retention.removed,
+					failed: result.retention.failed,
+					error: result.retention.error ?? ''
+				};
+			} else {
+				retentionWarning = null;
+			}
 			notify.success(t('settings.desktopBackupSaved'));
 			preview = null;
+			await refreshSnapshots();
+		} catch (error) {
+			showError(error, 'settings.desktopBackupFailed');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function retryCleanup(): Promise<void> {
+		if (!retentionWarning || busy || !backupState.rootId) return;
+		busy = true;
+		errorText = '';
+		try {
+			const { invoke } = await import('@tauri-apps/api/core');
+			const result = await invoke<RetentionResult>('desktop_backup_cleanup', {
+				rootId: backupState.rootId,
+				keep: backupState.retention
+			});
+			if (result.failed > 0) {
+				retentionWarning = {
+					...retentionWarning,
+					removed: retentionWarning.removed + result.removed,
+					failed: result.failed,
+					error: result.error ?? ''
+				};
+				return;
+			}
+			retentionWarning = null;
+			notify.success(t('settings.desktopBackupCleanupDone'));
 			await refreshSnapshots();
 		} catch (error) {
 			showError(error, 'settings.desktopBackupFailed');
@@ -274,6 +337,31 @@
 
 	{#if errorText}
 		<p class="mb-3 break-words text-xs text-danger" role="alert">{errorText}</p>
+	{/if}
+
+	{#if retentionWarning}
+		<div
+			class="mb-3 rounded border border-border bg-bg-2 px-3 py-2 text-xs"
+			role="status"
+			data-testid="desktop-backup-retention-warning"
+		>
+			<p class="break-words text-fg-muted">
+				{t('settings.desktopBackupRetentionWarning', {
+					path: retentionWarning.path,
+					size: formatStorageBytes(retentionWarning.size),
+					date: formatDate(retentionWarning.createdAtMs),
+					failed: retentionWarning.failed,
+					error: retentionWarning.error
+				})}
+			</p>
+			<button
+				class="mt-2 rounded border border-border px-2 py-1 text-xs"
+				disabled={busy}
+				onclick={() => void retryCleanup()}
+			>
+				{t('settings.desktopBackupRetryCleanup')}
+			</button>
+		</div>
 	{/if}
 
 	<div class="border-t border-border pt-3">

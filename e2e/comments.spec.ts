@@ -140,10 +140,12 @@ test('permanent purge removes orphaned comments from storage and backups', async
 	const library = page.getByRole('dialog', { name: 'Bibliothèque de documents', exact: true });
 	await library.getByRole('checkbox', { name: `Sélectionner ${name}`, exact: true }).check();
 	await library.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
-	await page
-		.getByRole('dialog', { name: 'Supprimer 1 document(s) ?', exact: true })
-		.getByRole('button', { name: 'Supprimer la sélection', exact: true })
-		.click();
+	const confirmDelete = page.getByRole('dialog', {
+		name: 'Supprimer 1 document(s) ?',
+		exact: true
+	});
+	await confirmDelete.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
+	await expect(confirmDelete).toBeHidden();
 	await page.keyboard.press('Escape');
 	await expect(library).toBeHidden();
 

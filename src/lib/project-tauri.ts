@@ -4,6 +4,8 @@ export interface NativeProjectEntryBase {
 	mtimeMs: number;
 	size: number;
 	revision: string;
+	first: number;
+	second: number;
 }
 
 export interface NativeProjectMarkdownEntry extends NativeProjectEntryBase {
@@ -43,6 +45,8 @@ export interface NativeProjectManifestEntry {
 	relativePath: string;
 	mtimeMs: number;
 	size: number;
+	first: number;
+	second: number;
 }
 
 export interface NativeProjectManifest {
@@ -62,7 +66,9 @@ function toEntry(entry: RawProjectEntry): NativeProjectEntry {
 		mime: entry.mime,
 		mtimeMs: entry.mtimeMs,
 		size: entry.size,
-		revision: entry.revision
+		revision: entry.revision,
+		first: entry.first,
+		second: entry.second
 	};
 	if (entry.kind === 'markdown') {
 		if (entry.content === null) throw new Error('Native Markdown entry has no content.');
