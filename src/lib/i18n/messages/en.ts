@@ -570,6 +570,8 @@ export const en = {
 		'Optional. It uses local word and character features. No model download and no network request.',
 	'semantic.model': 'Model',
 	'semantic.rebuild': 'The index was built with another model. Build the index again.',
+	'semantic.stale': 'Some indexed documents changed. Build the index again to include them.',
+	'semantic.clearError': 'The selected index could not be cleared. Try again.',
 	'semantic.scope': 'Index scope',
 	'semantic.library': 'Library documents',
 	'semantic.project': 'Current project',
