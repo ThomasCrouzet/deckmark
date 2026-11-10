@@ -20,6 +20,16 @@ class WorkspaceStore {
 	workspaces = $state<WorkspaceRow[]>([]);
 	loaded = $state(false);
 
+	/**
+	 * Latest mutation revision for each workspace. A completion may publish or
+	 * reconcile only when it still owns this revision.
+	 */
+	private revisions = new Map<string, number>();
+	/** Tail of the durable write queue for each workspace. */
+	private writeQueues = new Map<string, Promise<void>>();
+	/** Increments when the list is replaced, so stale completions cannot publish. */
+	private listEpoch = 0;
+
 	async load(): Promise<void> {
 		if (!browser || this.loaded) return;
 		const rows = await db.workspaces.orderBy('updatedAt').reverse().toArray();
@@ -29,8 +39,105 @@ class WorkspaceStore {
 
 	/** §1.1 - Reloads from Dexie after a backup restore. */
 	async reload(): Promise<void> {
+		this.listEpoch += 1;
+		this.revisions.clear();
 		this.loaded = false;
+		// Drain earlier writes so the reload reads the latest durable rows.
+		await Promise.all([...this.writeQueues.values()]);
 		await this.load();
+	}
+
+	private nextRevision(id: string): number {
+		const revision = (this.revisions.get(id) ?? 0) + 1;
+		this.revisions.set(id, revision);
+		return revision;
+	}
+
+	private isLatestRevision(id: string, revision: number): boolean {
+		return this.revisions.get(id) === revision;
+	}
+
+	/**
+	 * Runs same-workspace writes one after another. Serialized durable writes
+	 * keep the latest intent last, even when two callers overlap.
+	 */
+	private enqueue(id: string, task: () => Promise<void>): Promise<void> {
+		const previous = this.writeQueues.get(id) ?? Promise.resolve();
+		const run = previous.then(task, task);
+		this.writeQueues.set(
+			id,
+			run.then(
+				() => undefined,
+				() => undefined
+			)
+		);
+		return run;
+	}
+
+	private async waitForWrites(id: string): Promise<void> {
+		await this.writeQueues.get(id);
+	}
+
+	private async readDurable(id: string): Promise<WorkspaceRow | null | undefined> {
+		try {
+			return (await db.workspaces.get(id)) ?? null;
+		} catch {
+			// The write failure already reported; keep the current display.
+			return undefined;
+		}
+	}
+
+	private replaceFromDurable(ws: WorkspaceRow, durable: WorkspaceRow): void {
+		ws.name = durable.name;
+		ws.fileIds = durable.fileIds;
+		ws.activeId = durable.activeId;
+		ws.createdAt = durable.createdAt;
+		ws.updatedAt = durable.updatedAt;
+	}
+
+	private removeById(id: string): void {
+		const index = this.workspaces.findIndex((candidate) => candidate.id === id);
+		if (index !== -1) this.workspaces.splice(index, 1);
+	}
+
+	/** Places a row at its `updatedAt` order. Equal dates keep their order. */
+	private placeByUpdatedAt(ws: WorkspaceRow): void {
+		const current = this.workspaces.indexOf(ws);
+		if (current === -1) return;
+		this.workspaces.splice(current, 1);
+		let index = 0;
+		while (index < this.workspaces.length && this.workspaces[index]!.updatedAt > ws.updatedAt) {
+			index += 1;
+		}
+		this.workspaces.splice(index, 0, ws);
+	}
+
+	/**
+	 * Applies the latest durable row after the last queued write failed. A row
+	 * that no longer exists on disk is removed, never resurrected in the list.
+	 */
+	private async reconcile(
+		ws: WorkspaceRow,
+		id: string,
+		previousIndex: number,
+		baseUpdatedAt: number
+	): Promise<void> {
+		const durable = await this.readDurable(id);
+		if (durable === undefined) return;
+		if (durable === null) {
+			this.removeById(id);
+			return;
+		}
+		this.replaceFromDurable(ws, durable);
+		if (durable.updatedAt === baseUpdatedAt) {
+			const current = this.workspaces.indexOf(ws);
+			if (current !== -1 && current !== previousIndex) {
+				this.workspaces.splice(current, 1);
+				this.workspaces.splice(Math.min(previousIndex, this.workspaces.length), 0, ws);
+			}
+			return;
+		}
+		this.placeByUpdatedAt(ws);
 	}
 
 	/**
@@ -73,8 +180,10 @@ class WorkspaceStore {
 	 * activeId). Useful for "Update workspace" without creating a new
 	 * one (refresh after adding/removing a tab).
 	 *
-	 * Update the row before the write for immediate feedback. If the write fails,
-	 * restore all fields and the previous position, then notify the user.
+	 * The durable write is a narrow property update, so a concurrent rename or
+	 * another tab cannot lose unrelated fields. The visible row changes only
+	 * after the write succeeds. A failure reconciles with the durable row and
+	 * never restores a snapshot over newer accepted state.
 	 */
 	async update(id: string): Promise<void> {
 		try {
@@ -85,76 +194,105 @@ class WorkspaceStore {
 		}
 		const ws = this.workspaces.find((w) => w.id === id);
 		if (!ws) return;
-		// Capture the prior state for a faithful rollback on failure.
-		const prevIdx = this.workspaces.indexOf(ws);
-		const prevFileIds = ws.fileIds;
-		const prevActiveId = ws.activeId;
-		const prevUpdatedAt = ws.updatedAt;
+		const revision = this.nextRevision(id);
+		const epoch = this.listEpoch;
+		const fileIds = filesStore.files.map((f) => f.id);
+		const activeId = filesStore.activeId;
+		const updatedAt = Date.now();
+		const previousIndex = this.workspaces.indexOf(ws);
+		const baseUpdatedAt = ws.updatedAt;
 
-		ws.fileIds = filesStore.files.map((f) => f.id);
-		ws.activeId = filesStore.activeId;
-		ws.updatedAt = Date.now();
-		// Reorder to the head (the most recently modified moves up).
-		const idx = this.workspaces.indexOf(ws);
-		if (idx > 0) {
-			this.workspaces.splice(idx, 1);
-			this.workspaces.unshift(ws);
-		}
-		try {
-			await db.workspaces.put($state.snapshot(ws));
-		} catch (err) {
-			// Rollback: restore the original fields + position.
-			ws.fileIds = prevFileIds;
-			ws.activeId = prevActiveId;
-			ws.updatedAt = prevUpdatedAt;
-			const cur = this.workspaces.indexOf(ws);
-			if (cur !== prevIdx && cur !== -1) {
-				this.workspaces.splice(cur, 1);
-				this.workspaces.splice(prevIdx, 0, ws);
+		await this.enqueue(id, async () => {
+			if (epoch !== this.listEpoch) return;
+			try {
+				await db.workspaces.update(id, { fileIds, activeId, updatedAt });
+			} catch (err) {
+				reportPersistenceError(err, 'save');
+				if (!this.isLatestRevision(id, revision) || epoch !== this.listEpoch) return;
+				await this.reconcile(ws, id, previousIndex, baseUpdatedAt);
+				return;
 			}
-			reportPersistenceError(err, 'save');
-		}
+			if (!this.isLatestRevision(id, revision) || epoch !== this.listEpoch) return;
+			const durable = await this.readDurable(id);
+			if (durable === null) {
+				this.removeById(id);
+				return;
+			}
+			if (durable === undefined) {
+				// The write succeeded but the read failed: publish the written fields.
+				ws.fileIds = fileIds;
+				ws.activeId = activeId;
+				ws.updatedAt = updatedAt;
+				this.placeByUpdatedAt(ws);
+				return;
+			}
+			this.replaceFromDurable(ws, durable);
+			this.placeByUpdatedAt(ws);
+		});
 	}
 
 	/**
-	 * Optimistic + rollback: restores the previous name (and `updatedAt`) if the
-	 * write fails, and notifies - no phantom rename on the UI side.
+	 * Renames a workspace. The durable write is a narrow property update, so a
+	 * concurrent tab update keeps its file membership. The name changes only
+	 * after the write succeeds; a failed older rename cannot replace a newer
+	 * accepted name.
 	 */
 	async rename(id: string, name: string): Promise<void> {
 		const ws = this.workspaces.find((w) => w.id === id);
 		if (!ws) return;
 		const trimmed = name.trim();
 		if (!trimmed) return; // No-op if empty - keep the old name.
-		const prevName = ws.name;
-		const prevUpdatedAt = ws.updatedAt;
-		ws.name = trimmed;
-		ws.updatedAt = Date.now();
-		try {
-			await db.workspaces.put($state.snapshot(ws));
-		} catch (err) {
-			ws.name = prevName;
-			ws.updatedAt = prevUpdatedAt;
-			reportPersistenceError(err, 'save');
-		}
+		const revision = this.nextRevision(id);
+		const epoch = this.listEpoch;
+		const updatedAt = Date.now();
+		const previousIndex = this.workspaces.indexOf(ws);
+		const baseUpdatedAt = ws.updatedAt;
+
+		await this.enqueue(id, async () => {
+			if (epoch !== this.listEpoch) return;
+			try {
+				await db.workspaces.update(id, { name: trimmed, updatedAt });
+			} catch (err) {
+				reportPersistenceError(err, 'save');
+				if (!this.isLatestRevision(id, revision) || epoch !== this.listEpoch) return;
+				await this.reconcile(ws, id, previousIndex, baseUpdatedAt);
+				return;
+			}
+			if (!this.isLatestRevision(id, revision) || epoch !== this.listEpoch) return;
+			const durable = await this.readDurable(id);
+			if (durable === null) {
+				this.removeById(id);
+				return;
+			}
+			if (durable === undefined) {
+				// The write succeeded but the read failed: publish the written fields.
+				ws.name = trimmed;
+				ws.updatedAt = updatedAt;
+				return;
+			}
+			this.replaceFromDurable(ws, durable);
+		});
 	}
 
 	/**
-	 * Write-then-mutate: we delete from IDB BEFORE removing from the list. If the
-	 * `delete` fails, the workspace stays displayed (it is still in the database)
-	 * and the error is notified - no phantom disappearance reappearing on reload.
+	 * Write-then-mutate: we delete from IDB BEFORE removing from the list. The
+	 * delete waits behind earlier same-workspace writes, so a pending update
+	 * cannot recreate the row after the delete.
 	 */
 	async delete(id: string): Promise<void> {
 		const idx = this.workspaces.findIndex((w) => w.id === id);
 		if (idx === -1) return;
-		try {
-			await db.workspaces.delete(id);
-		} catch (err) {
-			reportPersistenceError(err, 'delete');
-			return;
-		}
-		// Re-look-up the index (the list may have changed during the await).
-		const cur = this.workspaces.findIndex((w) => w.id === id);
-		if (cur !== -1) this.workspaces.splice(cur, 1);
+		const epoch = this.listEpoch;
+		await this.enqueue(id, async () => {
+			try {
+				await db.workspaces.delete(id);
+			} catch (err) {
+				reportPersistenceError(err, 'delete');
+				return;
+			}
+			if (epoch !== this.listEpoch) return;
+			this.removeById(id);
+		});
 	}
 
 	/**
@@ -180,6 +318,11 @@ class WorkspaceStore {
 		if (!ws) return;
 		const generation = ++this.restoreGeneration;
 		const isCurrent = () => generation === this.restoreGeneration;
+
+		// Drain earlier writes for this workspace before reading its durable file
+		// list. A stale completion must not replace the restored session.
+		await this.waitForWrites(id);
+		if (!this.workspaces.some((candidate) => candidate.id === id)) return;
 
 		// Durability barrier: keepDB flushes are otherwise fire-and-forget, so a
 		// rapid switch away and back could re-open pre-edit IDB content.

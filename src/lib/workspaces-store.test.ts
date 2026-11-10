@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db, type WorkspaceRow } from './db';
 import { workspaceStore } from './workspaces.svelte';
 import { filesStore } from './files.svelte';
+import { notify } from './notify.svelte';
 
 // Test the workspace rune singleton with fake-indexeddb.
 // The store opens and closes files through filesStore while keeping them in the database.
@@ -114,12 +115,12 @@ describe('workspaceStore - IndexedDB failure paths', () => {
 
 		// Change the current state, then make persistence fail.
 		filesStore.createNew('extra.md', '');
-		const putSpy = vi
-			.spyOn(db.workspaces, 'put')
+		const updateSpy = vi
+			.spyOn(db.workspaces, 'update')
 			.mockRejectedValueOnce(new Error('IDB write failed'));
 
 		await workspaceStore.update(wsOld!.id);
-		expect(putSpy).toHaveBeenCalled();
+		expect(updateSpy).toHaveBeenCalled();
 
 		// Roll back all fields to their original values.
 		const after = workspaceStore.workspaces.find((w) => w.id === wsOld!.id)!;
@@ -141,7 +142,7 @@ describe('workspaceStore - IndexedDB failure paths', () => {
 	it('restores the name and date after a rename failure', async () => {
 		const ws = await workspaceStore.save('Stable');
 		const previousUpdatedAt = ws!.updatedAt;
-		vi.spyOn(db.workspaces, 'put').mockRejectedValueOnce(new Error('IDB write failed'));
+		vi.spyOn(db.workspaces, 'update').mockRejectedValueOnce(new Error('IDB write failed'));
 
 		await workspaceStore.rename(ws!.id, 'Fantôme');
 
@@ -190,5 +191,183 @@ describe('workspaceStore - IndexedDB failure paths', () => {
 		expect(filesStore.files.map((file) => file.id)).toEqual([a.id, b.id]);
 		expect(filesStore.files.find((file) => file.id === a.id)?.content).toBe('# dernière révision');
 		expect(filesStore.files.find((file) => file.id === b.id)?.content).toBe('# ne pas fermer');
+	});
+});
+
+describe('workspaceStore - concurrent write fencing', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	interface ControlledWrite {
+		settled: boolean;
+		resolve: () => void;
+		reject: () => void;
+	}
+
+	function installWriteGate() {
+		const realPut = db.workspaces.put.bind(db.workspaces);
+		const realUpdate = db.workspaces.update.bind(db.workspaces);
+		const pending: ControlledWrite[] = [];
+
+		function hold<T>(commit: () => Promise<T>): Promise<T> {
+			return new Promise<T>((resolve, reject) => {
+				const entry: ControlledWrite = {
+					settled: false,
+					resolve: () => {
+						entry.settled = true;
+						void commit().then(resolve, reject);
+					},
+					reject: () => {
+						entry.settled = true;
+						reject(new Error('IDB write failed'));
+					}
+				};
+				pending.push(entry);
+			});
+		}
+
+		vi.spyOn(db.workspaces, 'put').mockImplementation(
+			(row) => hold(() => realPut(row)) as unknown as ReturnType<typeof realPut>
+		);
+		vi.spyOn(db.workspaces, 'update').mockImplementation(
+			(id, patch) => hold(() => realUpdate(id, patch)) as unknown as ReturnType<typeof realUpdate>
+		);
+
+		async function next(): Promise<ControlledWrite> {
+			for (let attempt = 0; attempt < 50; attempt += 1) {
+				const entry = pending.find((candidate) => !candidate.settled);
+				if (entry) return entry;
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+			throw new Error('No pending workspace write');
+		}
+
+		return {
+			next,
+			/** A write from another tab bypasses the gate. */
+			commitExternal: (id: string, patch: Partial<WorkspaceRow>) => realUpdate(id, patch)
+		};
+	}
+
+	it('keeps the newer name when an older rename fails after the newer write', async () => {
+		await workspaceStore.save('Original');
+		const ws = workspaceStore.workspaces[0]!;
+		const gate = installWriteGate();
+		notify.clear();
+
+		const older = workspaceStore.rename(ws.id, 'Older');
+		const newer = workspaceStore.rename(ws.id, 'Newer');
+
+		(await gate.next()).reject();
+		(await gate.next()).resolve();
+		await Promise.all([older, newer]);
+
+		expect(ws.name).toBe('Newer');
+		expect((await db.workspaces.get(ws.id))?.name).toBe('Newer');
+		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+	});
+
+	it('keeps the newer tab set when an older update fails after the newer write', async () => {
+		filesStore.createNew('a.md', '');
+		await filesStore.flushPending();
+		await workspaceStore.save('Tabs');
+		const ws = workspaceStore.workspaces[0]!;
+		const gate = installWriteGate();
+
+		filesStore.createNew('b.md', '');
+		const older = workspaceStore.update(ws.id);
+		const olderWrite = await gate.next();
+		filesStore.createNew('c.md', '');
+		const newer = workspaceStore.update(ws.id);
+		const expected = filesStore.files.map((file) => file.id);
+
+		olderWrite.reject();
+		(await gate.next()).resolve();
+		await Promise.all([older, newer]);
+
+		const durable = await db.workspaces.get(ws.id);
+		expect(ws.fileIds).toEqual(expected);
+		expect(durable?.fileIds).toEqual(expected);
+		expect(workspaceStore.workspaces[0]?.id).toBe(ws.id);
+	});
+
+	it('rolls a latest update failure back to the last durable state', async () => {
+		filesStore.createNew('a.md', '');
+		await filesStore.flushPending();
+		await workspaceStore.save('Durable');
+		const ws = workspaceStore.workspaces[0]!;
+		const gate = installWriteGate();
+
+		filesStore.createNew('b.md', '');
+		const older = workspaceStore.update(ws.id);
+		(await gate.next()).resolve();
+		await older;
+
+		filesStore.createNew('c.md', '');
+		const newer = workspaceStore.update(ws.id);
+		(await gate.next()).reject();
+		await newer;
+
+		const durable = await db.workspaces.get(ws.id);
+		expect(durable?.fileIds).toEqual(filesStore.files.slice(0, 2).map((file) => file.id));
+		expect(ws.fileIds).toEqual(durable?.fileIds);
+		expect(ws.updatedAt).toBe(durable?.updatedAt);
+	});
+
+	it('does not resurrect a deleted workspace when a pending update completes', async () => {
+		await workspaceStore.save('Doomed');
+		const ws = workspaceStore.workspaces[0]!;
+		filesStore.createNew('next.md', '');
+		const gate = installWriteGate();
+
+		const update = workspaceStore.update(ws.id);
+		const pendingWrite = await gate.next();
+		const remove = workspaceStore.delete(ws.id);
+		pendingWrite.resolve();
+		await Promise.all([update, remove]);
+
+		expect(workspaceStore.workspaces.some((candidate) => candidate.id === ws.id)).toBe(false);
+		expect(await db.workspaces.get(ws.id)).toBeUndefined();
+	});
+
+	it('keeps another tab field when a rename commits', async () => {
+		await workspaceStore.save('Original');
+		const ws = workspaceStore.workspaces[0]!;
+		const gate = installWriteGate();
+
+		const rename = workspaceStore.rename(ws.id, 'Renamed');
+		const pendingWrite = await gate.next();
+		await gate.commitExternal(ws.id, { fileIds: ['from-other-tab'] });
+		pendingWrite.resolve();
+		await rename;
+
+		const durable = await db.workspaces.get(ws.id);
+		expect(durable?.name).toBe('Renamed');
+		expect(durable?.fileIds).toEqual(['from-other-tab']);
+		expect(ws.fileIds).toEqual(['from-other-tab']);
+	});
+
+	it('reloads to the durable rows after overlapping rename and update', async () => {
+		filesStore.createNew('a.md', '');
+		await filesStore.flushPending();
+		await workspaceStore.save('Restart');
+		const ws = workspaceStore.workspaces[0]!;
+		filesStore.createNew('b.md', '');
+
+		await Promise.all([workspaceStore.rename(ws.id, 'Final'), workspaceStore.update(ws.id)]);
+
+		const durable = await db.workspaces.get(ws.id);
+		const displayed = workspaceStore.workspaces.find((candidate) => candidate.id === ws.id)!;
+		expect(displayed.name).toBe(durable?.name);
+		expect(displayed.fileIds).toEqual(durable?.fileIds);
+		expect(displayed.activeId).toBe(durable?.activeId);
+		expect(displayed.updatedAt).toBe(durable?.updatedAt);
+
+		await workspaceStore.reload();
+		const reloaded = workspaceStore.workspaces.find((candidate) => candidate.id === ws.id)!;
+		expect(reloaded.name).toBe(durable?.name);
+		expect(reloaded.fileIds).toEqual(durable?.fileIds);
+		expect(reloaded.updatedAt).toBe(durable?.updatedAt);
 	});
 });
