@@ -10,6 +10,11 @@ export const diagnosticsEn = {
 	'settings.diagnosticsBuild': 'Preview report',
 	'settings.diagnosticsDownload': 'Download report',
 	'settings.diagnosticsCancel': 'Cancel',
+	'settings.diagnosticsScanning': 'Counting documents',
+	'settings.diagnosticsCancelled':
+		'The scan was cancelled. The statistics are partial and do not describe the library.',
+	'settings.diagnosticsPartial':
+		'The library changed during the scan. The statistics are partial and are not a complete report.',
 	'settings.diagnosticsFailed': 'The report could not be built.'
 };
 

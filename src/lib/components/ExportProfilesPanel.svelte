@@ -2,17 +2,62 @@
 	import { onMount } from 'svelte';
 	import { X } from '@lucide/svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
-	import { t } from '#lib/i18n/index.js';
+	import { i18n, t } from '#lib/i18n/index.js';
 	import {
 		activeProfile,
 		createProfile,
+		ExportProfileError,
 		parseProfiles,
+		persistProfileSelection,
 		readProfiles,
 		saveProfiles,
 		serializeProfiles,
 		setActiveProfile,
-		type ExportProfile
+		type ExportProfile,
+		type ExportProfileErrorCode
 	} from '#lib/export-profiles.js';
+
+	// Import errors load with this lazy panel, not with the boot catalog.
+	const PROFILE_ERRORS: Record<ExportProfileErrorCode | 'import', { en: string; fr: string }> = {
+		import: {
+			en: 'The profiles could not be imported.',
+			fr: 'Les profils n’ont pas pu être importés.'
+		},
+		unsupported: {
+			en: 'This file is not a supported export profile file.',
+			fr: 'Ce fichier n’est pas un fichier de profils d’export compatible.'
+		},
+		missing: {
+			en: 'The file has no profiles list.',
+			fr: 'Le fichier n’a pas de liste de profils.'
+		},
+		empty: {
+			en: 'The file has no export profile. Add at least one profile to the file.',
+			fr: 'Le fichier ne contient aucun profil d’export. Ajoutez au moins un profil au fichier.'
+		},
+		invalid: {
+			en: 'A profile has an invalid value.',
+			fr: 'Un profil contient une valeur non valide.'
+		},
+		duplicate: {
+			en: 'Two profiles use the same identifier. Make every identifier unique.',
+			fr: 'Deux profils utilisent le même identifiant. Rendez chaque identifiant unique.'
+		},
+		excess: {
+			en: 'The file has too many profiles.',
+			fr: 'Le fichier contient trop de profils.'
+		},
+		oversized: {
+			en: 'The file is too large.',
+			fr: 'Le fichier est trop volumineux.'
+		}
+	};
+
+	function importErrorMessage(failure: unknown): string {
+		const code = failure instanceof ExportProfileError ? failure.code : 'import';
+		const messages = PROFILE_ERRORS[code];
+		return messages[i18n.locale] ?? messages.en;
+	}
 
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
 
@@ -34,28 +79,47 @@
 
 	function update(patch: Partial<ExportProfile>) {
 		if (!selected) return;
-		profiles = profiles.map((profile) =>
+		const next = profiles.map((profile) =>
 			profile.id === selected.id ? { ...profile, ...patch, updatedAt: Date.now() } : profile
 		);
-		saveProfiles(profiles);
+		try {
+			saveProfiles(next);
+		} catch (failure) {
+			error = importErrorMessage(failure);
+			return;
+		}
+		profiles = next;
+		error = '';
 	}
 
 	function add() {
 		const profile = createProfile(t('exportProfiles.newName'));
-		profiles = [...profiles, profile];
-		saveProfiles(profiles);
+		const next = [...profiles, profile];
+		try {
+			saveProfiles(next);
+		} catch (failure) {
+			error = importErrorMessage(failure);
+			return;
+		}
+		profiles = next;
 		selectedId = profile.id;
+		error = '';
 	}
 
 	function remove() {
 		if (!selected || profiles.length <= 1) return;
-		profiles = profiles.filter((profile) => profile.id !== selected.id);
-		saveProfiles(profiles);
-		if (activeId === selected.id) {
-			activeId = profiles[0]!.id;
-			setActiveProfile(activeId);
+		const next = profiles.filter((profile) => profile.id !== selected.id);
+		const nextActive = activeId === selected.id ? next[0]!.id : activeId;
+		try {
+			persistProfileSelection(next, nextActive);
+		} catch (failure) {
+			error = importErrorMessage(failure);
+			return;
 		}
-		selectedId = profiles[0]!.id;
+		profiles = next;
+		activeId = nextActive;
+		selectedId = next[0]!.id;
+		error = '';
 	}
 
 	function activate() {
@@ -79,12 +143,19 @@
 		if (!file) return;
 		try {
 			const imported = parseProfiles(await file.text());
+			// Keep the active profile only when the file contains it. Otherwise
+			// select and persist an explicit fallback before the UI changes.
+			const nextActiveId = imported.some((profile) => profile.id === activeId)
+				? activeId
+				: imported[0]!.id;
+			persistProfileSelection(imported, nextActiveId);
 			profiles = imported;
-			saveProfiles(profiles);
-			selectedId = profiles[0]!.id;
+			activeId = nextActiveId;
+			selectedId = nextActiveId;
 			error = '';
 		} catch (failure) {
-			error = failure instanceof Error ? failure.message : String(failure);
+			// The previous collection and selection stay persisted and visible.
+			error = importErrorMessage(failure);
 		}
 	}
 </script>
@@ -236,7 +307,9 @@
 						</div>
 					</div>
 				{/if}
-				{#if error}<p class="error" role="alert">{error}</p>{/if}
+				{#if error}<p class="error" role="alert" data-testid="export-profiles-error">
+						{error}
+					</p>{/if}
 				<p class="profile-note">{t('exportProfiles.webLimits')}</p>
 				<div class="profile-io">
 					<button
