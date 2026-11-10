@@ -163,6 +163,69 @@ test('a linked file saves in place and detects an external change', async ({ pag
 	);
 });
 
+test('a failed link revision keeps the repair state and the written bytes', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await importLinkedFile(page, 'metadata.md', '# Original\n\nFirst');
+	await expect(editMode(page)).toHaveAttribute('data-mode', 'in-place');
+	await writeSourceContent(page, '# Local\n\nWritten with metadata failure');
+
+	// The bytes reach the OPFS file. The disk-link record put then fails with a
+	// quota error, before the app can store the new revision.
+	await page.evaluate(() => {
+		const proto = IDBObjectStore.prototype;
+		const original = proto.put;
+		const target = window as Window & { __restoreHandlePut?: () => void };
+		target.__restoreHandlePut = () => {
+			proto.put = original;
+		};
+		proto.put = function (
+			this: IDBObjectStore,
+			...args: Parameters<IDBObjectStore['put']>
+		): IDBRequest<IDBValidKey> {
+			if (this.name === 'handles') {
+				proto.put = original;
+				throw new DOMException('Injected disk-link quota failure', 'QuotaExceededError');
+			}
+			return original.apply(this, args) as IDBRequest<IDBValidKey>;
+		} as IDBObjectStore['put'];
+	});
+
+	await page.keyboard.press('ControlOrMeta+s');
+	await expect
+		.poll(() => readOpfsFile(page, 'metadata.md'))
+		.toBe('# Local\n\nWritten with metadata failure');
+	await expect(toolbarStatus(page)).toHaveAttribute('data-origin', 'broken');
+	await expect(toolbarStatus(page)).toHaveAttribute('data-sync', 'broken');
+	await expect(page.getByText(/Stockage plein/)).toBeVisible();
+	await expect(page.getByText(/enregistré sur le disque/)).toHaveCount(0);
+	await expect(page.getByRole('dialog', { name: /Résoudre le conflit disque/ })).toHaveCount(0);
+
+	await page.evaluate(() =>
+		(window as Window & { __restoreHandlePut?: () => void }).__restoreHandlePut?.()
+	);
+	await page.keyboard.press('ControlOrMeta+s');
+	await expect(toolbarStatus(page)).toHaveAttribute('data-origin', 'disk');
+	await expect(toolbarStatus(page)).toHaveAttribute('data-sync', 'saved');
+	await expect(page.getByRole('dialog', { name: /Résoudre le conflit disque/ })).toHaveCount(0);
+	expect(await readOpfsFile(page, 'metadata.md')).toBe('# Local\n\nWritten with metadata failure');
+
+	await attachWorkflow(
+		info,
+		'metadata-persistence-failure',
+		{
+			diskAfterFailedMetadata: '# Local\n\nWritten with metadata failure',
+			firstStatus: { origin: 'broken', sync: 'broken' },
+			recoveredOrigin: await toolbarStatus(page).getAttribute('data-origin'),
+			recoveredSync: await toolbarStatus(page).getAttribute('data-sync'),
+			conflictDialog: false
+		},
+		page
+	);
+});
+
 test('Edit copy detaches the draft and Edit original returns to the source', async ({
 	page
 }, info) => {
