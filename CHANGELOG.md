@@ -5,6 +5,46 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.5.2](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.1...v2.5.2) (2026-11-10)
+
+
+### Bug Fixes
+
+* **ai:** close patch atomicity, native cancellation and Web redirect gaps ([#542](https://github.com/ThomasCrouzet/deckmark/issues/542)) ([0c5796e](https://github.com/ThomasCrouzet/deckmark/commit/0c5796e9db86ca359c3bd019e5f470f6872c5bd5))
+* **ai:** harden AI context, patch review and provider streaming ([#506](https://github.com/ThomasCrouzet/deckmark/issues/506)) ([badd086](https://github.com/ThomasCrouzet/deckmark/commit/badd086b8149855f072f49d171390adc9bd2e58d))
+* **backup,history:** keep replaced version history with its recovery owner ([#505](https://github.com/ThomasCrouzet/deckmark/issues/505)) ([#535](https://github.com/ThomasCrouzet/deckmark/issues/535)) ([56c17a3](https://github.com/ThomasCrouzet/deckmark/commit/56c17a36e8642b4ae19445e68e7ab89edcf98788))
+* **backup:** close backup and export integrity issues ([#501](https://github.com/ThomasCrouzet/deckmark/issues/501)) ([2157764](https://github.com/ThomasCrouzet/deckmark/commit/215776400a75cb0353dfdc84b466ec83032feea6))
+* **binary-view:** refresh image and PDF viewers when same-ID data changes ([#539](https://github.com/ThomasCrouzet/deckmark/issues/539)) ([cc1f3a6](https://github.com/ThomasCrouzet/deckmark/commit/cc1f3a65c04213bdeecab90b68d51da661994fcc))
+* **cli-mcp:** close search ordering and MCP filesystem security issues ([#525](https://github.com/ThomasCrouzet/deckmark/issues/525)) ([2d22be9](https://github.com/ThomasCrouzet/deckmark/commit/2d22be987c289ed0d90e89565154a67ceab71773))
+* **cli-pack:** recover package promotion and verify checksums ([#523](https://github.com/ThomasCrouzet/deckmark/issues/523), [#526](https://github.com/ThomasCrouzet/deckmark/issues/526)) ([#543](https://github.com/ThomasCrouzet/deckmark/issues/543)) ([c9d1fc4](https://github.com/ThomasCrouzet/deckmark/commit/c9d1fc40a41340e6394a07f51e314913494790d5))
+* **cli:** confine input reads, root scope and output writes ([#497](https://github.com/ThomasCrouzet/deckmark/issues/497), [#500](https://github.com/ThomasCrouzet/deckmark/issues/500), [#502](https://github.com/ThomasCrouzet/deckmark/issues/502)) ([#527](https://github.com/ThomasCrouzet/deckmark/issues/527)) ([103ca74](https://github.com/ThomasCrouzet/deckmark/commit/103ca7426e45e31a796282770010cf437a99bb32))
+* **cli:** reject PDF inputs in text-only inspect and export ([#499](https://github.com/ThomasCrouzet/deckmark/issues/499)) ([#544](https://github.com/ThomasCrouzet/deckmark/issues/544)) ([babb966](https://github.com/ThomasCrouzet/deckmark/commit/babb9667bcfb39a767b83e8c8ec72658996d57ed))
+* close linked-block project scope and optional preference issues ([#486](https://github.com/ThomasCrouzet/deckmark/issues/486), [#504](https://github.com/ThomasCrouzet/deckmark/issues/504)) ([#545](https://github.com/ThomasCrouzet/deckmark/issues/545)) ([7e4321a](https://github.com/ThomasCrouzet/deckmark/commit/7e4321a2761d6d59ee0c6e2d5b77f2b39a49f5fe))
+* **desktop-backup:** bind snapshot lists and previews to their folder ([#516](https://github.com/ThomasCrouzet/deckmark/issues/516)) ([#546](https://github.com/ThomasCrouzet/deckmark/issues/546)) ([df15f52](https://github.com/ThomasCrouzet/deckmark/commit/df15f52b2994bf550904255af310e861e065fa8f))
+* **disk-links:** fence link ownership and discard stale health results ([#549](https://github.com/ThomasCrouzet/deckmark/issues/549)) ([469013f](https://github.com/ThomasCrouzet/deckmark/commit/469013f03a13263693864c008630befee2985824))
+* **disk-save:** report written-but-link-unsaved when revision metadata fails ([#397](https://github.com/ThomasCrouzet/deckmark/issues/397)) ([#540](https://github.com/ThomasCrouzet/deckmark/issues/540)) ([86894a7](https://github.com/ThomasCrouzet/deckmark/commit/86894a7fb50e457cf917b0df177b5eaa7c2920e5))
+* **docs-site:** close SVG publication, path namespace, fragment and report issues ([#537](https://github.com/ThomasCrouzet/deckmark/issues/537)) ([6fdc74a](https://github.com/ThomasCrouzet/deckmark/commit/6fdc74a4cea0eea6e5d89a8946abe4e95c5048dc))
+* **frontmatter,collections:** close frontmatter-2 campaign issues ([#541](https://github.com/ThomasCrouzet/deckmark/issues/541)) ([3d50d8a](https://github.com/ThomasCrouzet/deckmark/commit/3d50d8a84939caf1a4a34314f5df00c10356d770))
+* **frontmatter:** preserve YAML types and bound collection views ([#511](https://github.com/ThomasCrouzet/deckmark/issues/511)) ([48f2612](https://github.com/ThomasCrouzet/deckmark/commit/48f2612c4f85ae5f55c7ba7c84e4eada177d57ae))
+* **json-tools:** close replacement and JSON analysis issues ([#512](https://github.com/ThomasCrouzet/deckmark/issues/512)) ([eda7dea](https://github.com/ThomasCrouzet/deckmark/commit/eda7dea02abbd232e9e679dc905ad1c8e49534e1))
+* **links:** harden linked blocks and wiki link scanning ([#510](https://github.com/ThomasCrouzet/deckmark/issues/510)) ([31ac96c](https://github.com/ThomasCrouzet/deckmark/commit/31ac96c782a7ea721bf019d9855707bca272710f))
+* **media-import:** keep encoded filename characters when matching selected images ([#495](https://github.com/ThomasCrouzet/deckmark/issues/495)) ([#538](https://github.com/ThomasCrouzet/deckmark/issues/538)) ([927ab59](https://github.com/ThomasCrouzet/deckmark/commit/927ab5963117d9c96a1a38acde6b25016c5c798b))
+* **native-desktop:** close project refresh, rename recovery, capture, Git, backup and archive issues ([#531](https://github.com/ThomasCrouzet/deckmark/issues/531)) ([61c2de0](https://github.com/ThomasCrouzet/deckmark/commit/61c2de0ed7b1bc5f6022c90d8816444d354f4440))
+* **native:** close project capacity, native refresh and Git commit fences ([#382](https://github.com/ThomasCrouzet/deckmark/issues/382), [#493](https://github.com/ThomasCrouzet/deckmark/issues/493), [#515](https://github.com/ThomasCrouzet/deckmark/issues/515)) ([#548](https://github.com/ThomasCrouzet/deckmark/issues/548)) ([f6e5bd8](https://github.com/ThomasCrouzet/deckmark/commit/f6e5bd8ce79fc9a95449c18e7a3a892782e59305))
+* **panels:** close diagnostics aggregation and export profile import issues ([#530](https://github.com/ThomasCrouzet/deckmark/issues/530)) ([04c6628](https://github.com/ThomasCrouzet/deckmark/commit/04c6628a5a3a360887dafc0da9f91b733b6999ff))
+* **projects:** close import, transfer, save and durability issues ([#507](https://github.com/ThomasCrouzet/deckmark/issues/507)) ([1ee7f30](https://github.com/ThomasCrouzet/deckmark/commit/1ee7f30f52c3c2538e42aeaae4943a2d521744c0))
+* **semantic-search:** close stale query and scoped clear issues ([#532](https://github.com/ThomasCrouzet/deckmark/issues/532)) ([e61f588](https://github.com/ThomasCrouzet/deckmark/commit/e61f5885f5e5eec6eb98557b13a87683722bca71))
+* **trash,comments:** preserve binary revisions and purge orphaned comments ([#529](https://github.com/ThomasCrouzet/deckmark/issues/529)) ([1fd2729](https://github.com/ThomasCrouzet/deckmark/commit/1fd27294e8b7307dc6cd144130ec707befbf93ae))
+* **workspaces:** fence concurrent rename and update writes ([#494](https://github.com/ThomasCrouzet/deckmark/issues/494)) ([#536](https://github.com/ThomasCrouzet/deckmark/issues/536)) ([d3589e6](https://github.com/ThomasCrouzet/deckmark/commit/d3589e67bc8b7e74e4ff229e456ba850160411f4))
+
+
+### Performance Improvements
+
+* close semantic search, presentation and project media cache issues ([#358](https://github.com/ThomasCrouzet/deckmark/issues/358), [#384](https://github.com/ThomasCrouzet/deckmark/issues/384), [#389](https://github.com/ThomasCrouzet/deckmark/issues/389)) ([#547](https://github.com/ThomasCrouzet/deckmark/issues/547)) ([cf46c39](https://github.com/ThomasCrouzet/deckmark/commit/cf46c39c70a1c81a899ede703e79f62113543514))
+* **editor:** close large-note editing, media, comments and preview issues ([#508](https://github.com/ThomasCrouzet/deckmark/issues/508)) ([de67ee2](https://github.com/ThomasCrouzet/deckmark/commit/de67ee27339109b89cbb30abcaaabbd26b305ccd))
+* **render,presentation:** close Mermaid, presentation and stress issues ([#533](https://github.com/ThomasCrouzet/deckmark/issues/533)) ([69e921d](https://github.com/ThomasCrouzet/deckmark/commit/69e921d600356fd1c61a52ca34da8d9b5dd77dec))
+* **ui:** bound project trees, share navigation revisions and revision project media ([#522](https://github.com/ThomasCrouzet/deckmark/issues/522)) ([564b45d](https://github.com/ThomasCrouzet/deckmark/commit/564b45d13c753b6b46cae3fe6b0a2c19b18d3878))
+
 ## [2.5.1](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.0...v2.5.1) (2026-11-09)
 
 
