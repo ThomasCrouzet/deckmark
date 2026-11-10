@@ -33,9 +33,12 @@ function docOf(...children: FakeBlock[]): ProseNode {
 
 function serialize(node: ProseNode): string {
 	const value = node as unknown as FakeBlock | FakeDoc;
-	return 'children' in value
-		? value.children.map((entry) => entry.text).join('\n\n') + '\n'
-		: value.text;
+	if (!('children' in value)) return value.text;
+	// The real serializer omits a trailing empty paragraph, for example one
+	// that the editor keeps after a table.
+	const children = [...value.children];
+	while (children.length > 0 && children[children.length - 1]!.text === '') children.pop();
+	return children.map((entry) => entry.text).join('\n\n') + '\n';
 }
 
 describe('incremental Markdown serialization', () => {
@@ -95,17 +98,28 @@ describe('incremental Markdown serialization', () => {
 		expect(deleted.state.markdown).toBe(serialize(docOf(paragraph('Zero'), first, third)));
 	});
 
-	it('keeps the first characters of a new empty paragraph local', () => {
+	it('keeps the first characters of a represented empty paragraph local', () => {
 		const first = paragraph('First');
 		const empty = paragraph('');
-		const state = createIncrementalMarkdown(docOf(first, empty), serialize);
-		expect(state.markdown).toBe('First\n\n\n');
-		const typed = updateIncrementalMarkdown(state, docOf(first, paragraph('N')), serialize);
+		const last = paragraph('Last');
+		const state = createIncrementalMarkdown(docOf(first, empty, last), serialize);
+		expect(state.markdown).toBe('First\n\n\n\nLast\n');
+		const typed = updateIncrementalMarkdown(state, docOf(first, paragraph('N'), last), serialize);
 		expect(typed.full).toBe(false);
-		expect(typed.state.markdown).toBe('First\n\nN\n');
-		const emptied = updateIncrementalMarkdown(typed.state, docOf(first, empty), serialize);
+		expect(typed.state.markdown).toBe('First\n\nN\n\nLast\n');
+		const emptied = updateIncrementalMarkdown(typed.state, docOf(first, empty, last), serialize);
 		expect(emptied.full).toBe(false);
-		expect(emptied.state.markdown).toBe('First\n\n\n');
+		expect(emptied.state.markdown).toBe('First\n\n\n\nLast\n');
+	});
+
+	it('falls back when the serializer omits a trailing empty block', () => {
+		const first = paragraph('First');
+		const state = createIncrementalMarkdown(docOf(first, paragraph('')), serialize);
+		expect(state.markdown).toBe('First\n');
+		expect(state.silent).toEqual([false, true]);
+		const typed = updateIncrementalMarkdown(state, docOf(first, paragraph('N')), serialize);
+		expect(typed.full).toBe(true);
+		expect(typed.state.markdown).toBe('First\n\nN\n');
 	});
 
 	it('falls back when a block type changes', () => {

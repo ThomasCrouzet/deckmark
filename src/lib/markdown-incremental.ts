@@ -13,6 +13,8 @@ export interface IncrementalMarkdownState {
 	blocks: readonly ProseNode[];
 	prefixes: readonly string[];
 	blockMarkdown: readonly string[];
+	/** True for an empty block that the full serializer omits. */
+	silent: readonly boolean[];
 	suffix: string;
 	markdown: string;
 }
@@ -62,6 +64,7 @@ export function createIncrementalMarkdown(
 		);
 	}
 	const prefixes: string[] = [];
+	const silent: boolean[] = [];
 	let cursor = 0;
 	for (let index = 0; index < blockMarkdown.length; index += 1) {
 		const markdown = blockMarkdown[index]!;
@@ -69,8 +72,13 @@ export function createIncrementalMarkdown(
 			if (separator && full.startsWith(separator, cursor)) {
 				prefixes.push(separator);
 				cursor += separator.length;
+				silent.push(false);
 			} else {
+				// The serializer dropped this empty block, for example a trailing
+				// empty paragraph after a table. A later first character must take
+				// the full path so it is not glued to the previous block.
 				prefixes.push('');
+				silent.push(true);
 			}
 			continue;
 		}
@@ -83,11 +91,13 @@ export function createIncrementalMarkdown(
 				blocks: [],
 				prefixes: [],
 				blockMarkdown: [],
+				silent: [],
 				suffix: '',
 				markdown: full
 			};
 		}
 		prefixes.push(full.slice(cursor, found));
+		silent.push(false);
 		cursor = found + markdown.length;
 	}
 	return {
@@ -95,6 +105,7 @@ export function createIncrementalMarkdown(
 		blocks,
 		prefixes,
 		blockMarkdown,
+		silent,
 		suffix: full.slice(cursor),
 		markdown: full
 	};
@@ -201,6 +212,11 @@ function updateStructuralSpan(
 	}
 	if (!separator) return null;
 	const insertedMarkdown = inserted.map((node) => serializeBlock(doc, node, serialize));
+	if (
+		insertedMarkdown.some((markdown) => markdown === '') ||
+		state.blockMarkdown.slice(start, oldEnd).some((markdown) => markdown === '')
+	)
+		return null;
 	const span = serialize(doc.type.create(doc.attrs, inserted)).replace(/\n$/, '');
 	// The span must be the exact canonical join of its blocks.
 	if (span !== insertedMarkdown.join(separator)) return null;
@@ -256,6 +272,11 @@ function updateStructuralSpan(
 		blocks: [...state.blocks.slice(0, start), ...inserted, ...state.blocks.slice(oldEnd)],
 		prefixes,
 		blockMarkdown: blockTexts,
+		silent: [
+			...state.silent.slice(0, start),
+			...inserted.map(() => false),
+			...state.silent.slice(oldEnd)
+		],
 		suffix: state.suffix,
 		markdown: ''
 	};
@@ -314,7 +335,7 @@ export function updateIncrementalMarkdown(
 		const next = doc.child(index);
 		const previous = state.doc.child(index);
 		if (next === previous) continue;
-		if (next.type.name !== previous.type.name) {
+		if (next.type.name !== previous.type.name || state.silent[index]) {
 			return { state: createIncrementalMarkdown(doc, serialize), full: true };
 		}
 		blocks[index] = next;
@@ -325,6 +346,7 @@ export function updateIncrementalMarkdown(
 		blocks,
 		prefixes: state.prefixes,
 		blockMarkdown,
+		silent: state.silent,
 		suffix: state.suffix,
 		markdown: ''
 	};
