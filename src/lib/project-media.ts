@@ -1,5 +1,5 @@
 import { db, type DraftRow } from './db';
-import { resolveProjectPath } from './project-paths';
+import { pathKey, resolveProjectPath } from './project-paths';
 import { embedImageBlob, MAX_MEDIA_TOTAL_BYTES } from './render/image-media';
 import { abortable, checkAborted } from './abort';
 import { decodeDraftManifest } from './draft-manifest';
@@ -16,6 +16,17 @@ let imageCacheBytes = 0;
 const contextCache = new Map<string, ProjectContext | undefined>();
 const contextInFlight = new Map<string, Promise<ProjectContext | undefined>>();
 const imageInFlight = new Map<string, { promise: Promise<ImageResult>; epoch: number }>();
+const assetIndexes = new Map<string, AssetIndex>();
+
+interface AssetIndexEntry {
+	path: string;
+	id: string;
+	ambiguous: boolean;
+}
+
+interface AssetIndex {
+	entries: Map<string, AssetIndexEntry>;
+}
 
 interface ImageResult {
 	uri: string | null;
@@ -37,6 +48,8 @@ function notifyAssetChange(): void {
 const stats = {
 	contextReads: 0,
 	assetReads: 0,
+	assetIndexBuilds: 0,
+	assetKeysVisited: 0,
 	decodeCalls: 0,
 	imageCacheHits: 0,
 	imageCacheMisses: 0
@@ -48,6 +61,8 @@ export interface ProjectMediaCacheStats {
 	imageBytes: number;
 	contextReads: number;
 	assetReads: number;
+	assetIndexBuilds: number;
+	assetKeysVisited: number;
 	decodeCalls: number;
 	imageCacheHits: number;
 	imageCacheMisses: number;
@@ -83,6 +98,7 @@ export function invalidateProjectMediaCache(): void {
 	contextCache.clear();
 	contextInFlight.clear();
 	imageInFlight.clear();
+	assetIndexes.clear();
 }
 
 function dropContext(fileId: string): void {
@@ -268,6 +284,103 @@ export async function projectContextFor(fileId: string): Promise<ProjectContext 
 	return value;
 }
 
+interface AssetKeyRow {
+	id: string;
+	path: string;
+}
+
+/** Reads compound index keys only. No asset blob leaves IndexedDB. */
+async function readAssetKeyRows(projectId: string): Promise<AssetKeyRow[] | null> {
+	try {
+		const database = db.backendDB();
+		return await new Promise<AssetKeyRow[] | null>((resolve) => {
+			let transaction: IDBTransaction;
+			try {
+				transaction = database.transaction('projectAssets', 'readonly');
+			} catch {
+				resolve(null);
+				return;
+			}
+			const request = transaction
+				.objectStore('projectAssets')
+				.index('[projectId+path]')
+				.openKeyCursor(IDBKeyRange.bound([projectId, ''], [projectId, '\uffff']));
+			const rows: AssetKeyRow[] = [];
+			request.onerror = () => resolve(null);
+			request.onsuccess = () => {
+				const cursor = request.result;
+				if (!cursor) return;
+				const key = cursor.key;
+				if (
+					Array.isArray(key) &&
+					typeof key[1] === 'string' &&
+					typeof cursor.primaryKey === 'string'
+				)
+					rows.push({ id: cursor.primaryKey, path: key[1] });
+				cursor.continue();
+			};
+			transaction.oncomplete = () => resolve(rows);
+			transaction.onerror = () => resolve(null);
+			transaction.onabort = () => resolve(null);
+		});
+	} catch {
+		return null;
+	}
+}
+
+async function buildAssetIndex(projectId: string): Promise<AssetIndex | null> {
+	const rows = await readAssetKeyRows(projectId);
+	if (!rows) return null;
+	stats.assetIndexBuilds++;
+	const entries = new Map<string, AssetIndexEntry>();
+	for (const row of rows) {
+		stats.assetKeysVisited++;
+		let key: string;
+		try {
+			key = pathKey(row.path);
+		} catch {
+			continue;
+		}
+		const existing = entries.get(key);
+		if (existing) existing.ambiguous = true;
+		else entries.set(key, { path: row.path, id: row.id, ambiguous: false });
+	}
+	const index = { entries };
+	assetIndexes.set(projectId, index);
+	return index;
+}
+
+/**
+ * Finds the unique asset whose canonical project path matches. A duplicate
+ * canonical key is rejected instead of choosing an arbitrary blob.
+ */
+async function canonicalAsset(projectId: string, canonical: string) {
+	for (let attempt = 0; attempt < 2; attempt++) {
+		const index = assetIndexes.get(projectId) ?? (await buildAssetIndex(projectId));
+		if (!index) return null;
+		const entry = index.entries.get(canonical);
+		if (!entry || entry.ambiguous) return null;
+		const asset = await db.projectAssets.get(entry.id);
+		stats.assetReads++;
+		if (!asset) {
+			assetIndexes.delete(projectId);
+			continue;
+		}
+		let assetKey: string;
+		try {
+			assetKey = pathKey(asset.path);
+		} catch {
+			return null;
+		}
+		if (asset.projectId !== projectId || assetKey !== canonical) {
+			assetIndexes.delete(projectId);
+			continue;
+		}
+		return asset;
+	}
+	return null;
+}
+
 function startAssetRead(
 	context: ProjectContext,
 	path: string,
@@ -275,11 +388,13 @@ function startAssetRead(
 ): Promise<ImageResult> {
 	const batchKey = `${context.projectId}\u0000${path}`;
 	const promise = (async (): Promise<ImageResult> => {
-		const asset = await db.projectAssets
-			.where('[projectId+path]')
-			.equals([context.projectId, path])
-			.first();
-		stats.assetReads++;
+		let canonical: string;
+		try {
+			canonical = pathKey(path);
+		} catch {
+			return { uri: null, epoch };
+		}
+		const asset = await canonicalAsset(context.projectId, canonical);
 		if (!asset || !asset.mime.startsWith('image/')) return { uri: null, epoch };
 		// Content identity, not just id/size/MIME: a native refresh can replace
 		// bytes on the same row without changing either of those fields.

@@ -37,6 +37,38 @@ async function seedAsset(data: string) {
 	});
 }
 
+const pixelPng =
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+function bytes(value: string | Uint8Array): Uint8Array {
+	if (typeof value !== 'string') return value;
+	return encoder.encode(value);
+}
+
+function pngBytes(base64: string): Uint8Array {
+	return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
+
+function decodedData(uri: string | null): string {
+	const encoded = uri?.split(',')[1] ?? '';
+	return encoded ? atob(encoded) : '';
+}
+
+async function putAsset(
+	id: string,
+	path: string,
+	data: string | Uint8Array,
+	mime = 'image/svg+xml'
+) {
+	await db.projectAssets.put({
+		id,
+		projectId: 'media-project',
+		path,
+		mime,
+		data: bytes(data)
+	});
+}
+
 beforeEach(async () => {
 	// jsdom has no image decoder. The stub supplies only dimensions; the real
 	// SVG sanitizer and base64 encoder still run for every decode.
@@ -144,5 +176,70 @@ describe('project image source', () => {
 		controller.abort();
 		await expect(first).rejects.toMatchObject({ name: 'AbortError' });
 		expect(await second).toMatch(/^data:image\/svg\+xml/);
+	});
+});
+
+describe('canonical project asset paths', () => {
+	const context = { projectId: 'media-project', relativePath: 'notes/page.md' };
+
+	beforeEach(async () => {
+		await seedDraft();
+	});
+
+	it('resolves a case-mismatched nested asset without reading every blob', async () => {
+		await putAsset('upper', 'Assets/Diagram.PNG', pngBytes(pixelPng), 'image/png');
+		for (let index = 0; index < 30; index++)
+			await putAsset(
+				`other-${index}`,
+				`Assets/Other-${index}.PNG`,
+				pngBytes(pixelPng),
+				'image/png'
+			);
+		resetProjectMediaStats();
+		const resolved = await projectImageSource('../assets/diagram.png', context);
+		expect(resolved).toMatch(/^data:image\/png;base64,/);
+		expect(projectMediaCacheStats().assetReads).toBe(1);
+	});
+
+	it('matches Unicode NFC and case keys inside nested folders', async () => {
+		await putAsset(
+			'unicode',
+			'Dépôt/Ässets/Diagräm.SVG',
+			svgA.replace('fill="red"', 'fill="blue"'),
+			'image/svg+xml'
+		);
+		const decomposed = '../de\u0301po\u0302t/a\u0308ssets/diagra\u0308m.svg';
+		const resolved = await projectImageSource(decomposed, context);
+		expect(resolved).toMatch(/^data:image\/svg\+xml/);
+		expect(decodedData(resolved)).toContain('blue');
+	});
+
+	it('rejects a case-only canonical collision instead of choosing one blob', async () => {
+		await putAsset('first', 'assets/pixel.svg', svgA);
+		await putAsset('second', 'Assets/Pixel.SVG', svgB);
+		expect(await projectImageSource('../assets/pixel.svg', context)).toBeNull();
+	});
+
+	it('never embeds another project asset with the same path', async () => {
+		await putAsset('local', 'assets/pixel.svg', svgA);
+		await db.projectAssets.put({
+			id: 'foreign',
+			projectId: 'other-project',
+			path: 'assets/pixel.svg',
+			mime: 'image/svg+xml',
+			data: encoder.encode(svgB)
+		});
+		const resolved = await projectImageSource('../assets/pixel.svg', context);
+		expect(decodedData(resolved)).toContain('red');
+		expect(decodedData(resolved)).not.toContain('tan');
+	});
+
+	it('reads the new bytes after a case-mismatched asset is replaced', async () => {
+		await putAsset('asset-1', 'Assets/Pixel.SVG', svgA);
+		const before = await projectImageSource('../assets/pixel.svg', context);
+		await putAsset('asset-1', 'Assets/Pixel.SVG', svgB);
+		const after = await projectImageSource('../assets/pixel.svg', context);
+		expect(after).not.toBe(before);
+		expect(decodedData(after)).toContain('tan');
 	});
 });

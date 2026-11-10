@@ -93,6 +93,39 @@ test('visual project images never request private relative paths', async ({
 	expect(privateRequests).toEqual([]);
 });
 
+test('resolves a project image whose reference differs only by path case', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	const zip = new (await import('jszip')).default();
+	zip.file('notes/page.md', '# Case\n\n![Diagram](../assets/diagram.png)\n');
+	zip.file('Assets/Diagram.PNG', Buffer.from(png, 'base64'));
+	const input = await zip.generateAsync({ type: 'nodebuffer' });
+	await info.attach('case-media-project.zip', { body: input, contentType: 'application/zip' });
+	await page.getByTestId('projects-open').click();
+	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await panel
+		.locator('input[type=file][accept=".zip"]')
+		.setInputFiles({ name: 'Case-media.zip', mimeType: 'application/zip', buffer: input });
+	await panel.getByRole('button', { name: 'Ouvrir notes/page.md', exact: true }).click();
+	await page.locator('[data-mode=read]').click();
+	const previewImage = page.locator('.mdsh-preview img');
+	await expect(previewImage).toHaveCount(1);
+	await expect
+		.poll(() => previewImage.evaluate((image: HTMLImageElement) => image.naturalWidth))
+		.toBe(1);
+	await expect.poll(() => previewImage.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+	await page.locator('[data-mode=wysiwyg]').click();
+	const visualImage = page.locator('.ProseMirror img').first();
+	await expect
+		.poll(() => visualImage.evaluate((image: HTMLImageElement) => image.naturalWidth))
+		.toBe(1);
+	await page.locator('[data-mode=source]').click();
+	await expect(page.locator('.cm-content')).toContainText('../assets/diagram.png');
+	await expect(page.locator('.cm-content')).not.toContainText('data:image');
+	await info.attach('case-media-preview.png', { body: await page.screenshot() });
+});
+
 test('project images retain relative paths through visual editing, drop, and HTML export', async ({
 	page
 }, info) => {
