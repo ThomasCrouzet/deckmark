@@ -87,6 +87,46 @@ describe('JSON validation', () => {
 	});
 });
 
+describe('duplicate keys with equivalent spellings', () => {
+	it('detects a key repeated through a Unicode escape', () => {
+		expect(duplicateJsonKeys(tokenizeJson('{"a":1,"\\u0061":2}'))).toEqual(['"\\u0061"']);
+		expect(duplicateJsonKeys(tokenizeJson('{"\\u0061":1,"a":2}'))).toEqual(['"a"']);
+		expect(analyzeJson('{"a":1,"\\u0061":2}').duplicateKeys).toEqual(['"\\u0061"']);
+	});
+
+	it('detects escaped slash and quote spellings', () => {
+		expect(duplicateJsonKeys(tokenizeJson('{"\\/":1,"/":2}'))).toEqual(['"/"']);
+		expect(duplicateJsonKeys(tokenizeJson('{"\\"":1,"\\u0022":2}'))).toEqual(['"\\u0022"']);
+	});
+
+	it('detects equivalent surrogate pair spellings', () => {
+		expect(duplicateJsonKeys(tokenizeJson('{"\\ud83c\\udf89":1,"🎉":2}'))).toEqual(['"🎉"']);
+		expect(duplicateJsonKeys(tokenizeJson('{"🎉":1,"\\ud83c\\udf89":2}'))).toEqual([
+			'"\\ud83c\\udf89"'
+		]);
+	});
+
+	it('keeps different keys and separate nested scopes distinct', () => {
+		expect(duplicateJsonKeys(tokenizeJson('{"\\u0061":1,"b":2}'))).toEqual([]);
+		expect(duplicateJsonKeys(tokenizeJson('{"a":1,"b":{"a":2}}'))).toEqual([]);
+		expect(duplicateJsonKeys(tokenizeJson('[{"a":1},{"a":2}]'))).toEqual([]);
+		expect(duplicateJsonKeys(tokenizeJson('{"a":1,"\\u0062":2}'))).toEqual([]);
+	});
+
+	it('reports one diagnostic for three spellings of the same key', () => {
+		expect(duplicateJsonKeys(tokenizeJson('{"a":1,"\\u0061":2,"\\u0061":3}'))).toEqual([
+			'"\\u0061"'
+		]);
+	});
+
+	it('stays linear on a large escaped-key document', () => {
+		const text = `[${Array.from({ length: 20_000 }, () => '{"\\u0061":1,"a":2}').join(',')}]`;
+		expect(duplicateJsonKeys(tokenizeJson(text))).toEqual(['"a"']);
+		expect(formatJson(text, options)).toContain('"\\u0061": 1');
+		expect(minifyJson(formatJson(text, options))).toBe(text);
+	});
+});
+
 describe('lossless formatting', () => {
 	const source =
 		'{"big":12345678901234567890,"float":1.0,"escaped":"a\\u00e9","nested":[1,{"x":true}]}';

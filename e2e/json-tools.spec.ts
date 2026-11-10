@@ -513,6 +513,27 @@ test('reports an unavailable JSON worker and keeps editing usable', async ({ pag
 	});
 });
 
+test('reports duplicate keys written with an equivalent escape', async ({ page }, info) => {
+	await resetAppState(page);
+	const source = '{"a":1,"\\u0061":2}';
+	await importJson(page, 'escaped-duplicates.json', source);
+	await expect(page.getByTestId('json-status')).toHaveText('JSON valide');
+	await expect(page.getByTestId('json-duplicates')).toContainText('"\\u0061"');
+	await page.getByTestId('json-format').click();
+	await expect.poll(() => savedContent(page)).toBe('{\n  "a": 1,\n  "\\u0061": 2\n}');
+	await expect(page.getByTestId('json-duplicates')).toContainText('"\\u0061"');
+	await page.getByTestId('json-minify').click();
+	await expect.poll(() => savedContent(page)).toBe(source);
+	await expect(page.getByTestId('json-duplicates')).toContainText('"\\u0061"');
+	await info.attach('json-escaped-duplicates.json', {
+		body: JSON.stringify({
+			source,
+			duplicates: await page.getByTestId('json-duplicates').innerText()
+		}),
+		contentType: 'application/json'
+	});
+});
+
 test('preserves duplicate keys and CRLF output', async ({ page }, info: TestInfo) => {
 	await resetAppState(page);
 	const duplicate = '{"a":1,"a":2}';
