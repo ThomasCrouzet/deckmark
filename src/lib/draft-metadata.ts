@@ -4,7 +4,6 @@
 // frontmatter and wiki scanners into the boot bundle.
 
 import { db, type DraftRow } from './db';
-import { documentKindForFile, type DocumentKind } from './document-kind';
 import { stripMdExtension } from './file-names';
 import { fastFrontmatter } from './metadata-derive';
 export const DRAFT_METADATA_VERSION = 2;
@@ -15,8 +14,6 @@ export interface DraftMetadata {
 	contentLength: number;
 	title: string;
 	documentTitle: string;
-	/** Derived kind for a metadata-only item whose row has no stored kind. */
-	kind?: DocumentKind;
 	tags: string[];
 	targets: string[];
 	/** The body defines or includes a linked block. */
@@ -33,7 +30,7 @@ export function decodeDraftMetadata(key: unknown): DraftMetadata | null {
 	} catch {
 		return null;
 	}
-	if (!Array.isArray(value) || (value.length !== 10 && value.length !== 11)) return null;
+	if (!Array.isArray(value) || value.length !== 10) return null;
 	const [
 		version,
 		id,
@@ -44,8 +41,7 @@ export function decodeDraftMetadata(key: unknown): DraftMetadata | null {
 		tags,
 		targets,
 		hasBlocks,
-		hasIncludes,
-		kind
+		hasIncludes
 	] = value;
 	if (version !== DRAFT_METADATA_VERSION) return null;
 	if (
@@ -59,14 +55,7 @@ export function decodeDraftMetadata(key: unknown): DraftMetadata | null {
 		!Array.isArray(targets) ||
 		!targets.every((target) => typeof target === 'string') ||
 		(hasBlocks !== 0 && hasBlocks !== 1) ||
-		(hasIncludes !== 0 && hasIncludes !== 1) ||
-		(kind !== undefined &&
-			kind !== '' &&
-			kind !== 'note' &&
-			kind !== 'presentation' &&
-			kind !== 'code' &&
-			kind !== 'image' &&
-			kind !== 'pdf')
+		(hasIncludes !== 0 && hasIncludes !== 1)
 	)
 		return null;
 	return {
@@ -75,7 +64,6 @@ export function decodeDraftMetadata(key: unknown): DraftMetadata | null {
 		contentLength,
 		title,
 		documentTitle,
-		...(typeof kind === 'string' && kind ? { kind: kind as DocumentKind } : {}),
 		tags,
 		targets,
 		hasBlocks: hasBlocks === 1,
@@ -161,7 +149,6 @@ export function draftMetadataFor(row: DraftRow): DraftMetadata {
 	const fallback = fallbackTitle(row.name, body);
 	const title = fast.title?.trim() || fallback;
 	const note = isNoteRow(row);
-	const kind = row.kind ?? documentKindForFile({ name: row.name, content: row.content });
 	let hasBlocks = false;
 	let hasIncludes = false;
 	for (const match of row.content.matchAll(/<!--\s*mdsh-(block|include)\b/g)) {
@@ -175,7 +162,6 @@ export function draftMetadataFor(row: DraftRow): DraftMetadata {
 		contentLength: row.content.length,
 		title,
 		documentTitle: title,
-		kind,
 		tags: note ? (fast.tags ?? []) : [],
 		targets: note ? textTargets(row.content) : [],
 		hasBlocks,
@@ -196,8 +182,7 @@ export function encodeDraftMetadata(row: DraftRow): string {
 		metadata.tags,
 		metadata.targets,
 		metadata.hasBlocks ? 1 : 0,
-		metadata.hasIncludes ? 1 : 0,
-		metadata.kind ?? ''
+		metadata.hasIncludes ? 1 : 0
 	]);
 }
 

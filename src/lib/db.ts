@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
 import { encodeDraftManifest } from './draft-manifest-key';
-import { documentKind } from './document-kind';
+import { documentKind, documentKindForFile } from './document-kind';
 import { hashSnippetCode } from './snippet-hash';
 
 export interface DraftRow {
@@ -378,6 +378,7 @@ class MdshDB extends Dexie {
 			);
 
 		this.drafts.hook('creating', (_primaryKey, row) => {
+			row.kind ??= documentKindForFile(row);
 			row.manifest = encodeDraftManifest(row);
 		});
 		this.drafts.hook('updating', (modifications, _primaryKey, row) => {

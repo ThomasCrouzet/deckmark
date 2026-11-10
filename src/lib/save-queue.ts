@@ -13,26 +13,6 @@ import type { DocumentRevision } from './document-revisions';
 
 const SAVE_SUPERSEDED = Symbol('save-superseded');
 
-/** True only when the durable row is exactly the row this write persisted. */
-function samePersistedRow(current: DraftRow, expected: DraftRow): boolean {
-	return (
-		current.id === expected.id &&
-		current.name === expected.name &&
-		current.content === expected.content &&
-		current.projectId === expected.projectId &&
-		current.relativePath === expected.relativePath &&
-		current.createdAt === expected.createdAt &&
-		current.updatedAt === expected.updatedAt &&
-		current.order === expected.order &&
-		current.kind === expected.kind &&
-		current.mime === expected.mime &&
-		current.data === expected.data &&
-		current.origin === expected.origin &&
-		current.sourceFileId === expected.sourceFileId &&
-		current.open === expected.open
-	);
-}
-
 type ConflictApi = {
 	conflictOccupancy: typeof import('./draft-occupancy').conflictOccupancy;
 	projectConflictVariant: typeof import('./project-conflicts').projectConflictVariant;
@@ -366,17 +346,9 @@ export class SaveQueue {
 			// write a newer row with the same ID while this put was in flight.
 			if (this.discardedIds.has(id)) {
 				try {
-					let conflict = false;
-					await db.transaction('rw', db.drafts, async () => {
-						const current = await db.drafts.get(id);
-						if (!current) return;
-						if (!samePersistedRow(current, row)) {
-							conflict = true;
-							return;
-						}
-						await db.drafts.delete(id);
-					});
-					if (conflict) this.cb.onError(new Error('save-reverse-delete-conflict'));
+					const { deleteDiscardedWrite } = await import('./draft-access');
+					const outcome = await deleteDiscardedWrite(id, row);
+					if (outcome === 'conflict') this.cb.onError(new Error('save-reverse-delete-conflict'));
 				} catch (err) {
 					this.cb.onError(err);
 				}
