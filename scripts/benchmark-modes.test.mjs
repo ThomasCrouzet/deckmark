@@ -146,6 +146,87 @@ function control() {
 			canvases: []
 		}
 	}));
+	const syntheticOptional = {
+		longTasks: { supported: true, unit: 'ms', values: [] },
+		heap: {
+			supported: true,
+			unit: 'bytes',
+			origin: 'performance.memory-estimate',
+			value: 1000
+		},
+		...Object.fromEntries(
+			['transactionCpu', 'preview', 'validation', 'postIdleCpu', 'rss'].map((name) => [
+				name,
+				{ supported: false, reason: `Synthetic unsupported ${name}` }
+			])
+		)
+	};
+	const syntheticResources = {
+		units: { domNodes: 'count', canvasDimensions: 'backing-pixels' },
+		domNodes: 100,
+		canvases: []
+	};
+	const interactionSamples = (kind) =>
+		Array.from({ length: 20 }, (_, index) => {
+			const base = {
+				index,
+				status: 'passed',
+				optional: structuredClone(syntheticOptional),
+				resources: structuredClone(syntheticResources)
+			};
+			if (kind === 'wysiwyg')
+				return {
+					...base,
+					position: index % 2 === 0 ? 'start' : 'end',
+					operation: 'insert',
+					insertedText: 'x',
+					input: { trusted: true, type: 'insertText', targetIsEditor: true },
+					metrics: { inputToFrameMs: 10, inputDispatchMs: 1, saveObservedMs: 400 },
+					fidelity: { storedSha256: digest(`w-${index}`), expectedContains: 'x' }
+				};
+			if (kind === 'canvas')
+				return {
+					...base,
+					position: 'drag',
+					operation: 'drag',
+					metrics: { pointerToFrameMs: 10, saveObservedMs: 400 },
+					fidelity: { sourceSha256: digest(`c-${index}`), changed: true }
+				};
+			if (kind === 'annotation')
+				return {
+					...base,
+					position: 'stroke',
+					operation: 'stroke',
+					metrics: { pointerToFrameMs: 10, paintedPixels: 100 + index },
+					fidelity: { paintedPixels: 100 + index, strokeCount: index + 1 }
+				};
+			return {
+				...base,
+				position: 'end',
+				operation: 'insert',
+				insertedText: 'x',
+				input: { trusted: true, type: 'insertText', targetIsEditor: true },
+				metrics: { inputToFrameMs: 10, inputDispatchMs: 1, applyObservedMs: 400 },
+				fidelity: {
+					storedSha256: digest(`s-${index}`),
+					expectedContains: 'x',
+					changed: true
+				}
+			};
+		});
+	const wysiwygSamples = interactionSamples('wysiwyg');
+	const canvasSamples = interactionSamples('canvas');
+	const annotationSamples = interactionSamples('annotation');
+	const sourceSamples = interactionSamples('slide-source');
+	const wysiwygExportPath = `${prefix}.wysiwyg.export.md`;
+	const canvasExportPath = `${prefix}.canvas.export.md`;
+	const sourceExportPath = `${prefix}.source.export.md`;
+	writeFileSync(wysiwygExportPath, 'synthetic wysiwyg final x');
+	writeFileSync(canvasExportPath, 'synthetic canvas final');
+	writeFileSync(sourceExportPath, 'synthetic source final x');
+	const wysiwygExportHash = sha256('synthetic wysiwyg final x');
+	const canvasExportHash = sha256('synthetic canvas final');
+	const sourceExportHash = sha256('synthetic source final x');
 	const clean = {
 		revision: 'a'.repeat(40),
 		tree: 'b'.repeat(40),
@@ -183,7 +264,14 @@ function control() {
 		},
 		command: ['synthetic-control'],
 		plan: {
-			caseIds: ['read/read-rich-30/lib-0', 'slide-text/deck-20/lib-0'],
+			caseIds: [
+				'read/read-rich-30/lib-0',
+				'slide-text/deck-20/lib-0',
+				'wysiwyg/read-rich-30/lib-0',
+				'slide-canvas/deck-20/lib-0',
+				'annotation/read-rich-30/lib-0',
+				'slide-source/deck-20/lib-0'
+			],
 			runs: 20
 		},
 		methods: structuredClone(modeMethods),
@@ -224,11 +312,84 @@ function control() {
 					storedSha256: slideExportHash,
 					storedOrigin: 'indexeddb-drafts-row'
 				}
+			},
+			{
+				id: 'wysiwyg/read-rich-30/lib-0',
+				status: 'passed',
+				fixture: readDescriptor,
+				workload: { mode: 'wysiwyg', library: libraryIdentity(0) },
+				samples: wysiwygSamples,
+				fidelity: { saved: true, exported: true, undo: true, redo: true, recovered: true },
+				finalExpected: {
+					bytes: Buffer.byteLength('synthetic wysiwyg final x'),
+					sha256: wysiwygExportHash
+				},
+				export: {
+					path: wysiwygExportPath,
+					name: readFixture.name,
+					bytes: Buffer.byteLength('synthetic wysiwyg final x'),
+					sha256: wysiwygExportHash
+				},
+				reload: { storedSha256: wysiwygExportHash, storedOrigin: 'indexeddb-drafts-row' }
+			},
+			{
+				id: 'slide-canvas/deck-20/lib-0',
+				status: 'passed',
+				fixture: slideDescriptor,
+				workload: { mode: 'slide-canvas', library: libraryIdentity(0) },
+				samples: canvasSamples,
+				fidelity: { saved: true, exported: true, undo: true, redo: true, recovered: true },
+				finalExpected: {
+					bytes: Buffer.byteLength('synthetic canvas final'),
+					sha256: canvasExportHash
+				},
+				export: {
+					path: canvasExportPath,
+					name: slideFixture.name,
+					bytes: Buffer.byteLength('synthetic canvas final'),
+					sha256: canvasExportHash
+				},
+				reload: { storedSha256: canvasExportHash, storedOrigin: 'indexeddb-drafts-row' }
+			},
+			{
+				id: 'annotation/read-rich-30/lib-0',
+				status: 'passed',
+				fixture: readDescriptor,
+				workload: { mode: 'annotation', library: libraryIdentity(0) },
+				samples: annotationSamples,
+				fidelity: { saved: true }
+			},
+			{
+				id: 'slide-source/deck-20/lib-0',
+				status: 'passed',
+				fixture: slideDescriptor,
+				workload: { mode: 'slide-source', library: libraryIdentity(0) },
+				samples: sourceSamples,
+				fidelity: { saved: true, exported: true, undo: true, redo: true, recovered: true },
+				finalExpected: {
+					bytes: Buffer.byteLength('synthetic source final x'),
+					sha256: sourceExportHash
+				},
+				export: {
+					path: sourceExportPath,
+					name: slideFixture.name,
+					bytes: Buffer.byteLength('synthetic source final x'),
+					sha256: sourceExportHash
+				},
+				reload: { storedSha256: sourceExportHash, storedOrigin: 'indexeddb-drafts-row' }
 			}
 		]
 	};
 	const files = {};
-	for (const path of [readFixturePath, readExportPath, slideFixturePath, slideExportPath]) {
+	for (const path of [
+		readFixturePath,
+		readExportPath,
+		slideFixturePath,
+		slideExportPath,
+		wysiwygExportPath,
+		canvasExportPath,
+		sourceExportPath
+	]) {
 		const bytes = readFileSync(path);
 		files[path] = { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
 	}

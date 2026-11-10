@@ -43,6 +43,13 @@ async function expectSaved(editor: Locator): Promise<void> {
 	await expect(editor.locator('.save-state')).toHaveText('saved', { timeout: 10_000 });
 }
 
+/** Pause the mocked clock just ahead of its current time. */
+async function pauseClock(page: Page): Promise<void> {
+	await page.clock.install();
+	const now = await page.evaluate(() => Date.now());
+	await page.clock.pauseAt(new Date(now + 50));
+}
+
 async function selectObject(editor: Locator, object: Locator, extend = false): Promise<void> {
 	const id = await object.getAttribute('data-object-id');
 	const ids = await objects(editor).evaluateAll((nodes) =>
@@ -133,8 +140,7 @@ test('keeps pending text, selection and history across idle and immediate bounda
 	const editor = await waitForPresentation(page);
 	await expectSaved(editor);
 	await objects(editor, 'text').first().dblclick();
-	await page.clock.install();
-	await page.clock.pauseAt(new Date());
+	await pauseClock(page);
 	const input = editor.getByTestId('slide-text-editor');
 	await input.fill('# Pending edit');
 	await input.evaluate((field: HTMLTextAreaElement) => {
@@ -192,8 +198,7 @@ test('flushes the next keystroke to its outgoing file on close and backup', asyn
 	const editor = await waitForPresentation(page);
 	await expectSaved(editor);
 	await objects(editor, 'text').first().dblclick();
-	await page.clock.install();
-	await page.clock.pauseAt(new Date());
+	await pauseClock(page);
 	await editor.getByTestId('slide-text-editor').fill('# Last keystroke');
 	await page.getByRole('button', { name: 'Close Outgoing', exact: true }).dispatchEvent('click');
 	await expect(editor).toHaveCount(0);
@@ -294,8 +299,7 @@ test('bounds continuous notes input and makes unchanged flushes idempotent', asy
 	const editor = await waitForPresentation(page);
 	await expectSaved(editor);
 	await editor.getByTestId('slide-notes').focus();
-	await page.clock.install();
-	await page.clock.pauseAt(new Date());
+	await pauseClock(page);
 	await page.evaluate(() => {
 		const state = { serialize: 0 };
 		(globalThis as typeof globalThis & { continuousNotes?: typeof state }).continuousNotes = state;
@@ -340,8 +344,7 @@ test('preserves local and external presentation revisions before the idle timer'
 	const editor = await waitForPresentation(page);
 	await expectSaved(editor);
 	await objects(editor, 'text').first().dblclick();
-	await page.clock.install();
-	await page.clock.pauseAt(new Date());
+	await pauseClock(page);
 	await editor.getByTestId('slide-text-editor').fill('# Local revision');
 	const sender = await context.newPage();
 	await sender.route('**/api/presentation-sender', (route) =>

@@ -18,7 +18,11 @@ export const modeCases = [
 	{ id: 'slide-text/deck-300/lib-0', mode: 'slide-text', fixture: 'deck-300', library: 0 },
 	{ id: 'slide-notes/deck-20/lib-0', mode: 'slide-notes', fixture: 'deck-20', library: 0 },
 	{ id: 'slide-notes/deck-100/lib-0', mode: 'slide-notes', fixture: 'deck-100', library: 0 },
-	{ id: 'slide-notes/deck-300/lib-0', mode: 'slide-notes', fixture: 'deck-300', library: 0 }
+	{ id: 'slide-notes/deck-300/lib-0', mode: 'slide-notes', fixture: 'deck-300', library: 0 },
+	{ id: 'wysiwyg/read-rich-30/lib-0', mode: 'wysiwyg', fixture: 'read-rich-30', library: 0 },
+	{ id: 'slide-canvas/deck-20/lib-0', mode: 'slide-canvas', fixture: 'deck-20', library: 0 },
+	{ id: 'annotation/read-rich-30/lib-0', mode: 'annotation', fixture: 'read-rich-30', library: 0 },
+	{ id: 'slide-source/deck-20/lib-0', mode: 'slide-source', fixture: 'deck-20', library: 0 }
 ];
 
 export function modeMatrix() {
@@ -38,6 +42,11 @@ export function expectedWorkload(entry) {
 		return entry.fixture === 'read-rich-30'
 			? { diagrams: 30, tail: 'Read tail sentinel', approximation: false }
 			: { diagrams: 0, tail: 'Read tail sentinel', approximation: false };
+	if (entry.mode === 'wysiwyg') return { kind: 'wysiwyg', tail: 'Read tail sentinel' };
+	if (entry.mode === 'slide-canvas') return { kind: 'canvas', objectType: 'rectangle' };
+	if (entry.mode === 'annotation') return { kind: 'annotation', strokes: 20 };
+	if (entry.mode === 'slide-source')
+		return { kind: 'slide-source', initial: '# Benchmark slide 0' };
 	return entry.mode === 'slide-text'
 		? {
 				field: 'text',
