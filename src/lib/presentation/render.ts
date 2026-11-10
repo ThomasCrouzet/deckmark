@@ -1,7 +1,7 @@
 import { checkAborted } from '../abort';
 import { escapeHTML } from '../file-utils';
 import { t } from '../i18n';
-import { projectImageSource, type ProjectContext } from '../project-media';
+import { projectImageSource, projectMediaEpoch, type ProjectContext } from '../project-media';
 import { applyRemoteImagePolicy } from '../render/sanitize-html';
 import type { PresentationDeck, PresentationElement, PresentationSlide } from './model';
 
@@ -43,10 +43,25 @@ const CONTENT_CACHE_LIMIT_BYTES = 8 * 1024 * 1024;
 const CONTENT_CACHE_LIMIT_ENTRIES = 512;
 const MAX_CACHED_CONTENT_CHARS = 512 * 1024;
 let contentCacheBytes = 0;
+let contentCacheEpoch = projectMediaEpoch();
 let contentCacheHits = 0;
 let contentCacheMisses = 0;
 let contentCacheEvictions = 0;
 let contentCacheOversized = 0;
+
+/**
+ * A project asset write advances the media epoch. Drop completed HTML from the
+ * older epoch so no data URI or embedded image survives an asset replacement.
+ */
+function syncContentEpoch(): number {
+	const epoch = projectMediaEpoch();
+	if (epoch !== contentCacheEpoch) {
+		contentCacheEpoch = epoch;
+		contentCache.clear();
+		contentCacheBytes = 0;
+	}
+	return epoch;
+}
 
 function estimatedContentBytes(key: string, source: string, html: string): number {
 	return 2 * (key.length + source.length + html.length) + 128;
@@ -123,6 +138,16 @@ function contextKey(options: PresentationRenderOptions): string {
 	return `${context?.projectId ?? ''}\u0000${context?.relativePath ?? ''}\u0000${options.fileId ?? ''}\u0000${options.allowRemoteImages === true ? '1' : '0'}`;
 }
 
+/** Completed HTML belongs to one media epoch as well as one render context. */
+function contentKey(
+	element: PresentationElement,
+	options: PresentationRenderOptions,
+	epoch: number
+): string {
+	const hidden = element.id === options.hideTextId ? 'hidden' : 'shown';
+	return `${element.type}\u0000${element.content}\u0000${hidden}\u0000${contextKey(options)}\u0000${epoch}`;
+}
+
 async function resolveProjectContext(
 	options: PresentationRenderOptions
 ): Promise<ProjectContext | undefined> {
@@ -168,7 +193,8 @@ export function renderPresentationElementContentCached(
 	element: PresentationElement,
 	options: PresentationRenderOptions = {}
 ): Promise<string> {
-	const key = `${element.type}\u0000${element.content}\u0000${element.id === options.hideTextId ? 'hidden' : 'shown'}\u0000${contextKey(options)}`;
+	const epoch = syncContentEpoch();
+	const key = contentKey(element, options, epoch);
 	const existing = contentCache.get(key);
 	if (existing) {
 		contentCacheHits++;
@@ -189,12 +215,24 @@ export function renderPresentationElementContentCached(
 	}
 	contentCacheMisses++;
 	const owner: { promise: Promise<string> | null } = { promise: null };
-	const rendered = renderPresentationElementContent(element, options).then(
+	const rendered = (async () => {
+		let html = await renderPresentationElementContent(element, options);
+		if (projectMediaEpoch() !== epoch) {
+			// An asset write finished during this render. Never publish HTML from
+			// the old epoch into the current cache.
+			const nextEpoch = syncContentEpoch();
+			html = await renderPresentationElementContent(element, options);
+			if (projectMediaEpoch() === nextEpoch)
+				cacheContent(contentKey(element, options, nextEpoch), element.content, html);
+			return html;
+		}
+		cacheContent(key, element.content, html);
+		return html;
+	})().then(
 		(html) => {
 			// Only the task that owns this map entry may remove it, so a stale
 			// completion cannot erase a newer pending render for the same key.
 			if (inFlightContent.get(key) === owner.promise) inFlightContent.delete(key);
-			cacheContent(key, element.content, html);
 			return html;
 		},
 		(error: unknown) => {

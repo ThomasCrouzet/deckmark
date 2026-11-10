@@ -159,13 +159,22 @@ function installInvalidation(): void {
 	}
 }
 
+const BYTE_HASH_SEEDS = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35] as const;
+
+/**
+ * Wide content identity for asset bytes. Four lanes plus the length keep a
+ * same-ID, same-MIME replacement from aliasing the earlier image.
+ */
 function bytesFingerprint(data: Uint8Array): string {
-	let hash = 0x811c9dc5;
-	for (const byte of data) {
-		hash ^= byte;
-		hash = Math.imul(hash, 0x01000193) >>> 0;
-	}
-	return hash.toString(16).padStart(8, '0');
+	const lanes = BYTE_HASH_SEEDS.map((seed) => {
+		let hash = seed >>> 0;
+		for (const byte of data) {
+			hash ^= byte;
+			hash = Math.imul(hash, 0x01000193) >>> 0;
+		}
+		return hash.toString(16).padStart(8, '0');
+	});
+	return `${lanes.join('')}:${data.byteLength.toString(36)}`;
 }
 
 function cacheImage(key: string, dataUri: string): void {

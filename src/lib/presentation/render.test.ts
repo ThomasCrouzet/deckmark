@@ -146,4 +146,51 @@ describe('presentation content cancellation ownership', () => {
 		).resolves.toContain('data:image/png;base64,cached');
 		expect(mocks.projectImageSource).toHaveBeenCalledTimes(1);
 	});
+
+	it('does not reuse completed HTML from an older media epoch', async () => {
+		mocks.projectImageSource.mockResolvedValue('data:image/png;base64,old');
+		const element = imageElement('assets/replaced.png');
+		await expect(
+			renderPresentationElementContentCached(element, { projectContext: context })
+		).resolves.toContain('data:image/png;base64,old');
+
+		// The native refresh replaces the bytes on the same asset path.
+		mocks.epoch = 2;
+		mocks.projectImageSource.mockResolvedValue('data:image/png;base64,new');
+		await expect(
+			renderPresentationElementContentCached(element, { projectContext: context })
+		).resolves.toContain('data:image/png;base64,new');
+		await expect(
+			renderPresentationElementContentCached(element, { projectContext: context })
+		).resolves.toContain('data:image/png;base64,new');
+		expect(mocks.projectImageSource).toHaveBeenCalledTimes(2);
+	});
+
+	it('fences an in-flight render that crosses a media epoch', async () => {
+		const firstRender = deferred<string>();
+		const secondRender = deferred<string>();
+		mocks.projectImageSource
+			.mockReturnValueOnce(firstRender.promise)
+			.mockReturnValueOnce(secondRender.promise);
+		const element = imageElement('assets/crossing.png');
+
+		const pending = renderPresentationElementContentCached(element, {
+			projectContext: context
+		});
+		await settle();
+		expect(mocks.projectImageSource).toHaveBeenCalledTimes(1);
+
+		mocks.epoch = 2;
+		firstRender.resolve('data:image/png;base64,old');
+		await settle();
+		expect(mocks.projectImageSource).toHaveBeenCalledTimes(2);
+		secondRender.resolve('data:image/png;base64,new');
+
+		await expect(pending).resolves.toContain('data:image/png;base64,new');
+		// The old result never entered the new epoch cache.
+		await expect(
+			renderPresentationElementContentCached(element, { projectContext: context })
+		).resolves.toContain('data:image/png;base64,new');
+		expect(mocks.projectImageSource).toHaveBeenCalledTimes(2);
+	});
 });
