@@ -62,6 +62,35 @@ describe('linked blocks', () => {
 		expect(buildLinkReport([source, consumer])[0]?.state).toBe('missing');
 	});
 
+	it('compares exact snapshot bodies instead of 32-bit hashes', () => {
+		const colliding = blockFile('collision', 'collision.md', 'x', '4c6d3c14');
+		const block = extractBlocks(colliding)[0]!;
+		const consumer = file(
+			'collision-consumer',
+			'collision-consumer.md',
+			insertInclude('', 'collision.md', 'x', block.hash, block.body)
+		);
+		expect(buildLinkReport([colliding, consumer])[0]?.state).toBe('current');
+		colliding.content = colliding.content.replace('4c6d3c14', '34749a0f');
+		const changed = buildLinkReport([colliding, consumer])[0]!;
+		expect(changed.include.body.trim()).toBe('4c6d3c14');
+		expect(changed.sourceBody.trim()).toBe('34749a0f');
+		expect(changed.state).toBe('changed');
+	});
+
+	it('normalizes snapshot edges but not internal whitespace', () => {
+		const unicode = blockFile('unicode', 'unicode.md', 'x', '  Café au lait ☕  ');
+		const block = extractBlocks(unicode)[0]!;
+		const consumer = file(
+			'unicode-consumer',
+			'unicode-consumer.md',
+			insertInclude('', 'unicode.md', 'x', block.hash, 'Café au lait ☕')
+		);
+		expect(buildLinkReport([unicode, consumer])[0]?.state).toBe('current');
+		consumer.content = insertInclude('', 'unicode.md', 'x', block.hash, 'Café  au lait ☕');
+		expect(buildLinkReport([unicode, consumer])[0]?.state).toBe('changed');
+	});
+
 	it('updates only the snapshot and detaches without deleting text', () => {
 		const consumer = file('consumer', 'consumer.md', include + '\nKeep me.\n');
 		const updated = updateInclude(consumer.content, extractIncludes(consumer)[0]!, 'Fresh block.')!;

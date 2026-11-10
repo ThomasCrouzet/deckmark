@@ -333,7 +333,9 @@ function reportFor(file: FileItem, include: LinkedInclude, context: LinkContext)
 					? 'missing'
 					: include.mode === 'frozen'
 						? 'frozen'
-						: include.hash === block.hash
+						: // The 32-bit hash is stored for portable markers, not as proof.
+							// Only the normalized snapshot text decides the current state.
+							include.body.trim() === block.body.trim()
 							? 'current'
 							: 'changed',
 		sourceBody: block?.body ?? '',
