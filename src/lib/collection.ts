@@ -33,6 +33,8 @@ export interface CollectionBuildStats {
 	reused: number;
 	/** Deferred bodies read from IndexedDB in this build. */
 	bodyReads: number;
+	/** Deferred notes skipped because no exact body was available. */
+	missing: number;
 	batches: number;
 }
 
@@ -52,9 +54,10 @@ export interface CollectionBuildOptions {
 
 const STORAGE_KEY = 'mdsh:collection-views';
 const PROJECTION_PREFIX = 'collection-row:';
-// Version 2 stores YAML non-finite numbers as canonical string tokens. A
-// version 1 row can contain null and is therefore a cache miss.
-const PROJECTION_VERSION = 2;
+// Version 3 stores YAML non-finite numbers as canonical string tokens and the
+// source update time for a conflict-safe write. An earlier or invalid row is a
+// cache miss.
+const PROJECTION_VERSION = 3;
 const DEFAULT_BATCH_SIZE = 24;
 const PROJECTION_WRITE_BATCH = 200;
 const MAX_PROJECTION_STRING = 100_000;
@@ -73,6 +76,7 @@ interface CachedCollectionRow {
 interface StoredCollectionRow {
 	v: number;
 	revision: string;
+	sourceUpdatedAt: number;
 	title: string;
 	values: Record<string, CollectionValue>;
 }
@@ -202,6 +206,8 @@ async function loadStoredRows(ids: readonly string[]): Promise<Map<string, Store
 					if (
 						parsed.v !== PROJECTION_VERSION ||
 						typeof parsed.revision !== 'string' ||
+						typeof parsed.sourceUpdatedAt !== 'number' ||
+						!Number.isFinite(parsed.sourceUpdatedAt) ||
 						typeof parsed.title !== 'string' ||
 						parsed.title.length > MAX_PROJECTION_STRING
 					)
@@ -211,6 +217,7 @@ async function loadStoredRows(ids: readonly string[]): Promise<Map<string, Store
 					stored.set(batch[index]!, {
 						v: PROJECTION_VERSION,
 						revision: parsed.revision,
+						sourceUpdatedAt: parsed.sourceUpdatedAt,
 						title: parsed.title,
 						values
 					});
@@ -232,10 +239,29 @@ async function saveStoredRows(
 	if (rows.size === 0) return;
 	try {
 		const { db } = await import('./db');
-		const values = [...rows].map(([id, row]) => ({
-			key: projectionKey(id),
-			value: JSON.stringify(row)
-		}));
+		const entries = [...rows];
+		const existing = await db.metadata.bulkGet(entries.map(([id]) => projectionKey(id)));
+		const values: Array<{ key: string; value: string }> = [];
+		for (const [index, [id, row]] of entries.entries()) {
+			const previous = existing[index];
+			if (previous) {
+				try {
+					const parsed = JSON.parse(previous.value) as Partial<StoredCollectionRow>;
+					if (
+						parsed.v === PROJECTION_VERSION &&
+						typeof parsed.revision === 'string' &&
+						typeof parsed.sourceUpdatedAt === 'number' &&
+						Number.isFinite(parsed.sourceUpdatedAt) &&
+						parsed.revision !== row.revision &&
+						parsed.sourceUpdatedAt >= row.sourceUpdatedAt
+					)
+						continue;
+				} catch {
+					// A damaged row cannot prove that it is newer.
+				}
+			}
+			values.push({ key: projectionKey(id), value: JSON.stringify(row) });
+		}
 		for (let index = 0; index < values.length; index += PROJECTION_WRITE_BATCH)
 			await db.metadata.bulkPut(values.slice(index, index + PROJECTION_WRITE_BATCH));
 		const keys = await db.metadata.where('key').startsWith(PROJECTION_PREFIX).primaryKeys();
@@ -283,7 +309,13 @@ export async function buildCollection(
 	const live = new Set(notes.map((file) => file.id));
 	const batchSize = Math.max(1, options.batchSize ?? DEFAULT_BATCH_SIZE);
 	const signal = options.signal;
-	const stats: CollectionBuildStats = { parsed: 0, reused: 0, bodyReads: 0, batches: 0 };
+	const stats: CollectionBuildStats = {
+		parsed: 0,
+		reused: 0,
+		bodyReads: 0,
+		missing: 0,
+		batches: 0
+	};
 	const writes = new Map<string, StoredCollectionRow>();
 
 	const deferred = notes.filter((file) => file.contentDeferred);
@@ -325,11 +357,31 @@ export async function buildCollection(
 		for (const file of batch) {
 			const content = file.contentDeferred ? bodies.get(file.id) : file.content;
 			const cached = parsedRows.get(file.id);
+			const expected = durableRevision(file);
+			if (file.contentDeferred) {
+				if (content === undefined) {
+					// Reuse only a projection that already matches the current
+					// durable revision. A missing body for a newer revision must
+					// never restamp the older title and values.
+					if (!cached || !expected || cached.revision !== expected) {
+						stats.missing += 1;
+						continue;
+					}
+				} else if (expected && revisionOf(file, content) !== expected) {
+					// Another tab changed the draft while this batch was read.
+					// Discard the stale completion. The next build retries it.
+					stats.missing += 1;
+					continue;
+				}
+			}
 			let entry: CachedCollectionRow;
 			let changed = false;
 			if (content === undefined) {
 				// A durable projection supplied every displayed value.
-				if (!cached) continue;
+				if (!cached) {
+					stats.missing += 1;
+					continue;
+				}
 				entry = cached;
 				stats.reused += 1;
 			} else if (cached && cached.name === file.name && cached.source === content) {
@@ -355,7 +407,7 @@ export async function buildCollection(
 				stats.parsed += 1;
 				changed = true;
 			}
-			const revision = durableRevision(file) ?? revisionOf(file, content ?? '');
+			const revision = expected ?? revisionOf(file, content ?? '');
 			if (entry.revision !== revision || entry.name !== file.name) {
 				entry = {
 					...entry,
@@ -371,6 +423,7 @@ export async function buildCollection(
 				const storedRow = {
 					v: PROJECTION_VERSION,
 					revision: entry.revision,
+					sourceUpdatedAt: file.updatedAt,
 					title: entry.title,
 					values: entry.values
 				};

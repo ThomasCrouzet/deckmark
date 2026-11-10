@@ -346,6 +346,90 @@ test('updates virtual row and column windows on container scroll', async ({
 	});
 });
 
+function missingBodyFixture(now: number) {
+	const body = 'Body text. '.repeat(28_000);
+	return collectionFixtureFromDrafts(
+		now,
+		Array.from({ length: 12 }, (_, index) => ({
+			id: `missing-body-${index}`,
+			name: `Missing ${index}.md`,
+			content: `---\ntitle: Missing ${index}\nstatus: draft\n---\n\n# Missing ${index}\n\n${body}`,
+			createdAt: now,
+			updatedAt: now,
+			order: index,
+			open: index === 0
+		}))
+	);
+}
+
+function collectionFixtureFromDrafts(
+	now: number,
+	drafts: Array<Record<string, unknown> & { id: string; name: string }>
+) {
+	return {
+		format: 'mdsh-backup',
+		schemaVersion: 1,
+		exportedAt: now,
+		drafts,
+		workspaces: [
+			{
+				id: 'collection-missing-workspace',
+				name: 'Collection',
+				fileIds: [drafts[0]!.id],
+				activeId: drafts[0]!.id,
+				createdAt: now,
+				updatedAt: now
+			}
+		],
+		templates: []
+	};
+}
+
+test('reports a missing deferred body instead of showing an empty note', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(180_000);
+	const failures: string[] = [];
+	page.on('pageerror', (error) => failures.push(error.message));
+	await resetAppState(page);
+	await importBackup(page, missingBodyFixture(Date.now()));
+	await expect.poll(async () => (await databaseState(page)).drafts.length).toBe(12);
+	await page.keyboard.press('Escape');
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const tx = database.transaction('drafts', 'readwrite');
+					tx.objectStore('drafts').delete('missing-body-11');
+					tx.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					tx.onabort = () => {
+						database.close();
+						reject(tx.error);
+					};
+				};
+			})
+	);
+	await openCollection(page);
+	const table = page.getByTestId('collection-table');
+	await expect(page.getByTestId('collection-missing')).toContainText('1');
+	await expect(table).toContainText('Missing 1');
+	await expect(table).not.toContainText('Missing 11');
+	await expect(table.locator('tbody tr')).toHaveCount(11);
+	expect(failures).toEqual([]);
+	await info.attach('collection-missing-body.json', {
+		body: JSON.stringify({ notes: 12, removed: 'missing-body-11', shown: 11, failures }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 test('bounds a 3000-row, 100-column collection and reuses persisted metadata', async ({
 	page
 }, info: TestInfo) => {

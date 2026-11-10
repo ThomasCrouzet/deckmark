@@ -657,6 +657,8 @@ export const en = {
 	'collection.deleteView': 'Delete view',
 	'collection.loading': 'Reading front matter...',
 	'collection.empty': 'No notes with front matter.',
+	'collection.missingBodies':
+		'Some notes are unavailable because their saved body is missing ({n}). Reopen the panel to retry.',
 	'collection.all': 'All notes',
 	'collection.note':
 		'Views read Markdown only. Property changes use the typed front matter editor.',

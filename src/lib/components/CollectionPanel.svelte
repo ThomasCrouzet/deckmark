@@ -34,6 +34,7 @@
 	let loadState = $state<'loading' | 'ready' | 'error'>('loading');
 	let error = $state('');
 	let progress = $state({ done: 0, total: 0 });
+	let missingCount = $state(0);
 	let query = $state('');
 	let sortKey = $state('title');
 	let sortDirection = $state<'asc' | 'desc'>('asc');
@@ -159,6 +160,7 @@
 		const started = Date.now();
 		loadState = 'loading';
 		error = '';
+		missingCount = 0;
 		progress = { done: 0, total: filesStore.library.length };
 		let lastStats: CollectionBuildStats | null = null;
 		try {
@@ -175,6 +177,7 @@
 			rows = value;
 			loadState = 'ready';
 			const stats = lastStats as CollectionBuildStats | null;
+			missingCount = stats?.missing ?? 0;
 			if (stats !== null)
 				exposeProfile({
 					...stats,
@@ -345,6 +348,11 @@
 				{/if}
 			</div>
 			<div class="collection-body" bind:this={tableScroll}>
+				{#if loadState === 'ready' && missingCount > 0}
+					<p class="collection-warning" role="status" data-testid="collection-missing">
+						{t('collection.missingBodies', { n: missingCount })}
+					</p>
+				{/if}
 				{#if loadState === 'loading'}
 					<p role="status" data-testid="collection-progress">
 						{t('collection.loading')}
@@ -578,6 +586,14 @@
 		border-radius: var(--radius-xs);
 		background: var(--color-bg-2);
 		color: var(--color-fg);
+	}
+	.collection-warning {
+		margin: 0 0 8px;
+		padding: 6px 8px;
+		border: 1px solid var(--color-danger);
+		border-radius: var(--radius-xs);
+		font-size: 11px;
+		color: var(--color-danger);
 	}
 	.table-scroll {
 		overflow: visible;

@@ -37,11 +37,19 @@ export async function buildSearchCorpus(files: readonly FileItem[]): Promise<Sea
 	const contentById = new Map(
 		rows.filter((row): row is DraftRow => row !== undefined).map((row) => [row.id, row.content])
 	);
-	return files.map((file) => ({
-		id: file.id,
-		name: file.name,
-		content: file.contentDeferred ? (contentById.get(file.id) ?? file.content) : file.content
-	}));
+	const corpus: SearchCorpusFile[] = [];
+	for (const file of files) {
+		if (!file.contentDeferred) {
+			corpus.push({ id: file.id, name: file.name, content: file.content });
+			continue;
+		}
+		const content = contentById.get(file.id);
+		// A missing durable row must not become an empty valid note. Omit it so
+		// the caller can fail closed and retry the next read.
+		if (content === undefined) continue;
+		corpus.push({ id: file.id, name: file.name, content });
+	}
+	return corpus;
 }
 
 /**

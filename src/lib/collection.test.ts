@@ -273,3 +273,116 @@ describe('collection cache identity', () => {
 		}
 	});
 });
+
+describe('collection body freshness', () => {
+	function revise(target: FileItem, content: string, updatedAt: number) {
+		target.updatedAt = updatedAt;
+		target.derivedMetadata = {
+			...target.derivedMetadata!,
+			contentHash: fnv36(content),
+			contentLength: content.length
+		};
+	}
+
+	it('does not restamp an old projection when its newer body is missing', async () => {
+		const first = '---\ntitle: Alpha\nstatus: old\n---\n';
+		const second = '---\ntitle: Beta\nstatus: new\n---\n';
+		const target = deferred('freshness-id', first);
+		await buildCollection([target], {
+			readBodies: async () => new Map([[target.id, first]])
+		});
+		const storedBefore = await db.metadata.get('collection-row:freshness-id');
+		const before = JSON.parse(storedBefore!.value) as { revision: string; title: string };
+
+		revise(target, second, 2);
+		const missing = statsOf();
+		const rows = await buildCollection([target], {
+			readBodies: async () => new Map(),
+			onStats: (value) => (missing.stats = value)
+		});
+		expect(rows).toEqual([]);
+		expect(missing.stats).toMatchObject({ parsed: 0, reused: 0, bodyReads: 1, missing: 1 });
+		const storedAfter = await db.metadata.get('collection-row:freshness-id');
+		const after = JSON.parse(storedAfter!.value) as { revision: string; title: string };
+		expect(after.title).toBe('Alpha');
+		expect(after.revision).toBe(before.revision);
+
+		clearCollectionCache();
+		await expect(
+			buildCollection([target], {
+				readBodies: async () => {
+					throw new Error('The changed source must be read again');
+				}
+			})
+		).rejects.toThrow('The changed source must be read again');
+
+		const recovered = await buildCollection([target], {
+			readBodies: async () => new Map([[target.id, second]])
+		});
+		expect(recovered.map((row) => row.title)).toEqual(['Beta']);
+		expect(recovered[0]?.values.status).toBe('new');
+	});
+
+	it('skips only the missing entries in a partial body batch', async () => {
+		const firstA = '---\ntitle: Alpha\n---\n';
+		const firstB = '---\ntitle: Beta\n---\n';
+		const secondA = '---\ntitle: Alpha new\n---\n';
+		const secondB = '---\ntitle: Beta new\n---\n';
+		const a = deferred('partial-a', firstA);
+		const b = deferred('partial-b', firstB);
+		await buildCollection([a, b], {
+			readBodies: async () =>
+				new Map([
+					[a.id, firstA],
+					[b.id, firstB]
+				])
+		});
+		revise(a, secondA, 2);
+		revise(b, secondB, 2);
+		const stats = statsOf();
+		const rows = await buildCollection([a, b], {
+			readBodies: async () => new Map([[a.id, secondA]]),
+			onStats: (value) => (stats.stats = value)
+		});
+		expect(rows.map((row) => row.title)).toEqual(['Alpha new']);
+		expect(stats.stats).toMatchObject({ missing: 1 });
+
+		const storedB = await db.metadata.get('collection-row:partial-b');
+		const parsedB = JSON.parse(storedB!.value) as { title: string };
+		expect(parsedB.title).toBe('Beta');
+	});
+
+	it('discards a stale body that does not match the captured revision', async () => {
+		const first = '---\ntitle: Alpha\nstatus: old\n---\n';
+		const second = '---\ntitle: Beta\nstatus: new\n---\n';
+		const target = deferred('stale-body-id', first);
+		await buildCollection([target], {
+			readBodies: async () => new Map([[target.id, first]])
+		});
+		revise(target, second, 2);
+		const stats = statsOf();
+		const rows = await buildCollection([target], {
+			readBodies: async () => new Map([[target.id, first]]),
+			onStats: (value) => (stats.stats = value)
+		});
+		expect(rows).toEqual([]);
+		expect(stats.stats).toMatchObject({ missing: 1 });
+
+		const recovered = await buildCollection([target], {
+			readBodies: async () => new Map([[target.id, second]])
+		});
+		expect(recovered[0]?.title).toBe('Beta');
+	});
+
+	it('does not build a removed draft from its deferred placeholder', async () => {
+		await db.drafts.clear();
+		const target = deferred('removed-draft', '---\ntitle: Removed\n---\n');
+		const stats = statsOf();
+		const rows = await buildCollection([target], {
+			persist: false,
+			onStats: (value) => (stats.stats = value)
+		});
+		expect(rows).toEqual([]);
+		expect(stats.stats).toMatchObject({ parsed: 0, reused: 0, missing: 1 });
+	});
+});

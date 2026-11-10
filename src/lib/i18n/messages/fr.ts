@@ -671,6 +671,8 @@ export const fr: Record<MessageKey, string> = {
 	'collection.deleteView': 'Supprimer la vue',
 	'collection.loading': 'Lecture du front matter…',
 	'collection.empty': 'Aucune note avec front matter.',
+	'collection.missingBodies':
+		'Certaines notes sont indisponibles car leur contenu enregistré est absent ({n}). Rouvrez le panneau pour réessayer.',
 	'collection.all': 'Toutes les notes',
 	'collection.note':
 		'Les vues lisent uniquement le Markdown. Les propriétés se modifient avec l’éditeur typé.',
