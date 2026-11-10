@@ -1,5 +1,6 @@
 import { t } from '#lib/i18n/index.js';
 import { abortable, checkAborted } from '../abort';
+import { recordEditorCounter } from '../editor-perf';
 
 // Shared DOMPurify helpers for markdown HTML (reading / export / print)
 // and the WYSIWYG Mermaid preview. Both paths must neutralize remote
@@ -355,15 +356,19 @@ function pumpMermaid(): void {
 		if (!job) return;
 		job.signal?.removeEventListener('abort', job.onAbort);
 		if (job.signal?.aborted) {
+			recordEditorCounter('mermaid.cancel');
 			job.reject(new DOMException('Operation cancelled', 'AbortError'));
 			continue;
 		}
 		mermaidActive = true;
+		recordEditorCounter('mermaid.start');
 		void job
 			.run()
 			.then(job.resolve, job.reject)
 			.finally(() => {
 				mermaidActive = false;
+				if (job.signal?.aborted) recordEditorCounter('mermaid.cancel');
+				recordEditorCounter('mermaid.done');
 				pumpMermaid();
 			});
 		return;
@@ -386,6 +391,7 @@ export function renderMermaidSvg(
 			onAbort: () => {
 				const index = mermaidJobs.indexOf(job);
 				if (index >= 0) mermaidJobs.splice(index, 1);
+				recordEditorCounter('mermaid.abort');
 				reject(new DOMException('Operation cancelled', 'AbortError'));
 			},
 			run: async () => {
@@ -424,6 +430,7 @@ export function renderMermaidSvg(
 				return inlineMermaidStyles(svg);
 			}
 		};
+		recordEditorCounter('mermaid.queue');
 		if (priority === 'active') {
 			const firstBackground = mermaidJobs.findIndex((entry) => entry.priority === 'background');
 			if (firstBackground < 0) mermaidJobs.push(job);

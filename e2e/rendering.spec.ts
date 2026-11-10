@@ -75,6 +75,77 @@ test.describe('KaTeX and Mermaid rendering in read mode', () => {
 		});
 	}
 
+	test('cancels the obsolete Mermaid lane after a Read file switch', async ({ page }, testInfo) => {
+		const diagrams = Array.from(
+			{ length: 30 },
+			(_, index) => `\`\`\`mermaid\nflowchart LR\nA${index} --> B${index}\n\`\`\``
+		).join('\n\n');
+		await seedFiles(page, [
+			{ name: 'long-deck', content: `# Long\n\n${diagrams}\n\n# Long tail` },
+			{
+				name: 'short-deck',
+				content: '# Short\n\n```mermaid\nflowchart LR\nS1 --> S2\n```\n\n# Short tail'
+			}
+		]);
+		await page.evaluate(() => {
+			const counts: Record<string, number> = {};
+			(window as { __MDSH_MERMAID_COUNTS__?: Record<string, number> }).__MDSH_MERMAID_COUNTS__ =
+				counts;
+			window.addEventListener('deckmark:editor-perf', (event) => {
+				const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+				if (detail.kind === 'counter') counts[detail.name] = (counts[detail.name] ?? 0) + 1;
+			});
+		});
+		await page
+			.locator('aside button[data-file-id]')
+			.filter({ hasText: 'long-deck' })
+			.first()
+			.click();
+		await page.locator('button[data-mode="read"]').click();
+		await expect(page.locator('.mdsh-preview')).toContainText('Long tail', { timeout: 20_000 });
+		await page
+			.locator('aside button[data-file-id]')
+			.filter({ hasText: 'short-deck' })
+			.first()
+			.click();
+		await expect(page.locator('.mdsh-preview')).toContainText('Short tail', { timeout: 20_000 });
+		await expect(page.locator('.mdsh-preview svg')).toHaveCount(1, { timeout: 20_000 });
+		const readCounts = () =>
+			page.evaluate(
+				() =>
+					(window as { __MDSH_MERMAID_COUNTS__?: Record<string, number> })
+						.__MDSH_MERMAID_COUNTS__ ?? {}
+			);
+		await expect
+			.poll(
+				async () => {
+					const current = await readCounts();
+					return (current['mermaid.cancel'] ?? 0) + (current['mermaid.abort'] ?? 0);
+				},
+				{ timeout: 20_000 }
+			)
+			.toBeGreaterThan(0);
+		const counts = await readCounts();
+		await testInfo.attach('read-mermaid-cancel.json', {
+			body: JSON.stringify(
+				{
+					counts,
+					fixture: { diagrams: 30, bytes: diagrams.length },
+					browser: await page.context().browser()!.version(),
+					method: 'Read switch from a 30-diagram note after the first SVG painted.'
+				},
+				null,
+				2
+			),
+			contentType: 'application/json'
+		});
+		expect(counts['mermaid.queue'] ?? 0).toBeGreaterThan(0);
+		expect(counts['mermaid.start'] ?? 0).toBeGreaterThan(0);
+		expect((counts['mermaid.cancel'] ?? 0) + (counts['mermaid.abort'] ?? 0)).toBeGreaterThan(0);
+		await expect(page.locator('.mdsh-preview')).toContainText('S1');
+		await expect(page.locator('.mdsh-preview')).not.toContainText('Long tail');
+	});
+
 	test('renders KaTeX in read mode', async ({ page }) => {
 		await seedFiles(page, [
 			{

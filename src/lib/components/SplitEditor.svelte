@@ -405,7 +405,12 @@
 		aria-label={t('splitView.previewPane')}
 	>
 		{#key fileId}
-			<ReadView {fileId} content={previewContent} onArticleRef={captureArticle} />
+			<ReadView
+				{fileId}
+				content={previewContent}
+				onArticleRef={captureArticle}
+				progressive={false}
+			/>
 		{/key}
 	</section>
 </div>
