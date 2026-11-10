@@ -7,6 +7,7 @@ import {
 	freezeInclude,
 	insertInclude,
 	linkedBlockKey,
+	locateInclude,
 	updateInclude
 } from './linked-blocks';
 import type { FileItem } from './types';
@@ -40,7 +41,7 @@ describe('linked blocks', () => {
 		expect(buildLinkReport([source, consumer])[0]?.state).toBe('current');
 		source.content = source.content.replace('Hello block.', 'Changed block.');
 		expect(buildLinkReport([source, consumer])[0]?.state).toBe('changed');
-		const frozen = freezeInclude(consumer.content, extractIncludes(consumer)[0]!);
+		const frozen = freezeInclude(consumer.content, extractIncludes(consumer)[0]!)!;
 		consumer.content = frozen;
 		expect(buildLinkReport([source, consumer])[0]?.state).toBe('frozen');
 		consumer.content = include.replace('source.md', 'missing.md');
@@ -49,13 +50,45 @@ describe('linked blocks', () => {
 
 	it('updates only the snapshot and detaches without deleting text', () => {
 		const consumer = file('consumer', 'consumer.md', include + '\nKeep me.\n');
-		const updated = updateInclude(consumer.content, extractIncludes(consumer)[0]!, 'Fresh block.');
+		const updated = updateInclude(consumer.content, extractIncludes(consumer)[0]!, 'Fresh block.')!;
 		expect(updated).toContain('Fresh block.');
 		expect(updated).toContain('Keep me.');
 		expect(updated).not.toContain('Hello block.');
-		const detached = detachInclude(updated, extractIncludes({ ...consumer, content: updated })[0]!);
+		const detached = detachInclude(
+			updated,
+			extractIncludes({ ...consumer, content: updated })[0]!
+		)!;
 		expect(detached).toContain('Fresh block.');
 		expect(detached).not.toContain('mdsh-include');
+	});
+
+	it('revalidates a captured include after the consumer document changes', () => {
+		const consumer = file('consumer', 'consumer.md', include + '\nKeep me.\n');
+		const captured = extractIncludes(consumer)[0]!;
+		const prefix = 'A NEW PREFIX\n';
+		const shifted = prefix + consumer.content;
+		const current = locateInclude(shifted, consumer.id, captured)!;
+		expect(current.from).toBe(captured.from + prefix.length);
+		const updated = updateInclude(shifted, captured, 'Fresh block.')!;
+		expect(updated.startsWith(prefix)).toBe(true);
+		expect(updated).toContain('Fresh block.');
+		expect(updated).toContain('Keep me.');
+		const refreshed = extractIncludes({ ...consumer, content: updated })[0]!;
+		expect(detachInclude(updated, refreshed)).toBe(prefix + '\n\nFresh block.\n\nKeep me.\n');
+	});
+
+	it('rejects a stale range with repeated identical includes or a deleted include', () => {
+		const consumer = file('consumer', 'consumer.md', include + '\n' + include + '\n');
+		const captured = extractIncludes(consumer)[0]!;
+		const shifted = 'A NEW PREFIX\n' + consumer.content;
+		expect(locateInclude(shifted, consumer.id, captured)).toBeNull();
+		expect(updateInclude(shifted, captured, 'Fresh block.')).toBeNull();
+		expect(freezeInclude(shifted, captured)).toBeNull();
+		expect(detachInclude(shifted, captured)).toBeNull();
+
+		const removed = 'A NEW PREFIX\n';
+		expect(locateInclude(removed, consumer.id, captured)).toBeNull();
+		expect(detachInclude(removed, captured)).toBeNull();
 	});
 
 	it('keeps a distinct identity for repeated block IDs and reports ambiguity', () => {

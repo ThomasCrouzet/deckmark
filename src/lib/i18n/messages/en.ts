@@ -604,6 +604,7 @@ export const en = {
 	'blocks.state_frozen': 'frozen',
 	'blocks.state_cycle': 'cycle detected',
 	'blocks.state_ambiguous': 'ambiguous source',
+	'blocks.stale': 'The document changed. Refresh the panel and try again.',
 	'exportProfiles.title': 'Export profiles',
 	'exportProfiles.command': 'Manage export profiles',
 	'exportProfiles.commandHint': 'Set page size, margins, font, cover, header and footer',

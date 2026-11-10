@@ -6,6 +6,7 @@
 	import { documentKindForFile } from '#lib/document-kind.js';
 	import {
 		buildLinkReport,
+		currentLinkReport,
 		detachInclude,
 		extractBlocks,
 		freezeInclude,
@@ -14,6 +15,7 @@
 		type LinkedBlock,
 		type LinkReport
 	} from '#lib/linked-blocks.js';
+	import { notify } from '#lib/notify.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
@@ -55,28 +57,51 @@
 		void refresh();
 	}
 
-	function update(report: LinkReport) {
-		const file = filesStore.library.find((entry) => entry.id === report.include.fileId);
-		if (!file) return;
-		filesStore.updateContent(
-			file.id,
-			updateInclude(file.content, report.include, report.sourceBody)
-		);
+	function current(report: LinkReport): LinkReport | null {
+		const next = currentLinkReport(filesStore.library, report.include.fileId, report.include);
+		if (!next) {
+			notify.error(t('blocks.stale'));
+			void refresh();
+		}
+		return next;
+	}
+
+	function apply(report: LinkReport, content: string | null): void {
+		if (!content) {
+			notify.error(t('blocks.stale'));
+			void refresh();
+			return;
+		}
+		filesStore.updateContent(report.include.fileId, content);
 		void refresh();
+	}
+
+	function update(report: LinkReport) {
+		const next = current(report);
+		if (!next) return;
+		if (next.state === 'missing' || next.state === 'cycle' || next.state === 'ambiguous') {
+			notify.error(t('blocks.stale'));
+			return;
+		}
+		const file = filesStore.library.find((entry) => entry.id === next.include.fileId);
+		if (!file) return;
+		apply(next, updateInclude(file.content, next.include, next.sourceBody));
 	}
 
 	function freeze(report: LinkReport) {
-		const file = filesStore.library.find((entry) => entry.id === report.include.fileId);
+		const next = current(report);
+		if (!next) return;
+		const file = filesStore.library.find((entry) => entry.id === next.include.fileId);
 		if (!file) return;
-		filesStore.updateContent(file.id, freezeInclude(file.content, report.include));
-		void refresh();
+		apply(next, freezeInclude(file.content, next.include));
 	}
 
 	function detach(report: LinkReport) {
-		const file = filesStore.library.find((entry) => entry.id === report.include.fileId);
+		const next = current(report);
+		if (!next) return;
+		const file = filesStore.library.find((entry) => entry.id === next.include.fileId);
 		if (!file) return;
-		filesStore.updateContent(file.id, detachInclude(file.content, report.include));
-		void refresh();
+		apply(next, detachInclude(file.content, next.include));
 	}
 
 	function stateLabel(state: LinkReport['state']): string {

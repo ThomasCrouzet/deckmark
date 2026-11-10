@@ -28,6 +28,8 @@ export interface LinkedInclude {
 	hash: string;
 	mode: 'linked' | 'frozen';
 	body: string;
+	/** Exact marker text captured with the offsets. */
+	raw: string;
 	from: number;
 	to: number;
 }
@@ -74,23 +76,45 @@ export function extractBlocks(file: FileItem): LinkedBlock[] {
 	return blocks;
 }
 
-export function extractIncludes(file: FileItem): LinkedInclude[] {
-	if (documentKindForFile(file) !== 'note') return [];
+function includesFromContent(content: string, fileId: string, path: string): LinkedInclude[] {
 	const includes: LinkedInclude[] = [];
-	for (const match of file.content.matchAll(INCLUDE)) {
+	for (const match of content.matchAll(INCLUDE)) {
 		includes.push({
-			fileId: file.id,
-			path: pathOf(file),
+			fileId,
+			path,
 			sourcePath: match[1]!,
 			blockId: match[2]!,
 			hash: match[3]!,
 			mode: match[4] === 'frozen' ? 'frozen' : 'linked',
 			body: match[5] ?? '',
+			raw: match[0],
 			from: match.index ?? 0,
 			to: (match.index ?? 0) + match[0].length
 		});
 	}
 	return includes;
+}
+
+export function extractIncludes(file: FileItem): LinkedInclude[] {
+	if (documentKindForFile(file) !== 'note') return [];
+	return includesFromContent(file.content, file.id, pathOf(file));
+}
+
+/**
+ * Finds the current occurrence of a captured include. A changed document is
+ * rescanned, and an ambiguous repeated marker is rejected instead of retargeted.
+ */
+export function locateInclude(
+	content: string,
+	fileId: string,
+	expected: LinkedInclude
+): LinkedInclude | null {
+	if (expected.fileId !== fileId) return null;
+	if (content.slice(expected.from, expected.to) === expected.raw) return expected;
+	const matches = includesFromContent(content, fileId, expected.path).filter(
+		(include) => include.raw === expected.raw
+	);
+	return matches.length === 1 ? matches[0]! : null;
 }
 
 /** One-pass index that keeps the original first-match precedence. */
@@ -158,8 +182,14 @@ function stronglyConnectedComponents(graph: Map<string, string[]>): {
 	return { component, selfLoop };
 }
 
-/** Resolves every include without changing any file. */
-export function buildLinkReport(files: readonly FileItem[]): LinkReport[] {
+interface LinkContext {
+	sources: Map<string, FileItem>;
+	blocksByFile: Map<string, Map<string, LinkedBlock[]>>;
+	component: Map<string, number>;
+	selfLoop: Set<string>;
+}
+
+function linkContext(files: readonly FileItem[]): LinkContext {
 	const blocksByFile = new Map<string, Map<string, LinkedBlock[]>>();
 	for (const file of files) {
 		const blocks = new Map<string, LinkedBlock[]>();
@@ -182,37 +212,57 @@ export function buildLinkReport(files: readonly FileItem[]): LinkReport[] {
 		);
 	}
 	const { component, selfLoop } = stronglyConnectedComponents(graph);
+	return { sources, blocksByFile, component, selfLoop };
+}
 
+function reportFor(file: FileItem, include: LinkedInclude, context: LinkContext): LinkReport {
+	const source = context.sources.get(include.sourcePath);
+	const matches = source ? (context.blocksByFile.get(source.id)?.get(include.blockId) ?? []) : [];
+	const block = matches.length === 1 ? matches[0] : undefined;
+	const ambiguous = matches.length > 1;
+	const cycle =
+		source !== undefined &&
+		context.component.get(source.id) === context.component.get(file.id) &&
+		(source.id !== file.id || context.selfLoop.has(file.id));
+	return {
+		include,
+		state: cycle
+			? 'cycle'
+			: ambiguous
+				? 'ambiguous'
+				: !block
+					? 'missing'
+					: include.mode === 'frozen'
+						? 'frozen'
+						: include.hash === block.hash
+							? 'current'
+							: 'changed',
+		sourceBody: block?.body ?? '',
+		sourceHash: block?.hash ?? ''
+	};
+}
+
+/** Resolves every include without changing any file. */
+export function buildLinkReport(files: readonly FileItem[]): LinkReport[] {
+	const context = linkContext(files);
 	const reports: LinkReport[] = [];
 	for (const file of files) {
-		for (const include of extractIncludes(file)) {
-			const source = sources.get(include.sourcePath);
-			const matches = source ? (blocksByFile.get(source.id)?.get(include.blockId) ?? []) : [];
-			const block = matches.length === 1 ? matches[0] : undefined;
-			const ambiguous = matches.length > 1;
-			const cycle =
-				source !== undefined &&
-				component.get(source.id) === component.get(file.id) &&
-				(source.id !== file.id || selfLoop.has(file.id));
-			reports.push({
-				include,
-				state: cycle
-					? 'cycle'
-					: ambiguous
-						? 'ambiguous'
-						: !block
-							? 'missing'
-							: include.mode === 'frozen'
-								? 'frozen'
-								: include.hash === block.hash
-									? 'current'
-									: 'changed',
-				sourceBody: block?.body ?? '',
-				sourceHash: block?.hash ?? ''
-			});
-		}
+		for (const include of extractIncludes(file)) reports.push(reportFor(file, include, context));
 	}
 	return reports;
+}
+
+/** Resolves one captured report against the current source and destination bytes. */
+export function currentLinkReport(
+	files: readonly FileItem[],
+	fileId: string,
+	include: LinkedInclude
+): LinkReport | null {
+	const file = files.find((entry) => entry.id === fileId);
+	if (!file) return null;
+	const current = locateInclude(file.content, fileId, include);
+	if (!current) return null;
+	return reportFor(file, current, linkContext(files));
 }
 
 export function renderInclude(
@@ -240,27 +290,40 @@ export function insertInclude(
 	return `${content}${separator}${renderInclude(sourcePath, blockId, hash, body)}\n`;
 }
 
-/** Updates one include snapshot in a consumer file. */
-export function updateInclude(content: string, include: LinkedInclude, body: string): string {
+/**
+ * Updates one include snapshot in a consumer file. Returns null when the
+ * captured range no longer identifies exactly one current include.
+ */
+export function updateInclude(
+	content: string,
+	include: LinkedInclude,
+	body: string
+): string | null {
+	const current = locateInclude(content, include.fileId, include);
+	if (!current) return null;
 	return (
-		content.slice(0, include.from) +
-		renderInclude(include.sourcePath, include.blockId, contentHash(body.trim()), body, 'linked') +
-		content.slice(include.to)
+		content.slice(0, current.from) +
+		renderInclude(current.sourcePath, current.blockId, contentHash(body.trim()), body, 'linked') +
+		content.slice(current.to)
 	);
 }
 
 /** Freezes the current snapshot. Source changes no longer report as changed. */
-export function freezeInclude(content: string, include: LinkedInclude): string {
+export function freezeInclude(content: string, include: LinkedInclude): string | null {
+	const current = locateInclude(content, include.fileId, include);
+	if (!current) return null;
 	return (
-		content.slice(0, include.from) +
-		renderInclude(include.sourcePath, include.blockId, include.hash, include.body, 'frozen') +
-		content.slice(include.to)
+		content.slice(0, current.from) +
+		renderInclude(current.sourcePath, current.blockId, current.hash, current.body, 'frozen') +
+		content.slice(current.to)
 	);
 }
 
 /** Removes the link and leaves the current snapshot text in place. */
-export function detachInclude(content: string, include: LinkedInclude): string {
-	return content.slice(0, include.from) + include.body + content.slice(include.to);
+export function detachInclude(content: string, include: LinkedInclude): string | null {
+	const current = locateInclude(content, include.fileId, include);
+	if (!current) return null;
+	return content.slice(0, current.from) + current.body + content.slice(current.to);
 }
 
 /** Replaces a block body in its canonical file. */
