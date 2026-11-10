@@ -414,6 +414,18 @@ directory while these handles remain open.
 An enabled schedule without a previous successful snapshot must run at startup.
 Otherwise, repeated sessions shorter than the interval can prevent its first backup.
 
+`src/lib/components/DesktopBackupPanel.component.test.ts` retains the snapshot
+list and preview identity risks. A late list must not replace the rows of a new
+backup folder. A late rejection must not show an error for the old folder. A
+preview must read the exact root and filename that the row displayed. The test
+also covers A to B to A changes, the same filename with different bytes, a
+missing file, and panel unmount. The Web edition does not load this panel, so
+the browser suite cannot mount it. These cases replace the native bridge and
+use deferred list and read promises. Run
+`npx vitest run src/lib/components/DesktopBackupPanel.component.test.ts --maxWorkers=1`.
+The cases do not replace the native picker, grant confinement, or scheduler
+checks above.
+
 `e2e/capture-snippets-review.spec.ts` checks snippet updates across windows.
 Desktop-edition cases also check first-mount templates, duplicate and concurrent
 saves, and failed writes that retain capture input. Set `CAPTURE_REVIEW_DESKTOP=1`
