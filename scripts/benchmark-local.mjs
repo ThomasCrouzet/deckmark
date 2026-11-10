@@ -753,6 +753,10 @@ async function runWebBenchmark(options, fixtures) {
 			undefined,
 			{ timeout: 60_000 }
 		);
+		// The read preview can still be laying out and painting after its text is
+		// present. Let that work settle before the two-frame scroll sample, or a
+		// single first-paint stall becomes the p95 of five samples.
+		await waitForIdle(page);
 		const scrollFrame = await measureScroll(page, options.runs);
 		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
