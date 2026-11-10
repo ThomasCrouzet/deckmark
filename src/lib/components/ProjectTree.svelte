@@ -25,7 +25,8 @@
 	import type { TransferResult, TransferSelection } from '#lib/project-transfer.js';
 	import { createProjectDocument, renameProject } from '#lib/projects.js';
 	import type { ProjectRoot } from '#lib/project-explorer.svelte.js';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { buildProjectTree } from '#lib/project-tree.js';
 
 	interface Props {
 		documents: FileItem[];
@@ -60,65 +61,37 @@
 		files: FileItem[];
 	}
 
-	interface ProjectNode {
-		id: string;
-		name: string;
-		folders: ProjectFolder[];
-		files: FileItem[];
-	}
-
 	const FILE_LIMIT = PROJECT_SCALE_LIMITS.boundedFolderRows;
+	const FOLDER_LIMIT = PROJECT_SCALE_LIMITS.boundedFolderRows;
 	let localCollapsed = new SvelteSet<string>();
-	let showAll = new SvelteSet<string>();
+	let pages = new SvelteMap<string, number>();
 	let dropKey = $state<string | null>(null);
 	let moveOpen = $state(false);
 	let moveSelection = $state<TransferSelection | null>(null);
 
-	function folderNode(name: string, path: string): ProjectFolder {
-		return { name, path, folders: [], files: [] };
+	const tree = $derived(
+		buildProjectTree(
+			documents,
+			projects.map((project) => ({ id: project.id, name: project.name }))
+		)
+	);
+	const roots = $derived(tree.roots);
+
+	function pageCount(key: string): number {
+		return pages.get(key) ?? 1;
 	}
 
-	const roots = $derived.by((): ProjectNode[] => {
-		const byId: Record<string, ProjectNode> = {};
-		const foldersByPath: Record<string, ProjectFolder> = {};
-		for (const project of projects)
-			byId[project.id] = { id: project.id, name: project.name, folders: [], files: [] };
-		for (const file of documents) {
-			if (!file.projectId) continue;
-			let root = byId[file.projectId];
-			if (!root) {
-				root = { id: file.projectId, name: file.projectId, folders: [], files: [] };
-				byId[file.projectId] = root;
-			}
-			const parts = (file.relativePath ?? file.name).split('/');
-			parts.pop();
-			let folder: ProjectFolder = {
-				name: root.name,
-				path: '',
-				folders: root.folders,
-				files: root.files
-			};
-			let path = '';
-			for (const part of parts) {
-				path = path ? `${path}/${part}` : part;
-				const key = `${file.projectId}\0${path}`;
-				let child = foldersByPath[key];
-				if (!child) {
-					child = folderNode(part, path);
-					foldersByPath[key] = child;
-					folder.folders.push(child);
-				}
-				folder = child;
-			}
-			folder.files.push(file);
-		}
-		const nodes = Object.values(byId);
-		for (const root of nodes) {
-			root.folders.sort((left, right) => left.name.localeCompare(right.name));
-			root.files.sort((left, right) => left.name.localeCompare(right.name));
-		}
-		return nodes.sort((left, right) => left.name.localeCompare(right.name));
-	});
+	function showMore(key: string): void {
+		pages.set(key, pageCount(key) + 1);
+	}
+
+	function visibleFolders(folder: ProjectFolder, key: string): ProjectFolder[] {
+		return folder.folders.slice(0, FOLDER_LIMIT * pageCount(key));
+	}
+
+	function visibleFiles(folder: ProjectFolder, key: string): FileItem[] {
+		return folder.files.slice(0, FILE_LIMIT * pageCount(key));
+	}
 
 	function rootKey(projectId: string): string {
 		return `${projectId}::`;
@@ -387,15 +360,12 @@
 				...(result.targetFolder ? { folder: result.targetFolder } : {})
 			});
 	}
-
-	function visibleFiles(folder: ProjectFolder, key: string): FileItem[] {
-		if (showAll.has(key)) return folder.files;
-		return folder.files.slice(0, FILE_LIMIT);
-	}
 </script>
 
 {#snippet folderContents(projectId: string, folder: ProjectFolder)}
-	{#each folder.folders as child (child.path)}
+	{@const contentsKey = folderKey(projectId, folder.path)}
+	{@const visibleChildren = visibleFolders(folder, contentsKey)}
+	{#each visibleChildren as child (child.path)}
 		{@const key = folderKey(projectId, child.path)}
 		<li
 			class={isDropActive(projectId, child.path) ? 'rounded bg-accent/10' : 'rounded'}
@@ -458,7 +428,22 @@
 			</details>
 		</li>
 	{/each}
-	{#each visibleFiles(folder, folderKey(projectId, folder.path)) as file (file.id)}
+	{#if folder.folders.length > visibleChildren.length}
+		<li>
+			<button
+				type="button"
+				data-project-show-more-folders
+				class="w-full rounded px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-2"
+				onclick={() => showMore(contentsKey)}
+			>
+				{t('projects.showMoreFolders', {
+					n: Math.min(FOLDER_LIMIT, folder.folders.length - visibleChildren.length)
+				})}
+			</button>
+		</li>
+	{/if}
+	{@const visibleRows = visibleFiles(folder, contentsKey)}
+	{#each visibleRows as file (file.id)}
 		<li
 			class="mdsh-file-row group relative flex items-stretch"
 			data-project-document={file.relativePath}
@@ -513,14 +498,17 @@
 			{/if}
 		</li>
 	{/each}
-	{#if folder.files.length > FILE_LIMIT && !showAll.has(folderKey(projectId, folder.path))}
+	{#if folder.files.length > visibleRows.length}
 		<li>
 			<button
 				type="button"
+				data-project-show-more-files
 				class="w-full rounded px-3 py-2 text-left text-xs text-fg-muted hover:bg-bg-2"
-				onclick={() => showAll.add(folderKey(projectId, folder.path))}
+				onclick={() => showMore(contentsKey)}
 			>
-				{t('projects.showAllFiles', { n: folder.files.length })}
+				{t('projects.showMoreFiles', {
+					n: Math.min(FILE_LIMIT, folder.files.length - visibleRows.length)
+				})}
 			</button>
 		</li>
 	{/if}

@@ -5,7 +5,11 @@ import {
 	documentMatches,
 	HeadingIdAllocator,
 	invalidateDocumentTextIndex,
-	invalidateRenderedHeadings
+	invalidateRenderedHeadings,
+	navigationScanStats,
+	resetNavigationScanStats,
+	resetSourceHeadingIndexCache,
+	sourceHeadingIndex
 } from './document-navigation';
 
 function originalAllocate(headings: readonly string[]): string[] {
@@ -85,5 +89,101 @@ describe('document navigation', () => {
 		expect(documentMatches(root, 'gamma')).toHaveLength(0);
 		invalidateDocumentTextIndex(root);
 		expect(documentMatches(root, 'gamma')[0]?.toString()).toBe('gamma');
+	});
+});
+
+function largeSource(): string {
+	const lines: string[] = ['# Title', ''];
+	for (let index = 0; index < 1000; index++) {
+		lines.push(`## Section ${index}`, '');
+		lines.push(`Paragraph ${index} ${'representative text '.repeat(24)}`, '');
+	}
+	return lines.join('\n');
+}
+
+function headingSignature(
+	headings: readonly { text: string; level: number; line: number; offset: number }[]
+) {
+	return headings.map(({ text, level, line, offset }) => ({ text, level, line, offset }));
+}
+
+describe('incremental source heading projection', () => {
+	it('reparses only the edited line window for a one-character change in 1 MB', () => {
+		const source = largeSource();
+		resetSourceHeadingIndexCache();
+		resetNavigationScanStats();
+		const first = sourceHeadingIndex(source);
+		const baseline = navigationScanStats();
+		const editOffset = source.indexOf('Paragraph 500 ');
+		const edited = `${source.slice(0, editOffset)}Paragraph 500 updated${source.slice(
+			editOffset + 'Paragraph 500'.length
+		)}`;
+		const second = sourceHeadingIndex(edited);
+		const after = navigationScanStats();
+		expect(second.revision).toBeGreaterThan(first.revision);
+		expect(after.incrementalParses).toBe(baseline.incrementalParses + 1);
+		expect(after.fullParses).toBe(baseline.fullParses);
+		// A 1 MB source has far more than 400 lines. The incremental parser must
+		// stay inside its checkpoint window instead of scanning every line.
+		expect(after.linesScanned - baseline.linesScanned).toBeLessThan(400);
+		const shift = edited.length - source.length;
+		const expected = first.headings.map((heading) => ({
+			...heading,
+			offset: heading.offset > editOffset ? heading.offset + shift : heading.offset
+		}));
+		expect(headingSignature(second.headings)).toEqual(headingSignature(expected));
+	});
+
+	it('keeps inserted and deleted headings exact against a full parse', () => {
+		const source = largeSource();
+		const cases = [
+			source.replace('## Section 750', '## Section 750\n\n### Added heading'),
+			source.replace('## Section 250\n\nParagraph 250', 'Paragraph 250'),
+			source.replace(/^Paragraph 400 .*$/m, 'Setext title\n------------')
+		];
+		for (const edited of cases) {
+			resetSourceHeadingIndexCache();
+			const oracle = sourceHeadingIndex(edited);
+			resetSourceHeadingIndexCache();
+			sourceHeadingIndex(source);
+			const incremental = sourceHeadingIndex(edited);
+			expect(headingSignature(incremental.headings)).toEqual(headingSignature(oracle.headings));
+		}
+	});
+
+	it('falls back to a full parse when a fence or frontmatter boundary changes', () => {
+		const source = largeSource();
+		const editOffset = source.indexOf('Paragraph 300 ');
+		const fenced = `${source.slice(0, editOffset)}\`\`\`\n# Not a heading\n\`\`\`\n${source.slice(
+			editOffset
+		)}`;
+		resetSourceHeadingIndexCache();
+		const oracle = sourceHeadingIndex(fenced);
+		resetSourceHeadingIndexCache();
+		sourceHeadingIndex(source);
+		const incremental = sourceHeadingIndex(fenced);
+		expect(headingSignature(incremental.headings)).toEqual(headingSignature(oracle.headings));
+		expect(incremental.headings.some((heading) => heading.text === 'Not a heading')).toBe(false);
+		const yaml = `---\ntitle: Changed\n---\n${source}`;
+		resetSourceHeadingIndexCache();
+		const yamlOracle = sourceHeadingIndex(yaml);
+		resetSourceHeadingIndexCache();
+		sourceHeadingIndex(source);
+		expect(headingSignature(sourceHeadingIndex(yaml).headings)).toEqual(
+			headingSignature(yamlOracle.headings)
+		);
+	});
+
+	it('reuses A and B indexes across alternating document switches', () => {
+		const first = largeSource();
+		const second = first.replace('## Section 999', '## Section 999 changed');
+		resetSourceHeadingIndexCache();
+		resetNavigationScanStats();
+		sourceHeadingIndex(first);
+		sourceHeadingIndex(second);
+		const parsed = navigationScanStats().fullParses + navigationScanStats().incrementalParses;
+		sourceHeadingIndex(first);
+		sourceHeadingIndex(second);
+		expect(navigationScanStats().fullParses + navigationScanStats().incrementalParses).toBe(parsed);
 	});
 });

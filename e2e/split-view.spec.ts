@@ -226,6 +226,60 @@ for (const bytes of [240_000, 1_000_000]) {
 	});
 }
 
+test('measures only the affected heading suffix after a late edit', async ({ page }, info) => {
+	test.setTimeout(90_000);
+	const sections = Array.from(
+		{ length: 1000 },
+		(_, index) => `## Indexed section ${index + 1}\n\nParagraph text ${index + 1}.`
+	);
+	await loadHeadingFixture(page, sections.join('\n\n'));
+	await page.getByRole('button', { name: 'Afficher l’aperçu' }).click();
+	const split = page.getByTestId('split-view');
+	await expect(split.locator('.mdsh-preview h2')).toHaveCount(1000);
+	await split.locator('.cm-content').focus();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.waitForTimeout(700);
+	await page.evaluate(() => {
+		const probe = { rects: 0, scrollHeightReads: 0 };
+		Object.assign(window, { splitEditProbe: probe });
+		const rect = Element.prototype.getBoundingClientRect;
+		Element.prototype.getBoundingClientRect = function () {
+			if (/^H[1-6]$/.test(this.tagName) && this.closest('.mdsh-split-preview')) probe.rects++;
+			return Reflect.apply(rect, this, []);
+		};
+		const descriptor =
+			Object.getOwnPropertyDescriptor(Element.prototype, 'scrollHeight') ??
+			Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight')!;
+		const prototype = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollHeight')
+			? Element.prototype
+			: HTMLElement.prototype;
+		Object.defineProperty(prototype, 'scrollHeight', {
+			configurable: true,
+			get() {
+				if (
+					this instanceof HTMLElement &&
+					(this.classList.contains('mdsh-read') ||
+						this.classList.contains('mdsh-editor') ||
+						this.classList.contains('cm-scroller'))
+				)
+					probe.scrollHeightReads++;
+				return descriptor.get!.call(this);
+			}
+		});
+	});
+	await page.keyboard.type('X');
+	await expect(split.locator('.mdsh-preview')).toContainText('Paragraph text 1000.X');
+	const measurements = (await page.evaluate(
+		() => (window as unknown as { splitEditProbe: object }).splitEditProbe
+	)) as { rects: number; scrollHeightReads: number };
+	expect(measurements.rects).toBeLessThan(120);
+	expect(measurements.scrollHeightReads).toBeLessThan(40);
+	await info.attach('split-edit-geometry.json', {
+		body: JSON.stringify({ headings: 1000, edit: 'last paragraph', measurements }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 test('refreshes split geometry after structural edits, theme and pane changes', async ({
 	page
 }, info) => {

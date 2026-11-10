@@ -5,10 +5,12 @@
 		completeRenderedHeadings,
 		documentMatches,
 		focusDocumentHeading,
-		invalidateDocumentTextIndex,
 		invalidateRenderedHeadings,
+		renderedNavigationRevision,
 		sourceHeadingIndex,
-		type DocumentHeading
+		watchRenderedNavigation,
+		type DocumentHeading,
+		type RenderedNavigationChange
 	} from '#lib/document-navigation.js';
 	import { X, ArrowUp, ArrowDown } from '@lucide/svelte';
 	let {
@@ -35,6 +37,10 @@
 	let lastSearch = '';
 	let selectionRequested = false;
 	let headings = $state<readonly DocumentHeading[]>([]);
+	let lastHeadingRevision = -1;
+	let lastTextRevision = -1;
+	let watchedRoot: HTMLElement | null = null;
+	let watchedMode = '';
 	const target = () =>
 		container?.querySelector<HTMLElement>(mode === 'read' ? '.mdsh-preview' : '.ProseMirror') ??
 		null;
@@ -81,18 +87,34 @@
 		const selectedMode = mode;
 		const selectedKind = kind;
 		let timer: ReturnType<typeof setTimeout>;
+		if (root !== watchedRoot || selectedMode !== watchedMode) {
+			lastHeadingRevision = -1;
+			lastTextRevision = -1;
+			watchedRoot = root;
+			watchedMode = selectedMode;
+		}
 		const update = () => {
 			clearHighlights();
 			const documentRoot = target();
-			invalidateRenderedHeadings(documentRoot);
 			if (selectedKind === 'outline') {
-				headings =
-					selectedMode === 'source'
-						? sourceHeadingIndex(text).headings
-						: completeRenderedHeadings(documentRoot);
+				if (selectedMode === 'source') {
+					headings = sourceHeadingIndex(text).headings;
+				} else {
+					const revision = documentRoot ? renderedNavigationRevision(documentRoot) : -1;
+					if (revision === lastHeadingRevision) return;
+					lastHeadingRevision = revision;
+					invalidateRenderedHeadings(documentRoot);
+					headings = completeRenderedHeadings(documentRoot);
+				}
 			} else {
+				const revision = documentRoot ? renderedNavigationRevision(documentRoot) : -1;
 				const changedQuery = search !== lastSearch;
+				if (!changedQuery && revision === lastTextRevision) {
+					if (ranges.length) showMatch(current, false);
+					return;
+				}
 				lastSearch = search;
+				lastTextRevision = revision;
 				ranges = documentRoot ? documentMatches(documentRoot, search) : [];
 				count = ranges.length;
 				current = changedQuery ? 0 : Math.max(0, Math.min(current, count - 1));
@@ -105,23 +127,27 @@
 			clearTimeout(timer);
 			timer = setTimeout(update, 120);
 		};
-		const observer = new MutationObserver(() => {
-			invalidateDocumentTextIndex(target());
-			invalidateRenderedHeadings(target());
-			schedule();
-		});
+		const unwatch =
+			root &&
+			watchRenderedNavigation(root, (change: RenderedNavigationChange) => {
+				if (selectedKind === 'outline') {
+					if (selectedMode !== 'source' && !change.headingsChanged) return;
+				} else if (!change.textChanged) {
+					return;
+				}
+				schedule();
+			});
 		const preserveCaret = () => {
 			selectionRequested = false;
 		};
 		root?.addEventListener('pointerdown', preserveCaret);
 		root?.addEventListener('keydown', preserveCaret);
-		if (root) observer.observe(root, { childList: true, subtree: true, characterData: true });
 		schedule();
 		return () => {
 			root?.removeEventListener('pointerdown', preserveCaret);
 			root?.removeEventListener('keydown', preserveCaret);
 			clearTimeout(timer);
-			observer.disconnect();
+			unwatch?.();
 			clearHighlights();
 		};
 	});

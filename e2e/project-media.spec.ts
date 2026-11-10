@@ -93,6 +93,89 @@ test('visual project images never request private relative paths', async ({
 	expect(privateRequests).toEqual([]);
 });
 
+test('resolves a project image whose reference differs only by path case', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await page.evaluate(async (base64) => {
+		const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const database = request.result;
+				const transaction = database.transaction(
+					['projects', 'drafts', 'projectAssets'],
+					'readwrite'
+				);
+				transaction.objectStore('projects').put({
+					id: 'case-project',
+					name: 'Case project',
+					createdAt: 1,
+					updatedAt: 1
+				});
+				transaction.objectStore('drafts').put({
+					id: 'case-file',
+					name: 'page.md',
+					content: '# Case\n\n![Diagram](../assets/diagram.png)\n',
+					projectId: 'case-project',
+					relativePath: 'notes/page.md',
+					createdAt: 1,
+					updatedAt: 1,
+					order: 0,
+					open: true
+				});
+				transaction.objectStore('projectAssets').put({
+					id: 'case-asset',
+					projectId: 'case-project',
+					path: 'Assets/Diagram.PNG',
+					mime: 'image/png',
+					data: bytes
+				});
+				transaction.oncomplete = () => {
+					database.close();
+					resolve();
+				};
+				transaction.onerror = () => reject(transaction.error);
+			};
+		});
+		localStorage.setItem('mdsh:activeId', 'case-file');
+		localStorage.setItem('mdsh:mode', 'source');
+	}, png);
+	await info.attach('case-media-fixture.json', {
+		body: JSON.stringify(
+			{
+				document: 'notes/page.md',
+				reference: '../assets/diagram.png',
+				asset: 'Assets/Diagram.PNG'
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	const reference = '../assets/diagram.png';
+	await expect(page.locator('.cm-content')).toContainText(reference);
+	await page.locator('[data-mode=read]').click();
+	const previewImage = page.locator('.mdsh-preview img');
+	await expect(previewImage).toHaveCount(1);
+	await expect
+		.poll(() => previewImage.evaluate((image: HTMLImageElement) => image.naturalWidth))
+		.toBe(1);
+	await expect.poll(() => previewImage.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+	await page.locator('[data-mode=wysiwyg]').click();
+	const visualImage = page.locator('.ProseMirror img').first();
+	await expect
+		.poll(() => visualImage.evaluate((image: HTMLImageElement) => image.naturalWidth))
+		.toBe(1);
+	await page.locator('[data-mode=source]').click();
+	await expect(page.locator('.cm-content')).toContainText(reference!);
+	await expect(page.locator('.cm-content')).not.toContainText('data:image');
+	await info.attach('case-media-preview.png', { body: await page.screenshot() });
+});
+
 test('project images retain relative paths through visual editing, drop, and HTML export', async ({
 	page
 }, info) => {

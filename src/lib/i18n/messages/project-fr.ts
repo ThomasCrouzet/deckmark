@@ -17,6 +17,8 @@ export const projectFr: Record<ProjectMessageKey, string> = {
 	'projects.deleteDocumentNamed': 'Déplacer {name} dans la corbeille',
 	'projects.toggleFolder': 'Développer ou réduire {name}',
 	'projects.showAllFiles': 'Afficher les {n} fichiers',
+	'projects.showMoreFiles': 'Afficher les {n} fichiers suivants',
+	'projects.showMoreFolders': 'Afficher les {n} dossiers suivants',
 	'projects.projectRoot': 'Racine du projet',
 	'projects.dropMove': 'Déplacer vers {path}',
 	'projects.dropCopy': 'Copier vers {path}',
