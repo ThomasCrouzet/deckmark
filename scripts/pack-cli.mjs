@@ -4,6 +4,11 @@
 // the existing MCP source, and small launchers. It adds no service and no
 // network listener. It does not sign, publish, or change a release workflow.
 //
+// deckmark-build.json and SHA256SUMS detect accidental corruption. They do not
+// authenticate the publisher: a writer who can change the payload can also
+// change both files. Authenticity needs an independent signature or transport
+// trust.
+//
 // Usage:
 //   node scripts/pack-cli.mjs --out build/cli-pack [--name <dir>] [--archive]
 //     [--runtime-node <path>] [--allow-dirty]
