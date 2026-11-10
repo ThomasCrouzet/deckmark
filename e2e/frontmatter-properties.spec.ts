@@ -128,6 +128,40 @@ test('keeps the BOM at offset zero when it creates front matter', async ({
 	});
 });
 
+test('keeps YAML-like text as a string property', async ({ page }, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial = '---\nauthor: Alice\ntags: [docs]\ndraft: true\n---\n\n# Body\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+
+	await page.getByTestId('frontmatter-author').locator('input').fill('true');
+	await page.getByTestId('frontmatter-tags').locator('input').fill('123, true');
+	await page.getByTestId('frontmatter-save').click();
+	const first = await source(page);
+	expect(first).toContain("author: 'true'");
+	expect(first).toContain("tags: ['123', 'true']");
+	expect(first).toContain('draft: true');
+
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-author').locator('input')).toHaveValue('true');
+	await expect(page.getByTestId('frontmatter-tags').locator('input')).toHaveValue('123, true');
+	await page.getByTestId('frontmatter-author').locator('input').fill('0123');
+	await page.getByTestId('frontmatter-save').click();
+	const second = await source(page);
+	expect(second).toContain("author: '0123'");
+	expect(second).toContain("tags: ['123', 'true']");
+	expect(second).toContain('draft: true');
+
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-author').locator('input')).toHaveValue('0123');
+	await expect(page.getByTestId('frontmatter-tags').locator('input')).toHaveValue('123, true');
+	await info.attach('frontmatter-strings.json', {
+		body: JSON.stringify({ initial, first, second }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 test('reports malformed YAML and refuses to edit it', async ({ page }, info: TestInfo) => {
 	await resetAppState(page);
 	await createFirstFile(page);

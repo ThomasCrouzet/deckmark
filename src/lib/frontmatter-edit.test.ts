@@ -146,4 +146,56 @@ describe('front matter property edits', () => {
 		const next = setFrontmatterProperty(mixed, 'author', 'Ada');
 		expect(next).toBe('---\ntitle: Mixed\nauthor: Ada\n---\r\n\r\nBody\r\n');
 	});
+
+	it('keeps YAML-like text as a string after a real parse', async () => {
+		const values = [
+			'true',
+			'false',
+			'null',
+			'Null',
+			'~',
+			'123',
+			'0123',
+			'1e3',
+			'.5',
+			'.nan',
+			'.inf',
+			'0x1f',
+			'2026-11-09',
+			'TRUE',
+			'#tag',
+			'a: b',
+			'- item'
+		];
+		for (const value of values) {
+			const next = setFrontmatterProperty('---\nauthor: Alice\n---\n', 'author', value);
+			const parsed = await parseFrontmatter(next);
+			expect(parsed.data.author, value).toBe(value);
+		}
+	});
+
+	it('keeps explicit boolean and number fields typed', async () => {
+		const boolean = setFrontmatterProperty('---\ndraft: true\n---\n', 'draft', false);
+		expect(boolean).toBe('---\ndraft: false\n---\n');
+		expect((await parseFrontmatter(boolean)).data.draft).toBe(false);
+		const number = setFrontmatterProperty('---\ncount: 1\n---\n', 'count', 42);
+		expect(number).toBe('---\ncount: 42\n---\n');
+		expect((await parseFrontmatter(number)).data.count).toBe(42);
+	});
+
+	it('keeps every tag as a string and stays stable on a repeated save', async () => {
+		const once = setFrontmatterProperty('---\ntags: [a]\n---\n', 'tags', [
+			'123',
+			'true',
+			"O'Reilly"
+		]);
+		const parsed = await parseFrontmatter(once);
+		expect(parsed.data.tags).toEqual(['123', 'true', "O'Reilly"]);
+		expect(setFrontmatterProperty(once, 'tags', ['123', 'true', "O'Reilly"])).toBe(once);
+		expect(readFrontmatterProperties(once).find((entry) => entry.key === 'tags')?.value).toEqual([
+			'123',
+			'true',
+			"O'Reilly"
+		]);
+	});
 });
