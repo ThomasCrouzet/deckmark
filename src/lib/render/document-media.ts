@@ -86,17 +86,32 @@ function markdownContainerLine(line: string): string {
 	}
 }
 
+function normalizedRelativePath(path: string): string | null {
+	if (path.split('/').includes('..')) return null;
+	return path.replace(/^\.\//, '').replace(/^\/+/, '');
+}
+
+/**
+ * Parses a Markdown destination as one URI reference. A raw query or fragment
+ * ends the path, while an encoded `%23` or `%3F` stays in the filename.
+ */
 function normalizedImagePath(value: string): string | null {
-	let path = value;
+	let path = value.trim().split(/[?#]/, 1)[0] ?? '';
 	try {
 		if (/^https?:\/\//i.test(path)) path = new URL(path).pathname;
 		path = decodeURIComponent(path);
 	} catch {
 		return null;
 	}
-	path = path.replace(/\\/g, '/').split(/[?#]/, 1)[0] ?? '';
-	if (path.split('/').includes('..')) return null;
-	return path.replace(/^\.\//, '').replace(/^\/+/, '');
+	return normalizedRelativePath(path.normalize('NFC').replace(/\\/g, '/')) || null;
+}
+
+/** Selected file names are filesystem names, not URI references. */
+function normalizedSelectedPath(file: File): string | null {
+	const path = normalizedRelativePath(
+		(file.webkitRelativePath || file.name).normalize('NFC').replace(/\\/g, '/')
+	);
+	return path || null;
 }
 
 interface FileMatcher {
@@ -108,10 +123,11 @@ function createFileMatcher(files: readonly File[]): FileMatcher {
 	const byName = new Map<string, File[]>();
 	const byNormalizedBasename = new Map<string, File[]>();
 	for (const file of files) {
-		const sameName = byName.get(file.name);
+		const name = file.name.normalize('NFC');
+		const sameName = byName.get(name);
 		if (sameName) sameName.push(file);
-		else byName.set(file.name, [file]);
-		const normalized = normalizedImagePath(file.webkitRelativePath || file.name);
+		else byName.set(name, [file]);
+		const normalized = normalizedSelectedPath(file);
 		const basename = normalized?.split('/').pop();
 		if (!basename) continue;
 		const candidates = byNormalizedBasename.get(basename);
@@ -126,13 +142,17 @@ function createFileMatcher(files: readonly File[]): FileMatcher {
 			// Only files with this basename can satisfy the exact or suffix rule.
 			const candidates = byNormalizedBasename.get(basename) ?? [];
 			const exact = candidates.filter((file) => {
-				const selected = normalizedImagePath(file.webkitRelativePath || file.name);
+				const selected = normalizedSelectedPath(file);
 				return selected === path || selected?.endsWith(`/${path}`);
 			});
 			if (exact.length === 1) return exact[0] ?? null;
 			if (exact.length > 1) return null;
+			// A bare selected name can satisfy a destination without its folder.
+			// A selected folder path must match that folder, never an unrelated one.
 			const sameName = byName.get(basename) ?? [];
-			return sameName.length === 1 ? (sameName[0] ?? null) : null;
+			if (sameName.length !== 1) return null;
+			const selected = normalizedSelectedPath(sameName[0]!);
+			return selected && !selected.includes('/') ? (sameName[0] ?? null) : null;
 		}
 	};
 }

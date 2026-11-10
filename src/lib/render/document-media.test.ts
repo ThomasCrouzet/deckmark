@@ -1,12 +1,24 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { incorporateDocumentImages, markdownImageDestinations } from './document-media';
 
-const PNG_BYTES = Uint8Array.from(
-	atob(
-		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDfoAAAAASUVORK5CYII='
-	),
-	(character) => character.charCodeAt(0)
+const PNG_BASE64 =
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDfoAAAAASUVORK5CYII=';
+const PNG_BYTES = Uint8Array.from(atob(PNG_BASE64), (character) => character.charCodeAt(0));
+const OTHER_PNG_BASE64 =
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const OTHER_PNG_BYTES = Uint8Array.from(atob(OTHER_PNG_BASE64), (character) =>
+	character.charCodeAt(0)
 );
+
+function selectedFile(
+	name: string,
+	relativePath: string | undefined,
+	bytes: Uint8Array<ArrayBuffer>
+): File {
+	const file = new File([bytes], name, { type: 'image/png' });
+	if (relativePath) Object.defineProperty(file, 'webkitRelativePath', { value: relativePath });
+	return file;
+}
 
 beforeEach(() =>
 	vi.stubGlobal(
@@ -54,6 +66,71 @@ describe('selected Markdown resources', () => {
 		});
 		expect(ambiguous.embedded).toBe(0);
 		expect(ambiguous.issues).toHaveLength(1);
+	});
+});
+
+describe('encoded filename identity', () => {
+	// The file chooser in Playwright sets only File.name. A selected folder also
+	// sets webkitRelativePath, so the browser suite cannot build the conflicting
+	// directory candidates that expose the wrong-file match.
+	it.each([
+		['images/figure%23public.png', 'vault/images/figure#private.png', 'figure#private.png'],
+		['images/figure%3Fv1.png', 'vault/images/figure?v2.png', 'figure?v2.png']
+	])('keeps %s unresolved instead of embedding %s', async (destination, relativePath, name) => {
+		const file = selectedFile(name, relativePath, OTHER_PNG_BYTES);
+		const source = `![Figure](${destination})`;
+		const result = await incorporateDocumentImages(source, { files: [file] });
+		expect(result.markdown).toBe(source);
+		expect(result.embedded).toBe(0);
+		expect(result.issues).toEqual([{ source: destination, reason: 'unreadable' }]);
+	});
+
+	it('embeds the exact bytes of the selected encoded filename', async () => {
+		const file = selectedFile('figure#public.png', undefined, OTHER_PNG_BYTES);
+		const result = await incorporateDocumentImages('![Figure](images/figure%23public.png)', {
+			files: [file]
+		});
+		expect(result.embedded).toBe(1);
+		expect(result.markdown).toBe(`![Figure](data:image/png;base64,${OTHER_PNG_BASE64})`);
+	});
+
+	it('does not fall back to a basename in another directory', async () => {
+		const file = selectedFile('figure.png', 'other/figure.png', PNG_BYTES);
+		const source = '![Figure](images/figure.png)';
+		const result = await incorporateDocumentImages(source, { files: [file] });
+		expect(result.markdown).toBe(source);
+		expect(result.embedded).toBe(0);
+		expect(result.issues).toEqual([{ source: 'images/figure.png', reason: 'unreadable' }]);
+	});
+
+	it('strips a genuine query and fragment before matching the file bytes', async () => {
+		const file = selectedFile('figure.png', 'vault/images/figure.png', OTHER_PNG_BYTES);
+		const result = await incorporateDocumentImages('![Figure](images/figure.png?size=large#view)', {
+			files: [file]
+		});
+		expect(result.embedded).toBe(1);
+		expect(result.markdown).toBe(`![Figure](data:image/png;base64,${OTHER_PNG_BASE64})`);
+	});
+
+	it.each(['images/%2e%2e/figure.png', 'images/%2e%2e%2ffigure.png'])(
+		'rejects encoded traversal in %s',
+		async (destination) => {
+			const file = selectedFile('figure.png', 'vault/images/figure.png', PNG_BYTES);
+			const source = `![Figure](${destination})`;
+			const result = await incorporateDocumentImages(source, { files: [file] });
+			expect(result.markdown).toBe(source);
+			expect(result.embedded).toBe(0);
+		}
+	);
+
+	it('decodes a percent sign once and keeps a literal percent sequence', async () => {
+		const literal = selectedFile('figure%23public.png', undefined, OTHER_PNG_BYTES);
+		const hash = selectedFile('figure#public.png', undefined, PNG_BYTES);
+		const result = await incorporateDocumentImages('![Figure](images/figure%2523public.png)', {
+			files: [literal, hash]
+		});
+		expect(result.embedded).toBe(1);
+		expect(result.markdown).toBe(`![Figure](data:image/png;base64,${OTHER_PNG_BASE64})`);
 	});
 });
 

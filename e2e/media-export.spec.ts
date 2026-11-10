@@ -259,6 +259,58 @@ test.describe('Durable images and PDF export', () => {
 		await expect(page.locator('.cm-content')).toContainText('data:image/png;base64,');
 	});
 
+	test('embeds the exact bytes named by encoded hash and question-mark destinations', async ({
+		page
+	}, testInfo) => {
+		const publicBytes = await readFile(resolve('static/pwa-192x192.png'));
+		const queryBytes = await readFile(resolve('static/pwa-64x64.png'));
+		const controlBytes = await readFile(imagePath);
+		const expected = [publicBytes, queryBytes, controlBytes].map(
+			(bytes) => `data:image/png;base64,${bytes.toString('base64')}`
+		);
+		await writeSourceContent(
+			page,
+			'![Hash](images/figure%23public.png)\n\n![Query](images/figure%3Fv1.png)\n\n![Control](images/plain.png?size=large)'
+		);
+		await page.locator('button[data-mode="read"]').click();
+		const chooser = page.waitForEvent('filechooser');
+		await page.getByRole('button', { name: 'Sélectionner les images', exact: true }).click();
+		await (
+			await chooser
+		).setFiles([
+			{ name: 'figure#public.png', mimeType: 'image/png', buffer: publicBytes },
+			{ name: 'figure?v1.png', mimeType: 'image/png', buffer: queryBytes },
+			{ name: 'plain.png', mimeType: 'image/png', buffer: controlBytes }
+		]);
+		const sources = () =>
+			page
+				.locator('.mdsh-preview img')
+				.evaluateAll((images) => images.map((image) => image.getAttribute('src')));
+		await expect.poll(sources).toEqual(expected);
+		await switchToSource(page);
+		const source = await page.locator('.cm-content').textContent();
+		expect(source).not.toContain('images/figure%23public.png');
+		expect(source).not.toContain('images/figure%3Fv1.png');
+		expect(source).not.toContain('images/plain.png');
+		await testInfo.attach('encoded-image-identity.json', {
+			body: JSON.stringify(
+				{
+					destination: [
+						'images/figure%23public.png',
+						'images/figure%3Fv1.png',
+						'images/plain.png?size=large'
+					],
+					selected: ['figure#public.png', 'figure?v1.png', 'plain.png'],
+					expectedBytes: [publicBytes.length, queryBytes.length, controlBytes.length],
+					embeddedSources: await sources()
+				},
+				null,
+				2
+			),
+			contentType: 'application/json'
+		});
+	});
+
 	test('keeps a data URI and an offline relative image in downloaded HTML', async ({
 		page,
 		browser
