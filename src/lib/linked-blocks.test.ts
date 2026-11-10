@@ -1,18 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildLinkReport,
+	currentLinkReport,
 	detachInclude,
 	extractBlocks,
 	extractIncludes,
 	freezeInclude,
 	insertInclude,
+	linkedBlockKey,
+	locateInclude,
 	updateInclude
 } from './linked-blocks';
 import type { FileItem } from './types';
 
 const now = Date.now();
-function file(id: string, name: string, content: string): FileItem {
-	return { id, name, content, createdAt: now, updatedAt: now, dirty: false };
+function file(id: string, name: string, content: string, extra: Partial<FileItem> = {}): FileItem {
+	return { id, name, content, createdAt: now, updatedAt: now, dirty: false, ...extra };
+}
+
+function projectFile(
+	id: string,
+	projectId: string,
+	relativePath: string,
+	content: string
+): FileItem {
+	return file(id, relativePath.split('/').pop()!, content, { projectId, relativePath });
+}
+
+function blockFile(id: string, name: string, blockId: string, body: string): FileItem {
+	return file(id, name, `<!-- mdsh-block id="${blockId}" -->\n${body}\n<!-- /mdsh-block -->`);
 }
 
 const source = file(
@@ -39,22 +55,196 @@ describe('linked blocks', () => {
 		expect(buildLinkReport([source, consumer])[0]?.state).toBe('current');
 		source.content = source.content.replace('Hello block.', 'Changed block.');
 		expect(buildLinkReport([source, consumer])[0]?.state).toBe('changed');
-		const frozen = freezeInclude(consumer.content, extractIncludes(consumer)[0]!);
+		const frozen = freezeInclude(consumer.content, extractIncludes(consumer)[0]!)!;
 		consumer.content = frozen;
 		expect(buildLinkReport([source, consumer])[0]?.state).toBe('frozen');
 		consumer.content = include.replace('source.md', 'missing.md');
 		expect(buildLinkReport([source, consumer])[0]?.state).toBe('missing');
 	});
 
+	it('compares exact snapshot bodies instead of 32-bit hashes', () => {
+		const colliding = blockFile('collision', 'collision.md', 'x', '4c6d3c14');
+		const block = extractBlocks(colliding)[0]!;
+		const consumer = file(
+			'collision-consumer',
+			'collision-consumer.md',
+			insertInclude('', 'collision.md', 'x', block.hash, block.body)
+		);
+		expect(buildLinkReport([colliding, consumer])[0]?.state).toBe('current');
+		colliding.content = colliding.content.replace('4c6d3c14', '34749a0f');
+		const changed = buildLinkReport([colliding, consumer])[0]!;
+		expect(changed.include.body.trim()).toBe('4c6d3c14');
+		expect(changed.sourceBody.trim()).toBe('34749a0f');
+		expect(changed.state).toBe('changed');
+	});
+
+	it('normalizes snapshot edges but not internal whitespace', () => {
+		const unicode = blockFile('unicode', 'unicode.md', 'x', '  Café au lait ☕  ');
+		const block = extractBlocks(unicode)[0]!;
+		const consumer = file(
+			'unicode-consumer',
+			'unicode-consumer.md',
+			insertInclude('', 'unicode.md', 'x', block.hash, 'Café au lait ☕')
+		);
+		expect(buildLinkReport([unicode, consumer])[0]?.state).toBe('current');
+		consumer.content = insertInclude('', 'unicode.md', 'x', block.hash, 'Café  au lait ☕');
+		expect(buildLinkReport([unicode, consumer])[0]?.state).toBe('changed');
+	});
+
 	it('updates only the snapshot and detaches without deleting text', () => {
 		const consumer = file('consumer', 'consumer.md', include + '\nKeep me.\n');
-		const updated = updateInclude(consumer.content, extractIncludes(consumer)[0]!, 'Fresh block.');
+		const updated = updateInclude(consumer.content, extractIncludes(consumer)[0]!, 'Fresh block.')!;
 		expect(updated).toContain('Fresh block.');
 		expect(updated).toContain('Keep me.');
 		expect(updated).not.toContain('Hello block.');
-		const detached = detachInclude(updated, extractIncludes({ ...consumer, content: updated })[0]!);
+		const detached = detachInclude(
+			updated,
+			extractIncludes({ ...consumer, content: updated })[0]!
+		)!;
 		expect(detached).toContain('Fresh block.');
 		expect(detached).not.toContain('mdsh-include');
+	});
+
+	it('revalidates a captured include after the consumer document changes', () => {
+		const consumer = file('consumer', 'consumer.md', include + '\nKeep me.\n');
+		const captured = extractIncludes(consumer)[0]!;
+		const prefix = 'A NEW PREFIX\n';
+		const shifted = prefix + consumer.content;
+		const current = locateInclude(shifted, consumer.id, captured)!;
+		expect(current.from).toBe(captured.from + prefix.length);
+		const updated = updateInclude(shifted, captured, 'Fresh block.')!;
+		expect(updated.startsWith(prefix)).toBe(true);
+		expect(updated).toContain('Fresh block.');
+		expect(updated).toContain('Keep me.');
+		const refreshed = extractIncludes({ ...consumer, content: updated })[0]!;
+		expect(detachInclude(updated, refreshed)).toBe(prefix + '\n\nFresh block.\n\nKeep me.\n');
+	});
+
+	it('rejects a stale range with repeated identical includes or a deleted include', () => {
+		const consumer = file('consumer', 'consumer.md', include + '\n' + include + '\n');
+		const captured = extractIncludes(consumer)[0]!;
+		const shifted = 'A NEW PREFIX\n' + consumer.content;
+		expect(locateInclude(shifted, consumer.id, captured)).toBeNull();
+		expect(updateInclude(shifted, captured, 'Fresh block.')).toBeNull();
+		expect(freezeInclude(shifted, captured)).toBeNull();
+		expect(detachInclude(shifted, captured)).toBeNull();
+
+		const removed = 'A NEW PREFIX\n';
+		expect(locateInclude(removed, consumer.id, captured)).toBeNull();
+		expect(detachInclude(removed, captured)).toBeNull();
+	});
+
+	it('keeps a distinct identity for repeated block IDs and reports ambiguity', () => {
+		const repeated = file(
+			'repeated',
+			'repeated.md',
+			'<!-- mdsh-block id="x" -->\nFirst\n<!-- /mdsh-block -->\n' +
+				'<!-- mdsh-block id="x" -->\nSecond\n<!-- /mdsh-block -->'
+		);
+		const blocks = extractBlocks(repeated);
+		expect(blocks.map((block) => block.key)).toEqual([
+			linkedBlockKey('repeated', 'x', 0),
+			linkedBlockKey('repeated', 'x', 1)
+		]);
+		const consumer = file(
+			'consumer',
+			'consumer.md',
+			insertInclude('', 'repeated.md', 'x', blocks[1]!.hash, blocks[1]!.body)
+		);
+		expect(buildLinkReport([repeated, consumer])[0]?.state).toBe('ambiguous');
+	});
+
+	it('resolves project sources only inside the consumer project', () => {
+		const sourceA = blockFile('a-source', 'intro.md', 'x', 'A secret text');
+		sourceA.projectId = 'A';
+		sourceA.relativePath = 'docs/intro.md';
+		const sourceB = blockFile('b-source', 'intro.md', 'x', 'B intended text');
+		sourceB.projectId = 'B';
+		sourceB.relativePath = 'docs/intro.md';
+		const blockB = extractBlocks(sourceB)[0]!;
+		const consumer = projectFile(
+			'b-consumer',
+			'B',
+			'notes/consumer.md',
+			insertInclude('', 'docs/intro.md', 'x', blockB.hash, blockB.body)
+		);
+		for (const files of [
+			[sourceA, sourceB, consumer],
+			[sourceB, sourceA, consumer]
+		]) {
+			const report = buildLinkReport(files).find((entry) => entry.include.fileId === consumer.id)!;
+			expect(report.state).toBe('current');
+			expect(report.sourceBody).toBe('B intended text');
+			const fresh = currentLinkReport(files, consumer.id, report.include)!;
+			expect(updateInclude(consumer.content, fresh.include, fresh.sourceBody)).toBe(
+				consumer.content
+			);
+		}
+	});
+
+	it('uses canonical project path keys and rejects ambiguous aliases', () => {
+		const source = projectFile(
+			'source',
+			'P',
+			'docs/Guide.md',
+			'<!-- mdsh-block id="x" -->\nGuide\n<!-- /mdsh-block -->'
+		);
+		const block = extractBlocks(source)[0]!;
+		const consumer = projectFile(
+			'consumer',
+			'P',
+			'notes/reader.md',
+			insertInclude('', 'DOCS/GUIDE.MD', 'x', block.hash, block.body)
+		);
+		expect(buildLinkReport([source, consumer])[0]?.state).toBe('current');
+
+		const first = projectFile(
+			'first',
+			'P',
+			'a/intro.md',
+			'<!-- mdsh-block id="x" -->\nFirst\n<!-- /mdsh-block -->'
+		);
+		const second = projectFile(
+			'second',
+			'P',
+			'b/intro.md',
+			'<!-- mdsh-block id="x" -->\nSecond\n<!-- /mdsh-block -->'
+		);
+		const alias = projectFile(
+			'alias',
+			'P',
+			'notes/alias.md',
+			insertInclude('', 'intro.md', 'x', block.hash, block.body)
+		);
+		expect(
+			buildLinkReport([first, second, alias]).find((report) => report.include.fileId === alias.id)
+				?.state
+		).toBe('ambiguous');
+
+		const standAloneA = blockFile('stand-a', 'intro.md', 'x', 'Stand A');
+		const standAloneB = blockFile('stand-b', 'intro.md', 'x', 'Stand B');
+		const standAloneConsumer = file(
+			'stand-consumer',
+			'consumer.md',
+			insertInclude('', 'intro.md', 'x', block.hash, block.body)
+		);
+		expect(buildLinkReport([standAloneA, standAloneB, standAloneConsumer])[0]?.state).toBe(
+			'ambiguous'
+		);
+	});
+
+	it('never crosses a project boundary for missing or cyclic sources', () => {
+		const sourceB = blockFile('b-source', 'intro.md', 'x', 'Other project');
+		sourceB.projectId = 'B';
+		sourceB.relativePath = 'docs/intro.md';
+		const consumerA = projectFile('a-consumer', 'A', 'notes/reader.md', '');
+		const blockB = extractBlocks(sourceB)[0]!;
+		consumerA.content = insertInclude('', 'docs/intro.md', 'x', blockB.hash, blockB.body);
+		expect(buildLinkReport([sourceB, consumerA])[0]?.state).toBe('missing');
+
+		sourceB.content += `\n${insertInclude('', 'notes/reader.md', 'x', 'h', 'Other')}`;
+		const reports = buildLinkReport([sourceB, consumerA]);
+		expect(reports.some((report) => report.state === 'cycle')).toBe(false);
 	});
 
 	it('marks only edges inside an SCC as cyclic', () => {

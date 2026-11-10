@@ -6,6 +6,7 @@
 	import { documentKindForFile } from '#lib/document-kind.js';
 	import {
 		buildLinkReport,
+		currentLinkReport,
 		detachInclude,
 		extractBlocks,
 		freezeInclude,
@@ -14,13 +15,14 @@
 		type LinkedBlock,
 		type LinkReport
 	} from '#lib/linked-blocks.js';
+	import { notify } from '#lib/notify.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
 
 	let blocks = $state<LinkedBlock[]>([]);
 	let reports = $state<LinkReport[]>([]);
-	let sourceId = $state('');
+	let sourceKey = $state('');
 	const active = $derived(filesStore.active);
 	const activePath = $derived(active ? (active.relativePath ?? active.name) : '');
 
@@ -40,12 +42,13 @@
 		await filesStore.ensureContent(needed);
 		blocks = filesStore.library.flatMap((file) => extractBlocks(file));
 		reports = buildLinkReport(filesStore.library);
-		if (!blocks.some((block) => block.fileId === sourceId)) sourceId = blocks[0]?.fileId ?? '';
+		if (!blocks.some((block) => block.key === sourceKey))
+			sourceKey = sourceKey ? '' : (blocks[0]?.key ?? '');
 	}
 
 	function insert() {
-		if (!active || !sourceId) return;
-		const block = blocks.find((entry) => entry.fileId === sourceId);
+		if (!active || !sourceKey) return;
+		const block = blocks.find((entry) => entry.key === sourceKey);
 		if (!block || block.fileId === active.id) return;
 		filesStore.updateContent(
 			active.id,
@@ -54,28 +57,51 @@
 		void refresh();
 	}
 
-	function update(report: LinkReport) {
-		const file = filesStore.library.find((entry) => entry.id === report.include.fileId);
-		if (!file) return;
-		filesStore.updateContent(
-			file.id,
-			updateInclude(file.content, report.include, report.sourceBody)
-		);
+	function current(report: LinkReport): LinkReport | null {
+		const next = currentLinkReport(filesStore.library, report.include.fileId, report.include);
+		if (!next) {
+			notify.error(t('blocks.stale'));
+			void refresh();
+		}
+		return next;
+	}
+
+	function apply(report: LinkReport, content: string | null): void {
+		if (!content) {
+			notify.error(t('blocks.stale'));
+			void refresh();
+			return;
+		}
+		filesStore.updateContent(report.include.fileId, content);
 		void refresh();
+	}
+
+	function update(report: LinkReport) {
+		const next = current(report);
+		if (!next) return;
+		if (next.state === 'missing' || next.state === 'cycle' || next.state === 'ambiguous') {
+			notify.error(t('blocks.stale'));
+			return;
+		}
+		const file = filesStore.library.find((entry) => entry.id === next.include.fileId);
+		if (!file) return;
+		apply(next, updateInclude(file.content, next.include, next.sourceBody));
 	}
 
 	function freeze(report: LinkReport) {
-		const file = filesStore.library.find((entry) => entry.id === report.include.fileId);
+		const next = current(report);
+		if (!next) return;
+		const file = filesStore.library.find((entry) => entry.id === next.include.fileId);
 		if (!file) return;
-		filesStore.updateContent(file.id, freezeInclude(file.content, report.include));
-		void refresh();
+		apply(next, freezeInclude(file.content, next.include));
 	}
 
 	function detach(report: LinkReport) {
-		const file = filesStore.library.find((entry) => entry.id === report.include.fileId);
+		const next = current(report);
+		if (!next) return;
+		const file = filesStore.library.find((entry) => entry.id === next.include.fileId);
 		if (!file) return;
-		filesStore.updateContent(file.id, detachInclude(file.content, report.include));
-		void refresh();
+		apply(next, detachInclude(file.content, next.include));
 	}
 
 	function stateLabel(state: LinkReport['state']): string {
@@ -109,18 +135,19 @@
 					<p>{t('blocks.insertHelp')}</p>
 					<div class="insert-row">
 						<select
-							bind:value={sourceId}
+							bind:value={sourceKey}
 							aria-label={t('blocks.source')}
 							data-testid="blocks-source"
 						>
-							{#each blocks as block (block.fileId + block.id)}
-								<option value={block.fileId}>{block.path} · {block.id}</option>
+							{#each blocks as block (block.key)}
+								<option value={block.key}>{block.path} · {block.id}</option>
 							{/each}
 						</select>
 						<button
 							type="button"
 							disabled={!active ||
-								blocks.find((block) => block.fileId === sourceId)?.fileId === active?.id}
+								!sourceKey ||
+								blocks.find((block) => block.key === sourceKey)?.fileId === active?.id}
 							onclick={insert}
 							data-testid="blocks-insert">{t('blocks.insertAction')}</button
 						>
@@ -140,7 +167,9 @@
 							<div class="actions">
 								<button
 									type="button"
-									disabled={report.state === 'missing' || report.state === 'cycle'}
+									disabled={report.state === 'missing' ||
+										report.state === 'cycle' ||
+										report.state === 'ambiguous'}
 									onclick={() => update(report)}>{t('blocks.update')}</button
 								>
 								<button type="button" onclick={() => freeze(report)}>{t('blocks.freeze')}</button>
