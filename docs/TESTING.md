@@ -2172,3 +2172,23 @@ key result.
 and an unknown self-hosted copy. The public deployment checks in
 `playwright.production.config.ts` and `verify-deployment.yml` still verify each
 live host independently against its own expected base path and source SHA.
+
+## Local semantic search query risks
+
+`e2e/semantic-search.spec.ts` checks the observable results. A scoped clear keeps
+the library and the other project rows. An edited document stays out of the
+ranking until a rebuild. A saved index from another model revision is never
+scored.
+
+```sh
+E2E_PORT=4399 npx playwright test e2e/semantic-search.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The query race needs an out-of-order completion that the browser suite cannot
+schedule without replacing IndexedDB request objects. `src/lib/semantic-search-query.test.ts`
+holds a deferred read for query A, resolves query B first, then releases A. Only
+B may publish. `src/lib/semantic-search.test.ts` checks the trained-revision
+boundary, the A to B to A corpus transition, a fresh-index oracle, and scoped row
+reads at 300, 900 and 3,000 rows. The 3,000-row timing budget stays with #327.
+Keep the Playwright JSON and HTML reports with the command and source revision.
+

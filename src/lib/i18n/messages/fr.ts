@@ -584,6 +584,7 @@ export const fr: Record<MessageKey, string> = {
 	'semantic.rebuild': 'L’index a été construit avec un autre modèle. Reconstruisez l’index.',
 	'semantic.stale':
 		'Certains documents indexés ont changé. Reconstruisez l’index pour les inclure.',
+	'semantic.clearError': 'Impossible d’effacer l’index sélectionné. Réessayez.',
 	'semantic.scope': 'Portée de l’index',
 	'semantic.library': 'Documents de la bibliothèque',
 	'semantic.project': 'Projet actif',

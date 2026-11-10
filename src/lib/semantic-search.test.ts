@@ -1,11 +1,16 @@
+import Dexie from 'dexie';
 import { describe, expect, it } from 'vitest';
 import { contentHash } from './ai/patches';
 import type { FileItem } from './types';
+import type { SemanticIndexRow } from './db';
 import {
+	clearScope,
 	compatibleRows,
 	cosine,
 	embed,
 	indexFiles,
+	scopeRowId,
+	scopedRows,
 	search,
 	trainCooccurrenceModel
 } from './semantic-search';
@@ -161,5 +166,78 @@ describe('local semantic index', () => {
 		const vector = embed('one two two');
 		const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
 		expect(norm).toBeCloseTo(1);
+	});
+});
+
+describe('scoped index rows', () => {
+	function row(index: number, projectId: string | null): SemanticIndexRow {
+		return {
+			id: scopeRowId(projectId, `draft-${index}`),
+			projectId,
+			draftId: `draft-${index}`,
+			path: `doc-${index}.md`,
+			contentHash: `hash-${index}`,
+			modelId: 'feature-hash-v1',
+			modelRevision: 'feature-hash-v1',
+			vector: [],
+			chunks: [],
+			updatedAt: now
+		};
+	}
+
+	it('reads and clears only the selected library or project scope', async () => {
+		const database = new Dexie(`semantic-scope-${Date.now()}`);
+		database.version(1).stores({ semanticIndex: 'id, projectId, draftId' });
+		try {
+			const table = database.table<SemanticIndexRow, string>('semanticIndex');
+			await table.bulkPut([row(1, null), row(2, 'project-a'), row(3, 'project-b')]);
+
+			expect((await scopedRows(table, null)).map((entry) => entry.id)).toEqual(['library:draft-1']);
+			expect((await scopedRows(table, 'project-a')).map((entry) => entry.id)).toEqual([
+				'project-a:draft-2'
+			]);
+
+			expect(await clearScope(table, 'project-a')).toBe(1);
+			expect((await table.toArray()).map((entry) => entry.id).sort()).toEqual([
+				'library:draft-1',
+				'project-b:draft-3'
+			]);
+
+			expect(await clearScope(table, null)).toBe(1);
+			expect((await table.toArray()).map((entry) => entry.id)).toEqual(['project-b:draft-3']);
+
+			expect(await clearScope(table, 'project-b')).toBe(1);
+			expect(await table.count()).toBe(0);
+		} finally {
+			await database.delete();
+		}
+	});
+
+	it.each([300, 900, 3000])('keeps %i rows scoped and excludes stale source rows', async (size) => {
+		const database = new Dexie(`semantic-scale-${size}-${Date.now()}`);
+		database.version(1).stores({ semanticIndex: 'id, projectId, draftId' });
+		try {
+			const table = database.table<SemanticIndexRow, string>('semanticIndex');
+			const entries = Array.from({ length: size }, (_, index) =>
+				row(index, index % 2 === 0 ? 'project-a' : 'project-b')
+			);
+			await table.bulkPut(entries);
+			const scoped = await scopedRows(table, 'project-a');
+			expect(scoped).toHaveLength(size / 2);
+			expect(scoped.every((entry) => entry.projectId === 'project-a')).toBe(true);
+
+			const current = new Map(scoped.map((entry) => [entry.draftId, entry.contentHash]));
+			current.set(scoped[0]!.draftId, 'edited');
+			const compatible = compatibleRows(
+				scoped,
+				{ modelId: 'feature-hash-v1', revision: 'feature-hash-v1', dims: 384, embed },
+				(entry) => current.get(entry.draftId) === entry.contentHash
+			);
+			expect(compatible.rows).toHaveLength(size / 2 - 1);
+			expect(compatible.stale).toBe(1);
+			expect(compatible.incompatible).toBe(0);
+		} finally {
+			await database.delete();
+		}
 	});
 });

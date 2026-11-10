@@ -3,6 +3,7 @@
 // selected local corpus, so it captures related terms that appear together.
 
 import type { SemanticIndexRow } from './db';
+import type { Table } from 'dexie';
 import { contentHash } from './ai/patches';
 import { documentKindForFile } from './document-kind';
 import type { FileItem } from './types';
@@ -191,6 +192,46 @@ function embedChunk(embedder: Embedder, text: string): number[] {
 	return vector;
 }
 
+/** Key of the library scope, or the exact project id. */
+export function scopeKey(projectId: string | null): string {
+	return projectId ?? 'library';
+}
+
+/** Stable index row id for one document in one scope. */
+export function scopeRowId(projectId: string | null, draftId: string): string {
+	return `${scopeKey(projectId)}:${draftId}`;
+}
+
+/**
+ * Reads only the selected library or project scope. The project index is used
+ * for a project. Library rows use the primary-key prefix because IndexedDB
+ * does not index a null key.
+ */
+export function scopedRows(
+	table: Table<SemanticIndexRow, string>,
+	projectId: string | null
+): Promise<SemanticIndexRow[]> {
+	return projectId
+		? table.where('projectId').equals(projectId).toArray()
+		: table
+				.where('id')
+				.startsWith(`${scopeKey(projectId)}:`)
+				.toArray();
+}
+
+/** Deletes only the selected scope and returns the deleted row count. */
+export function clearScope(
+	table: Table<SemanticIndexRow, string>,
+	projectId: string | null
+): Promise<number> {
+	return projectId
+		? table.where('projectId').equals(projectId).delete()
+		: table
+				.where('id')
+				.startsWith(`${scopeKey(projectId)}:`)
+				.delete();
+}
+
 export interface CompatibleIndexRows {
 	rows: SemanticIndexRow[];
 	/** Rows from another model revision. */
@@ -273,7 +314,7 @@ export function indexFile(
 	const path = file.relativePath ?? file.name;
 	if (SECRET.test(path)) return null;
 	return {
-		id: `${projectId ?? 'library'}:${file.id}`,
+		id: scopeRowId(projectId, file.id),
 		projectId,
 		draftId: file.id,
 		path,

@@ -17,6 +17,27 @@ async function closeSemantic(page: Page) {
 	await expect(page.getByTestId('semantic-panel')).toHaveCount(0);
 }
 
+async function importProject(page: Page, name: string, files: Record<string, string>) {
+	const zip = new (await import('jszip')).default();
+	for (const [path, content] of Object.entries(files)) zip.file(path, content);
+	await page.getByTestId('projects-open').click();
+	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await panel.locator('input[type=file][accept=".zip"]').setInputFiles({
+		name: `${name}.zip`,
+		mimeType: 'application/zip',
+		buffer: await zip.generateAsync({ type: 'nodebuffer' })
+	});
+	await panel.getByRole('button', { name: 'Fermer les projets' }).click();
+}
+
+async function openProjectDocument(page: Page, project: string, path: string) {
+	const root = page.locator(`[data-project-root-name="${project}"]`);
+	const details = root.locator('details').first();
+	if ((await details.getAttribute('open')) === null) await root.locator('summary').first().click();
+	await expect(details).toHaveAttribute('open', '');
+	await root.locator(`[data-project-document="${path}"] button[data-file-id]`).click();
+}
+
 async function semanticRows(
 	page: Page
 ): Promise<Array<{ id: string; projectId: string | null; path: string; modelId: string }>> {
@@ -82,6 +103,73 @@ test('builds, searches and clears a local index without network access', async (
 
 	await info.attach('semantic-search.json', {
 		body: JSON.stringify({ indexed: 2, query: 'document', externalRequests: external }),
+		contentType: 'application/json'
+	});
+});
+
+test('clears only the selected library or project index', async ({ page }, info: TestInfo) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'Library', content: '# Library\n\nDocumentation for the library.\n' }
+	]);
+	await importProject(page, 'Alpha', { 'alpha.md': '# Alpha\n\nDocumentation for alpha.\n' });
+	await importProject(page, 'Beta', { 'beta.md': '# Beta\n\nDocumentation for beta.\n' });
+
+	// Build the three scopes in turn. The panel takes the active project as its
+	// initial scope on each open.
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await page.getByTestId('semantic-index').click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await closeSemantic(page);
+
+	await openProjectDocument(page, 'Alpha', 'alpha.md');
+	await openSemantic(page);
+	await page.getByTestId('semantic-index').click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await closeSemantic(page);
+
+	await openProjectDocument(page, 'Beta', 'beta.md');
+	await openSemantic(page);
+	await page.getByTestId('semantic-index').click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await closeSemantic(page);
+
+	// Clearing Project Alpha must keep the library and Project Beta rows.
+	await openProjectDocument(page, 'Alpha', 'alpha.md');
+	await openSemantic(page);
+	await page.getByTestId('semantic-clear').click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('0 document');
+	await page.getByTestId('semantic-query').fill('alpha');
+	await expect(page.getByTestId('semantic-hit')).toHaveCount(0);
+	let rows = await semanticRows(page);
+	expect(rows.map((row) => row.path).sort()).toEqual(['Library.md', 'beta.md']);
+	expect(rows.some((row) => row.projectId === null)).toBe(true);
+
+	// The library scope still queries and clears on its own.
+	await page.getByTestId('semantic-scope').selectOption({ label: 'Documents de la bibliothèque' });
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await page.getByTestId('semantic-query').fill('library');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Library');
+	await page.getByTestId('semantic-clear').click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('0 document');
+	rows = await semanticRows(page);
+	expect(rows.map((row) => row.path)).toEqual(['beta.md']);
+	await closeSemantic(page);
+
+	// Project Beta is still usable and clears without touching another scope.
+	await openProjectDocument(page, 'Beta', 'beta.md');
+	await openSemantic(page);
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await page.getByTestId('semantic-query').fill('beta');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('beta.md');
+	await page.getByTestId('semantic-clear').click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('0 document');
+	expect(await semanticRows(page)).toHaveLength(0);
+
+	await info.attach('semantic-scoped-clear.json', {
+		body: JSON.stringify({ selectedScope: 'project-alpha', remainingScopes: ['library', 'beta'] }),
 		contentType: 'application/json'
 	});
 });

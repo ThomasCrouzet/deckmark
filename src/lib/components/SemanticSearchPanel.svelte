@@ -5,9 +5,12 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { db } from '#lib/db.js';
 	import {
+		clearScope,
 		compatibleRows,
 		featureModel,
 		indexFiles,
+		scopeKey,
+		scopedRows,
 		search,
 		SEMANTIC_MODELS,
 		type Embedder,
@@ -40,6 +43,7 @@
 	let modelId = $state<SemanticModelId>('feature-hash-v1');
 	let incompatibleRows = $state(0);
 	let staleRows = $state(0);
+	let clearFailed = $state(false);
 
 	/** Latest query and latest count read. An older read cannot publish. */
 	const searchJob = new LatestOnly();
@@ -88,15 +92,9 @@
 	 * without hashing every body on each keystroke.
 	 */
 	function scopeSignature(scope: string | null): string {
-		return `${scope ?? 'library'}|${scopeFiles(scope)
+		return `${scopeKey(scope)}|${scopeFiles(scope)
 			.map((file) => `${file.id}:${file.updatedAt}`)
 			.join(',')}`;
-	}
-
-	async function scopeRows(scope: string | null) {
-		if (scope) return db.semanticIndex.where('projectId').equals(scope).toArray();
-		const all = await db.semanticIndex.toArray();
-		return all.filter((row) => row.projectId === null);
 	}
 
 	async function hydrate(files: readonly FileItem[]): Promise<void> {
@@ -115,7 +113,7 @@
 		if (trainedEmbedder?.key === key) return trainedEmbedder.embedder;
 		const files = scopeFiles(scope);
 		await hydrate(files);
-		const corpusKey = `${scope ?? 'library'}|${files
+		const corpusKey = `${scopeKey(scope)}|${files
 			.map((file) => `${file.id}:${contentHash(file.content)}`)
 			.join(',')}`;
 		const trained = cachedCooccurrenceEmbedder(
@@ -141,7 +139,7 @@
 	async function loadCount() {
 		const token = countJob.begin();
 		const scope = projectId;
-		const rows = await scopeRows(scope);
+		const rows = await scopedRows(db.semanticIndex, scope);
 		if (!countJob.isCurrent(token) || scope !== projectId) return;
 		count = rows.length;
 	}
@@ -151,6 +149,7 @@
 		localStorage.setItem(KEY, value ? '1' : '0');
 		searchJob.invalidate();
 		countJob.invalidate();
+		clearFailed = false;
 		if (!value) {
 			results = [];
 			count = 0;
@@ -167,6 +166,7 @@
 		results = [];
 		staleRows = 0;
 		incompatibleRows = 0;
+		clearFailed = false;
 		// Retain the saved trained model if the scope corpus did not change.
 		void loadCount();
 		if (query.trim()) void runSearch();
@@ -193,11 +193,10 @@
 			const files = scopeFiles(scope);
 			await hydrate(files);
 			const embedder = await resolveEmbedder(scope, signature, model);
-			const existing = await scopeRows(scope);
+			const existing = await scopedRows(db.semanticIndex, scope);
 			const rows = indexFiles(files, existing, scope, embedder);
 			await db.transaction('rw', db.semanticIndex, async () => {
-				if (scope) await db.semanticIndex.where('projectId').equals(scope).delete();
-				else await db.semanticIndex.filter((row) => row.projectId === null).delete();
+				await clearScope(db.semanticIndex, scope);
 				if (rows.length) await db.semanticIndex.bulkPut($state.snapshot(rows));
 			});
 			searchJob.invalidate();
@@ -229,7 +228,7 @@
 			signature !== scopeSignature(projectId)
 		)
 			return;
-		const rows = await scopeRows(scope);
+		const rows = await scopedRows(db.semanticIndex, scope);
 		if (!searchJob.isCurrent(token)) return;
 		if (
 			scope !== projectId ||
@@ -248,15 +247,24 @@
 	}
 
 	async function clearIndex() {
-		if (!enabled) return;
+		if (!enabled || indexing) return;
+		const scope = projectId;
+		clearFailed = false;
 		// Pending reads may still return rows that this action deletes.
 		searchJob.invalidate();
 		countJob.invalidate();
-		await db.semanticIndex.clear();
-		results = [];
-		count = 0;
-		staleRows = 0;
-		incompatibleRows = 0;
+		try {
+			await clearScope(db.semanticIndex, scope);
+		} catch {
+			if (scope === projectId) clearFailed = true;
+			return;
+		}
+		if (scope === projectId) {
+			results = [];
+			count = 0;
+			staleRows = 0;
+			incompatibleRows = 0;
+		}
 		// A query started during the delete read the old rows.
 		searchJob.invalidate();
 		countJob.invalidate();
@@ -320,11 +328,19 @@
 						>
 							{t('semantic.build')}
 						</button>
-						<button type="button" onclick={() => void clearIndex()} data-testid="semantic-clear">
+						<button
+							type="button"
+							disabled={indexing}
+							onclick={() => void clearIndex()}
+							data-testid="semantic-clear"
+						>
 							{t('semantic.clear')}
 						</button>
 						<span role="status">{t('semantic.count', { n: count })}</span>
 					</div>
+					{#if clearFailed}
+						<p class="note" role="alert">{t('semantic.clearError')}</p>
+					{/if}
 					<label>
 						<span>{t('semantic.model')}</span>
 						<select bind:value={modelId} onchange={changeModel} data-testid="semantic-model">
