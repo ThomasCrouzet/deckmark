@@ -10,7 +10,7 @@ import {
 	unlinkSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let root = '';
@@ -381,6 +381,112 @@ describe('MCP authorization races', () => {
 			rmSync(outside, { recursive: true, force: true });
 		}
 	}, 20_000);
+});
+
+describe('MCP credential exclusions', () => {
+	const stores: Array<[string, string]> = [
+		['.docker/config.json', 'docker-token'],
+		['.pypirc', 'pypi-token'],
+		['.netrc', 'netrc-token'],
+		['.config/gcloud/application_default_credentials.json', 'gcloud-token'],
+		['.aws/credentials', 'aws-token'],
+		['.kube/config', 'kube-token'],
+		['.git-credentials', 'git-token'],
+		['.npmrc', 'npm-token'],
+		['.ssh/id_custom', 'ssh-token']
+	];
+
+	function writeStore(path: string, content: string) {
+		mkdirSync(dirname(join(root, path)), { recursive: true });
+		writeFileSync(join(root, path), content);
+	}
+
+	it.each(stores)('excludes %s from every read-only tool', async (path, marker) => {
+		writeStore(path, marker);
+		const read = await request('tools/call', {
+			name: 'read_file',
+			arguments: { path }
+		});
+		expect(read.result).toMatchObject({ isError: true });
+		expect(JSON.stringify(read.result)).toContain('sensitive');
+		expect(JSON.stringify(read.result)).not.toContain(marker);
+
+		const patch = await request('tools/call', {
+			name: 'propose_patch',
+			arguments: { path, before: marker, after: 'changed' }
+		});
+		expect(patch.result).toMatchObject({ isError: true });
+		expect(JSON.stringify(patch.result)).toContain('sensitive');
+		expect(JSON.stringify(patch.result)).not.toContain(marker);
+
+		const search = await request('tools/call', {
+			name: 'search',
+			arguments: { query: marker }
+		});
+		const searchText = (search.result as { content: Array<{ text: string }> }).content[0]!.text;
+		const report = JSON.parse(searchText) as { hits?: unknown };
+		expect(JSON.stringify(report.hits ?? [])).not.toContain(marker);
+
+		const list = await request('tools/call', { name: 'list_files', arguments: {} });
+		const listText = (list.result as { content: Array<{ text: string }> }).content[0]!.text;
+		expect(JSON.parse(listText).files.map((file: { path: string }) => file.path)).not.toContain(
+			path
+		);
+	});
+
+	it('excludes a credential file reached through an in-root alias', async () => {
+		writeStore('.docker/config.json', 'docker-secret');
+		symlinkSync('.docker/config.json', join(root, 'alias.json'));
+		const read = await request('tools/call', {
+			name: 'read_file',
+			arguments: { path: 'alias.json' }
+		});
+		expect(read.result).toMatchObject({ isError: true });
+		expect(JSON.stringify(read.result)).toContain('sensitive');
+		expect(JSON.stringify(read.result)).not.toContain('docker-secret');
+	});
+
+	it('excludes a credential file when the approved root is the credential directory', () => {
+		const credentialRoot = join(root, '.docker');
+		mkdirSync(credentialRoot);
+		writeFileSync(join(credentialRoot, 'config.json'), 'docker-root-token');
+		const result = spawnSync(
+			process.execPath,
+			[resolve('bin/deckmark-mcp.mjs'), '--root', credentialRoot],
+			{
+				input: `${JSON.stringify({
+					jsonrpc: '2.0',
+					id: 1,
+					method: 'tools/call',
+					params: { name: 'read_file', arguments: { path: 'config.json' } }
+				})}\n`,
+				encoding: 'utf8',
+				timeout: 5000
+			}
+		);
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('sensitive');
+		expect(result.stdout).not.toContain('docker-root-token');
+	});
+
+	it('keeps benign JSON, TOML and note files readable', async () => {
+		writeFileSync(join(root, 'config.json'), '{"setting":true}');
+		writeFileSync(join(root, 'config.toml'), 'setting = true');
+		const read = await request('tools/call', {
+			name: 'read_file',
+			arguments: { path: 'config.json' }
+		});
+		expect(JSON.stringify(read.result)).toContain('setting');
+		const toml = await request('tools/call', {
+			name: 'read_file',
+			arguments: { path: 'config.toml' }
+		});
+		expect(JSON.stringify(toml.result)).toContain('setting');
+		const list = await request('tools/call', { name: 'list_files', arguments: {} });
+		const listText = (list.result as { content: Array<{ text: string }> }).content[0]!.text;
+		const paths = JSON.parse(listText).files.map((file: { path: string }) => file.path);
+		expect(paths).toEqual(expect.arrayContaining(['config.json', 'config.toml', 'notes/guide.md']));
+	});
 });
 
 describe('bounded MCP work', () => {

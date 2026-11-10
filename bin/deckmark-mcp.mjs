@@ -21,8 +21,46 @@ const MAX_INLINE_PATCH_BYTES = 256 * 1024;
 const REQUEST_DEADLINE_MS = 10_000;
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 const NONBLOCK = constants.O_NONBLOCK ?? 0;
-const SENSITIVE =
-	/(^|\/)\.env(\.|$)|(^|\/)\.git(\/|$)|(^|\/)id_(rsa|ed25519)|\.(pem|key|p12|pfx)$/i;
+// Credential-bearing path components. The list keeps ordinary source and
+// configuration files readable, so it names credential stores and not every
+// `.json`, `.toml` or `.yml` file.
+const SENSITIVE_PATTERNS = [
+	/(^|\/)\.env(\.|$)/i,
+	/(^|\/)\.git(\/|$)/i,
+	/(^|\/)id_(rsa|ed25519|ecdsa|dsa)(\.|$)/i,
+	/\.(pem|key|p12|pfx|jks|keystore)$/i,
+	/(^|\/)\.ssh(\/|$)/i,
+	/(^|\/)\.gnupg(\/|$)/i,
+	/(^|\/)\.aws(\/|$)/i,
+	/(^|\/)\.azure(\/|$)/i,
+	/(^|\/)\.kube(\/|$)/i,
+	/(^|\/)\.docker(\/|$)/i,
+	/(^|\/)\.config\/gcloud(\/|$)/i,
+	/(^|\/)\.config\/gh(\/|$)/i,
+	/(^|\/)\.config\/containers(\/|$)/i,
+	/(^|\/)\.config\/azure(\/|$)/i,
+	/(^|\/)\.config\/git\/credentials$/i,
+	/(^|\/)\.netrc$/i,
+	/(^|\/)_netrc$/i,
+	/(^|\/)\.pypirc$/i,
+	/(^|\/)\.git-credentials$/i,
+	/(^|\/)\.npmrc$/i,
+	/(^|\/)\.yarnrc\.yml$/i,
+	/(^|\/)\.vault-token$/i,
+	/(^|\/)\.pgpass$/i,
+	/(^|\/)\.my\.cnf$/i,
+	/(^|\/)\.htpasswd$/i,
+	/(^|\/)\.terraformrc$/i,
+	/(^|\/)\.cargo\/credentials(\.toml)?$/i,
+	/(^|\/)\.gem\/credentials$/i,
+	/(^|\/)\.password-store(\/|$)/i,
+	/(^|\/)\.m2\/settings(-security)?\.xml$/i
+];
+
+function isSensitivePath(path) {
+	const normalized = path.split('\\').join('/');
+	return SENSITIVE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
 const TEXT = new Set([
 	'.md',
 	'.markdown',
@@ -89,7 +127,7 @@ function safePath(requested) {
 	if (typeof requested !== 'string' || requested.length === 0) fail('Path is required');
 	if (isAbsolute(requested) || requested.split(/[\\/]/).includes('..'))
 		fail('Path traversal rejected', 'unsafe-path');
-	if (SENSITIVE.test(requested)) fail('Sensitive files are excluded', 'sensitive');
+	if (isSensitivePath(requested)) fail('Sensitive files are excluded', 'sensitive');
 	const matches = new Set();
 	for (const root of roots) {
 		const candidate = resolve(root, requested);
@@ -100,7 +138,7 @@ function safePath(requested) {
 			continue;
 		}
 		if (real !== root && !real.startsWith(root + sep)) continue;
-		if (SENSITIVE.test(relative(root, real).split(sep).join('/')))
+		if (isSensitivePath(relative(root, real).split(sep).join('/')) || isSensitivePath(real))
 			fail('Sensitive files are excluded', 'sensitive');
 		matches.add(real);
 	}
@@ -117,7 +155,8 @@ function approvedRealPath(real) {
 	for (const root of roots) {
 		if (real === root || real.startsWith(root + sep)) {
 			const inside = relative(root, real).split(sep).join('/');
-			if (SENSITIVE.test(inside)) fail('Sensitive files are excluded', 'sensitive');
+			if (isSensitivePath(inside) || isSensitivePath(real))
+				fail('Sensitive files are excluded', 'sensitive');
 			return { root, relativePath: inside };
 		}
 	}
@@ -251,7 +290,7 @@ async function walk(root, limit) {
 				continue;
 			const absolute = join(listingDirectory, entry.name);
 			const relativePath = relative(root, absolute).split(sep).join('/');
-			if (SENSITIVE.test(relativePath)) continue;
+			if (isSensitivePath(relativePath)) continue;
 			if (entry.isDirectory()) {
 				stack.push({ directory: absolute, depth: depth + 1 });
 			} else if (entry.isFile()) {
