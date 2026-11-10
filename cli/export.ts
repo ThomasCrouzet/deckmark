@@ -1,7 +1,7 @@
 import { stat } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { IMPORT_LIMITS } from '../src/lib/config';
-import { documentKindForFile } from '../src/lib/document-kind';
+import { documentKindForFile, isTextDocumentKind } from '../src/lib/document-kind';
 import { stripMdExtension } from '../src/lib/file-names';
 import { imageMime, projectPath } from '../src/lib/project-paths';
 import {
@@ -146,6 +146,13 @@ async function exportHtml(
 	bytes: number;
 }> {
 	const file = await requireFile(resolve(input.input));
+	const declaredKind = documentKindForFile({ name: file });
+	if (declaredKind !== 'note')
+		throw new CliError(
+			EXIT.USAGE,
+			'unsupported-format',
+			`HTML export supports Markdown notes only. The input is ${declaredKind}.`
+		);
 	const content = await readText(dirname(file), basename(file));
 	const kind = documentKindForFile({ name: file, content });
 	if (kind === 'presentation')
@@ -154,7 +161,7 @@ async function exportHtml(
 			'unsupported-format',
 			'Presentation HTML export needs the GUI. Use --format md or --format zip.'
 		);
-	if (kind === 'image' || kind === 'code')
+	if (kind !== 'note')
 		throw new CliError(
 			EXIT.USAGE,
 			'unsupported-format',
@@ -189,14 +196,14 @@ async function exportMarkdown(
 	bytes: number;
 }> {
 	const file = await requireFile(resolve(input.input));
-	const content = await readText(dirname(file), basename(file));
-	const kind = documentKindForFile({ name: file, content });
-	if (kind === 'image')
+	const declaredKind = documentKindForFile({ name: file });
+	if (!isTextDocumentKind(declaredKind))
 		throw new CliError(
 			EXIT.USAGE,
 			'unsupported-format',
-			'Markdown export does not support images.'
+			`Markdown export supports Markdown and text files only. The input is ${declaredKind}.`
 		);
+	const content = await readText(dirname(file), basename(file));
 	const target = await resolveOutput(input.out, 'md');
 	deadline.check();
 	await writeOutput(target, content);

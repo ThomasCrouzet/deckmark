@@ -138,9 +138,14 @@ export function isPresentationFile(file: DocumentTypeInfo): boolean {
 	return documentKindForFile(file) === 'presentation';
 }
 
-export function isTextDocument(file: DocumentTypeInfo): boolean {
-	const kind = documentKindForFile(file);
+export type TextDocumentKind = 'note' | 'presentation' | 'code';
+
+export function isTextDocumentKind(kind: DocumentKind): kind is TextDocumentKind {
 	return kind === 'note' || kind === 'presentation' || kind === 'code';
+}
+
+export function isTextDocument(file: DocumentTypeInfo): boolean {
+	return isTextDocumentKind(documentKindForFile(file));
 }
 
 export function isBinaryDocument(file: DocumentTypeInfo): boolean {

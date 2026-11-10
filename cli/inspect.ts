@@ -1,6 +1,6 @@
 import { basename, dirname, relative, resolve } from 'node:path';
 import { documentHeadings } from '../src/lib/document-navigation';
-import { documentKindForFile } from '../src/lib/document-kind';
+import { documentKindForFile, isTextDocumentKind } from '../src/lib/document-kind';
 import { getTitle, parseFrontmatter } from '../src/lib/frontmatter';
 import { projectDestinations } from '../src/lib/project-links';
 import { isExternalDestination, resolveProjectPath } from '../src/lib/project-paths';
@@ -15,14 +15,14 @@ export interface InspectInput {
 
 export async function runInspect(input: InspectInput): Promise<number> {
 	const absolute = await requireFile(resolve(input.input));
-	const content = await readText(dirname(absolute), basename(absolute));
-	const kind = documentKindForFile({ name: absolute, content });
-	if (kind === 'image')
+	if (!isTextDocumentKind(documentKindForFile({ name: absolute })))
 		throw new CliError(
 			EXIT.INPUT,
 			'input-not-text',
-			`Image inspection is not supported: ${input.input}`
+			`Text inspection is not supported: ${input.input}`
 		);
+	const content = await readText(dirname(absolute), basename(absolute));
+	const kind = documentKindForFile({ name: absolute, content });
 	const parsed = await parseFrontmatter(content);
 	const headings = documentHeadings(content).map((heading) => ({
 		level: heading.level,
