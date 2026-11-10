@@ -19,6 +19,87 @@ const object = (value) => value !== null && typeof value === 'object' && !Array.
 const text = (value) => typeof value === 'string' && value.trim().length > 0;
 const cases = new Map(modeMatrix().cases.map((entry) => [entry.id, entry]));
 
+const nativeInputNames = ['untrackedCount', 'workingDiffSha256'];
+
+// A native run cannot use the static Web build provenance. Its binary embeds
+// the frontend, so the exact native binary hash identifies the measured app.
+function nativeSourceFailures(report, profile, fail) {
+	const source = report.source ?? {};
+	for (const field of ['revision', 'tree'])
+		if (!isDigest(source[field], 40)) fail(`source:invalid-${field}`);
+	for (const [name, snapshot] of [
+		['before', source],
+		['after', source.after]
+	]) {
+		if (
+			!object(snapshot) ||
+			snapshot.diffSha256 !== sha256('') ||
+			!object(snapshot.untrackedSha256) ||
+			Object.keys(snapshot.untrackedSha256).length
+		)
+			fail(`source:${name}:not-clean`);
+		if (snapshot?.revision !== source.revision || snapshot?.tree !== source.tree)
+			fail(`source:${name}:identity-mismatch`);
+	}
+	const provenance = report.buildProvenance;
+	if (!object(provenance)) {
+		fail('provenance:missing');
+		return;
+	}
+	if (
+		provenance.schemaVersion !== 1 ||
+		provenance.kind !== 'native-benchmark' ||
+		provenance.instrumentation !== 'none' ||
+		provenance.basePath !== ''
+	)
+		fail('provenance:wrong-build-contract');
+	if (provenance.source !== source.revision || provenance.sourceTree !== source.tree)
+		fail('provenance:source-mismatch');
+	if (
+		provenance.edition !== report.edition ||
+		provenance.buildMode !== report.buildMode ||
+		provenance.edition !== profile?.edition
+	)
+		fail('provenance:profile-mismatch');
+	if (
+		!object(provenance.binary) ||
+		!text(provenance.binary.path) ||
+		!isDigest(provenance.binary.sha256) ||
+		!safeCount(provenance.binary.bytes) ||
+		provenance.binary.bytes === 0
+	)
+		fail('native-build:binary-invalid');
+	else if (
+		source.buildTreeSha256 !== provenance.binary.sha256 ||
+		provenance.tree?.sha256 !== provenance.binary.sha256 ||
+		provenance.tree?.files !== 1
+	)
+		fail('native-build:binary-mismatch');
+	if (
+		!object(provenance.inputs) ||
+		!same(Object.keys(provenance.inputs).sort(), nativeInputNames) ||
+		!isDigest(provenance.inputs.workingDiffSha256) ||
+		provenance.inputs.untrackedCount !== 0
+	)
+		fail('provenance:invalid-inputs');
+	const environment = report.environment;
+	if (
+		!text(environment?.runner) ||
+		!text(environment?.node) ||
+		!text(environment?.os?.platform) ||
+		!text(environment?.os?.release) ||
+		!text(environment?.os?.arch)
+	)
+		fail('environment:missing-identity');
+	if (
+		provenance.builder?.node !== environment?.node ||
+		provenance.builder?.platform !== environment?.os?.platform ||
+		provenance.builder?.arch !== environment?.os?.arch ||
+		(provenance.builder?.release && provenance.builder.release !== environment?.os?.release)
+	)
+		fail('provenance:builder-mismatch');
+}
+
 const metricLimits = {
 	read: {
 		firstContentMs: 'readFirstContentMs',
@@ -242,7 +323,7 @@ export async function auditModes(value, budgets, expectedCases, enforce = true, 
 	const fail = (message) => failures.push(message);
 	if (report.schema !== 'deckmark-mode-bench/1') fail('unsupported-schema');
 	if (!same(report.methods, modeMethods)) fail('method:version-or-boundary-mismatch');
-	if (!['browser-run', 'synthetic-control'].includes(report.evidenceKind))
+	if (!['browser-run', 'native-run', 'synthetic-control'].includes(report.evidenceKind))
 		fail('evidence-kind:invalid');
 	const profile = budgets.modes?.profiles?.[report.profile];
 	if (!profile) fail('unknown-profile');
@@ -258,7 +339,14 @@ export async function auditModes(value, budgets, expectedCases, enforce = true, 
 	expectedCases = Array.isArray(expectedCases) ? expectedCases : [];
 	for (const key of ['target', 'edition', 'buildMode'])
 		if (!report[key] || report[key] !== profile?.[key]) fail(`profile-mismatch:${key}`);
-	if (
+	if (profile?.target === 'native') {
+		if (
+			report.target !== 'native' ||
+			report.edition !== 'desktop' ||
+			!['debug', 'release'].includes(report.buildMode)
+		)
+			fail('unsupported-native-profile');
+	} else if (
 		report.target !== 'web' ||
 		report.edition !== 'web' ||
 		report.buildMode !== 'production-static'
@@ -272,7 +360,8 @@ export async function auditModes(value, budgets, expectedCases, enforce = true, 
 		report.command.some((arg) => !text(arg))
 	)
 		fail('missing-command');
-	sourceFailures(report, profile, fail);
+	if (profile?.target === 'native') nativeSourceFailures(report, profile, fail);
+	else sourceFailures(report, profile, fail);
 	const receipt = trustFailures(report, trust, fail);
 	if (profile?.role !== 'blocking' || !text(profile?.review)) fail('unreviewed-profile');
 	const runs = report.plan?.runs;
