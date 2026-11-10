@@ -180,12 +180,21 @@ pub struct BackupEntry {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RetentionResult {
+    pub removed: usize,
+    pub failed: usize,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BackupWrite {
     pub path: String,
     pub file_name: String,
     pub size: u64,
     pub created_at_ms: f64,
     pub removed: usize,
+    pub retention: RetentionResult,
 }
 
 enum AtomicWriteError {
@@ -392,24 +401,43 @@ fn snapshot_entries(root: &BackupDirectory) -> Result<Vec<BackupEntry>, String> 
     Ok(entries)
 }
 
-fn apply_retention(root: &BackupDirectory, keep: u32) -> Result<usize, String> {
+fn apply_retention_with(
+    root: &BackupDirectory,
+    keep: u32,
+    mut remove: impl FnMut(&Dir, &str) -> std::io::Result<()>,
+) -> Result<RetentionResult, String> {
     let keep = keep.clamp(MIN_KEEP, MAX_KEEP) as usize;
     let entries = snapshot_entries(root)?;
     let mut removed = 0;
+    let mut failures = Vec::new();
     for entry in entries.into_iter().skip(keep) {
-        match root.handle.remove_file(&entry.file_name) {
+        match remove(&root.handle, &entry.file_name) {
             Ok(()) => removed += 1,
             Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
+            Err(error) => failures.push(format!("{}: {error}", entry.file_name)),
         }
     }
-    Ok(removed)
+    let failed = failures.len();
+    Ok(RetentionResult {
+        removed,
+        failed,
+        error: if failures.is_empty() {
+            None
+        } else {
+            Some(failures.join("; "))
+        },
+    })
 }
 
-fn write_snapshot(
+fn apply_retention(root: &BackupDirectory, keep: u32) -> Result<RetentionResult, String> {
+    apply_retention_with(root, keep, |directory, name| directory.remove_file(name))
+}
+
+fn write_snapshot_impl(
     root: &BackupDirectory,
     payload: &[u8],
     keep: u32,
+    retention: impl FnOnce(&BackupDirectory, u32) -> Result<RetentionResult, String>,
 ) -> Result<BackupWrite, String> {
     ensure_payload_size(payload.len())?;
     let now = SystemTime::now()
@@ -425,13 +453,20 @@ fn write_snapshot(
                     .handle
                     .symlink_metadata(&name)
                     .map_err(|error| error.to_string())?;
-                let removed = apply_retention(root, keep)?;
+                // A committed snapshot stays successful even when a later
+                // retention cleanup fails. The caller receives both outcomes.
+                let retention = retention(root, keep).unwrap_or_else(|error| RetentionResult {
+                    removed: 0,
+                    failed: 1,
+                    error: Some(error),
+                });
                 return Ok(BackupWrite {
                     path: path.to_string_lossy().into_owned(),
                     file_name: name,
                     size: metadata.len(),
                     created_at_ms: metadata_ms(&metadata),
-                    removed,
+                    removed: retention.removed,
+                    retention,
                 });
             }
             Err(AtomicWriteError::Exists) => {
@@ -441,6 +476,14 @@ fn write_snapshot(
         }
     }
     Err("could not allocate a unique backup file name".to_string())
+}
+
+fn write_snapshot(
+    root: &BackupDirectory,
+    payload: &[u8],
+    keep: u32,
+) -> Result<BackupWrite, String> {
+    write_snapshot_impl(root, payload, keep, apply_retention)
 }
 
 fn read_snapshot(root: &BackupDirectory, name: &str) -> Result<String, String> {
@@ -511,6 +554,18 @@ pub async fn desktop_backup_write(
 ) -> Result<BackupWrite, String> {
     let root = roots.resolve(&root_id)?;
     tauri::async_runtime::spawn_blocking(move || write_snapshot(&root, payload.as_bytes(), keep))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn desktop_backup_cleanup(
+    roots: tauri::State<'_, BackupRoots>,
+    root_id: String,
+    keep: u32,
+) -> Result<RetentionResult, String> {
+    let root = roots.resolve(&root_id)?;
+    tauri::async_runtime::spawn_blocking(move || apply_retention(&root, keep))
         .await
         .map_err(|error| error.to_string())?
 }
@@ -687,6 +742,72 @@ mod tests {
         expected.sort();
         assert_eq!(remaining, expected);
         assert_eq!(remaining.len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn committed_snapshot_stays_successful_when_retention_fails() {
+        let root = temp_directory();
+        let directory = BackupDirectory::open(&root).unwrap();
+        let committed = super::write_snapshot_impl(&directory, b"committed", 1, |_, _| {
+            Ok(RetentionResult {
+                removed: 0,
+                failed: 1,
+                error: Some("permission denied".to_string()),
+            })
+        })
+        .expect("committed snapshot");
+        assert!(is_snapshot_name(&committed.file_name));
+        assert_eq!(committed.retention.removed, committed.removed);
+        assert_eq!(committed.retention.failed, 1);
+        assert!(committed.retention.error.is_some());
+        assert_eq!(
+            super::read_snapshot(&directory, &committed.file_name).unwrap(),
+            "committed"
+        );
+        drop(directory);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retention_failure_can_be_retried_without_touching_the_new_snapshot() {
+        let root = temp_directory();
+        let directory = BackupDirectory::open(&root).unwrap();
+        let mut names = Vec::new();
+        for index in 0..3 {
+            names.push(
+                super::write_snapshot(&directory, format!("payload-{index}").as_bytes(), 5)
+                    .unwrap()
+                    .file_name,
+            );
+        }
+        let oldest = names[0].clone();
+        let failed = super::apply_retention_with(&directory, 1, |handle, name| {
+            if name == oldest {
+                Err(std::io::Error::new(
+                    ErrorKind::PermissionDenied,
+                    "injected removal failure",
+                ))
+            } else {
+                handle.remove_file(name)
+            }
+        })
+        .unwrap();
+        assert_eq!(failed.removed, 1);
+        assert_eq!(failed.failed, 1);
+        assert!(failed
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains(&oldest));
+        assert!(root.join(&oldest).exists());
+        assert!(root.join(&names[2]).exists());
+        let retry = super::apply_retention(&directory, 1).unwrap();
+        assert_eq!(retry.removed, 1);
+        assert_eq!(retry.failed, 0);
+        assert!(!root.join(&oldest).exists());
+        assert!(root.join(&names[2]).exists());
+        drop(directory);
         fs::remove_dir_all(root).unwrap();
     }
 

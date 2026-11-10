@@ -85,6 +85,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backup::desktop_backup_pick_root,
             backup::desktop_backup_write,
+            backup::desktop_backup_cleanup,
             backup::desktop_backup_list,
             backup::desktop_backup_read,
             disk::disk_read,

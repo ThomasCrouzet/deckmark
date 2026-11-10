@@ -30,6 +30,10 @@ export const desktopBackupEn = {
 	'settings.desktopBackupPreviewHint':
 		'Check the counts before you restore. The restore asks for merge or replace.',
 	'settings.desktopBackupSaved': 'Local backup written.',
+	'settings.desktopBackupRetentionWarning':
+		'Backup saved to {path} ({size}) at {date}. Cleanup of {failed} old snapshot(s) failed: {error}',
+	'settings.desktopBackupRetryCleanup': 'Retry cleanup',
+	'settings.desktopBackupCleanupDone': 'Old snapshots were removed.',
 	'settings.desktopBackupFailed': 'Backup failed.',
 	'settings.desktopBackupReadFailed': 'Cannot read the snapshot.',
 	'settings.desktopBackupFolderRequired': 'Choose a backup folder first.',
