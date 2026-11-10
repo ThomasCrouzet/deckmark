@@ -34,7 +34,7 @@ function compareNames(left: { name: string }, right: { name: string }): number {
 	return left.name.localeCompare(right.name);
 }
 
-function sortFolder(folder: ProjectTreeFolder): void {
+function sortFolder(folder: { folders: ProjectTreeFolder[]; files: FileItem[] }): void {
 	folder.folders.sort(compareNames);
 	folder.files.sort(compareNames);
 	for (const child of folder.folders) sortFolder(child);
