@@ -10,6 +10,7 @@ import {
 	statSync,
 	symlinkSync,
 	realpathSync,
+	utimesSync,
 	writeFileSync
 } from 'node:fs';
 import { basename, join, toNamespacedPath } from 'node:path';
@@ -414,6 +415,49 @@ export async function nativeProjects({
 		rmSync(outsideNotes, { recursive: true });
 		rmSync(gate, { recursive: true, force: true });
 	}
+
+	const fixedTime = new Date(Math.floor(Date.now() / 1000) * 1000);
+	utimesSync(notePath, fixedTime, fixedTime);
+	const plainBefore = record(
+		'plain manifest still omits content revisions',
+		await invoke('project_manifest', { token })
+	);
+	const plainEntry = plainBefore.value.entries.find(
+		(entry) => entry.relativePath === 'notes/start.md'
+	);
+	assert.equal('revision' in plainEntry, false);
+	const verifiedBefore = record(
+		'verified manifest hashes each entry',
+		await invoke('project_manifest', { token, verified: true })
+	);
+	const verifiedEntry = verifiedBefore.value.entries.find(
+		(entry) => entry.relativePath === 'notes/start.md'
+	);
+	assert.equal(typeof verifiedEntry.revision, 'string');
+	const noteStats = statSync(notePath);
+	const sameSizeContent = '# Other\n';
+	assert.equal(Buffer.byteLength(sameSizeContent), noteStats.size);
+	writeFileSync(notePath, sameSizeContent);
+	utimesSync(notePath, fixedTime, fixedTime);
+	const restoredStats = statSync(notePath);
+	assert.equal(restoredStats.size, noteStats.size);
+	assert.equal(restoredStats.mtimeMs, noteStats.mtimeMs);
+	const verifiedAfter = record(
+		'verified manifest detects same-size same-mtime content',
+		await invoke('project_manifest', { token, verified: true })
+	);
+	const changedEntry = verifiedAfter.value.entries.find(
+		(entry) => entry.relativePath === 'notes/start.md'
+	);
+	assert.notEqual(changedEntry.revision, verifiedEntry.revision);
+	const sameSizeRefresh = record(
+		'explicit refresh reads same-size same-mtime content',
+		await invoke('project_refresh', { token })
+	);
+	const sameSizeEntry = sameSizeRefresh.value.entries.find(
+		(entry) => entry.relativePath === 'notes/start.md'
+	);
+	assert.equal(sameSizeEntry.content, sameSizeContent);
 
 	const assetRevision = picked.value.entries.find(
 		(entry) => entry.relativePath === 'images/pixel.png'

@@ -13,6 +13,7 @@
 		gitStage,
 		gitStatus,
 		gitUnstage,
+		isGitReviewRequired,
 		type GitCommitEntry,
 		type GitFileStatus,
 		type GitStatusSnapshot
@@ -124,6 +125,7 @@
 		busy ||
 			!mutable ||
 			commitCount === 0 ||
+			!status?.stagedTree ||
 			commitMessage.trim().length === 0 ||
 			(status?.conflicts.length ?? 0) > 0
 	);
@@ -243,23 +245,34 @@
 			errorMessage = tg('git.commit.noStaged');
 			return;
 		}
-		const confirmed = await promptStore.confirm({
-			title: tg('git.commit.confirmTitle'),
-			message: tg('git.commit.confirmMessage', { n: commitCount, message }),
-			confirmLabel: tg('git.commit.action'),
-			cancelLabel: tg('git.commit.cancel')
-		});
-		if (!confirmed) return;
+		const tree = status?.stagedTree;
+		if (!tree) {
+			errorMessage = tg('git.commit.noStaged');
+			return;
+		}
+		const review = { tree, head: status?.head ?? null, branch: status?.branch ?? null };
 		busy = true;
 		errorMessage = '';
 		notice = '';
 		try {
-			const result = await gitCommit(rootId, message);
+			const confirmed = await promptStore.confirm({
+				title: tg('git.commit.confirmTitle'),
+				message: tg('git.commit.confirmMessage', { n: commitCount, message }),
+				confirmLabel: tg('git.commit.action'),
+				cancelLabel: tg('git.commit.cancel')
+			});
+			if (!confirmed) return;
+			const result = await gitCommit(rootId, message, review);
 			commitMessage = '';
 			notice = tg('git.commit.done', { hash: result.hash.slice(0, 8) });
 			await refresh();
 		} catch (error) {
-			errorMessage = tg('git.operationFailed', { message: String(error) });
+			if (isGitReviewRequired(error)) {
+				errorMessage = tg('git.commit.reviewRequired');
+				await refresh();
+			} else {
+				errorMessage = tg('git.operationFailed', { message: String(error) });
+			}
 		} finally {
 			busy = false;
 			await tick();

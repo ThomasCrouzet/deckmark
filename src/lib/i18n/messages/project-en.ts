@@ -80,7 +80,8 @@ export const projectEn = {
 	'projects.save': 'Save project to disk',
 	'projects.unlink': 'Disconnect disk folder',
 	'projects.saved': 'Project saved to disk.',
-	'projects.refreshed': 'Project refreshed from disk.'
+	'projects.refreshed': 'Project refreshed from disk.',
+	'projects.refreshedVerified': 'Project refreshed and content revisions verified from disk.'
 } as const;
 
 export type ProjectMessageKey = keyof typeof projectEn;

@@ -120,9 +120,10 @@ The ZIP contains `.mdsh/project.json` and `.mdsh/link-report.json` for project m
 Image data embedded in Markdown becomes a separate asset in the archive. The stored source remains unchanged.
 An individual Markdown download keeps its relative references. Use the project ZIP when those references need local resources.
 
-Projects accept up to 300 documents, 1,300 archive entries, eight directory levels, and 64 MiB of uncompressed data.
+Projects accept up to 3,000 documents, 6,500 entries, 16 directory levels, and 256 MiB of uncompressed data in Desktop Complete. Web Light accepts up to 300 documents, 1,300 entries, eight directory levels, and 64 MiB. The same limits apply to a project import, a drag and drop, an internal copy or move, and a documentation-site export.
 Each document can contain up to 16 MiB. Each image can contain up to 2 MiB.
 Unsafe paths, duplicate paths, symbolic links, and unsupported archives are rejected before import changes storage.
+A same-project move does not add document entries or bytes to the project budget.
 
 On Desktop, select **Open a disk folder** to keep a native directory connection.
 Use **Refresh from disk** to read external changes. Use **Save project to disk** to write local changes.
@@ -131,7 +132,7 @@ Creating or renaming disk documents requires filesystem hard link support.
 If that support is unavailable, the operation fails without replacing an existing file.
 Disconnecting keeps local documents and assets. Backups do not contain directory permissions.
 
-Library ZIP exports accept at most 300 documents and 64 MiB of source and asset data.
+Library ZIP exports use the same edition project budget: 300 documents and 64 MiB in Web Light, or 3,000 documents and 256 MiB in Desktop Complete.
 
 ## Check and export documentation
 
@@ -478,6 +479,9 @@ general file browser are not available.
 For Git, open a disk folder that contains an existing repository. Save draft
 changes to disk before you open **Git changes**. The panel reads disk state,
 shows diffs and recent commits, and lets you stage, unstage, and commit changes.
+A commit uses the exact staged tree and repository identity that you reviewed.
+If another process changes the index, HEAD, or branch before the commit runs,
+DeckMark refuses it and shows the refreshed status for a new confirmation.
 Stage and commit are disabled when the project is inside a parent repository.
 The panel does not provide clone, fetch, push, or pull actions.
 

@@ -126,8 +126,8 @@
 		const projectId = selected;
 		if (!projectId) return;
 		await run(async () => {
-			await refreshNativeProjectFromDisk(projectId);
-			notify.success(t('projects.refreshed'));
+			await refreshNativeProjectFromDisk(projectId, undefined, { authoritative: true });
+			notify.success(t('projects.refreshedVerified'));
 		});
 	}
 

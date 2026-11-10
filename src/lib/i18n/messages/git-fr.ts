@@ -50,6 +50,8 @@ export const gitFr: Record<GitMessageKey, string> = {
 	'git.commit.empty': 'Saisissez un message de commit.',
 	'git.commit.tooLong': 'Utilisez 2000 caractères ou moins.',
 	'git.commit.noStaged': 'Indexez au moins un fichier avant de valider.',
+	'git.commit.reviewRequired':
+		"L'index ou le dépôt a changé après votre vérification. Consultez l'état actualisé et confirmez de nouveau.",
 	'git.commit.done': 'Commit créé : {hash}',
 	'git.log': 'Commits récents',
 	'git.log.empty': 'Aucun commit.',

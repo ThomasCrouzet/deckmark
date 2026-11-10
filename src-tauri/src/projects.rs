@@ -92,6 +92,8 @@ pub struct ProjectManifestEntry {
     size: u64,
     first: u64,
     second: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    revision: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -718,7 +720,7 @@ fn collect_snapshot(session: &ProjectSession) -> Result<Vec<ProjectEntry>, Strin
             .checked_add(entry.size)
             .ok_or("native project snapshot size overflow")?;
         if total_bytes > MAX_SNAPSHOT_BYTES {
-            return Err("native project snapshot exceeds the 64 MiB limit".to_string());
+            return Err("native project snapshot exceeds the 256 MiB limit".to_string());
         }
         entries.push(entry);
     }
@@ -726,7 +728,10 @@ fn collect_snapshot(session: &ProjectSession) -> Result<Vec<ProjectEntry>, Strin
     Ok(entries)
 }
 
-fn collect_manifest(session: &ProjectSession) -> Result<Vec<ProjectManifestEntry>, String> {
+fn collect_manifest(
+    session: &ProjectSession,
+    verified: bool,
+) -> Result<Vec<ProjectManifestEntry>, String> {
     let root = open_project_root(session)?;
     let mut paths = Vec::new();
     collect_relative_paths(&root, Path::new(""), 0, &mut paths)?;
@@ -764,6 +769,17 @@ fn collect_manifest(session: &ProjectSession) -> Result<Vec<ProjectManifestEntry
             .map(|duration| duration.as_secs_f64() * 1000.0)
             .unwrap_or(0.0);
         let identity = cap_file_identity(&file)?;
+        let revision = if verified {
+            let revision =
+                revision_for_cap_file(file.try_clone().map_err(|error| error.to_string())?)?;
+            let after = cap_file_metadata(&file)?;
+            if after.len() != metadata.len() || after.modified().ok() != metadata.modified().ok() {
+                return Err("native project entry changed during manifest read".to_string());
+            }
+            Some(revision)
+        } else {
+            None
+        };
         entries.push(ProjectManifestEntry {
             kind: if kind == EntryKind::Markdown {
                 "markdown"
@@ -775,14 +791,19 @@ fn collect_manifest(session: &ProjectSession) -> Result<Vec<ProjectManifestEntry
             size: metadata.len(),
             first: identity.first,
             second: identity.second,
+            revision,
         });
     }
     validate_root(&session.path, &session.identity)?;
     Ok(entries)
 }
 
-fn manifest(token: String, session: ProjectSession) -> Result<ProjectManifest, String> {
-    let entries = collect_manifest(&session)?;
+fn manifest(
+    token: String,
+    session: ProjectSession,
+    verified: bool,
+) -> Result<ProjectManifest, String> {
+    let entries = collect_manifest(&session, verified)?;
     Ok(ProjectManifest {
         root_id: session.root_id,
         token,
@@ -1140,7 +1161,7 @@ fn write_entry(
         .checked_add(contents.len() as u64)
         .ok_or("native project snapshot size overflow")?;
     if new_total > MAX_SNAPSHOT_BYTES {
-        return Err("native project snapshot exceeds the 64 MiB limit".to_string());
+        return Err("native project snapshot exceeds the 256 MiB limit".to_string());
     }
     atomic_project_replace(session, relative_path, contents, expected_revision)?;
     read_entry(session, relative_path)
@@ -1287,11 +1308,14 @@ pub async fn project_refresh(
 pub async fn project_manifest(
     projects: tauri::State<'_, ProjectStore>,
     token: String,
+    verified: Option<bool>,
 ) -> Result<ProjectManifest, String> {
     let session = projects.resolve(&token)?;
-    tauri::async_runtime::spawn_blocking(move || manifest(token, session))
-        .await
-        .map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        manifest(token, session, verified.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -1372,4 +1396,83 @@ pub async fn project_revoke(
     token: String,
 ) -> Result<(), String> {
     projects.revoke(&token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TemporaryProject {
+        path: PathBuf,
+    }
+
+    impl Drop for TemporaryProject {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn temporary_project() -> TemporaryProject {
+        let path = std::env::temp_dir().join(format!("mdsh-projects-{}", Uuid::new_v4()));
+        fs::create_dir_all(path.join("notes")).expect("create temporary project");
+        let path = path.canonicalize().expect("canonicalize temporary project");
+        TemporaryProject { path }
+    }
+
+    fn session(project: &TemporaryProject) -> ProjectSession {
+        ProjectSession {
+            root_id: "test-root".to_string(),
+            path: project.path.clone(),
+            identity: directory_identity(&project.path).expect("read root identity"),
+        }
+    }
+
+    #[test]
+    fn verified_manifest_detects_same_size_and_mtime_rewrite() {
+        let project = temporary_project();
+        let note = project.path.join("notes").join("start.md");
+        fs::write(&note, "# Before\n").expect("write first content");
+        let project_session = session(&project);
+
+        let plain_before = collect_manifest(&project_session, false).expect("read plain manifest");
+        assert!(plain_before[0].revision.is_none());
+        let verified_before =
+            collect_manifest(&project_session, true).expect("read verified manifest");
+        let first_revision = verified_before[0]
+            .revision
+            .clone()
+            .expect("verified manifest has a revision");
+
+        let original = fs::metadata(&note).expect("read original metadata");
+        let original_mtime = original.modified().expect("read original mtime");
+        fs::write(&note, "# After!\n").expect("write replacement content");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(&note)
+            .expect("open replacement for timestamp");
+        file.set_modified(original_mtime)
+            .expect("restore original mtime");
+        drop(file);
+
+        let replaced = fs::metadata(&note).expect("read replacement metadata");
+        assert_eq!(replaced.len(), original.len());
+        assert_eq!(
+            replaced.modified().expect("read replacement mtime"),
+            original_mtime
+        );
+
+        let plain_after = collect_manifest(&project_session, false).expect("read plain manifest");
+        assert_eq!(plain_after[0].size, plain_before[0].size);
+        assert_eq!(plain_after[0].mtime_ms, plain_before[0].mtime_ms);
+        assert_eq!(plain_after[0].first, plain_before[0].first);
+        assert_eq!(plain_after[0].second, plain_before[0].second);
+        assert!(plain_after[0].revision.is_none());
+
+        let verified_after =
+            collect_manifest(&project_session, true).expect("read verified manifest");
+        assert_ne!(
+            verified_after[0].revision.as_deref(),
+            Some(first_revision.as_str())
+        );
+    }
 }
