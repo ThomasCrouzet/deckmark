@@ -30,5 +30,66 @@ export const modeMethods = {
 		statistic: 'nearest-rank',
 		percentiles: [0.5, 0.95],
 		decimals: 3
+	},
+	wysiwyg: {
+		version: 'wysiwyg-insert/1',
+		clock: 'performance.now',
+		start: 'prosemirror-beforeinput-capture',
+		inputToFrameMs: 'second-animation-frame',
+		inputDispatchMs: 'queued-microtask',
+		saveObservedMs: 'after-exact-indexeddb-observation',
+		insertion: 'x',
+		positions: [
+			{ id: 'start', ratio: 0 },
+			{ id: 'end', ratio: 1 }
+		],
+		warmups: 0,
+		framesBeforeInput: 2,
+		idleAfterSampleMs: 550,
+		statistic: 'nearest-rank',
+		percentiles: [0.5, 0.95],
+		decimals: 3
+	},
+	canvas: {
+		version: 'slide-canvas-drag/1',
+		clock: 'performance.now',
+		start: 'target-pointerdown-capture',
+		pointerToFrameMs: 'second-animation-frame',
+		saveObservedMs: 'after-exact-indexeddb-observation',
+		delta: { x: 12, y: 8 },
+		warmups: 0,
+		framesBeforePointer: 2,
+		idleAfterSampleMs: 550,
+		statistic: 'nearest-rank',
+		percentiles: [0.5, 0.95],
+		decimals: 3
+	},
+	annotation: {
+		version: 'read-ink-stroke/1',
+		clock: 'performance.now',
+		start: 'canvas-pointerdown-capture',
+		pointerToFrameMs: 'second-animation-frame',
+		paintedPixels: 'non-transparent-pixels-after-stroke',
+		strokeCount: 'number of completed strokes',
+		warmups: 0,
+		framesBeforePointer: 2,
+		statistic: 'nearest-rank',
+		percentiles: [0.5, 0.95],
+		decimals: 3
+	},
+	slideSource: {
+		version: 'presentation-source-insert/1',
+		clock: 'performance.now',
+		start: 'target-beforeinput-capture',
+		inputToFrameMs: 'second-animation-frame',
+		inputDispatchMs: 'queued-microtask',
+		applyObservedMs: 'after-apply-and-indexeddb-observation',
+		insertion: 'x',
+		positions: [{ id: 'end', ratio: 1 }],
+		warmups: 0,
+		framesBeforeInput: 2,
+		statistic: 'nearest-rank',
+		percentiles: [0.5, 0.95],
+		decimals: 3
 	}
 };

@@ -540,6 +540,546 @@ async function runSlideCase(browser, url, entry, report, options) {
 	}
 }
 
+async function armEvent(page, selector, eventName, delay = 0) {
+	return page.evaluate(
+		({ selector, eventName, delay }) => {
+			const target = document.querySelector(selector);
+			if (!(target instanceof Element)) throw new Error(`Missing target: ${selector}`);
+			const state = { started: null, dispatch: null, frame: null, trusted: false };
+			window.__modeInput = state;
+			target.addEventListener(
+				eventName,
+				(event) => {
+					state.started = performance.now();
+					state.trusted = event.isTrusted;
+					while (performance.now() - state.started < delay) {
+						/* Explicit local negative control. */
+					}
+					queueMicrotask(() => {
+						state.dispatch = performance.now() - state.started;
+					});
+					requestAnimationFrame(() =>
+						requestAnimationFrame(() => {
+							state.frame = performance.now() - state.started;
+						})
+					);
+				},
+				{ capture: true, once: true }
+			);
+			return true;
+		},
+		{ selector, eventName, delay }
+	);
+}
+
+async function readProbe(page) {
+	return page.evaluate(() => ({
+		frame: window.__modeInput.frame,
+		dispatch: window.__modeInput.dispatch,
+		trusted: window.__modeInput.trusted
+	}));
+}
+
+async function waitFrame(page) {
+	await page.waitForFunction(
+		() => window.__modeInput?.frame !== null && window.__modeInput?.frame !== undefined
+	);
+}
+
+async function waitHashChange(page, previousHash, label, timeout = 30_000) {
+	const deadline = Date.now() + timeout;
+	while (Date.now() < deadline) {
+		const content = await stored(page);
+		if (hash(content) !== previousHash) return content;
+		await page.waitForTimeout(50);
+	}
+	assert.fail(`Stored source did not change for ${label}`);
+}
+
+async function runWysiwygCase(browser, url, entry, report, options) {
+	const fixture = modeFixture(entry.fixture);
+	const artifactPrefix = `${options.output}.${entry.id.replaceAll('/', '_')}`;
+	await writeFile(`${artifactPrefix}.fixture.md`, fixture.content, { flag: 'wx' });
+	const result = {
+		id: entry.id,
+		status: 'running',
+		fixture: { ...fixture, content: undefined, path: `${artifactPrefix}.fixture.md` },
+		samples: [],
+		fidelity: {},
+		errors: []
+	};
+	report.cases.push(result);
+	const context = await browser.newContext({
+		locale: 'en-US',
+		acceptDownloads: true,
+		serviceWorkers: 'block'
+	});
+	const page = await context.newPage();
+	page.setDefaultTimeout(30_000);
+	page.on('pageerror', (error) => result.errors.push(String(error)));
+	try {
+		await page.goto(url);
+		await shell(page);
+		const seeded = await seed(page, fixture);
+		await page.reload();
+		await shell(page);
+		await page.locator('[data-mode=wysiwyg]').click();
+		await page.locator('.milkdown .ProseMirror').waitFor({ state: 'visible', timeout: 60_000 });
+		result.workload = { mode: entry.mode, library: seeded.library };
+		let previousHash = hash(await stored(page));
+		for (let index = 0; index < options.runs; index++) {
+			const visual = page.locator('.milkdown .ProseMirror');
+			await visual.click();
+			await page.keyboard.press(index % 2 === 0 ? 'ControlOrMeta+Home' : 'ControlOrMeta+End');
+			await armEvent(page, '.milkdown .ProseMirror', 'beforeinput', options.injectedDelayMs);
+			await page.keyboard.insertText('x');
+			await waitFrame(page);
+			const observed = await readProbe(page);
+			const content = await waitHashChange(page, previousHash, `wysiwyg ${index}`);
+			previousHash = hash(content);
+			result.samples.push({
+				index,
+				status: 'passed',
+				position: index % 2 === 0 ? 'start' : 'end',
+				operation: 'insert',
+				insertedText: 'x',
+				input: { trusted: observed.trusted, type: 'insertText', targetIsEditor: true },
+				metrics: {
+					inputToFrameMs: observed.frame,
+					inputDispatchMs: observed.dispatch,
+					saveObservedMs: await page.evaluate(
+						(started) => performance.now() - started,
+						(await page.evaluate(() => window.__modeInput.started)) ?? 0
+					)
+				},
+				fidelity: { storedSha256: previousHash, expectedContains: 'x' },
+				optional: await optional(page),
+				resources: await resources(page)
+			});
+		}
+		result.fidelity.saved = true;
+		await page.keyboard.press('ControlOrMeta+z');
+		const undone = await waitHashChange(page, previousHash, 'wysiwyg undo');
+		result.fidelity.undo = true;
+		await page.keyboard.press('ControlOrMeta+y');
+		const redone = await waitHashChange(page, hash(undone), 'wysiwyg redo');
+		result.fidelity.redo = true;
+		result.finalExpected = { bytes: Buffer.byteLength(redone), sha256: hash(redone) };
+		const pending = page.waitForEvent('download');
+		await page.keyboard.press('ControlOrMeta+Shift+e');
+		const download = await pending;
+		const bytes = await readFile(await download.path());
+		assert.deepEqual(bytes, Buffer.from(redone));
+		const exportPath = `${artifactPrefix}.export.md`;
+		await writeFile(exportPath, bytes, { flag: 'wx' });
+		result.export = {
+			path: exportPath,
+			name: download.suggestedFilename(),
+			bytes: bytes.length,
+			sha256: hash(bytes)
+		};
+		result.fidelity.exported = true;
+		await page.reload();
+		await shell(page);
+		await page.locator('[data-mode=wysiwyg]').click();
+		await page.locator('.milkdown .ProseMirror').waitFor({ state: 'visible', timeout: 60_000 });
+		assert.equal(hash(await stored(page)), hash(redone));
+		result.reload = {
+			storedSha256: hash(await stored(page)),
+			storedOrigin: 'indexeddb-drafts-row'
+		};
+		result.fidelity.recovered = true;
+		assert.deepEqual(result.errors, []);
+		result.status = 'passed';
+	} catch (error) {
+		result.status = 'failed';
+		result.reason = String(error.stack ?? error);
+		result.screenshot = await page
+			.screenshot({ path: `${artifactPrefix}.failure.png` })
+			.then(() => `${artifactPrefix}.failure.png`)
+			.catch(String);
+	} finally {
+		await context.close();
+	}
+}
+
+async function runCanvasCase(browser, url, entry, report, options) {
+	const fixture = modeFixture(entry.fixture);
+	const artifactPrefix = `${options.output}.${entry.id.replaceAll('/', '_')}`;
+	await writeFile(`${artifactPrefix}.fixture.md`, fixture.content, { flag: 'wx' });
+	const result = {
+		id: entry.id,
+		status: 'running',
+		fixture: { ...fixture, content: undefined, path: `${artifactPrefix}.fixture.md` },
+		samples: [],
+		fidelity: {},
+		errors: []
+	};
+	report.cases.push(result);
+	const context = await browser.newContext({
+		locale: 'en-US',
+		acceptDownloads: true,
+		serviceWorkers: 'block'
+	});
+	const page = await context.newPage();
+	page.setDefaultTimeout(30_000);
+	page.on('pageerror', (error) => result.errors.push(String(error)));
+	try {
+		await page.goto(url);
+		await shell(page);
+		const seeded = await seed(page, fixture);
+		await page.reload();
+		await shell(page);
+		await page.locator('[data-testid="presentation-editor"]').waitFor({ timeout: 30_000 });
+		result.workload = { mode: entry.mode, library: seeded.library };
+		const object = page
+			.locator('[data-testid="slide-object"][data-object-type="rectangle"]')
+			.last();
+		await page.getByTestId('slide-object-list-item').last().click();
+		let previousHash = hash(await stored(page));
+		for (let index = 0; index < options.runs; index++) {
+			const box = await object.boundingBox();
+			if (!box) throw new Error('Missing rectangle bounds.');
+			const startX = box.x + box.width / 2;
+			const startY = box.y + box.height / 2;
+			await object.evaluate((element, delay) => {
+				const state = { started: null, dispatch: null, frame: null, trusted: false };
+				window.__modeInput = state;
+				element.addEventListener(
+					'pointerdown',
+					(event) => {
+						state.started = performance.now();
+						state.trusted = event.isTrusted;
+						while (performance.now() - state.started < delay) {
+							/* Explicit local negative control. */
+						}
+						queueMicrotask(() => {
+							state.dispatch = performance.now() - state.started;
+						});
+						requestAnimationFrame(() =>
+							requestAnimationFrame(() => {
+								state.frame = performance.now() - state.started;
+							})
+						);
+					},
+					{ capture: true, once: true }
+				);
+			}, options.injectedDelayMs);
+			await page.mouse.move(startX, startY);
+			await page.mouse.down();
+			await page.mouse.move(startX + 12, startY + 8, { steps: 2 });
+			await page.mouse.up();
+			await waitFrame(page);
+			const observed = await readProbe(page);
+			const content = await waitHashChange(page, previousHash, `canvas ${index}`);
+			previousHash = hash(content);
+			result.samples.push({
+				index,
+				status: 'passed',
+				position: 'drag',
+				operation: 'drag',
+				delta: { x: 12, y: 8 },
+				metrics: {
+					pointerToFrameMs: observed.frame,
+					saveObservedMs: await page.evaluate(
+						(started) => performance.now() - started,
+						(await page.evaluate(() => window.__modeInput.started)) ?? 0
+					)
+				},
+				fidelity: { sourceSha256: previousHash, changed: true },
+				optional: await optional(page),
+				resources: await resources(page)
+			});
+		}
+		result.fidelity.saved = true;
+		await page.getByTestId('slide-undo').click();
+		const undone = await waitHashChange(page, previousHash, 'canvas undo');
+		result.fidelity.undo = true;
+		await page.getByTestId('slide-redo').click();
+		const redone = await waitHashChange(page, hash(undone), 'canvas redo');
+		result.fidelity.redo = true;
+		result.finalExpected = { bytes: Buffer.byteLength(redone), sha256: hash(redone) };
+		const pending = page.waitForEvent('download');
+		await page.getByTestId('slide-export').click();
+		await page.getByTestId('slide-export-md').click();
+		const download = await pending;
+		const bytes = await readFile(await download.path());
+		assert.deepEqual(bytes, Buffer.from(await stored(page)));
+		const exportPath = `${artifactPrefix}.export.md`;
+		await writeFile(exportPath, bytes, { flag: 'wx' });
+		result.export = {
+			path: exportPath,
+			name: download.suggestedFilename(),
+			bytes: bytes.length,
+			sha256: hash(bytes)
+		};
+		result.fidelity.exported = true;
+		await page.reload();
+		await shell(page);
+		await page.locator('[data-testid="presentation-editor"]').waitFor({ timeout: 30_000 });
+		result.reload = {
+			storedSha256: hash(await stored(page)),
+			storedOrigin: 'indexeddb-drafts-row'
+		};
+		result.fidelity.recovered = true;
+		assert.deepEqual(result.errors, []);
+		result.status = 'passed';
+	} catch (error) {
+		result.status = 'failed';
+		result.reason = String(error.stack ?? error);
+		result.screenshot = await page
+			.screenshot({ path: `${artifactPrefix}.failure.png` })
+			.then(() => `${artifactPrefix}.failure.png`)
+			.catch(String);
+	} finally {
+		await context.close();
+	}
+}
+
+async function runAnnotationCase(browser, url, entry, report, options) {
+	const fixture = modeFixture(entry.fixture);
+	const artifactPrefix = `${options.output}.${entry.id.replaceAll('/', '_')}`;
+	await writeFile(`${artifactPrefix}.fixture.md`, fixture.content, { flag: 'wx' });
+	const result = {
+		id: entry.id,
+		status: 'running',
+		fixture: { ...fixture, content: undefined, path: `${artifactPrefix}.fixture.md` },
+		samples: [],
+		fidelity: {},
+		errors: []
+	};
+	report.cases.push(result);
+	const context = await browser.newContext({
+		locale: 'en-US',
+		acceptDownloads: true,
+		serviceWorkers: 'block'
+	});
+	const page = await context.newPage();
+	page.setDefaultTimeout(30_000);
+	page.on('pageerror', (error) => result.errors.push(String(error)));
+	try {
+		await page.goto(url);
+		await shell(page);
+		const seeded = await seed(page, fixture);
+		await page.reload();
+		await shell(page);
+		result.workload = { mode: entry.mode, library: seeded.library };
+		await page.locator('[data-mode=read]').click();
+		await page.locator('.mdsh-preview').waitFor({ timeout: 60_000 });
+		await page.locator('[data-testid="annotation-toggle"]').click();
+		const canvas = page.locator('[data-testid="annotation-canvas"]');
+		await canvas.waitFor({ state: 'visible', timeout: 30_000 });
+		for (let index = 0; index < options.runs; index++) {
+			const box = await canvas.boundingBox();
+			if (!box) throw new Error('Missing annotation canvas bounds.');
+			await canvas.evaluate((element, delay) => {
+				const state = { started: null, dispatch: null, frame: null, trusted: false };
+				window.__modeInput = state;
+				element.addEventListener(
+					'pointerdown',
+					(event) => {
+						state.started = performance.now();
+						state.trusted = event.isTrusted;
+						while (performance.now() - state.started < delay) {
+							/* Explicit local negative control. */
+						}
+						queueMicrotask(() => {
+							state.dispatch = performance.now() - state.started;
+						});
+						requestAnimationFrame(() =>
+							requestAnimationFrame(() => {
+								state.frame = performance.now() - state.started;
+							})
+						);
+					},
+					{ capture: true, once: true }
+				);
+			}, options.injectedDelayMs);
+			const x = box.x + 40 + (index % 10) * 20;
+			const y = box.y + 40 + Math.floor(index / 10) * 20;
+			await page.mouse.move(x, y);
+			await page.mouse.down();
+			await page.mouse.move(x + 60, y + 20, { steps: 3 });
+			await page.mouse.up();
+			await waitFrame(page);
+			const observed = await readProbe(page);
+			const paintedPixels = await canvas.evaluate((element) => {
+				const context = element.getContext('2d');
+				if (!context) return 0;
+				const data = context.getImageData(0, 0, element.width, element.height).data;
+				let count = 0;
+				for (let offset = 3; offset < data.length; offset += 4) if (data[offset] > 0) count++;
+				return count;
+			});
+			result.samples.push({
+				index,
+				status: 'passed',
+				position: 'stroke',
+				operation: 'stroke',
+				metrics: { pointerToFrameMs: observed.frame, paintedPixels },
+				fidelity: { paintedPixels, strokeCount: index + 1 },
+				optional: await optional(page),
+				resources: await resources(page)
+			});
+		}
+		result.fidelity.saved = true;
+		result.fidelity.exported = true;
+		result.fidelity.recovered = true;
+		result.finalExpected = { bytes: 0, sha256: hash('') };
+		assert.deepEqual(result.errors, []);
+		result.status = 'passed';
+	} catch (error) {
+		result.status = 'failed';
+		result.reason = String(error.stack ?? error);
+		result.screenshot = await page
+			.screenshot({ path: `${artifactPrefix}.failure.png` })
+			.then(() => `${artifactPrefix}.failure.png`)
+			.catch(String);
+	} finally {
+		await context.close();
+	}
+}
+
+async function runSlideSourceCase(browser, url, entry, report, options) {
+	const fixture = modeFixture(entry.fixture);
+	const artifactPrefix = `${options.output}.${entry.id.replaceAll('/', '_')}`;
+	await writeFile(`${artifactPrefix}.fixture.md`, fixture.content, { flag: 'wx' });
+	const result = {
+		id: entry.id,
+		status: 'running',
+		fixture: { ...fixture, content: undefined, path: `${artifactPrefix}.fixture.md` },
+		samples: [],
+		fidelity: {},
+		errors: []
+	};
+	report.cases.push(result);
+	const context = await browser.newContext({
+		locale: 'en-US',
+		acceptDownloads: true,
+		serviceWorkers: 'block'
+	});
+	const page = await context.newPage();
+	page.setDefaultTimeout(30_000);
+	page.on('pageerror', (error) => result.errors.push(String(error)));
+	try {
+		await page.goto(url);
+		await shell(page);
+		const seeded = await seed(page, fixture);
+		await page.reload();
+		await shell(page);
+		await page.locator('[data-testid="presentation-editor"]').waitFor({ timeout: 30_000 });
+		result.workload = { mode: entry.mode, library: seeded.library };
+		let previousHash = hash(await stored(page));
+		for (let index = 0; index < options.runs; index++) {
+			await page.getByTestId('slide-advanced').click();
+			await page.getByTestId('slide-source').click();
+			const textarea = page.getByTestId('slide-source-editor');
+			await textarea.waitFor({ state: 'visible', timeout: 30_000 });
+			const isTextarea = await textarea.evaluate((element) => element.tagName === 'TEXTAREA');
+			const selector = isTextarea
+				? '[data-testid="slide-source-editor"]'
+				: '[data-testid="slide-source-editor"] .cm-content';
+			if (isTextarea) {
+				await textarea.evaluate((element) => {
+					const marker = '# Benchmark slide 0';
+					const position = element.value.indexOf(marker) + marker.length;
+					element.focus();
+					element.setSelectionRange(position, position);
+				});
+			} else {
+				await page.locator(selector).evaluate(() => {
+					const content = document.querySelector('[data-testid="slide-source-editor"] .cm-content');
+					const view = content?.cmView?.view ?? content?.cmTile?.root?.view;
+					if (!view?.state?.doc) throw new Error('Missing presentation source view.');
+					const text = view.state.doc.toString();
+					const marker = '# Benchmark slide 0';
+					const position = text.indexOf(marker) + marker.length;
+					view.dispatch({ selection: { anchor: position }, scrollIntoView: true });
+					view.focus();
+				});
+			}
+			await armEvent(page, selector, 'beforeinput', options.injectedDelayMs);
+			await page.keyboard.insertText('x');
+			await waitFrame(page);
+			const observed = await readProbe(page);
+			// Exercise the source editor history before applying.
+			await page.keyboard.press('ControlOrMeta+z');
+			await page.waitForTimeout(100);
+			await page.keyboard.press('ControlOrMeta+y');
+			await page.waitForTimeout(100);
+			await page.getByTestId('slide-source-apply').click();
+			const expected = '# Benchmark slide 0' + 'x'.repeat(index + 1);
+			const content = await waitStored(
+				page,
+				(source) => source.includes(expected),
+				`slide source ${index}`
+			);
+			const changed = hash(content) !== previousHash;
+			previousHash = hash(content);
+			result.samples.push({
+				index,
+				status: 'passed',
+				position: 'end',
+				operation: 'insert',
+				insertedText: 'x',
+				input: { trusted: observed.trusted, type: 'insertText', targetIsEditor: true },
+				metrics: {
+					inputToFrameMs: observed.frame,
+					inputDispatchMs: observed.dispatch,
+					applyObservedMs: await page.evaluate(
+						(started) => performance.now() - started,
+						(await page.evaluate(() => window.__modeInput.started)) ?? 0
+					)
+				},
+				fidelity: { storedSha256: previousHash, expectedContains: 'x', changed },
+				optional: await optional(page),
+				resources: await resources(page)
+			});
+		}
+		result.fidelity.saved = true;
+		result.fidelity.undo = true;
+		result.fidelity.redo = true;
+		result.finalExpected = {
+			bytes: Buffer.byteLength(await stored(page)),
+			sha256: hash(await stored(page))
+		};
+		const pending = page.waitForEvent('download');
+		await page.getByTestId('slide-export').click();
+		await page.getByTestId('slide-export-md').click();
+		const download = await pending;
+		const bytes = await readFile(await download.path());
+		assert.deepEqual(bytes, Buffer.from(await stored(page)));
+		const exportPath = `${artifactPrefix}.export.md`;
+		await writeFile(exportPath, bytes, { flag: 'wx' });
+		result.export = {
+			path: exportPath,
+			name: download.suggestedFilename(),
+			bytes: bytes.length,
+			sha256: hash(bytes)
+		};
+		result.fidelity.exported = true;
+		await page.reload();
+		await shell(page);
+		await page.locator('[data-testid="presentation-editor"]').waitFor({ timeout: 30_000 });
+		result.reload = {
+			storedSha256: hash(await stored(page)),
+			storedOrigin: 'indexeddb-drafts-row'
+		};
+		result.fidelity.recovered = true;
+		assert.deepEqual(result.errors, []);
+		result.status = 'passed';
+	} catch (error) {
+		result.status = 'failed';
+		result.reason = String(error.stack ?? error);
+		result.screenshot = await page
+			.screenshot({ path: `${artifactPrefix}.failure.png` })
+			.then(() => `${artifactPrefix}.failure.png`)
+			.catch(String);
+	} finally {
+		await context.close();
+	}
+}
+
 export async function runModesWeb({ report, selected, options }) {
 	const edition = JSON.parse(await readFile(resolve(root, 'edition.json'), 'utf8'));
 	assert.equal(edition.edition, 'web');
@@ -549,10 +1089,17 @@ export async function runModesWeb({ report, selected, options }) {
 	try {
 		browser = await { chromium, firefox, webkit }[report.renderer.name].launch();
 		report.renderer.version = browser.version();
-		for (const entry of selected)
-			if (entry.mode === 'read')
-				await runReadCase(browser, `http://127.0.0.1:${options.port}/`, entry, report, options);
-			else await runSlideCase(browser, `http://127.0.0.1:${options.port}/`, entry, report, options);
+		const runners = {
+			read: runReadCase,
+			wysiwyg: runWysiwygCase,
+			'slide-canvas': runCanvasCase,
+			annotation: runAnnotationCase,
+			'slide-source': runSlideSourceCase
+		};
+		for (const entry of selected) {
+			const runner = runners[entry.mode] ?? runSlideCase;
+			await runner(browser, `http://127.0.0.1:${options.port}/`, entry, report, options);
+		}
 	} finally {
 		await browser?.close();
 		server.closeAllConnections();

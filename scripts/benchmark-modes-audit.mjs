@@ -28,8 +28,35 @@ const metricLimits = {
 		inputToFrameMs: 'slideInputToFrameMs',
 		inputDispatchMs: 'slideInputDispatchMs',
 		saveObservedMs: 'slideSaveObservedMs'
+	},
+	wysiwyg: {
+		inputToFrameMs: 'wysiwygInputToFrameMs',
+		inputDispatchMs: 'wysiwygInputDispatchMs',
+		saveObservedMs: 'wysiwygSaveObservedMs'
+	},
+	canvas: {
+		pointerToFrameMs: 'canvasPointerToFrameMs',
+		saveObservedMs: 'canvasSaveObservedMs'
+	},
+	annotation: {
+		pointerToFrameMs: 'annotationPointerToFrameMs',
+		paintedPixels: 'annotationPaintedPixels'
+	},
+	'slide-source': {
+		inputToFrameMs: 'slideSourceInputToFrameMs',
+		inputDispatchMs: 'slideSourceInputDispatchMs',
+		applyObservedMs: 'slideSourceApplyObservedMs'
 	}
 };
+
+const familyFor = (mode) =>
+	mode === 'read'
+		? 'read'
+		: mode === 'slide-text' || mode === 'slide-notes'
+			? 'slide'
+			: mode === 'slide-canvas'
+				? 'canvas'
+				: mode;
 
 function sampleResources(sample, label, maxima, fail) {
 	for (const name of requiredCapabilities) {
@@ -167,6 +194,46 @@ function slideCase(entry, catalog, fixture, samples, label, fail) {
 	return { metrics, maxima };
 }
 
+function interactionCase(entry, catalog, samples, label, fail) {
+	const family = familyFor(catalog.mode);
+	const maxima = {};
+	const metrics = {};
+	for (const key of Object.keys(metricLimits[family])) {
+		const values = samples.map((sample) => sample?.metrics?.[key]);
+		if (values.some((value) => !finiteNonnegative(value))) fail(`${label}:invalid-metric:${key}`);
+		metrics[key] = summarize(values);
+	}
+	for (let index = 0; index < samples.length; index++) {
+		const sample = samples[index];
+		const sampleLabel = `${label}:${index}`;
+		if (sample.index !== index || sample.status !== 'passed') fail(`${sampleLabel}:invalid-sample`);
+		if (family === 'annotation') {
+			if (
+				!finiteNonnegative(sample.fidelity?.paintedPixels) ||
+				sample.fidelity.paintedPixels <= 0 ||
+				sample.fidelity?.strokeCount !== index + 1
+			)
+				fail(`${sampleLabel}:paint-mismatch`);
+		} else if (family === 'canvas') {
+			if (!isDigest(sample.fidelity?.sourceSha256)) fail(`${sampleLabel}:source-hash-missing`);
+			if (sample.fidelity?.changed !== true) fail(`${sampleLabel}:source-not-changed`);
+		} else {
+			if (!isDigest(sample.fidelity?.storedSha256)) fail(`${sampleLabel}:stored-hash-missing`);
+			if (sample.fidelity?.expectedContains !== 'x') fail(`${sampleLabel}:expected-text-missing`);
+		}
+		sampleResources(sample, sampleLabel, maxima, fail);
+	}
+	if (family !== 'annotation') {
+		if (!isDigest(entry.finalExpected?.sha256)) fail(`${label}:final-expected-missing`);
+		if (
+			entry.export?.sha256 !== entry.finalExpected?.sha256 ||
+			entry.reload?.storedSha256 !== entry.finalExpected?.sha256
+		)
+			fail(`${label}:final-source-mismatch`);
+	}
+	return { metrics, maxima };
+}
+
 export async function auditModes(value, budgets, expectedCases, enforce = true, trust = {}) {
 	const report = object(value) ? value : {};
 	const failures = [],
@@ -249,17 +316,26 @@ export async function auditModes(value, budgets, expectedCases, enforce = true, 
 		)
 			fail(`${id}:workload:mismatch`);
 		await sidecar(entry.fixture, fixture.content, receipt, `${id}:fixture`, fail);
-		for (const key of ['saved', 'exported', 'recovered'])
+		const family = familyFor(catalog.mode);
+		for (const key of family === 'annotation' ? ['saved'] : ['saved', 'exported', 'recovered'])
 			if (entry.fidelity?.[key] !== true) fail(`${id}:fidelity:${key}`);
 		const samples = Array.isArray(entry.samples) ? entry.samples : [];
 		if (samples.length !== runs || !samples.length || samples.length > 100)
 			fail(`${id}:sample-count-mismatch`);
-		const family = catalog.mode === 'read' ? 'read' : 'slide';
 		const measured =
 			family === 'read'
 				? readCase(entry, catalog, fixture, samples, id, fail)
-				: slideCase(entry, catalog, fixture, samples, id, fail);
-		if (catalog.mode === 'slide-text' || catalog.mode === 'slide-notes') {
+				: family === 'slide'
+					? slideCase(entry, catalog, fixture, samples, id, fail)
+					: interactionCase(entry, catalog, samples, id, fail);
+		if (family === 'annotation') {
+			// The annotation canvas is in-memory only; there is no stored or exported source.
+		} else if (
+			family === 'slide' ||
+			family === 'wysiwyg' ||
+			family === 'canvas' ||
+			family === 'slide-source'
+		) {
 			if (entry.fidelity?.undo !== true || entry.fidelity?.redo !== true)
 				fail(`${id}:fidelity:history`);
 			if (!entry.export?.path) {

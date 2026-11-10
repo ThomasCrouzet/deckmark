@@ -841,11 +841,21 @@
 					"readFullRenderMs": 2500,
 					"slideInputToFrameMs": 60,
 					"slideInputDispatchMs": 5,
-					"slideSaveObservedMs": 2000
+					"slideSaveObservedMs": 2000,
+					"wysiwygInputToFrameMs": 100,
+					"wysiwygInputDispatchMs": 10,
+					"wysiwygSaveObservedMs": 3000,
+					"canvasPointerToFrameMs": 100,
+					"canvasSaveObservedMs": 3000,
+					"annotationPointerToFrameMs": 100,
+					"annotationPaintedPixels": 10000000,
+					"slideSourceInputToFrameMs": 100,
+					"slideSourceInputDispatchMs": 10,
+					"slideSourceApplyObservedMs": 5000
 				},
 				"resourceLimits": {
 					"domNodes": 10000,
-					"canvasPixels": 0,
+					"canvasPixels": 16777216,
 					"heapBytes": 134217728
 				}
 			},

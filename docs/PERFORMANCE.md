@@ -24,12 +24,12 @@ Code at 50 KB/1 MB/5 MB, JSON at 50 KB/1 MB/5 MB/10 MB, and decks with
 sentinel. Sizes use decimal bytes. The fixture command returns exact content,
 byte count and SHA-256. Decks use the existing version 1 format.
 
-Source, Code, JSON and Split have Web browser adapters. Read, slide text and
-slide notes have a separate mode suite described below. The stress matrix still
-lists WYSIWYG, Read, annotation, slide canvas, slide text, slide notes and
-Advanced Presentation Source; only the three mode-suite workloads are executable
-today. The other rows stay unavailable and fail when selected. Listing a case is
-not execution or coverage proof. Native stress transport is also not implemented.
+Source, Code, JSON and Split have Web browser adapters. The separate mode suite
+below covers WYSIWYG, Read, slide text, slide notes, slide canvas, read
+annotation and Advanced Presentation Source. The stress matrix still lists those
+rows as unavailable because they use a different measurement contract; select
+them with `benchmark-modes`. Listing a case is not execution or coverage proof.
+Native stress transport is still not implemented.
 
 Build and record a clean committed root production build, then select a bounded
 set of cases. Set `OUT` to an existing local directory outside the repository.
@@ -154,6 +154,50 @@ Strict audit:
 node scripts/benchmark-modes-audit.mjs --report "$OUT/modes-chromium.json" \
   --receipt "$OUT/external-trust.json" --receipt-sha256 "$RECEIPT_SHA256" \
   --cases read/read-rich-30/lib-0,slide-text/deck-20/lib-0,slide-notes/deck-20/lib-0
+```
+
+The same suite covers the remaining Web interaction modes:
+
+| Case | Workload | Raw metrics |
+| --- | --- | --- |
+| `wysiwyg/read-rich-30/lib-0` | ProseMirror insert at the start and end | `inputToFrameMs`, `inputDispatchMs`, `saveObservedMs` |
+| `slide-canvas/deck-20/lib-0` | pointer drag of a rectangle | `pointerToFrameMs`, `saveObservedMs` |
+| `annotation/read-rich-30/lib-0` | Read-mode ink strokes | `pointerToFrameMs`, `paintedPixels`, `strokeCount` |
+| `slide-source/deck-20/lib-0` | advanced presentation source insert and Apply | `inputToFrameMs`, `inputDispatchMs`, `applyObservedMs` |
+
+The WYSIWYG, canvas and advanced-source cases check the stored source hash,
+undo/redo, Markdown export and reload recovery. The annotation case checks the
+non-transparent canvas pixels and the completed stroke count; ink is in memory
+and has no stored export. The audit replays the canvas source change and the
+stored/export/reload hashes.
+
+Additional reviewed local limits:
+
+| Metric | Limit |
+| --- | --- |
+| `wysiwygInputToFrameMs` | 100 ms |
+| `wysiwygInputDispatchMs` | 10 ms |
+| `wysiwygSaveObservedMs` | 3000 ms |
+| `canvasPointerToFrameMs` | 100 ms |
+| `canvasSaveObservedMs` | 3000 ms |
+| `annotationPointerToFrameMs` | 100 ms |
+| `annotationPaintedPixels` | 10000000 |
+| `slideSourceInputToFrameMs` | 100 ms |
+| `slideSourceInputDispatchMs` | 10 ms |
+| `slideSourceApplyObservedMs` | 5000 ms |
+
+Canvas pixels are limited to 16,777,216 for the annotation canvas. A 20-run
+Chromium run produced p95 values of 41.8 ms / 0.1 ms / 771.2 ms for WYSIWYG,
+32.3 ms / 695.5 ms for canvas, 35.0 ms / 5096 painted pixels for annotation and
+32.1 ms / 0.1 ms / 703.2 ms for slide source. A copy with 200 ms input or
+pointer times fails every affected case with `over-budget`.
+
+Strict audit:
+
+```sh
+node scripts/benchmark-modes-audit.mjs --report "$OUT/modes-chromium.json" \
+  --receipt "$OUT/external-trust.json" --receipt-sha256 "$RECEIPT_SHA256" \
+  --cases wysiwyg/read-rich-30/lib-0,slide-canvas/deck-20/lib-0,annotation/read-rich-30/lib-0,slide-source/deck-20/lib-0
 ```
 
 WYSIWYG, annotation, slide canvas, Advanced Presentation Source and native mode
