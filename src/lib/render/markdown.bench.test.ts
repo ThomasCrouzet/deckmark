@@ -42,34 +42,32 @@ function buildLargeMarkdown(): string {
 }
 
 describe('renderMarkdown - performance benchmark', () => {
-	it('renders 50,000 characters of mixed Markdown with less than 2 seconds of CPU time', async () => {
-		const md = buildLargeMarkdown();
-		expect(md.length).toBeGreaterThanOrEqual(50_000);
+	it(
+		'renders 50,000 characters of mixed Markdown in less than 2 seconds',
+		{ retry: 1, timeout: 30_000 },
+		async () => {
+			const md = buildLargeMarkdown();
+			expect(md.length).toBeGreaterThanOrEqual(50_000);
 
-		// Exclude module loading from the measured runs.
-		await renderMarkdown(md);
-
-		// Use the minimum of three runs to reduce noise from garbage collection.
-		// CPU time ignores scheduler stalls on a shared CI runner while still
-		// detecting a large increase in render work.
-		const cpuTimes: number[] = [];
-		const wallTimes: number[] = [];
-		for (let i = 0; i < 3; i++) {
-			const cpuStart = process.cpuUsage();
-			const t0 = performance.now();
+			// Exclude module loading from the measured runs.
 			await renderMarkdown(md);
-			wallTimes.push(performance.now() - t0);
-			const used = process.cpuUsage(cpuStart);
-			cpuTimes.push((used.user + used.system) / 1000);
-		}
-		const min = Math.min(...cpuTimes);
-		console.log(
-			`[bench] renderMarkdown 50k mixed: minCpu=${min.toFixed(0)}ms ` +
-				`(cpu: ${cpuTimes.map((t) => t.toFixed(0)).join('/')}ms, ` +
-				`wall: ${wallTimes.map((t) => t.toFixed(0)).join('/')}ms)`
-		);
 
-		// Browser tests check the SVG output. This limit checks mixed-content rendering work.
-		expect(min).toBeLessThan(2_000);
-	}, 30_000);
+			// Use the minimum of five runs to reduce noise from garbage collection
+			// and shared-runner scheduling. One retry absorbs a transient stall;
+			// a systematic slowdown still fails every attempt.
+			const times: number[] = [];
+			for (let i = 0; i < 5; i++) {
+				const t0 = performance.now();
+				await renderMarkdown(md);
+				times.push(performance.now() - t0);
+			}
+			const min = Math.min(...times);
+			console.log(
+				`[bench] renderMarkdown 50k mixed: min=${min.toFixed(0)}ms (runs: ${times.map((t) => t.toFixed(0)).join('/')}ms)`
+			);
+
+			// Browser tests check the SVG output. This limit checks mixed-content rendering time.
+			expect(min).toBeLessThan(2_000);
+		}
+	);
 });
