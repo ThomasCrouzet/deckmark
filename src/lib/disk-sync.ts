@@ -136,6 +136,7 @@ async function openFromDiskFsa(deps: DiskSyncDeps, options: ImportOptions): Prom
 			item.diskLastModified = file.lastModified;
 			item.diskSize = file.size;
 			await saveHandle(item.id, handle, await revisionForFile(file), epoch);
+			pendingDiskLinkWrites.delete(item.id);
 			created.push(item);
 			session.accept();
 		} catch (err) {
@@ -286,6 +287,7 @@ async function ingestDesktopOpens(
 			item.diskSize = file.size;
 			item.diskRevision = file.revision;
 			await savePathLink(item.id, file.link, epoch, file.revision);
+			pendingDiskLinkWrites.delete(item.id);
 			created.push(item);
 			if (file.token) processedTokens.push(file.token);
 			session.accept();
@@ -307,6 +309,51 @@ async function ingestDesktopOpens(
 	return { files: created, processedTokens };
 }
 
+/** The two facts of a linked save stay separate. */
+export type DiskSaveOutcome = 'saved' | 'written-link-unsaved' | 'failed';
+
+export interface DiskSaveResult {
+	/** `written-link-unsaved` means the bytes reached the file, not the link. */
+	outcome: DiskSaveOutcome;
+	/** True when the selected disk file received the bytes. */
+	written: boolean;
+	/** True when the link and its revision reached the disk-link database. */
+	linkPersisted: boolean;
+}
+
+function savedResult(): DiskSaveResult {
+	return { outcome: 'saved', written: true, linkPersisted: true };
+}
+
+function writtenLinkUnsavedResult(): DiskSaveResult {
+	return { outcome: 'written-link-unsaved', written: true, linkPersisted: false };
+}
+
+function failedResult(): DiskSaveResult {
+	return { outcome: 'failed', written: false, linkPersisted: false };
+}
+
+/**
+ * A process-local intent for a file write whose link record did not persist.
+ * The record is small and holds no document content. It lets the next save
+ * accept its own exact disk revision as the baseline. A restart drops it, so
+ * the next save asks the user again instead of silently adopting a baseline.
+ */
+interface PendingDiskLinkWrite {
+	kind: 'fsa' | 'path';
+	revision: string;
+	epoch: string;
+	handle?: FileSystemFileHandle;
+	path?: string;
+}
+
+const pendingDiskLinkWrites = new Map<string, PendingDiskLinkWrite>();
+
+/** Drops the process-local link intent for one document. */
+export function forgetPendingDiskLinkWrite(id: string): void {
+	pendingDiskLinkWrites.delete(id);
+}
+
 /**
  * Saves a file to disk via FSA or path link. If a link already exists (file
  * already linked), reuses it (with a permission check on FSA). Otherwise, opens
@@ -315,32 +362,41 @@ async function ingestDesktopOpens(
  * Updates `linkedToDisk`, `brokenLink`, `dirty` on the FileItem, then calls
  * `scheduleSave` to persist the state to Dexie.
  *
- * @returns `true` if the write succeeded, `false` otherwise (backend absent,
- *   cancelled, permission denied, or write failure). A toast confirms success
- *   or reports the failure (§J3) - the error is no longer propagated to the caller.
+ * @returns `true` only for a completed linked save. A physical write whose link
+ *   record could not persist returns `false`; use `saveToDiskResult` to tell
+ *   that case apart from a failed write.
  */
 export async function saveToDisk(id: string, deps: DiskSyncDeps): Promise<boolean> {
-	if (!browser) return false;
+	return (await saveToDiskResult(id, deps)).outcome === 'saved';
+}
+
+/** Typed form of `saveToDisk` for callers that must separate write and link. */
+export async function saveToDiskResult(id: string, deps: DiskSyncDeps): Promise<DiskSaveResult> {
+	if (!browser) return failedResult();
 	const file = deps.getFile(id);
-	if (!file) return false;
+	if (!file) return failedResult();
 	markDiskLinkChanged(id);
 
 	try {
 		if (isBinaryDocument(file)) {
 			const { exportMarkdown } = await import('./services/export');
-			return await exportMarkdown(file);
+			return (await exportMarkdown(file)) ? savedResult() : failedResult();
 		}
-		if (!isDiskLinkingAvailable()) return false;
+		if (!isDiskLinkingAvailable()) return failedResult();
 		if (isDesktop()) return await saveToDiskDesktop(id, file, deps);
 		return await saveToDiskFsa(id, file, deps);
 	} catch (error) {
 		reportError('disk save', error, { notifyUser: t('disk.saveFailed', { name: file.name }) });
-		return false;
+		return failedResult();
 	}
 }
 
-async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Promise<boolean> {
-	if (!isFSASupported()) return false;
+async function saveToDiskFsa(
+	id: string,
+	file: FileItem,
+	deps: DiskSyncDeps
+): Promise<DiskSaveResult> {
+	if (!isFSASupported()) return failedResult();
 	const content = file.content;
 	const name = file.name;
 	let existingLink: Awaited<ReturnType<typeof getFsaLink>>;
@@ -350,7 +406,7 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		epoch = existingLink?.epoch ?? (await getDiskLinkEpoch());
 	} catch (err) {
 		reportPersistenceError(err, 'load');
-		return false;
+		return failedResult();
 	}
 	let handle = existingLink?.handle ?? null;
 	const hadLink = handle !== null;
@@ -359,7 +415,7 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		const ok = await requestPermission(handle, 'readwrite');
 		if (!ok) {
 			notify.error(t('disk.permissionDenied', { name }));
-			return false;
+			return failedResult();
 		}
 		let onDiskRevision: string;
 		let onDiskFile: File;
@@ -370,56 +426,112 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 			file.brokenLink = true;
 			notify.error(t('disk.saveFailed', { name }));
 			reportError('disk revision check', err);
-			return false;
+			return failedResult();
 		}
 		if (existingLink.revision === null || onDiskRevision !== existingLink.revision) {
-			let diskContent: string;
-			try {
-				diskContent = await readUtf8File(onDiskFile, IMPORT_LIMITS.maxFileBytes, undefined, true);
-				validateMarkdownContent(diskContent);
-			} catch (error) {
-				reportError('disk comparison read', error, { notifyUser: t('disk.saveFailed', { name }) });
-				return false;
-			}
-			const resolution = await diskConflictStore.resolve({
-				fileId: id,
-				name,
-				localContent: content,
-				diskContent
-			});
-			if (resolution === 'cancel') {
-				notify.info(t('disk.saveCancelled', { name }));
-				return false;
-			}
-
-			if (!(await checkpointDiskBranch(id, name, resolution === 'reload' ? content : diskContent)))
-				return false;
-
-			if (
-				!sameDiskSource(id, file, content, name, deps) ||
-				(await revisionForFile(await handle.getFile())) !== onDiskRevision
-			) {
-				notify.error(t('files.otherTabChanges'));
-				return false;
-			}
-			if (resolution === 'reload') {
+			const pending = pendingDiskLinkWrites.get(id);
+			const pendingMatches =
+				pending?.kind === 'fsa' &&
+				pending.epoch === epoch &&
+				pending.revision === onDiskRevision &&
+				pending.handle !== undefined &&
+				(await isSameFileHandle(pending.handle, handle));
+			if (pendingMatches) {
+				// The bytes on disk are the ones this session wrote before the link
+				// record failed. An exact content revision is the only baseline this
+				// path accepts without a new decision.
+				let currentRevision: string;
 				try {
-					await saveHandle(id, handle, onDiskRevision, epoch);
-				} catch (error) {
-					reportPersistenceError(error, 'save');
-					return false;
+					currentRevision = await revisionForText(content);
+				} catch (err) {
+					notify.error(t('disk.saveFailed', { name }));
+					reportError('disk revision', err);
+					return failedResult();
 				}
-				if (!sameDiskSource(id, file, content, name, deps)) return false;
-				applyDiskContent(id, file, diskContent, deps);
-				file.diskLastModified = onDiskFile.lastModified;
-				file.diskSize = onDiskFile.size;
-				return true;
+				if (currentRevision === onDiskRevision) {
+					try {
+						await saveHandle(id, handle, onDiskRevision, epoch);
+					} catch (err) {
+						file.diskLastModified = onDiskFile.lastModified;
+						file.diskSize = onDiskFile.size;
+						return fsaLinkPersistenceFailure(
+							id,
+							file,
+							handle,
+							onDiskRevision,
+							epoch,
+							hadLink,
+							err,
+							deps
+						);
+					}
+					pendingDiskLinkWrites.delete(id);
+					file.linkedToDisk = true;
+					file.brokenLink = false;
+					const current = deps.getFile(id);
+					if (current?.content === content) current.dirty = false;
+					file.diskLastModified = onDiskFile.lastModified;
+					file.diskSize = onDiskFile.size;
+					deps.scheduleSave(id);
+					notify.success(t('disk.saved', { name: handle.name || name }));
+					return savedResult();
+				}
+				// A later local edit still follows this session's own write. The
+				// outer branch below keeps `onDiskRevision` as the write baseline.
+			} else {
+				let diskContent: string;
+				try {
+					diskContent = await readUtf8File(onDiskFile, IMPORT_LIMITS.maxFileBytes, undefined, true);
+					validateMarkdownContent(diskContent);
+				} catch (error) {
+					reportError('disk comparison read', error, {
+						notifyUser: t('disk.saveFailed', { name })
+					});
+					return failedResult();
+				}
+				const resolution = await diskConflictStore.resolve({
+					fileId: id,
+					name,
+					localContent: content,
+					diskContent
+				});
+				if (resolution === 'cancel') {
+					notify.info(t('disk.saveCancelled', { name }));
+					return failedResult();
+				}
+
+				if (
+					!(await checkpointDiskBranch(id, name, resolution === 'reload' ? content : diskContent))
+				)
+					return failedResult();
+
+				if (
+					!sameDiskSource(id, file, content, name, deps) ||
+					(await revisionForFile(await handle.getFile())) !== onDiskRevision
+				) {
+					notify.error(t('files.otherTabChanges'));
+					return failedResult();
+				}
+				if (resolution === 'reload') {
+					try {
+						await saveHandle(id, handle, onDiskRevision, epoch);
+					} catch (error) {
+						reportPersistenceError(error, 'save');
+						return failedResult();
+					}
+					pendingDiskLinkWrites.delete(id);
+					if (!sameDiskSource(id, file, content, name, deps)) return failedResult();
+					applyDiskContent(id, file, diskContent, deps);
+					file.diskLastModified = onDiskFile.lastModified;
+					file.diskSize = onDiskFile.size;
+					return savedResult();
+				}
 			}
 		}
 		reviewedRevision = onDiskRevision;
 	} else {
 		const picked = await pickSaveTarget(name);
-		if (!picked) return false;
+		if (!picked) return failedResult();
 		handle = picked;
 	}
 	let writtenRevision: string;
@@ -428,12 +540,12 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 	} catch (err) {
 		notify.error(t('disk.saveFailed', { name }));
 		reportError('disk revision', err);
-		return false;
+		return failedResult();
 	}
 	try {
 		if (reviewedRevision && (await revisionForFile(await handle.getFile())) !== reviewedRevision) {
 			notify.error(t('files.otherTabChanges'));
-			return false;
+			return failedResult();
 		}
 		await writeHandle(handle, content);
 	} catch (err) {
@@ -444,18 +556,24 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		file.brokenLink = true;
 		notify.error(t('disk.saveFailed', { name }));
 		reportError('saveToDisk', err);
-		return false;
+		return failedResult();
 	}
-	let linkPersisted = true;
+	let linkPersisted = false;
 	try {
 		await saveHandle(id, handle, writtenRevision, epoch);
-		file.linkedToDisk = true;
+		linkPersisted = true;
+		pendingDiskLinkWrites.delete(id);
 	} catch (err) {
-		linkPersisted = false;
-		file.linkedToDisk = hadLink;
+		pendingDiskLinkWrites.set(id, {
+			kind: 'fsa',
+			handle,
+			revision: writtenRevision,
+			epoch
+		});
 		reportPersistenceError(err, 'save');
 	}
-	file.brokenLink = false;
+	file.linkedToDisk = linkPersisted ? true : hadLink;
+	file.brokenLink = !linkPersisted;
 	const current = deps.getFile(id);
 	if (linkPersisted && current?.content === content) current.dirty = false;
 	if (
@@ -487,13 +605,36 @@ async function saveToDiskFsa(id: string, file: FileItem, deps: DiskSyncDeps): Pr
 		// The bytes reached the file, but the durable link and anti-overwrite
 		// revision did not. Keep the draft dirty and let the user retry the link.
 		file.dirty = true;
-		return false;
+		return writtenLinkUnsavedResult();
 	}
 	notify.success(t('disk.saved', { name: handle.name || name }));
-	return true;
+	return savedResult();
 }
 
-async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps): Promise<boolean> {
+function fsaLinkPersistenceFailure(
+	id: string,
+	file: FileItem,
+	handle: FileSystemFileHandle,
+	revision: string,
+	epoch: string,
+	hadLink: boolean,
+	err: unknown,
+	deps: DiskSyncDeps
+): DiskSaveResult {
+	pendingDiskLinkWrites.set(id, { kind: 'fsa', handle, revision, epoch });
+	file.linkedToDisk = hadLink;
+	file.brokenLink = true;
+	file.dirty = true;
+	reportPersistenceError(err, 'save');
+	deps.scheduleSave(id);
+	return writtenLinkUnsavedResult();
+}
+
+async function saveToDiskDesktop(
+	id: string,
+	file: FileItem,
+	deps: DiskSyncDeps
+): Promise<DiskSaveResult> {
 	const content = file.content;
 	const name = file.name;
 	let existingLink: Awaited<ReturnType<typeof getPathLinkWithEpoch>>;
@@ -503,20 +644,69 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 		epoch = existingLink?.epoch ?? (await getDiskLinkEpoch());
 	} catch (err) {
 		reportPersistenceError(err, 'load');
-		return false;
+		return failedResult();
 	}
 	let pathRec = existingLink?.record ?? null;
 	let expectedRevision = file.diskRevision ?? existingLink?.revision ?? null;
-	let persistedPath = pathRec?.path ?? null;
+	// A durable path stays owned until a different target replaces it. A picked
+	// path is not durable until `savePathLink` resolves.
+	let durablePath = pathRec?.path ?? null;
+	const hadDurablePath = pathRec !== null;
 	if (!pathRec) {
 		const picked = await tauriPickSaveTarget(name);
-		if (!picked) return false;
+		if (!picked) return failedResult();
 		pathRec = picked;
 		const selected = await tauriReadMeta(pathRec.path);
-		file.diskRevision = selected?.revision;
 		expectedRevision = selected?.revision ?? null;
 	}
-	let written;
+	// A previous save in this session wrote the file but could not store its
+	// revision. Accept that exact revision as the baseline without a new write
+	// or a false external-change dialog.
+	const pending = pendingDiskLinkWrites.get(id);
+	if (
+		hadDurablePath &&
+		pending?.kind === 'path' &&
+		pending.epoch === epoch &&
+		pending.path === pathRec.path
+	) {
+		const currentMeta = await tauriReadMeta(pathRec.path).catch(() => null);
+		if (currentMeta && currentMeta.revision === pending.revision) {
+			const diskContent = await tauriReadPath(pathRec.path)
+				.then((read) => read.content)
+				.catch(() => null);
+			if (diskContent === content) {
+				try {
+					await savePathLink(id, pathRec, epoch, currentMeta.revision);
+				} catch (err) {
+					return desktopLinkPersistenceFailure(
+						id,
+						file,
+						pathRec,
+						currentMeta.revision,
+						epoch,
+						durablePath,
+						err,
+						deps
+					);
+				}
+				pendingDiskLinkWrites.delete(id);
+				file.linkedToDisk = true;
+				file.brokenLink = false;
+				file.diskRevision = currentMeta.revision;
+				file.diskLastModified = currentMeta.lastModified;
+				file.diskSize = currentMeta.size;
+				const current = deps.getFile(id);
+				if (current?.content === content) current.dirty = false;
+				deps.scheduleSave(id);
+				notify.success(t('disk.saved', { name: pathBasename(pathRec.path) }));
+				return savedResult();
+			}
+			// The user edited after the pending write. Its bytes are still the
+			// baseline, so the new write must not look like an external change.
+			expectedRevision = currentMeta.revision;
+		}
+	}
+	let written: Awaited<ReturnType<typeof tauriWritePath>>;
 	try {
 		written = await tauriWritePath(pathRec.path, content, expectedRevision, false);
 	} catch (err) {
@@ -532,7 +722,7 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 				});
 				if (resolution === 'cancel') {
 					notify.info(t('disk.saveCancelled', { name }));
-					return false;
+					return failedResult();
 				}
 
 				if (
@@ -542,30 +732,31 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 						resolution === 'reload' ? content : external.content
 					))
 				)
-					return false;
+					return failedResult();
 
 				if (!sameDiskSource(id, file, content, name, deps)) {
 					notify.error(t('files.otherTabChanges'));
-					return false;
+					return failedResult();
 				}
 				if (resolution === 'reload') {
 					const currentDisk = await tauriReadPath(pathRec.path);
 					if (currentDisk.stat.revision !== external.stat.revision) {
 						notify.error(t('files.otherTabChanges'));
-						return false;
+						return failedResult();
 					}
 					try {
 						await savePathLink(id, pathRec, epoch, external.stat.revision);
 					} catch (error) {
 						reportPersistenceError(error, 'save');
-						return false;
+						return failedResult();
 					}
-					if (!sameDiskSource(id, file, content, name, deps)) return false;
+					pendingDiskLinkWrites.delete(id);
+					if (!sameDiskSource(id, file, content, name, deps)) return failedResult();
 					applyDiskContent(id, file, external.content, deps);
 					file.diskRevision = external.stat.revision;
 					file.diskLastModified = external.stat.lastModified;
 					file.diskSize = external.stat.size;
-					return true;
+					return savedResult();
 				}
 				written = await tauriWritePath(pathRec.path, content, external.stat.revision, false);
 			} catch (retryError) {
@@ -573,15 +764,16 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 			}
 		} else if (message.includes('capability expired')) {
 			const picked = await tauriPickSaveTarget(name);
-			if (!picked) return false;
-			if (persistedPath !== null && picked.path !== persistedPath) {
+			if (!picked) return failedResult();
+			if (durablePath !== null && picked.path !== durablePath) {
 				try {
 					await deleteHandle(id);
-					persistedPath = null;
+					durablePath = null;
+					pendingDiskLinkWrites.delete(id);
 					file.linkedToDisk = false;
 				} catch (deleteError) {
 					reportPersistenceError(deleteError, 'save');
-					return false;
+					return failedResult();
 				}
 			}
 			pathRec = picked;
@@ -597,43 +789,59 @@ async function saveToDiskDesktop(id: string, file: FileItem, deps: DiskSyncDeps)
 	}
 	try {
 		await savePathLink(id, pathRec, epoch, written.revision);
-		persistedPath = pathRec.path;
+		pendingDiskLinkWrites.delete(id);
 	} catch (err) {
-		reportPersistenceError(err, 'save');
+		return desktopLinkPersistenceFailure(
+			id,
+			file,
+			pathRec,
+			written.revision,
+			epoch,
+			durablePath,
+			err,
+			deps
+		);
 	}
-	const linkPersisted = persistedPath !== null;
-	file.linkedToDisk = linkPersisted;
+	file.linkedToDisk = true;
 	file.brokenLink = false;
 	const current = deps.getFile(id);
-	if (linkPersisted && current?.content === content) current.dirty = false;
-	if (linkPersisted) {
-		file.diskLastModified = written.lastModified;
-		file.diskSize = written.size;
-		file.diskRevision = written.revision;
-	}
+	if (current?.content === content) current.dirty = false;
+	file.diskLastModified = written.lastModified;
+	file.diskSize = written.size;
+	file.diskRevision = written.revision;
 	const linkedName = pathBasename(pathRec.path);
-	if (
-		persistedPath === pathRec.path &&
-		current === file &&
-		current.name === name &&
-		linkedName !== name
-	) {
+	if (current === file && current.name === name && linkedName !== name) {
 		deps.onSyncName?.(id, linkedName);
 	}
 	deps.scheduleSave(id);
-	if (!linkPersisted) {
-		file.dirty = true;
-		return false;
-	}
 	notify.success(t('disk.saved', { name: linkedName }));
-	return true;
+	return savedResult();
 }
 
-function reportDesktopWriteFailure(file: FileItem, err: unknown): false {
+function desktopLinkPersistenceFailure(
+	id: string,
+	file: FileItem,
+	pathRec: { kind: 'path'; path: string },
+	revision: string,
+	epoch: string,
+	durablePath: string | null,
+	err: unknown,
+	deps: DiskSyncDeps
+): DiskSaveResult {
+	pendingDiskLinkWrites.set(id, { kind: 'path', path: pathRec.path, revision, epoch });
+	file.linkedToDisk = durablePath !== null;
+	file.brokenLink = true;
+	file.dirty = true;
+	reportPersistenceError(err, 'save');
+	deps.scheduleSave(id);
+	return writtenLinkUnsavedResult();
+}
+
+function reportDesktopWriteFailure(file: FileItem, err: unknown): DiskSaveResult {
 	file.brokenLink = true;
 	notify.error(t('disk.saveFailed', { name: file.name }));
 	reportError('saveToDisk', err);
-	return false;
+	return failedResult();
 }
 
 /**
@@ -743,6 +951,7 @@ export async function unlinkFromDisk(id: string, deps: DiskSyncDeps): Promise<vo
 		if (link) await tauriForgetPath(link.path);
 	}
 	await deleteHandle(id);
+	pendingDiskLinkWrites.delete(id);
 	const file = deps.getFile(id);
 	if (!file) return;
 	file.linkedToDisk = false;
@@ -785,6 +994,7 @@ export async function renameOnDisk(id: string, name: string, deps: DiskSyncDeps)
 			);
 			throw error;
 		}
+		pendingDiskLinkWrites.delete(id);
 		file.diskRevision = renamed.stat?.revision;
 		file.brokenLink = false;
 		return true;
@@ -850,6 +1060,12 @@ export async function refreshBrokenLinks(
 		if (versions.get(u.id) !== linkVersion(u.id)) continue;
 		const file = getFileMutable(u.id);
 		if (!file || !file.linkedToDisk) continue;
+		// A written file whose link revision did not persist still needs a
+		// visible repair state. A health check on the old link cannot clear it.
+		if (pendingDiskLinkWrites.has(u.id)) {
+			file.brokenLink = true;
+			continue;
+		}
 		if (u.link.kind === 'path') {
 			const current = await getPathLink(u.id).catch(() => null);
 			if (!current || current.path !== u.link.path) continue;

@@ -12,6 +12,7 @@ vi.mock('./fsa', () => ({
 	getHandle: vi.fn(),
 	getPathLink: vi.fn(),
 	getPathLinkWithEpoch: vi.fn(),
+	isSameFileHandle: vi.fn(async (first: unknown, second: unknown) => first === second),
 	listDiskLinks: vi.fn(async () => []),
 	requestPermission: vi.fn(),
 	pickSaveTarget: vi.fn(),
@@ -63,6 +64,8 @@ import {
 	openDirectoryFromDisk,
 	openPathsFromDesktop,
 	saveToDisk,
+	saveToDiskResult,
+	forgetPendingDiskLinkWrite,
 	renameOnDisk,
 	unlinkFromDisk,
 	refreshBrokenLinks,
@@ -115,6 +118,9 @@ function testDeps(store: FileItem[]): DiskSyncDeps {
 beforeEach(() => {
 	notify.clear();
 	vi.clearAllMocks();
+	// A pending link intent is process-local. Keep one failing case from changing
+	// the next case that reuses the same document id.
+	forgetPendingDiskLinkWrite('a');
 	// Hide expected reportError output.
 	vi.spyOn(console, 'error').mockImplementation(() => {});
 	// Use FSA support without desktop support by default.
@@ -366,6 +372,131 @@ describe('saveToDisk', () => {
 			expect(ok).toBe(false);
 			expect(fsa.writeHandle).not.toHaveBeenCalled();
 			confirmSpy.mockRestore();
+		});
+	});
+
+	describe('durable link persistence', () => {
+		function linkedHandle(onDisk: File): FileSystemFileHandle {
+			return {
+				name: onDisk.name,
+				getFile: vi.fn().mockResolvedValue(onDisk)
+			} as unknown as FileSystemFileHandle;
+		}
+
+		function useExistingLink(handle: FileSystemFileHandle, revision = 'sha256:before') {
+			vi.mocked(fsa.getFsaLink).mockResolvedValue({
+				handle,
+				revision,
+				epoch: 'epoch'
+			});
+			vi.mocked(fsa.requestPermission).mockResolvedValue(true);
+		}
+
+		it('reports a written existing file whose link revision cannot persist', async () => {
+			const onDisk = new File(['contenu'], 'note.md');
+			const h = linkedHandle(onDisk);
+			useExistingLink(h);
+			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:before');
+			vi.mocked(fsa.revisionForText).mockResolvedValue('sha256:written');
+			vi.mocked(fsa.saveHandle).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			const result = await saveToDiskResult('a', deps);
+
+			expect(result).toMatchObject({
+				outcome: 'written-link-unsaved',
+				written: true,
+				linkPersisted: false
+			});
+			expect(fsa.writeHandle).toHaveBeenCalledWith(h, 'contenu');
+			// The old durable link still exists, but it is not a baseline for the
+			// bytes just written.
+			expect(file.linkedToDisk).toBe(true);
+			expect(file.brokenLink).toBe(true);
+			expect(file.dirty).toBe(true);
+			expect(file.diskRevision).toBeUndefined();
+			expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(false);
+			expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+		});
+
+		it('accepts its exact pending revision on retry without a second write', async () => {
+			const onDisk = new File(['contenu'], 'note.md');
+			const h = linkedHandle(onDisk);
+			useExistingLink(h);
+			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:before');
+			vi.mocked(fsa.revisionForText).mockResolvedValue('sha256:written');
+			vi.mocked(fsa.saveHandle).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			expect((await saveToDiskResult('a', deps)).outcome).toBe('written-link-unsaved');
+
+			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:written');
+			vi.mocked(fsa.saveHandle).mockResolvedValue(undefined);
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve');
+
+			const retried = await saveToDiskResult('a', deps);
+
+			expect(retried.outcome).toBe('saved');
+			expect(confirmSpy).not.toHaveBeenCalled();
+			expect(fsa.writeHandle).toHaveBeenCalledOnce();
+			expect(fsa.saveHandle).toHaveBeenLastCalledWith('a', h, 'sha256:written', 'epoch');
+			expect(file.dirty).toBe(false);
+			expect(file.brokenLink).toBe(false);
+			confirmSpy.mockRestore();
+		});
+
+		it('does not adopt a stale pending revision after an external change', async () => {
+			const onDisk = new File(['contenu'], 'note.md');
+			const h = linkedHandle(onDisk);
+			useExistingLink(h);
+			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:before');
+			vi.mocked(fsa.revisionForText).mockResolvedValue('sha256:written');
+			vi.mocked(fsa.saveHandle).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			expect((await saveToDiskResult('a', deps)).outcome).toBe('written-link-unsaved');
+
+			const external = new File(['externe'], 'note.md');
+			vi.mocked(h.getFile).mockResolvedValue(external);
+			vi.mocked(fsa.revisionForFile).mockResolvedValue('sha256:external');
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('cancel');
+
+			const retried = await saveToDiskResult('a', deps);
+
+			expect(retried.outcome).toBe('failed');
+			expect(confirmSpy).toHaveBeenCalledOnce();
+			expect(fsa.writeHandle).toHaveBeenCalledOnce();
+			expect(fsa.saveHandle).toHaveBeenCalledOnce();
+			expect(file.dirty).toBe(true);
+			confirmSpy.mockRestore();
+		});
+
+		it('keeps a fresh link unlinked when its handle cannot persist', async () => {
+			const picked = { name: 'chosen.md' } as unknown as FileSystemFileHandle;
+			vi.mocked(fsa.pickSaveTarget).mockResolvedValue(picked);
+			vi.mocked(fsa.revisionForText).mockResolvedValue('sha256:written');
+			vi.mocked(fsa.writeHandle).mockResolvedValue(undefined);
+			vi.mocked(fsa.saveHandle).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			const first = await saveToDiskResult('a', deps);
+
+			expect(first).toMatchObject({
+				outcome: 'written-link-unsaved',
+				written: true,
+				linkPersisted: false
+			});
+			expect(fsa.writeHandle).toHaveBeenCalledWith(picked, 'contenu');
+			expect(file.linkedToDisk).toBe(false);
+			expect(file.brokenLink).toBe(true);
+			expect(file.dirty).toBe(true);
+			expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(false);
+
+			vi.mocked(fsa.saveHandle).mockResolvedValue(undefined);
+			vi.mocked(fsa.pickSaveTarget).mockResolvedValue(picked);
+
+			expect((await saveToDiskResult('a', deps)).outcome).toBe('saved');
+			expect(fsa.pickSaveTarget).toHaveBeenCalledTimes(2);
+			expect(fsa.writeHandle).toHaveBeenCalledTimes(2);
+			expect(file.linkedToDisk).toBe(true);
+			expect(file.brokenLink).toBe(false);
+			expect(file.dirty).toBe(false);
 		});
 	});
 });
@@ -734,6 +865,213 @@ describe('saveToDisk desktop capability backend', () => {
 		expect(file.name).toBe('note.md');
 		expect(onSyncName).not.toHaveBeenCalled();
 		expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+	});
+
+	describe('durable link persistence', () => {
+		function statefulDisk(initialContent = 'contenu') {
+			const disk = {
+				content: initialContent,
+				revision: 'sha256:before',
+				lastModified: 20
+			};
+			vi.mocked(diskTauri.tauriWritePath).mockImplementation(
+				async (_path, content, expectedRevision) => {
+					if (expectedRevision !== disk.revision) {
+						throw new Error('disk conflict: target changed since it was opened');
+					}
+					disk.content = content;
+					disk.revision = `sha256:written-${disk.lastModified + 1}`;
+					disk.lastModified += 1;
+					return {
+						lastModified: disk.lastModified,
+						size: content.length,
+						revision: disk.revision
+					};
+				}
+			);
+			vi.mocked(diskTauri.tauriReadMeta).mockImplementation(async () => ({
+				lastModified: disk.lastModified,
+				size: disk.content.length,
+				revision: disk.revision
+			}));
+			vi.mocked(diskTauri.tauriReadPath).mockImplementation(async () => ({
+				content: disk.content,
+				stat: {
+					lastModified: disk.lastModified,
+					size: disk.content.length,
+					revision: disk.revision
+				}
+			}));
+			return disk;
+		}
+
+		it('does not report durable success when an existing link revision cannot persist', async () => {
+			const file = makeFile({ linkedToDisk: true, diskRevision: 'sha256:before' });
+			const { deps } = desktopDeps(file);
+			vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+			vi.mocked(diskTauri.tauriWritePath).mockResolvedValue({
+				lastModified: 30,
+				size: 7,
+				revision: 'sha256:written'
+			});
+			vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			const result = await saveToDiskResult('a', deps);
+
+			expect(result).toMatchObject({
+				outcome: 'written-link-unsaved',
+				written: true,
+				linkPersisted: false
+			});
+			expect(file.linkedToDisk).toBe(true);
+			expect(file.brokenLink).toBe(true);
+			expect(file.dirty).toBe(true);
+			expect(file.diskRevision).toBe('sha256:before');
+			expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(false);
+			expect(notify.toasts.some((toast) => toast.level === 'error')).toBe(true);
+		});
+
+		it('accepts its exact pending revision on retry without a second native write', async () => {
+			const disk = statefulDisk();
+			const file = makeFile({ linkedToDisk: true, diskRevision: 'sha256:before' });
+			const { deps } = desktopDeps(file);
+			vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+			vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			expect((await saveToDiskResult('a', deps)).outcome).toBe('written-link-unsaved');
+			expect(disk.content).toBe('contenu');
+
+			vi.mocked(fsa.savePathLink).mockResolvedValue(undefined);
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve');
+
+			const retried = await saveToDiskResult('a', deps);
+
+			expect(retried.outcome).toBe('saved');
+			expect(confirmSpy).not.toHaveBeenCalled();
+			expect(diskTauri.tauriWritePath).toHaveBeenCalledOnce();
+			expect(fsa.savePathLink).toHaveBeenLastCalledWith(
+				'a',
+				{ kind: 'path', path: '/tmp/note.md' },
+				'epoch',
+				'sha256:written-21'
+			);
+			expect(file.diskRevision).toBe('sha256:written-21');
+			expect(file.dirty).toBe(false);
+			expect(file.brokenLink).toBe(false);
+			confirmSpy.mockRestore();
+		});
+
+		it('writes a later edit after a pending revision without a false conflict', async () => {
+			const disk = statefulDisk();
+			const file = makeFile({ linkedToDisk: true, diskRevision: 'sha256:before' });
+			const { deps } = desktopDeps(file);
+			vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+			vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			expect((await saveToDiskResult('a', deps)).outcome).toBe('written-link-unsaved');
+
+			file.content = 'contenu v2';
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve');
+
+			const retried = await saveToDiskResult('a', deps);
+
+			expect(retried.outcome).toBe('saved');
+			expect(confirmSpy).not.toHaveBeenCalled();
+			expect(disk.content).toBe('contenu v2');
+			expect(diskTauri.tauriWritePath).toHaveBeenCalledTimes(2);
+			expect(fsa.savePathLink).toHaveBeenLastCalledWith(
+				'a',
+				{ kind: 'path', path: '/tmp/note.md' },
+				'epoch',
+				'sha256:written-22'
+			);
+			confirmSpy.mockRestore();
+		});
+
+		it('keeps the external-change dialog after a pending revision differs', async () => {
+			const disk = statefulDisk();
+			const file = makeFile({ linkedToDisk: true, diskRevision: 'sha256:before' });
+			const { deps } = desktopDeps(file);
+			vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+			vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			expect((await saveToDiskResult('a', deps)).outcome).toBe('written-link-unsaved');
+
+			disk.content = 'externe';
+			disk.revision = 'sha256:external';
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('cancel');
+
+			const retried = await saveToDiskResult('a', deps);
+
+			expect(retried.outcome).toBe('failed');
+			expect(confirmSpy).toHaveBeenCalledOnce();
+			expect(disk.content).toBe('externe');
+			expect(fsa.savePathLink).toHaveBeenCalledOnce();
+			expect(file.dirty).toBe(true);
+			confirmSpy.mockRestore();
+		});
+
+		it('requires a new decision after a session restart loses the pending intent', async () => {
+			const disk = statefulDisk();
+			const file = makeFile({ linkedToDisk: true, diskRevision: 'sha256:before' });
+			const { deps } = desktopDeps(file);
+			vi.mocked(fsa.getPathLink).mockResolvedValue({ kind: 'path', path: '/tmp/note.md' });
+			vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			expect((await saveToDiskResult('a', deps)).outcome).toBe('written-link-unsaved');
+			forgetPendingDiskLinkWrite('a');
+			const confirmSpy = vi.spyOn(diskConflictStore, 'resolve').mockResolvedValue('cancel');
+
+			const retried = await saveToDiskResult('a', deps);
+
+			expect(retried.outcome).toBe('failed');
+			expect(confirmSpy).toHaveBeenCalledOnce();
+			expect(disk.content).toBe('contenu');
+			expect(fsa.savePathLink).toHaveBeenCalledOnce();
+			confirmSpy.mockRestore();
+		});
+
+		it('keeps a fresh native link unlinked when its record cannot persist', async () => {
+			const file = makeFile({ name: 'note.md' });
+			const { deps, onSyncName } = desktopDeps(file);
+			vi.mocked(fsa.getPathLink).mockResolvedValue(null);
+			vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue({
+				kind: 'path',
+				path: '/tmp/chosen.md'
+			});
+			vi.mocked(diskTauri.tauriWritePath).mockResolvedValue({
+				lastModified: 30,
+				size: 7,
+				revision: 'sha256:written'
+			});
+			vi.mocked(fsa.savePathLink).mockRejectedValueOnce(new Error('QuotaExceededError'));
+
+			const result = await saveToDiskResult('a', deps);
+
+			expect(result).toMatchObject({
+				outcome: 'written-link-unsaved',
+				written: true,
+				linkPersisted: false
+			});
+			expect(file.linkedToDisk).toBe(false);
+			expect(file.brokenLink).toBe(true);
+			expect(file.dirty).toBe(true);
+			expect(file.diskRevision).toBeUndefined();
+			expect(onSyncName).not.toHaveBeenCalled();
+			expect(notify.toasts.some((toast) => toast.level === 'success')).toBe(false);
+
+			vi.mocked(fsa.savePathLink).mockResolvedValue(undefined);
+			vi.mocked(diskTauri.tauriPickSaveTarget).mockResolvedValue({
+				kind: 'path',
+				path: '/tmp/chosen.md'
+			});
+
+			expect((await saveToDiskResult('a', deps)).outcome).toBe('saved');
+			expect(diskTauri.tauriPickSaveTarget).toHaveBeenCalledTimes(2);
+			expect(file.linkedToDisk).toBe(true);
+			expect(file.brokenLink).toBe(false);
+			expect(file.dirty).toBe(false);
+		});
 	});
 });
 
