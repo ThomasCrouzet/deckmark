@@ -157,14 +157,58 @@ export function trainCooccurrenceModel(
 	};
 }
 
-const cooccurrenceModels = new Map<string, Embedder>();
+const REVISION_SEEDS = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35] as const;
 
-/** Reuses a trained local model for an unchanged corpus revision. */
+/**
+ * Wide deterministic source identity. Four independent 32-bit lanes make an
+ * accidental alias far less likely than the shared 32-bit contentHash. A row
+ * is reused only when this identity matches, so a digest collision cannot keep
+ * an old vector, preview or trained coordinate space.
+ */
+export function revisionHash(text: string): string {
+	const lanes = REVISION_SEEDS.map((seed) => {
+		let hash = seed >>> 0;
+		for (let index = 0; index < text.length; index++) {
+			hash ^= text.charCodeAt(index);
+			hash = Math.imul(hash, 0x01000193) >>> 0;
+		}
+		return hash.toString(16).padStart(8, '0');
+	});
+	return `${lanes.join('')}:${text.length.toString(36)}`;
+}
+
+/** Compact revision for one scope corpus, independent of file order. */
+export function corpusRevision(
+	scope: string,
+	files: readonly { id: string; content: string }[]
+): string {
+	const entries = files
+		.map((file) => `${file.id}\u0000${revisionHash(file.content)}`)
+		.sort()
+		.join('\u0000');
+	return revisionHash(`${scope}\u0001${entries}`);
+}
+
+interface CachedModel {
+	signature: string;
+	embedder: Embedder;
+}
+
+const cooccurrenceModels = new Map<string, CachedModel>();
+
+/** Reuses a trained local model only for the exact scope corpus revision. */
 export function cachedCooccurrenceEmbedder(corpusKey: string, texts: readonly string[]): Embedder {
-	const cached = cooccurrenceModels.get(corpusKey);
-	if (cached) return cached;
-	const trained = trainCooccurrenceModel(texts, `cooccurrence-v1:${corpusKey}`);
-	cooccurrenceModels.set(corpusKey, trained);
+	const signature = revisionHash(
+		texts.map((text, index) => `${index}\u0000${text}`).join('\u0001')
+	);
+	const identity = `${corpusKey}\u0001${signature}`;
+	const cached = cooccurrenceModels.get(identity);
+	if (cached) return cached.embedder;
+	const trained = trainCooccurrenceModel(
+		texts,
+		`cooccurrence-v1:${revisionHash(`${corpusKey}\u0001${signature}`)}`
+	);
+	cooccurrenceModels.set(identity, { signature, embedder: trained });
 	while (cooccurrenceModels.size > 3)
 		cooccurrenceModels.delete(cooccurrenceModels.keys().next().value!);
 	return trained;
@@ -308,7 +352,8 @@ export function chunks(content: string): Array<{ line: number; text: string }> {
 export function indexFile(
 	file: FileItem,
 	projectId: string | null,
-	embedder: Embedder = featureModel
+	embedder: Embedder = featureModel,
+	sourceRevision = revisionHash(file.content)
 ): SemanticIndexRow | null {
 	if (!['note', 'code'].includes(documentKindForFile(file))) return null;
 	const path = file.relativePath ?? file.name;
@@ -319,6 +364,7 @@ export function indexFile(
 		draftId: file.id,
 		path,
 		contentHash: contentHash(file.content),
+		sourceRevision,
 		modelId: embedder.modelId,
 		modelRevision: embedder.revision,
 		vector: embedder.embed(file.content),
@@ -327,7 +373,7 @@ export function indexFile(
 	};
 }
 
-/** Builds only rows whose content or model changed. */
+/** Builds only rows whose exact source or model changed. */
 export function indexFiles(
 	files: readonly FileItem[],
 	existing: readonly SemanticIndexRow[],
@@ -338,17 +384,19 @@ export function indexFiles(
 	const rows: SemanticIndexRow[] = [];
 	for (const file of files) {
 		if (projectId && file.projectId !== projectId) continue;
-		const hash = contentHash(file.content);
+		const revision = revisionHash(file.content);
 		const previous = byDraft.get(file.id);
+		// A 32-bit contentHash is only a hint. Reuse needs the wide source
+		// revision, so a colliding digest still rebuilds the row and its chunks.
 		if (
-			previous?.contentHash === hash &&
+			previous?.sourceRevision === revision &&
 			previous.modelId === embedder.modelId &&
 			previous.modelRevision === embedder.revision
 		) {
 			rows.push(previous);
 			continue;
 		}
-		const next = indexFile(file, projectId, embedder);
+		const next = indexFile(file, projectId, embedder, revision);
 		if (next) rows.push(next);
 	}
 	return rows;

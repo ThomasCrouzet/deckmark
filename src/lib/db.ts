@@ -138,6 +138,8 @@ export interface SemanticIndexRow {
 	draftId: string;
 	path: string;
 	contentHash: string;
+	/** Wide source identity. Reuse requires this exact revision, not contentHash alone. */
+	sourceRevision?: string;
 	modelId: string;
 	/** Immutable identity of the training corpus or feature model version. */
 	modelRevision?: string;

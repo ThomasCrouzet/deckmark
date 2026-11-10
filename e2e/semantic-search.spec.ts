@@ -38,32 +38,44 @@ async function openProjectDocument(page: Page, project: string, path: string) {
 	await root.locator(`[data-project-document="${path}"] button[data-file-id]`).click();
 }
 
-async function semanticRows(
-	page: Page
-): Promise<Array<{ id: string; projectId: string | null; path: string; modelId: string }>> {
+async function semanticRows(page: Page): Promise<
+	Array<{
+		id: string;
+		projectId: string | null;
+		path: string;
+		modelId: string;
+		contentHash: string;
+	}>
+> {
 	return page.evaluate(
 		() =>
-			new Promise<Array<{ id: string; projectId: string | null; path: string; modelId: string }>>(
-				(resolve, reject) => {
-					const request = indexedDB.open('mdsh');
-					request.onerror = () => reject(request.error);
-					request.onsuccess = () => {
-						const database = request.result;
-						if (!database.objectStoreNames.contains('semanticIndex')) {
-							database.close();
-							resolve([]);
-							return;
-						}
-						const transaction = database.transaction(['semanticIndex']);
-						const rows = transaction.objectStore('semanticIndex').getAll();
-						transaction.oncomplete = () => {
-							database.close();
-							resolve(rows.result);
-						};
-						transaction.onerror = () => reject(transaction.error);
+			new Promise<
+				Array<{
+					id: string;
+					projectId: string | null;
+					path: string;
+					modelId: string;
+					contentHash: string;
+				}>
+			>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					if (!database.objectStoreNames.contains('semanticIndex')) {
+						database.close();
+						resolve([]);
+						return;
+					}
+					const transaction = database.transaction(['semanticIndex']);
+					const rows = transaction.objectStore('semanticIndex').getAll();
+					transaction.oncomplete = () => {
+						database.close();
+						resolve(rows.result);
 					};
-				}
-			)
+					transaction.onerror = () => reject(transaction.error);
+				};
+			})
 	);
 }
 
@@ -221,6 +233,45 @@ test('drops changed source rows and another model until a rebuild', async ({
 
 	await info.attach('semantic-stale-index.json', {
 		body: JSON.stringify({ staleBeforeRebuild: 1, model: 'cooccurrence-v1', rows: rows.length }),
+		contentType: 'application/json'
+	});
+});
+
+test('rebuilds two sources that share one 32-bit digest', async ({ page }, info: TestInfo) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Collision', content: '4c6d3c14' }]);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await page.getByTestId('semantic-index').click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await page.getByTestId('semantic-query').fill('4c6d3c14');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('4c6d3c14');
+	const before = await semanticRows(page);
+	expect(before[0]?.contentHash).toBe('b8012ee5');
+	await closeSemantic(page);
+
+	// Both sources have the same 32-bit digest. The wide source revision must
+	// still tell them apart on the next Build Index action.
+	await page.locator('aside button[data-file-id]').filter({ hasText: 'Collision' }).click();
+	await writeSourceContent(page, '34749a0f');
+	await openSemantic(page);
+	await page.getByTestId('semantic-query').fill('34749a0f');
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	const stale = await semanticRows(page);
+	expect(stale[0]?.contentHash).toBe('b8012ee5');
+	await page.getByTestId('semantic-index').click();
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('34749a0f');
+	await expect(page.getByTestId('semantic-hit').filter({ hasText: '4c6d3c14' })).toHaveCount(0);
+	const rebuilt = await semanticRows(page);
+	expect(rebuilt[0]?.contentHash).toBe('b8012ee5');
+
+	await info.attach('semantic-collision.json', {
+		body: JSON.stringify({
+			contentHash: rebuilt[0]?.contentHash,
+			preview: rebuilt[0]?.path,
+			rows: rebuilt.length
+		}),
 		contentType: 'application/json'
 	});
 });

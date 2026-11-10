@@ -7,8 +7,10 @@
 	import {
 		clearScope,
 		compatibleRows,
+		corpusRevision,
 		featureModel,
 		indexFiles,
+		revisionHash,
 		scopeKey,
 		scopedRows,
 		search,
@@ -19,7 +21,6 @@
 		cachedCooccurrenceEmbedder
 	} from '#lib/semantic-search.js';
 	import { LatestOnly } from '#lib/semantic-search-query.js';
-	import { contentHash } from '#lib/ai/patches.js';
 	import { t } from '#lib/i18n/index.js';
 	import type { FileItem } from '#lib/types.js';
 
@@ -49,10 +50,10 @@
 	const searchJob = new LatestOnly();
 	const countJob = new LatestOnly();
 	let trainedEmbedder: { key: string; embedder: Embedder } | null = null;
-	// Hashes keyed by content identity, so repeated queries do not rescan every
-	// loaded body while an exact content check stays available.
+	// Wide source revisions keyed by content identity, so repeated queries do
+	// not rescan every loaded body.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- Non-reactive query cache.
-	const contentHashes = new Map<string, { content: string; hash: string }>();
+	const contentRevisions = new Map<string, { content: string; revision: string }>();
 
 	onMount(() => {
 		enabled = localStorage.getItem(KEY) === '1';
@@ -78,12 +79,12 @@
 		return filesStore.library.filter((file) => inScope(file, scope));
 	}
 
-	function fileHash(file: FileItem): string {
-		const cached = contentHashes.get(file.id);
-		if (cached && cached.content === file.content) return cached.hash;
-		const hash = contentHash(file.content);
-		contentHashes.set(file.id, { content: file.content, hash });
-		return hash;
+	function fileRevision(file: FileItem): string {
+		const cached = contentRevisions.get(file.id);
+		if (cached && cached.content === file.content) return cached.revision;
+		const revision = revisionHash(file.content);
+		contentRevisions.set(file.id, { content: file.content, revision });
+		return revision;
 	}
 
 	/**
@@ -113,9 +114,7 @@
 		if (trainedEmbedder?.key === key) return trainedEmbedder.embedder;
 		const files = scopeFiles(scope);
 		await hydrate(files);
-		const corpusKey = `${scopeKey(scope)}|${files
-			.map((file) => `${file.id}:${contentHash(file.content)}`)
-			.join(',')}`;
+		const corpusKey = corpusRevision(scopeKey(scope), files);
 		const trained = cachedCooccurrenceEmbedder(
 			corpusKey,
 			files.map((file) => file.content)
@@ -125,14 +124,16 @@
 	}
 
 	function isCurrentSource(
-		row: { draftId: string; contentHash: string; updatedAt: number },
+		row: { draftId: string; sourceRevision?: string; updatedAt: number },
 		file: FileItem | undefined,
 		scope: string | null
 	): boolean {
 		if (!file || !inScope(file, scope)) return false;
-		// A loaded body gives an exact byte comparison. A deferred body is in
-		// storage: its write time must not be later than the index row.
-		if (!file.contentDeferred) return fileHash(file) === row.contentHash;
+		// Rows written before the wide revision existed cannot prove reuse.
+		if (!row.sourceRevision) return false;
+		// A loaded body gives the exact wide source revision. A deferred body is
+		// in storage: its write time must not be later than the index row.
+		if (!file.contentDeferred) return fileRevision(file) === row.sourceRevision;
 		return file.updatedAt <= row.updatedAt;
 	}
 

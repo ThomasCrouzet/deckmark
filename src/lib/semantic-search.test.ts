@@ -6,9 +6,12 @@ import type { SemanticIndexRow } from './db';
 import {
 	clearScope,
 	compatibleRows,
+	corpusRevision,
 	cosine,
+	cachedCooccurrenceEmbedder,
 	embed,
 	indexFiles,
+	revisionHash,
 	scopeRowId,
 	scopedRows,
 	search,
@@ -160,6 +163,68 @@ describe('local semantic index', () => {
 		const fresh = indexFiles(files, [], null, corpusA);
 		expect(search(rowsAgain, 'guide', corpusA)).toEqual(search(fresh, 'guide', corpusA));
 		expect(search(rowsAgain, 'guide', corpusA)[0]?.draftId).toBe('a');
+	});
+
+	it('rebuilds a row when two documents share the 32-bit content digest', () => {
+		const entry = file('same', 'same.md', '4c6d3c14');
+		// Deterministic collision fixture: the shared digest alone cannot tell
+		// these two sources apart.
+		expect(contentHash('4c6d3c14')).toBe(contentHash('34749a0f'));
+		const first = indexFiles([entry], [], null);
+		expect(first[0]?.chunks[0]?.text).toBe('4c6d3c14');
+
+		entry.content = '34749a0f';
+		expect(revisionHash(entry.content)).not.toBe(revisionHash('4c6d3c14'));
+		const rebuilt = indexFiles([entry], first, null);
+		expect(rebuilt[0]).not.toBe(first[0]);
+		expect(rebuilt[0]?.sourceRevision).not.toBe(first[0]?.sourceRevision);
+		expect(rebuilt[0]?.chunks[0]?.text).toBe('34749a0f');
+		expect(rebuilt[0]?.vector).not.toEqual(first[0]?.vector);
+
+		// The preview and query vector follow the new source, matching a fresh
+		// index with no previous row.
+		const fresh = indexFiles([entry], [], null);
+		expect(search(rebuilt, '34749a0f')).toEqual(search(fresh, '34749a0f'));
+		expect(search(rebuilt, '34749a0f')[0]?.text).toBe('34749a0f');
+		expect(search(first, '4c6d3c14')[0]?.text).toBe('4c6d3c14');
+	});
+
+	it('keys a trained model by the exact corpus revision, not a digest', () => {
+		const left = [{ id: 'same', content: '4c6d3c14' }];
+		const right = [{ id: 'same', content: '34749a0f' }];
+		expect(contentHash(left[0]!.content)).toBe(contentHash(right[0]!.content));
+		expect(corpusRevision('library', left)).not.toBe(corpusRevision('library', right));
+
+		// Same caller key with different text must never reuse the trained
+		// coordinate space.
+		const modelA = cachedCooccurrenceEmbedder('adversarial-key', [left[0]!.content]);
+		const modelB = cachedCooccurrenceEmbedder('adversarial-key', [right[0]!.content]);
+		expect(modelA.revision).not.toBe(modelB.revision);
+		expect(modelA.embed('4c6d3c14')).not.toEqual(modelB.embed('4c6d3c14'));
+	});
+
+	it('matches a fresh index after a colliding A to B to A corpus transition', () => {
+		const entry = file('same', 'same.md', '4c6d3c14');
+		const corpusA = cachedCooccurrenceEmbedder(corpusRevision('library', [entry]), ['4c6d3c14']);
+		const rowsA = indexFiles([entry], [], null, corpusA);
+		expect(search(rowsA, '4c6d3c14', corpusA)[0]?.text).toBe('4c6d3c14');
+
+		entry.content = '34749a0f';
+		const corpusB = cachedCooccurrenceEmbedder(corpusRevision('library', [entry]), ['34749a0f']);
+		expect(corpusB.revision).not.toBe(corpusA.revision);
+		expect(search(rowsA, '34749a0f', corpusB)).toEqual([]);
+		const rowsB = indexFiles([entry], rowsA, null, corpusB);
+		expect(rowsB[0]?.chunks[0]?.text).toBe('34749a0f');
+
+		entry.content = '4c6d3c14';
+		const corpusAgain = cachedCooccurrenceEmbedder(corpusRevision('library', [entry]), [
+			'4c6d3c14'
+		]);
+		expect(corpusAgain.revision).toBe(corpusA.revision);
+		const rowsAgain = indexFiles([entry], rowsB, null, corpusAgain);
+		const fresh = indexFiles([entry], [], null, corpusA);
+		expect(search(rowsAgain, '4c6d3c14', corpusAgain)).toEqual(search(fresh, '4c6d3c14', corpusA));
+		expect(search(rowsAgain, '34749a0f', corpusAgain)).toEqual(search(fresh, '34749a0f', corpusA));
 	});
 
 	it('normalizes vectors', () => {
