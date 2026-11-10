@@ -1,14 +1,15 @@
 import { constants } from 'node:fs';
 import {
 	access,
+	lstat,
 	mkdir,
 	open,
 	opendir,
-	readFile,
 	realpath,
 	rename,
 	stat,
-	unlink
+	unlink,
+	type FileHandle
 } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { CliError, EXIT } from './exit';
@@ -56,6 +57,16 @@ export function toProjectPath(path: string): string {
 	return path.split(sep).join('/');
 }
 
+/**
+ * True when `target` is `root` or a descendant of it. The test uses a path
+ * component boundary, so `..notes` is inside while `..` is outside.
+ */
+export function isWithinRoot(root: string, target: string): boolean {
+	if (target === root) return true;
+	const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+	return target.startsWith(prefix);
+}
+
 export function displayPath(path: string): string {
 	const absolute = resolve(path);
 	const fromCwd = relative(process.cwd(), absolute);
@@ -82,6 +93,9 @@ export async function walkFiles(root: string, options: WalkOptions = {}): Promis
 	const found: string[] = [];
 	const stack: Array<{ directory: string; depth: number }> = [{ directory: root, depth: 0 }];
 	let directories = 0;
+	const rootReal = await realpath(root).catch(() => {
+		throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read directory: ${root}`);
+	});
 	while (stack.length > 0) {
 		options.deadline?.check();
 		const current = stack.pop()!;
@@ -93,6 +107,19 @@ export async function walkFiles(root: string, options: WalkOptions = {}): Promis
 				EXIT.INPUT,
 				'directory-limit',
 				`Directory has more than ${directoryLimit} folders`
+			);
+		const realDirectory = await realpath(current.directory).catch(() => {
+			throw new CliError(
+				EXIT.INPUT,
+				'input-unreadable',
+				`Cannot read directory: ${current.directory}`
+			);
+		});
+		if (!isWithinRoot(rootReal, realDirectory))
+			throw new CliError(
+				EXIT.INPUT,
+				'input-unreadable',
+				`Directory changed during the scan: ${current.directory}`
 			);
 		let entries;
 		try {
@@ -132,28 +159,131 @@ export async function walkFiles(root: string, options: WalkOptions = {}): Promis
 	return found.sort();
 }
 
-export async function readText(root: string, relativePath: string): Promise<string> {
-	const absolute = resolve(root, relativePath);
-	let info;
-	try {
-		info = await stat(absolute);
-	} catch {
+const READ_CHUNK_BYTES = 256 * 1024;
+const NO_FOLLOW = process.platform === 'win32' ? 0 : (constants.O_NOFOLLOW ?? 0);
+
+export interface ReadOptions {
+	deadline?: Deadline;
+	maxBytes?: number;
+}
+
+/**
+ * Opens one regular file below the approved root and pins its identity.
+ * The read uses the validated handle, so a later path swap cannot redirect it.
+ */
+async function openConfined(
+	root: string,
+	relativePath: string,
+	options: ReadOptions
+): Promise<{ handle: FileHandle; size: number }> {
+	const maxBytes = options.maxBytes ?? MAX_FILE_BYTES;
+	const rootReal = await realpath(root).catch(() => {
+		throw new CliError(EXIT.INPUT, 'input-not-found', `Cannot read directory: ${root}`);
+	});
+	const absolute = resolve(rootReal, relativePath);
+	if (!isWithinRoot(rootReal, absolute))
+		throw new CliError(
+			EXIT.INPUT,
+			'input-outside-root',
+			`File is outside the root: ${relativePath}`
+		);
+	options.deadline?.check();
+	const leaf = await lstat(absolute).catch(() => {
 		throw new CliError(EXIT.INPUT, 'input-not-found', `Cannot read file: ${relativePath}`);
-	}
-	if (!info.isFile())
+	});
+	if (leaf.isSymbolicLink())
+		throw new CliError(
+			EXIT.INPUT,
+			'input-unreadable',
+			`Symbolic links are not read: ${relativePath}`
+		);
+	if (!leaf.isFile())
 		throw new CliError(EXIT.INPUT, 'input-not-readable', `Not a file: ${relativePath}`);
-	if (info.size > MAX_FILE_BYTES)
+	if (leaf.size > maxBytes)
 		throw new CliError(
 			EXIT.INPUT,
 			'file-too-large',
-			`File is larger than ${MAX_FILE_BYTES} bytes: ${relativePath}`
+			`File is larger than ${maxBytes} bytes: ${relativePath}`
 		);
-	let bytes: Uint8Array;
+	let handle: FileHandle;
 	try {
-		bytes = await readFile(absolute);
+		handle = await open(absolute, constants.O_RDONLY | NO_FOLLOW);
 	} catch {
 		throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read file: ${relativePath}`);
 	}
+	try {
+		const info = await handle.stat();
+		if (!info.isFile())
+			throw new CliError(EXIT.INPUT, 'input-not-readable', `Not a file: ${relativePath}`);
+		if (info.size > maxBytes)
+			throw new CliError(
+				EXIT.INPUT,
+				'file-too-large',
+				`File is larger than ${maxBytes} bytes: ${relativePath}`
+			);
+		const resolved = await realpath(absolute);
+		if (!isWithinRoot(rootReal, resolved))
+			throw new CliError(
+				EXIT.INPUT,
+				'input-outside-root',
+				`File is outside the root: ${relativePath}`
+			);
+		const onDisk = await stat(resolved);
+		if (onDisk.dev !== info.dev || onDisk.ino !== info.ino)
+			throw new CliError(
+				EXIT.INPUT,
+				'input-unreadable',
+				`File changed during the read: ${relativePath}`
+			);
+		return { handle, size: info.size };
+	} catch (error) {
+		await handle.close().catch(() => {});
+		if (error instanceof CliError) throw error;
+		throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read file: ${relativePath}`);
+	}
+}
+
+/** Reads one confined file and enforces the byte budget while consuming it. */
+async function readConfined(
+	root: string,
+	relativePath: string,
+	options: ReadOptions
+): Promise<Uint8Array> {
+	const maxBytes = options.maxBytes ?? MAX_FILE_BYTES;
+	const { handle } = await openConfined(root, relativePath, options);
+	const chunks: Buffer[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			options.deadline?.check();
+			const remaining = maxBytes + 1 - total;
+			const buffer = Buffer.allocUnsafe(Math.min(READ_CHUNK_BYTES, remaining));
+			const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+			if (bytesRead === 0) break;
+			total += bytesRead;
+			if (total > maxBytes)
+				throw new CliError(
+					EXIT.INPUT,
+					'file-too-large',
+					`File is larger than ${maxBytes} bytes: ${relativePath}`
+				);
+			chunks.push(buffer.subarray(0, bytesRead));
+		}
+	} catch (error) {
+		if (error instanceof CliError) throw error;
+		throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read file: ${relativePath}`);
+	} finally {
+		await handle.close().catch(() => {});
+	}
+	return Buffer.concat(chunks, total);
+}
+
+export async function readText(
+	root: string,
+	relativePath: string,
+	options: ReadOptions = {}
+): Promise<string> {
+	const bytes = await readConfined(root, relativePath, options);
 	try {
 		return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
 	} catch {
@@ -161,16 +291,12 @@ export async function readText(root: string, relativePath: string): Promise<stri
 	}
 }
 
-export async function readBytes(root: string, relativePath: string): Promise<Uint8Array> {
-	const absolute = resolve(root, relativePath);
-	try {
-		const info = await stat(absolute);
-		if (!info.isFile()) throw new Error('not a file');
-		if (info.size > MAX_FILE_BYTES) throw new Error('too large');
-		return new Uint8Array(await readFile(absolute));
-	} catch {
-		throw new CliError(EXIT.INPUT, 'input-unreadable', `Cannot read file: ${relativePath}`);
-	}
+export async function readBytes(
+	root: string,
+	relativePath: string,
+	options: ReadOptions = {}
+): Promise<Uint8Array> {
+	return readConfined(root, relativePath, options);
 }
 
 export type OutputFormat = 'html' | 'md' | 'zip';
