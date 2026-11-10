@@ -165,15 +165,32 @@ export function createAnchor(
 	return { from: first, to: first + text.length, quote: text };
 }
 
+const COMMENT_AUTHOR_KEY = 'mdsh:comment-author';
+let sessionAuthor: string | null = null;
+
+/** The last reviewer label is optional. A blocked read keeps the default. */
 export function commentAuthor(): string {
-	const value = localStorage.getItem('mdsh:comment-author');
-	return value && value.trim() ? value : '';
+	if (sessionAuthor !== null) return sessionAuthor;
+	try {
+		const value =
+			typeof localStorage === 'undefined' ? null : localStorage.getItem(COMMENT_AUTHOR_KEY);
+		return value && value.trim() ? value : '';
+	} catch {
+		return '';
+	}
 }
 
+/** A failed store must not reject a comment that IndexedDB already saved. */
 export function setCommentAuthor(name: string): void {
 	const value = name.trim();
-	if (value) localStorage.setItem('mdsh:comment-author', value);
-	else localStorage.removeItem('mdsh:comment-author');
+	sessionAuthor = value;
+	try {
+		if (typeof localStorage === 'undefined') return;
+		if (value) localStorage.setItem(COMMENT_AUTHOR_KEY, value);
+		else localStorage.removeItem(COMMENT_AUTHOR_KEY);
+	} catch {
+		// Optional preference. The session value stays active.
+	}
 }
 
 export function commentReport(comments: readonly CommentRow[], content: string): string {

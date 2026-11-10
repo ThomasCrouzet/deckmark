@@ -1,5 +1,11 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { openPalette, resetAppState, seedFiles, writeSourceContent } from './helpers';
+import {
+	blockPreferenceStorage,
+	openPalette,
+	resetAppState,
+	seedFiles,
+	writeSourceContent
+} from './helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -182,6 +188,40 @@ test('clears only the selected library or project index', async ({ page }, info:
 
 	await info.attach('semantic-scoped-clear.json', {
 		body: JSON.stringify({ selectedScope: 'project-alpha', remainingScopes: ['library', 'beta'] }),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps the opt-in and model usable when preferences are blocked', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' },
+		{ name: 'Recipe', content: '# Recipe\n\nCooking instructions.\n' }
+	]);
+	await blockPreferenceStorage(page, ['mdsh:semantic-enabled', 'mdsh:semantic-model']);
+	await openSemantic(page);
+	await expect(page.getByTestId('semantic-enabled')).not.toBeChecked();
+	await page.getByTestId('semantic-enabled').check();
+	await expect(page.getByTestId('semantic-enabled')).toBeChecked();
+	await expect(page.getByTestId('semantic-preference-note')).toBeVisible();
+	await page.getByTestId('semantic-index').click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('2 document');
+	await page.getByTestId('semantic-query').fill('document');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Guide');
+
+	// A blocked model preference must still switch the query and the index.
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await expect(page.getByTestId('semantic-panel')).toContainText('autre modèle');
+	await expect(page.getByTestId('semantic-hit')).toHaveCount(0);
+	await page.getByTestId('semantic-index').click();
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Guide');
+	const rows = await semanticRows(page);
+	expect(rows).toHaveLength(2);
+	expect(rows.every((row) => row.modelId === 'cooccurrence-v1')).toBe(true);
+	await info.attach('semantic-blocked-preference.json', {
+		body: JSON.stringify({ rows: rows.length, model: 'cooccurrence-v1', hits: 1 }, null, 2),
 		contentType: 'application/json'
 	});
 });

@@ -180,6 +180,8 @@ function unique(matches: FileItem[] | undefined): SourceResolution | null {
 /**
  * Resolves a source inside the consumer project only. Stand-alone documents
  * resolve against other stand-alone documents and never against a project.
+ * A qualified path must match its exact project path or the consumer-relative
+ * path. Only a bare name may use the unique filename alias.
  */
 function resolveSource(
 	consumer: FileItem,
@@ -191,6 +193,7 @@ function resolveSource(
 			? index.projects.get(consumer.projectId)
 			: index.standalone;
 	if (!bucket) return { file: undefined, ambiguous: false };
+	const qualified = sourcePath.includes('/') || sourcePath.includes('\\');
 	const paths: string[] = [];
 	if (consumer.projectId && consumer.relativePath) {
 		const root = (() => {
@@ -217,6 +220,9 @@ function resolveSource(
 		const resolved = unique(bucket.byPath.get(path));
 		if (resolved) return resolved;
 	}
+	// An explicit qualified path that does not exist must stay missing. A
+	// basename fallback would silently retarget the include to another folder.
+	if (qualified) return { file: undefined, ambiguous: false };
 	const name = sourcePath.split('/').pop() ?? '';
 	if (name) {
 		const resolved = unique(bucket.byName.get(name.toLowerCase()));
@@ -224,6 +230,23 @@ function resolveSource(
 	}
 	const resolved = unique(bucket.byStem.get(name.replace(/\.[^.]+$/, '').toLowerCase()));
 	return resolved ?? { file: undefined, ambiguous: false };
+}
+
+/** True when both files use the same project or are both stand-alone. */
+export function sameSourceScope(left: FileItem, right: FileItem): boolean {
+	const scope = (file: FileItem) => (file.projectId && file.relativePath ? file.projectId : null);
+	return scope(left) === scope(right);
+}
+
+/**
+ * Lists the blocks that the consumer may insert. The picker must use the same
+ * project-aware identity as the report resolver, so another project's content
+ * cannot enter the document.
+ */
+export function sourceBlocksFor(files: readonly FileItem[], consumer: FileItem): LinkedBlock[] {
+	return files
+		.filter((file) => file.id !== consumer.id && sameSourceScope(file, consumer))
+		.flatMap((file) => extractBlocks(file));
 }
 
 /** Iterative Tarjan SCC. The call stack stays bounded for deep chains. */

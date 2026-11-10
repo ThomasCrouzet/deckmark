@@ -149,6 +149,34 @@ export async function writeSourceContent(page: Page, content: string) {
 	await page.waitForTimeout(600);
 }
 
+/**
+ * Make the selected localStorage keys fail like a blocked or exhausted store.
+ * Reads raise SecurityError; writes and removals raise QuotaExceededError.
+ * The patch applies to the current document and to each later navigation.
+ */
+export async function blockPreferenceStorage(page: Page, keys: string[]): Promise<void> {
+	const install = (blockedKeys: string[]) => {
+		const blocked = new Set(blockedKeys);
+		const get = Storage.prototype.getItem;
+		const set = Storage.prototype.setItem;
+		const remove = Storage.prototype.removeItem;
+		Storage.prototype.getItem = function (key: string) {
+			if (blocked.has(key)) throw new DOMException('Storage blocked', 'SecurityError');
+			return get.call(this, key);
+		};
+		Storage.prototype.setItem = function (key: string, value: string) {
+			if (blocked.has(key)) throw new DOMException('Storage full', 'QuotaExceededError');
+			return set.call(this, key, value);
+		};
+		Storage.prototype.removeItem = function (key: string) {
+			if (blocked.has(key)) throw new DOMException('Storage full', 'QuotaExceededError');
+			return remove.call(this, key);
+		};
+	};
+	await page.addInitScript(install, keys);
+	await page.evaluate(install, keys);
+}
+
 export interface SeedFile {
 	name: string;
 	content: string;

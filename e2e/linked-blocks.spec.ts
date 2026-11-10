@@ -3,6 +3,34 @@ import { openPalette, resetAppState, seedFiles, writeSourceContent } from './hel
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
+async function importProject(
+	page: Page,
+	name: string,
+	files: Record<string, string>
+): Promise<void> {
+	const zip = new (await import('jszip')).default();
+	for (const [path, content] of Object.entries(files)) zip.file(path, content);
+	await page.getByTestId('projects-open').click();
+	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await panel.locator('input[type=file][accept=".zip"]').setInputFiles({
+		name: `${name}.zip`,
+		mimeType: 'application/zip',
+		buffer: await zip.generateAsync({ type: 'nodebuffer' })
+	});
+	await panel.getByRole('button', { name: 'Fermer les projets' }).click();
+}
+
+async function openProjectDocument(page: Page, project: string, folder: string, path: string) {
+	const root = page.locator(`[data-project-root-name="${project}"]`);
+	const details = root.locator('details').first();
+	if ((await details.getAttribute('open')) === null) await root.locator('summary').first().click();
+	const group = root.locator(`[data-project-folder="${folder}"]`);
+	const groupDetails = group.locator('details').first();
+	if ((await groupDetails.getAttribute('open')) === null)
+		await group.locator('summary').first().click();
+	await root.locator(`[data-project-document="${path}"] button[data-file-id]`).click();
+}
+
 const source =
 	'# Source\n\n<!-- mdsh-block id="intro" -->\nCanonical paragraph.\n<!-- /mdsh-block -->\n';
 
@@ -66,6 +94,38 @@ test('inserts, updates, freezes and detaches a linked block', async ({ page }, i
 		contentType: 'application/json'
 	});
 	await info.attach('linked-blocks.png', { body: await page.screenshot() });
+});
+
+test('offers only same-project sources and inserts project B content', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await importProject(page, 'Alpha', {
+		'README.md': '# Alpha\n',
+		'docs/secret.md': '<!-- mdsh-block id="part" -->\nA-only\n<!-- /mdsh-block -->\n'
+	});
+	await importProject(page, 'Beta', {
+		'notes/consumer.md': '# Consumer\n\nIntro follows.\n',
+		'docs/local.md': '<!-- mdsh-block id="part" -->\nB-local\n<!-- /mdsh-block -->\n'
+	});
+	await openProjectDocument(page, 'Beta', 'notes', 'notes/consumer.md');
+	await openBlocks(page);
+	const options = page.getByTestId('blocks-source').locator('option');
+	await expect(options).toHaveCount(1);
+	await expect(options.first()).toContainText('docs/local.md');
+	await expect(page.getByTestId('blocks-source')).not.toContainText('docs/secret.md');
+	await page.getByTestId('blocks-source').selectOption({ index: 0 });
+	await page.getByTestId('blocks-insert').click();
+	await expect(page.locator('.cm-content')).toContainText('B-local');
+	await expect(page.locator('.cm-content')).not.toContainText('A-only');
+	const inserted = await sourceText(page);
+	expect(inserted).toContain('source="docs/local.md"');
+	await expect(page.getByTestId('link-current')).toBeVisible();
+	await info.attach('linked-blocks-project-scope.json', {
+		body: JSON.stringify({ options: await options.allTextContents(), inserted }),
+		contentType: 'application/json'
+	});
+	await info.attach('linked-blocks-project-scope.png', { body: await page.screenshot() });
 });
 
 test('inserts the selected block when one file defines several blocks', async ({

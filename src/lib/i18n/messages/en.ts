@@ -589,6 +589,8 @@ export const en = {
 	'semantic.line': 'line {line} · score {score}',
 	'semantic.noResults': 'No local result.',
 	'semantic.prompt': 'Type a query to search the local index.',
+	'semantic.preferenceNote':
+		'The browser blocked local preferences. The choices apply to this session only.',
 	'semantic.offline':
 		'The index stays in IndexedDB. Editing a document invalidates its entry on the next build.',
 	'blocks.title': 'Linked content blocks',
@@ -682,6 +684,9 @@ export const en = {
 	'comments.anchorFailed':
 		'The quoted text is missing or appears more than once. Select a unique passage.',
 	'comments.bodyRequired': 'Enter a comment.',
+	'comments.saveFailed': 'The comment could not be saved. The text stays in the form. Try again.',
+	'comments.refreshFailed':
+		'The comment was saved, but the list could not refresh. Close and open the panel.',
 	'comments.staleDocument':
 		'The active document changed. Reopen the panel before adding a comment.',
 	'comments.localReviewer': 'Local reviewer',

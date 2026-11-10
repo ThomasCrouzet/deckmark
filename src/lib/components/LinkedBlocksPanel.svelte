@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { X } from '@lucide/svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { filesStore } from '#lib/files.svelte.js';
@@ -8,9 +7,10 @@
 		buildLinkReport,
 		currentLinkReport,
 		detachInclude,
-		extractBlocks,
 		freezeInclude,
 		insertInclude,
+		sameSourceScope,
+		sourceBlocksFor,
 		updateInclude,
 		type LinkedBlock,
 		type LinkReport
@@ -25,8 +25,19 @@
 	let sourceKey = $state('');
 	const active = $derived(filesStore.active);
 	const activePath = $derived(active ? (active.relativePath ?? active.name) : '');
+	let refreshedFor: string | null = null;
 
-	onMount(refresh);
+	$effect(() => {
+		if (!open) {
+			refreshedFor = null;
+			return;
+		}
+		const id = filesStore.activeId;
+		if (refreshedFor === id) return;
+		refreshedFor = id;
+		sourceKey = '';
+		void refresh();
+	});
 
 	async function refresh() {
 		const needed = filesStore.library
@@ -40,19 +51,24 @@
 			)
 			.map((file) => file.id);
 		await filesStore.ensureContent(needed);
-		blocks = filesStore.library.flatMap((file) => extractBlocks(file));
+		blocks = active ? sourceBlocksFor(filesStore.library, active) : [];
 		reports = buildLinkReport(filesStore.library);
 		if (!blocks.some((block) => block.key === sourceKey))
 			sourceKey = sourceKey ? '' : (blocks[0]?.key ?? '');
 	}
 
 	function insert() {
-		if (!active || !sourceKey) return;
-		const block = blocks.find((entry) => entry.key === sourceKey);
-		if (!block || block.fileId === active.id) return;
+		const target = active;
+		if (!target || !sourceKey) return;
+		const block = sourceBlocksFor(filesStore.library, target).find(
+			(entry) => entry.key === sourceKey
+		);
+		if (!block || block.fileId === target.id) return;
+		const source = filesStore.library.find((entry) => entry.id === block.fileId);
+		if (!source || !sameSourceScope(source, target)) return;
 		filesStore.updateContent(
-			active.id,
-			insertInclude(active.content, block.path, block.id, block.hash, block.body)
+			target.id,
+			insertInclude(target.content, block.path, block.id, block.hash, block.body)
 		);
 		void refresh();
 	}

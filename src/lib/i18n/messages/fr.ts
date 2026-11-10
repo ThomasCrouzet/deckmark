@@ -602,6 +602,8 @@ export const fr: Record<MessageKey, string> = {
 	'semantic.line': 'ligne {line} · score {score}',
 	'semantic.noResults': 'Aucun résultat local.',
 	'semantic.prompt': 'Saisissez une requête pour chercher dans l’index local.',
+	'semantic.preferenceNote':
+		'Le navigateur a bloqué les préférences locales. Les choix s’appliquent à cette session seulement.',
 	'semantic.offline':
 		'L’index reste dans IndexedDB. La modification d’un document invalide son entrée à la prochaine construction.',
 	'blocks.title': 'Blocs de contenu liés',
@@ -696,6 +698,10 @@ export const fr: Record<MessageKey, string> = {
 	'comments.anchorFailed':
 		'Le texte cité est absent ou apparaît plusieurs fois. Sélectionnez un passage unique.',
 	'comments.bodyRequired': 'Saisissez un commentaire.',
+	'comments.saveFailed':
+		'Le commentaire n’a pas pu être enregistré. Le texte reste dans le formulaire. Réessayez.',
+	'comments.refreshFailed':
+		'Le commentaire est enregistré, mais la liste n’a pas pu être actualisée. Fermez et ouvrez le panneau.',
 	'comments.staleDocument':
 		"Le document actif a changé. Rouvrez le panneau avant d'ajouter un commentaire.",
 	'comments.localReviewer': 'Relecteur local',

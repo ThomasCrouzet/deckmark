@@ -27,6 +27,7 @@
 	let body = $state('');
 	let author = $state('');
 	let error = $state('');
+	let adding = $state(false);
 	let selected = $state<string | null>(null);
 	let boundId = $state<string | null>(null);
 	const boundFile = $derived(
@@ -135,6 +136,7 @@
 	}
 
 	async function addComment() {
+		if (adding) return;
 		const activeId = boundId;
 		const file = boundFile;
 		if (!activeId || !file) {
@@ -164,11 +166,25 @@
 			createdAt: now,
 			updatedAt: now
 		};
-		await db.comments.put($state.snapshot(row));
+		adding = true;
+		try {
+			await db.comments.put($state.snapshot(row));
+		} catch {
+			// Keep the unsaved text so the user can retry the durable write.
+			error = t('comments.saveFailed');
+			adding = false;
+			return;
+		}
+		// The optional author preference cannot reject a saved comment.
 		setCommentAuthor(author);
 		body = '';
 		error = '';
-		await load();
+		try {
+			await load();
+		} catch {
+			error = t('comments.refreshFailed');
+		}
+		adding = false;
 	}
 
 	async function setStatus(comment: CommentRow, status: CommentRow['status']) {
@@ -239,6 +255,7 @@
 					<button
 						type="button"
 						class="primary"
+						disabled={adding}
 						onclick={() => void addComment()}
 						data-testid="comment-add"
 					>
