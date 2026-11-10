@@ -17,6 +17,7 @@ import { reportPersistenceError } from './storage';
 import { uniqueName } from './file-utils';
 import { pathKey } from './project-paths';
 import { projectConflictVariant } from './project-conflicts';
+import { sameDraftIdentity } from './draft-identity';
 
 async function deletePurgedDiskLink(id: string): Promise<void> {
 	if (isDesktop()) {
@@ -49,8 +50,7 @@ async function preserveCurrentVariant(
 	replacement: DraftRow
 ): Promise<DraftRow | undefined> {
 	const current = await db.drafts.get(id);
-	if (!current || (current.name === replacement.name && current.content === replacement.content))
-		return;
+	if (!current || sameDraftIdentity(current, replacement)) return;
 	const [documents, assets] = await Promise.all([db.drafts.toArray(), db.projectAssets.toArray()]);
 	const variant = projectConflictVariant(current, documents, assets);
 	const preserved = {

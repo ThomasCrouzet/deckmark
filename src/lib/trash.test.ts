@@ -32,6 +32,21 @@ function trashedRow(id: string, trashedAt: number, order = 0): TrashedRow {
 	return { id, file: draftRow(id, order), order, trashedAt };
 }
 
+/** Fabrique une image binaire dont seuls les octets distinguent les branches. */
+function binaryRow(id: string, data: string, updatedAt = T0): DraftRow {
+	return {
+		id,
+		name: `${id}.png`,
+		content: '',
+		kind: 'image',
+		mime: 'image/png',
+		data,
+		createdAt: T0,
+		updatedAt,
+		order: 0
+	};
+}
+
 beforeEach(async () => {
 	installTrashSummaryHooks();
 	await db.drafts.clear();
@@ -103,6 +118,90 @@ describe('restoreFromTrash', () => {
 		expect(ok).toBe(true);
 		expect(await db.trashed.get('r1')).toBeUndefined();
 		expect(await db.drafts.get('r1')).toMatchObject(row);
+	});
+});
+
+describe('revision-safe trash variants', () => {
+	it('preserves a concurrent binary branch when only the data payload differs', async () => {
+		await db.drafts.put(binaryRow('image', 'data:image/png;base64,B', 2));
+
+		expect(
+			await moveToTrash('image', binaryRow('image', 'data:image/png;base64,A', 1), 0, T0)
+		).toBe(true);
+
+		expect((await db.trashed.get('image'))?.file.data).toBe('data:image/png;base64,A');
+		const variants = (await db.drafts.toArray()).filter((row) => row.id !== 'image');
+		expect(variants).toHaveLength(1);
+		expect(variants[0]).toMatchObject({
+			kind: 'image',
+			mime: 'image/png',
+			data: 'data:image/png;base64,B',
+			open: false
+		});
+	});
+
+	it('preserves a concurrent branch when only the MIME type differs', async () => {
+		const durable = { ...binaryRow('mime', 'data:image/png;base64,A'), mime: 'image/webp' };
+		await db.drafts.put(durable);
+
+		await moveToTrash('mime', binaryRow('mime', 'data:image/png;base64,A'), 0, T0);
+
+		const variant = (await db.drafts.toArray()).find((row) => row.id !== 'mime');
+		expect(variant).toMatchObject({ mime: 'image/webp', data: 'data:image/png;base64,A' });
+	});
+
+	it('preserves a concurrent branch when only the project location differs', async () => {
+		const durable: DraftRow = {
+			...draftRow('location'),
+			content: 'same',
+			projectId: 'project-one',
+			relativePath: 'docs/location.md'
+		};
+		await db.drafts.put(durable);
+
+		await moveToTrash(
+			'location',
+			{
+				...draftRow('location'),
+				content: 'same',
+				projectId: 'project-two',
+				relativePath: 'old/location.md'
+			},
+			0,
+			T0
+		);
+
+		const variant = (await db.drafts.toArray()).find((row) => row.id !== 'location');
+		expect(variant).toMatchObject({ projectId: 'project-one' });
+		expect(variant?.relativePath).toMatch(/^docs\/location/);
+	});
+
+	it('does not create a variant for identical content with a stale timestamp', async () => {
+		await db.drafts.put({ ...draftRow('identical'), updatedAt: 9 });
+
+		await moveToTrash('identical', { ...draftRow('identical'), updatedAt: 1 }, 0, T0);
+
+		expect(await db.drafts.toArray()).toEqual([]);
+		expect((await db.trashed.get('identical'))?.file.updatedAt).toBe(1);
+	});
+
+	it('keeps the exact binary branch when the trash transaction fails', async () => {
+		await db.drafts.put(binaryRow('safe-binary', 'data:image/png;base64,B', 2));
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		vi.spyOn(db.trashed, 'put').mockRejectedValue(new Error('quota'));
+
+		expect(
+			await moveToTrash(
+				'safe-binary',
+				binaryRow('safe-binary', 'data:image/png;base64,A', 1),
+				0,
+				T0
+			)
+		).toBe(false);
+		expect(await db.drafts.get('safe-binary')).toMatchObject({
+			data: 'data:image/png;base64,B'
+		});
+		expect(await db.trashed.get('safe-binary')).toBeUndefined();
 	});
 });
 

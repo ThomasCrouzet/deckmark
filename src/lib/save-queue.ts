@@ -10,6 +10,7 @@ import type { DraftRow } from './db';
 import { TIMERS } from './config';
 import { uniqueName } from './file-utils';
 import type { DocumentRevision } from './document-revisions';
+import { sameDraftIdentity } from './draft-identity';
 
 const SAVE_SUPERSEDED = Symbol('save-superseded');
 
@@ -108,7 +109,10 @@ export class SaveQueue {
 	/** Last durable content observed by this tab, used for optimistic conflict detection. */
 	private persistedRows = new Map<
 		string,
-		Pick<DraftRow, 'name' | 'content' | 'projectId' | 'relativePath' | 'updatedAt'>
+		Pick<
+			DraftRow,
+			'name' | 'content' | 'projectId' | 'relativePath' | 'kind' | 'mime' | 'data' | 'updatedAt'
+		>
 	>();
 	/** Per-id serial chain so puts never race each other on the same draft. */
 	private chains = new Map<string, Promise<void>>();
@@ -170,6 +174,9 @@ export class SaveQueue {
 			content: row.content,
 			...(row.projectId === undefined ? {} : { projectId: row.projectId }),
 			...(row.relativePath === undefined ? {} : { relativePath: row.relativePath }),
+			...(row.kind === undefined ? {} : { kind: row.kind }),
+			...(row.mime === undefined ? {} : { mime: row.mime }),
+			...(row.data === undefined ? {} : { data: row.data }),
 			updatedAt: row.updatedAt
 		});
 	}
@@ -221,18 +228,10 @@ export class SaveQueue {
 				}
 				const changedSinceRead = current
 					? !baseline ||
-						current.name !== baseline.name ||
-						current.projectId !== baseline.projectId ||
-						current.relativePath !== baseline.relativePath ||
 						current.updatedAt !== baseline.updatedAt ||
-						current.content.length !== baseline.content.length ||
-						current.content !== baseline.content
+						!sameDraftIdentity(current, baseline)
 					: false;
-				if (
-					current &&
-					changedSinceRead &&
-					(current.name !== written.name || current.content !== written.content)
-				) {
+				if (current && changedSinceRead && !sameDraftIdentity(current, written)) {
 					const occupancy = await conflict.conflictOccupancy(current.projectId);
 					const [documents, assets] = occupancy
 						? [[], []]
