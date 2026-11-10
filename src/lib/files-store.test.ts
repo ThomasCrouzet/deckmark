@@ -798,7 +798,9 @@ describe('conflicts between full restoration and trash', () => {
 			filesStore.close(id);
 			await filesStore.flushPendingAwait();
 		}
-		const restored = filesStore.restore(id)!;
+		const restored = filesStore.restore(
+			filesStore.trash.find((entry) => entry.file.content === 'version A')!.file.id
+		)!;
 		expect(restored.id).not.toBe(id);
 		await filesStore.flushPendingAwait();
 		expect((await db.drafts.get(id))?.content).toBe('version B');
@@ -812,11 +814,12 @@ describe('conflicts between full restoration and trash', () => {
 		const id = await replaceCurrent();
 		const put = vi.spyOn(db.trashed, 'put').mockRejectedValueOnce(new Error('quota'));
 		try {
+			const recovery = filesStore.trash.find((entry) => entry.file.content === 'version A')!;
 			filesStore.delete(id);
 			await filesStore.flushPendingAwait();
 			expect(filesStore.files.map((file) => file.content)).toEqual(['version B']);
 			expect(filesStore.trash.map((entry) => entry.file.content)).toEqual(['version A']);
-			expect((await db.trashed.get(id))?.file.content).toBe('version A');
+			expect((await db.trashed.get(recovery.file.id))?.file.content).toBe('version A');
 		} finally {
 			put.mockRestore();
 		}

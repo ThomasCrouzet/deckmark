@@ -674,6 +674,17 @@ function sameDraftSource(left: DraftRow, right: DraftRow): boolean {
 	);
 }
 
+/**
+ * Moves every history snapshot to the recovery identity of the draft it
+ * documents. Version history is keyed by draft id, so a replaced draft that
+ * keeps its id must take its snapshots with it before an incoming draft claims
+ * that id. Runs inside the Replace transaction.
+ */
+async function moveVersionHistory(sourceId: string, targetId: string): Promise<void> {
+	if (sourceId === targetId) return;
+	await db.versions.where('draftId').equals(sourceId).modify({ draftId: targetId });
+}
+
 /** Exact editorial-comment identity, including the mapped draft and anchor. */
 function commentIdentity(row: CommentRow): string {
 	return JSON.stringify([
@@ -882,6 +893,7 @@ export async function applyBackup(
 						.map((project) => project.id)
 				);
 				const trashIdMap = new Map<string, string>();
+				const preservedHistoryIds = new Set<string>();
 				for (const current of currentDrafts) {
 					const incoming = incomingDrafts.get(current.id);
 					if (
@@ -891,17 +903,23 @@ export async function applyBackup(
 						incoming.projectId === current.projectId &&
 						incoming.relativePath === current.relativePath &&
 						(!current.projectId || unchangedProjects.has(current.projectId))
-					)
+					) {
+						// Complete source identity (text, kind, MIME, binary payload) plus
+						// name and location match: the same draft is restored, so its
+						// existing history stays with it.
+						preservedHistoryIds.add(current.id);
 						continue;
+					}
 					await preserveTrashEntry(current.id);
-					// Editorial comments are stored by draft id. When an incoming
-					// draft reuses this id, give the recovery copy its own id so
-					// the saved comments never attach to the incoming content.
+					// A different incoming draft claims this id. The retained copy takes
+					// a durable recovery identity so its history, comments and links do
+					// not attach to the incoming document.
 					let trashId = current.id;
-					if (incoming && currentComments.some((row) => row.draftId === current.id)) {
+					if (incoming) {
 						do trashId = newId();
-						while (incomingDrafts.has(trashId));
+						while (incomingDrafts.has(trashId) || currentDrafts.some((row) => row.id === trashId));
 						trashIdMap.set(current.id, trashId);
+						await moveVersionHistory(current.id, trashId);
 					}
 					await db.trashed.put({
 						id: trashId,
@@ -942,23 +960,33 @@ export async function applyBackup(
 				const retainedOriginalIds = new Set(retained.map((row) => row.id));
 				for (let index = 0; index < retained.length; index++) {
 					const row = retained[index]!;
-					// Keep standalone trash references until restoration resolves the collision.
-					if (!row.file.projectId || !backup.drafts.some((draft) => draft.id === row.id)) continue;
+					// An incoming draft that claims a retained trash id also needs the
+					// recovery copy under a fresh id. Standalone rows included: their
+					// history is keyed by the same draft id.
+					if (!backup.drafts.some((draft) => draft.id === row.id)) continue;
 					const preserved = (await preserveTrashEntry(row.id))!;
 					await db.trashed.delete(row.id);
 					draftIdMap.set(row.id, preserved.id);
 					retained[index] = preserved;
 				}
+				const recoveryLinkMap = new Map([...trashIdMap, ...draftIdMap]);
 				await db.trashed.bulkPut(
 					retained.map((row) => ({
 						...row,
 						file: {
 							...normalizeDraft(row.file),
-							content: rewriteDraftLinks(row.file.content, draftIdMap),
+							content: rewriteDraftLinks(row.file.content, recoveryLinkMap),
 							...(row.file.projectId ? { projectId: projectIdMap.get(row.file.projectId)! } : {})
 						}
 					}))
 				);
+				// An incoming draft that did not preserve an identical owner keeps no
+				// history under its id. This also removes orphan snapshots whose draft
+				// and trash owners were already gone.
+				for (const id of incomingDrafts.keys()) {
+					if (preservedHistoryIds.has(id)) continue;
+					await db.versions.where('draftId').equals(id).delete();
+				}
 				// Re-attach existing review comments to the retained recovery
 				// identity instead of discarding them with the replaced drafts.
 				const currentDraftIds = new Set(currentDrafts.map((row) => row.id));

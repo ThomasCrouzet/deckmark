@@ -586,7 +586,10 @@ describe('applyBackup - binary document source identity', () => {
 			'replace'
 		);
 		expect((await db.drafts.get('img'))?.data).toBe(IMAGE_PNG_B);
-		expect((await db.trashed.get('img'))?.file.data).toBe(IMAGE_PNG);
+		const recovery = (await db.trashed.toArray()).find((row) => row.file.data === IMAGE_PNG)!;
+		expect(recovery).toBeDefined();
+		expect(recovery.id).not.toBe('img');
+		expect(recovery.file.id).toBe(recovery.id);
 	});
 
 	it('imports a project whose binary document payload differs', async () => {
