@@ -29,7 +29,6 @@
 	import BrandLogo from './BrandLogo.svelte';
 	import FileStatusBadge from './FileStatusBadge.svelte';
 	import TrashPanel from './TrashPanel.svelte';
-	import ProjectTree from './ProjectTree.svelte';
 	import { projectExplorer, folderKey, rootKey } from '#lib/project-explorer.svelte.js';
 	import { createProject } from '#lib/projects.js';
 	import { PROJECT_DRAG_TYPE } from '#lib/project-transfer.js';
@@ -61,6 +60,7 @@
 
 	let draggingId = $state<string | null>(null);
 	let dragOverId = $state<string | null>(null);
+	let ProjectTree = $state<(typeof import('./ProjectTree.svelte'))['default'] | null>(null);
 	let fileList = $state<HTMLUListElement | null>(null);
 	let closeButton = $state<HTMLButtonElement | null>(null);
 	let libraryButton = $state<HTMLButtonElement | null>(null);
@@ -158,6 +158,10 @@
 	const bottomSpacerHeight = $derived(
 		useVirtualization ? rowOffsets[rowOffsets.length - 1]! - rowOffsets[visibleEnd]! : 0
 	);
+
+	onMount(() => {
+		void import('./ProjectTree.svelte').then((module) => (ProjectTree = module.default));
+	});
 
 	onMount(() => {
 		void projectExplorer.load().then(() => {
@@ -608,20 +612,22 @@
 						<FolderPlus size={12} aria-hidden="true" />
 					</button>
 				</div>
-				<ProjectTree
-					documents={projectDocuments}
-					projects={projectRoots}
-					expanded={projectExplorer.expanded}
-					onToggle={(key, open) => projectExplorer.setExpanded(key, open)}
-					onOpen={selectFile}
-					actions
-					rowLabels
-					onManageProjects={() => {
-						if (isMobile) onClose();
-						onOpenProjects?.();
-					}}
-					onChanged={(target) => void handleProjectChanged(target)}
-				/>
+				{#if ProjectTree}
+					<ProjectTree
+						documents={projectDocuments}
+						projects={projectRoots}
+						expanded={projectExplorer.expanded}
+						onToggle={(key, open) => projectExplorer.setExpanded(key, open)}
+						onOpen={selectFile}
+						actions
+						rowLabels
+						onManageProjects={() => {
+							if (isMobile) onClose();
+							onOpenProjects?.();
+						}}
+						onChanged={(target) => void handleProjectChanged(target)}
+					/>
+				{/if}
 			</section>
 		{/if}
 		{#if filesStore.files.length === 0 && !hasExplorer}
