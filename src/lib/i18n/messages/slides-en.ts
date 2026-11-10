@@ -15,6 +15,11 @@ export const slidesEn = {
 	'documents.pdfUnavailable': 'The PDF data is unavailable.',
 	'documents.pdfFallback': 'The inline viewer is unavailable. Use Open PDF or Download.',
 	'documents.imageUnavailable': 'The image data is unavailable.',
+	'documents.imageLoading': 'Loading the replacement image.',
+	'documents.imageReplaced':
+		'The image changed in another window. The earlier annotations were cleared.',
+	'documents.imageExportStale': 'The image changed. Wait for the new image, then export again.',
+	'documents.pdfReplacing': 'Loading the replacement PDF.',
 	'documents.noteDescription': 'Write and read Markdown.',
 	'documents.presentationDescription': 'Arrange slides and present.',
 	'documents.createNote': 'Create a note',
