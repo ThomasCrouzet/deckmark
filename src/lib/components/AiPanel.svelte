@@ -18,7 +18,9 @@
 		contentHash,
 		parsePatchProposal,
 		planPatch,
+		planRevert,
 		type AiPatchProposal,
+		type AppliedPatchFile,
 		type PatchPlan
 	} from '#lib/ai/patches.js';
 	import DiffView from '#lib/components/DiffView.svelte';
@@ -61,8 +63,8 @@
 	let planKey = $state('');
 	let requestGeneration = $state(0);
 	let appliedMessage = $state('');
-	let appliedBefore = $state<Array<{ id: string; content: string }>>([]);
-	let appliedAfter = $state<Array<{ id: string; content: string }>>([]);
+	let appliedBefore = $state<AppliedPatchFile[]>([]);
+	let appliedAfter = $state<AppliedPatchFile[]>([]);
 	let patchError = $state('');
 
 	const candidates = $derived(
@@ -180,7 +182,12 @@
 		if (result.changes.length === 0) return;
 		const snapshots = result.changes.map((change) => {
 			const file = filesStore.library.find((entry) => entry.id === change.id)!;
-			return { id: file.id, name: file.name, content: file.content };
+			return {
+				id: file.id,
+				name: file.name,
+				canonicalPath: file.relativePath ?? file.name,
+				content: file.content
+			};
 		});
 		try {
 			await createCheckpoints(snapshots);
@@ -209,26 +216,49 @@
 			patchError = t('ai.patchConflict');
 			return;
 		}
-		appliedBefore = snapshots.map((snapshot) => ({ id: snapshot.id, content: snapshot.content }));
-		appliedAfter = result.changes.map((change) => ({
-			id: change.id,
-			content: change.content
+		appliedBefore = snapshots.map((snapshot) => ({
+			id: snapshot.id,
+			canonicalPath: snapshot.canonicalPath,
+			content: snapshot.content
 		}));
+		appliedAfter = result.changes.map((change) => {
+			const file = filesStore.library.find((entry) => entry.id === change.id)!;
+			return {
+				id: change.id,
+				canonicalPath: file.relativePath ?? file.name,
+				content: change.content
+			};
+		});
 		for (const change of result.changes) filesStore.updateContent(change.id, change.content);
 		appliedMessage = t('ai.patchApplied', { n: result.changes.length });
 		patchError = '';
 	}
 
-	function revertPatch() {
-		const stale = appliedAfter.find((change) => {
-			const file = filesStore.library.find((entry) => entry.id === change.id);
-			return !file || contentHash(file.content) !== contentHash(change.content);
-		});
-		if (stale) {
+	async function revertPatch() {
+		const initial = planRevert(appliedAfter, appliedBefore, filesStore.library);
+		if (initial.rejected.length > 0 || initial.changes.length !== appliedBefore.length) {
 			patchError = t('ai.patchRevertConflict');
 			return;
 		}
-		for (const change of appliedBefore) filesStore.updateContent(change.id, change.content);
+		const snapshots = appliedAfter.map((change) => {
+			const file = filesStore.library.find((entry) => entry.id === change.id)!;
+			return { id: file.id, name: file.name, content: file.content };
+		});
+		try {
+			// Keep the applied state recoverable before the rollback.
+			await createCheckpoints(snapshots);
+		} catch {
+			patchError = t('ai.patchCheckpointFailed');
+			return;
+		}
+		// Recheck exact bytes after the awaited checkpoint. The whole set must
+		// still match the accepted after state, or no file changes.
+		const fence = planRevert(appliedAfter, appliedBefore, filesStore.library);
+		if (fence.rejected.length > 0 || fence.changes.length !== appliedBefore.length) {
+			patchError = t('ai.patchRevertConflict');
+			return;
+		}
+		for (const change of fence.changes) filesStore.updateContent(change.id, change.content);
 		appliedBefore = [];
 		appliedAfter = [];
 		appliedMessage = t('ai.patchReverted');
@@ -667,7 +697,11 @@
 								data-testid="ai-patch-apply">{t('ai.patchApply')}</button
 							>
 							{#if appliedAfter.length > 0}
-								<button type="button" onclick={revertPatch} data-testid="ai-patch-revert">
+								<button
+									type="button"
+									onclick={() => void revertPatch()}
+									data-testid="ai-patch-revert"
+								>
 									{t('ai.patchRevert')}
 								</button>
 							{/if}

@@ -4,6 +4,7 @@ import {
 	contentHash,
 	parsePatchProposal,
 	planPatch,
+	planRevert,
 	safePatchPath,
 	type AiPatchProposal
 } from './patches';
@@ -261,6 +262,52 @@ describe('patch planning', () => {
 		expect(plan.files[0]?.status).toBe('ready');
 		const moved = { ...original, relativePath: 'archive/guide.md' };
 		expect(applyPatchPlan(plan, [moved], ['notes/guide.md']).rejected).toEqual(['notes/guide.md']);
+	});
+
+	it('refuses a revert when exact bytes differ despite a 32-bit hash collision', () => {
+		// These two literal fixtures collide under FNV-1a 32-bit.
+		const applied = '4c6d3c14';
+		const later = '34749a0f';
+		expect(contentHash(applied)).toBe(contentHash(later));
+		const original = { id: 'a', canonicalPath: 'guide.md', content: 'ORIGINAL' };
+		const after = { id: 'a', canonicalPath: 'guide.md', content: applied };
+		const current = { id: 'a', name: 'guide.md', relativePath: 'guide.md', content: later };
+		expect(planRevert([after], [original], [current])).toEqual({
+			changes: [],
+			rejected: ['guide.md']
+		});
+	});
+
+	it('reverts all applied files or none when one file changed', () => {
+		const before = [
+			{ id: 'a', canonicalPath: 'one.md', content: 'One before' },
+			{ id: 'b', canonicalPath: 'two.md', content: 'Two before' }
+		];
+		const after = [
+			{ id: 'a', canonicalPath: 'one.md', content: 'One after' },
+			{ id: 'b', canonicalPath: 'two.md', content: 'Two after' }
+		];
+		const files = [
+			{ id: 'a', name: 'one.md', relativePath: 'one.md', content: 'One after' },
+			{ id: 'b', name: 'two.md', relativePath: 'two.md', content: 'Two edited later' }
+		];
+		expect(planRevert(after, before, files)).toEqual({
+			changes: [],
+			rejected: ['two.md']
+		});
+		expect(
+			planRevert(
+				after,
+				before,
+				files.map((file) => ({ ...file, content: file.id === 'b' ? 'Two after' : file.content }))
+			)
+		).toEqual({
+			changes: [
+				{ id: 'a', content: 'One before' },
+				{ id: 'b', content: 'Two before' }
+			],
+			rejected: []
+		});
 	});
 
 	it('rejects path traversal and duplicate paths', () => {
