@@ -39,22 +39,15 @@ const MAX_PROFILE_TEXT = 500;
 export type ExportProfileErrorCode =
 	'unsupported' | 'missing' | 'empty' | 'invalid' | 'duplicate' | 'excess' | 'oversized';
 
-const ERROR_MESSAGES: Record<ExportProfileErrorCode, string> = {
-	unsupported: 'Unsupported export profile file',
-	missing: 'Missing profiles',
-	empty: 'An export profile file needs at least one profile',
-	invalid: 'Invalid profile',
-	duplicate: 'Every export profile identifier must be unique',
-	excess: 'Too many export profiles',
-	oversized: 'The export profile file is too large'
-};
-
-/** A rejected import with a stable code that the panel can translate. */
+/**
+ * A rejected import with a stable code. The lazy panel owns the translated
+ * text, so this boot module keeps no user-facing message strings.
+ */
 export class ExportProfileError extends Error {
 	readonly code: ExportProfileErrorCode;
 
 	constructor(code: ExportProfileErrorCode) {
-		super(ERROR_MESSAGES[code]);
+		super(code);
 		this.name = 'ExportProfileError';
 		this.code = code;
 	}

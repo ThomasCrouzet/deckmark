@@ -4,6 +4,7 @@ import {
 	applyExportProfile,
 	createProfile,
 	DEFAULT_PROFILES,
+	ExportProfileError,
 	MAX_PROFILE_DOCUMENT_BYTES,
 	MAX_PROFILES,
 	parseProfiles,
@@ -11,8 +12,20 @@ import {
 	readProfiles,
 	saveProfiles,
 	serializeProfiles,
-	type ExportProfile
+	type ExportProfile,
+	type ExportProfileErrorCode
 } from './export-profiles';
+
+function expectCode(run: () => unknown, code: ExportProfileErrorCode): void {
+	try {
+		run();
+	} catch (error) {
+		expect(error).toBeInstanceOf(ExportProfileError);
+		expect((error as ExportProfileError).code).toBe(code);
+		return;
+	}
+	throw new Error(`Expected the profile operation to fail with ${code}`);
+}
 
 const STORAGE_KEY = 'mdsh:export-profiles';
 
@@ -84,22 +97,24 @@ describe('export profile import invariants', () => {
 	beforeEach(() => localStorage.clear());
 
 	it('rejects an empty profile collection', () => {
-		expect(() => parseProfiles(document([]))).toThrow(/at least one/i);
+		expectCode(() => parseProfiles(document([])), 'empty');
 	});
 
 	it('rejects duplicate profile identifiers', () => {
-		expect(() =>
-			parseProfiles(
-				document([
-					{ ...profile, id: 'same', name: 'First' },
-					{ ...profile, id: 'same', name: 'Second' }
-				])
-			)
-		).toThrow(/unique/i);
+		expectCode(
+			() =>
+				parseProfiles(
+					document([
+						{ ...profile, id: 'same', name: 'First' },
+						{ ...profile, id: 'same', name: 'Second' }
+					])
+				),
+			'duplicate'
+		);
 	});
 
 	it('rejects an identifier with surrounding whitespace', () => {
-		expect(() => parseProfiles(document([{ ...profile, id: ' padded ' }]))).toThrow(/invalid/i);
+		expectCode(() => parseProfiles(document([{ ...profile, id: ' padded ' }])), 'invalid');
 	});
 
 	it('rejects an oversized collection, document or text field', () => {
@@ -107,17 +122,20 @@ describe('export profile import invariants', () => {
 			...profile,
 			id: `profile-${index}`
 		}));
-		expect(() => parseProfiles(document(many))).toThrow(/too many/i);
-		expect(() =>
-			parseProfiles(
-				JSON.stringify({
-					...JSON.parse(document([profile])),
-					padding: 'x'.repeat(MAX_PROFILE_DOCUMENT_BYTES)
-				})
-			)
-		).toThrow(/too large/i);
-		expect(() => parseProfiles(document([{ ...profile, header: 'h'.repeat(10_000) }]))).toThrow(
-			/invalid/i
+		expectCode(() => parseProfiles(document(many)), 'excess');
+		expectCode(
+			() =>
+				parseProfiles(
+					JSON.stringify({
+						...JSON.parse(document([profile])),
+						padding: 'x'.repeat(MAX_PROFILE_DOCUMENT_BYTES)
+					})
+				),
+			'oversized'
+		);
+		expectCode(
+			() => parseProfiles(document([{ ...profile, header: 'h'.repeat(10_000) }])),
+			'invalid'
 		);
 	});
 
@@ -136,13 +154,15 @@ describe('export profile import invariants', () => {
 	});
 
 	it('refuses to persist an empty or duplicate collection', () => {
-		expect(() => saveProfiles([])).toThrow(/at least one/i);
-		expect(() =>
-			saveProfiles([
-				{ ...profile, id: 'same' },
-				{ ...profile, id: 'same' }
-			])
-		).toThrow(/unique/i);
+		expectCode(() => saveProfiles([]), 'empty');
+		expectCode(
+			() =>
+				saveProfiles([
+					{ ...profile, id: 'same' },
+					{ ...profile, id: 'same' }
+				]),
+			'duplicate'
+		);
 		expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
 	});
 

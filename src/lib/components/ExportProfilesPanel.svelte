@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { X } from '@lucide/svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
-	import { t, type MessageKey } from '#lib/i18n/index.js';
+	import { i18n, t } from '#lib/i18n/index.js';
 	import {
 		activeProfile,
 		createProfile,
@@ -17,19 +17,46 @@
 		type ExportProfileErrorCode
 	} from '#lib/export-profiles.js';
 
-	const PROFILE_ERROR_KEYS = {
-		unsupported: 'exportProfiles.error.unsupported',
-		missing: 'exportProfiles.error.missing',
-		empty: 'exportProfiles.error.empty',
-		invalid: 'exportProfiles.error.invalid',
-		duplicate: 'exportProfiles.error.duplicate',
-		excess: 'exportProfiles.error.excess',
-		oversized: 'exportProfiles.error.oversized'
-	} satisfies Record<ExportProfileErrorCode, MessageKey>;
+	// Import errors load with this lazy panel, not with the boot catalog.
+	const PROFILE_ERRORS: Record<ExportProfileErrorCode | 'import', { en: string; fr: string }> = {
+		import: {
+			en: 'The profiles could not be imported.',
+			fr: 'Les profils n’ont pas pu être importés.'
+		},
+		unsupported: {
+			en: 'This file is not a supported export profile file.',
+			fr: 'Ce fichier n’est pas un fichier de profils d’export compatible.'
+		},
+		missing: {
+			en: 'The file has no profiles list.',
+			fr: 'Le fichier n’a pas de liste de profils.'
+		},
+		empty: {
+			en: 'The file has no export profile. Add at least one profile to the file.',
+			fr: 'Le fichier ne contient aucun profil d’export. Ajoutez au moins un profil au fichier.'
+		},
+		invalid: {
+			en: 'A profile has an invalid value.',
+			fr: 'Un profil contient une valeur non valide.'
+		},
+		duplicate: {
+			en: 'Two profiles use the same identifier. Make every identifier unique.',
+			fr: 'Deux profils utilisent le même identifiant. Rendez chaque identifiant unique.'
+		},
+		excess: {
+			en: 'The file has too many profiles.',
+			fr: 'Le fichier contient trop de profils.'
+		},
+		oversized: {
+			en: 'The file is too large.',
+			fr: 'Le fichier est trop volumineux.'
+		}
+	};
 
 	function importErrorMessage(failure: unknown): string {
-		if (failure instanceof ExportProfileError) return t(PROFILE_ERROR_KEYS[failure.code]);
-		return t('exportProfiles.error.import');
+		const code = failure instanceof ExportProfileError ? failure.code : 'import';
+		const messages = PROFILE_ERRORS[code];
+		return messages[i18n.locale] ?? messages.en;
 	}
 
 	let { open, onClose }: { open: boolean; onClose: () => void } = $props();
