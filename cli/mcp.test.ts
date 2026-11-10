@@ -1,5 +1,14 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
+import {
+	mkdtempSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+	mkdirSync,
+	symlinkSync,
+	unlinkSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -227,6 +236,151 @@ describe('deckmark MCP server', () => {
 		});
 		expect(JSON.stringify(secret.result)).toContain('sensitive');
 	});
+});
+
+// Retained failure risks for the MCP filesystem boundary. A browser cannot
+// start this process or move its directory entries. The risks are: a valid
+// path replaced between authorization and read; an ancestor directory swapped
+// for an outside symlink during a scan; a leaf replaced by a symlink; and a
+// secret file reached through an in-root alias. The checks below repeat the
+// real protocol and compare returned bytes with the approved fixture only.
+describe('MCP authorization races', () => {
+	it('rejects a leaf replaced by a symbolic link after an authorized read', async () => {
+		const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
+		try {
+			writeFileSync(join(root, 'notes', 'approved.md'), 'approved-bytes');
+			writeFileSync(join(outside, 'secret.md'), 'outside-secret');
+			const first = await request('tools/call', {
+				name: 'read_file',
+				arguments: { path: 'notes/approved.md' }
+			});
+			expect(JSON.stringify(first.result)).toContain('approved-bytes');
+			unlinkSync(join(root, 'notes', 'approved.md'));
+			symlinkSync(join(outside, 'secret.md'), join(root, 'notes', 'approved.md'));
+			const second = await request('tools/call', {
+				name: 'read_file',
+				arguments: { path: 'notes/approved.md' }
+			});
+			expect(second.result).toMatchObject({ isError: true });
+			expect(JSON.stringify(second.result)).not.toContain('outside-secret');
+		} finally {
+			rmSync(outside, { recursive: true, force: true });
+		}
+	});
+
+	it('never returns outside bytes while a directory is swapped repeatedly', async () => {
+		const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
+		const docs = join(root, 'docs');
+		const held = join(root, 'docs-held');
+		mkdirSync(docs);
+		writeFileSync(join(docs, 'note.md'), 'APPROVED-BYTES');
+		writeFileSync(join(outside, 'note.md'), 'OUTSIDE-SECRET');
+		let swapped = false;
+		let running = true;
+		let swaps = 0;
+		const toggle = () => {
+			if (!running) return;
+			try {
+				if (!swapped) {
+					renameSync(docs, held);
+					symlinkSync(outside, docs);
+					swapped = true;
+				} else {
+					unlinkSync(docs);
+					renameSync(held, docs);
+					swapped = false;
+				}
+				swaps += 1;
+			} catch {
+				// The other side of the swap may hold the name for a moment.
+			}
+			setTimeout(toggle, 0);
+		};
+		toggle();
+		let approved = 0;
+		try {
+			for (let index = 0; index < 2000; index++) {
+				const response = await request('tools/call', {
+					name: 'read_file',
+					arguments: { path: 'docs/note.md' }
+				});
+				const text = JSON.stringify(response.result);
+				expect(text).not.toContain('OUTSIDE-SECRET');
+				if ((response.result as { isError?: boolean }).isError) continue;
+				expect(text).toContain('APPROVED-BYTES');
+				approved += 1;
+			}
+		} finally {
+			running = false;
+			await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+			try {
+				if (swapped) unlinkSync(docs);
+				renameSync(held, docs);
+			} catch {
+				// afterEach removes the whole tree.
+			}
+			rmSync(outside, { recursive: true, force: true });
+		}
+		expect(swaps).toBeGreaterThan(0);
+		expect(approved).toBeGreaterThan(0);
+	}, 20_000);
+
+	it('keeps search and propose_patch inside the approved tree during swaps', async () => {
+		const outside = mkdtempSync(join(tmpdir(), 'deckmark-mcp-outside-'));
+		const docs = join(root, 'docs');
+		const held = join(root, 'docs-held');
+		mkdirSync(docs);
+		writeFileSync(join(docs, 'note.md'), 'APPROVED-BYTES');
+		writeFileSync(join(outside, 'note.md'), 'OUTSIDE-SECRET');
+		let swapped = false;
+		let running = true;
+		const toggle = () => {
+			if (!running) return;
+			try {
+				if (!swapped) {
+					renameSync(docs, held);
+					symlinkSync(outside, docs);
+					swapped = true;
+				} else {
+					unlinkSync(docs);
+					renameSync(held, docs);
+					swapped = false;
+				}
+			} catch {
+				// The other side of the swap may hold the name for a moment.
+			}
+			setTimeout(toggle, 0);
+		};
+		toggle();
+		try {
+			for (let index = 0; index < 120; index++) {
+				const search = await request('tools/call', {
+					name: 'search',
+					arguments: { query: 'SECRET' }
+				});
+				const searchText = (search.result as { content: Array<{ text: string }> }).content[0]!.text;
+				if (!(search.result as { isError?: boolean }).isError) {
+					const report = JSON.parse(searchText) as { hits?: unknown };
+					expect(JSON.stringify(report.hits ?? [])).not.toContain('OUTSIDE-SECRET');
+				}
+				const patch = await request('tools/call', {
+					name: 'propose_patch',
+					arguments: { path: 'docs/note.md', before: 'APPROVED-BYTES', after: 'changed' }
+				});
+				expect(JSON.stringify(patch.result)).not.toContain('OUTSIDE-SECRET');
+			}
+		} finally {
+			running = false;
+			await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+			try {
+				if (swapped) unlinkSync(docs);
+				renameSync(held, docs);
+			} catch {
+				// afterEach removes the whole tree.
+			}
+			rmSync(outside, { recursive: true, force: true });
+		}
+	}, 20_000);
 });
 
 describe('bounded MCP work', () => {
