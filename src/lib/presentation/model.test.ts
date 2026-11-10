@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	createPresentationSerializeCache,
 	parsePresentation,
+	primePresentationSerializeCache,
 	serializePresentation,
 	serializePresentationCached
 } from './model';
@@ -52,6 +53,52 @@ describe('presentation format round trip', () => {
 		expect(serializePresentationCached(deck, cache)).not.toBe(first);
 		deck.slides[1]!.elements[0]!.width = -1;
 		expect(() => serializePresentationCached(deck, cache)).toThrow();
+	});
+
+	it('validates and reserializes only dirty slides when the caller supplies a scope', () => {
+		const deck = parsePresentation(
+			[
+				'---',
+				'title: "Scoped"',
+				'---',
+				'',
+				'# First slide',
+				'',
+				'---',
+				'',
+				'# Second slide',
+				'',
+				'```md',
+				'---',
+				'```',
+				'',
+				'---',
+				'',
+				'# Third slide'
+			].join('\r\n')
+		);
+		const cache = createPresentationSerializeCache();
+		primePresentationSerializeCache(deck, cache);
+		const counts: Record<string, number> = {};
+		const listener = (event: Event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+			if (detail.kind === 'counter') counts[detail.name] = (counts[detail.name] ?? 0) + 1;
+		};
+		(window as { __MDSH_EDITOR_PERF__?: boolean }).__MDSH_EDITOR_PERF__ = true;
+		window.addEventListener('deckmark:editor-perf', listener);
+		try {
+			const changed = deck.slides[1]!;
+			changed.elements[0]!.x += 1;
+			const output = serializePresentationCached(deck, cache, new Set([changed.id]));
+			window.removeEventListener('deckmark:editor-perf', listener);
+			expect(output).toBe(serializePresentation(deck));
+			expect(counts['presentation.slide.validate']).toBe(1);
+			expect(counts['presentation.slide.reuse']).toBe(2);
+			expect(counts['presentation.metadata.reuse']).toBe(2);
+		} finally {
+			window.removeEventListener('deckmark:editor-perf', listener);
+			(window as { __MDSH_EDITOR_PERF__?: boolean }).__MDSH_EDITOR_PERF__ = false;
+		}
 	});
 
 	it('revalidates every slide after a deck dimension change', () => {
