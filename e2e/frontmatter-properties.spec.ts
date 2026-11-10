@@ -62,6 +62,69 @@ test('edits typed front matter and preserves unrelated bytes', async ({ page }, 
 	});
 });
 
+test('keeps a comment-only value separate from the new property text', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial = '---\ntitle: # keep this comment\nstatus: draft\n---\n\n# Body\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+	const title = page.getByTestId('frontmatter-title').locator('input');
+	await expect(title).toHaveValue('');
+	await title.fill('New');
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+
+	const updated = await source(page);
+	expect(updated).toContain('title: New # keep this comment');
+	expect(updated).not.toContain('title: New#');
+	expect(updated).toContain('status: draft');
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-title').locator('input')).toHaveValue('New');
+	await info.attach('frontmatter-comment-only.json', {
+		body: JSON.stringify({ initial, updated }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('rejects a key that already exists as an unsupported YAML node', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial = '---\nmeta:\n  owner: Ada\ntitle: Original\n---\n\n# Body\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-meta')).toHaveCount(0);
+
+	await page.getByTestId('frontmatter-new-key').fill('meta');
+	await page.getByTestId('frontmatter-new-value').fill('replaced');
+	await page.getByTestId('frontmatter-add').click();
+	await expect(page.getByTestId('frontmatter-add-error')).toContainText('meta');
+	await expect(page.getByTestId('frontmatter-meta')).toHaveCount(0);
+	await expect(page.getByTestId('frontmatter-save')).toBeEnabled();
+	expect(await source(page)).toBe(initial);
+
+	await page.getByTestId('frontmatter-new-key').fill('author');
+	await page.getByTestId('frontmatter-new-value').fill('Ada');
+	await page.getByTestId('frontmatter-add').click();
+	await expect(page.getByTestId('frontmatter-add-error')).toHaveCount(0);
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+	const updated = await source(page);
+	expect(updated).toContain('meta:\n  owner: Ada');
+	expect(updated).toContain('title: Original');
+	expect(updated).toContain('author: Ada');
+	await info.attach('frontmatter-unsupported-key.json', {
+		body: JSON.stringify({ initial, updated }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 test('replaces a block-style tag list without leaving old items', async ({
 	page
 }, info: TestInfo) => {

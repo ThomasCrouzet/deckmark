@@ -91,6 +91,12 @@ export const en = {
 	'properties.key': 'Property name',
 	'properties.value': 'Value',
 	'properties.add': 'Add property',
+	'properties.invalidKey':
+		'Use only letters, digits, dots, dashes and underscores for the property name.',
+	'properties.keyExists':
+		'The property "{key}" already exists in the source and may use a complex YAML style. Edit or remove it in Source mode.',
+	'properties.saveFailed':
+		'The properties were not saved. Your edits are kept. Check the source, then try again.',
 	'properties.note':
 		'Only the edited values change. Comments, ordering and unrelated YAML stay intact.',
 	'properties.save': 'Save properties',

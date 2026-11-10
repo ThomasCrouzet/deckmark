@@ -87,6 +87,12 @@ export const fr: Record<MessageKey, string> = {
 	'properties.key': 'Nom de la propriété',
 	'properties.value': 'Valeur',
 	'properties.add': 'Ajouter la propriété',
+	'properties.invalidKey':
+		'Utilisez seulement des lettres, des chiffres, des points, des tirets et des traits de soulignement pour le nom.',
+	'properties.keyExists':
+		'La propriété « {key} » existe déjà dans la source et peut utiliser un style YAML complexe. Modifiez-la ou supprimez-la en mode Source.',
+	'properties.saveFailed':
+		"Les propriétés n'ont pas été enregistrées. Vos modifications sont conservées. Vérifiez la source, puis réessayez.",
 	'properties.note':
 		'Seules les valeurs modifiées changent. Les commentaires, l’ordre et le YAML non lié restent intacts.',
 	'properties.save': 'Enregistrer les propriétés',
