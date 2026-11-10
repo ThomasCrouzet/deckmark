@@ -9,6 +9,7 @@ import {
 	insertInclude,
 	linkedBlockKey,
 	locateInclude,
+	sourceBlocksFor,
 	updateInclude
 } from './linked-blocks';
 import type { FileItem } from './types';
@@ -231,6 +232,81 @@ describe('linked blocks', () => {
 		expect(buildLinkReport([standAloneA, standAloneB, standAloneConsumer])[0]?.state).toBe(
 			'ambiguous'
 		);
+	});
+
+	it('reports a missing qualified path instead of a basename alias', () => {
+		const other = projectFile(
+			'other',
+			'P',
+			'other/guide.md',
+			'<!-- mdsh-block id="x" -->\nWrong\n<!-- /mdsh-block -->'
+		);
+		const block = extractBlocks(other)[0]!;
+		const consumer = projectFile(
+			'consumer',
+			'P',
+			'notes/reader.md',
+			insertInclude('', 'docs/guide.md', 'x', block.hash, 'Correct')
+		);
+		const report = buildLinkReport([other, consumer]).find(
+			(entry) => entry.include.fileId === consumer.id
+		)!;
+		expect(report.state).toBe('missing');
+		expect(report.sourceBody).toBe('');
+		const fresh = currentLinkReport([other, consumer], consumer.id, report.include)!;
+		expect(fresh.state).toBe('missing');
+		expect(fresh.sourceBody).toBe('');
+	});
+
+	it('resolves a unique bare alias but rejects same names in two folders', () => {
+		const unique = projectFile(
+			'guide',
+			'P',
+			'docs/guide.md',
+			'<!-- mdsh-block id="x" -->\nGuide\n<!-- /mdsh-block -->'
+		);
+		const block = extractBlocks(unique)[0]!;
+		const consumer = projectFile(
+			'consumer',
+			'P',
+			'notes/reader.md',
+			insertInclude('', 'guide.md', 'x', block.hash, block.body)
+		);
+		expect(buildLinkReport([unique, consumer])[0]?.state).toBe('current');
+
+		const other = projectFile(
+			'other',
+			'P',
+			'other/guide.md',
+			'<!-- mdsh-block id="x" -->\nWrong\n<!-- /mdsh-block -->'
+		);
+		expect(buildLinkReport([unique, other, consumer])[0]?.state).toBe('ambiguous');
+	});
+
+	it('offers only same-project or stand-alone source blocks', () => {
+		const sourceA = projectFile(
+			'a-source',
+			'A',
+			'docs/secret.md',
+			'<!-- mdsh-block id="part" -->\nA-only\n<!-- /mdsh-block -->'
+		);
+		const sourceB = projectFile(
+			'b-source',
+			'B',
+			'docs/local.md',
+			'<!-- mdsh-block id="part" -->\nB-local\n<!-- /mdsh-block -->'
+		);
+		const consumerB = projectFile('b-consumer', 'B', 'notes/consumer.md', '');
+		const standAlone = blockFile('stand', 'stand.md', 'part', 'Standalone');
+		const consumerStand = file('stand-consumer', 'consumer.md', '');
+		expect(
+			sourceBlocksFor([sourceA, sourceB, consumerB], consumerB).map((block) => block.fileId)
+		).toEqual(['b-source']);
+		expect(
+			sourceBlocksFor([sourceA, standAlone, consumerStand], consumerStand).map(
+				(block) => block.fileId
+			)
+		).toEqual(['stand']);
 	});
 
 	it('never crosses a project boundary for missing or cyclic sources', () => {
