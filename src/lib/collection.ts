@@ -73,6 +73,14 @@ interface StoredCollectionRow {
 	values: Record<string, CollectionValue>;
 }
 
+// Cache identity policy:
+//   - A resident body is compared by exact source and file name. The 32-bit
+//     FNV-1a value is never an equality proof for loaded text.
+//   - A deferred body uses the durable draft revision: name, update time,
+//     content length and the durable hash. A changed revision reads the body.
+//   - A persisted projection keeps that revision. A mismatch is a cache miss.
+// Each entry belongs to one file id, so a removed and restored id can never
+// reuse another document's parsed row.
 const parsedRows = new Map<string, CachedCollectionRow>();
 
 /** Drops every cached projection. Used by tests and by a full storage reset. */
