@@ -129,6 +129,77 @@ test('restores a project document with its path and exact asset after reload', a
 	expect(await zip.file('assets/pixel.png')!.async('nodebuffer')).toEqual(image);
 });
 
+test('aborts a rename when the recovery journal cannot be persisted', async ({
+	page
+}, testInfo) => {
+	await importAndOpenGuide(page);
+	const input = page.locator('input[aria-label^="Nom du fichier"]');
+	const before = await input.inputValue();
+	const beforeState = await projectState(page);
+	const guide = beforeState.drafts.find((draft) => draft.relativePath === 'notes/guide.md');
+	expect(guide).toBeTruthy();
+	await page.evaluate(() => {
+		const originalPut = IDBObjectStore.prototype.put;
+		const originalAdd = IDBObjectStore.prototype.add;
+		const isJournal = (value: unknown): boolean => {
+			const row = Array.isArray(value) ? value[0] : value;
+			return (
+				!!row &&
+				typeof row === 'object' &&
+				'key' in row &&
+				typeof (row as { key: unknown }).key === 'string' &&
+				(row as { key: string }).key.startsWith('project-rename-journal:')
+			);
+		};
+		(window as unknown as { __journalWriteAttempts: number }).__journalWriteAttempts = 0;
+		(window as unknown as { __restoreRenameJournalPut: () => void }).__restoreRenameJournalPut =
+			() => {
+				IDBObjectStore.prototype.put = originalPut;
+				IDBObjectStore.prototype.add = originalAdd;
+			};
+		IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+			if (isJournal(value)) {
+				(window as unknown as { __journalWriteAttempts: number }).__journalWriteAttempts++;
+				throw new DOMException('Injected journal write failure', 'QuotaExceededError');
+			}
+			return key === undefined
+				? originalPut.call(this, value as never)
+				: originalPut.call(this, value as never, key);
+		};
+		IDBObjectStore.prototype.add = function (value: unknown, key?: IDBValidKey) {
+			if (isJournal(value)) {
+				(window as unknown as { __journalWriteAttempts: number }).__journalWriteAttempts++;
+				throw new DOMException('Injected journal write failure', 'QuotaExceededError');
+			}
+			return key === undefined
+				? originalAdd.call(this, value as never)
+				: originalAdd.call(this, value as never, key);
+		};
+	});
+	await input.fill('renamed');
+	await input.press('Enter');
+	await expect
+		.poll(async () =>
+			(await projectState(page)).drafts.some((draft) => draft.relativePath === 'notes/renamed.md')
+		)
+		.toBe(false);
+	const state = await projectState(page);
+	const unchanged = state.drafts.find((draft) => draft.id === guide!.id);
+	expect(unchanged).toMatchObject({
+		name: 'guide.md',
+		relativePath: 'notes/guide.md',
+		content: '# Guide\n\nOriginal project content.\n\n![Exact image](../assets/pixel.png)\n'
+	});
+	expect(before).toBe('guide');
+	await testInfo.attach('failed-rename-journal-state.json', {
+		body: JSON.stringify({ before, beforeName: guide!.name, state }, null, 2),
+		contentType: 'application/json'
+	});
+	await page.evaluate(() =>
+		(window as unknown as { __restoreRenameJournalPut?: () => void }).__restoreRenameJournalPut?.()
+	);
+});
+
 test('keeps a durable rename when a queued save preserves a conflict branch', async ({
 	page
 }, testInfo) => {

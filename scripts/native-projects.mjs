@@ -721,6 +721,41 @@ export async function nativeProjects({
 	);
 
 	await openProjectDocument('notes/start.md');
+	await execute(
+		`const original = IDBObjectStore.prototype.put;
+		window.__restoreRenameJournalPut = () => { IDBObjectStore.prototype.put = original; };
+		IDBObjectStore.prototype.put = function (value, key) {
+			const row = Array.isArray(value) ? value[0] : value;
+			if (row && typeof row === 'object' && typeof row.key === 'string' &&
+				row.key.startsWith('project-rename-journal:'))
+				throw new DOMException('Injected journal write failure', 'QuotaExceededError');
+			return key === undefined ? original.call(this, value) : original.call(this, value, key);
+		};
+		return true;`
+	);
+	await until(
+		() =>
+			execute(
+				`const input = document.querySelector('#app-toolbar input[type="text"]');
+				if (!input || input.disabled || !input.getClientRects().length) return false;
+				input.focus(); input.value = arguments[0]; input.blur(); return true;`,
+				['ui-blocked']
+			),
+		'rename attempt without a recovery journal',
+		45_000
+	);
+	await new Promise((resolve) => setTimeout(resolve, 750));
+	assert.equal(existsSync(join(fixtureRoot, 'notes', 'ui-blocked.md')), false);
+	assert.equal(readFileSync(notePath, 'utf8'), durableLocal);
+	const blockedRename = record('rename aborts when the recovery journal cannot be persisted', {
+		blockedPath: 'notes/ui-blocked.md',
+		blockedPathExists: existsSync(join(fixtureRoot, 'notes', 'ui-blocked.md')),
+		originalPathExists: existsSync(notePath)
+	});
+	assert.equal(blockedRename.blockedPathExists, false);
+	assert.equal(blockedRename.originalPathExists, true);
+	await execute('window.__restoreRenameJournalPut?.(); return true;');
+
 	await until(
 		() =>
 			execute(

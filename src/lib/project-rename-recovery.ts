@@ -18,7 +18,12 @@ export async function recoverPendingProjectRenames(
 	let journals;
 	try {
 		journals = await listProjectRenameJournals();
-	} catch {
+	} catch (error) {
+		failures.push({
+			path: 'project rename recovery',
+			operation: 'open',
+			message: `Rename recovery unavailable: ${String(error)}`
+		});
 		return failures;
 	}
 	if (journals.length === 0) return failures;

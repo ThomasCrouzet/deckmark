@@ -106,13 +106,19 @@ function reserveProjectRename(
 				try {
 					const receipt = await run();
 					let finished = false;
+					let released = false;
+					const releaseOnce = () => {
+						if (released) return;
+						released = true;
+						release();
+					};
 					const finish = async (action: () => Promise<void>) => {
 						if (finished) return;
 						try {
 							await action();
-						} finally {
 							finished = true;
-							release();
+						} finally {
+							releaseOnce();
 						}
 					};
 					resolveReady({

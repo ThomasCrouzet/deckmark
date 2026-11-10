@@ -300,18 +300,14 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					.filter((entry) => entry.content !== entry.file.content || entry.file.id === id);
 				const { renameNativeProjectDocument } = await import('./projects-native');
 				renameJournalId = newId();
-				try {
-					await writeProjectRenameJournal({
-						id: renameJournalId,
-						projectId: document.projectId,
-						oldPath,
-						newPath,
-						stage: 'prepared',
-						updatedAt: Date.now()
-					});
-				} catch (error) {
-					reportError('project rename journal', error);
-				}
+				await writeProjectRenameJournal({
+					id: renameJournalId,
+					projectId: document.projectId,
+					oldPath,
+					newPath,
+					stage: 'prepared',
+					updatedAt: Date.now()
+				});
 				nativeRename = await renameNativeProjectDocument(document.projectId, oldPath, newPath);
 				if (renameJournalId) {
 					await updateProjectRenameStage(renameJournalId, 'disk-renamed').catch(() => {});
@@ -376,20 +372,24 @@ export function renameProjectDocument(id: string, requested: string): Promise<bo
 					new Map(snapshot.map((file) => [file.id, file])),
 					rewrite
 				);
+				let baselineCommitted = false;
 				try {
 					await nativeRename.commit();
+					baselineCommitted = true;
 				} catch {
 					// The disk rename and draft rows already committed. A transient
 					// baseline write failure must not report a false rename failure.
 					await new Promise((resolve) => setTimeout(resolve, 250));
 					try {
 						await nativeRename.commit();
+						baselineCommitted = true;
 					} catch (second) {
 						reportError('project rename baseline', second);
 						notify.info(t('projects.renameBaselinePending'));
 					}
 				}
-				if (renameJournalId) await removeProjectRenameJournal(renameJournalId).catch(() => {});
+				if (renameJournalId && baselineCommitted)
+					await removeProjectRenameJournal(renameJournalId).catch(() => {});
 				return true;
 			} catch (error) {
 				if (nativeRename && !committed) {
