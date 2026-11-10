@@ -18,6 +18,12 @@ export const slidesFr: Record<SlidesMessageKey, string> = {
 	'documents.pdfFallback':
 		'La visionneuse intégrée est indisponible. Utilisez Ouvrir le PDF ou Télécharger.',
 	'documents.imageUnavailable': 'Les données de l’image sont indisponibles.',
+	'documents.imageLoading': 'Chargement de l’image de remplacement.',
+	'documents.imageReplaced':
+		'L’image a changé dans une autre fenêtre. Les annotations précédentes ont été effacées.',
+	'documents.imageExportStale':
+		'L’image a changé. Attendez la nouvelle image, puis exportez à nouveau.',
+	'documents.pdfReplacing': 'Chargement du PDF de remplacement.',
 	'documents.noteDescription': 'Écrivez et lisez en Markdown.',
 	'documents.presentationDescription': 'Composez et présentez vos diapositives.',
 	'documents.createNote': 'Créer une note',

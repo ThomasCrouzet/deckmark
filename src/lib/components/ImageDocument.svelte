@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import {
 		Download,
 		Eraser,
@@ -16,6 +16,12 @@
 	import { t } from '#lib/i18n/index.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { notify } from '#lib/notify.svelte.js';
+	import { planBinaryView, type BinaryViewSnapshot } from '#lib/services/binary-view-plan.js';
+	import {
+		createBinaryRenderGate,
+		loadBinaryImage,
+		type PendingBinaryImage
+	} from '#lib/services/binary-view-render.js';
 
 	let { file }: { file: FileItem } = $props();
 
@@ -50,6 +56,17 @@
 	let renderScale = 1;
 	let loadError = $state(false);
 	let pointerRect: DOMRect | null = null;
+	let loadedGeneration = $state(-1);
+	let replacing = $state(false);
+	let replacedNotice = $state(false);
+	let payload = $state<BinaryViewSnapshot | null>(null);
+	let previousSnapshot: BinaryViewSnapshot | null = null;
+	const decodeGate = createBinaryRenderGate();
+	let pendingLoad: PendingBinaryImage | null = null;
+
+	const exportReady = $derived(
+		payload !== null && loadedGeneration === payload.generation && !replacing && !loadError
+	);
 
 	function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, scale: number) {
 		if (stroke.points.length === 0) return;
@@ -95,7 +112,7 @@
 	}
 
 	function start(event: PointerEvent) {
-		if (!canvas || !image) return;
+		if (!canvas || !image || replacing) return;
 		event.preventDefault();
 		canvas.setPointerCapture(event.pointerId);
 		drawing = true;
@@ -183,47 +200,78 @@
 		zoom = Math.max(0.1, Math.min(4, Number(scale.toFixed(2))));
 	}
 
-	onMount(() => {
-		const fileId = file.id;
-		let disposed = false;
-		if (!file.data) {
+	$effect(() => {
+		const plan = planBinaryView(previousSnapshot, { data: file.data, mime: file.mime });
+		previousSnapshot = plan.snapshot;
+		payload = plan.snapshot;
+		if (plan.empty) {
+			decodeGate.invalidate();
+			pendingLoad?.release();
+			pendingLoad = null;
+			image = null;
+			width = 0;
+			height = 0;
+			loadedGeneration = -1;
 			loadError = true;
-			return () => {};
+			replacing = false;
+			return;
 		}
-		const element = new Image();
-		element.referrerPolicy = 'no-referrer';
-		element.onload = () => {
-			if (disposed || file.id !== fileId) return;
-			image = element;
-			width = element.naturalWidth;
-			height = element.naturalHeight;
-			if (!width || !height) {
+		if (!plan.decode) return;
+		const token = decodeGate.begin();
+		replacing = true;
+		loadError = false;
+		if (plan.resetAnnotations) {
+			strokes = [];
+			redoStack = [];
+			replacedNotice = true;
+		}
+		pendingLoad?.release();
+		const request = loadBinaryImage(plan.snapshot.data!, token, decodeGate);
+		pendingLoad = request;
+		void request.result.then((loaded) => {
+			if (pendingLoad === request) pendingLoad = null;
+			if (!decodeGate.isCurrent(token)) return;
+			if (!loaded) {
+				image = null;
+				width = 0;
+				height = 0;
+				loadedGeneration = -1;
 				loadError = true;
+				replacing = false;
 				return;
 			}
+			image = loaded.image;
+			width = loaded.width;
+			height = loaded.height;
+			loadedGeneration = plan.generation;
 			renderScale = Math.min(1, Math.sqrt(MAX_RENDER_PIXELS / (width * height)));
 			const target = canvas;
-			if (!target) return;
+			if (!target) {
+				replacing = false;
+				return;
+			}
 			target.width = Math.max(1, Math.round(width * renderScale));
 			target.height = Math.max(1, Math.round(height * renderScale));
 			fitZoom();
 			redraw();
-		};
-		element.onerror = () => {
-			if (!disposed) loadError = true;
-		};
-		element.src = file.data;
-		return () => {
-			disposed = true;
-			element.onload = null;
-			element.onerror = null;
-			element.removeAttribute('src');
-		};
+			replacing = false;
+		});
+	});
+
+	onDestroy(() => {
+		decodeGate.invalidate();
+		pendingLoad?.release();
+		pendingLoad = null;
 	});
 
 	async function exportFlattened() {
-		if (!image) return;
+		const current = payload;
+		if (!image || !current || loadedGeneration !== current.generation || replacing) {
+			notify.error(t('documents.imageExportStale'));
+			return;
+		}
 		const exportName = file.name;
+		const exportData = current.data;
 		const exportWidth = width;
 		const exportHeight = height;
 		const exportImage = image;
@@ -247,6 +295,10 @@
 			notify.error(t('documents.imageExportFailed'));
 			return;
 		}
+		if (payload?.data !== exportData || file.data !== exportData) {
+			notify.error(t('documents.imageExportStale'));
+			return;
+		}
 		const { sanitizeFilename, triggerDownload } = await import('#lib/services/export.js');
 		const name = exportName.replace(/\.[^.]+$/, '') || 'image';
 		await triggerDownload(blob, sanitizeFilename(`${name}-annotated.png`));
@@ -258,7 +310,7 @@
 <div class="image-document" data-testid="image-document">
 	<div class="image-toolbar">
 		<span class="image-kind"><ImageIcon size={14} aria-hidden="true" />{t('documents.image')}</span>
-		<span class="image-meta">{file.mime ?? 'image'} · {file.name}</span>
+		<span class="image-meta" data-testid="image-meta">{file.mime ?? 'image'} · {file.name}</span>
 		<div class="ink-tools" role="toolbar" aria-label={t('annotations.toolbar')}>
 			<button
 				type="button"
@@ -337,13 +389,28 @@
 			</button>
 			<button type="button" onclick={fitZoom}>{t('documents.fit')}</button>
 		</div>
-		<button type="button" onclick={() => void exportFlattened()} data-testid="image-export">
+		<button
+			type="button"
+			onclick={() => void exportFlattened()}
+			disabled={!exportReady}
+			data-testid="image-export"
+		>
 			<Download size={14} aria-hidden="true" />
 			{t('documents.exportAnnotated')}
 		</button>
 		<button type="button" onclick={() => filesStore.export(file.id)}>{t('toolbar.export')}</button>
 	</div>
 	<div bind:this={scroller} class="image-viewport">
+		{#if replacing}
+			<p class="image-status" role="status" data-testid="image-loading">
+				{t('documents.imageLoading')}
+			</p>
+		{/if}
+		{#if replacedNotice && !loadError}
+			<p class="image-status" role="status" data-testid="image-replaced-notice">
+				{t('documents.imageReplaced')}
+			</p>
+		{/if}
 		{#if loadError}
 			<p role="alert">{t('documents.imageUnavailable')}</p>
 		{:else}
@@ -444,6 +511,15 @@
 		touch-action: none;
 		cursor: crosshair;
 		box-shadow: var(--shadow-lg);
+	}
+	.image-status {
+		margin: 0 0 8px;
+		padding: 6px 10px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-xs);
+		background: var(--color-bg-1);
+		font-size: 11px;
+		color: var(--color-fg-muted);
 	}
 	@media (max-width: 700px) {
 		.image-meta {
