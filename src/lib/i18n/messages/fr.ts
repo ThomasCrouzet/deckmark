@@ -642,6 +642,17 @@ export const fr: Record<MessageKey, string> = {
 		'Web Light exporte uniquement en HTML et PDF. DOCX, EPUB et les autres convertisseurs exigeront une future version Desktop.',
 	'exportProfiles.export': 'Exporter les profils',
 	'exportProfiles.import': 'Importer les profils',
+	'exportProfiles.error.import': 'Les profils n’ont pas pu être importés.',
+	'exportProfiles.error.unsupported':
+		'Ce fichier n’est pas un fichier de profils d’export compatible.',
+	'exportProfiles.error.missing': 'Le fichier n’a pas de liste de profils.',
+	'exportProfiles.error.empty':
+		'Le fichier ne contient aucun profil d’export. Ajoutez au moins un profil au fichier.',
+	'exportProfiles.error.invalid': 'Un profil contient une valeur non valide.',
+	'exportProfiles.error.duplicate':
+		'Deux profils utilisent le même identifiant. Rendez chaque identifiant unique.',
+	'exportProfiles.error.excess': 'Le fichier contient trop de profils.',
+	'exportProfiles.error.oversized': 'Le fichier est trop volumineux.',
 	'palette.collection': 'Ouvrir les vues tableau et tableau blanc',
 	'palette.collectionHint': 'Parcourir le front matter des notes en tableau ou en tableau blanc',
 	'collection.title': 'Vues tableau et tableau blanc',

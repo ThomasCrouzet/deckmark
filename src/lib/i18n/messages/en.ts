@@ -629,6 +629,16 @@ export const en = {
 		'Web Light exports HTML and PDF only. DOCX, EPUB and other converters require a future Desktop build.',
 	'exportProfiles.export': 'Export profiles',
 	'exportProfiles.import': 'Import profiles',
+	'exportProfiles.error.import': 'The profiles could not be imported.',
+	'exportProfiles.error.unsupported': 'This file is not a supported export profile file.',
+	'exportProfiles.error.missing': 'The file has no profiles list.',
+	'exportProfiles.error.empty':
+		'The file has no export profile. Add at least one profile to the file.',
+	'exportProfiles.error.invalid': 'A profile has an invalid value.',
+	'exportProfiles.error.duplicate':
+		'Two profiles use the same identifier. Make every identifier unique.',
+	'exportProfiles.error.excess': 'The file has too many profiles.',
+	'exportProfiles.error.oversized': 'The file is too large.',
 	'palette.collection': 'Open table and board views',
 	'palette.collectionHint': 'Browse note front matter as a table or board',
 	'collection.title': 'Table and board views',
