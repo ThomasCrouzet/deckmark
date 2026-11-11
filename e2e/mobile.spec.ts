@@ -1,6 +1,49 @@
 import { test, expect, type Page } from '@playwright/test';
 import { resetAppState } from './helpers';
 
+/** Seed one project document so a touch test can inspect the project explorer. */
+async function seedProjectDocument(page: Page): Promise<void> {
+	await page.evaluate(async () => {
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('mdsh');
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const database = request.result;
+				const transaction = database.transaction(['projects', 'drafts'], 'readwrite');
+				const now = Date.now();
+				transaction.objectStore('projects').put({
+					id: 'touch-project',
+					name: 'Explorer',
+					createdAt: now,
+					updatedAt: now
+				});
+				transaction.objectStore('drafts').put({
+					id: 'touch-document',
+					name: 'guide.md',
+					projectId: 'touch-project',
+					relativePath: 'notes/guide.md',
+					content: '# Guide\n',
+					createdAt: now,
+					updatedAt: now,
+					order: 0,
+					open: true
+				});
+				transaction.oncomplete = () => {
+					database.close();
+					window.localStorage.setItem('mdsh:activeId', 'touch-document');
+					resolve();
+				};
+				transaction.onerror = () => reject(transaction.error);
+			};
+		});
+	});
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+		state: 'visible',
+		timeout: 15_000
+	});
+}
+
 /** Seed open drafts directly so a touch test does not need the hidden drawer. */
 async function seedLibrary(page: Page, count: number): Promise<void> {
 	await page.evaluate(async (total) => {
@@ -166,6 +209,71 @@ test.describe('Touch-only multi-file selection', () => {
 		await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 		await expect(page.getByTestId('selection-count')).toHaveCount(0);
 		await expect(rows.nth(1)).toHaveAttribute('aria-pressed', 'false');
+	});
+});
+
+test.describe('Touch-only project document actions', () => {
+	test.beforeEach(async ({ page }, testInfo) => {
+		test.skip(!testInfo.project.name.startsWith('mobile-'), 'mobile-only');
+		await resetAppState(page);
+		await seedProjectDocument(page);
+		await page.getByRole('button', { name: 'Menu' }).click();
+		await expect(page.locator('#files-panel')).toBeVisible();
+	});
+
+	test('shows rename, move and delete without hover', async ({ page }) => {
+		const root = page.locator('[data-project-root-name="Explorer"]');
+		const details = root.locator('details').first();
+		if ((await details.getAttribute('open')) === null)
+			await root.locator('summary').first().click();
+		await expect(details).toHaveAttribute('open', '');
+
+		const row = page.locator('[data-project-document="notes/guide.md"]');
+		await expect(row).toBeVisible();
+		const actions = row.locator('[data-project-document-actions]');
+		await expect(actions).toHaveCSS('opacity', '1');
+
+		const rename = actions.getByRole('button', { name: 'Renommer le document' });
+		const move = actions.getByRole('button', {
+			name: 'Déplacer ou copier vers un autre projet ou dossier'
+		});
+		const remove = actions.getByRole('button', { name: 'Déplacer guide.md dans la corbeille' });
+		for (const action of [rename, move, remove]) {
+			await expect(action).toBeVisible();
+			const box = await action.boundingBox();
+			expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+			expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+		}
+
+		const activeBefore = await page.evaluate(() => localStorage.getItem('mdsh:activeId'));
+		await rename.click();
+		const renameDialog = page.getByRole('dialog', { name: 'Renommer le document' });
+		await expect(renameDialog).toBeVisible();
+		await renameDialog.getByRole('button', { name: 'Annuler' }).click();
+		await expect(renameDialog).toHaveCount(0);
+		expect(await page.evaluate(() => localStorage.getItem('mdsh:activeId'))).toBe(activeBefore);
+
+		await move.click();
+		const moveDialog = page.getByRole('dialog', { name: 'Déplacer ou copier' });
+		await expect(moveDialog).toBeVisible();
+		await moveDialog.getByRole('button', { name: 'Annuler' }).click();
+		await expect(moveDialog).toHaveCount(0);
+		expect(await page.evaluate(() => localStorage.getItem('mdsh:activeId'))).toBe(activeBefore);
+
+		await remove.click();
+		const deleteDialog = page.getByRole('dialog', {
+			name: 'Déplacer ce document dans la corbeille ?'
+		});
+		await expect(deleteDialog).toBeVisible();
+		await deleteDialog.getByRole('button', { name: 'Annuler' }).click();
+		await expect(deleteDialog).toHaveCount(0);
+		await expect(row).toBeVisible();
+		expect(await page.evaluate(() => localStorage.getItem('mdsh:activeId'))).toBe(activeBefore);
+
+		// The regular document tap still opens the file and closes the drawer.
+		await row.locator('button[data-file-id]').click();
+		await expect(page.locator('#files-panel')).toHaveAttribute('aria-hidden', 'true');
+		await expect(page.locator('.cm-content')).toContainText('Guide');
 	});
 });
 

@@ -465,7 +465,8 @@
 			</button>
 			{#if actions}
 				<div
-					class="flex flex-shrink-0 items-center opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+					class="mdsh-project-document-actions flex flex-shrink-0 items-center opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+					data-project-document-actions
 				>
 					<button
 						type="button"

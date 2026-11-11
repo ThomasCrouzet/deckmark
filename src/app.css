@@ -451,7 +451,8 @@ body.typewriter-mode .mdsh-editor {
 	min-height: 44px;
 	min-width: 44px;
 }
-:root[data-touch-capable='true'] .mdsh-file-row button {
+:root[data-touch-capable='true'] .mdsh-file-row button,
+:root[data-touch-capable='true'] .mdsh-project-document-actions {
 	opacity: 1;
 }
 :root[data-touch-capable='true'] input,
