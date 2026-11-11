@@ -26,6 +26,10 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   await-desktop-validation:
+    # This job still holds a runner while it waits. Keep it until an
+    # event-driven caller has been exercised on a real release, because a
+    # workflow_run path would publish from a privileged event context that is
+    # not yet proved in this repository. See docs/CI.md for the pending trial.
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
@@ -51,6 +55,7 @@ jobs:
               --workflow desktop.yml \
               --commit "$SOURCE_SHA" \
               --event push \
+              --branch main \
               --limit 10 \
               --json databaseId,headSha,createdAt \
               --jq 'sort_by(.createdAt) | reverse | .[0].databaseId // empty')
@@ -61,6 +66,13 @@ jobs:
             echo "No Desktop push validation was found for $SOURCE_SHA." >&2
             exit 1
           fi
+          gh api "repos/$GH_REPO/actions/runs/$run_id" > validation-run.json
+          jq -e --arg sha "$SOURCE_SHA" '
+            .path == ".github/workflows/desktop.yml" and
+            .event == "push" and
+            .head_branch == "main" and
+            .head_sha == $sha
+          ' validation-run.json > /dev/null
           gh run watch "$run_id" --repo "$GH_REPO" --exit-status
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"

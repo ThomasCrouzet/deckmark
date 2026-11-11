@@ -16,8 +16,14 @@ on:
     inputs:
       release_tag:
         description: Source release tag used for the Desktop Beta
-        required: true
+        required: false
+        default: ''
         type: string
+      packaging_only:
+        description: Build and verify the four installers without publishing
+        required: false
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       release_tag:
@@ -48,6 +54,7 @@ env:
   RELEASE_TAG: ${{ inputs.release_tag || '' }}
   VALIDATED_SHA: ${{ inputs.validated_sha || '' }}
   VALIDATION_RUN_ID: ${{ inputs.validation_run_id || '' }}
+  PACKAGING_ONLY: ${{ inputs.packaging_only || false }}
 
 jobs:
   changes:
@@ -71,7 +78,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          if [ -n "$RELEASE_TAG" ] || [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+          if [ -n "$RELEASE_TAG" ] || [ "$PACKAGING_ONLY" = 'true' ] || [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
             echo 'required=true' >> "$GITHUB_OUTPUT"
           elif [ "$EVENT_NAME" = 'pull_request' ]; then
             git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" | node scripts/desktop-changes.mjs >> "$GITHUB_OUTPUT"
@@ -143,9 +150,9 @@ jobs:
               'api',
               `repos/${process.env.GH_REPO}/actions/runs/${validationRunId}/jobs?per_page=100`
             ], { encoding: 'utf8' })).jobs;
-            // Keep these platforms equal to the two job matrices below.
+            // Keep these platforms and job groups equal to the matrices below.
             const platforms = ['ubuntu-24.04', 'windows-2022', 'macos-15'];
-            for (const group of ['validate-desktop', 'native-smoke', 'native-benchmark']) {
+            for (const group of ['validate-desktop', 'native-validation']) {
               const expected = platforms.map((platform) => `${group} (${platform})`);
               const matching = jobs.filter((job) => job.name.startsWith(`${group} (`));
               if (matching.length !== expected.length || expected.some((name) => {
@@ -223,12 +230,25 @@ jobs:
       - name: Test optimized GLib regression on Linux
         if: runner.os == 'Linux'
         run: cargo test --manifest-path src-tauri/Cargo.toml --release --locked --test glib_variant_regression
+      - name: Cache cargo-audit
+        if: runner.os == 'Linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/cargo-audit
+          key: cargo-audit-ubuntu24.04-${{ runner.arch }}-rust1.97.1-v0.22.2
       - name: Install cargo-audit
         if: runner.os == 'Linux'
-        run: cargo install cargo-audit --locked --version 0.22.2
+        shell: bash
+        run: |
+          if [ -x "$HOME/.cache/cargo-audit/bin/cargo-audit" ]; then
+            "$HOME/.cache/cargo-audit/bin/cargo-audit" --version | grep -q '0.22.2'
+          else
+            cargo install cargo-audit --locked --version 0.22.2 --root "$HOME/.cache/cargo-audit"
+          fi
       - name: Audit Cargo.lock including unsound dependencies
         if: runner.os == 'Linux'
-        run: cargo audit --file src-tauri/Cargo.lock --deny unsound
+        shell: bash
+        run: '"$HOME/.cache/cargo-audit/bin/cargo-audit" audit --file src-tauri/Cargo.lock --deny unsound'
 
   web-build:
     # One production Web build for every browser benchmark. The benchmark
@@ -308,9 +328,11 @@ jobs:
       - name: Measure web benchmark
         run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
 
-  native-smoke:
-    # Each OS builds its own debug app. A slow row on another OS must not delay
-    # this row. The final gate waits for the complete matrix.
+  native-validation:
+    # One debug test application per OS. The job builds once, runs the smoke
+    # cases, then measures the benchmark after every smoke process stops. The
+    # sample counts, fixtures, budgets and failure propagation are unchanged.
+    # A debug application never reaches a public installer.
     needs: [changes, resolve-source]
     if: inputs.validated_sha == '' && needs.changes.outputs.full == 'true'
     strategy:
@@ -318,7 +340,7 @@ jobs:
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 30
+    timeout-minutes: 55
     steps:
       - name: Checkout verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -370,56 +392,6 @@ jobs:
       - name: Exercise actual native WebView
         if: runner.os != 'Linux'
         run: node scripts/native-smoke.mjs
-
-  native-benchmark:
-    # The benchmark builds and measures its own app on each OS. It does not wait
-    # for another OS row or for unrelated Rust validation.
-    needs: [changes, resolve-source]
-    if: inputs.validated_sha == '' && needs.changes.outputs.full == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [ubuntu-24.04, windows-2022, macos-15]
-    runs-on: ${{ matrix.platform }}
-    timeout-minutes: 45
-    steps:
-      - name: Checkout verified source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
-          persist-credentials: false
-      - name: Verify Apple Silicon runner
-        if: runner.os == 'macOS'
-        run: test "$(uname -m)" = 'arm64'
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: npm
-      - name: Configure Ubuntu APT
-        if: runner.os == 'Linux'
-        run: bash .github/scripts/configure-ubuntu-apt.sh
-      - name: Install Linux WebView and virtual display
-        if: runner.os == 'Linux'
-        timeout-minutes: 8
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-daemon dbus-bin
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
-        with:
-          toolchain: 1.97.1
-      - name: Rust cache
-        uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
-        with:
-          workspaces: src-tauri -> target
-          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
-      - name: Install frontend dependencies
-        run: npm ci --legacy-peer-deps
-      - name: Build isolated native benchmark app
-        run: npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
-        env:
-          BASE_PATH: ''
       - name: Measure Linux WebKitGTK benchmark
         if: runner.os == 'Linux'
         shell: bash
@@ -433,16 +405,7 @@ jobs:
 
   desktop-validation:
     name: desktop-validation
-    needs:
-      [
-        changes,
-        resolve-source,
-        validate-desktop,
-        web-build,
-        web-benchmark,
-        native-smoke,
-        native-benchmark
-      ]
+    needs: [changes, resolve-source, validate-desktop, web-build, web-benchmark, native-validation]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -455,10 +418,9 @@ jobs:
           TIER: ${{ needs.changes.outputs.tier }}
           RESOLVE_RESULT: ${{ needs.resolve-source.result }}
           VALIDATE_RESULT: ${{ needs.validate-desktop.result }}
-          SMOKE_RESULT: ${{ needs.native-smoke.result }}
+          SMOKE_RESULT: ${{ needs.native-validation.result }}
           WEB_BUILD_RESULT: ${{ needs.web-build.result }}
           WEB_BENCHMARK_RESULT: ${{ needs.web-benchmark.result }}
-          NATIVE_BENCHMARK_RESULT: ${{ needs.native-benchmark.result }}
         run: |
           if [ "$CHANGES_RESULT" != 'success' ]; then
             echo 'Desktop change detection failed.' >&2
@@ -477,7 +439,6 @@ jobs:
             test "$WEB_BUILD_RESULT" = 'skipped'
             test "$WEB_BENCHMARK_RESULT" = 'skipped'
             test "$SMOKE_RESULT" = 'skipped'
-            test "$NATIVE_BENCHMARK_RESULT" = 'skipped'
             echo "Reused Desktop validation run $VALIDATION_RUN_ID for $VALIDATED_SHA."
           else
             test "$RESOLVE_RESULT" = 'success'
@@ -485,22 +446,27 @@ jobs:
             test "$WEB_BUILD_RESULT" = 'success'
             test "$WEB_BENCHMARK_RESULT" = 'success'
             test "$SMOKE_RESULT" = 'success'
-            test "$NATIVE_BENCHMARK_RESULT" = 'success'
           fi
 
   build-desktop:
+    # Three operating-system builds produce the four accepted installers.
+    # The bundle selection is explicit for each runner. scripts/collect-desktop-assets.mjs
+    # reads the same policy and refuses a missing, extra, misplaced or foreign artifact.
     needs: [resolve-source, desktop-validation]
-    if: ${{ !cancelled() && inputs.release_tag != '' && needs.resolve-source.result == 'success' && needs.desktop-validation.result == 'success' }}
+    if: ${{ !cancelled() && (inputs.release_tag != '' || inputs.packaging_only == 'true') && needs.resolve-source.result == 'success' && needs.desktop-validation.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-15
-            args: --target aarch64-apple-darwin
+            bundles: 'dmg'
+            args: '--bundles dmg --target aarch64-apple-darwin'
           - platform: ubuntu-24.04
-            args: ''
+            bundles: 'deb,appimage'
+            args: '--bundles deb,appimage'
           - platform: windows-2022
-            args: ''
+            bundles: 'nsis'
+            args: '--bundles nsis'
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 45
     steps:
@@ -551,13 +517,37 @@ jobs:
         shell: bash
         env:
           ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
+          MATRIX_PLATFORM: ${{ matrix.platform }}
         run: |
           {
             echo 'paths<<EOF'
             node --input-type=module <<'JS'
+          import { basename } from 'node:path';
+          import {
+            DESKTOP_PLATFORM_BUNDLES,
+            formatForFile,
+            isInstallerName
+          } from './scripts/desktop-release-policy.mjs';
+          const platform = process.env.MATRIX_PLATFORM;
           const paths = JSON.parse(process.env.ARTIFACT_PATHS);
-          const installers = paths.filter((path) => /\.(?:dmg|AppImage|deb|rpm|msi)$|-setup\.exe$/.test(path));
+          const installers = paths.filter((path) => isInstallerName(basename(path)));
           if (installers.length === 0) throw new Error('No desktop installer was produced.');
+          const produced = installers.map((path) => {
+            const name = basename(path);
+            const format = formatForFile(name);
+            if (format.platform !== platform) {
+              throw new Error(`${name} belongs to ${format.platform}, not ${platform}`);
+            }
+            return format.bundle;
+          });
+          if (new Set(produced).size !== produced.length) {
+            throw new Error(`Duplicate installer bundle on ${platform}: ${produced.join(', ')}`);
+          }
+          const expected = DESKTOP_PLATFORM_BUNDLES[platform];
+          const missing = expected.filter((bundle) => !produced.includes(bundle));
+          if (missing.length) {
+            throw new Error(`Missing bundle for ${platform}: ${missing.join(', ')}`);
+          }
           process.stdout.write(`${installers.join('\n')}\n`);
           JS
             echo 'EOF'
@@ -572,7 +562,10 @@ jobs:
           node --input-type=module <<'JS'
           import { readFileSync, writeFileSync } from 'node:fs';
           const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
-          writeFileSync('desktop-source.json', JSON.stringify({ sha: process.env.SOURCE_SHA, tag: process.env.RELEASE_TAG, version }, null, 2));
+          // A packaging-only run has no source tag yet. It records the tag the
+          // release would use, so the collector applies the same policy.
+          const tag = process.env.RELEASE_TAG || `v${version}`;
+          writeFileSync('desktop-source.json', JSON.stringify({ sha: process.env.SOURCE_SHA, tag, version }, null, 2));
           JS
 
       - name: Upload desktop installers
@@ -585,9 +578,56 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  verify-packaging:
+    # Nonpublishing check for a release packaging change. It applies the same
+    # collector policy and checksum verification as publication, and it creates
+    # no tag, no release and no attestation.
+    needs: [resolve-source, build-desktop]
+    if: ${{ !cancelled() && inputs.packaging_only == 'true' && needs.resolve-source.result == 'success' && needs.build-desktop.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.sha }}
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+      - name: Download build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: desktop-installers-*
+          path: downloaded-assets
+          merge-multiple: false
+      - name: Resolve the expected release tag
+        id: tag
+        run: echo "tag=v$(node -p "JSON.parse(require('node:fs').readFileSync('package.json','utf8')).version")" >> "$GITHUB_OUTPUT"
+      - name: Collect and verify the four installers
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: node scripts/collect-desktop-assets.mjs downloaded-assets release-assets
+      - name: Verify checksums from the release directory
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS
+      - name: Render the Beta download table without publishing
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node scripts/desktop-release-orchestration.mjs notes \
+            --tag "$RELEASE_TAG" --sha "$SOURCE_SHA" --repository "$GH_REPO" \
+            --sums release-assets/SHA256SUMS --output desktop-beta-notes.md
+          cat release-assets/SHA256SUMS
+          cat desktop-beta-notes.md
+
   publish-desktop-beta:
     needs: [resolve-source, build-desktop]
-    if: ${{ !cancelled() && inputs.release_tag != '' && needs.resolve-source.result == 'success' && needs.build-desktop.result == 'success' }}
+    if: ${{ !cancelled() && inputs.release_tag != '' && inputs.packaging_only != 'true' && needs.resolve-source.result == 'success' && needs.build-desktop.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -618,6 +658,15 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: release-assets/*
+      - name: Render the Desktop Beta notes
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.sha }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node scripts/desktop-release-orchestration.mjs notes \
+            --tag "$RELEASE_TAG" --sha "$SOURCE_SHA" --repository "$GH_REPO" \
+            --sums release-assets/SHA256SUMS --output desktop-beta-notes.md
       - name: Publish distinct Desktop Beta release
         shell: bash
         env:
@@ -629,33 +678,33 @@ jobs:
         run: |
           tag_sha=$(gh api "repos/$GH_REPO/commits/$SOURCE_TAG" --jq '.sha')
           gh api "repos/$GH_REPO/git/ref/tags/$SOURCE_TAG" >/dev/null
-          test "$tag_sha" = "$SOURCE_SHA"
-          if gh api "repos/$GH_REPO/git/ref/tags/$DESKTOP_TAG" >/dev/null 2>&1; then
-            desktop_tag_sha=$(gh api "repos/$GH_REPO/commits/$DESKTOP_TAG" --jq '.sha')
-            test "$desktop_tag_sha" = "$SOURCE_SHA"
-          fi
+          gh api "repos/$GH_REPO/releases/tags/$SOURCE_TAG" > source-release.json
+          node scripts/desktop-release-orchestration.mjs verify-source \
+            --release source-release.json --tag "$SOURCE_TAG" --sha "$SOURCE_SHA" --tag-sha "$tag_sha"
           if gh release view "$DESKTOP_TAG" >/dev/null 2>&1; then
-            gh release view "$DESKTOP_TAG" --json targetCommitish,assets,isPrerelease,tagName > existing-release.json
-            node --input-type=module <<'JS'
-          import { readFileSync, readdirSync } from 'node:fs';
-          const release = JSON.parse(readFileSync('existing-release.json', 'utf8'));
-          if (release.tagName !== process.env.DESKTOP_TAG || release.isPrerelease !== true) {
-            throw new Error('The existing Desktop release does not match the expected beta channel');
-          }
-          const expected = new Set(readdirSync('release-assets'));
-          const unexpected = release.assets.map(({ name }) => name).filter(name => !expected.has(name));
-          if (unexpected.length) throw new Error(`Unexpected artifacts in the existing release: ${unexpected.join(', ')}`);
-          JS
+            gh release view "$DESKTOP_TAG" --json tagName,assets,isPrerelease,targetCommitish > existing-release.json
+            test "$(jq -r '.isPrerelease' existing-release.json)" = 'true'
             release_target=$(jq -r '.targetCommitish' existing-release.json)
             release_target_sha=$(gh api "repos/$GH_REPO/commits/$release_target" --jq '.sha')
             test "$release_target_sha" = "$SOURCE_SHA"
+            node scripts/desktop-release-orchestration.mjs plan-upload \
+              --release existing-release.json --sums release-assets/SHA256SUMS \
+              --tag "$DESKTOP_TAG" --output upload.txt
           else
             gh release create "$DESKTOP_TAG" \
               --target "$SOURCE_SHA" \
               --title "DeckMark editor Desktop Beta $SOURCE_TAG" \
-              --notes "Desktop Beta installers are not signed. macOS Gatekeeper and Windows SmartScreen can show a warning. Check SHA256SUMS and the attestation before installation." \
+              --notes-file desktop-beta-notes.md \
               --prerelease
+            node scripts/desktop-release-orchestration.mjs plan-upload \
+              --sums release-assets/SHA256SUMS --tag "$DESKTOP_TAG" --output upload.txt
           fi
           desktop_tag_sha=$(gh api "repos/$GH_REPO/commits/$DESKTOP_TAG" --jq '.sha')
           test "$desktop_tag_sha" = "$SOURCE_SHA"
-          find release-assets -type f -print0 | xargs -0 -n 1 gh release upload "$DESKTOP_TAG" --clobber
+          while IFS= read -r name; do
+            case "$name" in
+              '') continue ;;
+              *.msi|*.rpm) echo "Refusing a removed installer format: $name" >&2; exit 1 ;;
+            esac
+            gh release upload "$DESKTOP_TAG" "release-assets/$name" --clobber
+          done < upload.txt
