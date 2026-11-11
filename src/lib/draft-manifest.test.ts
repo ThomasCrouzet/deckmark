@@ -12,6 +12,7 @@ function manifest(id: string, order: number, open: boolean, contentLength = 100)
 		open,
 		contentLength,
 		contentBytes: contentLength,
+		binaryBytes: 0,
 		hasData: false
 	};
 }

@@ -11,7 +11,7 @@ import { validateMarkdownContent } from './import-limits';
 import {
 	PROJECT_SCALE_LIMITS,
 	assertProjectCapacity,
-	draftBytes,
+	draftPayloadBytes,
 	projectOccupancy
 } from './project-limits';
 import {
@@ -688,9 +688,9 @@ export async function transferProjectSelection(
 			documents: written.length - replacingDocuments.length,
 			assets: writtenAssets.length - replacingAssets.length,
 			bytes:
-				written.reduce((total, row) => total + draftBytes(row.content), 0) +
+				written.reduce((total, row) => total + draftPayloadBytes(row), 0) +
 				writtenAssets.reduce((total, asset) => total + asset.data.byteLength, 0) -
-				replacingDocuments.reduce((total, row) => total + draftBytes(row.content), 0) -
+				replacingDocuments.reduce((total, row) => total + draftPayloadBytes(row), 0) -
 				replacingAssets.reduce((total, asset) => total + asset.data.byteLength, 0)
 		});
 		if (options.mode === 'move') {
@@ -945,7 +945,7 @@ export async function importProjectEntries(
 			documents: drafts.length,
 			assets: assets.length,
 			bytes:
-				drafts.reduce((total, row) => total + draftBytes(row.content), 0) +
+				drafts.reduce((total, row) => total + draftPayloadBytes(row), 0) +
 				assets.reduce((total, asset) => total + asset.data.byteLength, 0)
 		});
 		const occupied = occupiedPaths(existingDocuments, existingAssets, new Set(), new Set());

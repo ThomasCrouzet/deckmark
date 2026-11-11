@@ -618,6 +618,16 @@ whether a real file read occurred. The Chromium case in
 stored project. Run `npx vitest run src/lib/project-archive.test.ts --maxWorkers=1` and
 `npx playwright test e2e/project-archive-risks.spec.ts --project=chromium --workers=1 --retries=0 --grep 'oversized folder manifest'`.
 
+A typed image or PDF document stores its bytes in `data` with an empty `content`.
+A project capacity check that sums only `content` omits those bytes and can accept a
+project that later fails portable export. `src/lib/project-transfer-capacity.test.ts`
+keeps the occupancy, legacy manifest fallback, import, Create Document and manifest
+projection cases. A browser workflow cannot fill a 64 MiB project cheaply or forge a
+legacy manifest key. Run
+`npx vitest run src/lib/project-transfer-capacity.test.ts --maxWorkers=1`. The portable
+project workflows in `e2e/binary-review.spec.ts` and `e2e/project-archive-risks.spec.ts`
+still prove binary bytes and archive import through the application.
+
 Write browser scenarios before implementation. Test the following failures through visible results and downloaded artifacts where possible.
 
 - Old drafts or backups can lose documents during the schema upgrade. Keep a version 1.9 fixture and compare its complete content.

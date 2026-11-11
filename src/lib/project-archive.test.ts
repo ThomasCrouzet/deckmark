@@ -20,7 +20,7 @@ function withArrayBuffer(file: File): File {
 	return file;
 }
 
-function folderFile(relative: string, content: string | Uint8Array): File {
+function folderFile(relative: string, content: string | Uint8Array<ArrayBuffer>): File {
 	const file = withArrayBuffer(new File([content], relative.split('/').pop()!));
 	Object.defineProperty(file, 'webkitRelativePath', { value: relative });
 	return file;

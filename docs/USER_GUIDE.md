@@ -122,6 +122,7 @@ Image data embedded in Markdown becomes a separate asset in the archive. The sto
 An individual Markdown download keeps its relative references. Use the project ZIP when those references need local resources.
 
 Projects accept up to 3,000 documents, 6,500 entries, 16 directory levels, and 256 MiB of uncompressed data in Desktop Complete. Web Light accepts up to 300 documents, 1,300 entries, eight directory levels, and 64 MiB. The same limits apply to a project import, a drag and drop, an internal copy or move, and a documentation-site export.
+The byte budget counts UTF-8 document bytes, the decoded bytes of a typed image or PDF document, and the bytes of each project asset.
 Each document can contain up to 16 MiB. Each image can contain up to 2 MiB.
 Unsafe paths, duplicate paths, symbolic links, and unsupported archives are rejected before import changes storage.
 A same-project move does not add document entries or bytes to the project budget.

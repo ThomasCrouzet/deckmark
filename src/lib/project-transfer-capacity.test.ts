@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, type DraftRow, type ProjectRow } from './db';
-import { PROJECT_SCALE_LIMITS } from './project-limits';
+import { PROJECT_SCALE_LIMITS, projectOccupancy } from './project-limits';
 import { filesStore } from './files.svelte';
 import { importProjectEntries, transferProjectSelection } from './project-transfer';
-import { importProject } from './projects';
+import { createProjectDocument, importProject } from './projects';
+import { encodeDraftManifest } from './draft-manifest-key';
+import { decodeDraftManifest } from './draft-manifest';
 
 vi.mock('./disk-sync', () => ({
 	openFromDisk: vi.fn(async () => []),
@@ -42,6 +44,21 @@ function draft(overrides: Partial<DraftRow> & Pick<DraftRow, 'id' | 'name'>): Dr
 		open: false,
 		...overrides
 	};
+}
+
+function binaryDataUrl(bytes: number): string {
+	return `data:image/png;base64,${Buffer.from(new Uint8Array(bytes).fill(1)).toString('base64')}`;
+}
+
+/** Writes a row and its stored index key without the Dexie write hook. */
+async function writeRawDraft(row: DraftRow, manifest: string): Promise<void> {
+	const idb = db.backendDB();
+	await new Promise<void>((resolve, reject) => {
+		const transaction = idb.transaction('drafts', 'readwrite');
+		transaction.objectStore('drafts').put({ ...row, manifest });
+		transaction.oncomplete = () => resolve();
+		transaction.onerror = () => reject(transaction.error);
+	});
 }
 
 beforeEach(async () => {
@@ -186,5 +203,97 @@ describe('project aggregate capacity', () => {
 			)
 		).resolves.toMatchObject({ status: 'done', documents: 1 });
 		expect((await db.drafts.get('a'))?.relativePath).toBe('archive/a.md');
+	});
+});
+
+describe('project binary payload accounting', () => {
+	it('counts a typed binary document payload in project occupancy', async () => {
+		await db.projects.add(project('p'));
+		await db.drafts.add(
+			draft({
+				id: 'image',
+				name: 'photo.png',
+				projectId: 'p',
+				relativePath: 'photo.png',
+				content: '',
+				kind: 'image',
+				mime: 'image/png',
+				data: binaryDataUrl(900)
+			})
+		);
+		expect((await projectOccupancy('p')).bytes).toBe(900);
+	});
+
+	it('reads a legacy manifest once and counts its binary payload', async () => {
+		const row = draft({
+			id: 'legacy',
+			name: 'scan.pdf',
+			projectId: 'p',
+			relativePath: 'scan.pdf',
+			content: '',
+			kind: 'pdf',
+			mime: 'application/pdf',
+			data: `data:application/pdf;base64,${Buffer.from(new Uint8Array(700).fill(2)).toString('base64')}`
+		});
+		await writeRawDraft(row, encodeDraftManifest(row).replace(/,700\]$/, ']'));
+		expect((await projectOccupancy('p')).bytes).toBe(700);
+	});
+
+	it('rejects a typed binary document that pushes import past maxBytes', async () => {
+		PROJECT_SCALE_LIMITS.maxBytes = 100;
+		await expect(
+			importProject({
+				name: 'binary',
+				documents: [
+					{
+						relativePath: 'photo.png',
+						content: '',
+						kind: 'image',
+						mime: 'image/png',
+						data: binaryDataUrl(200)
+					}
+				],
+				assets: []
+			})
+		).rejects.toThrow('Project size limit');
+		expect(await db.projects.count()).toBe(0);
+		expect(await db.drafts.count()).toBe(0);
+		expect(await db.projectAssets.count()).toBe(0);
+	});
+
+	it('rejects a new document that pushes its project past maxBytes', async () => {
+		PROJECT_SCALE_LIMITS.maxBytes = 32;
+		await db.projects.add(project('p'));
+		await db.drafts.add(
+			draft({
+				id: 'a',
+				name: 'a.md',
+				projectId: 'p',
+				relativePath: 'a.md',
+				content: 'x'.repeat(30)
+			})
+		);
+		await filesStore.reload(false);
+		await expect(createProjectDocument('p', 'b.md', 'y'.repeat(10))).rejects.toThrow(
+			'Project size limit'
+		);
+		expect(await db.drafts.where('projectId').equals('p').count()).toBe(1);
+	});
+});
+
+describe('manifest binary byte projection', () => {
+	it('encodes and decodes the decoded payload length', () => {
+		const row = draft({
+			id: 'image',
+			name: 'photo.png',
+			projectId: 'p',
+			relativePath: 'photo.png',
+			content: '',
+			kind: 'image',
+			mime: 'image/png',
+			data: binaryDataUrl(321)
+		});
+		const manifest = decodeDraftManifest(encodeDraftManifest(row));
+		expect(manifest).toMatchObject({ id: 'image', contentBytes: 0, binaryBytes: 321 });
 	});
 });
