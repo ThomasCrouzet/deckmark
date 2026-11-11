@@ -1028,6 +1028,11 @@
 			});
 		};
 		crepe = instance;
+		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1') {
+			// Local diagnostic handle. A normal build never exposes the view.
+			(window as unknown as { __MDSH_EDITOR_VIEW__?: unknown }).__MDSH_EDITOR_VIEW__ =
+				instance.editor.action((ctx) => ctx.get(editorViewCtx));
+		}
 		restoreMountedMarkdown = restoreMarkdown;
 		// Milkdown wraps each native list item in a direct child of its list.
 		// Give that wrapper the list item role. Expose its contents only once.
@@ -1156,6 +1161,9 @@
 	}
 
 	async function unmount() {
+		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1') {
+			delete (window as unknown as { __MDSH_EDITOR_VIEW__?: unknown }).__MDSH_EDITOR_VIEW__;
+		}
 		refreshMountedDiagrams = null;
 		cancelPendingMarkdown?.();
 		cancelPendingMarkdown = null;

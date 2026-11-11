@@ -24,6 +24,47 @@ diff --git a/lib/image-block/index.js b/lib/image-block/index.js
        const caption = ref(initialNode.attrs.caption);
        const ratio = ref(initialNode.attrs.ratio);
        const selected = ref(false);
+@@ -608,17 +609,23 @@
+         }
+       });
+       const proxyDomURL = config.proxyDomURL;
++      let boundSrc = null;
++      let proxyToken = 0;
+       const bindAttrs = (node) => {
+-        if (!proxyDomURL) {
+-          src.value = node.attrs.src;
+-        } else {
+-          const proxiedURL = proxyDomURL(node.attrs.src);
+-          if (typeof proxiedURL === "string") {
+-            src.value = proxiedURL;
++        if (node.attrs.src !== boundSrc) {
++          boundSrc = node.attrs.src;
++          const token = ++proxyToken;
++          if (!proxyDomURL) {
++            src.value = node.attrs.src;
+           } else {
+-            proxiedURL.then((url) => {
+-              src.value = url;
+-            }).catch(console.error);
++            const proxiedURL = proxyDomURL(node.attrs.src);
++            if (typeof proxiedURL === "string") {
++              src.value = proxiedURL;
++            } else {
++              proxiedURL.then((url) => {
++                if (token === proxyToken) src.value = url;
++              }).catch(console.error);
++            }
+           }
+         }
+         ratio.value = node.attrs.ratio;
+@@ -645,6 +652,7 @@
+           selected.value = false;
+         },
+         destroy: () => {
++          proxyToken += 1;
+           disposeSelectedWatcher();
+           app.unmount();
+           dom.remove();
 diff --git a/lib/image-inline/index.js b/lib/image-inline/index.js
 --- a/lib/image-inline/index.js
 +++ b/lib/image-inline/index.js
@@ -36,6 +77,47 @@ diff --git a/lib/image-inline/index.js b/lib/image-inline/index.js
        const alt = ref(initialNode.attrs.alt);
        const title = ref(initialNode.attrs.title);
        const selected = ref(false);
+@@ -325,17 +325,23 @@
+         }
+       });
+       const proxyDomURL = config.proxyDomURL;
++      let boundSrc = null;
++      let proxyToken = 0;
+       const bindAttrs = (node) => {
+-        if (!proxyDomURL) {
+-          src.value = node.attrs.src;
+-        } else {
+-          const proxiedURL = proxyDomURL(node.attrs.src);
+-          if (typeof proxiedURL === "string") {
+-            src.value = proxiedURL;
++        if (node.attrs.src !== boundSrc) {
++          boundSrc = node.attrs.src;
++          const token = ++proxyToken;
++          if (!proxyDomURL) {
++            src.value = node.attrs.src;
+           } else {
+-            proxiedURL.then((url) => {
+-              src.value = url;
+-            }).catch(console.error);
++            const proxiedURL = proxyDomURL(node.attrs.src);
++            if (typeof proxiedURL === "string") {
++              src.value = proxiedURL;
++            } else {
++              proxiedURL.then((url) => {
++                if (token === proxyToken) src.value = url;
++              }).catch(console.error);
++            }
+           }
+         }
+         alt.value = node.attrs.alt;
+@@ -361,6 +367,7 @@
+           selected.value = false;
+         },
+         destroy: () => {
++          proxyToken += 1;
+           disposeSelectedWatcher();
+           app.unmount();
+           dom.remove();
 diff --git a/src/image-block/view/components/image-viewer.tsx b/src/image-block/view/components/image-viewer.tsx
 --- a/src/image-block/view/components/image-viewer.tsx
 +++ b/src/image-block/view/components/image-viewer.tsx
@@ -65,6 +147,51 @@ diff --git a/src/image-block/view/index.ts b/src/image-block/view/index.ts
        const caption = ref(initialNode.attrs.caption)
        const ratio = ref(initialNode.attrs.ratio)
        const selected = ref(false)
+@@ -52,19 +52,25 @@
+         }
+       })
+       const proxyDomURL = config.proxyDomURL
++      let boundSrc: string | null = null
++      let proxyToken = 0
+       const bindAttrs = (node: Node) => {
+-        if (!proxyDomURL) {
+-          src.value = node.attrs.src
+-        } else {
+-          const proxiedURL = proxyDomURL(node.attrs.src)
+-          if (typeof proxiedURL === 'string') {
+-            src.value = proxiedURL
++        if (node.attrs.src !== boundSrc) {
++          boundSrc = node.attrs.src
++          const token = ++proxyToken
++          if (!proxyDomURL) {
++            src.value = node.attrs.src
+           } else {
+-            proxiedURL
+-              .then((url) => {
+-                src.value = url
+-              })
+-              .catch(console.error)
++            const proxiedURL = proxyDomURL(node.attrs.src)
++            if (typeof proxiedURL === 'string') {
++              src.value = proxiedURL
++            } else {
++              proxiedURL
++                .then((url) => {
++                  if (token === proxyToken) src.value = url
++                })
++                .catch(console.error)
++            }
+           }
+         }
+         ratio.value = node.attrs.ratio
+@@ -96,6 +102,7 @@
+           selected.value = false
+         },
+         destroy: () => {
++          proxyToken += 1
+           disposeSelectedWatcher()
+           app.unmount()
+           dom.remove()
 diff --git a/src/image-inline/view.ts b/src/image-inline/view.ts
 --- a/src/image-inline/view.ts
 +++ b/src/image-inline/view.ts
@@ -77,3 +204,48 @@ diff --git a/src/image-inline/view.ts b/src/image-inline/view.ts
        const alt = ref(initialNode.attrs.alt)
        const title = ref(initialNode.attrs.title)
        const selected = ref(false)
+@@ -53,19 +53,25 @@
+         }
+       })
+       const proxyDomURL = config.proxyDomURL
++      let boundSrc: string | null = null
++      let proxyToken = 0
+       const bindAttrs = (node: Node) => {
+-        if (!proxyDomURL) {
+-          src.value = node.attrs.src
+-        } else {
+-          const proxiedURL = proxyDomURL(node.attrs.src)
+-          if (typeof proxiedURL === 'string') {
+-            src.value = proxiedURL
++        if (node.attrs.src !== boundSrc) {
++          boundSrc = node.attrs.src
++          const token = ++proxyToken
++          if (!proxyDomURL) {
++            src.value = node.attrs.src
+           } else {
+-            proxiedURL
+-              .then((url) => {
+-                src.value = url
+-              })
+-              .catch(console.error)
++            const proxiedURL = proxyDomURL(node.attrs.src)
++            if (typeof proxiedURL === 'string') {
++              src.value = proxiedURL
++            } else {
++              proxiedURL
++                .then((url) => {
++                  if (token === proxyToken) src.value = url
++                })
++                .catch(console.error)
++            }
+           }
+         }
+         alt.value = node.attrs.alt
+@@ -94,6 +100,7 @@
+           selected.value = false
+         },
+         destroy: () => {
++          proxyToken += 1
+           disposeSelectedWatcher()
+           app.unmount()
+           dom.remove()

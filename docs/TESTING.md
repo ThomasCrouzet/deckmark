@@ -107,6 +107,27 @@ The Chromium, Firefox and WebKit projects run the case. It attaches the block
 metrics, the attribute mutations from a viewport resize and a typing burst, and
 a screenshot. A DOM attribute count is not a compositor or layout count.
 
+## Image NodeView proxy risks
+
+Keep the NodeView proxy work tied to a changed image source. The risks are a
+resolution for an unchanged source, a late promise that writes an older image
+into a newer node, and a write after the NodeView is destroyed. The patched
+Milkdown 7.23.0 view stores the bound source, checks it before the proxy call
+and fences each promise with a monotonic token. A self-contained `data:` image
+returns a synchronous visual source and never imports the project media module.
+
+Run:
+
+```sh
+npx playwright test e2e/image-nodeview-proxy.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The Chromium, Firefox and WebKit projects run the two cases. The spec uses the
+instrumented editor view handle, which a normal build does not expose. It
+attaches proxy and project media counters. The stale case fails on the earlier
+view with the 1500 px project image after a newer 80 px inline source. A
+counter is not a native WebView result.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading
