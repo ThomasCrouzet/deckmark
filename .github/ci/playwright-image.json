@@ -1,0 +1,9 @@
+{
+	"playwrightVersion": "1.65.0",
+	"image": "mcr.microsoft.com/playwright",
+	"tag": "v1.65.0-noble",
+	"digest": "sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d",
+	"platform": "linux/amd64",
+	"verifiedAt": "2026-11-11",
+	"source": "https://mcr.microsoft.com/v2/playwright/manifests/v1.65.0-noble"
+}
