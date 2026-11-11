@@ -27,7 +27,11 @@
 	import PresentationSourceEditor from './PresentationSourceEditor.svelte';
 	import SlideContent from './SlideContent.svelte';
 	import SlideThumbnail from './SlideThumbnail.svelte';
-	import { presentationElementStyle, presentationElementBox } from './render';
+	import {
+		indexPresentationElements,
+		presentationElementBox,
+		presentationElementStyle
+	} from './render';
 	import SlideInspector from './SlideInspector.svelte';
 	import {
 		Plus,
@@ -223,9 +227,19 @@
 		) * gestures.zoom
 	);
 	const editingElement = $derived(textEdit.element);
+	// One endpoint index and one style per element for this render pass.
+	const renderedObjects = $derived.by(() => {
+		const index = indexPresentationElements(editor.slide.elements);
+		return editor.slide.elements.map((element, position) => ({
+			element,
+			position,
+			style: presentationElementStyle(element, editor.slide, index)
+		}));
+	});
 	const selectedBox = $derived.by(() => {
+		const index = indexPresentationElements(editor.slide.elements);
 		const elements = editor.elements.map((element) => {
-			const box = presentationElementBox(element, editor.slide);
+			const box = presentationElementBox(element, editor.slide, index);
 			return { ...element, x: box.left, y: box.top, width: box.width, height: box.height };
 		});
 		if (!elements.length) return null;
@@ -1290,7 +1304,7 @@
 								/>
 							</div>
 							{#if !presenting}
-								{#each editor.slide.elements as element, index (element.id)}
+								{#each renderedObjects as { element, position, style } (element.id)}
 									<button
 										type="button"
 										class="slide-object"
@@ -1300,10 +1314,10 @@
 										data-object-type={element.type}
 										aria-label={t('slides.object', {
 											type: t(`slides.${element.type}`),
-											n: index + 1
+											n: position + 1
 										})}
 										aria-pressed={editor.selectedSet.has(element.id)}
-										style={presentationElementStyle(element, editor.slide)}
+										{style}
 										onpointerdown={(event) => {
 											if (textEdit.editingId !== element.id) gestures.startObject(event, element);
 										}}

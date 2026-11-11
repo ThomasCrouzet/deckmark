@@ -261,9 +261,28 @@ export interface PresentationElementBox {
 	height: number;
 }
 
+/** Maps element ids to their element objects for one slide render pass. */
+export type PresentationElementIndex = ReadonlyMap<string, PresentationElement>;
+
+/**
+ * Builds the endpoint index once for a slide revision. The first element with
+ * an id wins, which keeps the lookup order of a linear scan.
+ */
+export function indexPresentationElements(
+	elements: readonly PresentationElement[]
+): PresentationElementIndex {
+	const index = new Map<string, PresentationElement>();
+	for (const element of elements) {
+		const id = element.id;
+		if (!index.has(id)) index.set(id, element);
+	}
+	return index;
+}
+
 function connectorGeometry(
 	element: PresentationElement,
-	slide: PresentationSlide
+	slide: PresentationSlide,
+	index?: PresentationElementIndex
 ): {
 	left: number;
 	top: number;
@@ -274,12 +293,11 @@ function connectorGeometry(
 	x2: number;
 	y2: number;
 } {
-	const startTarget = element.startId
-		? slide.elements.find((candidate) => candidate.id === element.startId)
-		: undefined;
-	const endTarget = element.endId
-		? slide.elements.find((candidate) => candidate.id === element.endId)
-		: undefined;
+	// A caller that walks a slide builds one index and passes it to every
+	// element. The fallback keeps single lookups correct without a second map.
+	const endpoints = index ?? indexPresentationElements(slide.elements);
+	const startTarget = element.startId ? endpoints.get(element.startId) : undefined;
+	const endTarget = element.endId ? endpoints.get(element.endId) : undefined;
 	const start = startTarget ? elementCenter(startTarget) : { x: element.x, y: element.y };
 	const end = endTarget
 		? elementCenter(endTarget)
@@ -303,9 +321,11 @@ function connectorGeometry(
 /** Returns normalized visible bounds for shapes and signed connectors. */
 export function presentationElementBox(
 	element: PresentationElement,
-	slide: PresentationSlide
+	slide: PresentationSlide,
+	index?: PresentationElementIndex
 ): PresentationElementBox {
-	if (element.type === 'line' || element.type === 'arrow') return connectorGeometry(element, slide);
+	if (element.type === 'line' || element.type === 'arrow')
+		return connectorGeometry(element, slide, index);
 	return {
 		left: finite(element.x),
 		top: finite(element.y),
@@ -314,16 +334,16 @@ export function presentationElementBox(
 	};
 }
 
+function presentationStyle(element: PresentationElement, box: PresentationElementBox): string {
+	return `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;transform:rotate(${finite(element.rotation)}deg)`;
+}
+
 export function presentationElementStyle(
 	element: PresentationElement,
-	slide: PresentationSlide
+	slide: PresentationSlide,
+	index?: PresentationElementIndex
 ): string {
-	if (element.type === 'line' || element.type === 'arrow') {
-		const box = presentationElementBox(element, slide);
-		return `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;transform:rotate(${finite(element.rotation)}deg)`;
-	}
-	const box = presentationElementBox(element, slide);
-	return `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;transform:rotate(${finite(element.rotation)}deg)`;
+	return presentationStyle(element, presentationElementBox(element, slide, index));
 }
 
 export function presentationElementClass(element: PresentationElement): string {
@@ -343,9 +363,17 @@ export function presentationElementAppearance(element: PresentationElement): str
 
 export function renderPresentationConnector(
 	element: PresentationElement,
-	slide: PresentationSlide
+	slide: PresentationSlide,
+	index?: PresentationElementIndex
 ): string {
-	const box = connectorGeometry(element, slide);
+	return presentationConnectorSvg(element, slide, connectorGeometry(element, slide, index));
+}
+
+function presentationConnectorSvg(
+	element: PresentationElement,
+	slide: PresentationSlide,
+	box: ReturnType<typeof connectorGeometry>
+): string {
 	const stroke = color(element.stroke, '#334155');
 	const strokeWidth = Math.max(1, finite(element.strokeWidth, 2));
 	const markerId = `mdsh-arrow-${slide.id.replace(/[^a-z0-9_-]/gi, '_')}-${element.id.replace(/[^a-z0-9_-]/gi, '_')}`;
@@ -357,18 +385,47 @@ export function renderPresentationConnector(
 	return `<svg class="mdsh-slide-connector" viewBox="0 0 ${box.width} ${box.height}" preserveAspectRatio="none" aria-hidden="true">${marker}<line x1="${box.x1}" y1="${box.y1}" x2="${box.x2}" y2="${box.y2}" stroke="${escapeHTML(stroke)}" stroke-width="${strokeWidth}" vector-effect="non-scaling-stroke"${markerEnd}></line></svg>`;
 }
 
+export interface PresentationElementRender {
+	style: string;
+	/** Connector SVG markup. Empty for a text, image, or shape element. */
+	connector: string;
+}
+
+/**
+ * Resolves one element for a render pass. A connector box is computed once and
+ * shared by its position style and its SVG line.
+ */
+export function presentationElementRender(
+	element: PresentationElement,
+	slide: PresentationSlide,
+	index?: PresentationElementIndex
+): PresentationElementRender {
+	if (element.type === 'line' || element.type === 'arrow') {
+		const box = connectorGeometry(element, slide, index);
+		return {
+			style: presentationStyle(element, box),
+			connector: presentationConnectorSvg(element, slide, box)
+		};
+	}
+	return {
+		style: presentationStyle(element, presentationElementBox(element, slide, index)),
+		connector: ''
+	};
+}
+
 function renderElement(
 	element: PresentationElement,
 	slide: PresentationSlide,
+	index: PresentationElementIndex,
 	content: string
 ): string {
-	const style = presentationElementStyle(element, slide);
+	const rendered = presentationElementRender(element, slide, index);
 	const className = presentationElementClass(element);
 	if (element.type === 'line' || element.type === 'arrow') {
-		return `<div class="${className}" data-element-id="${escapeHTML(element.id)}" style="${style}">${renderPresentationConnector(element, slide)}</div>`;
+		return `<div class="${className}" data-element-id="${escapeHTML(element.id)}" style="${rendered.style}">${rendered.connector}</div>`;
 	}
 	const appearance = presentationElementAppearance(element);
-	return `<div class="${className}" data-element-id="${escapeHTML(element.id)}" style="${style};${appearance}"><div class="mdsh-slide-element-content">${content}</div></div>`;
+	return `<div class="${className}" data-element-id="${escapeHTML(element.id)}" style="${rendered.style};${appearance}"><div class="mdsh-slide-element-content">${content}</div></div>`;
 }
 
 export async function renderPresentationSlide(
@@ -381,8 +438,11 @@ export async function renderPresentationSlide(
 		slide.elements.map((element) => renderPresentationElementContentCached(element, options))
 	);
 	checkAborted(options.signal);
+	const endpoints = indexPresentationElements(slide.elements);
 	const elements = slide.elements
-		.map((element, elementIndex) => renderElement(element, slide, content[elementIndex] ?? ''))
+		.map((element, elementIndex) =>
+			renderElement(element, slide, endpoints, content[elementIndex] ?? '')
+		)
 		.join('');
 	return `<section class="mdsh-slide" data-slide-index="${index}" data-slide-id="${escapeHTML(slide.id)}" aria-label="${escapeHTML(t('slides.slide', { n: index + 1 }))}" style="width:${deck.width}px;height:${deck.height}px;--slide-background:${color(slide.background, '#ffffff')}">${elements}</section>`;
 }

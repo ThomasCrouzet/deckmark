@@ -5,10 +5,10 @@
 	import { reportError } from '#lib/report.js';
 	import type { PresentationDeck, PresentationSlide } from './model';
 	import {
+		indexPresentationElements,
 		presentationElementAppearance,
 		presentationElementClass,
-		presentationElementStyle,
-		renderPresentationConnector,
+		presentationElementRender,
 		renderPresentationElementContentCached
 	} from './render';
 
@@ -135,6 +135,15 @@
 	function contentFor(element: PresentationSlide['elements'][number]): string {
 		return renderedContent.get(element.id)?.html ?? '';
 	}
+
+	// One endpoint index and one connector box per element for this render pass.
+	const renderedElements = $derived.by(() => {
+		const index = indexPresentationElements(slide.elements);
+		return slide.elements.map((element) => ({
+			element,
+			render: presentationElementRender(element, slide, index)
+		}));
+	});
 </script>
 
 <div
@@ -147,15 +156,15 @@
 	{#if renderFailed}
 		<p class="mdsh-slide-render-error" role="alert">{t('slides.renderFailed')}</p>
 	{/if}
-	{#each slide.elements as element (element.id)}
+	{#each renderedElements as { element, render } (element.id)}
 		<div
 			class={presentationElementClass(element)}
 			data-element-id={element.id}
-			style={`${presentationElementStyle(element, slide)};${presentationElementAppearance(element)}`}
+			style={`${render.style};${presentationElementAppearance(element)}`}
 		>
 			{#if element.type === 'line' || element.type === 'arrow'}
 				<!-- eslint-disable-next-line svelte/no-at-html-tags - Renderer creates this SVG from validated geometry. -->
-				{@html renderPresentationConnector(element, slide)}
+				{@html render.connector}
 			{:else}
 				<!-- eslint-disable-next-line svelte/no-at-html-tags - Markdown and image HTML use the shared sanitizer and media policy. -->
 				<div class="mdsh-slide-element-content">{@html contentFor(element)}</div>
