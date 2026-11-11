@@ -108,14 +108,33 @@ async function editorState(page: Page) {
 	});
 }
 
-async function settleFrames(page: Page): Promise<void> {
-	await page.evaluate(
+async function waitForStableEditorScroll(page: Page): Promise<number> {
+	return page.evaluate(
 		() =>
-			new Promise<void>((resolve) =>
-				requestAnimationFrame(() =>
-					requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-				)
-			)
+			new Promise<number>((resolve) => {
+				const root = document.querySelector<HTMLElement>('.presentation-editor');
+				if (!root) {
+					resolve(Number.NaN);
+					return;
+				}
+				let previous = root.scrollTop;
+				let stableSamples = 0;
+				const deadline = performance.now() + 5_000;
+				const sample = () => {
+					const current = root.scrollTop;
+					if (current === previous) stableSamples += 1;
+					else {
+						previous = current;
+						stableSamples = 0;
+					}
+					if (stableSamples >= 6 || performance.now() > deadline) {
+						resolve(previous);
+						return;
+					}
+					setTimeout(sample, 50);
+				};
+				setTimeout(sample, 50);
+			})
 	);
 }
 
@@ -133,7 +152,8 @@ test('recomputes focused-control visibility on visual-viewport scroll without re
 	await expect(notes).toBeVisible();
 	await setVisualViewport(page, { height: 300, offsetTop: 0 }, 'resize');
 	await notes.focus();
-	await settleFrames(page);
+	await expect.poll(async () => (await editorState(page)).maxHeight).toBeGreaterThan(0);
+	await waitForStableEditorScroll(page);
 
 	const before = await editorState(page);
 	expect(before.fieldTag).toBe('TEXTAREA');
@@ -144,21 +164,30 @@ test('recomputes focused-control visibility on visual-viewport scroll without re
 
 	// Offset change only: the height and the focus identity stay the same.
 	await setVisualViewport(page, { height: 300, offsetTop: 120 }, 'scroll');
-	await settleFrames(page);
+	await expect
+		.poll(async () => (await editorState(page)).maxHeight)
+		.toBeCloseTo(before.maxHeight + 120, 0);
+	const stableScrollTop = await waitForStableEditorScroll(page);
 	const after = await editorState(page);
 
 	expect(after.fieldTag).toBe('TEXTAREA');
 	expect(after.maxHeight).toBeCloseTo(before.maxHeight + 120, 0);
+	expect(after.scrollTop).toBe(stableScrollTop);
 	expect(after.offsetTop).toBe(120);
 	expect(after.height).toBe(300);
 	expect(after.fieldTop).toBeGreaterThanOrEqual(after.offsetTop - 0.5);
 	expect(after.fieldBottom).toBeLessThanOrEqual(after.offsetTop + after.height + 0.5);
 
 	// A second scroll event at the same offset must not move the editor again.
-	const stableScrollTop = after.scrollTop;
+	// The exact scroll offset is not a contract: Chromium can adjust it while
+	// the changed editor height settles. Compare the settled offsets.
 	await setVisualViewport(page, { height: 300, offsetTop: 120 }, 'scroll');
-	await settleFrames(page);
-	expect((await editorState(page)).scrollTop).toBe(stableScrollTop);
+	const secondScrollTop = await waitForStableEditorScroll(page);
+	const second = await editorState(page);
+	expect(second.scrollTop).toBe(secondScrollTop);
+	expect(secondScrollTop).toBe(stableScrollTop);
+	expect(second.fieldTop).toBeGreaterThanOrEqual(second.offsetTop - 0.5);
+	expect(second.fieldBottom).toBeLessThanOrEqual(second.offsetTop + second.height + 0.5);
 });
 
 test('removes the visual-viewport listeners when the presentation closes', async ({ page }) => {
