@@ -105,13 +105,13 @@ parse_deb822() {
   awk -v file="$file" '
     BEGIN { RS = ""; FS = "\n" }
     {
-      uris = ""; suites = ""; enabled = ""; types = ""; fields = 0
+      uris = ""; suites = ""; enabled = ""; types = ""; content_lines = 0
       for (i = 1; i <= NF; i++) {
         line = $i
         sub(/^[ \t]+/, "", line)
         if (line == "" || line ~ /^#/) continue
+        content_lines++
         if (line !~ /^[^:]+:/) continue
-        fields++
         key = line; sub(/:.*/, "", key)
         value = line; sub(/^[^:]+:[ \t]*/, "", value); sub(/[ \t]+$/, "", value)
         if (key == "URIs") uris = value
@@ -119,8 +119,8 @@ parse_deb822() {
         else if (key == "Enabled") enabled = value
         else if (key == "Types") types = value
       }
-      # A paragraph without field lines is a comment header, not a stanza.
-      if (fields == 0) next
+      # Skip only comment paragraphs. Invalid active content must still fail.
+      if (content_lines == 0) next
       if (enabled == "no") next
       if (types != "" && types !~ /(^| )deb( |$)/) next
       if (uris == "" || suites == "") {

@@ -270,7 +270,8 @@ test('a malformed deb822 source fails closed and names the file', () => {
 		'Types: deb\nSuites: noble\nComponents: main\n',
 		'URIs: http://archive.ubuntu.com/ubuntu\nComponents: main\n',
 		'Types: deb\nURIs: http://archive.ubuntu.com/ubuntu\nComponents: main\n',
-		'# Header comment\n\nTypes: deb\nSuites: noble\nComponents: main\n'
+		'# Header comment\n\nTypes: deb\nSuites: noble\nComponents: main\n',
+		`Invalid source paragraph without fields\n\n${runnerSources}`
 	]) {
 		const context = fixture({ sources });
 		const result = run(context);
