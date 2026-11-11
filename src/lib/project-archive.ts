@@ -34,6 +34,8 @@ export interface ProjectInput {
 	name: string;
 	documents: ProjectDocumentInput[];
 	assets: ProjectAssetInput[];
+	/** Raw folder paths excluded before portable path validation. */
+	skipped?: string[];
 }
 
 type ProjectDocumentKind = NonNullable<ProjectDocumentInput['kind']>;
@@ -52,6 +54,13 @@ const PROJECT_MANIFEST_PATH = '.mdsh/project.json';
 const PROJECT_MANIFEST_FORMAT = 'mdsh-project';
 const PROJECT_MANIFEST_VERSION = 2;
 const PROJECT_MANIFEST_BYTES = 1024 * 1024;
+// Bound the raw folder scan separately from the admitted entry budget. Ignored
+// trees do not consume the budget, but the browser work stays finite.
+const PROJECT_RAW_ENTRY_LIMIT = 100_000;
+// Internal trees that never become project files.
+const IGNORED_FOLDER_SEGMENTS = new Set(['.git', 'node_modules']);
+// Vault metadata trees stay visible to vault detection when their path is safe.
+const VAULT_INTERNAL_SEGMENTS = new Set(['.obsidian', '.trash']);
 const DOCUMENT_KINDS = new Set<ProjectDocumentKind>([
 	'note',
 	'presentation',
@@ -318,36 +327,70 @@ export async function readProjectZip(file: File): Promise<ProjectInput> {
 	return input;
 }
 
+/** Relative path of a folder selection entry without portable validation. */
+function folderRelativePath(file: File): string {
+	const relative = file.webkitRelativePath || file.name;
+	return file.webkitRelativePath ? relative.split('/').slice(1).join('/') : relative;
+}
+
+/** True when a raw relative path contains one of the named tree segments. */
+function hasTreeSegment(relative: string, segments: ReadonlySet<string>): boolean {
+	return relative
+		.replace(/\\/g, '/')
+		.split('/')
+		.some((part) => segments.has(part.toLowerCase()));
+}
+
+/**
+ * Returns the portable path of an admitted folder entry. Ignored trees are
+ * recognized from the raw path before validation. A vault metadata path that
+ * fails validation is skipped, while every other unsafe path still rejects.
+ */
+function admittedFolderPath(file: File): string | null {
+	const relative = folderRelativePath(file);
+	if (hasTreeSegment(relative, IGNORED_FOLDER_SEGMENTS)) return null;
+	try {
+		return projectPath(relative);
+	} catch (error) {
+		if (hasTreeSegment(relative, VAULT_INTERNAL_SEGMENTS)) return null;
+		throw error;
+	}
+}
+
 export async function readProjectFolder(files: readonly File[]): Promise<ProjectInput> {
-	if (!files.length || files.length > PROJECT_LIMITS.maxEntries)
-		throw new Error('Project entry limit');
+	if (!files.length) throw new Error('Project entry limit');
+	if (files.length > PROJECT_RAW_ENTRY_LIMIT) throw new Error('Project entry limit');
 	const first = files[0]!;
-	const name = first.webkitRelativePath.split('/')[0] || 'Project';
-	const manifestFile = files.find((file) => {
-		const relative = file.webkitRelativePath || file.name;
-		const path = projectPath(
-			file.webkitRelativePath ? relative.split('/').slice(1).join('/') : relative
-		);
-		return path === PROJECT_MANIFEST_PATH;
-	});
-	if (manifestFile && manifestFile.size > PROJECT_MANIFEST_BYTES)
+	const name = (first.webkitRelativePath || first.name).split('/')[0] || 'Project';
+	const entries: Array<{ file: File; path: string }> = [];
+	const skipped: string[] = [];
+	for (const file of files) {
+		const path = admittedFolderPath(file);
+		if (path) entries.push({ file, path });
+		else if (hasTreeSegment(folderRelativePath(file), VAULT_INTERNAL_SEGMENTS))
+			skipped.push(folderRelativePath(file));
+	}
+	if (entries.length > PROJECT_LIMITS.maxEntries) throw new Error('Project entry limit');
+	const manifestEntry = entries.find((entry) => entry.path === PROJECT_MANIFEST_PATH);
+	if (manifestEntry && manifestEntry.file.size > PROJECT_MANIFEST_BYTES)
 		throw new Error('Project manifest size limit');
-	const manifest = manifestFile
+	const manifest = manifestEntry
 		? parseProjectManifest(
-				new TextDecoder('utf-8', { fatal: true }).decode(await manifestFile.arrayBuffer())
+				new TextDecoder('utf-8', { fatal: true }).decode(await manifestEntry.file.arrayBuffer())
 			)
 		: null;
 	const roles = manifest?.documents ?? new Map<string, ProjectManifestRole>();
-	const input: ProjectInput = { name: manifest?.name ?? name, documents: [], assets: [] };
+	const input: ProjectInput = {
+		name: manifest?.name ?? name,
+		documents: [],
+		assets: [],
+		...(skipped.length ? { skipped } : {})
+	};
 	const paths = new Set<string>();
 	const seen = new Set<string>();
 	let size = 0;
-	for (const file of files) {
-		const relative = file.webkitRelativePath || file.name;
-		const path = projectPath(
-			file.webkitRelativePath ? relative.split('/').slice(1).join('/') : relative
-		);
-		if (path.split('/').some((part) => part === '.git' || part === 'node_modules')) continue;
+	for (const { file, path } of entries) {
+		if (path === PROJECT_MANIFEST_PATH) continue;
 		const key = pathKey(path);
 		if (paths.has(key)) throw new Error('Duplicate project path');
 		paths.add(key);

@@ -112,6 +112,7 @@ Documents keep their paths, so `README.md` and `notes/README.md` remain separate
 Relative Markdown links and images resolve inside the project. Wiki paths also stay within the source project.
 
 Use **New project document** to add a path such as `notes/guide.md`.
+A folder import skips `.git`, `node_modules`, and internal Obsidian metadata before it checks paths and entry counts.
 Rename an open document through the toolbar. DeckMark updates incoming document links and keeps history checkpoints.
 Select **Check links** to list missing resources, ambiguous wiki links, paths outside the project, and remote images.
 

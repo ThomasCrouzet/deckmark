@@ -89,6 +89,28 @@ describe('folder manifest size limit', () => {
 	});
 });
 
+describe('folder ignored trees', () => {
+	it('skips deep and invalid ignored paths before path validation', async () => {
+		const input = await readProjectFolder([
+			folderFile('workspace/README.md', '# Doc'),
+			folderFile('workspace/node_modules/a/b/c/d/e/f/g/h/i/j/k/l/index.js', 'x'),
+			folderFile('workspace/.git/objects/bad:name', 'x'),
+			folderFile('workspace/.obsidian/a/b/c/d/e/f/g/h/i/j/k/l/m.json', '{}')
+		]);
+		expect(input.documents.map((document) => document.relativePath)).toEqual(['README.md']);
+		expect(input.skipped).toEqual(['.obsidian/a/b/c/d/e/f/g/h/i/j/k/l/m.json']);
+	});
+
+	it('rejects an unsafe path outside an ignored tree', async () => {
+		await expect(
+			readProjectFolder([
+				folderFile('workspace/README.md', '# Doc'),
+				folderFile('workspace/bad:name.md', '# Unsafe')
+			])
+		).rejects.toThrow(/Invalid project path/i);
+	});
+});
+
 describe('portable project ZIP binary documents', () => {
 	it('writes the exact bytes of a typed image document without an asset copy', async () => {
 		const blob = await buildProjectZip(

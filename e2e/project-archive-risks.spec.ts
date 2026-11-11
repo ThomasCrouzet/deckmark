@@ -53,6 +53,42 @@ test('refuses an oversized folder manifest before creating a project', async ({ 
 	expect(await readProjectDocuments(page)).toEqual([]);
 });
 
+test('imports a folder with ignored trees before path and entry checks', async ({ page }) => {
+	const entries: FolderEntry[] = [
+		{ path: 'workspace/README.md', text: '# Kept document' },
+		{
+			path: 'workspace/node_modules/a/b/c/d/e/f/g/h/i/j/k/l/index.js',
+			text: 'ignored'
+		},
+		{ path: 'workspace/.git/objects/bad:name', text: 'ignored' },
+		{
+			path: 'workspace/.obsidian/a/b/c/d/e/f/g/h/i/j/k/l/workspace.json',
+			text: '{}'
+		}
+	];
+	for (let index = 0; index < 1301; index++)
+		entries.push({ path: `workspace/node_modules/pkg-${index}/index.js`, text: 'x' });
+	await importFolder(page, entries);
+	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await expect(panel.getByRole('alert')).toHaveCount(0);
+	await expect(panel.getByRole('button', { name: 'Ouvrir README.md', exact: true })).toBeVisible();
+	await expect(panel.locator('[data-project-document]')).toHaveCount(1);
+	await expect(panel.getByTestId('migration-report')).toContainText(
+		'.obsidian/a/b/c/d/e/f/g/h/i/j/k/l/workspace.json'
+	);
+	expect((await readProjectDocuments(page)).map((row) => row.relativePath)).toEqual(['README.md']);
+});
+
+test('rejects an unsafe folder path outside an ignored tree', async ({ page }) => {
+	await importFolder(page, [
+		{ path: 'workspace/README.md', text: '# Doc' },
+		{ path: 'workspace/bad:name.md', text: '# Unsafe' }
+	]);
+	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await expect(panel.getByRole('alert')).toBeVisible();
+	expect(await readProjectDocuments(page)).toEqual([]);
+});
+
 async function downloadBuffer(page: Page, action: () => Promise<void>): Promise<Buffer> {
 	const download = page.waitForEvent('download');
 	await action();
