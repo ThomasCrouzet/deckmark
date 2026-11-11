@@ -1,8 +1,18 @@
 name: release-please
 
+# Release creation runs inside the Desktop workflow, after the Desktop
+# validation gate for the exact pushed commit. Dependency order replaces the
+# previous runner that waited on another workflow run.
+#
+# This workflow keeps one manual entry point for release pull-request
+# management. A push to main no longer starts a second release-please run, so
+# two runs cannot race for one tag. The shared `release-please` concurrency
+# group also serializes a manual run against the Desktop job.
+#
+# A manual run here creates or updates a source release only. Package a source
+# tag with a Desktop `workflow_dispatch` run that sets `release_tag`.
+
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -10,13 +20,17 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
@@ -24,69 +38,3 @@ jobs:
           # Keep configuration in a separate file to change it without editing this workflow.
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
-
-  await-desktop-validation:
-    # This job still holds a runner while it waits. Keep it until an
-    # event-driven caller has been exercised on a real release, because a
-    # workflow_run path would publish from a privileged event context that is
-    # not yet proved in this repository. See docs/CI.md for the pending trial.
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 80
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      run_id: ${{ steps.validation.outputs.run_id }}
-      sha: ${{ steps.validation.outputs.sha }}
-    steps:
-      - name: Wait for the exact push validation
-        id: validation
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          run_id=''
-          for _ in $(seq 1 60); do
-            run_id=$(gh run list \
-              --repo "$GH_REPO" \
-              --workflow desktop.yml \
-              --commit "$SOURCE_SHA" \
-              --event push \
-              --branch main \
-              --limit 10 \
-              --json databaseId,headSha,createdAt \
-              --jq 'sort_by(.createdAt) | reverse | .[0].databaseId // empty')
-            if [ -n "$run_id" ]; then break; fi
-            sleep 10
-          done
-          if [ -z "$run_id" ]; then
-            echo "No Desktop push validation was found for $SOURCE_SHA." >&2
-            exit 1
-          fi
-          gh api "repos/$GH_REPO/actions/runs/$run_id" > validation-run.json
-          jq -e --arg sha "$SOURCE_SHA" '
-            .path == ".github/workflows/desktop.yml" and
-            .event == "push" and
-            .head_branch == "main" and
-            .head_sha == $sha
-          ' validation-run.json > /dev/null
-          gh run watch "$run_id" --repo "$GH_REPO" --exit-status
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
-
-  desktop:
-    needs: [release-please, await-desktop-validation]
-    if: needs.release-please.outputs.release_created == 'true'
-    uses: ./.github/workflows/desktop.yml
-    with:
-      release_tag: ${{ needs.release-please.outputs.tag_name }}
-      validation_run_id: ${{ needs.await-desktop-validation.outputs.run_id }}
-      validated_sha: ${{ needs.await-desktop-validation.outputs.sha }}
-    permissions:
-      actions: read
-      contents: write
-      id-token: write
-      attestations: write
