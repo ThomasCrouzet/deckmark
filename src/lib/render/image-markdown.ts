@@ -108,6 +108,8 @@ export interface ImageChangeHint {
 	previousTo: number;
 	nextFrom: number;
 	nextTo: number;
+	/** True when the change inserts blocks, so the span keeps its separator. */
+	insert?: boolean;
 }
 
 interface ImageRegion {
@@ -124,6 +126,8 @@ interface ImageRegion {
  */
 export class ImageMarkdownRoundTrip {
 	readonly editorMarkdown: string;
+	/** The last scoped hint translated to restored offsets for the fidelity layer. */
+	lastScopedHint: ImageChangeHint | null = null;
 	private state = new Map<string, ImageState>();
 	private uploadedAlt = new Map<string, string>();
 	private regions: ImageRegion[] = [];
@@ -185,6 +189,7 @@ export class ImageMarkdownRoundTrip {
 	}
 
 	restore(markdown: string, commit = true, hint?: ImageChangeHint): string {
+		this.lastScopedHint = null;
 		if (this.lastInput !== null && markdown === this.lastInput) return this.lastOutput;
 		// A document without an image line needs no round-trip rewrite. The
 		// cheap marker scan avoids splitting and scanning a large note on text
@@ -205,7 +210,8 @@ export class ImageMarkdownRoundTrip {
 	/**
 	 * Splices a prose change that does not touch an image line. The previous
 	 * restored text and its image regions stay valid, so no line scan or
-	 * occurrence map rebuild is necessary.
+	 * occurrence map rebuild is necessary. An inserting change owns its leading
+	 * separator, so the exact inserted bytes come from the new Markdown span.
 	 */
 	private restoreScoped(markdown: string, hint: ImageChangeHint): string | null {
 		const lastInput = this.lastInput;
@@ -219,15 +225,23 @@ export class ImageMarkdownRoundTrip {
 			hint.nextTo > markdown.length
 		)
 			return null;
+		if (
+			!hint.insert &&
+			hint.nextTo - hint.nextFrom !==
+				hint.previousTo - hint.previousFrom + markdown.length - lastInput.length
+		)
+			return null;
 		const changed = markdown.slice(hint.nextFrom, hint.nextTo);
 		// Any image or fence syntax needs the full occurrence-aware scan.
 		if (/[!<`~]/.test(changed)) return null;
 		for (const region of this.regions) {
 			const overlaps = hint.previousFrom < region.inputEnd && hint.previousTo > region.inputStart;
+			// An insertion exactly at the region end follows the complete image
+			// line and its metadata line, so it is safe.
 			const insertionInside =
 				hint.previousFrom === hint.previousTo &&
 				hint.previousFrom >= region.inputStart &&
-				hint.previousFrom <= region.inputEnd;
+				hint.previousFrom < region.inputEnd;
 			if (overlaps || insertionInside) return null;
 		}
 		let delta = 0;
@@ -247,6 +261,13 @@ export class ImageMarkdownRoundTrip {
 		}
 		this.lastInput = markdown;
 		this.lastOutput = result;
+		this.lastScopedHint = {
+			previousFrom: outputFrom,
+			previousTo: outputTo,
+			nextFrom: outputFrom,
+			nextTo: outputFrom + changed.length,
+			...(hint.insert ? { insert: true } : {})
+		};
 		return result;
 	}
 
@@ -287,8 +308,13 @@ export class ImageMarkdownRoundTrip {
 			nextState.set(key, { alt, ratio });
 			push(formatImageLine({ ...image, alt }));
 			if (Math.abs(ratio - 1) > 0.005) push(`<!-- mdsh:image ratio=${ratio.toFixed(2)} -->`);
-			const meta = IMAGE_META_LINE.test(lines[index + 1] ?? '');
-			if (meta) index++;
+			// The editor keeps the image block and a ratio comment as separate
+			// top-level blocks, so blank lines can separate them. The portable
+			// form keeps the comment directly after its image line. Consume the
+			// whole unit so later offsets stay on one linear mapping.
+			let metaIndex = index + 1;
+			while (metaIndex < lines.length && (lines[metaIndex] ?? '') === '') metaIndex += 1;
+			if (metaIndex > index && IMAGE_META_LINE.test(lines[metaIndex] ?? '')) index = metaIndex;
 			const inputEnd = starts[index]! + (lines[index] ?? '').length;
 			regions.push({ inputStart: regionStart, inputEnd, delta: outputLength - inputEnd });
 		}
