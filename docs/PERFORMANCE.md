@@ -562,6 +562,71 @@ bounded time for either the observer or the timeline entry, and records which
 source supplied the value. A required metric with a missing sample fails the
 gate, so a partial report cannot pass on its remaining samples.
 
+### WebKit source typing stall (issue 552)
+
+The Desktop run `42874731123` on 2026-11-10 (attempt 1, source `db0af3b`)
+failed `web-benchmark (webkit)` on `typingSource` only. That job measured
+p50 18 ms and p95 346 ms over five samples. `typingSourceSync` measured 3 ms
+p95 and the driver reference measured 23.138 ms p95. A p95 over five samples
+is the maximum, so one delayed frame became the gate decision. The input
+handler returned in 3 ms and the inserted text reached the editor. The product
+typing work was not the late stage. The summary has no timer or frame record,
+so it cannot separate a stalled runner main thread from a skipped compositor
+frame. That remaining ambiguity is why the report now keeps per-sample
+diagnostics.
+
+The same source passed `web-benchmark (webkit)` on the earlier pull request
+(15 ms p50 and p95). Attempt 2 of the failed run passed, and its
+`desktop-validation` aggregate passed. All native smoke and native benchmark
+jobs, the Chromium and Firefox Web benchmarks, and both production builds
+succeeded in attempt 1. This is a single frame tail on a shared runner. It is
+not a reproducible product regression.
+
+The gate collects 20 samples for source and large-note typing, as it already
+does for startup, cached restart, project tree and visual typing. The
+Chromium, Firefox and WebKit budgets require `minimumRuns: 20`, so a short
+report fails closed. With 20 samples, p95 is the second-worst value. One stall
+stays in `samples` and `max`. Two stalls fail the gate. The WebKit 200 ms p95,
+the units and the default 0.25 tolerance did not change. No retry was added.
+
+Every source and large-note typing sample now stays in `diagnostics` with
+`frameMs`, `timerMs`, `frameOverTimerMs`, `visibilityState`, `nodeCount` and
+`stall`. `stall` is `app-work` for a handler of 50 ms or more,
+`main-thread-block` for a late or missing zero-delay timer, `frame-delay` for a
+timely timer and a frame of 100 ms or more, and `none` otherwise. These
+thresholds classify evidence. They are not budgets. A future report can show
+whether the delay came from the handler, the main thread or the frame.
+
+`scripts/benchmark-shared.test.mjs` keeps the measurement contract. It shows
+that one 346 ms sample in 20 leaves p95 at 18 ms and passes, and that two
+samples put p95 at 346 ms and fail. The test also requires the reviewed WebKit
+`typingSource` minimum to stay at 20 samples.
+
+Reproduce the WebKit workload on Linux with a production static build:
+
+```sh
+BASE_PATH='' npm run build
+node scripts/benchmark-local.mjs --browser webkit --runs 20 \
+  --build-mode production-static \
+  --output /srv/dev/cache/tmp/opencode/webkit-20.json
+node scripts/benchmark-gate.mjs \
+  --report /srv/dev/cache/tmp/opencode/webkit-20.json \
+  --budgets scripts/benchmark-budgets.json
+```
+
+A local run on 2026-11-11 at source `80e4056` used WebKit 27.2 and a
+production static build. All 20 `typingSource` samples were between 10 and
+15 ms: p50 13 ms and p95 14 ms. `typingSourceSync` was 2 to 5 ms with p95 4 ms.
+Every `typingSource` diagnostic reported `stall: "none"`, a timer of 8 to 11 ms
+and a frame 10 to 15 ms after the input. `typingLarge` measured p50 14 ms, p95
+15 ms and max 15 ms. The gate accepted the report with 24 metrics and no
+failures. The 346 ms tail did not reproduce.
+
+The reproducer does not create the runner tail. Read `samples.typingSource`,
+`samples.typingSourceSync`, `diagnostics.typingSource` and `max` in the report.
+A local pass does not prove that a later hosted runner cannot stall. The
+20-sample rule keeps one such stall visible without letting it decide the gate.
+
 The native benchmark collects 20 samples for the library reload, WYSIWYG
 typing, slide switch and present mode. One unmeasured warm reload precedes the
 library samples. `minimumRuns` is 20 for those metrics, so a short report fails

@@ -384,6 +384,23 @@ async function installInputProbe(page) {
 	});
 }
 
+/**
+ * Attribute one delayed input sample to the path that delayed it. The three
+ * thresholds are diagnostics, not budgets. A late zero-delay timer means the
+ * main thread was busy after the input handler returned. A timely timer with a
+ * late animation frame means the browser did not produce the next frame.
+ * @param {number} syncMs
+ * @param {number | null} timerMs
+ * @param {number} frameMs
+ */
+function classifyInputStall(syncMs, timerMs, frameMs) {
+	if (syncMs >= 50) return 'app-work';
+	if (timerMs === null) return frameMs >= 100 ? 'main-thread-block' : 'none';
+	if (timerMs >= 50) return 'main-thread-block';
+	if (frameMs >= 100) return 'frame-delay';
+	return 'none';
+}
+
 async function measureInput(page, selector, runs, label) {
 	const values = [];
 	const sync = [];
@@ -402,13 +419,17 @@ async function measureInput(page, selector, runs, label) {
 			if (run >= 1) break;
 			continue;
 		}
-		values.push(round(result.frameMs));
+		const frameMs = round(result.frameMs);
+		const timerMs = Number.isFinite(result.timerMs) ? round(result.timerMs) : null;
+		values.push(frameMs);
 		sync.push(round(result.syncMs));
 		diagnostics.push({
-			frameMs: round(result.frameMs),
-			timerMs: Number.isFinite(result.timerMs) ? round(result.timerMs) : null,
+			frameMs,
+			timerMs,
+			frameOverTimerMs: timerMs === null ? null : round(frameMs - timerMs),
 			visibilityState: result.visibilityState ?? null,
-			nodeCount: result.nodeCount ?? null
+			nodeCount: result.nodeCount ?? null,
+			stall: classifyInputStall(round(result.syncMs), timerMs, frameMs)
 		});
 	}
 	while (values.length < runs) {
@@ -861,6 +882,8 @@ async function runWebBenchmark(options, fixtures) {
 				firstContentfulPaint: 'Browser paint entry startTime for the cold navigation.',
 				inputLatency:
 					'In-page time from a focused execCommand insertText call to the next animation frame. Excludes driver round trip. Unsupported editors report null.',
+				inputDiagnostics:
+					'Per-sample syncMs, frameMs, timerMs, frameOverTimerMs, visibilityState, nodeCount and stall. stall is app-work for a 50 ms or longer handler, main-thread-block for a late or missing zero-delay timer, frame-delay for a timely timer with a 100 ms or longer frame, and none otherwise. The thresholds classify evidence; they are not budgets.',
 				scrollFrame: 'In-page time to set scrollTop and observe two animation frames.',
 				documentSwitch: 'Wall clock from a sidebar click to the matching editor content.',
 				modeSwitch: 'Wall clock from a mode button click to the visible target editor.',
@@ -883,6 +906,8 @@ async function runWebBenchmark(options, fixtures) {
 			samples,
 			startupDiagnostics,
 			diagnostics: {
+				typingSource: typingSource.diagnostics,
+				typingLarge: typingLarge.diagnostics,
 				typingWysiwyg: modeSwitch.diagnostics
 			},
 			exportDownloads: exportHtml.downloads,
