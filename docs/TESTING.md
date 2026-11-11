@@ -630,6 +630,25 @@ Write browser scenarios before implementation. Test the following failures throu
 
 Feature scenarios cover [split view](testing/split-view.md), [comparisons](testing/diff-workflows.md), [project backups](testing/project-backup.md), [native projects](testing/native-projects.md), and [presentations](testing/presentations.md).
 
+### Native project refresh cost risks
+
+A metadata-first refresh can still hide whole-project work in the webview. The
+retained risks are a full deferred-document hydration before the no-change check,
+a full project scan for each new entry, a baseline map written once per entry,
+and a project body read disguised as a metadata query. `projects-native.ts` builds
+path identity from compound index keys and hydrates only matched entries. The
+baseline writer deduplicates changes and flushes once per operation or per 128
+changes. `scripts/native-refresh-cost-smoke.mjs` creates 600, 1000 and 3000
+document native projects, reloads so closed bodies are deferred, and records
+p50/p95 refresh time, body reads, baseline writes, manifest versus snapshot IPC
+bytes, RSS and Linux process CPU. The same file ran against the pre-fix commit:
+the 601-document first refresh read 344 document bodies and the save wrote the
+baseline 601 times; the post-fix run reads and writes zero. These are local
+diagnostics on the native smoke build, not a browser heap or a universal CPU
+budget. The verified manual refresh still hashes every file on the native side so
+a same-size, same-mtime external write cannot be missed; the hashes are metadata
+and no file body crosses IPC.
+
 ## Code snippets
 
 `e2e/snippets.spec.ts` checks the snippet library in Chromium. The cases are:

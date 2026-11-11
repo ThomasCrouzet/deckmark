@@ -106,6 +106,8 @@ pub fn run() {
             projects::project_refresh,
             projects::project_manifest,
             projects::project_read,
+            #[cfg(feature = "native-smoke")]
+            projects::project_smoke_calls,
             projects::project_write_text,
             projects::project_write_asset,
             projects::project_rename,

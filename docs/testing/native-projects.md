@@ -32,6 +32,42 @@ Browser tests cannot observe these native filesystem and registry failures:
 - A local asset can change while its disk conflict dialog is open.
 - Two disk paths can collide after case folding in the frontend database.
 
+## Refresh cost checks
+
+A refresh builds its path identity from the `[projectId+relativePath]` document
+index and the `[projectId+path]` asset index. It reads index keys, not document
+bodies or asset rows. The no-change path returns before any content hydration or
+`project_read` call. A changed entry loads one matched row and hydrates only that
+document. A new entry uses the shared key set, so a large import does not rescan
+the growing project once per entry. Baseline writes are deduplicated: unchanged
+entries write nothing, and an operation writes the map once at the end, or once
+per 128 changes. A process stop before the final flush leaves the previous
+baseline and manifest; the next refresh compares the revisions again, so no local
+or disk bytes are lost.
+
+The native-smoke build exposes read-only `project_manifest` and `project_read`
+counters through `project_smoke_calls`. `scripts/native-projects.mjs` uses them
+with an IndexedDB `put` wrapper for these observable checks:
+
+- A quiet refresh calls `project_manifest`, calls `project_read` zero times and
+  writes the revision baseline zero times.
+- One external file edit calls `project_read` at most twice and writes at most
+  one baseline batch.
+- Five new files call `project_read` exactly five times and write one baseline
+  batch.
+
+`scripts/native-refresh-cost-smoke.mjs` is the focused reproduction and
+benchmark. It creates a native project, imports it through the Projects panel,
+restarts so closed bodies are deferred, then measures a no-change refresh and a
+save with IndexedDB `drafts.get`, baseline `put`, RSS and Linux process CPU
+counters. Run it for 600, 1000 and 3000 documents with
+`NATIVE_REFRESH_DOCS=<n> NATIVE_REFRESH_REPEAT=5` and compare the pre-fix and
+post-fix binaries. It records p50 and p95 refresh time, body reads, baseline
+writes, manifest versus full-snapshot IPC bytes, RSS before and after, and CPU
+time. The counts and timings are local diagnostics, not a native latency budget.
+A metadata manifest still hashes every file on an explicit verified refresh; it
+never transfers file contents to the webview unless the entry changed.
+
 The native smoke workflow uses real directories and files. It checks command
 results and final filesystem contents. It uses a native-smoke build to select its
 temporary fixture without an interactive dialog. Production builds do not accept

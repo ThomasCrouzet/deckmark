@@ -847,6 +847,185 @@ export async function nativeProjects({
 		bytes: refreshedAssetBytes
 	});
 
+	// Issue #351: a no-change refresh must not hydrate document bodies, must not
+	// call project_read, and must not rewrite the full baseline once per entry.
+	// The native smoke build counts project_manifest and project_read calls; the
+	// IndexedDB wrapper counts revision baseline writes.
+	await execute(
+		`const originalPut = IDBObjectStore.prototype.put;
+		window.__restoreProjectPerfPut = () => { IDBObjectStore.prototype.put = originalPut; };
+		window.__baselineWrites = [];
+		IDBObjectStore.prototype.put = function (value, key) {
+		  const row = Array.isArray(value) ? value[0] : value;
+		  if (row && typeof row === 'object' && typeof row.key === 'string' &&
+		      row.key.startsWith('project-native-revisions:'))
+		    window.__baselineWrites.push(row.key);
+		  return key === undefined ? originalPut.call(this, value) : originalPut.call(this, value, key);
+		};
+		return true;`
+	);
+	const readSmokeCalls = () =>
+		executeAsync(
+			`const done = arguments[arguments.length - 1];
+			window.__TAURI__.core.invoke('project_smoke_calls').then(
+			  value => done(value),
+			  error => done({ error: String(error) })
+			);`
+		);
+	const resetBaselineWrites = () => execute('window.__baselineWrites = []; return true;');
+	const refreshWithPerf = async (label) => {
+		await resetBaselineWrites();
+		const before = await readSmokeCalls();
+		assert.equal(before.error, undefined, before.error);
+		const startedAt = performance.now();
+		await clickVisibleText('button', 'Actualiser depuis le disque');
+		const deadline = Date.now() + 120_000;
+		let after = null;
+		let state = null;
+		while (Date.now() < deadline) {
+			after = await readSmokeCalls();
+			state = await execute(
+				`return {
+				  busy: !!document.querySelector('[data-testid="projects-busy"]'),
+				  alert: document.querySelector('[role="alert"]')?.textContent?.trim() ?? null
+				};`
+			);
+			if (after.manifest > before.manifest && !state.busy) break;
+			if (state.alert) throw new Error(`${label} failed: ${state.alert}`);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+		if (!after || after.manifest <= before.manifest || state?.busy)
+			throw new Error(
+				`${label}: calls=${JSON.stringify({ before, after })} state=${JSON.stringify(state)}`
+			);
+		const elapsed = Number((performance.now() - startedAt).toFixed(1));
+		const baselineWrites = await execute('return (window.__baselineWrites ?? []).length;');
+		return {
+			manifestCalls: after.manifest - before.manifest,
+			reads: after.read - before.read,
+			baselineWrites,
+			elapsed
+		};
+	};
+	const quietRefreshSamples = [];
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		const perf = await refreshWithPerf(`quiet refresh ${attempt + 1}`);
+		assert.equal(perf.reads, 0, 'a no-change refresh must not call project_read');
+		assert.ok(perf.manifestCalls >= 1);
+		assert.equal(perf.baselineWrites, 0, 'a no-change refresh must not rewrite the baseline');
+		quietRefreshSamples.push(perf);
+	}
+	record('No-change refresh skips content reads and baseline rewrites', {
+		samples: quietRefreshSamples,
+		p50Ms: quietRefreshSamples.map((sample) => sample.elapsed).sort((a, b) => a - b)[1]
+	});
+
+	const perfNotePath = join(fixtureRoot, 'notes', 'ui-renamed.md');
+	const perfNoteContent = '# PERF_REFRESH_ONE_FILE\n';
+	writeFileSync(perfNotePath, perfNoteContent);
+	const oneFileRefresh = await refreshWithPerf('single-file refresh');
+	await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return state.documents.some(
+				(document) =>
+					document.projectId === uiProject.id &&
+					document.relativePath === 'notes/ui-renamed.md' &&
+					document.content === perfNoteContent
+			);
+		},
+		'single-file refresh bytes',
+		45_000
+	);
+	assert.ok(
+		oneFileRefresh.reads >= 1 && oneFileRefresh.reads <= 2,
+		`a single changed file reads only that entry, got ${oneFileRefresh.reads}`
+	);
+	assert.ok(oneFileRefresh.baselineWrites <= 1, 'the baseline write is batched');
+	record('Single-file refresh reads one entry and batches the baseline', {
+		reads: oneFileRefresh.reads,
+		baselineWrites: oneFileRefresh.baselineWrites
+	});
+
+	mkdirSync(join(fixtureRoot, 'perf'), { recursive: true });
+	for (let index = 0; index < 5; index += 1)
+		writeFileSync(join(fixtureRoot, 'perf', `note-${index}.md`), `# Batch ${index}\n`);
+	const batchRefresh = await refreshWithPerf('new-file batch refresh');
+	await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return state.documents.filter((document) => document.projectId === uiProject.id).length >= 6;
+		},
+		'new-file batch import',
+		45_000
+	);
+	assert.equal(batchRefresh.reads, 5, 'a new-file refresh reads only the new entries');
+	assert.ok(batchRefresh.baselineWrites <= 1, 'new entries flush one baseline batch');
+	record('New-file refresh reads only the new entries', {
+		reads: batchRefresh.reads,
+		baselineWrites: batchRefresh.baselineWrites
+	});
+
+	mkdirSync(join(fixtureRoot, 'perf', 'bulk'), { recursive: true });
+	for (let index = 0; index < 600; index += 1)
+		writeFileSync(
+			join(fixtureRoot, 'perf', 'bulk', `note-${String(index).padStart(4, '0')}.md`),
+			`# Bulk ${index}\n\nRepresentative project content. `.repeat(4)
+		);
+	await refreshWithPerf('600-document import');
+	await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return (
+				state.documents.filter((document) => document.projectId === uiProject.id).length >= 600
+			);
+		},
+		'600-document import',
+		120_000
+	);
+	const payloadProbe = await executeAsync(
+		`const [rootId] = arguments; const done = arguments[arguments.length - 1];
+		window.__TAURI__.core.invoke('project_open_root', { rootId }).then(
+		  async (snapshot) => {
+		    const manifest = await window.__TAURI__.core.invoke('project_manifest', {
+		      token: snapshot.token,
+		      verified: true
+		    });
+		    const full = await window.__TAURI__.core.invoke('project_refresh', {
+		      token: snapshot.token
+		    });
+		    done({
+		      entries: manifest.entries.length,
+		      manifestBytes: JSON.stringify(manifest).length,
+		      snapshotBytes: JSON.stringify(full).length
+		    });
+		  },
+		  error => done({ error: String(error) })
+		);`,
+		[uiProject.nativeRootId]
+	);
+	assert.equal(payloadProbe.error, undefined, payloadProbe.error);
+	assert.ok(payloadProbe.entries >= 600);
+	assert.ok(payloadProbe.manifestBytes < payloadProbe.snapshotBytes);
+	const bulkSamples = [];
+	for (let attempt = 0; attempt < 5; attempt += 1) {
+		const perf = await refreshWithPerf(`600-document quiet refresh ${attempt + 1}`);
+		assert.equal(perf.reads, 0, 'a 600-document no-change refresh must not call project_read');
+		assert.equal(perf.baselineWrites, 0);
+		bulkSamples.push(perf);
+	}
+	const bulkDurations = bulkSamples.map((sample) => sample.elapsed).sort((a, b) => a - b);
+	record('600-document no-change refresh stays metadata-only', {
+		documents: payloadProbe.entries,
+		reads: 0,
+		baselineWrites: 0,
+		p50Ms: bulkDurations[2],
+		p95Ms: bulkDurations[4],
+		manifestBytes: payloadProbe.manifestBytes,
+		snapshotBytes: payloadProbe.snapshotBytes
+	});
+	await execute('window.__restoreProjectPerfPut?.(); return true;');
+
 	const registryBackup = `${projectRegistry}.backup`;
 	renameSync(projectRegistry, registryBackup);
 	mkdirSync(projectRegistry);

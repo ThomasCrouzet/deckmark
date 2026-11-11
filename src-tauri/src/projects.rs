@@ -28,6 +28,14 @@ const MAX_ASSET_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_SNAPSHOT_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_REGISTRY_BYTES: u64 = 1024 * 1024;
 
+#[cfg(feature = "native-smoke")]
+mod smoke_calls {
+    use std::sync::atomic::AtomicU64;
+
+    pub static MANIFEST: AtomicU64 = AtomicU64::new(0);
+    pub static READ: AtomicU64 = AtomicU64::new(0);
+}
+
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileIdentity {
@@ -1310,6 +1318,8 @@ pub async fn project_manifest(
     token: String,
     verified: Option<bool>,
 ) -> Result<ProjectManifest, String> {
+    #[cfg(feature = "native-smoke")]
+    smoke_calls::MANIFEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let session = projects.resolve(&token)?;
     tauri::async_runtime::spawn_blocking(move || {
         manifest(token, session, verified.unwrap_or(false))
@@ -1324,10 +1334,30 @@ pub async fn project_read(
     token: String,
     relative_path: String,
 ) -> Result<ProjectEntry, String> {
+    #[cfg(feature = "native-smoke")]
+    smoke_calls::READ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let session = projects.resolve(&token)?;
     tauri::async_runtime::spawn_blocking(move || read_entry(&session, &relative_path))
         .await
         .map_err(|error| error.to_string())?
+}
+
+#[cfg(feature = "native-smoke")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSmokeCalls {
+    manifest: u64,
+    read: u64,
+}
+
+/// Read-only counters for the native smoke refresh-cost checks.
+#[cfg(feature = "native-smoke")]
+#[tauri::command]
+pub fn project_smoke_calls() -> ProjectSmokeCalls {
+    ProjectSmokeCalls {
+        manifest: smoke_calls::MANIFEST.load(std::sync::atomic::Ordering::Relaxed),
+        read: smoke_calls::READ.load(std::sync::atomic::Ordering::Relaxed),
+    }
 }
 
 #[tauri::command]
