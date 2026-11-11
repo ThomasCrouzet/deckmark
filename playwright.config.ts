@@ -126,6 +126,7 @@ export default defineConfig({
 				'**/image-layout.spec.ts',
 				'**/image-input-latency.spec.ts',
 				'**/image-preview-budget.spec.ts',
+				'**/project-media-cache.spec.ts',
 				'**/keyboard-platform.spec.ts',
 				'**/editor-tab.spec.ts',
 				'**/table-editing.spec.ts',

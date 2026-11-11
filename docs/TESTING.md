@@ -67,6 +67,27 @@ before a bitmap decode. Run
 and the WebKit project. The reports record the decoded size, generated previews,
 revoked object URLs, import counters and available heap values.
 
+## Project media cache epochs
+
+A repeated resolve of an unchanged project image must return the resolved data
+URI before an IndexedDB read or a byte fingerprint. Retain the counters
+`assetReads`, `fingerprintCalls`, `decodeCalls` and `resolvedHits` in the
+`__MDSH_PROJECT_MEDIA__` probe. A draft content save in another tab must not
+increment the global media epoch or cancel another document's image work. An
+asset write, a project asset broadcast and a backup restore must still invalidate
+the resolved path. The same ID, MIME and byte length with different bytes must
+return the new image.
+
+Run:
+
+```sh
+npx playwright test e2e/project-media-cache.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The WebKit project runs the same cases. The spec attaches the raw counters, the
+replacement byte length and the observed image pixels. A cached string and DOM
+result do not prove GPU texture release or native WebView memory.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading
