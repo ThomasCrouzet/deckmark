@@ -104,6 +104,10 @@
 	let exportOpen = $state(false);
 	let notesOpen = $state(true);
 	let inspectorOpen = $state(true);
+	// 'auto' follows the usable editor width. A manual toggle keeps the user
+	// choice across later resizes.
+	let inspectorPreference = $state<'auto' | 'open' | 'closed'>('auto');
+	const INSPECTOR_SIDE_BREAKPOINT = 800;
 	let multiSelect = $state(false);
 	let presenting = $state(false);
 	let showNotes = $state(false);
@@ -327,6 +331,30 @@
 		};
 	});
 	$effect(() => {
+		const element = root;
+		if (!element) return;
+		const update = () => {
+			const width = element.getBoundingClientRect().width;
+			if (inspectorPreference !== 'auto') return;
+			const next = width >= INSPECTOR_SIDE_BREAKPOINT;
+			if (next === inspectorOpen) return;
+			const active = document.activeElement;
+			const hadFocus =
+				active instanceof HTMLElement &&
+				active !== element &&
+				!!active.closest('[data-testid="slide-inspector"]');
+			inspectorOpen = next;
+			if (!next && hadFocus)
+				void tick().then(() =>
+					element.querySelector<HTMLButtonElement>('[data-testid="slide-properties"]')?.focus()
+				);
+		};
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(element);
+		return () => observer.disconnect();
+	});
+	$effect(() => {
 		void editor.source;
 		void editor.revision;
 		void editor.index;
@@ -342,7 +370,6 @@
 		return () => clearTimeout(timer);
 	});
 	onMount(() => {
-		inspectorOpen = window.innerWidth >= 768;
 		if (editor.error) parseAlert?.focus();
 		else root?.focus();
 		const nativeAction = (event: Event) => {
@@ -1081,6 +1108,7 @@
 				aria-pressed={inspectorOpen}
 				onclick={() => {
 					inspectorOpen = !inspectorOpen;
+					inspectorPreference = inspectorOpen ? 'open' : 'closed';
 				}}
 				><SlidersHorizontal size={17} /><span class="compact-label">{t('slides.properties')}</span
 				></button
@@ -1490,6 +1518,7 @@
 					{multiSelect}
 					onClose={() => {
 						inspectorOpen = false;
+						inspectorPreference = 'closed';
 						void tick().then(() =>
 							root?.querySelector<HTMLButtonElement>('[data-testid="slide-properties"]')?.focus()
 						);

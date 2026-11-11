@@ -820,6 +820,29 @@ Keep `visual-viewport-dialogs.json` with the source revision, browser version,
 command and the viewport cases. Physical iPhone Safari in tab and PWA mode, and
 iPad Safari in portrait and landscape, remain required evidence.
 
+## Presentation inspector width risks
+
+The presentation Properties inspector uses a 252 px side panel above an 800 px
+container width and an absolute overlay below it. The retained risks are a
+default open state from the outer window width, a stale open state after an
+orientation or window change, a reopen after the user closed the panel, a lost
+focus when the panel closes, an overlay without a reachable dismiss control, and
+a changed selected object.
+
+`SlideEditor.svelte` reads the actual presentation container width with a
+`ResizeObserver`. The automatic state follows the 800 px breakpoint. A manual
+toggle sets an explicit open or closed preference that later resizes keep. An
+automatic close moves focus to the Properties toggle when the panel held focus.
+
+`e2e/presentation-inspector-width.spec.ts` resizes one open deck without a
+reload across the breakpoint in both directions. It checks the container width,
+the panel presence, the toggle state, the overlay bounds, the dismiss control
+and the focused control. It attaches the geometry JSON and a screenshot. The
+case does not prove iPad multitasking, native window minimum size, browser zoom
+or a native WebView.
+
+Run `npx playwright test e2e/presentation-inspector-width.spec.ts --project=chromium --workers=1 --retries=0`.
+
 ## Version 2.0 project risks
 
 At native 200% browser zoom in a 320 by 844 viewport, save-status text can wrap
