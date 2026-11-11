@@ -1074,6 +1074,9 @@ export const fr: Record<MessageKey, string> = {
 	'sidebar.selectedCount': '{n} sélectionnés',
 	'sidebar.selectedSuffix': ' (sélectionné)',
 	'sidebar.selectionActions': 'Actions sur la sélection',
+	'sidebar.selectionMode': 'Sélection de fichiers',
+	'sidebar.selectionModeStart': 'Sélectionner plusieurs fichiers',
+	'sidebar.selectionModeDone': 'Terminer la sélection',
 	'sidebar.tagFilters': 'Filtres par tag',
 	'sidebar.unexportedChangesHint': ' - modifications non exportées',
 
