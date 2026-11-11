@@ -357,6 +357,22 @@ for (const scenario of scenarios) {
 		await openVisualEditor(page);
 		const visual = page.locator('.ProseMirror');
 		await expect(visual).toBeVisible({ timeout: 180_000 });
+		// Steady typing starts after every image decode. A mount decode is not a
+		// keystroke cost, and a slow frame during it would attribute the decode
+		// to the first typed character.
+		const imageCount = await page.locator('.milkdown-image-block img').count();
+		if (imageCount)
+			await expect
+				.poll(() =>
+					page.locator('.milkdown-image-block img').evaluateAll((images) =>
+						images.every((image) => {
+							const target = image as HTMLImageElement;
+							return target.complete && target.naturalWidth > 0;
+						})
+					)
+				)
+				.toBe(true);
+		await page.waitForTimeout(400);
 		await installInputProbe(page);
 		const countersBefore = await readCounters(page);
 		const heapBefore = await heap(page);
