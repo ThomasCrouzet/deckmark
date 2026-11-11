@@ -189,7 +189,9 @@ class FilesStore {
 		() => this.library,
 		() => {
 			this.metaRev += 1;
-		}
+		},
+		undefined,
+		() => this.activeId
 	);
 	// §M3 - Ids with a local keystroke not yet persisted ("dirty") in the
 	// cross-tab sense: a draft is dirty as long as a write is pending OR its
@@ -216,7 +218,7 @@ class FilesStore {
 			const file = this.library.find((entry) => entry.id === snapshot.revision.fileId);
 			if (!file || !this.documents.isCurrent(snapshot.revision)) return;
 			file.content = snapshot.text;
-			this.metaIndex.invalidateMeta(file.id);
+			this.metaIndex.invalidateMeta(file.id, snapshot.revision.generation);
 			this.metaRev += 1;
 		},
 		(error) => reportPersistenceError(error, 'save')
@@ -638,7 +640,9 @@ class FilesStore {
 			() => this.library,
 			() => {
 				this.metaRev += 1;
-			}
+			},
+			undefined,
+			() => this.activeId
 		);
 		this.loaded = false;
 		this.loadError = null;
@@ -1543,7 +1547,10 @@ class FilesStore {
 		if (!revision) return null;
 		file.updatedAt = Date.now();
 		file.dirty = true;
-		this.metaIndex.invalidateMeta(file.id);
+		// The document publish path invalidates metadata with the exact content
+		// revision. Recording the accepted change here lets the next job send one
+		// coalesced delta instead of the complete source.
+		this.metaIndex.recordEdit(file.id, change.base.generation, revision.generation, change.edits);
 		this.scheduleSave(file.id);
 		return revision;
 	}
