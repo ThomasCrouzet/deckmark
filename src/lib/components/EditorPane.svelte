@@ -14,7 +14,6 @@
 	import SourceEditor from '#lib/components/SourceEditor.svelte';
 	import Welcome from '#lib/components/Welcome.svelte';
 	import ScrollNav from '#lib/components/ScrollNav.svelte';
-	import ImageDocument from '#lib/components/ImageDocument.svelte';
 	import { Upload } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import type { EditMode, FileItem } from '#lib/types.js';
@@ -160,16 +159,12 @@
 						<module.default onPresentingChange={(value) => (modals.presenting = value)} />
 					{:catch}<p role="alert" class="p-4 text-danger">{t('slides.renderFailed')}</p>{/await}
 				{/key}
-			{:else if kind === 'image'}
+			{:else if kind === 'image' || kind === 'pdf'}
 				{#key activeFile.id}
-					<ImageDocument file={activeFile} />
-				{/key}
-			{:else if kind === 'pdf'}
-				{#key activeFile.id}
-					{#await import('./PdfDocument.svelte') then module}
-						<module.default file={activeFile} />
+					{#await import('./BinaryDocument.svelte') then module}
+						<module.default file={activeFile} {kind} />
 					{:catch}<p role="alert" class="p-4 text-danger">
-							{t('documents.pdfUnavailable')}
+							{t(kind === 'pdf' ? 'documents.pdfUnavailable' : 'documents.imageUnavailable')}
 						</p>{/await}
 				{/key}
 			{:else if kind === 'code'}
