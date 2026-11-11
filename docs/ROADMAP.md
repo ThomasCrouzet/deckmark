@@ -12,51 +12,75 @@ acceptance criteria and the tests.
 - A closed issue is not proof of a measured speedup on every runtime platform.
 - A register entry does not override the GitHub state. A reopened issue returns to
   the active register.
-- Update the `Checked` line when the register changes.
+- Update the `Checked` line and both counts when the register changes.
 
 | Register | Count |
 | --- | --- |
-| Active implementation issues | 12 |
-| Active benchmark tracker | 1 |
-| Closed implementation issues | 54 |
-| Source audit commit | `0cb455e3` |
-| Checked | 2026-11-10 at `e61f5885` |
+| Active implementation issues | 27 |
+| Active benchmark tracker | 0 |
+| Closed implementation issues | 65 |
+| Source audit commit | `babfff5b` |
+| Checked | 2026-11-11 at `babfff5b` |
 
-The roadmap issue #345 and the benchmark tracker #327 are separate records. This
-file replaces the roadmap issue body as the maintained register.
+The roadmap issue #345 and the benchmark tracker #327 are closed. This file keeps
+them in the closed register. The GitHub issue state is the source of truth.
+
+## Check procedure
+
+No hidden CI job reads GitHub. A maintainer runs these commands before a register
+change. Every listed active issue must report `OPEN`, and each count must match
+the number of entries in its register.
+
+```sh
+sed -n '/^## Active register/,/^## Scope separation/p' docs/ROADMAP.md \
+  | grep -o '#[0-9]\+' | tr -d '#' | sort -un \
+  | while read -r issue; do
+      state=$(gh issue view "$issue" --repo ThomasCrouzet/deckmark --json state -q .state)
+      [ "$state" = "OPEN" ] || echo "active entry is $state: #$issue"
+    done
+
+sed -n '/^## Active register/,/^## Scope separation/p' docs/ROADMAP.md | grep -c '^- \[ \] #'
+sed -n '/^## Closed register/,/^## Audit provenance/p' docs/ROADMAP.md | grep -c '^- \[x\] #'
+```
 
 ## Active register
-
-### Editing and high-density renderers
-
-- [ ] #384 - Use globally bounded shared Markdown parse admission across active slide and thumbnails
-- [ ] #415 - Incrementally serialize changed presentation slides and elements instead of cloning and validating entire decks
-- [ ] #386 - Share incremental TOC, Find and Outline source, DOM and geometry projections
-- [ ] #363 - Prioritize and cancel serialized Mermaid preview and export jobs
-
-### Large libraries, corpus tools, search and metadata
-
-- [ ] #364 - Build an indexed project folder tree and bound the mounted DOM
-- [ ] #358 - Key semantic vectors by the actual trained corpus and model revision, and bound query chunk scoring and IndexedDB reads
-- [ ] #389 - Reuse validated project media by exact asset content revision and correct project context
 
 ### Native I/O and project assets
 
 - [ ] #351 - Use metadata-first native project refresh and scoped IPC instead of large snapshots
+- [ ] #369 - Transmit metadata Worker deltas and retain per-file bounded baselines
+- [ ] #383 - Offload large initial and switch statistics, and bound selectionchange text copying
 
-### Reported closed in the 2026-11-08 audit, open at delivery
+### 2026-11-11 audit cycle
 
-The audit recorded these issues as closed. GitHub reports them open. They stay
-active until they close.
+These issues come from the 2026-11-11 audit. The docs-site campaign delivers #557,
+#564 and #566 in the `campaign/docs-site` pull request, so they are not separate
+register entries.
 
-- [ ] #374 - Revalidate source revisions after async checkpoints and apply AI patch files atomically
-- [ ] #381 - Do not publish executable raw SVG assets after preview-only sanitization
-- [ ] #382 - Align Desktop project depth, file-count and size contracts across Web, native and site export
-- [ ] #397 - Do not report durable linked-save success when revision metadata cannot persist
-
-### Shared release-like validation
-
-- [ ] #327 - Enforce real Web, native, Node CLI and MCP stress checks with exact bytes and revisions, input-to-paint timing, CPU, heap and RSS limits, documented source and build SHA and negative controls. Never count an unsupported or skipped case as passing.
+- [ ] #552 - Investigate the Source typing p95 spike that blocks Desktop validation
+- [ ] #553 - Gate large-note multi-paragraph visibility and persistence in WebKit
+- [ ] #554 - Index presentation connector endpoints once per slide render
+- [ ] #555 - Enforce the folder manifest size limit before reading and parsing
+- [ ] #556 - Make service-worker registration retries and update polling idempotent
+- [ ] #558 - Account for typed binary payloads and enforce size limits on every mutation
+- [ ] #559 - Retain the blob URL until the browser has begun a download in WebKit
+- [ ] #560 - Exclude ignored trees before path validation and capacity checks
+- [ ] #561 - Prevent file-boundary spoofing in serialized AI context
+- [ ] #562 - Preserve text and code MIME metadata across portable ZIP round trips
+- [ ] #563 - Reconcile disk deletions during Refresh without discarding local recovery copies
+- [ ] #565 - Avoid quadratic scope scans and full-file encoding beyond the token budget
+- [ ] #569 - Reproduce and attribute typing stalls caused by large embedded images
+- [ ] #570 - Render bounded resolution-adaptive previews instead of full-size bitmaps
+- [ ] #571 - Avoid rereading and four-pass hashing cached image assets on editor resolution
+- [ ] #572 - Avoid reassembling large embedded image data URIs on every text publish
+- [ ] #573 - Bound image resize work and fix offscreen image geometry
+- [ ] #574 - Remove synchronous full-document scans from IndexedDB draft projection hooks
+- [ ] #575 - Skip redundant image proxy resolution and fence stale NodeView results
+- [ ] #576 - Stop transferring unchanged Base64 image payloads on every document-stat update
+- [ ] #577 - Preserve scoped image and source restoration on paragraph splits and adjacent edits
+- [ ] #578 - Set stable image fetch policies before src to avoid reload and decode churn
+- [ ] #579 - Decouple large-document interaction and paint heuristics from embedded image URI length
+- [ ] #580 - Do not force full image restoration for unchanged punctuation in edited paragraphs
 
 ## Scope separation
 
@@ -66,25 +90,27 @@ Keep these pairs distinct during implementation and review:
 - #421 synchronous MCP server is not #412 async CLI. Both are now closed.
 - #378 AI completion limits are not #417 signed updater response. Both are now closed.
 - #414 operating-system image drop is not #395 Read-mode image incorporation. Both are now closed.
-- #415 source serializer is not #416 thumbnail filmstrip. #416 is closed.
+- #415 source serializer is not #416 thumbnail filmstrip. Both are now closed.
 
 ## Remaining order
 
-1. **Healthy render queues:** #384 must throttle the shared Markdown parser across
-   all SlideContent instances. #415 reduces deck serialization. #363 is the
-   separate global Mermaid queue.
-2. **Navigation and project views:** #386 shares heading projections. #364 bounds
-   the project tree DOM and index.
-3. **Local source and image ownership:** #389 caches project media by true content
-   revision. #358 gives semantic vectors a unique trained-model identity. No eager
-   whole-corpus read is allowed only to display labels.
-4. **Native refresh:** #351 bounds native project IPC volume.
-5. **Reopened corrections:** #374 keeps AI patch commits atomic. #397 keeps durable
-   save truth. #382 aligns project limits. #381 blocks executable SVG publication.
-6. **Evidence:** #327 holds the unified fixture matrix. It must capture
-   failing-before and passing-after correctness, memory, p95 and longest-frame
-   results and platform provenance. Preserve source, undo and history, cross-tab
-   conflict branches, offline and CSP behavior and permission boundaries.
+1. **Native refresh:** #351 bounds native project IPC volume. #369 bounds metadata
+   Worker deltas. #563 keeps disk and local recovery state consistent.
+2. **Large-document statistics:** #383 keeps switches and long selections off the
+   input thread.
+3. **Image pipeline:** #569 attributes typing stalls before #570 through #580
+   change preview size, source restoration, fetch policy and media caching.
+4. **AI context:** #561 blocks file-boundary spoofing. #565 bounds scope scans and
+   full-file encoding.
+5. **Project storage and import:** #555 and #560 bound import work. #558 enforces
+   quota on every mutation. #562 keeps MIME metadata exact. #559 keeps downloads
+   reliable in WebKit.
+6. **Web platform:** #552 and #553 keep the WebKit performance gate and its
+   large-note coverage honest. #556 makes service-worker updates idempotent.
+7. **Evidence:** each issue must capture failing-before and passing-after
+   correctness, memory, p95 and longest-frame results and platform provenance.
+   Preserve source, undo and history, cross-tab conflict branches, offline and CSP
+   behavior and permission boundaries.
 
 ## Closed register
 
@@ -106,7 +132,6 @@ Keep these pairs distinct during implementation and review:
 - [x] #365 - Isolate decoded image, ink and export state by active file ID
 - [x] #367 - Avoid main-thread PDF Base64 decode and buffer copies
 - [x] #368 - Coalesce binary image ink frames and bound undo and export canvas work
-- [x] #369 - Transmit metadata Worker deltas and retain per-file bounded baselines
 - [x] #370 - Fail closed before exporting ZIP if draft durability is unconfirmed
 - [x] #371 - Bind Frontmatter, Comments and History dialogs to immutable document identity
 - [x] #372 - Indexed strongly connected components and stack-safe linked-block dependency analysis
@@ -115,7 +140,6 @@ Keep these pairs distinct during implementation and review:
 - [x] #376 - Hydrate only approved outbound AI context using immutable revisions
 - [x] #377 - Index backup merge and replace matching, and bound comments and row counts
 - [x] #380 - One-pass Markdown link rewriting and scoped project rename and move indexes
-- [x] #383 - Offload large initial and switch statistics, and bound selectionchange text copying
 - [x] #387 - Workerize and bound literal Replace All and large before and after preview buffers
 - [x] #388 - Metadata-only trash startup and bounded expired-entry cleanup
 - [x] #391 - Indexed selection membership and inspector updates on 2,000-object slides
@@ -148,13 +172,33 @@ Keep these pairs distinct during implementation and review:
 - [x] #378 - Bound untrusted AI response and patch-hunk scan memory before review (2026-11-09)
 - [x] #414 - Validate each dropped project image once and discard stale drop jobs safely (2026-11-09)
 
+### Closed after the 2026-11-10 audit
+
+- [x] #345 - Active hardening backlog and completed scope register (2026-11-10)
+- [x] #327 - Cross-mode large-file benchmark matrix and release-like regression budgets (2026-11-10)
+- [x] #358 - Cache model training, workerize indexing and avoid repeated chunk embeddings (2026-11-10)
+- [x] #363 - Avoid serial global rendering stalls and make large diagram previews cancellable (2026-11-10)
+- [x] #364 - Build and render deep project trees with indexed folders and bounded DOM (2026-11-10)
+- [x] #374 - Revalidate source revisions after async checkpoints and apply all files atomically (2026-11-10)
+- [x] #381 - Do not publish executable raw SVG assets after preview-only sanitization (2026-11-10)
+- [x] #382 - Align Desktop project depth, file-count and size contracts across Web, native and site export (2026-11-10)
+- [x] #384 - Backpressure text-heavy slide renders instead of overflowing the Markdown Worker queue (2026-11-10)
+- [x] #386 - Share incremental heading projections and avoid full DOM rescans across TOC and find (2026-11-10)
+- [x] #389 - Avoid per-slide full-draft reads and repeated project-image decoding on each render (2026-11-10)
+- [x] #397 - Do not report durable linked-save success when revision metadata cannot persist (2026-11-10)
+- [x] #415 - Avoid whole-deck clone, validation and serialization for one-element edits (2026-11-10)
+
 ## Audit provenance and interpretation
 
-The source was read at `0cb455e3`. Previous audits used `30a69269`, `4318db42` and
-`b8cfbf1d`. This register was checked against the GitHub issue state on
-2026-11-10 at `e61f5885`. The check found 21 issues in the audit active list that
-were closed, and 4 issues in the audit closed list that were open. This file
-records the corrected state.
+The source was read at `babfff5b`. Previous audits used `0cb455e3`, `30a69269`,
+`4318db42` and `b8cfbf1d`. This register was checked against the GitHub issue state
+on 2026-11-11 at `babfff5b`.
+
+The 2026-11-10 check found 21 issues in the audit active list that were closed,
+and 4 issues in the audit closed list that were open. This check corrects both
+lists again. The 11 issues that closed after the previous check moved to the
+closed register. #369 and #383 returned to the active register because GitHub
+reports them open. #327 and #345 are closed and keep their completed evidence.
 
 The platform counts are static audit records. They are not runtime benchmark
 results. Each child issue holds the measured evidence for its own platform.

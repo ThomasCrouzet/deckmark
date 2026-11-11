@@ -104,7 +104,9 @@ export default defineConfig({
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
-				'**/docs-site-export-svg.spec.ts'
+				'**/docs-site-export-svg.spec.ts',
+				'**/docs-site-export-html.spec.ts',
+				'**/docs-site-search-paths.spec.ts'
 			]
 		},
 		{
@@ -144,6 +146,8 @@ export default defineConfig({
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
 				'**/docs-site-export-svg.spec.ts',
+				'**/docs-site-export-html.spec.ts',
+				'**/docs-site-search-paths.spec.ts',
 				'**/docs-site-fragments.spec.ts'
 			]
 		},

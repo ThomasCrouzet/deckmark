@@ -152,6 +152,15 @@ test('permanent purge removes orphaned comments from storage and backups', async
 	});
 	await confirmDelete.getByRole('button', { name: 'Supprimer la sélection', exact: true }).click();
 	await expect(confirmDelete).toBeHidden();
+	// The previous dialog returns focus to the library after the confirmation
+	// closes. Wait for the removal and for that focus before Escape can close it.
+	await expect(
+		library.getByRole('checkbox', { name: `Sélectionner ${name}`, exact: true })
+	).toHaveCount(0);
+	await expect(library.locator('section')).toHaveAttribute('aria-busy', 'false');
+	await expect(
+		library.getByRole('textbox', { name: 'Filtrer par titre, nom de fichier ou tag' })
+	).toBeFocused();
 	await page.keyboard.press('Escape');
 	await expect(library).toBeHidden();
 
