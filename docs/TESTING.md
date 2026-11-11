@@ -705,7 +705,7 @@ replace a native Desktop check, and a native result does not replace a browser r
 The deployment workflow builds the root path for Cloudflare Pages and
 `/deckmark` for GitHub Pages. Both must produce a usable PWA with the correct
 service worker scope. `deploy` and `deploy-cloudflare` publish in parallel after
-the build, E2E and Lighthouse gates. The final `verify-public` job then checks
+the correctness, build, E2E and Lighthouse gates. The final `verify-public` job then checks
 both origins, so one stale origin fails the run.
 
 Build and serve the project-site path:

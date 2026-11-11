@@ -82,7 +82,7 @@ select a cheap route.
 | `build` (two matrix jobs) | `pages-config` | Production artifacts and bundle budgets |
 | `lighthouse` | `ci-tier`, `build` | Performance and accessibility gate |
 | `e2e` | `ci-tier`, `e2e-build`, `e2e-shard`, `e2e-manifest` | Required browser aggregate |
-| `deploy` and `deploy-cloudflare` | `build`, `e2e`, `lighthouse` (`deploy` also needs `check`) | Publication to both origins |
+| `deploy` and `deploy-cloudflare` | `check`, `build`, `e2e`, `lighthouse` | Publication to both origins |
 | `verify-public` | `deploy`, `deploy-cloudflare` | Public checks on both origins |
 
 `typecheck`, `lint`, `unit`, `pages-config` and both `build` matrix jobs have no
@@ -408,8 +408,8 @@ The current discovered suite, never the weights file, defines test membership.
 ## Deployment
 
 `deploy` publishes the Pages artifact and `deploy-cloudflare` publishes the root
-artifact from the same run. They start in parallel after `build`, `e2e` and
-`lighthouse`. Both require `contents: read`; only `deploy` writes Pages and takes
+artifact from the same run. They start in parallel after `check`, `build`, `e2e`
+and `lighthouse`. Both require `contents: read`; only `deploy` writes Pages and takes
 an OIDC token. `deploy-cloudflare` fails when `CLOUDFLARE_API_TOKEN` or
 `CLOUDFLARE_ACCOUNT_ID` is empty.
 
@@ -518,6 +518,10 @@ release caller requests them. `cli-verify` checks the run, source, version and
 target set. They remain run artifacts, not Desktop release assets. The Desktop
 channel contains four installers and `SHA256SUMS`. See
 [CLI-MCP-INSTALLATION.md](CLI-MCP-INSTALLATION.md#distribution-contract).
+
+If an older release asset has no REST digest, publication refuses to replace it.
+Do not bypass that refusal. A manual recovery run must select the source tag ref
+as well as pass the same tag in `release_tag`; selecting `main` is not equivalent.
 
 ## Verification and rollback
 
