@@ -87,5 +87,13 @@ export const projectFr: Record<ProjectMessageKey, string> = {
 	'projects.saved': 'Projet enregistré sur disque.',
 	'projects.refreshed': 'Projet actualisé depuis le disque.',
 	'projects.refreshedVerified':
-		'Projet actualisé et révisions du contenu vérifiées depuis le disque.'
+		'Projet actualisé et révisions du contenu vérifiées depuis le disque.',
+	'projects.missingOnDiskTitle': 'Absent du disque',
+	'projects.missingOnDiskMessage':
+		'{n} fichier(s) local(aux) n’ont pas de copie sur le disque. Les octets locaux et l’historique restent dans la bibliothèque.',
+	'projects.recreateOnDisk': 'Recréer sur le disque',
+	'projects.keepLocalCopy': 'Conserver la copie locale',
+	'projects.localOnly': 'Local uniquement',
+	'projects.recreated': '{path} recréé sur le disque.',
+	'projects.keptLocal': '{path} reste local uniquement. L’enregistrement ne le recrée pas.'
 };

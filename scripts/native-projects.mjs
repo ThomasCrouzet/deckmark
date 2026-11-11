@@ -698,6 +698,286 @@ export async function nativeProjects({
 		45_000
 	);
 
+	// External removals must stay visible, keep the local bytes, and survive a
+	// restart until the user reviews them. No review step may destroy data.
+	const removedCleanPath = join(fixtureRoot, 'notes', 'removed-clean.md');
+	const removedDirtyPath = join(fixtureRoot, 'notes', 'removed-dirty.md');
+	const removedAssetPath = join(fixtureRoot, 'images', 'removed.png');
+	const removedCleanContent = '# Removed clean\n';
+	const removedDirtyMarker = 'REMOVED_DIRTY_LOCAL_REVISION';
+	const removedAssetBytes = [137, 80, 78, 71, 21];
+	writeFileSync(removedCleanPath, removedCleanContent);
+	writeFileSync(removedDirtyPath, '# Removed dirty\n');
+	writeFileSync(removedAssetPath, Buffer.from(removedAssetBytes));
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await waitForProjectDocument('notes/removed-clean.md');
+	await waitForProjectDocument('notes/removed-dirty.md');
+	await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return state.assets.some(
+				(asset) => asset.projectId === uiProject.id && asset.path === 'images/removed.png'
+			);
+		},
+		'import removal fixture asset',
+		45_000
+	);
+
+	const missingPathsOf = () =>
+		execute(
+			`const section = document.querySelector('[data-native-project-missing]');
+			if (!section) return false;
+			return [...section.querySelectorAll('[data-native-missing-path]')]
+				.map(node => node.getAttribute('data-native-missing-path'))
+				.sort();`
+		);
+
+	// An external rename that keeps the exact bytes moves the existing local
+	// row instead of creating a second document.
+	const externalRenameSource = join(fixtureRoot, 'notes', 'external-rename.md');
+	const externalRenameTarget = join(fixtureRoot, 'notes', 'external-renamed.md');
+	writeFileSync(externalRenameSource, '# External rename\n');
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await waitForProjectDocument('notes/external-rename.md');
+	database = await readProjectDatabase();
+	const externalRenameBefore = database.documents.find(
+		(document) =>
+			document.projectId === uiProject.id && document.relativePath === 'notes/external-rename.md'
+	);
+	assert.ok(externalRenameBefore);
+	renameSync(externalRenameSource, externalRenameTarget);
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await waitForProjectDocument('notes/external-renamed.md');
+	database = await readProjectDatabase();
+	const externalRenameAfter = database.documents.find(
+		(document) =>
+			document.projectId === uiProject.id && document.relativePath === 'notes/external-renamed.md'
+	);
+	assert.equal(externalRenameAfter?.id, externalRenameBefore.id);
+	assert.equal(
+		database.documents.some(
+			(document) =>
+				document.projectId === uiProject.id && document.relativePath === 'notes/external-rename.md'
+		),
+		false
+	);
+	const missingAfterRename = await missingPathsOf();
+	assert.equal(
+		Array.isArray(missingAfterRename)
+			? missingAfterRename.includes('notes/external-rename.md')
+			: false,
+		false
+	);
+	record('External rename keeps one local document identity', {
+		id: externalRenameAfter?.id,
+		path: 'notes/external-renamed.md'
+	});
+
+	await openProjectDocument('notes/removed-dirty.md');
+	await until(
+		() =>
+			execute(
+				`const button = document.querySelector('button[data-mode="source"]');
+				if (!button || !button.getClientRects().length) return false;
+				button.click(); return true;`
+			),
+		'open removal fixture source editor',
+		45_000
+	);
+	await until(
+		() =>
+			execute(
+				`const editor = document.querySelector('.cm-content');
+				if (!editor || !editor.getClientRects().length) return false;
+				editor.focus();
+				const range = document.createRange(); range.selectNodeContents(editor);
+				const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+				return document.execCommand('insertText', false, arguments[0]);`,
+				[`# ${removedDirtyMarker}\n\nKept locally after the disk deletion.\n`]
+			),
+		'edit removal fixture document',
+		45_000
+	);
+	const removedDirtyLocal = await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return state.documents.find(
+				(document) =>
+					document.projectId === uiProject.id &&
+					document.relativePath === 'notes/removed-dirty.md' &&
+					document.content.includes(removedDirtyMarker)
+			)?.content;
+		},
+		'durable removal fixture edit',
+		45_000
+	);
+
+	rmSync(removedCleanPath);
+	rmSync(removedDirtyPath);
+	rmSync(removedAssetPath);
+	await openProjectsPanel();
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	const removedPaths = ['images/removed.png', 'notes/removed-clean.md', 'notes/removed-dirty.md'];
+	const missingPaths = await until(
+		async () => {
+			const paths = await missingPathsOf();
+			return Array.isArray(paths) && removedPaths.every((path) => paths.includes(path))
+				? paths
+				: false;
+		},
+		'missing disk paths',
+		45_000
+	);
+	for (const path of removedPaths) assert.ok(missingPaths.includes(path), path);
+	await waitForProjectsIdle();
+	database = await readProjectDatabase();
+	assert.equal(
+		database.documents.find(
+			(document) =>
+				document.projectId === uiProject.id && document.relativePath === 'notes/removed-clean.md'
+		)?.content,
+		removedCleanContent
+	);
+	assert.equal(
+		database.documents.find(
+			(document) =>
+				document.projectId === uiProject.id && document.relativePath === 'notes/removed-dirty.md'
+		)?.content,
+		removedDirtyLocal
+	);
+	assert.equal(
+		database.assets
+			.find((asset) => asset.projectId === uiProject.id && asset.path === 'images/removed.png')
+			?.bytes.join(','),
+		removedAssetBytes.join(',')
+	);
+	record('External disk removals keep local bytes and report exact paths', {
+		paths: missingPaths,
+		dirtyContentRetained: true,
+		assetBytesRetained: removedAssetBytes
+	});
+
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	await waitForProjectsIdle();
+	const repeatedMissing = (await missingPathsOf()) || [];
+	for (const path of removedPaths) assert.ok(repeatedMissing.includes(path), path);
+	record('A repeated refresh keeps the unresolved removal review', { paths: removedPaths });
+
+	const clickMissingAction = async (relativePath, label) => {
+		await until(
+			() =>
+				execute(
+					`const row = document.querySelector('[data-native-missing-path="' + arguments[0] + '"]');
+					if (!row) return false;
+					const button = [...row.querySelectorAll('button')].find(node => node.textContent.trim() === arguments[1]);
+					if (!button || button.disabled || !button.getClientRects().length) return false;
+					button.click(); return true;`,
+					[relativePath, label]
+				),
+			`missing action ${label} for ${relativePath}`,
+			45_000
+		);
+	};
+
+	await restart();
+	await openProjectsPanel();
+	const missingAfterRestart = await until(missingPathsOf, 'missing paths after restart', 45_000);
+	for (const path of removedPaths) assert.ok(missingAfterRestart.includes(path), path);
+	record('The removal review survives an application restart', { paths: removedPaths });
+
+	await execute(
+		`const original = IDBObjectStore.prototype.put;
+		window.__restoreMissingReviewPut = () => { IDBObjectStore.prototype.put = original; };
+		IDBObjectStore.prototype.put = function (value, key) {
+			const row = Array.isArray(value) ? value[0] : value;
+			if (row && typeof row === 'object' && typeof row.key === 'string' &&
+				row.key.startsWith('project-native-missing:'))
+				throw new DOMException('Injected removal review write failure', 'QuotaExceededError');
+			return key === undefined ? original.call(this, value) : original.call(this, value, key);
+		};
+		return true;`
+	);
+	await clickMissingAction('notes/removed-clean.md', 'Recréer sur le disque');
+	await until(
+		() => execute(`return !!document.querySelector('[role="alert"]');`),
+		'failed removal review write',
+		45_000
+	);
+	await execute('window.__restoreMissingReviewPut?.(); return true;');
+	assert.equal(readFileSync(removedCleanPath, 'utf8'), removedCleanContent);
+	const failedMissing =
+		(await until(missingPathsOf, 'missing paths after a failed review write', 45_000)) || [];
+	for (const path of removedPaths) assert.ok(failedMissing.includes(path), path);
+	record('A failed resolution write keeps the review retryable', {
+		path: 'notes/removed-clean.md',
+		diskBytesWritten: true,
+		reviewRetained: true
+	});
+
+	// The disk file now exists, so the next refresh closes that review without
+	// a second write. The remaining two entries still need an explicit choice.
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await until(
+		async () => {
+			const paths = await missingPathsOf();
+			const ours = Array.isArray(paths) ? paths.filter((path) => removedPaths.includes(path)) : [];
+			return ours.length === 2 ? ours : false;
+		},
+		'restored path closes its removal review',
+		45_000
+	);
+	await clickMissingAction('images/removed.png', 'Recréer sur le disque');
+	await until(
+		async () => {
+			const paths = await missingPathsOf();
+			const ours = Array.isArray(paths) ? paths.filter((path) => removedPaths.includes(path)) : [];
+			return ours.length === 1 ? ours : false;
+		},
+		'recreated asset leaves the review',
+		45_000
+	);
+	assert.deepEqual([...readFileSync(removedAssetPath)], removedAssetBytes);
+	await waitForProjectsIdle();
+
+	await clickMissingAction('notes/removed-dirty.md', 'Conserver la copie locale');
+	await until(
+		() =>
+			execute(
+				`const row = document.querySelector('[data-native-missing-path="notes/removed-dirty.md"]');
+				return !!row?.querySelector('[data-native-missing-local-only]');`
+			),
+		'retained document shows its local-only state',
+		45_000
+	);
+	const remainingPaths = (await missingPathsOf()) || [];
+	for (const path of remainingPaths.filter((path) => path !== 'notes/removed-dirty.md')) {
+		const localOnly = () =>
+			execute(
+				`const row = document.querySelector('[data-native-missing-path="' + arguments[0] + '"]');
+				return !!row?.querySelector('[data-native-missing-local-only]');`,
+				[path]
+			);
+		if (!(await localOnly())) await clickMissingAction(path, 'Conserver la copie locale');
+		await until(localOnly, `retained extra path ${path}`, 45_000);
+	}
+	await clickVisibleText('button', 'Enregistrer le projet sur disque');
+	await waitForProjectsIdle();
+	assert.equal(existsSync(removedDirtyPath), false);
+	database = await readProjectDatabase();
+	assert.equal(
+		database.documents.find(
+			(document) =>
+				document.projectId === uiProject.id && document.relativePath === 'notes/removed-dirty.md'
+		)?.content,
+		removedDirtyLocal
+	);
+	record('Keep local retains exact bytes and Save does not recreate the path', {
+		path: 'notes/removed-dirty.md',
+		diskPathExists: existsSync(removedDirtyPath),
+		localContentRetained: true
+	});
+
 	await openProjectDocument('notes/start.md');
 	await until(
 		() =>
@@ -846,6 +1126,185 @@ export async function nativeProjects({
 		path: 'images/pixel.png',
 		bytes: refreshedAssetBytes
 	});
+
+	// Issue #351: a no-change refresh must not hydrate document bodies, must not
+	// call project_read, and must not rewrite the full baseline once per entry.
+	// The native smoke build counts project_manifest and project_read calls; the
+	// IndexedDB wrapper counts revision baseline writes.
+	await execute(
+		`const originalPut = IDBObjectStore.prototype.put;
+		window.__restoreProjectPerfPut = () => { IDBObjectStore.prototype.put = originalPut; };
+		window.__baselineWrites = [];
+		IDBObjectStore.prototype.put = function (value, key) {
+		  const row = Array.isArray(value) ? value[0] : value;
+		  if (row && typeof row === 'object' && typeof row.key === 'string' &&
+		      row.key.startsWith('project-native-revisions:'))
+		    window.__baselineWrites.push(row.key);
+		  return key === undefined ? originalPut.call(this, value) : originalPut.call(this, value, key);
+		};
+		return true;`
+	);
+	const readSmokeCalls = () =>
+		executeAsync(
+			`const done = arguments[arguments.length - 1];
+			window.__TAURI__.core.invoke('project_smoke_calls').then(
+			  value => done(value),
+			  error => done({ error: String(error) })
+			);`
+		);
+	const resetBaselineWrites = () => execute('window.__baselineWrites = []; return true;');
+	const refreshWithPerf = async (label) => {
+		await resetBaselineWrites();
+		const before = await readSmokeCalls();
+		assert.equal(before.error, undefined, before.error);
+		const startedAt = performance.now();
+		await clickVisibleText('button', 'Actualiser depuis le disque');
+		const deadline = Date.now() + 120_000;
+		let after = null;
+		let state = null;
+		while (Date.now() < deadline) {
+			after = await readSmokeCalls();
+			state = await execute(
+				`return {
+				  busy: !!document.querySelector('[data-testid="projects-busy"]'),
+				  alert: document.querySelector('[role="alert"]')?.textContent?.trim() ?? null
+				};`
+			);
+			if (after.manifest > before.manifest && !state.busy) break;
+			if (state.alert) throw new Error(`${label} failed: ${state.alert}`);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+		if (!after || after.manifest <= before.manifest || state?.busy)
+			throw new Error(
+				`${label}: calls=${JSON.stringify({ before, after })} state=${JSON.stringify(state)}`
+			);
+		const elapsed = Number((performance.now() - startedAt).toFixed(1));
+		const baselineWrites = await execute('return (window.__baselineWrites ?? []).length;');
+		return {
+			manifestCalls: after.manifest - before.manifest,
+			reads: after.read - before.read,
+			baselineWrites,
+			elapsed
+		};
+	};
+	const quietRefreshSamples = [];
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		const perf = await refreshWithPerf(`quiet refresh ${attempt + 1}`);
+		assert.equal(perf.reads, 0, 'a no-change refresh must not call project_read');
+		assert.ok(perf.manifestCalls >= 1);
+		assert.equal(perf.baselineWrites, 0, 'a no-change refresh must not rewrite the baseline');
+		quietRefreshSamples.push(perf);
+	}
+	record('No-change refresh skips content reads and baseline rewrites', {
+		samples: quietRefreshSamples,
+		p50Ms: quietRefreshSamples.map((sample) => sample.elapsed).sort((a, b) => a - b)[1]
+	});
+
+	const perfNotePath = join(fixtureRoot, 'notes', 'ui-renamed.md');
+	const perfNoteContent = '# PERF_REFRESH_ONE_FILE\n';
+	writeFileSync(perfNotePath, perfNoteContent);
+	const oneFileRefresh = await refreshWithPerf('single-file refresh');
+	await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return state.documents.some(
+				(document) =>
+					document.projectId === uiProject.id &&
+					document.relativePath === 'notes/ui-renamed.md' &&
+					document.content === perfNoteContent
+			);
+		},
+		'single-file refresh bytes',
+		45_000
+	);
+	assert.ok(
+		oneFileRefresh.reads >= 1 && oneFileRefresh.reads <= 2,
+		`a single changed file reads only that entry, got ${oneFileRefresh.reads}`
+	);
+	assert.ok(oneFileRefresh.baselineWrites <= 1, 'the baseline write is batched');
+	record('Single-file refresh reads one entry and batches the baseline', {
+		reads: oneFileRefresh.reads,
+		baselineWrites: oneFileRefresh.baselineWrites
+	});
+
+	mkdirSync(join(fixtureRoot, 'perf'), { recursive: true });
+	for (let index = 0; index < 5; index += 1)
+		writeFileSync(join(fixtureRoot, 'perf', `note-${index}.md`), `# Batch ${index}\n`);
+	const batchRefresh = await refreshWithPerf('new-file batch refresh');
+	await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return state.documents.filter((document) => document.projectId === uiProject.id).length >= 6;
+		},
+		'new-file batch import',
+		45_000
+	);
+	assert.equal(batchRefresh.reads, 5, 'a new-file refresh reads only the new entries');
+	assert.ok(batchRefresh.baselineWrites <= 1, 'new entries flush one baseline batch');
+	record('New-file refresh reads only the new entries', {
+		reads: batchRefresh.reads,
+		baselineWrites: batchRefresh.baselineWrites
+	});
+
+	mkdirSync(join(fixtureRoot, 'perf', 'bulk'), { recursive: true });
+	for (let index = 0; index < 600; index += 1)
+		writeFileSync(
+			join(fixtureRoot, 'perf', 'bulk', `note-${String(index).padStart(4, '0')}.md`),
+			`# Bulk ${index}\n\nRepresentative project content. `.repeat(4)
+		);
+	await refreshWithPerf('600-document import');
+	await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return (
+				state.documents.filter((document) => document.projectId === uiProject.id).length >= 600
+			);
+		},
+		'600-document import',
+		120_000
+	);
+	const payloadProbe = await executeAsync(
+		`const [rootId] = arguments; const done = arguments[arguments.length - 1];
+		window.__TAURI__.core.invoke('project_open_root', { rootId }).then(
+		  async (snapshot) => {
+		    const manifest = await window.__TAURI__.core.invoke('project_manifest', {
+		      token: snapshot.token,
+		      verified: true
+		    });
+		    const full = await window.__TAURI__.core.invoke('project_refresh', {
+		      token: snapshot.token
+		    });
+		    done({
+		      entries: manifest.entries.length,
+		      manifestBytes: JSON.stringify(manifest).length,
+		      snapshotBytes: JSON.stringify(full).length
+		    });
+		  },
+		  error => done({ error: String(error) })
+		);`,
+		[uiProject.nativeRootId]
+	);
+	assert.equal(payloadProbe.error, undefined, payloadProbe.error);
+	assert.ok(payloadProbe.entries >= 600);
+	assert.ok(payloadProbe.manifestBytes < payloadProbe.snapshotBytes);
+	const bulkSamples = [];
+	for (let attempt = 0; attempt < 5; attempt += 1) {
+		const perf = await refreshWithPerf(`600-document quiet refresh ${attempt + 1}`);
+		assert.equal(perf.reads, 0, 'a 600-document no-change refresh must not call project_read');
+		assert.equal(perf.baselineWrites, 0);
+		bulkSamples.push(perf);
+	}
+	const bulkDurations = bulkSamples.map((sample) => sample.elapsed).sort((a, b) => a - b);
+	record('600-document no-change refresh stays metadata-only', {
+		documents: payloadProbe.entries,
+		reads: 0,
+		baselineWrites: 0,
+		p50Ms: bulkDurations[2],
+		p95Ms: bulkDurations[4],
+		manifestBytes: payloadProbe.manifestBytes,
+		snapshotBytes: payloadProbe.snapshotBytes
+	});
+	await execute('window.__restoreProjectPerfPut?.(); return true;');
 
 	const registryBackup = `${projectRegistry}.backup`;
 	renameSync(projectRegistry, registryBackup);

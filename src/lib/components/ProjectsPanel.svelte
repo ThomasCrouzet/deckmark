@@ -25,13 +25,16 @@
 	import { projectExplorer } from '#lib/project-explorer.svelte.js';
 	import {
 		disconnectNativeProject,
+		listNativeProjectMissingEntries,
 		NativeProjectOperationError,
 		nativeProjectsAvailable,
 		pickAndImportNativeProject,
 		refreshNativeProjectFromDisk,
 		reopenNativeProjects,
+		resolveNativeProjectMissingEntry,
 		saveNativeProject,
-		type NativeProjectFailure
+		type NativeProjectFailure,
+		type NativeProjectMissingEntry
 	} from '#lib/projects-native.js';
 	import { gitActionLabel, loadGitPanel } from '#lib/git-panel.js';
 
@@ -50,6 +53,7 @@
 	let error = $state(false);
 	let issues = $state<ProjectLinkIssue[] | null>(null);
 	let nativeFailures = $state<NativeProjectFailure[]>([]);
+	let missing = $state<NativeProjectMissingEntry[]>([]);
 	let migration = $state<MigrationReport | null>(null);
 	let gitOpen = $state(false);
 	let zipInput: HTMLInputElement;
@@ -75,6 +79,7 @@
 	async function load() {
 		projects = await db.projects.orderBy('updatedAt').reverse().toArray();
 		if (!projects.some((project) => project.id === selected)) selected = projects[0]?.id ?? null;
+		missing = selected ? await listNativeProjectMissingEntries(selected) : [];
 		await projectExplorer.load();
 	}
 
@@ -89,7 +94,10 @@
 			await load();
 		} catch (failure) {
 			error = true;
-			if (failure instanceof NativeProjectOperationError) nativeFailures = failure.report.failed;
+			if (failure instanceof NativeProjectOperationError) {
+				nativeFailures = failure.report.failed;
+				missing = failure.report.missing;
+			}
 			reportError('project operation', failure);
 		} finally {
 			busy = false;
@@ -126,8 +134,23 @@
 		const projectId = selected;
 		if (!projectId) return;
 		await run(async () => {
-			await refreshNativeProjectFromDisk(projectId, undefined, { authoritative: true });
-			notify.success(t('projects.refreshedVerified'));
+			const report = await refreshNativeProjectFromDisk(projectId, undefined, {
+				authoritative: true
+			});
+			missing = report.missing;
+			if (report.missing.length)
+				notify.info(t('projects.missingOnDiskMessage', { n: report.missing.length }));
+			else notify.success(t('projects.refreshedVerified'));
+		});
+	}
+
+	async function resolveMissing(path: string, resolution: 'recreate' | 'retain') {
+		const projectId = selected;
+		if (!projectId) return;
+		await run(async () => {
+			missing = await resolveNativeProjectMissingEntry(projectId, path, resolution);
+			if (resolution === 'recreate') notify.success(t('projects.recreated', { path }));
+			else notify.success(t('projects.keptLocal', { path }));
 		});
 	}
 
@@ -312,6 +335,40 @@
 					<li class="break-words">{failure.path}: {failure.message}</li>
 				{/each}
 			</ul>
+		{/if}
+		{#if missing.length}
+			<section
+				data-native-project-missing
+				role="status"
+				aria-label={t('projects.missingOnDiskTitle')}
+				class="mx-3 my-3 rounded border border-border p-3 text-sm"
+			>
+				<strong>{t('projects.missingOnDiskTitle')}</strong>
+				<p class="text-fg-muted">{t('projects.missingOnDiskMessage', { n: missing.length })}</p>
+				<ul class="mt-2 space-y-2">
+					{#each missing as entry (entry.path)}
+						<li
+							data-native-missing-path={entry.path}
+							class="flex flex-wrap items-center gap-2 break-words"
+						>
+							<span class="min-w-0 flex-1">{entry.path}</span>
+							{#if entry.localOnly}
+								<span data-native-missing-local-only class="text-fg-muted"
+									>{t('projects.localOnly')}</span
+								>
+							{/if}
+							<button disabled={busy} onclick={() => resolveMissing(entry.path, 'recreate')}
+								>{t('projects.recreateOnDisk')}</button
+							>
+							{#if !entry.localOnly}
+								<button disabled={busy} onclick={() => resolveMissing(entry.path, 'retain')}
+									>{t('projects.keepLocalCopy')}</button
+								>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			</section>
 		{/if}
 		{#if busy}<p role="status" data-testid="projects-busy" class="p-3 text-sm text-fg-muted">
 				{t('projects.busy')}
