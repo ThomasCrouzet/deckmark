@@ -51,19 +51,73 @@
 				node?.nodeType === Node.ELEMENT_NODE ? (node as Element) : node?.parentElement;
 			return element?.closest('.ProseMirror, .cm-content, .mdsh-preview') ?? null;
 		};
-		const onSelectionChange = () => {
+		const isVisible = (root: Element): boolean =>
+			typeof root.checkVisibility === 'function' ? root.checkVisibility() : true;
+		// A short selection is cheap to read. A long one is read after a quiet
+		// delay, because a drag can emit many events and a large Read selection
+		// costs a full text copy on each one.
+		const SMALL_SELECTION = 16 * 1024;
+		const SELECTION_DELAY = 50;
+		const shortSelectionLength = (selection: Selection): number | null => {
+			const node = selection.anchorNode;
+			if (!node || node !== selection.focusNode || node.nodeType !== Node.TEXT_NODE) return null;
+			return Math.abs(selection.focusOffset - selection.anchorOffset);
+		};
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		let anchorNode: Node | null = null;
+		let focusNode: Node | null = null;
+		let anchorOffset = -1;
+		let focusOffset = -1;
+		const publishSelection = (selection: Selection) => {
+			const start = rootOf(selection.anchorNode);
+			const end = rootOf(selection.focusNode);
+			selectedText = start && start === end && isVisible(start) ? selection.toString() : '';
+		};
+		const readSelection = () => {
+			timer = null;
 			const selection = document.getSelection();
 			if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
 				selectedText = '';
 				return;
 			}
-			const start = rootOf(selection.anchorNode);
-			const end = rootOf(selection.focusNode);
-			selectedText = start && start === end ? selection.toString() : '';
+			publishSelection(selection);
+		};
+		const onSelectionChange = () => {
+			const selection = document.getSelection();
+			if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+				anchorNode = null;
+				focusNode = null;
+				anchorOffset = -1;
+				focusOffset = -1;
+				selectedText = '';
+				return;
+			}
+			if (
+				selection.anchorNode === anchorNode &&
+				selection.focusNode === focusNode &&
+				selection.anchorOffset === anchorOffset &&
+				selection.focusOffset === focusOffset
+			)
+				return;
+			anchorNode = selection.anchorNode;
+			focusNode = selection.focusNode;
+			anchorOffset = selection.anchorOffset;
+			focusOffset = selection.focusOffset;
+			const length = shortSelectionLength(selection);
+			if (length !== null && length < SMALL_SELECTION) {
+				if (timer) clearTimeout(timer);
+				timer = null;
+				publishSelection(selection);
+				return;
+			}
+			// Every event restarts the delay, so a drag reads once after it stops.
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(readSelection, SELECTION_DELAY);
 		};
 		document.addEventListener('selectionchange', onSelectionChange);
 		return () => {
 			clearInterval(id);
+			if (timer) clearTimeout(timer);
 			document.removeEventListener('selectionchange', onSelectionChange);
 		};
 	});
@@ -92,7 +146,7 @@
 				if (kind === 'note' && active) runtime.setDocument(active.id, active.content);
 				if (kind === 'note' && selectedText)
 					void runtime.selection(selectedText).then((value) => {
-						if (!disposed) selectionStats = value;
+						if (!disposed && value) selectionStats = value;
 					});
 				else selectionStats = null;
 				return runtime;
@@ -136,7 +190,7 @@
 			if (job !== selectionJob || disposed) return;
 			if (runtime)
 				void runtime.selection(text).then((value) => {
-					if (job === selectionJob && !disposed) selectionStats = value;
+					if (job === selectionJob && !disposed && value) selectionStats = value;
 				});
 			else void getRuntime();
 		};

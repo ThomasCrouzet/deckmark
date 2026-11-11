@@ -3,7 +3,7 @@ import { createFirstFile, resetAppState, seedFiles, writeSourceContent } from '.
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { baselineStats, statsFixture } from './fixtures/stats';
+import { baselineSelection, baselineStats, statsFixture } from './fixtures/stats';
 import { enableTypewriter, installTypewriterProbe } from './typewriter-helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
@@ -455,6 +455,284 @@ test('stats reject superseded large-note edits after a file switch', async ({ pa
 	await expect(status).toContainText(`${expected.words} mots`);
 	await info.attach('stats-superseded.json', {
 		body: JSON.stringify({ expected, status: await status.innerText(), smallNotePreserved: true }),
+		contentType: 'application/json'
+	});
+});
+
+type StatsWorkerPost = {
+	url: string;
+	mode: string;
+	text: number | null;
+	hasImage: boolean;
+	patch: number | null;
+	at: number;
+};
+
+// Record statistics Worker messages. A test can hold a document message, so the
+// pending state and the Worker round trip are observable without a timing budget.
+async function installStatsWorkerProbe(page: Page) {
+	await page.addInitScript(() => {
+		const posts: StatsWorkerPost[] = [];
+		const held: Array<() => void> = [];
+		const probe = { posts, hold: false, release: () => {} };
+		(
+			window as unknown as {
+				__statsWorkerProbe: { posts: StatsWorkerPost[]; hold: boolean; release: () => void };
+			}
+		).__statsWorkerProbe = probe;
+		probe.release = () => {
+			probe.hold = false;
+			for (const send of held.splice(0)) send();
+		};
+		const NativeWorker = window.Worker;
+		class ProbedWorker extends NativeWorker {
+			workerUrl = '';
+
+			constructor(url: string | URL, options?: WorkerOptions) {
+				super(url, options);
+				this.workerUrl = String(url);
+			}
+
+			postMessage(message: unknown, transfer?: Transferable[]) {
+				const data = message as { text?: unknown; patch?: unknown; mode?: unknown };
+				const isDocument = !data || typeof data.mode !== 'string';
+				if (data && typeof data === 'object' && ('text' in data || 'patch' in data)) {
+					posts.push({
+						url: this.workerUrl,
+						mode: isDocument ? 'document' : (data.mode as string),
+						text: typeof data.text === 'string' ? data.text.length : null,
+						hasImage: typeof data.text === 'string' && data.text.includes('data:image'),
+						patch:
+							data.patch && typeof (data.patch as { insert?: unknown }).insert === 'string'
+								? (data.patch as { insert: string }).insert.length
+								: null,
+						at: performance.now()
+					});
+				}
+				const send = () => {
+					try {
+						if (transfer) NativeWorker.prototype.postMessage.call(this, message, transfer);
+						else NativeWorker.prototype.postMessage.call(this, message);
+					} catch {
+						// A terminated Worker rejects a late message.
+					}
+				};
+				if (probe.hold && isDocument && this.workerUrl.includes('stats.worker')) held.push(send);
+				else send();
+			}
+		}
+		Object.defineProperty(window, 'Worker', { value: ProbedWorker, configurable: true });
+	});
+}
+
+async function holdStatsWorkerMessages(page: Page, hold: boolean) {
+	await page.evaluate((hold) => {
+		const probe = (
+			window as unknown as {
+				__statsWorkerProbe: { hold: boolean; release: () => void };
+			}
+		).__statsWorkerProbe;
+		if (hold) probe.hold = true;
+		else probe.release();
+	}, hold);
+}
+
+async function statsWorkerPosts(page: Page): Promise<StatsWorkerPost[]> {
+	return page.evaluate(() => {
+		const probe = (window as unknown as { __statsWorkerProbe?: { posts: StatsWorkerPost[] } })
+			.__statsWorkerProbe;
+		return (probe?.posts ?? []).filter((post) => post.url.includes('stats.worker'));
+	});
+}
+
+function imageHeavyFixture(bytes: number): string {
+	const prose = Array.from(
+		{ length: Math.ceil(bytes / 90) },
+		(_, index) => `Paragraph ${index} has ordinary words for the counter.`
+	).join('\n\n');
+	const imageBytes = 120_000;
+	const images = Array.from(
+		{ length: 6 },
+		(_, index) => `![shot ${index}](data:image/png;base64,${'A'.repeat(imageBytes)})`
+	).join('\n\n');
+	return `# Image note\n\n${prose}\n\n${images}\n`;
+}
+
+test('large note switches wait for the statistics Worker', async ({ page }, info) => {
+	test.setTimeout(120_000);
+	await installStatsWorkerProbe(page);
+	await resetAppState(page);
+	const first = statsFixture(1_000_000, 'multiline');
+	const second = statsFixture(1_000_000, 'single-line');
+	await seedStatsFiles(page, [
+		{ name: 'Stats first large', content: first },
+		{ name: 'Stats second large', content: second }
+	]);
+	const status = page.getByTestId('document-stats');
+	await expect(status).toContainText(`${baselineStats(second).words} mots`, { timeout: 30_000 });
+	const before = await statsWorkerPosts(page);
+	await holdStatsWorkerMessages(page, true);
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^Stats first large/ })
+		.first()
+		.click();
+	await expect(status.locator('[aria-busy="true"]')).toBeVisible();
+	const during = await statsWorkerPosts(page);
+	expect(during.length).toBeGreaterThan(before.length);
+	const posted = during.at(-1)!;
+	expect(posted.mode).toBe('document');
+	expect(posted.text).toBe(first.length);
+	const expected = baselineStats(first);
+	await holdStatsWorkerMessages(page, false);
+	await expect(status).toContainText(`${expected.words} mots`, { timeout: 30_000 });
+	await expect(status).toContainText(`${expected.chars} car.`);
+	await info.attach('stats-switch-worker.json', {
+		body: JSON.stringify(
+			{
+				expected,
+				posts: during,
+				status: await status.innerText(),
+				method:
+					'The probe holds the switch document message in window.Worker; the pending status is read before release. No timing budget is asserted.'
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
+test('image-heavy edits send only the changed span to the statistics Worker', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await installStatsWorkerProbe(page);
+	await resetAppState(page);
+	const content = imageHeavyFixture(400_000);
+	await seedStatsFiles(page, [{ name: 'Stats images', content }]);
+	const status = page.getByTestId('document-stats');
+	await expect(status).toContainText(`${baselineStats(content).words} mots`, { timeout: 30_000 });
+	const source = page.locator('.cm-content').first();
+	await source.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText(' extra words');
+	const edited = content + ' extra words';
+	const expected = baselineStats(edited);
+	await expect(status).toContainText(`${expected.chars} car.`, { timeout: 30_000 });
+	await expect(status).toContainText(`${expected.words} mots`);
+	await expect(status).toContainText(`${expected.lines} lignes`);
+	const posts = await statsWorkerPosts(page);
+	const documents = posts.filter((post) => post.mode === 'document');
+	expect(documents.length).toBeGreaterThanOrEqual(2);
+	const first = documents[0]!;
+	expect(first.text).toBe(content.length);
+	expect(first.hasImage).toBe(true);
+	const updates = documents.slice(1);
+	expect(
+		updates.every((post) => post.text === null),
+		'no full document copy after the baseline'
+	).toBe(true);
+	expect(
+		updates.every((post) => post.hasImage === false),
+		'no Base64 image payload after the baseline'
+	).toBe(true);
+	expect(
+		updates.every((post) => (post.patch ?? Number.POSITIVE_INFINITY) < 1024),
+		'only the edited span is transferred'
+	).toBe(true);
+	await info.attach('stats-image-delta.json', {
+		body: JSON.stringify(
+			{
+				contentBytes: content.length,
+				base64Bytes: content.length - content.replace(/data:image[^)]*/g, '').length,
+				expected,
+				posts,
+				status: await status.innerText()
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
+test('selection storms read a long selection once per frame', async ({ page }, info) => {
+	test.setTimeout(120_000);
+	await page.addInitScript(() => {
+		const probe = { toStringCalls: 0 };
+		(window as unknown as { __selectionProbe: { toStringCalls: number } }).__selectionProbe = probe;
+		const original = Selection.prototype.toString;
+		Selection.prototype.toString = function () {
+			probe.toStringCalls += 1;
+			return original.call(this);
+		};
+	});
+	await resetAppState(page);
+	const content = statsFixture(400_000, 'single-line');
+	await seedStatsFiles(page, [{ name: 'Stats selection', content }]);
+	await page.locator('button[data-mode="read"]').click();
+	await page
+		.getByRole('button', { name: 'Afficher le document' })
+		.click({ timeout: 5000 })
+		.catch(() => {});
+	const paragraph = page.locator('.mdsh-preview p').first();
+	await expect(paragraph).toBeVisible({ timeout: 30_000 });
+	const text = await paragraph.evaluate((element) => element.textContent ?? '');
+	expect(text.length).toBeGreaterThan(256 * 1024);
+	const sample = await page.evaluate((length) => {
+		const probe = (window as unknown as { __selectionProbe: { toStringCalls: number } })
+			.__selectionProbe;
+		const node = document.querySelector('.mdsh-preview p')?.firstChild;
+		if (!node || node.nodeType !== Node.TEXT_NODE) throw new Error('No preview text node');
+		const selection = window.getSelection();
+		if (!selection) throw new Error('No selection');
+		const range = document.createRange();
+		const before = probe.toStringCalls;
+		const limit = Math.min(length, node.length);
+		let lastEnd = 0;
+		for (let index = 0; index < 200; index += 1) {
+			lastEnd = limit - (index % 2);
+			range.setStart(node, 0);
+			range.setEnd(node, lastEnd);
+			selection.removeAllRanges();
+			selection.addRange(range);
+			document.dispatchEvent(new Event('selectionchange'));
+		}
+		return {
+			before,
+			during: probe.toStringCalls,
+			lastEnd,
+			expectedText: node.textContent?.slice(0, lastEnd) ?? ''
+		};
+	}, text.length);
+	await expect(page.getByTestId('selection-stats')).toBeVisible({ timeout: 30_000 });
+	const after = await page.evaluate(
+		() =>
+			(window as unknown as { __selectionProbe: { toStringCalls: number } }).__selectionProbe
+				.toStringCalls
+	);
+	const expected = baselineSelection(sample.expectedText);
+	const status = page.getByTestId('document-stats');
+	await expect(status).toContainText(`${expected.words} mots`);
+	await expect(status).toContainText(`${expected.chars} car.`);
+	await expect(status).toContainText(`${expected.lines} lignes`);
+	expect(
+		after - sample.before,
+		'one Selection.toString per frame, not one per raw selectionchange event'
+	).toBeLessThanOrEqual(3);
+	await info.attach('stats-selection-storm.json', {
+		body: JSON.stringify(
+			{
+				selectionChars: sample.lastEnd,
+				toStringCallsDuringStorm: sample.during - sample.before,
+				toStringCallsAfterFrame: after - sample.before,
+				expected,
+				status: await status.innerText()
+			},
+			null,
+			2
+		),
 		contentType: 'application/json'
 	});
 });
