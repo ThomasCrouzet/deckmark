@@ -14,8 +14,7 @@
 	import { browser } from '$app/env';
 	import { t, i18n, LOCALES, LOCALE_LABELS } from '#lib/i18n/index.js';
 	import { IS_DESKTOP_EDITION } from '#lib/edition.js';
-	import { focusTrap } from '#lib/a11y/focusTrap.js';
-	import { visualViewportPanel } from '#lib/ui/visual-viewport.js';
+	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import { coreCommands } from '#lib/ui/commands.js';
 	import { keyboardStore, type ShortcutError } from '#lib/ui/keyboard.svelte.js';
 	import { formatKbd, isMac } from '#lib/platform.js';

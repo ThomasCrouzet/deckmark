@@ -814,7 +814,8 @@ are a lost query or selection after a viewport change, a dialog that leaves the
 visible region, a close control that is not reachable, and a changed desktop
 layout when no keyboard is present.
 
-`src/lib/ui/visual-viewport.ts` keeps the overlay inside the visual viewport.
+`src/lib/a11y/focusTrap.ts` exports the `visualViewportPanel` action that keeps
+the overlay inside the visual viewport.
 It applies only when the visual viewport is smaller than the layout viewport or
 moves from the top. It restores the CSS defaults when the viewport is unchanged.
 The action sets the overlay top and height and a panel maximum height from the

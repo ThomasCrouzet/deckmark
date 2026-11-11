@@ -33,8 +33,7 @@
 	import { filterCommands } from '#lib/palette-rank.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { aiStore } from '#lib/ai/store.svelte.js';
-	import { focusTrap } from '#lib/a11y/focusTrap.js';
-	import { visualViewportPanel } from '#lib/ui/visual-viewport.js';
+	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import { formatKbd } from '#lib/platform.js';
 	import {
 		FilePlus,
