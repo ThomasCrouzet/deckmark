@@ -793,6 +793,33 @@ serve the expected source and pass the startup, edit, and offline checks.
 See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the hosting contract and
 [DEVELOPMENT.md](DEVELOPMENT.md#web-publishing) for the maintainer steps.
 
+## Dialog visual viewport risks
+
+The search, command, settings and library dialogs use a fixed overlay. A fixed
+overlay follows the layout viewport, so an on-screen keyboard, browser chrome or
+pinch zoom can hide the focused field or the close control. The retained risks
+are a lost query or selection after a viewport change, a dialog that leaves the
+visible region, a close control that is not reachable, and a changed desktop
+layout when no keyboard is present.
+
+`src/lib/ui/visual-viewport.ts` keeps the overlay inside the visual viewport.
+It applies only when the visual viewport is smaller than the layout viewport or
+moves from the top. It restores the CSS defaults when the viewport is unchanged.
+The action sets the overlay top and height and a panel maximum height from the
+visible height and the overlay padding.
+
+`e2e/dialog-visual-viewport.spec.ts` replaces `window.visualViewport` before the
+application starts and moves or shrinks it for all four dialogs. It checks the
+dialog panel, the focused field, the close control, the query, the input
+selection and the dialog scroll. It also checks that a normal viewport keeps the
+CSS defaults. This is a simulation and does not prove a physical iOS keyboard,
+Safari viewport panning, VoiceOver output or a native WebView.
+
+Run `npx playwright test e2e/dialog-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep `visual-viewport-dialogs.json` with the source revision, browser version,
+command and the viewport cases. Physical iPhone Safari in tab and PWA mode, and
+iPad Safari in portrait and landscape, remain required evidence.
+
 ## Version 2.0 project risks
 
 At native 200% browser zoom in a 320 by 844 viewport, save-status text can wrap

@@ -15,6 +15,7 @@
 	import type { SearchRequest, SearchResponse } from '#lib/workers/search.worker.js';
 	import { corpusFingerprint, SEARCH_MAX_HITS } from '#lib/search-core.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { visualViewportPanel } from '#lib/ui/visual-viewport.js';
 	import {
 		Search,
 		X,
@@ -547,6 +548,7 @@
 		aria-hidden={promptStore.open ? 'true' : undefined}
 		tabindex="-1"
 		use:focusTrap
+		use:visualViewportPanel
 	>
 		<div
 			class="mdsh-dialog-panel flex w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border

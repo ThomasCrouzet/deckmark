@@ -5,6 +5,7 @@
 	import { t, i18n } from '#lib/i18n/index.js';
 	import { normalizeCommandSearch } from '#lib/ui/commands.js';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { visualViewportPanel } from '#lib/ui/visual-viewport.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
 	import { X, Search, Trash2, FileText, Presentation, Code2, Image } from '@lucide/svelte';
 	import Toasts from './Toasts.svelte';
@@ -109,6 +110,7 @@
 	tabindex="-1"
 	bind:this={root}
 	use:focusTrap
+	use:visualViewportPanel
 	onclick={(event) => {
 		if (event.target === event.currentTarget && !filesStore.trashBusy) onClose();
 	}}
