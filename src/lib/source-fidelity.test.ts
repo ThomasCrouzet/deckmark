@@ -302,6 +302,33 @@ describe('bounded paragraph reconciliation', () => {
 		expect(Math.max(...parsed), 'the hint must keep parser input local').toBeLessThan(64 * 1024);
 	});
 
+	it('keeps a trailing whitespace insertion on the scoped path', () => {
+		const source = 'First.\n\n![Figure](data:image/png;base64,AAAA)\n';
+		const { fidelity, baseline } = observed(source);
+		const point = baseline.length - 1;
+		const next = `${baseline.slice(0, point)}\n\n${baseline.slice(point)}`;
+		const counters: string[] = [];
+		const observeCounter = (event: Event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+			if (detail.kind === 'counter') counters.push(detail.name);
+		};
+		window.addEventListener('deckmark:editor-perf', observeCounter);
+		try {
+			expect(
+				fidelity.restore(next, true, {
+					previousFrom: point,
+					previousTo: point,
+					nextFrom: point,
+					nextTo: point + 2
+				})
+			).toBe(`${source.slice(0, point)}\n\n${source.slice(point)}`);
+		} finally {
+			window.removeEventListener('deckmark:editor-perf', observeCounter);
+		}
+		expect(counters).toContain('sourceFidelityScopedHint');
+		expect(counters).not.toContain('sourceFidelityFull');
+	});
+
 	it('ignores a hint that does not align with the accepted baseline', () => {
 		const source = 'First paragraph.\n\nSecond paragraph.\n\nThird paragraph.\n';
 		const { fidelity, baseline } = observed(source);

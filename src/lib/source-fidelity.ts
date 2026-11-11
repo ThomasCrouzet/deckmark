@@ -440,9 +440,14 @@ export class SourceFidelity {
 		const nextText = markdown.slice(hint.nextFrom, hint.nextTo);
 		const tree = this.parse(nextText);
 		const nodes = (tree.children ?? []).filter((node) => node.type !== 'definition');
-		if (nodes.length === 0) return null;
-		const trimmed = nextText.replace(/\s+$/, '');
-		if (end(nodes[nodes.length - 1]!) !== trimmed.length) return null;
+		// An empty paragraph can reach the serializer as trailing whitespace
+		// before its first character arrives. Keep the whitespace scoped too.
+		const whitespaceOnly = nodes.length === 0 && nextText.length > 0 && /^[\r\n]+$/.test(nextText);
+		if (nodes.length === 0 && !whitespaceOnly) return null;
+		if (!whitespaceOnly) {
+			const trimmed = nextText.replace(/\s+$/, '');
+			if (end(nodes[nodes.length - 1]!) !== trimmed.length) return null;
+		}
 		let sourcePoint: number;
 		if (after > 0 && end(before[after - 1]!) === point) {
 			// The insertion starts exactly at the previous block end.
@@ -453,19 +458,19 @@ export class SourceFidelity {
 			// route for that case.
 			const gapEnd = after < originals.length ? start(originals[after]!) : this.source.length;
 			if (this.definitionBetween(sourcePoint, gapEnd)) return null;
-		} else if (after > 0 && after < before.length) {
+		} else if (after > 0) {
 			// The block owns no bytes in the accepted baseline, so it lives in the
-			// whitespace gap between two blocks. Keep that gap and insert the new
-			// bytes at the same newline count inside it.
+			// whitespace gap between two blocks, or in the trailing whitespace.
+			// Keep that gap and insert the new bytes at the same newline count.
 			const baselineGapStart = end(before[after - 1]!);
-			const baselineGapEnd = start(before[after]!);
+			const baselineGapEnd = after < before.length ? start(before[after]!) : this.markdown.length;
 			if (point < baselineGapStart || point > baselineGapEnd) return null;
 			const baselineGap = this.markdown.slice(baselineGapStart, baselineGapEnd);
 			if (!/^[\r\n]+$/.test(baselineGap)) return null;
-			if (start(nodes[0]!) !== 0) return null;
+			if (!whitespaceOnly && start(nodes[0]!) !== 0) return null;
 			const newlines = (this.markdown.slice(baselineGapStart, point).match(/\n/g) ?? []).length;
 			const sourceGapStart = end(originals[after - 1]!);
-			const sourceGapEnd = start(originals[after]!);
+			const sourceGapEnd = after < originals.length ? start(originals[after]!) : this.source.length;
 			const sourceGap = this.source.slice(sourceGapStart, sourceGapEnd);
 			if (!/^[\r\n]+$/.test(sourceGap)) return null;
 			sourcePoint = sourceGapStart;
@@ -487,10 +492,10 @@ export class SourceFidelity {
 			this.source.slice(0, sourcePoint) +
 			this.lineEndings(nextText) +
 			this.source.slice(sourcePoint);
-		const sourceNodes = (this.parse(nextText).children ?? []).filter(
-			(node) => node.type !== 'definition'
-		);
-		if (sourceNodes.length === 0) return null;
+		const sourceNodes = whitespaceOnly
+			? []
+			: (this.parse(nextText).children ?? []).filter((node) => node.type !== 'definition');
+		if (!whitespaceOnly && sourceNodes.length === 0) return null;
 		const sourceIndex =
 			after < originals.length
 				? this.originalIndex(originals[after]!)

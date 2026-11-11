@@ -641,6 +641,29 @@ Both cases failed before the correction and passed in the development check.
 The reports are in `/tmp/opencode/cross-window-review-red/` and
 `/tmp/opencode/cross-window-review-green/`. The production suite checks them again.
 
+## Browser download object URL risks
+
+A browser reads an object URL after the click task returns. WebKit fails a
+download when the URL is revoked in that same task (WebKit bug 211234). The
+retained risks are a revocation before the browser has consumed the bytes, a
+second consecutive download that loses the URL of the first download, a failed
+click that leaves the URL allocated, and a large ZIP or image blob that stays
+reachable without a bound.
+
+`e2e/export-download-lifetime.spec.ts` instruments `URL.createObjectURL`,
+`URL.revokeObjectURL` and `HTMLAnchorElement.prototype.click` before the
+application starts. It downloads Markdown three times, a library ZIP and an
+image above one MiB. It compares bytes and SHA-256 digests, checks that each
+URL is not revoked within one second of its click, checks that each URL is
+revoked within the bound, and checks that a failed click still revokes. The
+spec is in the Chromium, Firefox and WebKit projects. A download filename is
+browser and platform specific: the checks compare bytes and do not require one
+ZIP or binary filename from another engine. Native Tauri save and cancellation
+are not part of this browser case; the isolated export tests keep that path.
+
+Run `npx playwright test e2e/export-download-lifetime.spec.ts --project=chromium --workers=1 --retries=0`
+and repeat with `--project=firefox` and `--project=webkit`.
+
 ## Edition and hosting checks
 
 ### Retained hosting failure risks
@@ -1054,6 +1077,23 @@ uses Set and Map indexes for the send revision guard. A browser timing check
 cannot attribute that work to one preview rebuild.
 
 ## Retained isolated risks
+
+### Service worker update lifecycle risks
+
+The update entry point is a page singleton. The retained risks are a second
+`updatefound` listener, a second hourly poller, a late failed attempt that
+reports an error after a newer attempt succeeded, a duplicate offline or update
+notification, and a retry that stacks a poller on the active registration. The
+browser suite cannot count duplicated pollers or hold a registration promise in
+the out-of-order state without a test-only hook in the production page.
+
+`src/lib/ui/pwa-update.test.ts` holds fake timers and deferred registration
+promises for these cases. It checks one base path for the root host and one for
+the nested GitHub Pages host. It also checks that an update activation flushes
+the draft queue before the reload, and that a failed flush stops the reload.
+Run `npx vitest run src/lib/ui/pwa-update.test.ts --maxWorkers=1`.
+These cases do not prove real browser activation, a native WebView, or the
+update check of a live deployment.
 
 ### Statistics counting risks
 

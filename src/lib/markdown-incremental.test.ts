@@ -161,6 +161,36 @@ describe('incremental Markdown serialization', () => {
 		});
 	});
 
+	it('inserts a paragraph before a silent trailing paragraph', () => {
+		const first = paragraph('First');
+		const image = imageBlock('![Figure](data:image/png;base64,AAAA)');
+		const empty = paragraph('');
+		const state = createIncrementalMarkdown(docOf(first, image, empty), serialize);
+		expect(state.silent).toEqual([false, false, true]);
+		expect(state.prefixes).toEqual(['', '\n\n', '']);
+
+		// The editor can add a paragraph before the trailing silent paragraph
+		// when a caret reaches the end after an image. The silent block owns no
+		// bytes and must not reject the insertion separator.
+		const added = paragraph('New');
+		let calls = 0;
+		const counting = (node: ProseNode) => {
+			calls += 1;
+			return serialize(node);
+		};
+		const result = updateIncrementalMarkdown(state, docOf(first, image, added, empty), counting);
+		expect(result.full).toBe(false);
+		expect(result.state.markdown).toBe(serialize(docOf(first, image, added, empty)));
+		expect(calls).toBe(1);
+		expect(result.scope).toEqual({
+			previousFrom: 'First\n\n![Figure](data:image/png;base64,AAAA)'.length,
+			previousTo: 'First\n\n![Figure](data:image/png;base64,AAAA)'.length,
+			nextFrom: 'First\n\n![Figure](data:image/png;base64,AAAA)'.length,
+			nextTo: 'First\n\n![Figure](data:image/png;base64,AAAA)\n\nNew'.length,
+			insert: true
+		});
+	});
+
 	it('falls back when a block type changes', () => {
 		const first = paragraph('First');
 		const second = paragraph('Second');
