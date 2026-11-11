@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { DocumentKind } from './document-kind';
-import { encodeDraftManifest } from './draft-manifest-key';
+import { encodeDraftManifest, encodeDraftManifestUpdate } from './draft-manifest-key';
 import { documentKind } from './document-kind';
 import { hashSnippetCode } from './snippet-hash';
 
@@ -379,12 +379,27 @@ class MdshDB extends Dexie {
 					})
 			);
 
+		// v18: the manifest projection stores the decoded byte length of a typed
+		// binary payload. A project capacity check can then count binary
+		// documents with metadata only. The upgrade rewrites every key once.
+		this.version(18)
+			.stores({
+				drafts: 'id, updatedAt, order, projectId, &[projectId+relativePath], manifest, metadata'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<DraftRow>('drafts')
+					.toCollection()
+					.modify((row) => {
+						row.manifest = encodeDraftManifest(row);
+					})
+			);
+
 		this.drafts.hook('creating', (_primaryKey, row) => {
 			row.manifest = encodeDraftManifest(row);
 		});
 		this.drafts.hook('updating', (modifications, _primaryKey, row) => {
-			const merged = { ...row, ...modifications } as DraftRow;
-			return { manifest: encodeDraftManifest(merged) };
+			return { manifest: encodeDraftManifestUpdate(row, modifications as Partial<DraftRow>) };
 		});
 		this.projectAssets.hook('creating', (_primaryKey, row) => {
 			row.bytes = row.data.byteLength;

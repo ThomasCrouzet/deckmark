@@ -19,6 +19,10 @@ function heading(text: string): FakeBlock {
 	return { type: { name: 'heading' }, text };
 }
 
+function imageBlock(text: string): FakeBlock {
+	return { type: { name: 'image-block' }, text };
+}
+
 function docOf(...children: FakeBlock[]): ProseNode {
 	const doc: FakeDoc = { children };
 	return Object.assign(doc, {
@@ -112,14 +116,49 @@ describe('incremental Markdown serialization', () => {
 		expect(emptied.state.markdown).toBe('First\n\n\n\nLast\n');
 	});
 
-	it('falls back when the serializer omits a trailing empty block', () => {
+	it('materializes a trailing empty paragraph without the full serializer', () => {
 		const first = paragraph('First');
 		const state = createIncrementalMarkdown(docOf(first, paragraph('')), serialize);
 		expect(state.markdown).toBe('First\n');
 		expect(state.silent).toEqual([false, true]);
 		const typed = updateIncrementalMarkdown(state, docOf(first, paragraph('N')), serialize);
-		expect(typed.full).toBe(true);
+		expect(typed.full).toBe(false);
 		expect(typed.state.markdown).toBe('First\n\nN\n');
+		expect(typed.scope).toEqual({
+			previousFrom: 'First'.length,
+			previousTo: 'First'.length,
+			nextFrom: 'First'.length,
+			nextTo: 'First\n\nN'.length,
+			insert: true
+		});
+	});
+
+	it('keeps a split beside an unchanged image block local', () => {
+		const first = paragraph('First');
+		const image = imageBlock('![Figure](data:image/png;base64,AAAA)');
+		const last = paragraph('Last');
+		const state = createIncrementalMarkdown(docOf(first, image, last), serialize);
+		// Insert a paragraph between the first paragraph and the image.
+		const added = paragraph('New');
+		const next = docOf(first, added, image, last);
+		let calls = 0;
+		const counting = (node: ProseNode) => {
+			calls += 1;
+			return serialize(node);
+		};
+		const result = updateIncrementalMarkdown(state, next, counting);
+		expect(result.full).toBe(false);
+		expect(result.state.markdown).toBe(serialize(next));
+		// Only the inserted paragraph is serialized. The unchanged image block
+		// is reused from the cache.
+		expect(calls).toBe(1);
+		expect(result.scope).toEqual({
+			previousFrom: 'First'.length,
+			previousTo: 'First'.length,
+			nextFrom: 'First'.length,
+			nextTo: 'First\n\nNew'.length,
+			insert: true
+		});
 	});
 
 	it('falls back when a block type changes', () => {

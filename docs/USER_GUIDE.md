@@ -112,15 +112,19 @@ Documents keep their paths, so `README.md` and `notes/README.md` remain separate
 Relative Markdown links and images resolve inside the project. Wiki paths also stay within the source project.
 
 Use **New project document** to add a path such as `notes/guide.md`.
+A folder import skips `.git`, `node_modules`, and internal Obsidian metadata before it checks paths and entry counts.
 Rename an open document through the toolbar. DeckMark updates incoming document links and keeps history checkpoints.
 Select **Check links** to list missing resources, ambiguous wiki links, paths outside the project, and remote images.
 
 Select **Export project** to download the documents and resources together.
 The ZIP contains `.mdsh/project.json` and `.mdsh/link-report.json` for project metadata and link diagnostics.
+A portable manifest can contain up to 1 MiB. DeckMark refuses a larger manifest before it reads or parses the file, for both a ZIP import and a folder import.
+A typed text or code document keeps its MIME value through a project ZIP export and import. DeckMark refuses an invalid MIME value.
 Image data embedded in Markdown becomes a separate asset in the archive. The stored source remains unchanged.
 An individual Markdown download keeps its relative references. Use the project ZIP when those references need local resources.
 
 Projects accept up to 3,000 documents, 6,500 entries, 16 directory levels, and 256 MiB of uncompressed data in Desktop Complete. Web Light accepts up to 300 documents, 1,300 entries, eight directory levels, and 64 MiB. The same limits apply to a project import, a drag and drop, an internal copy or move, and a documentation-site export.
+The byte budget counts UTF-8 document bytes, the decoded bytes of a typed image or PDF document, and the bytes of each project asset.
 Each document can contain up to 16 MiB. Each image can contain up to 2 MiB.
 Unsafe paths, duplicate paths, symbolic links, and unsupported archives are rejected before import changes storage.
 A same-project move does not add document entries or bytes to the project budget.

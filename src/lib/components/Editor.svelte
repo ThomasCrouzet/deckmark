@@ -283,7 +283,8 @@
 				if (commit) pendingHint = null;
 				if (editorBaseline === null || markdown === editorBaseline) return sourceMarkdown;
 				const restored = roundTrip.restore(markdown, commit, hint);
-				return frontmatter.raw + (fidelity?.restore(restored, commit, hint) ?? restored);
+				const restoredHint = roundTrip.lastScopedHint ?? hint;
+				return frontmatter.raw + (fidelity?.restore(restored, commit, restoredHint) ?? restored);
 			});
 		lastEditorMarkdown = initial;
 		let alternativesSignature = '';

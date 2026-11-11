@@ -91,7 +91,8 @@ export function decodeDraftManifest(key: unknown): DraftManifest | null {
 	} catch {
 		return null;
 	}
-	if (!Array.isArray(value) || (value.length !== 15 && value.length !== 16)) return null;
+	if (!Array.isArray(value) || (value.length !== 15 && value.length !== 16 && value.length !== 17))
+		return null;
 	const [
 		version,
 		id,
@@ -110,7 +111,8 @@ export function decodeDraftManifest(key: unknown): DraftManifest | null {
 		hasData
 	] = value;
 	const contentBytes = typeof value[15] === 'number' ? value[15] : contentLength;
-	if (version !== DRAFT_MANIFEST_VERSION) return null;
+	const binaryBytes = typeof value[16] === 'number' ? value[16] : 0;
+	if (version !== 1 && version !== DRAFT_MANIFEST_VERSION) return null;
 	if (
 		typeof id !== 'string' ||
 		typeof name !== 'string' ||
@@ -144,6 +146,7 @@ export function decodeDraftManifest(key: unknown): DraftManifest | null {
 		open: open === 1,
 		contentLength,
 		contentBytes,
+		binaryBytes,
 		hasData: hasData === 1
 	};
 }

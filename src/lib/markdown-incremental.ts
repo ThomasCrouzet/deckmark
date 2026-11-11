@@ -127,6 +127,12 @@ export interface IncrementalBlockScope {
 	/** Changed block span in the new joined Markdown. */
 	nextFrom: number;
 	nextTo: number;
+	/**
+	 * True when the change only inserts blocks, so `previousFrom` and
+	 * `previousTo` are the same insertion point and the new span keeps the
+	 * leading separator that the inserted block owns.
+	 */
+	insert?: boolean;
 }
 
 export interface IncrementalMarkdownResult {
@@ -139,7 +145,11 @@ export interface IncrementalMarkdownResult {
 	scope?: IncrementalBlockScope | undefined;
 }
 
-const SUPPORTED_TYPES = new Set(['paragraph', 'heading']);
+const PLAIN_TYPES = new Set(['paragraph', 'heading']);
+
+function isPlainBlock(node: ProseNode): boolean {
+	return PLAIN_TYPES.has(node.type.name);
+}
 
 function serializeBlock(doc: ProseNode, node: ProseNode, serialize: Serialize): string {
 	return serialize(doc.type.create(doc.attrs, [node])).replace(/\n$/, '');
@@ -164,10 +174,124 @@ function pairSeparator(
 }
 
 /**
+ * Reuse one separator that the full serializer already produced between two
+ * plain blocks. Prose and headings share one block separator, so a later
+ * boundary that touches an image does not serialize that image again.
+ */
+function cachedSeparator(state: IncrementalMarkdownState): string | null {
+	let fallback: string | null = null;
+	for (let index = 1; index < state.prefixes.length; index += 1) {
+		const prefix = state.prefixes[index]!;
+		if (!prefix) continue;
+		if (isPlainBlock(state.blocks[index - 1]!) && isPlainBlock(state.blocks[index]!)) return prefix;
+		fallback ??= prefix;
+	}
+	return fallback;
+}
+
+/**
+ * Read the separator out of the serialization of exactly two plain blocks when
+ * the cached state has no usable plain boundary, for example a one-block note.
+ */
+function spanSeparator(span: string, first: string, last: string): string | null {
+	if (!last || !span.endsWith(last)) return null;
+	if (first && !span.startsWith(first)) return null;
+	const separator = span.slice(first.length, span.length - last.length);
+	return separator.length > 0 ? separator : null;
+}
+
+interface StructuralSpan {
+	state: IncrementalMarkdownState;
+	scope?: IncrementalBlockScope | undefined;
+}
+
+/** Build the next state from a validated changed top-level span. */
+function buildStructuralState(
+	state: IncrementalMarkdownState,
+	doc: ProseNode,
+	start: number,
+	oldEnd: number,
+	inserted: readonly ProseNode[],
+	insertedMarkdown: readonly string[],
+	separator: string,
+	kept: number
+): IncrementalMarkdownState {
+	const oldCount = state.blocks.length;
+	const right = oldEnd < oldCount;
+	const prefixes: string[] = state.prefixes.slice(0, start) as string[];
+	const leading = state.prefixes[0] ?? '';
+	for (let index = 0; index < inserted.length; index += 1) {
+		if (index >= kept) prefixes.push('');
+		else if (index === 0 && start === 0) prefixes.push(leading);
+		else prefixes.push(separator);
+	}
+	if (right) {
+		prefixes.push(separator);
+		for (let index = oldEnd + 1; index < oldCount; index += 1)
+			prefixes.push(state.prefixes[index]!);
+	}
+	const next: IncrementalMarkdownState = {
+		doc,
+		blocks: [...state.blocks.slice(0, start), ...inserted, ...state.blocks.slice(oldEnd)],
+		prefixes,
+		blockMarkdown: [
+			...state.blockMarkdown.slice(0, start),
+			...insertedMarkdown,
+			...state.blockMarkdown.slice(oldEnd)
+		],
+		silent: [
+			...state.silent.slice(0, start),
+			...inserted.map((_, index) => index >= kept),
+			...state.silent.slice(oldEnd)
+		],
+		suffix: state.suffix,
+		markdown: ''
+	};
+	next.markdown = join(next);
+	return next;
+}
+
+/**
+ * Map the changed span for the downstream image and source layers. A replacing
+ * change keeps the block separator, so its span is content only. An inserting
+ * change owns the new leading separator, so its span starts before that
+ * separator and the consumers reproduce the exact inserted bytes.
+ */
+function structuralScope(
+	state: IncrementalMarkdownState,
+	next: IncrementalMarkdownState,
+	start: number,
+	oldEnd: number,
+	newEnd: number,
+	kept: number
+): IncrementalBlockScope | undefined {
+	if (oldEnd === start) {
+		const from = start > 0 ? blockSpan(state, start - 1).to : 0;
+		const last = start + kept - 1;
+		return {
+			previousFrom: from,
+			previousTo: from,
+			nextFrom: from,
+			nextTo: kept > 0 ? blockSpan(next, last).to : from,
+			insert: true
+		};
+	}
+	if (newEnd === start) return undefined;
+	const previous = blockSpan(state, start);
+	return {
+		previousFrom: previous.from,
+		previousTo: blockSpan(state, oldEnd - 1).to,
+		nextFrom: blockSpan(next, start).from,
+		nextTo: blockSpan(next, newEnd - 1).to
+	};
+}
+
+/**
  * Rebuilds a changed contiguous top-level span without serializing the whole
- * note. The span and its two boundary pairs are serialized, then the result is
- * accepted only when the cached plain blocks and the canonical separators
- * agree. Anything else falls back to the full serializer.
+ * note. Only the changed plain blocks are serialized. An unchanged neighbor of
+ * any type, including an image block, is reused from the cache. The result is
+ * accepted only when the cached separators and the changed span agree with the
+ * real serializer. Anything else falls back to the full serializer.
  */
 function updateStructuralSpan(
 	state: IncrementalMarkdownState,
@@ -176,113 +300,75 @@ function updateStructuralSpan(
 	start: number,
 	oldEnd: number,
 	newEnd: number
-): IncrementalMarkdownState | null {
+): StructuralSpan | null {
 	const oldCount = state.blocks.length;
-	const leading = state.prefixes[0] ?? '';
 	if (oldCount === 0) return null;
 	const removed = state.blocks.slice(start, oldEnd);
 	const inserted = Array.from({ length: newEnd - start }, (_, index) => doc.child(start + index));
-	if (
-		!removed.every((node) => SUPPORTED_TYPES.has(node.type.name)) ||
-		!inserted.every((node) => SUPPORTED_TYPES.has(node.type.name))
-	)
-		return null;
-	const left = start > 0 ? state.blocks[start - 1] : null;
-	const right = oldEnd < oldCount ? state.blocks[oldEnd] : null;
-	if (
-		(left && !SUPPORTED_TYPES.has(left.type.name)) ||
-		(right && !SUPPORTED_TYPES.has(right.type.name))
-	)
-		return null;
-	// Find one canonical plain-block separator in the accepted document.
-	let separator: string | null = null;
-	for (let index = 1; index < oldCount; index += 1) {
-		const before = state.blocks[index - 1]!;
-		const after = state.blocks[index]!;
-		if (!SUPPORTED_TYPES.has(before.type.name) || !SUPPORTED_TYPES.has(after.type.name)) continue;
-		separator = pairSeparator(
-			doc,
-			before,
-			after,
-			state.blockMarkdown[index - 1]!,
-			state.blockMarkdown[index]!,
-			serialize
-		);
-		if (separator) break;
-	}
-	if (!separator) return null;
+	if (!removed.every(isPlainBlock) || !inserted.every(isPlainBlock)) return null;
+	const left = start > 0 ? state.blocks[start - 1]! : null;
+	const right = oldEnd < oldCount ? state.blocks[oldEnd]! : null;
 	const insertedMarkdown = inserted.map((node) => serializeBlock(doc, node, serialize));
-	if (
-		insertedMarkdown.some((markdown) => markdown === '') ||
-		state.blockMarkdown.slice(start, oldEnd).some((markdown) => markdown === '')
-	)
-		return null;
-	const span = serialize(doc.type.create(doc.attrs, inserted)).replace(/\n$/, '');
-	// The span must be the exact canonical join of its blocks.
-	if (span !== insertedMarkdown.join(separator)) return null;
-	if (left) {
-		const pair = pairSeparator(
-			doc,
-			left,
-			inserted[0]!,
-			state.blockMarkdown[start - 1]!,
-			insertedMarkdown[0]!,
-			serialize
-		);
-		if (pair !== separator) return null;
+	// The serializer drops trailing empty paragraphs at the document end.
+	let kept = inserted.length;
+	if (!right) while (kept > 0 && insertedMarkdown[kept - 1] === '') kept -= 1;
+	if (kept === 0 && !right) {
+		// Empty paragraphs at the end own no bytes yet. The next first character
+		// gives them a separator and a content span.
+		const next = buildStructuralState(state, doc, start, oldEnd, inserted, insertedMarkdown, '', 0);
+		return { state: next, scope: structuralScope(state, next, start, oldEnd, newEnd, 0) };
 	}
-	const lastNew = inserted[inserted.length - 1] ?? left;
-	if (right) {
-		if (!lastNew) return null;
-		const lastMarkdown =
-			inserted.length > 0
-				? insertedMarkdown[inserted.length - 1]!
-				: state.blockMarkdown[oldEnd - 1]!;
-		const pair = pairSeparator(
-			doc,
-			lastNew,
-			right,
-			lastMarkdown,
-			state.blockMarkdown[oldEnd]!,
-			serialize
+	let separator = cachedSeparator(state);
+	// The span oracle cannot include a trailing empty block that a following
+	// block keeps in the document, because the serializer trims it when it is
+	// serialized alone. Validate the non-empty prefix of the span instead.
+	let validated = kept;
+	while (validated > 0 && insertedMarkdown[validated - 1] === '') validated -= 1;
+	if (validated > 1) {
+		const marks = insertedMarkdown.slice(0, validated);
+		const span = serialize(doc.type.create(doc.attrs, inserted.slice(0, validated))).replace(
+			/\n$/,
+			''
 		);
-		if (pair !== separator) return null;
+		if (separator === null && marks.length === 2)
+			separator = spanSeparator(span, marks[0]!, marks[1]!);
+		if (separator === null || span !== marks.join(separator)) return null;
 	}
-	// Existing separators at both boundaries must be the canonical one.
-	if (left && start < oldCount && state.prefixes[start] !== separator) return null;
+	if (separator === null) {
+		if (left)
+			separator = pairSeparator(
+				doc,
+				left,
+				inserted[0]!,
+				state.blockMarkdown[start - 1]!,
+				insertedMarkdown[0]!,
+				serialize
+			);
+		if (separator === null && right)
+			separator = pairSeparator(
+				doc,
+				inserted[inserted.length - 1]!,
+				right,
+				insertedMarkdown[inserted.length - 1]!,
+				state.blockMarkdown[oldEnd]!,
+				serialize
+			);
+		if (separator === null) return null;
+	}
+	// Cached boundaries inside and beside the change must use one separator.
+	if (left && oldEnd > start && state.prefixes[start] !== separator) return null;
 	if (right && oldEnd > 0 && state.prefixes[oldEnd] !== separator) return null;
-	const prefixes: string[] = [];
-	for (let index = 0; index < start; index += 1) prefixes.push(state.prefixes[index]!);
-	const pushPrefix = (value: string) => {
-		prefixes.push(prefixes.length === 0 ? leading : value);
-	};
-	for (let index = 0; index < inserted.length; index += 1) pushPrefix(separator);
-	if (right) {
-		pushPrefix(separator);
-		for (let index = oldEnd + 1; index < oldCount; index += 1)
-			prefixes.push(state.prefixes[index]!);
-	}
-	const blockTexts = [
-		...state.blockMarkdown.slice(0, start),
-		...insertedMarkdown,
-		...state.blockMarkdown.slice(oldEnd)
-	];
-	const next: IncrementalMarkdownState = {
+	const next = buildStructuralState(
+		state,
 		doc,
-		blocks: [...state.blocks.slice(0, start), ...inserted, ...state.blocks.slice(oldEnd)],
-		prefixes,
-		blockMarkdown: blockTexts,
-		silent: [
-			...state.silent.slice(0, start),
-			...inserted.map(() => false),
-			...state.silent.slice(oldEnd)
-		],
-		suffix: state.suffix,
-		markdown: ''
-	};
-	if (next.prefixes.length !== next.blockMarkdown.length) return null;
-	next.markdown = join(next);
-	return next;
+		start,
+		oldEnd,
+		inserted,
+		insertedMarkdown,
+		separator,
+		kept
+	);
+	return { state: next, scope: structuralScope(state, next, start, oldEnd, newEnd, kept) };
 }
 
 /**
@@ -322,51 +408,88 @@ export function updateIncrementalMarkdown(
 		const structural = updateStructuralSpan(state, doc, serialize, start, oldEnd, newEnd);
 		if (structural) {
 			return {
-				state: structural,
+				state: structural.state,
 				full: false,
-				changed: { start, end: newEnd, previousEnd: oldEnd }
+				changed: { start, end: newEnd, previousEnd: oldEnd },
+				scope: structural.scope
 			};
 		}
 		return { state: createIncrementalMarkdown(doc, serialize), full: true };
 	}
 	const blockMarkdown = [...state.blockMarkdown];
 	const blocks = [...state.blocks];
+	let prefixes = state.prefixes;
+	let silent = state.silent;
+	let materialized: number | null = null;
 	for (let index = start; index < newEnd; index += 1) {
 		const next = doc.child(index);
 		const previous = state.doc.child(index);
 		if (next === previous) continue;
-		if (next.type.name !== previous.type.name || state.silent[index]) {
+		if (next.type.name !== previous.type.name) {
 			return { state: createIncrementalMarkdown(doc, serialize), full: true };
 		}
+		const markdown = serializeBlock(doc, next, serialize);
+		if (state.silent[index]) {
+			if (markdown === '') {
+				blocks[index] = next;
+				continue;
+			}
+			// The serializer dropped this empty trailing paragraph. The first
+			// character gives it the canonical separator and a content span.
+			const left = index > 0 ? state.blocks[index - 1]! : null;
+			let separator = cachedSeparator(state);
+			if (separator === null && left)
+				separator = pairSeparator(
+					doc,
+					left,
+					next,
+					state.blockMarkdown[index - 1]!,
+					markdown,
+					serialize
+				);
+			if (separator === null) separator = '';
+			if (prefixes === state.prefixes) prefixes = [...state.prefixes] as string[];
+			if (silent === state.silent) silent = [...state.silent];
+			(prefixes as string[])[index] = index === 0 ? (state.prefixes[0] ?? '') : separator;
+			(silent as boolean[])[index] = false;
+			materialized = index;
+		}
 		blocks[index] = next;
-		blockMarkdown[index] = serializeBlock(doc, next, serialize);
+		blockMarkdown[index] = markdown;
 	}
 	const next: IncrementalMarkdownState = {
 		doc,
 		blocks,
-		prefixes: state.prefixes,
+		prefixes,
 		blockMarkdown,
-		silent: state.silent,
+		silent,
 		suffix: state.suffix,
 		markdown: ''
 	};
 	next.markdown = join(next);
 	const single = start < newEnd && newEnd - start === 1 && oldEnd - start === 1;
+	const previousSpan = single ? blockSpan(state, start) : null;
+	const currentSpan = single ? blockSpan(next, start) : null;
 	return {
 		state: next,
 		full: false,
 		changed: start < newEnd ? { start, end: newEnd, previousEnd: oldEnd } : undefined,
-		scope: single
-			? (() => {
-					const previous = blockSpan(state, start);
-					const current = blockSpan(next, start);
-					return {
-						previousFrom: previous.from,
-						previousTo: previous.to,
-						nextFrom: current.from,
-						nextTo: current.to
-					};
-				})()
-			: undefined
+		scope:
+			previousSpan && currentSpan
+				? materialized === start
+					? {
+							previousFrom: previousSpan.from,
+							previousTo: previousSpan.from,
+							nextFrom: previousSpan.from,
+							nextTo: currentSpan.to,
+							insert: true
+						}
+					: {
+							previousFrom: previousSpan.from,
+							previousTo: previousSpan.to,
+							nextFrom: currentSpan.from,
+							nextTo: currentSpan.to
+						}
+				: undefined
 	};
 }

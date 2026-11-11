@@ -107,7 +107,9 @@ export default defineConfig({
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
-				'**/docs-site-export-svg.spec.ts'
+				'**/docs-site-export-svg.spec.ts',
+				'**/docs-site-export-html.spec.ts',
+				'**/docs-site-search-paths.spec.ts'
 			]
 		},
 		{
@@ -139,6 +141,7 @@ export default defineConfig({
 				'**/wiki-links.spec.ts',
 				'**/source-fidelity.spec.ts',
 				'**/markdown-blank-lines.spec.ts',
+				'**/editor-large-note-visibility.spec.ts',
 				'**/presentation-editor.spec.ts',
 				'**/presentation-export.spec.ts',
 				'**/presentation-files.spec.ts',
@@ -153,6 +156,8 @@ export default defineConfig({
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
 				'**/docs-site-export-svg.spec.ts',
+				'**/docs-site-export-html.spec.ts',
+				'**/docs-site-search-paths.spec.ts',
 				'**/docs-site-fragments.spec.ts'
 			]
 		},

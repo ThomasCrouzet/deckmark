@@ -10,6 +10,7 @@ import {
 	PROJECT_SCALE_LIMITS,
 	assertProjectCapacity,
 	draftBytes,
+	draftPayloadBytes,
 	projectOccupancy
 } from './project-limits';
 import { projectDocumentLimit } from './project-limits';
@@ -55,18 +56,15 @@ export async function importProject(input: ProjectInput): Promise<ProjectRow> {
 		...assets.map((asset) => pathKey(asset.path))
 	];
 	if (new Set(keys).size !== keys.length) throw new Error('Duplicate project path');
-	assertProjectCapacity(
-		{ documents: 0, assets: 0, bytes: 0 },
-		{
-			documents: rows.length,
-			assets: assets.length,
-			bytes:
-				rows.reduce((total, row) => total + draftBytes(row.content), 0) +
-				assets.reduce((total, asset) => total + asset.data.byteLength, 0)
-		},
-		0
-	);
+	const plannedBytes =
+		rows.reduce((total, row) => total + draftPayloadBytes(row), 0) +
+		assets.reduce((total, asset) => total + asset.data.byteLength, 0);
 	await db.transaction('rw', db.projects, db.projectAssets, db.drafts, async () => {
+		assertProjectCapacity(
+			{ documents: 0, assets: 0, bytes: 0 },
+			{ documents: rows.length, assets: assets.length, bytes: plannedBytes },
+			0
+		);
 		await db.projects.add(project);
 		await db.projectAssets.bulkAdd(assets);
 		await db.drafts.bulkAdd(rows);
@@ -109,6 +107,8 @@ export async function createProjectDocument(
 	};
 	await db.transaction('rw', db.projects, db.projectAssets, db.drafts, async () => {
 		if (!(await db.projects.get(projectId))) throw new Error('Project no longer exists');
+		const occupancy = await projectOccupancy(projectId);
+		assertProjectCapacity(occupancy, { documents: 1, assets: 0, bytes: draftBytes(content) });
 		// Read compound index keys only. The key cursor returns the stored paths
 		// without loading any existing Markdown body or binary asset payload.
 		const upper = '\uffff';
@@ -188,6 +188,7 @@ export async function exportProject(projectId: string): Promise<boolean> {
 			relativePath: doc.relativePath!,
 			content: doc.content,
 			...(doc.kind ? { kind: doc.kind } : {}),
+			...(doc.mime ? { mime: doc.mime } : {}),
 			...(doc.data ? { data: doc.data } : {})
 		})),
 		snapshot.assets

@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { budgetGateFailed, budgetReport, loadBudgets } from './benchmark-shared.mjs';
+import { budgetGateFailed, budgetReport, loadBudgets, summarize } from './benchmark-shared.mjs';
 
 const reviewedBudgets = await loadBudgets();
 
@@ -413,6 +413,45 @@ describe('retained artifact evidence contract', () => {
 			}
 		);
 	};
+
+	it('keeps one 346 ms stall out of the twenty-sample p95 but fails two', () => {
+		const budgetsWithTyping = {
+			version: 1,
+			defaults: { toleranceRatio: 0.25, minimumRuns: 20 },
+			platforms: {
+				'web-webkit': {
+					label: 'WebKit',
+					metrics: { typingSource: { p95: 200, unit: 'ms', minimumRuns: 20 } }
+				}
+			}
+		};
+		const oneStall = [...Array(19).fill(18), 346];
+		const one = summarize(oneStall);
+		assert.equal(one.runs, 20);
+		assert.equal(one.p95, 18);
+		assert.equal(one.max, 346);
+		const accepted = budgetReport({
+			platformKey: 'web-webkit',
+			summary: { typingSource: one },
+			budgets: budgetsWithTyping
+		});
+		assert.equal(accepted.status, 'ok');
+		assert.deepEqual(accepted.failures, []);
+		const twoStalls = summarize([...Array(18).fill(18), 346, 346]);
+		assert.equal(twoStalls.p95, 346);
+		const rejected = budgetReport({
+			platformKey: 'web-webkit',
+			summary: { typingSource: twoStalls },
+			budgets: budgetsWithTyping
+		});
+		assert.equal(rejected.status, 'over-budget');
+		assert.deepEqual(rejected.failures, ['typingSource:over-budget']);
+		assert.equal(
+			reviewedBudgets.platforms['web-webkit'].metrics.typingSource.minimumRuns,
+			20,
+			'the reviewed WebKit budget must require the twenty measured samples'
+		);
+	});
 
 	it('requires the twenty startup samples generated for every web platform', () => {
 		const startupMetrics = [

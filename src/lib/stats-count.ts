@@ -13,6 +13,32 @@ export interface SelectionStats {
 	lines: number;
 }
 
+/**
+ * A document change for a Worker that already holds the previous source.
+ * The Worker rebuilds the exact text from its baseline before it counts.
+ */
+export interface StatsPatch {
+	baseRevision: number;
+	start: number;
+	remove: number;
+	insert: string;
+}
+
+export interface StatsRequest {
+	token: number;
+	text?: string;
+	patch?: StatsPatch;
+	mode?: 'document' | 'selection';
+}
+
+export interface StatsResponse {
+	token: number;
+	stats?: DocStats;
+	selection?: SelectionStats;
+	revision?: number;
+	needFull?: boolean;
+}
+
 function isWhitespace(code: number): boolean {
 	return code <= 0x20
 		? code === 0x20 || (code >= 9 && code <= 13)

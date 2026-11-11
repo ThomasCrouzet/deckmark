@@ -31,6 +31,8 @@ export const docsSiteEn = {
 	'docsSite.severity.error': 'Error',
 	'docsSite.severity.warning': 'Warning',
 	'docsSite.issue.anchor-missing': 'Missing anchor "{target}".',
+	'docsSite.issue.document-renamed':
+		'Document "{target}" is published with a .txt suffix so the site cannot run it.',
 	'docsSite.issue.document-skipped':
 		'Document "{target}" is not a Markdown page and is not included.',
 	'docsSite.issue.image-external':

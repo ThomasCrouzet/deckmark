@@ -6,7 +6,7 @@ import { escapeHTML } from '../file-utils';
 import { getTags } from '../frontmatter';
 import { docsSiteEn, type DocsSiteMessageKey } from '../i18n/messages/docs-site-en';
 import { docsSiteFr } from '../i18n/messages/docs-site-fr';
-import { fragmentOf, pathKey, relativeDestination } from '../project-paths';
+import { encodeProjectPath, fragmentOf, pathKey, relativeDestination } from '../project-paths';
 import { renderMarkdownDetailed } from '../render/markdown';
 import {
 	docsSiteIssue,
@@ -554,6 +554,7 @@ function buildSearchIndexScript(pages: readonly RenderedSitePage[]): string {
 			remaining -= text.length;
 			return {
 				path: page.page.outputPath,
+				href: encodeProjectPath(page.page.outputPath),
 				title: page.title,
 				headings: page.toc.map((entry) => entry.text),
 				text
@@ -841,7 +842,7 @@ export const DOCS_SITE_SCRIPT = `(function () {
 	var status = form.querySelector('[data-site-search-status]');
 	var results = form.querySelector('[data-site-search-results]');
 	if (!input || !status || !results) return;
-	var index = window.MDSH_SEARCH_INDEX;
+	var searchIndex = window.MDSH_SEARCH_INDEX;
 	var base = root.getAttribute('data-site-root') || './';
 	var hint = form.getAttribute('data-search-hint') || '';
 	var empty = form.getAttribute('data-search-empty') || '';
@@ -864,7 +865,7 @@ export const DOCS_SITE_SCRIPT = `(function () {
 			status.textContent = hint;
 			return;
 		}
-		var pages = index && Array.isArray(index.pages) ? index.pages : [];
+		var pages = searchIndex && Array.isArray(searchIndex.pages) ? searchIndex.pages : [];
 		var matches = [];
 		for (var i = 0; i < pages.length; i++) {
 			var page = pages[i];
@@ -890,11 +891,11 @@ export const DOCS_SITE_SCRIPT = `(function () {
 			results.appendChild(item);
 			return;
 		}
-		for (var index = 0; index < matches.length; index++) {
-			var match = matches[index];
+		for (var matchIndex = 0; matchIndex < matches.length; matchIndex++) {
+			var match = matches[matchIndex];
 			var entry = document.createElement('li');
 			var link = document.createElement('a');
-			link.href = base + match.page.path;
+			link.href = base + match.page.href;
 			var titleNode = document.createElement('strong');
 			titleNode.textContent = match.page.title || match.page.path;
 			var textNode = document.createElement('span');

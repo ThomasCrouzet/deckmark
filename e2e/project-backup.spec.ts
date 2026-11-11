@@ -260,7 +260,7 @@ test('migrates an exact IndexedDB version 5 database before importing a project'
 				};
 			})
 	);
-	expect(beforeProject.version).toBe(170);
+	expect(beforeProject.version).toBe(180);
 	const drafts = (beforeProject.drafts as Array<Record<string, unknown>>).map((entry) => {
 		const row = { ...entry };
 		delete row.manifest;

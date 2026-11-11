@@ -35,6 +35,53 @@ an unchanged top-level block must not be serialized after a local edit. Browser
 export checks establish source bytes but do not identify that internal work.
 Use the browser source-fidelity corpus for actual Milkdown serialization.
 
+### WebKit large-note paragraph paint
+
+Issue #553 covers the WebKit gap left after #431. The retained risks are a new
+paragraph that stays in the DOM while the next frame paints nothing, text that
+is transparent, clipped or covered, a scroll that hides the paragraph, a mode
+change or reload that loses inserted bytes, and an undo that removes a
+different range.
+
+`e2e/editor-large-note-visibility.spec.ts` seeds a 240 KB note with several
+headings, inline images and several hundred lines. It opens the visual editor
+and inserts three consecutive paragraphs through real Enter and text input.
+It then checks each paragraph before any pointer event:
+
+- A screenshot of the viewport is decoded in the page. The modal background
+  color is the local reference. Glyph pixels more than 90 color-distance units
+  from that background must number more than 20 in each paragraph rectangle.
+  A test paragraph with hidden, transparent, clipped or covered text keeps
+  this count near zero.
+- The rectangle must have a positive size and stay inside the viewport. The
+  computed display, visibility, opacity, color alpha and `user-select` must
+  permit visible, selectable text.
+- `document.elementFromPoint` at the paragraph center must resolve to that
+  paragraph or a descendant.
+- A Range over the paragraph text must select the exact text and produce at
+  least one client rectangle.
+
+The case repeats the paint check after scroll out and back, after a Source and
+WYSIWYG round trip, and after reload. It compares the downloaded Markdown with
+the exact prior source plus the three paragraphs after every durable state. It
+checks undo and redo before the mode change. The spec is selected by the
+`webkit` project. It uses no Chromium-only API. The mobile WebKit project does
+not select it: on the 240 KB fixture, one Enter can be lost in the mobile
+emulation and the paragraphs merge. A mobile paint case needs a smaller
+fixture and a separate review.
+
+Run:
+
+```sh
+npx playwright test e2e/editor-large-note-visibility.spec.ts \
+  --project=webkit --workers=1 --retries=0
+```
+
+Keep the attached `visibility-evidence.json` and `visible-paragraphs.png` with
+the fixture hash, browser version, source identity and command. The screenshot
+proves compositor output for the test viewport. It does not prove a physical
+display, a native WKWebView paint, or a different engine.
+
 ## Image-rich rendered input risks
 
 Keep the image-heavy typing attribution independent from the text-only latency
@@ -723,6 +770,32 @@ Run the focused workflow with `npx playwright test e2e/slide-zoom-review.spec.ts
 --project=chromium --workers=1 --retries=0`. Record source revision, environment,
 build hashes, command, fixtures, and results with each report.
 
+A folder import can read and parse an oversized `.mdsh/project.json` before it applies
+the ZIP manifest limit. `src/lib/project-archive.test.ts` keeps the no-read case with a
+fake `File` whose `arrayBuffer()` records a call. The browser suite cannot observe
+whether a real file read occurred. The Chromium case in
+`e2e/project-archive-risks.spec.ts` checks the visible rejection and the absence of a
+stored project. Run `npx vitest run src/lib/project-archive.test.ts --maxWorkers=1` and
+`npx playwright test e2e/project-archive-risks.spec.ts --project=chromium --workers=1 --retries=0 --grep 'oversized folder manifest'`.
+
+A typed image or PDF document stores its bytes in `data` with an empty `content`.
+A project capacity check that sums only `content` omits those bytes and can accept a
+project that later fails portable export. `src/lib/project-transfer-capacity.test.ts`
+keeps the occupancy, legacy manifest fallback, import, Create Document and manifest
+projection cases. A browser workflow cannot fill a 64 MiB project cheaply or forge a
+legacy manifest key. Run
+`npx vitest run src/lib/project-transfer-capacity.test.ts --maxWorkers=1`. The portable
+project workflows in `e2e/binary-review.spec.ts` and `e2e/project-archive-risks.spec.ts`
+still prove binary bytes and archive import through the application.
+
+A portable project manifest can carry a MIME value for a text or code document.
+`src/lib/projects.test.ts` keeps the direct `buildProjectZip` to `readProjectZip`
+path, the manifest value, a malformed value and the schema 1 default. The browser
+workflow in `e2e/project-archive-risks.spec.ts` checks the user-facing import, export
+and reimport. Run `npx vitest run src/lib/projects.test.ts --maxWorkers=1` and
+`npx playwright test e2e/project-archive-risks.spec.ts --project=chromium --workers=1 --retries=0 --grep 'explicit code MIME'`.
+A ZIP manifest check alone cannot show that the durable row keeps the value.
+
 Write browser scenarios before implementation. Test the following failures through visible results and downloaded artifacts where possible.
 
 - Old drafts or backups can lose documents during the schema upgrade. Keep a version 1.9 fixture and compare its complete content.
@@ -883,6 +956,36 @@ WebKit uses a stopped origin server because [Playwright offline emulation can re
 The report records the disruption and confirms service worker control.
 This server outage check does not reproduce every operating system network condition.
 
+## Durable draft projection reuse
+
+The `manifest` and `metadata` keys are index projections on the `drafts` table.
+Dexie reports a field in the update hook only when its value changed. A save
+that keeps the content, name, kind, project location and binary presence can
+therefore reuse the content-derived slots of the durable manifest key. The
+metadata hook already skips an update that touches none of these fields.
+
+Retain these failure risks: a reused slot can describe a previous content
+revision; a rename can keep an old document kind; a project move can keep an old
+byte count; a missing or damaged key must fall back to a full projection; and an
+external or raw write must still be detected at boot. An unchanged image-rich
+save must report `reused` with zero scanned bytes. A source edit must report the
+new metadata title, targets and content length.
+
+`e2e/draft-projection-performance.spec.ts` creates real drafts with 0, 1 and 4
+embedded images, waits for the durable projections, then closes the tab. It
+reads the instrumented `mdsh:draft-manifest` and `mdsh:draft-metadata` measures
+and checks the durable key values after the save. Run:
+
+```sh
+npx playwright test e2e/draft-projection-performance.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the attached `draft-projection-reuse-*.json` and
+`draft-projection-recompute.json` files with the standard report metadata. The
+measure records hook duration, reuse state and scanned bytes. It does not
+measure garbage collection, native WebView behavior or another browser engine.
+Next-input latency stays in `editor-input-latency.spec.ts`.
+
 ## Visual table risks
 
 `table-editing.spec.ts` checks Enter and Shift+Enter in header and body cells.
@@ -907,6 +1010,34 @@ traces with the command and source identity.
 ```sh
 CI=1 xvfb-run -a npm run test:e2e -- table-editing.spec.ts --workers=1 --retries=0
 ```
+
+## AI context serialization risks
+
+The provider context must keep an independent approval manifest and one JSON
+entry for each approved file. A file name or body that contains `</file>`, a
+fake `<file path="...">` tag, quote characters, newlines or Unicode separators
+must stay inside its JSON string. The preview manifest must list the same
+approved paths and token totals as the transmitted payload.
+
+`src/lib/ai/context.test.ts` checks hostile names and bodies, quote and newline
+handling, deterministic order and the selection payload. `e2e/ai-panel.spec.ts`
+sends the real request through the panel with a hostile body and checks that
+the provider receives one approved entry, not an invented one. Run:
+
+```sh
+npx vitest run src/lib/ai/context.test.ts --maxWorkers=1
+npx playwright test e2e/ai-panel.spec.ts --project=chromium --workers=1 --retries=0 --grep 'hostile file markers'
+```
+
+The preview path must not encode or hash a body that is ignored, secret,
+binary, outside the token budget or absent from the approved scope. A large
+library can hold 3000 documents, so a full-body pass on each input or scope
+change is the failure. The same isolated file spies on
+`TextEncoder.prototype.encode` for the budget and path exclusions, checks that
+`previewContext` does not encode a body, and compares the preview manifest with
+the transmitted entries. The panel builds the preview for the review UI and
+uses Set and Map indexes for the send revision guard. A browser timing check
+cannot attribute that work to one preview rebuild.
 
 ## Retained isolated risks
 

@@ -153,7 +153,7 @@ test('upgrades an older database and keeps draft content', async ({ page }, info
 				}
 			)
 	);
-	expect(state.version).toBe(170);
+	expect(state.version).toBe(180);
 	expect(state.content).toBe(legacyContent);
 	expect(state.manifest).toContain('legacy-draft');
 	await info.attach('upgrade-state.json', {

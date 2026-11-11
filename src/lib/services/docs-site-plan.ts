@@ -47,6 +47,7 @@ export interface DocsSiteExportInput {
 export type DocsSiteIssueCode =
 	| 'anchor-missing'
 	| 'asset-unsafe'
+	| 'document-renamed'
 	| 'document-skipped'
 	| 'image-external'
 	| 'image-missing'
@@ -143,6 +144,15 @@ export interface SiteDestination {
 const MARKDOWN_EXTENSIONS = /\.(?:md|markdown|mdx)$/i;
 const CODE_EXTENSIONS =
 	/\.(?:txt|text|log|csv|json|jsonc|js|mjs|cjs|ts|mts|cts|jsx|tsx|py|rs|go|java|kt|kts|swift|c|h|cc|cpp|hpp|cs|php|rb|sh|bash|zsh|fish|ps1|sql|css|scss|less|html|htm|xml|svg|yaml|yml|toml|ini|conf|env|lua|pl|r|dart|ex|exs|erl|hs|clj|groovy|gradle|mk)$/i;
+
+/**
+ * A public site must not serve user bytes as an active document. A private
+ * project ZIP keeps the exact bytes. The site export appends `.txt` to these
+ * outputs so a static host cannot run them as same-origin pages.
+ */
+const ACTIVE_DOCUMENT_EXTENSIONS = /\.(?:html?|xhtml|xht|shtml|mhtml?)$/i;
+const ACTIVE_DOCUMENT_MIMES =
+	/^(?:text\/html|application\/xhtml\+xml|application\/xml|text\/xml|multipart\/related)$/i;
 
 function compareText(a: string, b: string): number {
 	return a < b ? -1 : a > b ? 1 : 0;
@@ -264,6 +274,22 @@ function documentCodeKind(document: DocsSiteDocumentInput): boolean {
 	return CODE_EXTENSIONS.test(document.relativePath);
 }
 
+function activeDocumentOutput(path: string, mime: string | undefined): boolean {
+	if (ACTIVE_DOCUMENT_EXTENSIONS.test(path)) return true;
+	if (!mime) return false;
+	return ACTIVE_DOCUMENT_MIMES.test(mime.toLowerCase().split(';', 1)[0]!.trim());
+}
+
+/** Appends `.txt` so a static host cannot serve the file as an active page. */
+function publishedOutputPath(path: string, mime: string | undefined): string {
+	return activeDocumentOutput(path, mime) ? `${path}.txt` : path;
+}
+
+function isActiveDocumentMime(mime: string | undefined): boolean {
+	if (!mime) return false;
+	return ACTIVE_DOCUMENT_MIMES.test(mime.toLowerCase().split(';', 1)[0]!.trim());
+}
+
 function buildMaps(
 	plan: Omit<
 		DocsSitePlan,
@@ -328,6 +354,7 @@ export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
 	const skipped: DocsSiteDocumentInput[] = [];
 	const imageDocuments: Array<{ document: DocsSiteDocumentInput; data: Uint8Array }> = [];
 	const codeDocuments: DocsSiteDocumentInput[] = [];
+	const renamed: Array<{ sourcePath: string; outputPath: string }> = [];
 	for (const document of documents) {
 		if (documentPageKind(document)) {
 			preferredPages.push({
@@ -388,18 +415,25 @@ export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
 
 	const plannedAssets: PlannedAsset[] = [];
 	for (const asset of assets) {
-		const outputPath = uniqueOutput(asset.path, occupied);
+		const preferred = publishedOutputPath(asset.path, asset.mime);
+		const outputPath = uniqueOutput(preferred, occupied);
 		occupied.add(pathKey(outputPath));
+		if (preferred !== asset.path) renamed.push({ sourcePath: asset.path, outputPath });
 		plannedAssets.push({
 			sourcePath: asset.path,
 			outputPath,
-			mime: asset.mime || 'application/octet-stream',
+			mime: isActiveDocumentMime(asset.mime)
+				? 'text/plain;charset=utf-8'
+				: asset.mime || 'application/octet-stream',
 			data: asset.data
 		});
 	}
 	for (const entry of imageDocuments) {
-		const outputPath = uniqueOutput(entry.document.relativePath, occupied);
+		const preferred = publishedOutputPath(entry.document.relativePath, entry.document.mime);
+		const outputPath = uniqueOutput(preferred, occupied);
 		occupied.add(pathKey(outputPath));
+		if (preferred !== entry.document.relativePath)
+			renamed.push({ sourcePath: entry.document.relativePath, outputPath });
 		plannedAssets.push({
 			sourcePath: entry.document.relativePath,
 			outputPath,
@@ -412,14 +446,20 @@ export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
 	const files: PlannedFile[] = [];
 	const encoder = new TextEncoder();
 	for (const document of codeDocuments) {
-		const outputPath = uniqueOutput(document.relativePath, occupied);
+		const preferred = publishedOutputPath(document.relativePath, document.mime);
+		const outputPath = uniqueOutput(preferred, occupied);
 		occupied.add(pathKey(outputPath));
+		if (preferred !== document.relativePath)
+			renamed.push({ sourcePath: document.relativePath, outputPath });
 		const data = encoder.encode(document.content);
 		if (data.length > IMPORT_LIMITS.maxFileBytes) throw new Error('Project document size limit');
 		files.push({
 			sourcePath: document.relativePath,
 			outputPath,
-			mime: document.mime || 'text/plain;charset=utf-8',
+			mime:
+				preferred !== document.relativePath
+					? 'text/plain;charset=utf-8'
+					: document.mime || 'text/plain;charset=utf-8',
 			data
 		});
 	}
@@ -459,6 +499,17 @@ export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
 			`"${document.relativePath}" is not a Markdown page and is not included.`
 		)
 	);
+	for (const entry of renamed) {
+		issues.push(
+			issue(
+				'document-renamed',
+				'warning',
+				entry.sourcePath,
+				entry.sourcePath,
+				`"${entry.sourcePath}" is published as "${entry.outputPath}" so the site cannot run it.`
+			)
+		);
+	}
 	for (const page of pages) {
 		issues.push(...scanPageIssues(plan, page));
 	}
