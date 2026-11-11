@@ -58,6 +58,15 @@ raw samples, counters and the browser version, plus `saved-note.md`. The WebKit
 project runs the same scenarios. A Chromium and WebKit result does not cover a
 native WebView, a physical display or a thermal state.
 
+The visual preview budget is separate from the upload limit. Keep the original
+Markdown, the original image bytes and the Read and export sources exact. The
+WYSIWYG node may use a bounded object URL. Retain the preflight rejection case:
+an image with a small encoded size and a huge declared pixel count must fail
+before a bitmap decode. Run
+`npx playwright test e2e/image-preview-budget.spec.ts --project=chromium --workers=1 --retries=0`
+and the WebKit project. The reports record the decoded size, generated previews,
+revoked object URLs, import counters and available heap values.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading

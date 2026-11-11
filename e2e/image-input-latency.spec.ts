@@ -277,6 +277,18 @@ async function readInputProbe(page: Page): Promise<{ samples: number[]; longTask
 	);
 }
 
+async function heap(page: Page): Promise<Record<string, number | boolean>> {
+	return page.evaluate(() => {
+		const memory = (performance as unknown as { memory?: Record<string, number> }).memory;
+		if (!memory) return { supported: false };
+		return {
+			supported: true,
+			usedJSHeapSize: memory.usedJSHeapSize ?? 0,
+			totalJSHeapSize: memory.totalJSHeapSize ?? 0
+		};
+	});
+}
+
 function percentile(values: readonly number[], ratio: number): number {
 	if (!values.length) return 0;
 	const sorted = [...values].sort((left, right) => left - right);
@@ -347,6 +359,7 @@ for (const scenario of scenarios) {
 		await expect(visual).toBeVisible({ timeout: 180_000 });
 		await installInputProbe(page);
 		const countersBefore = await readCounters(page);
+		const heapBefore = await heap(page);
 		const positions: Record<string, number[]> = {};
 		const positionTasks: Record<string, number[]> = {};
 		for (const position of ['start', 'end'] as const) {
@@ -370,6 +383,7 @@ for (const scenario of scenarios) {
 		}
 		const countersAfter = await readCounters(page);
 		const counterDelta = delta(countersBefore, countersAfter);
+		const heapAfter = await heap(page);
 		const probe = await readInputProbe(page);
 		probe.samples = Object.values(positions).flat();
 		probe.longTasks = Object.values(positionTasks).flat();
@@ -439,6 +453,7 @@ for (const scenario of scenarios) {
 					p95,
 					longestTask,
 					counters: counterDelta,
+					heap: { before: heapBefore, after: heapAfter },
 					savedBytes: Buffer.byteLength(saved),
 					browser: page.context().browser()?.version()
 				},

@@ -33,6 +33,11 @@
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { measureEditorStage, recordEditorCounter } from '#lib/editor-perf.js';
+	import {
+		localVisualPreview,
+		releaseVisualPreviews,
+		resolvedVisualPreview
+	} from '../../image-block/visual-preview';
 
 	interface Props {
 		fileId: string;
@@ -490,17 +495,19 @@
 			blockCaptionPlaceholderText: t('editor.imageCaption'),
 			blockConfirmButton: t('prompt.confirm'),
 			inlineConfirmButton: t('prompt.confirm'),
-			proxyDomURL: async (source: string) => {
+			proxyDomURL: (source: string) => {
 				recordEditorCounter('imageProxyCall');
-				const { projectContextFor, projectImageSource } = await import('#lib/project-media.js');
-				try {
-					return (
-						(await projectImageSource(source, await projectContextFor(idForMount))) ??
-						editorImageSource(source)
-					);
-				} catch {
-					return editorImageSource(source);
-				}
+				const local = localVisualPreview(source);
+				if (local !== null) return local;
+				return (async () => {
+					const { projectContextFor, projectImageSource } = await import('#lib/project-media.js');
+					try {
+						const resolved = await projectImageSource(source, await projectContextFor(idForMount));
+						return resolved ? resolvedVisualPreview(resolved) : editorImageSource(source);
+					} catch {
+						return editorImageSource(source);
+					}
+				})();
 			},
 			onUpload: async (file: File) => {
 				try {
@@ -1125,6 +1132,7 @@
 		imageObserver = null;
 		imageResizeObserver?.disconnect();
 		imageResizeObserver = null;
+		releaseVisualPreviews();
 		if (crepe) {
 			const instance = crepe;
 			const id = mountedFileId;
