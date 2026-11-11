@@ -475,8 +475,11 @@ jobs:
     # Three operating-system builds produce the four accepted installers.
     # The bundle selection is explicit for each runner. scripts/collect-desktop-assets.mjs
     # reads the same policy and refuses a missing, extra, misplaced or foreign artifact.
+    # The explicit status function is required: a skipped release-please job is
+    # in this job's dependency chain, and the implicit success() check would
+    # skip the build on every manual packaging run.
     needs: [plan-release]
-    if: needs.plan-release.outputs.build == 'true'
+    if: ${{ !cancelled() && needs.plan-release.result == 'success' && needs.plan-release.outputs.build == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -605,8 +608,10 @@ jobs:
     # Nonpublishing check for a release packaging change. It applies the same
     # collector policy and checksum verification as publication, and it creates
     # no tag, no release and no attestation.
+    # It needs a successful plan and a successful build. A stored true output
+    # alone cannot start it.
     needs: [plan-release, build-desktop]
-    if: needs.plan-release.outputs.packaging == 'true'
+    if: ${{ !cancelled() && needs.plan-release.result == 'success' && needs.plan-release.outputs.packaging == 'true' && needs.build-desktop.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -649,8 +654,9 @@ jobs:
           cat desktop-beta-notes.md
 
   publish-desktop-beta:
+    # Publication needs a successful plan and a successful build.
     needs: [plan-release, build-desktop]
-    if: needs.plan-release.outputs.publish == 'true'
+    if: ${{ !cancelled() && needs.plan-release.result == 'success' && needs.plan-release.outputs.publish == 'true' && needs.build-desktop.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -740,8 +746,9 @@ jobs:
     # The reusable CLI workflow uploads its three standalone archives only for
     # this callable path. The call runs once, in the release run, for the same
     # commit the plan job approved. No later stage rebuilds a CLI archive.
+    # The status function keeps the call gated on a successful plan.
     needs: plan-release
-    if: needs.plan-release.outputs.publish == 'true'
+    if: ${{ !cancelled() && needs.plan-release.result == 'success' && needs.plan-release.outputs.publish == 'true' }}
     uses: ./.github/workflows/cli-package.yml
     with:
       upload_build_artifacts: true
@@ -754,8 +761,9 @@ jobs:
     # artifacts: attaching them to a release is a separate distribution
     # decision. The Desktop installer collector never reads these files and
     # keeps its four-format assertion.
+    # Verification needs the successful CLI package job of this same run.
     needs: [plan-release, cli-package]
-    if: needs.plan-release.outputs.publish == 'true'
+    if: ${{ !cancelled() && needs.plan-release.result == 'success' && needs.plan-release.outputs.publish == 'true' && needs.cli-package.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

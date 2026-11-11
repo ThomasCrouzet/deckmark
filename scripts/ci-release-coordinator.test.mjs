@@ -565,6 +565,354 @@ function jobBlock(workflow, job) {
 	return lines.slice(start, end).join('\n');
 }
 
+/**
+ * The release jobs in evaluation order. The test model covers only this tail
+ * of the workflow. GitHub applies a failure or skip to every later job in the
+ * dependency chain unless the condition names a status function, so the model
+ * needs the real graph and the real conditions, not a copy of them.
+ */
+const RELEASE_JOBS = [
+	'plan-release',
+	'build-desktop',
+	'verify-packaging',
+	'publish-desktop-beta',
+	'cli-package',
+	'cli-verify'
+];
+
+/**
+ * Read the real job graph from the Desktop workflow.
+ * @param {string} workflow
+ */
+function jobGraph(workflow) {
+	const jobsText = workflow.slice(workflow.indexOf('\njobs:\n'));
+	const names = [...jobsText.matchAll(/^ {2}([a-zA-Z0-9_-]+):$/gm)].map((match) => match[1]);
+	/** @type {Record<string, { needs: string[], condition: string }>} */
+	const graph = {};
+	for (const name of names) {
+		const block = jobBlock(workflow, name);
+		const lines = block.split('\n');
+		const needsLine = lines.find((line) => line.startsWith('    needs:'));
+		const needs = needsLine
+			? needsLine
+					.slice('    needs:'.length)
+					.trim()
+					.replace(/^\[/, '')
+					.replace(/\]$/, '')
+					.split(',')
+					.map((value) => value.trim())
+					.filter((value) => value !== '')
+			: [];
+		const ifLine = lines.find((line) => line.startsWith('    if:'));
+		const condition = ifLine
+			? ifLine
+					.slice('    if:'.length)
+					.trim()
+					.replace(/^\$\{\{/, '')
+					.replace(/\}\}$/, '')
+					.trim()
+			: '';
+		graph[name] = { needs, condition };
+	}
+	return graph;
+}
+
+/**
+ * The full dependency chain of one job. The documented rule is that a skip in
+ * the chain applies to every later job, so success() covers these jobs and not
+ * only the direct needs.
+ * @param {ReturnType<typeof jobGraph>} graph
+ * @param {string} name
+ */
+function ancestors(graph, name) {
+	const found = new Set();
+	const visit = (job) => {
+		for (const need of graph[job].needs) {
+			if (found.has(need)) continue;
+			found.add(need);
+			visit(need);
+		}
+	};
+	visit(name);
+	return [...found];
+}
+
+const CONDITION_TOKEN = /\s*(&&|\|\||==|!=|!|\(|\)|'([^']*)'|([A-Za-z_][A-Za-z0-9_.-]*(?:\(\))?))/g;
+
+/**
+ * Evaluate one workflow condition. The test models the operators and the
+ * contexts that the Desktop conditions use. An unknown token throws, so a
+ * condition cannot pass through the model unread.
+ * @param {string} expression
+ * @param {{ eventName: string, ref: string, cancelled: boolean, results: Record<string, string>, outputs: Record<string, Record<string, string>>, success: () => boolean, failure: () => boolean }} scope
+ */
+function evaluateExpression(expression, scope) {
+	/** @type {{ type: 'word' | 'string' | 'operator', value: string }[]} */
+	const tokens = [];
+	let consumed = 0;
+	for (const match of expression.matchAll(CONDITION_TOKEN)) {
+		if (match.index !== consumed) {
+			throw new Error(`Unsupported condition syntax: ${expression.slice(consumed)}`);
+		}
+		consumed = match.index + match[0].length;
+		if (match[2] !== undefined) tokens.push({ type: 'string', value: match[2] });
+		else if (match[3] !== undefined) tokens.push({ type: 'word', value: match[3] });
+		else tokens.push({ type: 'operator', value: match[0].trim() });
+	}
+	if (expression.slice(consumed).trim() !== '') {
+		throw new Error(`Unsupported condition syntax: ${expression.slice(consumed)}`);
+	}
+	let index = 0;
+	const peek = () => tokens[index];
+	const resolve = (word) => {
+		if (word === 'success()') return scope.success();
+		if (word === 'failure()') return scope.failure();
+		if (word === 'cancelled()') return scope.cancelled;
+		if (word === 'always()') return true;
+		if (word === 'github.event_name') return scope.eventName;
+		if (word === 'github.ref') return scope.ref;
+		if (word.startsWith('needs.')) {
+			const [, job, field, key] = word.split('.');
+			if (field === 'result') return scope.results[job] ?? '';
+			if (field === 'outputs' && key !== undefined) return scope.outputs[job]?.[key] ?? '';
+		}
+		throw new Error(`Unsupported condition identifier: ${word}`);
+	};
+	const primary = () => {
+		const token = peek();
+		if (!token) throw new Error(`Unexpected end of condition: ${expression}`);
+		if (token.type === 'operator' && token.value === '(') {
+			index += 1;
+			const value = or();
+			if (peek()?.value !== ')') throw new Error(`Missing ')' in condition: ${expression}`);
+			index += 1;
+			return value;
+		}
+		if (token.type === 'string') {
+			index += 1;
+			return token.value;
+		}
+		if (token.type === 'word') {
+			index += 1;
+			return resolve(token.value);
+		}
+		throw new Error(`Unexpected token ${token.value} in condition: ${expression}`);
+	};
+	const unary = () => {
+		if (peek()?.value === '!') {
+			index += 1;
+			return !unary();
+		}
+		return primary();
+	};
+	const comparison = () => {
+		let left = unary();
+		while (peek()?.value === '==' || peek()?.value === '!=') {
+			const operator = tokens[index].value;
+			index += 1;
+			const right = unary();
+			left = operator === '==' ? String(left) === String(right) : String(left) !== String(right);
+		}
+		return left;
+	};
+	const and = () => {
+		let value = comparison();
+		while (peek()?.value === '&&') {
+			index += 1;
+			value = comparison() && value;
+		}
+		return value;
+	};
+	const or = () => {
+		let value = and();
+		while (peek()?.value === '||') {
+			index += 1;
+			value = and() || value;
+		}
+		return value;
+	};
+	const value = or();
+	if (index !== tokens.length) throw new Error(`Trailing condition tokens: ${expression}`);
+	return value;
+}
+
+/**
+ * Apply the job condition. The default success() check is added when the
+ * condition names no status function.
+ * @param {ReturnType<typeof jobGraph>} graph
+ * @param {string} name
+ * @param {Parameters<typeof evaluateExpression>[1]} scope
+ */
+function evaluateJobCondition(graph, name, scope) {
+	const { condition } = graph[name];
+	if (condition === '') return scope.success();
+	const hasStatusFunction = /\b(?:success|failure|cancelled|always)\(\)/.test(condition);
+	const value = evaluateExpression(condition, scope);
+	return hasStatusFunction ? Boolean(value) : Boolean(value) && scope.success();
+}
+
+/**
+ * Run the release tail of one Desktop run through the real conditions.
+ * @param {{
+ *   eventName?: string,
+ *   ref?: string,
+ *   cancelled?: boolean,
+ *   results?: Record<string, string>,
+ *   outputs?: Record<string, Record<string, string>>,
+ *   fail?: string[]
+ * }} input
+ */
+function simulateReleaseRun({
+	eventName = 'workflow_dispatch',
+	ref = 'refs/heads/ci/628-simplify',
+	cancelled = false,
+	results: seededResults = {},
+	outputs = {},
+	fail = []
+}) {
+	const graph = jobGraph(DESKTOP_WORKFLOW);
+	/** @type {Record<string, string>} */
+	const results = {};
+	for (const name of Object.keys(graph)) results[name] = 'success';
+	if (eventName === 'workflow_dispatch') results['release-please'] = 'skipped';
+	Object.assign(results, seededResults);
+	for (const name of RELEASE_JOBS) {
+		if (Object.hasOwn(seededResults, name)) continue;
+		const scope = {
+			eventName,
+			ref,
+			cancelled,
+			results,
+			outputs,
+			success: () => ancestors(graph, name).every((job) => results[job] === 'success'),
+			failure: () => ancestors(graph, name).some((job) => results[job] === 'failure')
+		};
+		const runs = evaluateJobCondition(graph, name, scope);
+		results[name] = runs ? (fail.includes(name) ? 'failure' : 'success') : 'skipped';
+	}
+	return results;
+}
+
+test('a manual packaging run builds and verifies although release-please is skipped', () => {
+	// Every validation job succeeded and the plan reported build=true, but a
+	// skipped release-please job is in the dependency chain. The implicit
+	// success() check skipped the packaging jobs and the run stayed green.
+	const results = simulateReleaseRun({
+		outputs: { 'plan-release': { build: 'true', publish: 'false', packaging: 'true' } }
+	});
+	assert.equal(results['plan-release'], 'success');
+	assert.equal(results['build-desktop'], 'success');
+	assert.equal(results['verify-packaging'], 'success');
+	assert.equal(results['publish-desktop-beta'], 'skipped');
+	assert.equal(results['cli-package'], 'skipped');
+	assert.equal(results['cli-verify'], 'skipped');
+});
+
+test('a missing, false or non-successful plan stops every downstream stage', () => {
+	const cases = [
+		{ outputs: {} },
+		{ outputs: { 'plan-release': { build: 'false', publish: 'false', packaging: 'false' } } },
+		{
+			results: { 'plan-release': 'skipped' },
+			outputs: { 'plan-release': { build: 'true', publish: 'true', packaging: 'true' } }
+		},
+		{
+			results: { 'plan-release': 'failure' },
+			outputs: { 'plan-release': { build: 'true', publish: 'true', packaging: 'true' } }
+		}
+	];
+	for (const input of cases) {
+		const results = simulateReleaseRun(input);
+		for (const job of RELEASE_JOBS.slice(1)) {
+			assert.equal(results[job], 'skipped', `${job} ran for ${JSON.stringify(input)}`);
+		}
+	}
+});
+
+test('a cancelled run never starts a downstream stage even with stored true outputs', () => {
+	// A push run has no skipped ancestor here, so only the cancellation check
+	// keeps the stored plan outputs from starting the build.
+	const results = simulateReleaseRun({
+		eventName: 'push',
+		ref: 'refs/heads/main',
+		cancelled: true,
+		results: { 'plan-release': 'success' },
+		outputs: { 'plan-release': { build: 'true', publish: 'true', packaging: 'true' } }
+	});
+	for (const job of RELEASE_JOBS.slice(1)) assert.equal(results[job], 'skipped');
+});
+
+test('a failed build stops publication and the packaging verifier', () => {
+	const results = simulateReleaseRun({
+		eventName: 'push',
+		outputs: { 'plan-release': { build: 'true', publish: 'true', packaging: 'false' } },
+		fail: ['build-desktop']
+	});
+	assert.equal(results['build-desktop'], 'failure');
+	assert.equal(results['verify-packaging'], 'skipped');
+	assert.equal(results['publish-desktop-beta'], 'skipped');
+	assert.equal(results['cli-package'], 'success');
+	assert.equal(results['cli-verify'], 'success');
+});
+
+test('a failed CLI package stops CLI verification', () => {
+	const results = simulateReleaseRun({
+		eventName: 'push',
+		outputs: { 'plan-release': { build: 'true', publish: 'true', packaging: 'false' } },
+		fail: ['cli-package']
+	});
+	assert.equal(results['cli-package'], 'failure');
+	assert.equal(results['cli-verify'], 'skipped');
+	assert.equal(results['publish-desktop-beta'], 'success');
+});
+
+test('a push release runs the publication chain and not the packaging verifier', () => {
+	const results = simulateReleaseRun({
+		eventName: 'push',
+		ref: 'refs/heads/main',
+		outputs: {
+			'plan-release': {
+				build: 'true',
+				publish: 'true',
+				packaging: 'false',
+				tag: 'v2.5.3',
+				sha: SHA
+			}
+		}
+	});
+	assert.equal(results['build-desktop'], 'success');
+	assert.equal(results['verify-packaging'], 'skipped');
+	assert.equal(results['publish-desktop-beta'], 'success');
+	assert.equal(results['cli-package'], 'success');
+	assert.equal(results['cli-verify'], 'success');
+});
+
+test('the release conditions name their status checks and their plan results', () => {
+	const graph = jobGraph(DESKTOP_WORKFLOW);
+	assert.deepEqual(graph['plan-release'].needs, [
+		'changes',
+		'resolve-source',
+		'release-please',
+		'desktop-validation'
+	]);
+	for (const job of RELEASE_JOBS.slice(1)) {
+		assert.match(graph[job].condition, /!cancelled\(\)/, `${job} has no cancellation check`);
+		assert.match(
+			graph[job].condition,
+			/needs\.plan-release\.result == 'success'/,
+			`${job} does not require a successful plan`
+		);
+	}
+	for (const job of ['verify-packaging', 'publish-desktop-beta']) {
+		assert.match(
+			graph[job].condition,
+			/needs\.build-desktop\.result == 'success'/,
+			`${job} does not require a successful build`
+		);
+	}
+	assert.match(graph['cli-verify'].condition, /needs\.cli-package\.result == 'success'/);
+});
+
 test('the Desktop workflow owns validation, release creation and publication', () => {
 	for (const job of [
 		'changes',
