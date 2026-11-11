@@ -386,6 +386,8 @@
 			onPresentingChange(false);
 			disposed = true;
 			clipboardShortcut = null;
+			thumbnailTouch = null;
+			slideDragIndex = null;
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
 			window.removeEventListener('mdsh:flush-editor', flush);
@@ -798,6 +800,29 @@
 			editor.moveSlide(thumbnailTouch.from, Number(target.dataset.slideIndex));
 		thumbnailTouch = null;
 	}
+	function thumbnailPointerCancel(event: PointerEvent) {
+		if (thumbnailTouch?.pointerId === event.pointerId) thumbnailTouch = null;
+	}
+	function endThumbnailDrag() {
+		slideDragIndex = null;
+	}
+	function dropThumbnail(event: DragEvent, index: number) {
+		event.preventDefault();
+		event.stopPropagation();
+		const payload = event.dataTransfer?.getData('text/x-mdsh-slide') ?? '';
+		const from = Number.parseInt(payload, 10);
+		// Accept only a live filmstrip drag that started in this filmstrip. A
+		// cancelled drag or an unrelated drop must not reuse a stale origin.
+		if (slideDragIndex === null || from !== slideDragIndex) {
+			slideDragIndex = null;
+			return;
+		}
+		editor.moveSlide(from, index);
+		slideDragIndex = null;
+	}
+	function cancelThumbnailDragOnEscape(event: KeyboardEvent) {
+		if (event.key === 'Escape') slideDragIndex = null;
+	}
 </script>
 
 <svelte:window
@@ -806,7 +831,11 @@
 		gestures.pointerEnd(event);
 		thumbnailPointerUp(event);
 	}}
-	onpointercancel={(event) => gestures.pointerEnd(event, true)}
+	onpointercancel={(event) => {
+		gestures.pointerEnd(event, true);
+		thumbnailPointerCancel(event);
+	}}
+	onkeydown={cancelThumbnailDragOnEscape}
 />
 
 {#snippet action(
@@ -1135,16 +1164,12 @@
 									event.dataTransfer?.setData('text/x-mdsh-slide', String(index));
 									event.stopPropagation();
 								}}
+								ondragend={endThumbnailDrag}
 								ondragover={(event) => {
 									event.preventDefault();
 									event.stopPropagation();
 								}}
-								ondrop={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									if (slideDragIndex !== null) editor.moveSlide(slideDragIndex, index);
-									slideDragIndex = null;
-								}}
+								ondrop={(event) => dropThumbnail(event, index)}
 							>
 								<span class="slide-number">{index + 1}</span><span
 									class="thumbnail-preview"
