@@ -76,6 +76,43 @@ async function source(page: Page): Promise<string> {
 		.evaluateAll((lines) => lines.map((line) => line.textContent).join('\n'));
 }
 
+test.describe('comment form typography', () => {
+	test.use({ hasTouch: true });
+
+	test('keeps touch form controls at 16 CSS px or more', async ({ page }, info: TestInfo) => {
+		await resetAppState(page);
+		await createFirstFile(page);
+		await openComments(page);
+		const measured = await page.evaluate(() => {
+			const read = (testId: string) => {
+				const element = document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+				if (!element) throw new Error(`Missing ${testId}`);
+				const style = getComputedStyle(element);
+				return { fontSize: Number.parseFloat(style.fontSize), tag: element.tagName };
+			};
+			const label = document.querySelector<HTMLElement>('.comment-form label span');
+			return {
+				quote: read('comment-quote'),
+				body: read('comment-body'),
+				author: read('comment-author'),
+				labelFontSize: label ? Number.parseFloat(getComputedStyle(label).fontSize) : null,
+				anyPointerCoarse: matchMedia('(any-pointer: coarse)').matches,
+				primaryPointerCoarse: matchMedia('(pointer: coarse)').matches,
+				touchCapable: document.documentElement.getAttribute('data-touch-capable') === 'true'
+			};
+		});
+		expect(measured.anyPointerCoarse).toBe(true);
+		expect(measured.quote.fontSize).toBeGreaterThanOrEqual(16);
+		expect(measured.body.fontSize).toBeGreaterThanOrEqual(16);
+		expect(measured.author.fontSize).toBeGreaterThanOrEqual(16);
+		expect(measured.labelFontSize).toBeLessThan(16);
+		await info.attach('comment-touch-typography.json', {
+			body: JSON.stringify(measured, null, 2),
+			contentType: 'application/json'
+		});
+	});
+});
+
 test('adds local comments without changing the Markdown and survives reload', async ({
 	page
 }, info: TestInfo) => {
@@ -84,6 +121,11 @@ test('adds local comments without changing the Markdown and survives reload', as
 	const content = '# Guide\n\nUnique passage for review.\n\nSecond paragraph.';
 	await writeSourceContent(page, content);
 	await openComments(page);
+	// Mouse and keyboard keep the compact desktop text density.
+	const desktopFontSize = await page
+		.getByTestId('comment-body')
+		.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+	expect(desktopFontSize).toBeLessThan(16);
 	await addComment(page, 'Unique passage for review.', 'Please confirm this wording.');
 	await expect(page.getByTestId('comments-panel')).toContainText('Please confirm this wording.');
 	await expect(page.getByTestId('comments-panel')).toContainText('ancre valide');
