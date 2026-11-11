@@ -24,6 +24,7 @@ import { checkDesktopTools } from './native-desktop-tools.mjs';
 import { nativeProjects } from './native-projects.mjs';
 import { nativeCapture } from './native-capture.mjs';
 import { processTreeMemory } from './native-process-memory.mjs';
+import { stopChild } from './native-smoke-process.mjs';
 
 const binary = resolve(
 	process.env.NATIVE_BINARY ??
@@ -1125,14 +1126,11 @@ try {
 		gate: diskGate,
 		output,
 		restart: async () => {
-			const stopped = once(/** @type {import('node:child_process').ChildProcess} */ (app), 'exit');
-			app.kill();
-			await Promise.race([
-				stopped,
-				delay(15_000).then(() => {
-					throw new Error('Native restart for project grants blocked');
-				})
-			]);
+			await stopChild(/** @type {import('node:child_process').ChildProcess} */ (app), {
+				label: 'native restart for project grants',
+				graceMs: 10_000,
+				killMs: 5_000
+			});
 			app = undefined;
 			session = '';
 			launch(false);
@@ -1394,10 +1392,31 @@ try {
 	sampleMemory('failure');
 	throw error;
 } finally {
-	try {
-		writeFileSync(join(output, 'results.json'), JSON.stringify(results, null, 2));
-	} finally {
-		if (secondary?.pid) secondary.kill();
-		if (app?.pid) app.kill();
+	// The benchmark in this job attaches to the same fixed WebDriver port.
+	// Wait for the real close signal and escalate a child that ignores it.
+	// A surviving process is a failure, never a silent benchmark flake.
+	const cleanups = [];
+	const cleanupErrors = [];
+	for (const [label, child] of /** @type {const} */ ([
+		['secondary instance', secondary],
+		['native application', app]
+	])) {
+		if (!child?.pid) continue;
+		try {
+			cleanups.push(await stopChild(child, { label, graceMs: 10_000, killMs: 5_000 }));
+		} catch (error) {
+			cleanupErrors.push({ label, error: String(error) });
+			console.error(`Native smoke cleanup failed for ${label}: ${String(error)}`);
+		}
+	}
+	if (cleanups.length) results.cleanups = cleanups;
+	if (cleanupErrors.length) results.cleanupErrors = cleanupErrors;
+	writeFileSync(join(output, 'results.json'), JSON.stringify(results, null, 2));
+	if (cleanupErrors.length && !results.error) {
+		throw new Error(
+			`Native smoke cleanup failed: ${cleanupErrors
+				.map(({ label, error }) => `${label}: ${error}`)
+				.join('; ')}`
+		);
 	}
 }

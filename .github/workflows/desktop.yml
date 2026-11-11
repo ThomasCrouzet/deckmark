@@ -79,12 +79,12 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
       - name: Check the release coordinator policy
         # The publish path is driven by scripts/ci-release-coordinator.mjs. Its
         # routing, aggregate and CLI-deliverable checks run before the matrix,
         # so a broken release policy fails here and not at publication.
-        run: node --test scripts/desktop-release-orchestration.test.mjs scripts/ci-release-coordinator.test.mjs
+        run: node --test scripts/desktop-release-orchestration.test.mjs scripts/ci-release-coordinator.test.mjs scripts/native-smoke-process.test.mjs
 
   resolve-source:
     needs: changes
@@ -103,7 +103,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
       - name: Resolve and validate source identity
         id: source
         shell: bash
@@ -145,7 +145,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
       - name: Verify GLib source and security backport
         run: node scripts/vendor-glib.mjs --check
       - name: Setup Rust
@@ -176,11 +176,16 @@ jobs:
       - name: Install cargo-audit
         if: runner.os == 'Linux'
         shell: bash
+        # Reuse the cache only for the exact pinned version. A substring match
+        # accepted a stale 0.22.20 binary.
         run: |
-          if [ -x "$HOME/.cache/cargo-audit/bin/cargo-audit" ]; then
-            "$HOME/.cache/cargo-audit/bin/cargo-audit" --version | grep -q '0.22.2'
+          version='0.22.2'
+          binary="$HOME/.cache/cargo-audit/bin/cargo-audit"
+          if [ -x "$binary" ] && [ "$("$binary" --version 2>/dev/null || true)" = "cargo-audit $version" ]; then
+            echo "cargo-audit cache hit: cargo-audit $version"
           else
-            cargo install cargo-audit --locked --version 0.22.2 --root "$HOME/.cache/cargo-audit"
+            cargo install cargo-audit --locked --version "$version" --root "$HOME/.cache/cargo-audit"
+            test "$("$binary" --version)" = "cargo-audit $version"
           fi
       - name: Audit Cargo.lock including unsound dependencies
         if: runner.os == 'Linux'
@@ -204,7 +209,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
@@ -244,7 +249,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
@@ -290,7 +295,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
       - name: Configure Ubuntu APT
         if: runner.os == 'Linux'
@@ -354,7 +359,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
       - name: Check validation result
         # scripts/ci-release-coordinator.mjs owns the gate. It fails closed on a
         # failed classifier, a deferred tier, and any missing, skipped,
@@ -430,7 +435,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
       - name: Plan the release
         id: plan
         shell: bash
@@ -496,7 +501,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
       - name: Configure Ubuntu APT
         if: runner.os == 'Linux'
@@ -613,7 +618,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
       - name: Download build artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -756,7 +761,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
       - name: Download the CLI build deliverables of this run
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

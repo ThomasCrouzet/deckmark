@@ -7,9 +7,13 @@
 // link. The functions are pure so the local tests can cover each refusal.
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { DESKTOP_RELEASE_FORMATS, formatForFile } from './desktop-release-policy.mjs';
+
+/** The published checksum file. It never lists its own digest. */
+export const CHECKSUM_ASSET = 'SHA256SUMS';
 
 /**
  * @typedef {{ name: string, digest?: string }} ReleaseAsset
@@ -46,8 +50,28 @@ export function readChecksums(path) {
 	return lines.map((line) => {
 		const match = /^([a-f0-9]{64}) {2}(\S+)$/.exec(line);
 		if (!match) throw new Error(`Invalid checksum line: ${line}`);
+		if (match[2] === CHECKSUM_ASSET) {
+			throw new Error(`The checksum file must not list itself: ${CHECKSUM_ASSET}`);
+		}
 		return { sha256: match[1], name: match[2] };
 	});
+}
+
+/**
+ * Hash the checksum file as published. The digest is attached to the asset
+ * plan; it is never written back into SHA256SUMS.
+ * @param {string} path
+ * @returns {{ name: string, sha256: string }}
+ */
+export function checksumFileAsset(path) {
+	const name = basename(path);
+	if (name !== CHECKSUM_ASSET) {
+		throw new Error(`The checksum file must be named ${CHECKSUM_ASSET}: ${name}`);
+	}
+	return {
+		name,
+		sha256: createHash('sha256').update(readFileSync(path)).digest('hex')
+	};
 }
 
 /**
@@ -77,10 +101,21 @@ export function assertCompleteReleaseAssets(assets) {
  * Decide which files to upload. An asset with the same name and the same
  * digest is skipped, a different digest is refused, and an asset outside the
  * policy is refused. This keeps an old release tag from changing silently.
- * @param {{ existingAssets?: ReleaseAsset[], checksums: Checksum[] }} input
+ * The published checksum file is one more expected asset. A release that
+ * already carries SHA256SUMS is verified by the actual GitHub digest.
+ * @param {{ existingAssets?: ReleaseAsset[], checksums: Checksum[], checksumFile?: { name: string, sha256: string } }} input
  */
-export function planAssetUpload({ existingAssets = [], checksums }) {
+export function planAssetUpload({ existingAssets = [], checksums, checksumFile }) {
 	const expected = new Map(checksums.map(({ name, sha256 }) => [name, sha256]));
+	if (checksumFile) {
+		if (checksumFile.name !== CHECKSUM_ASSET) {
+			throw new Error(`The checksum asset must be named ${CHECKSUM_ASSET}`);
+		}
+		if (!/^[a-f0-9]{64}$/.test(checksumFile.sha256)) {
+			throw new Error(`Invalid checksum file digest: ${checksumFile.sha256}`);
+		}
+		expected.set(checksumFile.name, checksumFile.sha256);
+	}
 	const present = new Set();
 	const skip = [];
 	for (const asset of existingAssets) {
@@ -96,7 +131,9 @@ export function planAssetUpload({ existingAssets = [], checksums }) {
 		present.add(asset.name);
 		skip.push(asset.name);
 	}
-	const upload = checksums.map(({ name }) => name).filter((name) => !present.has(name));
+	const names = checksums.map(({ name }) => name);
+	if (checksumFile) names.push(checksumFile.name);
+	const upload = names.filter((name) => !present.has(name));
 	return { upload, skip };
 }
 
@@ -179,7 +216,9 @@ function runNotes(argv) {
 
 function runPlanUpload(argv) {
 	const tag = argument(argv, 'tag');
-	const checksums = readChecksums(argument(argv, 'sums'));
+	const sums = argument(argv, 'sums');
+	const checksums = readChecksums(sums);
+	const checksumFile = checksumFileAsset(sums);
 	const output = argument(argv, 'output');
 	/** @type {ReleaseAsset[]} */
 	let existingAssets = [];
@@ -192,7 +231,7 @@ function runPlanUpload(argv) {
 		}
 		existingAssets = release.assets ?? [];
 	}
-	const plan = planAssetUpload({ existingAssets, checksums });
+	const plan = planAssetUpload({ existingAssets, checksums, checksumFile });
 	writeFileSync(output, plan.upload.map((name) => `${name}\n`).join(''));
 	process.stdout.write(
 		`Upload plan for ${tag}: ${plan.upload.length} upload, ${plan.skip.length} unchanged.\n`
