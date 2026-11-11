@@ -70,6 +70,19 @@ export function resolveProjectPath(from: string, destination: string): string | 
 	}
 }
 
+/** Encodes one path segment once, including the parentheses used by Markdown. */
+function encodePathSegment(part: string): string {
+	return encodeURIComponent(part).replace(
+		/[()]/g,
+		(character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+	);
+}
+
+/** Encodes every segment of a root-relative project path and keeps the slashes. */
+export function encodeProjectPath(path: string): string {
+	return path.split('/').map(encodePathSegment).join('/');
+}
+
 export function relativeDestination(from: string, to: string): string {
 	const base = from.split('/').slice(0, -1);
 	const target = to.split('/');
@@ -77,15 +90,7 @@ export function relativeDestination(from: string, to: string): string {
 		base.shift();
 		target.shift();
 	}
-	return [
-		...base.map(() => '..'),
-		...target.map((part) =>
-			encodeURIComponent(part).replace(
-				/[()]/g,
-				(character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-			)
-		)
-	].join('/');
+	return [...base.map(() => '..'), ...target.map(encodePathSegment)].join('/');
 }
 
 interface WikiProjectBucket<T> {
