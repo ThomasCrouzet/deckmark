@@ -20,6 +20,44 @@ window.__TAURI__.core.invoke(arguments[0], arguments[1]).then(
 );`;
 
 /**
+ * Checks that a window's logical content fits its monitor work area.
+ * @param {string} label
+ * @param {{ value?: any, rejection?: string }} response
+ * @param {{ frameless: boolean }} options
+ */
+function assertWindowFits(label, response, options) {
+	assert.equal(response.rejection, undefined, `${label}: ${response.rejection}`);
+	const geometry = response.value;
+	assert.ok(geometry, `${label}: no geometry`);
+	const work = geometry.workAreaLogical;
+	assert.ok(
+		geometry.innerSizeLogical.width <= work.width + 1,
+		`${label}: ${geometry.innerSizeLogical.width} logical px wide exceeds the ${work.width} px work area`
+	);
+	assert.ok(
+		geometry.innerSizeLogical.height <= work.height + 1,
+		`${label}: ${geometry.innerSizeLogical.height} logical px high exceeds the ${work.height} px work area`
+	);
+	const area = geometry.workArea;
+	const position = geometry.outerPosition;
+	assert.ok(position.x >= area.x - 1, `${label}: origin is left of the work area`);
+	assert.ok(position.y >= area.y - 1, `${label}: origin is above the work area`);
+	assert.ok(position.x < area.x + area.width, `${label}: origin is right of the work area`);
+	assert.ok(position.y < area.y + area.height, `${label}: origin is below the work area`);
+	if (options.frameless) {
+		assert.ok(
+			position.x + geometry.outerSize.width <= area.x + area.width + 1,
+			`${label}: right edge is outside the work area`
+		);
+		assert.ok(
+			position.y + geometry.outerSize.height <= area.y + area.height + 1,
+			`${label}: bottom edge is outside the work area`
+		);
+	}
+	return geometry;
+}
+
+/**
  * Exercises the capture window through the native WebDriver.
  * @param {{
  *   request: (path: string, body?: unknown, method?: string) => Promise<any>,
@@ -82,6 +120,9 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 		);
 		return executeIn;
 	};
+
+	const mainGeometry = record('main window geometry', await invoke('desktop_window_geometry'));
+	assertWindowFits('main', mainGeometry, { frameless: false });
 
 	const initialStatus = record('status before enable', await invoke('desktop_capture_status'));
 	assert.equal(initialStatus.rejection, undefined, initialStatus.rejection);
@@ -152,6 +193,11 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 	const shown = record('show command opens the window', await invoke('desktop_capture_show'));
 	assert.equal(shown.rejection, undefined, shown.rejection);
 
+	const captureGeometry = record(
+		'quick capture window geometry',
+		await invoke('desktop_window_geometry', { label: 'capture' })
+	);
+	assertWindowFits('capture', captureGeometry, { frameless: true });
 	const capture = await openCapture();
 	const surface = record(
 		'capture window has no full shell',
@@ -222,6 +268,11 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 	assert.ok(Array.isArray(beforeCancel));
 	const reopened = record('show command reopens the window', await invoke('desktop_capture_show'));
 	assert.equal(reopened.rejection, undefined, reopened.rejection);
+	const reusedGeometry = record(
+		'quick capture geometry after reuse',
+		await invoke('desktop_window_geometry', { label: 'capture' })
+	);
+	assertWindowFits('capture reuse', reusedGeometry, { frameless: true });
 	await openCapture();
 	await until(
 		() =>
@@ -450,7 +501,8 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 					'desktop_capture_hide',
 					'desktop_capture_register',
 					'desktop_capture_unregister',
-					'desktop_capture_status'
+					'desktop_capture_status',
+					'desktop_window_geometry'
 				],
 				shortcut: 'CommandOrControl+Shift+Space',
 				fixture: { title, content },

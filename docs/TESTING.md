@@ -1721,6 +1721,51 @@ The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
 browser pass is not a native desktop pass, and a headless WebKit pass is not a
 WebKitGTK pass.
 
+### Native window work-area risks
+
+A fixed logical size can be larger than the monitor work area at a high display
+scale or on a small screen. A saved window can also restore to an origin on a
+monitor that is no longer connected. The quick capture window is frameless and
+not resizable, so an oversized window can hide its Cancel and Save controls
+with no way to resize it.
+
+The retained failure risks are:
+
+- The main default or minimum size exceeds the logical work area.
+- A restored main window keeps an origin outside the work area.
+- A reused capture window stays sized for a monitor with another scale factor.
+- A short work area hides the capture content field or its footer actions.
+- A size change moves the window to an origin that belonged to the old size.
+
+`src-tauri/src/window_geometry.rs` owns the fit and clamp rules. Run the pure
+fit cases with:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml window_geometry::tests
+```
+
+`scripts/native-window-geometry.mjs` runs against the real WebView. It records
+the monitor work area, physical and logical window bounds, scale factor, OS,
+WebView version and a screenshot for the main window and for the capture window
+at launch and after reuse. It also checks that the capture title, content field,
+Cancel and Save stay reachable. Run it on a small screen or at a high scale:
+
+```sh
+GDK_SCALE=2 NATIVE_TEST_OUTPUT=/tmp/native-window-geometry \
+  dbus-run-session -- xvfb-run -a -s "-screen 0 1366x768x24" \
+  node scripts/native-window-geometry.mjs
+```
+
+At that scale the logical work area is 683 by 384 pixels. The main window fits
+at 667 by 368 and the capture window fits at 560 by 368. The artifact
+`native-window-geometry.json` and the three screenshots are local evidence.
+Keep the command, source revision, platform and WebView version with them.
+
+`scripts/native-capture.mjs` also records the main and capture geometry in the
+regular native smoke run on Ubuntu, Windows and macOS. This proves the default
+work area on each runner. A Windows WebView2 or macOS high-scale desktop remains
+an on-device check, and the script does not simulate a multi-monitor move.
+
 ### CI tier workflow failure risks
 
 Browser tests cannot observe Actions event routing or aggregate process exits.
