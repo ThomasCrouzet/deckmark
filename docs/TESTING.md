@@ -35,6 +35,53 @@ an unchanged top-level block must not be serialized after a local edit. Browser
 export checks establish source bytes but do not identify that internal work.
 Use the browser source-fidelity corpus for actual Milkdown serialization.
 
+### WebKit large-note paragraph paint
+
+Issue #553 covers the WebKit gap left after #431. The retained risks are a new
+paragraph that stays in the DOM while the next frame paints nothing, text that
+is transparent, clipped or covered, a scroll that hides the paragraph, a mode
+change or reload that loses inserted bytes, and an undo that removes a
+different range.
+
+`e2e/editor-large-note-visibility.spec.ts` seeds a 240 KB note with several
+headings, inline images and several hundred lines. It opens the visual editor
+and inserts three consecutive paragraphs through real Enter and text input.
+It then checks each paragraph before any pointer event:
+
+- A screenshot of the viewport is decoded in the page. The modal background
+  color is the local reference. Glyph pixels more than 90 color-distance units
+  from that background must number more than 20 in each paragraph rectangle.
+  A test paragraph with hidden, transparent, clipped or covered text keeps
+  this count near zero.
+- The rectangle must have a positive size and stay inside the viewport. The
+  computed display, visibility, opacity, color alpha and `user-select` must
+  permit visible, selectable text.
+- `document.elementFromPoint` at the paragraph center must resolve to that
+  paragraph or a descendant.
+- A Range over the paragraph text must select the exact text and produce at
+  least one client rectangle.
+
+The case repeats the paint check after scroll out and back, after a Source and
+WYSIWYG round trip, and after reload. It compares the downloaded Markdown with
+the exact prior source plus the three paragraphs after every durable state. It
+checks undo and redo before the mode change. The spec is selected by the
+`webkit` project. It uses no Chromium-only API. The mobile WebKit project does
+not select it: on the 240 KB fixture, one Enter can be lost in the mobile
+emulation and the paragraphs merge. A mobile paint case needs a smaller
+fixture and a separate review.
+
+Run:
+
+```sh
+npx playwright test e2e/editor-large-note-visibility.spec.ts \
+  --project=webkit --workers=1 --retries=0
+```
+
+Keep the attached `visibility-evidence.json` and `visible-paragraphs.png` with
+the fixture hash, browser version, source identity and command. The screenshot
+proves compositor output for the test viewport. It does not prove a physical
+display, a native WKWebView paint, or a different engine.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading
