@@ -6,6 +6,7 @@
 import { db, type DraftRow } from './db';
 import { stripMdExtension } from './file-names';
 import { fastFrontmatter } from './metadata-derive';
+import { recordDraftProjection } from './draft-manifest-key';
 export const DRAFT_METADATA_VERSION = 2;
 
 export interface DraftMetadata {
@@ -191,15 +192,26 @@ let installed = false;
 export function installDraftMetadataHooks(): void {
 	if (installed) return;
 	installed = true;
+	const metrics = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 	db.drafts.hook('creating', (_primaryKey, row) => {
+		const startedAt = metrics ? performance.now() : 0;
 		row.metadata = encodeDraftMetadata(row);
+		recordDraftProjection('metadata', false, row.content.length, startedAt);
 	});
 	db.drafts.hook('updating', (modifications, _primaryKey, row) => {
+		const startedAt = metrics ? performance.now() : 0;
 		const touchesSource = ['content', 'name', 'kind'].some((key) =>
 			Object.prototype.hasOwnProperty.call(modifications, key)
 		);
-		if (!touchesSource) return undefined;
-		return { metadata: encodeDraftMetadata({ ...row, ...modifications } as DraftRow) };
+		if (!touchesSource) {
+			// Dexie omits fields whose value did not change. Reusing the durable
+			// key keeps an unchanged save free of a hash and a link scan.
+			recordDraftProjection('metadata', true, row.content.length, startedAt);
+			return undefined;
+		}
+		const metadata = encodeDraftMetadata({ ...row, ...modifications } as DraftRow);
+		recordDraftProjection('metadata', false, row.content.length, startedAt);
+		return { metadata };
 	});
 }
 
