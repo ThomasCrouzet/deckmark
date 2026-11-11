@@ -5,6 +5,28 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.5.3](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.2...v2.5.3) (2026-11-11)
+
+
+### Bug Fixes
+
+* **ai-context:** prevent context spoofing and bound preview work ([#584](https://github.com/ThomasCrouzet/deckmark/issues/584)) ([e27347d](https://github.com/ThomasCrouzet/deckmark/commit/e27347d4b9cc3dff7e77b3463d028287a970d9d4))
+* **benchmark:** sample source typing twenty times so one stall cannot fail the gate ([#567](https://github.com/ThomasCrouzet/deckmark/issues/567)) ([babfff5](https://github.com/ThomasCrouzet/deckmark/commit/babfff5b70f4fc4094a2d5b3629b1daab9a3dc91))
+* **projects:** close portable import, quota, folder ignore and MIME issues ([#583](https://github.com/ThomasCrouzet/deckmark/issues/583)) ([70a34be](https://github.com/ThomasCrouzet/deckmark/commit/70a34be86989f4ad4ad7d470df02af50fd3a6bf7))
+* **web-platform:** idempotent PWA retries and retained download object URLs ([#591](https://github.com/ThomasCrouzet/deckmark/issues/591)) ([635d61b](https://github.com/ThomasCrouzet/deckmark/commit/635d61b3f9bb42bfc4d951bf75b531b47c1d5df1))
+
+
+### Performance Improvements
+
+* **metadata:** send revision deltas to the metadata worker ([#369](https://github.com/ThomasCrouzet/deckmark/issues/369)) ([#593](https://github.com/ThomasCrouzet/deckmark/issues/593)) ([d6a9d9e](https://github.com/ThomasCrouzet/deckmark/commit/d6a9d9efac9f503c9ee17af7aa9d6accd5af08fb))
+* **native-projects:** bound refresh work and reconcile disk removals ([#592](https://github.com/ThomasCrouzet/deckmark/issues/592)) ([2a2978f](https://github.com/ThomasCrouzet/deckmark/commit/2a2978f616b9900224eea2fca56625495b43825d))
+* **presentation:** index connector endpoints once per slide render ([#554](https://github.com/ThomasCrouzet/deckmark/issues/554)) ([#590](https://github.com/ThomasCrouzet/deckmark/issues/590)) ([fd8cca0](https://github.com/ThomasCrouzet/deckmark/commit/fd8cca03eeca67010551afca9cd61d761ed6bb2b))
+* **stats:** defer large switches, coalesce selection reads and send edit deltas ([#586](https://github.com/ThomasCrouzet/deckmark/issues/586)) ([9b1f8af](https://github.com/ThomasCrouzet/deckmark/commit/9b1f8af869b9dab7ee7e680a2d868055e3c30ba8))
+* **storage:** reuse durable draft projections on unchanged saves ([#574](https://github.com/ThomasCrouzet/deckmark/issues/574)) ([#581](https://github.com/ThomasCrouzet/deckmark/issues/581)) ([bf0c279](https://github.com/ThomasCrouzet/deckmark/commit/bf0c2796a6a6b848664136cd18292b767b387d3d))
+* **wysiwyg,images:** decouple editor policy from image URI length and narrow the scoped guard ([#594](https://github.com/ThomasCrouzet/deckmark/issues/594)) ([2f8a415](https://github.com/ThomasCrouzet/deckmark/commit/2f8a41598f47d27aa0d251c3540c0d700c1f2b26))
+* **wysiwyg:** bound image work for large notes ([#587](https://github.com/ThomasCrouzet/deckmark/issues/587)) ([5a51d0a](https://github.com/ThomasCrouzet/deckmark/commit/5a51d0ac155c226df95879f0e6af7b3649faaa92))
+* **wysiwyg:** keep image-adjacent edits scoped and bound image identity keys ([#585](https://github.com/ThomasCrouzet/deckmark/issues/585)) ([80e4056](https://github.com/ThomasCrouzet/deckmark/commit/80e4056e96083653a6ff192a7aee9a4a7f21cc15))
+
 ## [2.5.2](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.1...v2.5.2) (2026-11-10)
 
 
