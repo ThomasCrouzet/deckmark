@@ -282,9 +282,8 @@ test('each browser container job restores provenance in its own job HOME', () =>
 	const checkoutHome = mkdtempSync(join(tmpdir(), 'deckmark-checkout-home-'));
 	const homes = [];
 	// The production provenance preflight, run in the fixture checkout.
-	const provenanceScript = JSON.stringify(
-		fileURLToPath(new URL('./test-source.mjs', import.meta.url))
-	);
+	// Pass a file URL so Node can load this module on Windows.
+	const provenanceScript = JSON.stringify(new URL('./test-source.mjs', import.meta.url).href);
 	const provenance = (home) =>
 		spawnSync(
 			process.execPath,
