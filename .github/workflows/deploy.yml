@@ -298,8 +298,13 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ${{ needs.ci-tier.outputs.image }}
-      # Keep one identity and HOME for checkout, cache and provenance.
+      # Keep one identity for checkout, cache and provenance.
       options: --user root
+    # Firefox refuses to start when $HOME is not owned by the user that runs it.
+    # The image HOME is not root-owned, so use one root HOME for checkout, cache,
+    # provenance and every browser in this job.
+    env:
+      HOME: /root
     strategy:
       fail-fast: false
       matrix:
@@ -420,6 +425,10 @@ jobs:
     container:
       image: ${{ needs.ci-tier.outputs.image }}
       options: --user root
+    # Use the same root HOME as the shard job. Playwright and the browser need
+    # a HOME that the container user owns.
+    env:
+      HOME: /root
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -441,7 +450,8 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
       # actions/checkout writes safe.directory under a temporary HOME. The steps
-      # below use HOME=/github/home, so trust the workspace in that HOME.
+      # below use the job HOME, so trust the workspace there. Git also needs this
+      # entry when the checkout owner differs from the container user.
       - name: Trust the checked-out workspace for Git provenance
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: List the full test set and every shard

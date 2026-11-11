@@ -49,8 +49,13 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ${{ needs.resolve-image.outputs.image }}
-      # Keep one identity and HOME for checkout and cache.
+      # Keep one identity and one HOME for checkout, cache and the browser.
       options: --user root
+    # Firefox refuses to start when $HOME is not owned by the user that runs it.
+    # The image HOME is not root-owned, so use one root HOME for checkout, cache
+    # and the browser.
+    env:
+      HOME: /root
     timeout-minutes: 15
     steps:
       - name: Checkout the expected source

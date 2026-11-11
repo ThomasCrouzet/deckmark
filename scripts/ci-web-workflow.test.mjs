@@ -9,6 +9,9 @@ const { load } = await import('js-yaml');
 
 const source = readFileSync(new URL('../.github/workflows/deploy.yml', import.meta.url), 'utf8');
 const workflow = load(source);
+const verification = load(
+	readFileSync(new URL('../.github/workflows/verify-deployment.yml', import.meta.url), 'utf8')
+);
 const aggregate = workflow.jobs.e2e.steps.find((step) => step.run)?.run;
 const healthy = {
 	TIER_RESULT: 'success',
@@ -34,6 +37,24 @@ function steps() {
 	);
 }
 
+// Every job that runs a browser inside the pinned container. The two deploy
+// jobs share a HOME for checkout and provenance. The deployment check uses the
+// same shape, so one HOME contract covers all three.
+const browserContainerJobs = [
+	['deploy e2e-shard', workflow.jobs['e2e-shard']],
+	['deploy e2e-manifest', workflow.jobs['e2e-manifest']],
+	['verify-deployment browser', verification.jobs.browser]
+];
+
+// The exact trust line. Each browser container job contains it once.
+const trustLine = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"';
+
+function trustLines(job) {
+	return job.steps
+		.flatMap((step) => (step.run ?? '').split('\n').map((line) => line.trim()))
+		.filter((line) => line === trustLine);
+}
+
 // Run Git fixtures with no inherited GIT_* state. A developer shell must not
 // change rename detection or redirect the fixture repository.
 function gitEnvironment(overrides = {}) {
@@ -53,10 +74,11 @@ function gitEnvironment(overrides = {}) {
 	};
 }
 
-// The runner starts container steps with HOME=/github/home. actions/checkout
-// writes its safe.directory entry under a temporary HOME instead, so a later
-// step cannot read the checkout. This environment uses the HOME Git config and
-// forces Git to treat the fixture as owned by another user.
+// Container steps run with the job HOME, which the browser jobs set to /root.
+// actions/checkout writes its safe.directory entry under a temporary HOME
+// instead, so a later step cannot read the checkout. Git also rejects a
+// repository that another user owns, whatever HOME it uses. The fixture uses a
+// temporary directory as the job HOME and forces the other-owner case.
 function homeEnvironment(home) {
 	const environment = gitEnvironment();
 	delete environment.GIT_CONFIG_GLOBAL;
@@ -199,18 +221,49 @@ test('heavy browser jobs require the successful full tier and the full class', (
 	assert.doesNotMatch(lighthouse.if, /always\(\)/);
 });
 
-test('container browser jobs trust the workspace in the HOME that runs their steps', () => {
-	const trust = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"';
-	for (const name of ['e2e-shard', 'e2e-manifest']) {
-		const job = workflow.jobs[name];
+test('each browser container job runs as root with one job HOME', () => {
+	for (const [name, job] of browserContainerJobs) {
 		assert.equal(job.container.options, '--user root', name);
+		// Firefox refuses to start when $HOME belongs to another user. The
+		// container default HOME is not root-owned, so the job sets HOME=/root
+		// before checkout runs and keeps it for every step.
+		assert.equal(job.env?.HOME, '/root', `${name} sets the job HOME`);
+		const uses = job.steps.map((step) => step.uses ?? '');
+		for (const action of ['actions/checkout@', 'actions/setup-node@', 'actions/cache@']) {
+			assert.ok(
+				uses.some((value) => value.startsWith(action)),
+				`${name} runs ${action} in the job HOME`
+			);
+		}
+		const setup = job.steps.find((step) => /actions\/setup-node@/.test(step.uses ?? ''));
+		assert.equal(setup.with.cache, 'npm', `${name} caches npm from the same HOME`);
+	}
+});
+
+test('no browser container step overrides the job HOME', () => {
+	for (const [name, job] of browserContainerJobs) {
+		for (const step of job.steps) {
+			// A step HOME would split checkout, cache, provenance and browsers.
+			assert.equal(step.env?.HOME, undefined, `${name}: ${step.name} overrides HOME`);
+			assert.doesNotMatch(
+				step.run ?? '',
+				/(^|\s)(export\s+)?HOME=/,
+				`${name}: ${step.name} assigns HOME`
+			);
+			assert.doesNotMatch(step.run ?? '', /\/github\/home/, `${name}: ${step.name}`);
+		}
+	}
+});
+
+test('container browser jobs trust the workspace in the HOME that runs their steps', () => {
+	for (const [name, job] of browserContainerJobs) {
 		const lines = job.steps.flatMap((step) =>
 			(step.run ?? '').split('\n').map((line) => line.trim())
 		);
-		assert.equal(lines.filter((line) => line === trust).length, 1, name);
+		assert.equal(trustLines(job).length, 1, name);
 		assert.doesNotMatch(lines.join('\n'), /safe\.directory\s+\*/i, name);
 		const trustIndex = job.steps.findIndex((step) =>
-			(step.run ?? '').split('\n').some((line) => line.trim() === trust)
+			(step.run ?? '').split('\n').some((line) => line.trim() === trustLine)
 		);
 		assert.ok(trustIndex >= 0, name);
 		assert.ok(
@@ -224,10 +277,23 @@ test('container browser jobs trust the workspace in the HOME that runs their ste
 	assert.equal(checkout.with['persist-credentials'], false);
 });
 
-test('a checkout trust entry in a temporary HOME cannot replace the effective HOME trust', () => {
+test('each browser container job restores provenance in its own job HOME', () => {
 	const { repository, runGit } = createGitRepository();
 	const checkoutHome = mkdtempSync(join(tmpdir(), 'deckmark-checkout-home-'));
-	const effectiveHome = mkdtempSync(join(tmpdir(), 'deckmark-effective-home-'));
+	const homes = [];
+	// The production provenance preflight, run in the fixture checkout.
+	const provenanceScript = JSON.stringify(
+		fileURLToPath(new URL('./test-source.mjs', import.meta.url))
+	);
+	const provenance = (home) =>
+		spawnSync(
+			process.execPath,
+			[
+				'-e',
+				`import(${provenanceScript}).then((module) => console.log(JSON.stringify(module.testSource())))`
+			],
+			{ cwd: repository, env: homeEnvironment(home), encoding: 'utf8' }
+		);
 	try {
 		writeFileSync(join(repository, 'note.md'), '# One\n');
 		runGit(['add', '-A']);
@@ -243,41 +309,47 @@ test('a checkout trust entry in a temporary HOME cannot replace the effective HO
 		);
 		assert.equal(checkoutTrust.status, 0, checkoutTrust.stderr);
 
-		// The fixture must reproduce the job symptom: Git cannot read the commit.
-		const before = runGitInHome(effectiveHome, repository, ['diff', '--binary', 'HEAD']);
-		assert.equal(before.status, 129, before.stderr);
-		assert.match(before.stderr, /Not a git repository|dubious ownership/);
+		for (const [name, job] of browserContainerJobs) {
+			const home = mkdtempSync(join(tmpdir(), 'deckmark-job-home-'));
+			homes.push(home);
 
-		const step = workflow.jobs['e2e-manifest'].steps.find((value) =>
-			/safe\.directory/.test(value.run ?? '')
-		);
-		assert.ok(step, 'the manifest job has an effective HOME trust step');
-		const trust = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
-			cwd: repository,
-			env: { ...homeEnvironment(effectiveHome), GITHUB_WORKSPACE: repository },
-			encoding: 'utf8'
-		});
-		assert.equal(trust.status, 0, trust.stderr);
+			// The fixture must reproduce the job symptom: Git cannot read the
+			// commit through the temporary-HOME trust entry.
+			const before = provenance(home);
+			assert.notEqual(before.status, 0, `${name} starts untrusted`);
+			assert.match(before.stderr, /dubious ownership|Not a git repository/, name);
 
-		const after = runGitInHome(effectiveHome, repository, ['diff', '--binary', 'HEAD']);
-		assert.equal(after.status, 0, after.stderr);
-		assert.match(after.stdout, /\+# Two/);
-		assert.equal(
-			runGitInHome(effectiveHome, repository, ['rev-parse', 'HEAD']).stdout.trim(),
-			head
-		);
+			const [line] = trustLines(job);
+			assert.ok(line, `${name} has a job HOME trust step`);
+			const trust = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', line], {
+				cwd: repository,
+				env: { ...homeEnvironment(home), GITHUB_WORKSPACE: repository },
+				encoding: 'utf8'
+			});
+			assert.equal(trust.status, 0, trust.stderr);
 
-		const trusted = runGitInHome(effectiveHome, repository, [
-			'config',
-			'--global',
-			'--get-all',
-			'safe.directory'
-		]);
-		assert.deepEqual(trusted.stdout.trim().split('\n'), [repository]);
+			const after = provenance(home);
+			assert.equal(after.status, 0, after.stderr);
+			const metadata = JSON.parse(after.stdout);
+			assert.equal(metadata.source, head, name);
+			assert.deepEqual(metadata.untracked, [], name);
+
+			const diff = runGitInHome(home, repository, ['diff', '--binary', 'HEAD']);
+			assert.equal(diff.status, 0, diff.stderr);
+			assert.match(diff.stdout, /\+# Two/, name);
+
+			const trusted = runGitInHome(home, repository, [
+				'config',
+				'--global',
+				'--get-all',
+				'safe.directory'
+			]);
+			assert.deepEqual(trusted.stdout.trim().split('\n'), [repository], name);
+		}
 	} finally {
 		rmSync(repository, { recursive: true, force: true });
 		rmSync(checkoutHome, { recursive: true, force: true });
-		rmSync(effectiveHome, { recursive: true, force: true });
+		for (const home of homes) rmSync(home, { recursive: true, force: true });
 	}
 });
 
@@ -387,9 +459,6 @@ test('the pinned image is resolved once, fails closed and feeds every container 
 });
 
 test('the image resolver shell writes usable Actions outputs in both workflows', () => {
-	const verification = load(
-		readFileSync(new URL('../.github/workflows/verify-deployment.yml', import.meta.url), 'utf8')
-	);
 	const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 		.devDependencies['@playwright/test'];
 	for (const job of [workflow.jobs['ci-tier'], verification.jobs['resolve-image']]) {
