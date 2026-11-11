@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { evaluateWorkflowCondition } from './ci-security-workflow-expression.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SECURITY = readFileSync(join(ROOT, '.github', 'workflows', 'security.yml'), 'utf8');
@@ -52,6 +53,18 @@ function stepRun(job, name) {
 		output.push(line.slice(contentIndent));
 	}
 	return output.join('\n').replace(/\n+$/, '');
+}
+
+function stepIf(job, name) {
+	const lines = job.split('\n');
+	const nameIndex = lines.findIndex((line) => line.trim() === `- name: ${name}`);
+	if (nameIndex < 0) throw new Error(`Missing step: ${name}`);
+	for (let index = nameIndex + 1; index < lines.length; index += 1) {
+		if (/^\s*- name:/.test(lines[index])) break;
+		const match = lines[index].match(/^\s*if:\s*(.+?)\s*$/);
+		if (match) return match[1];
+	}
+	throw new Error(`Missing if: for ${name}`);
 }
 
 function runShell(script, env) {
@@ -176,7 +189,7 @@ function commit(repo, env, file, content, message) {
 	return git(repo, ['rev-parse', 'HEAD'], env);
 }
 
-function scopeFixture() {
+function repositoryFixture(commits) {
 	const dir = mkdtempSync(join(tmpdir(), 'ci-security-scope-workflow-'));
 	const repo = join(dir, 'repo');
 	const env = sanitizedGitEnv(dir);
@@ -188,16 +201,22 @@ function scopeFixture() {
 	spawnSync('git', ['init', '-q', '-b', 'main', repo], { env, encoding: 'utf8' });
 	git(repo, ['config', 'user.name', 'CI Test'], env);
 	git(repo, ['config', 'user.email', 'ci@example.invalid'], env);
-	const first = commit(repo, env, 'docs/CI.md', 'first\n', 'first');
-	const head = commit(repo, env, 'src-tauri/Cargo.lock', 'lock\n', 'second');
+	const shas = commits.map(([file, content, message]) => commit(repo, env, file, content, message));
 	return {
 		dir,
 		repo,
 		env,
-		first,
-		head,
+		shas,
 		cleanup: () => rmSync(dir, { recursive: true, force: true })
 	};
+}
+
+function scopeFixture() {
+	const data = repositoryFixture([
+		['docs/CI.md', 'first\n', 'first'],
+		['src-tauri/Cargo.lock', 'lock\n', 'second']
+	]);
+	return { ...data, first: data.shas[0], head: data.shas[1] };
 }
 
 function runScopeStep(script, repo, env, overrides) {
@@ -252,6 +271,52 @@ test('the security scope shell scopes a real push and falls back to full checks'
 		});
 		assert.equal(pullRequest.result.status, 0, pullRequest.result.stderr);
 		assert.match(pullRequest.written, /^rust=true$/m);
+	} finally {
+		data.cleanup();
+	}
+});
+
+test('a change to the audit wrapper alone requests and runs the audit', () => {
+	// The wrapper is a security control. A diff that changes only the wrapper
+	// must request both audits, and the audit steps must then execute. The test
+	// never accepts a changed wrapper as a passing audit without a run.
+	const script = stepRun(jobBlock(SECURITY, 'security-scope'), 'Detect security inputs');
+	const data = repositoryFixture([
+		['docs/CI.md', 'first\n', 'first'],
+		['scripts/ci-security-cargo-audit.sh', '#!/usr/bin/env bash\nexit 1\n', 'weaken the wrapper']
+	]);
+	try {
+		const scoped = runScopeStep(script, data.repo, data.env, {
+			EVENT_NAME: 'push',
+			BEFORE_SHA: data.shas[0],
+			BASE_SHA: '',
+			HEAD_SHA: data.shas[1]
+		});
+		assert.equal(scoped.result.status, 0, scoped.result.stderr);
+		assert.match(scoped.written, /^rust=true$/m);
+		assert.match(scoped.written, /^npm=true$/m);
+		assert.doesNotMatch(scoped.written, /^fail_closed=true$/m);
+
+		const job = jobBlock(SECURITY, 'dependency-audit');
+		const scope = {
+			'security-scope': { result: 'success', outputs: { rust: 'true', npm: 'true' } }
+		};
+		for (const step of ['Ensure the pinned cargo-audit', 'Audit Cargo.lock']) {
+			const gate = stepIf(job, step);
+			assert.equal(evaluateWorkflowCondition(gate, { needs: scope }), true, step);
+		}
+		assert.doesNotMatch(job, /continue-on-error|if:\s*false/);
+
+		// A change set without a security input still skips the Rust steps, so
+		// the gate keeps its cost bound.
+		assert.equal(
+			evaluateWorkflowCondition(stepIf(job, 'Audit Cargo.lock'), {
+				needs: {
+					'security-scope': { result: 'success', outputs: { rust: 'false', npm: 'false' } }
+				}
+			}),
+			false
+		);
 	} finally {
 		data.cleanup();
 	}

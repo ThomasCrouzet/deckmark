@@ -75,6 +75,38 @@ test('known application and documentation paths need neither audit', () => {
 	assert.equal(scope.failClosed, false);
 });
 
+test('a change to a security control script or scan workflow requires both audits', () => {
+	// The security workflow runs these files from the pull-request checkout, so
+	// a diff that touches one of them must request the audits it implements. A
+	// change to the wrapper alone must not read as a non-security change.
+	for (const path of [
+		'scripts/ci-security-cargo-audit.sh',
+		'scripts/ci-security-gitleaks-range.sh',
+		'scripts/ci-security-scope.mjs',
+		'scripts/ci-security-workflow-expression.mjs',
+		'scripts/ci-security-cargo-audit.test.mjs',
+		'scripts/ci-security-gitleaks.test.mjs',
+		'scripts/ci-security-scope.test.mjs',
+		'scripts/ci-security-workflow.test.mjs',
+		'.github/workflows/gitleaks.yml'
+	]) {
+		const scope = classifyChangedPaths([path]);
+		assert.equal(scope.rust, true, `rust ${path}`);
+		assert.equal(scope.npm, true, `npm ${path}`);
+		assert.equal(scope.failClosed, false, `failClosed ${path}`);
+	}
+});
+
+test('a wrapper change next to a package change still requires the audits', () => {
+	const scope = classifyChangedPaths([
+		'scripts/ci-security-cargo-audit.sh',
+		'src-tauri/Cargo.lock'
+	]);
+	assert.equal(scope.rust, true);
+	assert.equal(scope.npm, true);
+	assert.equal(scope.failClosed, false);
+});
+
 test('an unknown top-level path fails closed and requires both audits', () => {
 	for (const path of ['new-pipeline/step.yaml', 'new-root.config']) {
 		const scope = classifyChangedPaths([path]);

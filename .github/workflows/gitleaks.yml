@@ -6,9 +6,12 @@ name: gitleaks
 # Push events scan only the pushed range when the before and head commits are
 # reachable and ordered. A new branch, force push, or malformed value scans the
 # complete history. The weekly schedule and a manual run also scan the complete
-# history, so the baseline is never lost. A pull request scans its reachable
-# base..head range and fails when that range is unavailable. The workflow uses
-# no secret and no credential, so a fork pull request is safe.
+# history, so the baseline is never lost. A pull request scans base..head when
+# both commits exist and share history. The base commit is the base branch tip
+# at event time, so it often does not contain the head commit; git still
+# accepts the range, and the range holds the pull request commits only. A
+# missing, malformed, or unrelated pair fails closed. The workflow uses no
+# secret and no credential, so a fork pull request is safe.
 on:
   push:
     branches: [main, master]

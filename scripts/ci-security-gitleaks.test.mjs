@@ -117,6 +117,55 @@ test('a pull request scans only a reachable base..head range', () => {
 	}
 });
 
+test('a pull request with an advanced base scans only its own commits', () => {
+	const data = fixture();
+	try {
+		// The branch starts at `first`, the base branch advances past it. The
+		// branch tip is not an ancestor of the base tip, and the range is still
+		// the pull request's own commit set.
+		git(data.repo, ['checkout', '-q', '-b', 'topic', data.first], data.env);
+		const topic = commit(data.repo, data.env, 'topic.md', 'topic\n', 'pr work');
+		git(data.repo, ['checkout', '-q', 'main'], data.env);
+		const advanced = commit(data.repo, data.env, 'main.md', 'main\n', 'main advanced');
+		const result = runHelper(
+			['--event', 'pull_request', '--base', advanced, '--head', topic],
+			data.repo,
+			data.env
+		);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(result.stdout.trim(), `${advanced}..${topic}`);
+		// The range holds the pull request commit only. Base-branch commits that
+		// the branch does not contain stay outside it.
+		assert.equal(
+			git(data.repo, ['log', '--format=%s', `${advanced}..${topic}`], data.env),
+			'pr work'
+		);
+	} finally {
+		data.cleanup();
+	}
+});
+
+test('a pull request branch behind its base stays green with an empty new range', () => {
+	const data = fixture();
+	try {
+		// `second` is an ancestor of the base tip `head`. The branch adds no
+		// commit, so the range is empty and the scan has nothing new to report.
+		const result = runHelper(
+			['--event', 'pull_request', '--base', data.head, '--head', data.second],
+			data.repo,
+			data.env
+		);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(result.stdout.trim(), `${data.head}..${data.second}`);
+		assert.equal(
+			git(data.repo, ['log', '--format=%s', `${data.head}..${data.second}`], data.env),
+			''
+		);
+	} finally {
+		data.cleanup();
+	}
+});
+
 test('an unavailable or unrelated pull request range fails closed', () => {
 	const data = fixture();
 	try {
@@ -129,7 +178,7 @@ test('an unavailable or unrelated pull request range fails closed', () => {
 		for (const args of cases) {
 			const result = runHelper(['--event', 'pull_request', ...args], data.repo, data.env);
 			assert.equal(result.status, 2, args.join(' '));
-			assert.match(result.stderr, /reachable range/i);
+			assert.match(result.stderr, /not a usable range/i);
 		}
 	} finally {
 		data.cleanup();

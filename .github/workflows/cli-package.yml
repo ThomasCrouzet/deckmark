@@ -4,8 +4,8 @@ name: CLI package
 # targets: Linux x64, Windows x64, and macOS ARM64. Each row builds a package
 # with its own bundled Node runtime, then runs the installed-package suite from
 # outside the checkout with an empty PATH. This workflow does not sign,
-# publish, or change a release. It uploads nothing: the evidence stays in the
-# runner temporary directory.
+# publish, or change a release. It uploads nothing by default: the evidence
+# stays in the runner temporary directory.
 #
 # The path filters name every input that changes the package bytes: the CLI
 # sources, the shared library modules that the CLI bundle imports, the MCP
@@ -17,8 +17,10 @@ name: CLI package
 # false proof.
 #
 # The job installs no APT package, so it does not configure the Ubuntu mirror.
-# It uploads a deliverable only when the native release workflow calls it with
-# workflow_call. A pull request and a push upload nothing.
+# A caller enables the archive upload with the `upload_build_artifacts`
+# workflow_call input. The input defaults to false, so a pull request, a push,
+# and a manual run upload nothing. The condition reads the input, because a
+# called workflow keeps the caller event name.
 
 on:
   pull_request:
@@ -45,6 +47,12 @@ on:
     paths: *cli-paths
   workflow_dispatch:
   workflow_call:
+    inputs:
+      upload_build_artifacts:
+        description: 'Upload the standalone CLI archive for the calling release workflow.'
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -380,11 +388,12 @@ jobs:
           ].join('\n'));
           JS
 
-      # A release deliverable, not a diagnostic report. Only the reusable
-      # workflow_call path uploads it. Pull request and push runs upload
-      # nothing, so an untrusted pull request cannot feed a release path.
+      # A release deliverable, not a diagnostic report. Only a caller that
+      # passes upload_build_artifacts true uploads it. Pull request, push, and
+      # manual runs upload nothing, so an untrusted pull request cannot feed a
+      # release path.
       - name: Upload the standalone CLI archive for the release caller
-        if: github.event_name == 'workflow_call' && runner.os != 'Windows'
+        if: inputs.upload_build_artifacts == true && runner.os != 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: deckmark-cli-${{ github.sha }}-${{ matrix.node_platform }}-${{ matrix.node_arch }}
@@ -393,7 +402,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the standalone CLI archive for the release caller (Windows)
-        if: github.event_name == 'workflow_call' && runner.os == 'Windows'
+        if: inputs.upload_build_artifacts == true && runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: deckmark-cli-${{ github.sha }}-${{ matrix.node_platform }}-${{ matrix.node_arch }}

@@ -2,8 +2,14 @@
 # Select the gitleaks history range.
 # Push events scan before..head only when both commits resolve and before is an
 # ancestor of head. A new branch, force push, or malformed value falls back to
-# full history. Pull requests require a reachable base..head range and fail
-# closed when it is unavailable. Scheduled and manual runs scan full history.
+# full history.
+# A pull request scans base..head when both commits resolve and share history.
+# The base commit is the base branch tip at event time, so it is often not an
+# ancestor of the head commit. The range stays valid: it holds the commits that
+# the pull request adds and leaves the base branch history out. A branch that
+# already merged into the base adds no commit, so its range is empty. A
+# malformed, missing, or unrelated commit pair fails closed. Scheduled and
+# manual runs scan full history.
 set -euo pipefail
 
 event=''
@@ -38,6 +44,10 @@ is_ancestor() {
 	git merge-base --is-ancestor "$1" "$2" >/dev/null 2>&1
 }
 
+shares_history() {
+	git merge-base "$1" "$2" >/dev/null 2>&1
+}
+
 case "$event" in
 	schedule|workflow_dispatch)
 		exit 0
@@ -51,10 +61,12 @@ case "$event" in
 		;;
 	pull_request)
 		if ! is_sha "$base" || ! is_sha "$head" || ! resolves "$base" || ! resolves "$head" \
-			|| ! is_ancestor "$base" "$head"; then
-			echo 'gitleaks-range: pull request base and head are not a reachable range.' >&2
+			|| ! shares_history "$base" "$head"; then
+			echo 'gitleaks-range: pull request base and head are not a usable range.' >&2
 			exit 2
 		fi
+		# git accepts a range whose ends are not ordered. This range holds the
+		# pull request commits only, also when the base branch moved on.
 		printf '%s..%s\n' "$base" "$head"
 		;;
 	*)

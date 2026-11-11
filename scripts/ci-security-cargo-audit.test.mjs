@@ -107,6 +107,22 @@ test('a stale cached cargo-audit is replaced by the pinned version', () => {
 	}
 });
 
+test('a cached binary whose version only starts with the pin is not reused', () => {
+	// A substring test would accept 0.22.20 for the 0.22.2 pin. The check must
+	// compare the exact reported version.
+	const data = fixture();
+	try {
+		data.writeAuditBinary('0.22.20');
+		const result = data.run(['ensure']);
+		assert.equal(result.status, 0, result.stderr);
+		assert.doesNotMatch(result.stdout, /cache hit/i);
+		const calls = readFileSync(data.env.CALL_LOG, 'utf8');
+		assert.match(calls, /install cargo-audit --locked --version 0\.22\.2/);
+	} finally {
+		data.cleanup();
+	}
+});
+
 test('the audit mode passes the lock file and deny policy to cargo-audit', () => {
 	const data = fixture();
 	try {

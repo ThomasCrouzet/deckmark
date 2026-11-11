@@ -3,6 +3,10 @@
 // The classifier fails closed: malformed input, an empty change set, and an
 // unknown top-level path require both audits. The workflow keeps the required
 // aggregate names and fails when this job fails.
+// The security control files are inputs of both audits. A diff that changes
+// this classifier, an audit wrapper, a control test, or the secret-scan
+// workflow therefore requests the audits it implements. No path in that group
+// is accepted as a non-security change.
 
 import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -15,7 +19,9 @@ const RUST_PATTERNS = [
 	/^rust-toolchain\.toml$/,
 	/^scripts\/annotate-cargo-sbom\.mjs$/,
 	/^scripts\/vendor-glib\.mjs$/,
+	/^scripts\/ci-security-[^/]+$/,
 	/^\.github\/workflows\/security\.yml$/,
+	/^\.github\/workflows\/gitleaks\.yml$/,
 	/^\.github\/workflows\/desktop\.yml$/,
 	/^\.github\/scripts\//,
 	/^\.github\/actions\//,
@@ -32,7 +38,9 @@ const NPM_PATTERNS = [
 	/^scripts\/build-cli\.mjs$/,
 	/^scripts\/pack-cli\.mjs$/,
 	/^scripts\/pack-cli\.test\.mjs$/,
+	/^scripts\/ci-security-[^/]+$/,
 	/^\.github\/workflows\/security\.yml$/,
+	/^\.github\/workflows\/gitleaks\.yml$/,
 	/^\.github\/scripts\//,
 	/^\.github\/actions\//,
 	/(^|\/)package(-lock)?\.json$/
@@ -212,4 +220,4 @@ function main() {
 	}
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
