@@ -5,10 +5,13 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
-	writeFileSync
+	writeFileSync,
+	rmSync
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const { collectDesktopAssets } = await import(
@@ -63,6 +66,46 @@ function completeInput(root) {
 	]);
 	artifact(root, 'desktop-installers-windows-2022', ['deckmark_2.5.3_x64-setup.exe']);
 }
+
+test('a push publication passes the planned tag to the actual collector CLI', () => {
+	const root = workspace('push-env');
+	try {
+		completeInput(join(root, 'downloaded-assets'));
+		writeFileSync(join(root, 'package.json'), JSON.stringify({ version: expected.version }));
+		const workflow = readFileSync(
+			new URL('../.github/workflows/desktop.yml', import.meta.url),
+			'utf8'
+		);
+		const step = workflow.match(
+			/- name: Select installers and verify source before checksums\n([\s\S]*?)(?=\n      - name:)/
+		)?.[1];
+		assert.ok(step, 'the actual publishing collector step exists');
+		const values = { sha: expected.sha, tag: expected.tag };
+		const declared = Object.fromEntries(
+			[
+				...step.matchAll(
+					/^ {10}(SOURCE_SHA|RELEASE_TAG|SOURCE_TAG): \$\{\{ needs\.plan-release\.outputs\.(sha|tag) \}\}$/gm
+				)
+			].map((match) => [match[1], values[match[2]]])
+		);
+		const result = spawnSync(
+			process.execPath,
+			[fileURLToPath(new URL('./collect-desktop-assets.mjs', import.meta.url))],
+			{
+				cwd: root,
+				env: { ...process.env, SOURCE_SHA: '', RELEASE_TAG: '', SOURCE_TAG: '', ...declared },
+				encoding: 'utf8'
+			}
+		);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(
+			readFileSync(join(root, 'release-assets/SHA256SUMS'), 'utf8').trim().split('\n').length,
+			4
+		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
 
 test('the four accepted installers are collected with the source identity', () => {
 	const root = workspace('ok');

@@ -704,8 +704,9 @@ replace a native Desktop check, and a native result does not replace a browser r
 
 The deployment workflow builds the root path for Cloudflare Pages and
 `/deckmark` for GitHub Pages. Both must produce a usable PWA with the correct
-service worker scope. Both deployments require the build, E2E, and Lighthouse
-checks to pass.
+service worker scope. `deploy` and `deploy-cloudflare` publish in parallel after
+the build, E2E and Lighthouse gates. The final `verify-public` job then checks
+both origins, so one stale origin fails the run.
 
 Build and serve the project-site path:
 
@@ -1721,7 +1722,7 @@ The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
 browser pass is not a native desktop pass, and a headless WebKit pass is not a
 WebKitGTK pass.
 
-### CI tier workflow failure risks
+### CI tier and routing failure risks
 
 Browser tests cannot observe Actions event routing or aggregate process exits.
 The CLI workflow tests retain these failures: a deferred draft becomes green,
@@ -1730,20 +1731,59 @@ or a failed, skipped, cancelled or absent shard passes the final aggregate.
 Run `node --test scripts/ci-web-workflow.test.mjs` to exercise the aggregate
 shell from the actual workflow and check its heavy-job dependency guards.
 
+The same test keeps the documentation-only class honest. It runs the aggregate
+with `class=docs` and three skipped browser jobs, then with each job changed to
+`success`, `failure`, `cancelled` and an empty value. Each mixed result must fail.
+It also rejects an empty, misspelled, differently cased or unknown class, a
+`docs` class with a non-documentation reason, and a `full` class with no reason.
+
+`scripts/ci-changes.test.mjs` starts the real classifier. It retains these
+routing risks:
+
+- A root documentation file with a known name must select `docs`, with or without
+  an extension.
+- A same-named file in another directory, a `docs/` file with an unknown
+  extension, a source file, a test file, a workflow file and a policy script
+  must select `full`.
+- An absolute path, a trailing slash, a duplicated slash, a newline in the path,
+  a parent segment or a nested non-documentation path must not reach the cheap
+  route.
+- An empty change set and every event other than `pull_request` must select
+  `full`.
+- A missing or malformed event name and an unknown argument must exit nonzero
+  with no class on standard output.
+
+`scripts/ci-playwright-image.test.mjs` retains the image-pin risks. A manifest
+version that differs from `package.json` or from the three lockfile entries, a
+tag that does not match the version, an invalid digest, an untrusted image
+repository, and a missing or malformed manifest must fail with no image reference.
+`scripts/ci-web-workflow.test.mjs` then runs the resolver shell step from both
+`deploy.yml` and `verify-deployment.yml` and checks the written Action outputs.
+
 ### Benchmark and native CI evidence
 
 `.github/workflows/desktop.yml` runs these jobs for a Desktop change:
 
-- `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. Local report:
-  `$RUNNER_TEMP/web-benchmark-<browser>.json`.
-- `native-smoke` on Ubuntu, Windows and macOS with an equivalent test binary
-  that its own job builds. Local results: `native-test-results/`.
-- `native-benchmark` on Ubuntu, Windows and macOS with an equivalent test
-  binary that its own job builds. Local report:
-  `$RUNNER_TEMP/native-benchmark.json`, with screenshots and the application
-  log beside it. The macOS jobs assert an ARM64 runner before they run.
+- `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. It downloads the
+  single `web-build` artifact and verifies its provenance before it measures.
+  Local report: `$RUNNER_TEMP/web-benchmark-<browser>.json`.
+- `native-validation` on Ubuntu, Windows and macOS. Each job builds one isolated
+  debug test application, records the native source before and after the build,
+  runs `scripts/native-smoke.mjs` on the real WebView, then measures the
+  benchmark after every smoke process stops. Local results: `native-test-results/`.
+  Local report: `$RUNNER_TEMP/native-benchmark.json`, with screenshots and the
+  application log beside it. The macOS job asserts an ARM64 runner before it runs.
 - `desktop-validation` requires every requested job above to succeed. A reused
-  validation run must contain one successful job for each browser and platform.
+  validation run must contain one successful `validate-desktop` job and one
+  successful `native-validation` job for each platform, one successful
+  `web-benchmark` job for each browser, and one successful gate.
+
+The shared native job keeps these additional risks. A smoke failure must remain
+the first error and must not be replaced by a later benchmark failure. The
+benchmark must not start while a smoke process is still running, or its samples
+include competing work. The source snapshots before and after the build still
+identify the exact revision that the binary came from. The debug application
+carries the test feature and is never an installer input.
 
 The performance jobs pass `--enforce-budgets` and fail on a non-ok budget
 result. A harness failure, missing result or functional native check failure
@@ -2088,11 +2128,17 @@ OFFLINE_REVIEW_PHASE=final npx playwright test --config e2e/offline-review.confi
 
 The Desktop reuse validator must reject missing, repeated, failed, skipped, or
 incomplete platform jobs. It must reject a different source SHA, workflow, or run
-event. A valid run has one validation job, one native smoke job and one native
-benchmark job for each of Ubuntu, Windows, and macOS, one web benchmark job for
-each of Chromium, Firefox, and WebKit, plus one successful aggregate gate. The
-workflow trigger must reach the same path classifier for frontend and native
-changes.
+event. A valid run has one `validate-desktop` job and one `native-validation` job
+for each of Ubuntu, Windows, and macOS, one `web-benchmark` job for each of
+Chromium, Firefox, and WebKit, plus one successful aggregate gate. The workflow
+trigger must reach the same path classifier for frontend and native changes.
+
+The packaging matrix builds exactly four installers: macOS ARM64 DMG, Windows x64
+NSIS EXE, and Linux x64 deb plus AppImage. `scripts/desktop-release-policy.mjs` is
+the single policy. It must refuse a missing, duplicated, misplaced or foreign
+file, and a name with a removed `.msi` or `.rpm` extension. The collector records
+the source SHA and tag beside `SHA256SUMS`. A `packaging_only` run applies the same
+collection and checksum steps and creates no tag, release or attestation.
 
 Browser tests cannot observe GitHub job records. The release-review artifact
 retains a 75-case runner that executes the workflow's JavaScript with recorded job
@@ -2389,9 +2435,19 @@ Open the HTML report with `npx playwright show-report playwright-report`. Inspec
 failed trace with `npx playwright show-trace <trace.zip>`. Use the report's file,
 test title, and browser project to repeat one case with `--project` and `--grep`.
 
-CI runs eight browser shards with one worker each. The protected `e2e` check requires all shards to succeed.
-Chromium runs all scenarios. Firefox and WebKit run engine-sensitive persistence, editing, layout, and source checks.
-Append `--shard=1/8` through `--shard=8/8` to repeat one shard.
+CI runs eight browser shards with one worker each. The protected `e2e` check
+requires every planned shard to succeed. Chromium runs all scenarios. Firefox and
+WebKit run engine-sensitive persistence, editing, layout, and source checks. CI
+partitions the suite with duration-balanced `--test-list` selections, not with
+Playwright `--shard`. To repeat one CI shard, build the same plan locally and run
+its list:
+
+```sh
+npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --reporter=json > /tmp/all-tests.json
+node scripts/e2e-shards.mjs plan --list /tmp/all-tests.json --weights scripts/e2e-shard-weights.json --shards 8 --out /tmp/e2e-plan
+npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --test-list=/tmp/e2e-plan/shard-3.list
+```
+
 CI runs the browser and native tests without uploading reports to GitHub.
 Hosted-runner files are temporary. Keep repeatable local-run evidence in local
 storage. Compare its source commit with the release tag before using it.
@@ -2642,6 +2698,41 @@ Web keys stay in tab session storage. Desktop keys stay behind the native
 boundary and are tested by the Rust vault suite. A failed provider request must
 leave the editor state intact; the existing error cases assert this.
 
+## CI contract test suite
+
+`npm run test:ci` is the single entry point for the Node tests that guard the CI
+protocol. `npm test` runs it after Vitest, and `npm run test:coverage` runs it
+after the local coverage report. `npm run test:benchmark-gate` is an alias for the
+same command. The step uses `--test-concurrency=1` because several files start
+real child processes, write temporary output files and run workflow shell
+fragments. Parallel files would change those shared inputs.
+
+The suite covers:
+
+- The benchmark contracts and the fail-closed benchmark gate.
+- Build provenance for the instrumented and production builds.
+- The E2E manifest check and the duration-balanced shard plan.
+- The CI tier policy and the Web aggregate, including the documentation class.
+- The Ubuntu APT helper.
+- The Playwright image pin, its failure cases and its two workflow steps.
+- The Web documentation classifier and the Desktop path filter.
+- The security scope classifier, the gitleaks range helper and the cargo audit helper.
+- The installed CLI package contract.
+- The Desktop release policy, the installer collector and the release notes.
+
+A failing assertion means the workflow, the script and the documented contract
+disagree. Correct the file that is wrong. Do not delete the assertion or relax it
+to accept a skipped, deferred or unknown result.
+
+The security tests retain these failure risks. Rust, GLib and Cargo inputs must
+request the Cargo audit and the Rust CodeQL scan. Node dependency inputs must
+request the npm audit only. Shared workflow scripts and actions must request both.
+An unknown top-level path, an empty change set or an unreadable range must request
+both audits. A malformed path must exit nonzero. The required `dependency-audit`
+and Rust CodeQL aggregates must fail when the classifier fails or when the scan is
+missing. `codeql (rust, none)` must use build mode `none` without a full build, and
+analysis must stay local.
+
 ## CI tier policy tests
 
 `scripts/ci-tier.mjs` classifies a workflow run as full or draft from the event
@@ -2672,7 +2763,8 @@ covers an over-budget p95, a missing baseline, a missing required metric, too fe
 samples, a unit mismatch, a non-finite value, an ungated summary metric, and an
 invalid budget. It also starts `scripts/benchmark-gate.mjs` as a child process and
 checks that valid evidence exits 0 while over-budget or incomplete evidence exits
-nonzero. Run `npm run test:benchmark-gate`. Keep the JSON report and the exit code
+nonzero. Run `node --test scripts/benchmark-shared.test.mjs`, or `npm run test:ci`
+for the complete CI contract. Keep the JSON report and the exit code
 with the run evidence. The gate does not replace a browser or native benchmark
 run. It decides whether the retained measurements permit publication.
 

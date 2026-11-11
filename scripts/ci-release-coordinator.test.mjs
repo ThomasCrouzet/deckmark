@@ -713,7 +713,24 @@ test('the validation matrix keeps its existing job names and inputs', () => {
 	assert.match(gate, /WEB_BENCHMARK_RESULT/);
 });
 
+test('the release caller explicitly requests CLI archives', () => {
+	const cli = jobBlock(DESKTOP_WORKFLOW, 'cli-package');
+	assert.match(cli, /with:\n\s+upload_build_artifacts: true/);
+});
+
+test('publication reads asset digests from REST and cannot overwrite existing bytes', () => {
+	const publish = jobBlock(DESKTOP_WORKFLOW, 'publish-desktop-beta');
+	assert.doesNotMatch(publish, /--clobber/);
+	assert.match(publish, /gh api "repos\/\$GH_REPO\/releases\/tags\/\$DESKTOP_TAG"/);
+	assert.match(publish, /assets: \.assets/);
+});
+
 test('the standalone release workflow keeps only manual release management', () => {
+	assert.equal(
+		(RELEASE_WORKFLOW.match(/group: release-please/g) ?? []).length,
+		1,
+		'a workflow and its job must not acquire the same concurrency group'
+	);
 	assert.doesNotMatch(RELEASE_WORKFLOW, /^\s*push:/m);
 	assert.match(RELEASE_WORKFLOW, /^on:\n  workflow_dispatch:/m);
 	assert.doesNotMatch(RELEASE_WORKFLOW, /uses: \.\/\.github\/workflows\/desktop\.yml/);

@@ -672,7 +672,7 @@ jobs:
       - name: Select installers and verify source before checksums
         env:
           SOURCE_SHA: ${{ needs.plan-release.outputs.sha }}
-          SOURCE_TAG: ${{ needs.plan-release.outputs.tag }}
+          RELEASE_TAG: ${{ needs.plan-release.outputs.tag }}
         run: node scripts/collect-desktop-assets.mjs downloaded-assets release-assets
       - name: Verify checksums from the release directory
         working-directory: release-assets
@@ -705,7 +705,11 @@ jobs:
           node scripts/desktop-release-orchestration.mjs verify-source \
             --release source-release.json --tag "$SOURCE_TAG" --sha "$SOURCE_SHA" --tag-sha "$tag_sha"
           if gh release view "$DESKTOP_TAG" >/dev/null 2>&1; then
-            gh release view "$DESKTOP_TAG" --json tagName,assets,isPrerelease,targetCommitish > existing-release.json
+            # The CLI asset projection omits digests. REST keeps the hashes
+            # required to refuse replacement of previously published bytes.
+            gh api "repos/$GH_REPO/releases/tags/$DESKTOP_TAG" \
+              --jq '{tagName: .tag_name, assets: .assets, isPrerelease: .prerelease, targetCommitish: .target_commitish}' \
+              > existing-release.json
             test "$(jq -r '.isPrerelease' existing-release.json)" = 'true'
             release_target=$(jq -r '.targetCommitish' existing-release.json)
             release_target_sha=$(gh api "repos/$GH_REPO/commits/$release_target" --jq '.sha')
@@ -729,7 +733,7 @@ jobs:
               '') continue ;;
               *.msi|*.rpm) echo "Refusing a removed installer format: $name" >&2; exit 1 ;;
             esac
-            gh release upload "$DESKTOP_TAG" "release-assets/$name" --clobber
+            gh release upload "$DESKTOP_TAG" "release-assets/$name"
           done < upload.txt
 
   cli-package:
@@ -739,6 +743,8 @@ jobs:
     needs: plan-release
     if: needs.plan-release.outputs.publish == 'true'
     uses: ./.github/workflows/cli-package.yml
+    with:
+      upload_build_artifacts: true
     permissions:
       contents: read
 
