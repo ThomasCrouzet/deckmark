@@ -17,14 +17,18 @@ interface Patch {
 
 interface ScopedRestore {
 	result: string;
+	/** First replaced baseline block, and how many blocks it spans. */
 	blockIndex: number;
+	blockCount: number;
+	/** First replaced source block, and how many blocks it spans. */
 	sourceIndex: number;
+	sourceCount: number;
 	markdownStart: number;
 	sourceStart: number;
 	markdownDelta: number;
 	sourceDelta: number;
-	markdownNode: MarkdownNode;
-	sourceNode: MarkdownNode;
+	markdownNodes: MarkdownNode[];
+	sourceNodes: MarkdownNode[];
 }
 
 /**
@@ -39,6 +43,8 @@ export interface SourceFidelityHint {
 	previousTo: number;
 	nextFrom: number;
 	nextTo: number;
+	/** True when the change only inserts blocks at the given point. */
+	insert?: boolean;
 }
 
 type Parse = (markdown: string) => MarkdownNode;
@@ -288,8 +294,230 @@ export class SourceFidelity {
 		return low;
 	}
 
+	/** Decoded text of a plain paragraph or heading, or null for any other block. */
+	private plainText(node: MarkdownNode): string | null {
+		if (node.type !== 'paragraph' && node.type !== 'heading') return null;
+		if (!node.position || node.children?.length !== 1 || node.children[0]?.type !== 'text')
+			return null;
+		return (node.children[0].value ?? '').replaceAll('\r\n', '\n');
+	}
+
+	private originalBlocks(): MarkdownNode[] | null {
+		if (this.mappedOriginals) return this.mappedOriginals;
+		const originals = (this.original.children ?? []).filter((node) => node.type !== 'definition');
+		if (originals.length !== (this.baseline.children ?? []).length) return null;
+		this.mappedOriginals = originals;
+		return originals;
+	}
+
+	private originalIndex(node: MarkdownNode): number {
+		return (this.original.children ?? []).indexOf(node);
+	}
+
+	/** True when a link definition starts inside the given source range. */
+	private definitionBetween(from: number, to: number): boolean {
+		return (this.original.children ?? []).some(
+			(node) => node.type === 'definition' && start(node) >= from && start(node) < to
+		);
+	}
+
+	/** First baseline block whose start offset is not before `offset`. */
+	private findBlockStart(before: MarkdownNode[], offset: number): number {
+		let low = 0;
+		let high = before.length;
+		while (low < high) {
+			const middle = (low + high) >>> 1;
+			if (start(before[middle]!) < offset) low = middle + 1;
+			else high = middle;
+		}
+		return low;
+	}
+
 	private restoreTextBlock(markdown: string, hint?: SourceFidelityHint): ScopedRestore | null {
 		const before = this.baseline.children ?? [];
+		const originals = this.originalBlocks();
+		if (!originals) return null;
+		if (hint) {
+			const scoped = hint.insert
+				? this.restoreInsertedBlocks(markdown, hint, before, originals)
+				: this.restoreReplacedBlocks(markdown, hint, before, originals);
+			if (scoped) return scoped;
+			// A new paragraph can own no bytes in the accepted baseline while its
+			// first character arrives, so the edit is an insertion at a gap.
+			if (!hint.insert && hint.previousTo === hint.previousFrom) {
+				const inserted = this.restoreInsertedBlocks(markdown, hint, before, originals);
+				if (inserted) return inserted;
+			}
+		}
+		return this.restoreSingleBlock(markdown, hint?.insert ? undefined : hint, before, originals);
+	}
+
+	/**
+	 * Replace several plain blocks at once, for example a paragraph split or a
+	 * join. Every replaced block must keep source bytes that equal its text, so
+	 * the serialized replacement loses no original syntax.
+	 */
+	private restoreReplacedBlocks(
+		markdown: string,
+		hint: SourceFidelityHint,
+		before: MarkdownNode[],
+		originals: MarkdownNode[]
+	): ScopedRestore | null {
+		if (hint.previousTo <= hint.previousFrom) return null;
+		if (hint.nextFrom !== hint.previousFrom) return null;
+		const from = this.findBlockStart(before, hint.previousFrom);
+		if (from >= before.length || start(before[from]!) !== hint.previousFrom) return null;
+		let oldEnd = from;
+		while (oldEnd < before.length && end(before[oldEnd]!) <= hint.previousTo) oldEnd += 1;
+		if (oldEnd === from || end(before[oldEnd - 1]!) !== hint.previousTo) return null;
+		const delta = markdown.length - this.markdown.length;
+		if (hint.nextFrom + (hint.previousTo - hint.previousFrom) + delta !== hint.nextTo) return null;
+		const nextText = markdown.slice(hint.nextFrom, hint.nextTo);
+		const after = (this.parse(nextText).children ?? []).filter(
+			(node) => node.type !== 'definition'
+		);
+		if (after.length === 0) return null;
+		const trimmed = nextText.replace(/\s+$/, '');
+		if (start(after[0]!) !== 0 || end(after[after.length - 1]!) !== trimmed.length) return null;
+		for (let index = from; index < oldEnd; index += 1) {
+			const block = before[index]!;
+			const original = originals[index]!;
+			const value = this.plainText(block);
+			const sourceValue = original ? this.plainText(original) : null;
+			if (value === null || sourceValue === null || sourceValue !== value) return null;
+			if (this.source.slice(start(original!), end(original!)) !== sourceValue) return null;
+		}
+		const sourceIndex = this.originalIndex(originals[from]!);
+		if (sourceIndex < 0) return null;
+		for (let offset = 0; offset < oldEnd - from; offset += 1)
+			if ((this.original.children ?? [])[sourceIndex + offset]?.type === 'definition') return null;
+		const sourceFrom = start(originals[from]!);
+		const sourceTo = end(originals[oldEnd - 1]!);
+		// A trailing separator belongs to the gap after the replaced blocks. The
+		// editor moves link definitions, so their exact source position is
+		// ambiguous. Keep the whole-document route for that case.
+		if (/\n\s*$/.test(nextText)) {
+			const gapEnd = oldEnd < originals.length ? start(originals[oldEnd]!) : this.source.length;
+			if (this.definitionBetween(sourceTo, gapEnd)) return null;
+		}
+		const result =
+			this.source.slice(0, sourceFrom) + this.lineEndings(nextText) + this.source.slice(sourceTo);
+		const sourceNodes = (this.parse(nextText).children ?? []).filter(
+			(node) => node.type !== 'definition'
+		);
+		if (sourceNodes.length === 0) return null;
+		recordEditorCounter('sourceFidelityScopedHint');
+		return {
+			result,
+			blockIndex: from,
+			blockCount: oldEnd - from,
+			sourceIndex,
+			sourceCount: oldEnd - from,
+			markdownStart: hint.nextFrom,
+			sourceStart: sourceFrom,
+			markdownDelta: delta,
+			sourceDelta: result.length - this.source.length,
+			markdownNodes: after,
+			sourceNodes
+		};
+	}
+
+	/**
+	 * Insert complete plain blocks at one block boundary. The new bytes are the
+	 * serialized form, so they need no source restoration. Existing source bytes
+	 * and separators stay untouched.
+	 */
+	private restoreInsertedBlocks(
+		markdown: string,
+		hint: SourceFidelityHint,
+		before: MarkdownNode[],
+		originals: MarkdownNode[]
+	): ScopedRestore | null {
+		if (hint.previousTo !== hint.previousFrom) return null;
+		if (hint.nextFrom !== hint.previousFrom) return null;
+		const point = hint.previousFrom;
+		const after = this.findBlockStart(before, point);
+		const nextText = markdown.slice(hint.nextFrom, hint.nextTo);
+		const tree = this.parse(nextText);
+		const nodes = (tree.children ?? []).filter((node) => node.type !== 'definition');
+		if (nodes.length === 0) return null;
+		const trimmed = nextText.replace(/\s+$/, '');
+		if (end(nodes[nodes.length - 1]!) !== trimmed.length) return null;
+		let sourcePoint: number;
+		if (after > 0 && end(before[after - 1]!) === point) {
+			// The insertion starts exactly at the previous block end.
+			if (this.originalIndex(originals[after - 1]!) < 0) return null;
+			sourcePoint = end(originals[after - 1]!);
+			// A definition can sit between the visual blocks. The editor moves it,
+			// so the exact source position is ambiguous. Keep the whole-document
+			// route for that case.
+			const gapEnd = after < originals.length ? start(originals[after]!) : this.source.length;
+			if (this.definitionBetween(sourcePoint, gapEnd)) return null;
+		} else if (after > 0 && after < before.length) {
+			// The block owns no bytes in the accepted baseline, so it lives in the
+			// whitespace gap between two blocks. Keep that gap and insert the new
+			// bytes at the same newline count inside it.
+			const baselineGapStart = end(before[after - 1]!);
+			const baselineGapEnd = start(before[after]!);
+			if (point < baselineGapStart || point > baselineGapEnd) return null;
+			const baselineGap = this.markdown.slice(baselineGapStart, baselineGapEnd);
+			if (!/^[\r\n]+$/.test(baselineGap)) return null;
+			if (start(nodes[0]!) !== 0) return null;
+			const newlines = (this.markdown.slice(baselineGapStart, point).match(/\n/g) ?? []).length;
+			const sourceGapStart = end(originals[after - 1]!);
+			const sourceGapEnd = start(originals[after]!);
+			const sourceGap = this.source.slice(sourceGapStart, sourceGapEnd);
+			if (!/^[\r\n]+$/.test(sourceGap)) return null;
+			sourcePoint = sourceGapStart;
+			let seen = 0;
+			for (let index = 0; index < sourceGap.length && seen < newlines; index += 1) {
+				if (sourceGap[index] === '\n') {
+					seen += 1;
+					sourcePoint = sourceGapStart + index + 1;
+				}
+			}
+			if (seen !== newlines) return null;
+		} else if (after === 0 && point === 0) {
+			sourcePoint = 0;
+		} else {
+			return null;
+		}
+		if (after < before.length && start(before[after]!) < point) return null;
+		const result =
+			this.source.slice(0, sourcePoint) +
+			this.lineEndings(nextText) +
+			this.source.slice(sourcePoint);
+		const sourceNodes = (this.parse(nextText).children ?? []).filter(
+			(node) => node.type !== 'definition'
+		);
+		if (sourceNodes.length === 0) return null;
+		const sourceIndex =
+			after < originals.length
+				? this.originalIndex(originals[after]!)
+				: (this.original.children ?? []).length;
+		if (sourceIndex < 0) return null;
+		recordEditorCounter('sourceFidelityScopedHint');
+		return {
+			result,
+			blockIndex: after,
+			blockCount: 0,
+			sourceIndex,
+			sourceCount: 0,
+			markdownStart: hint.nextFrom,
+			sourceStart: sourcePoint,
+			markdownDelta: markdown.length - this.markdown.length,
+			sourceDelta: result.length - this.source.length,
+			markdownNodes: nodes,
+			sourceNodes
+		};
+	}
+
+	private restoreSingleBlock(
+		markdown: string,
+		hint: SourceFidelityHint | undefined,
+		before: MarkdownNode[],
+		originals: MarkdownNode[]
+	): ScopedRestore | null {
 		let from: number;
 		let hintBlock: { from: number; to: number } | null = null;
 		let range: { from: number; oldTo: number; newTo: number } | null = null;
@@ -330,11 +558,6 @@ export class SourceFidelity {
 			block.children[0]?.type !== 'text'
 		)
 			return null;
-		const originals =
-			this.mappedOriginals ??
-			(this.original.children ?? []).filter((node) => node.type !== 'definition');
-		if (originals.length !== before.length) return null;
-		this.mappedOriginals = originals;
 		const original = originals[from]!;
 		if (
 			!original.position ||
@@ -394,29 +617,33 @@ export class SourceFidelity {
 		return {
 			result,
 			blockIndex: from,
+			blockCount: 1,
 			sourceIndex,
+			sourceCount: 1,
 			markdownStart: start(block),
 			sourceStart: start(original),
 			markdownDelta: markdown.length - this.markdown.length,
 			sourceDelta: result.length - this.source.length,
-			markdownNode: after,
-			sourceNode
+			markdownNodes: [after],
+			sourceNodes: [sourceNode]
 		};
 	}
 
-	/** Advance both baselines by the one bounded text block this edit replaced. */
+	/** Advance both baselines by the one bounded block span this edit replaced. */
 	private acceptScoped(markdown: string, scoped: ScopedRestore): void {
 		if (scoped.sourceIndex < 0) return;
-		const baseline = this.baseline.children ?? [];
-		baseline[scoped.blockIndex] = shift(scoped.markdownNode, scoped.markdownStart);
-		for (let index = scoped.blockIndex + 1; index < baseline.length; index++)
+		const baseline = [...(this.baseline.children ?? [])];
+		const markdownNodes = scoped.markdownNodes.map((node) => shift(node, scoped.markdownStart));
+		baseline.splice(scoped.blockIndex, scoped.blockCount, ...markdownNodes);
+		for (let index = scoped.blockIndex + markdownNodes.length; index < baseline.length; index += 1)
 			shift(baseline[index]!, scoped.markdownDelta);
-		const original = this.original.children ?? [];
-		original[scoped.sourceIndex] = shift(scoped.sourceNode, scoped.sourceStart);
-		for (let index = scoped.sourceIndex + 1; index < original.length; index++)
-			shift(original[index]!, scoped.sourceDelta);
+		const originals = [...(this.original.children ?? [])];
+		const sourceNodes = scoped.sourceNodes.map((node) => shift(node, scoped.sourceStart));
+		originals.splice(scoped.sourceIndex, scoped.sourceCount, ...sourceNodes);
+		for (let index = scoped.sourceIndex + sourceNodes.length; index < originals.length; index += 1)
+			shift(originals[index]!, scoped.sourceDelta);
 		this.baseline = { ...this.baseline, children: baseline };
-		this.original = { ...this.original, children: original };
+		this.original = { ...this.original, children: originals };
 		this.markdown = markdown;
 		this.source = scoped.result;
 		this.mappedOriginals = null;

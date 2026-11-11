@@ -1,3 +1,23 @@
+/** Local stage duration. The editor performance module owns the full contract. */
+function measureImageStage<T>(name: string, run: () => T): T {
+	if (typeof window === 'undefined') return run();
+	if (
+		import.meta.env?.VITE_SOURCE_FIDELITY_METRICS !== '1' &&
+		!(window as { __MDSH_EDITOR_PERF__?: boolean }).__MDSH_EDITOR_PERF__
+	)
+		return run();
+	const startedAt = performance.now();
+	try {
+		return run();
+	} finally {
+		window.dispatchEvent(
+			new CustomEvent('deckmark:editor-perf', {
+				detail: { kind: 'duration', name, value: performance.now() - startedAt }
+			})
+		);
+	}
+}
+
 /** Local stage counter. The editor performance module owns the full contract. */
 function recordImageCounter(name: string): void {
 	if (typeof window === 'undefined') return;
@@ -26,6 +46,15 @@ interface ParsedImageLine {
 interface ImageState {
 	alt: string;
 	ratio: number;
+	/** Exact identity, used to verify a bounded fingerprint before reuse. */
+	source: string;
+	title: string;
+	occurrence: number;
+}
+
+/** Bounded occurrence counter key. The long URI never enters the key. */
+function occurrenceKey(source: string, title: string): string {
+	return `${fingerprint(source)}:${fingerprint(title)}`;
 }
 
 /**
@@ -81,7 +110,24 @@ function formatImageLine(image: ParsedImageLine): string {
 function imageKey(source: string, title: string, occurrence: number): string {
 	// The title travels with the image through a reorder. The occurrence still
 	// disambiguates identical source and caption pairs that have no stable node ID.
-	return `${occurrence}:${source}\u0000${title}`;
+	// Long embedded data URIs stay out of the key so a map entry never copies them.
+	return `${occurrence}:${fingerprint(source)}:${fingerprint(title)}`;
+}
+
+/**
+ * Bounded 64-bit fingerprint. Two independent 32-bit mixes make an accidental
+ * collision between distinct image sources negligible. The caller still checks
+ * the exact identity before it trusts a stored occurrence.
+ */
+function fingerprint(value: string): string {
+	let first = 0x811c9dc5;
+	let second = 0x9e3779b9;
+	for (let index = 0; index < value.length; index += 1) {
+		const code = value.charCodeAt(index);
+		first = Math.imul(first ^ code, 0x01000193);
+		second = Math.imul(second + code, 0x85ebca6b) ^ (second >>> 13);
+	}
+	return `${(first >>> 0).toString(36)}.${(second >>> 0).toString(36)}`;
 }
 
 function numericRatio(value: string): number | null {
@@ -108,6 +154,8 @@ export interface ImageChangeHint {
 	previousTo: number;
 	nextFrom: number;
 	nextTo: number;
+	/** True when the change inserts blocks, so the span keeps its separator. */
+	insert?: boolean;
 }
 
 interface ImageRegion {
@@ -124,11 +172,53 @@ interface ImageRegion {
  */
 export class ImageMarkdownRoundTrip {
 	readonly editorMarkdown: string;
+	/** The last scoped hint translated to restored offsets for the fidelity layer. */
+	lastScopedHint: ImageChangeHint | null = null;
 	private state = new Map<string, ImageState>();
 	private uploadedAlt = new Map<string, string>();
 	private regions: ImageRegion[] = [];
 	private lastInput: string | null = null;
 	private lastOutput = '';
+
+	/** Read one accepted image occurrence, with an exact collision check. */
+	private lookup(
+		target: Map<string, ImageState>,
+		source: string,
+		title: string,
+		occurrence: number
+	): ImageState | undefined {
+		const found = target.get(imageKey(source, title, occurrence));
+		if (
+			found &&
+			found.source === source &&
+			found.title === title &&
+			found.occurrence === occurrence
+		)
+			return found;
+		return target.get(`${occurrence}:${source}\u0000${title}`);
+	}
+
+	private store(
+		target: Map<string, ImageState>,
+		source: string,
+		title: string,
+		occurrence: number,
+		alt: string,
+		ratio: number
+	): void {
+		const value: ImageState = { alt, ratio, source, title, occurrence };
+		const key = imageKey(source, title, occurrence);
+		const current = target.get(key);
+		if (
+			current &&
+			(current.source !== source || current.title !== title || current.occurrence !== occurrence)
+		) {
+			// A fingerprint collision keeps both exact identities apart.
+			target.set(`${occurrence}:${source}\u0000${title}`, value);
+			return;
+		}
+		target.set(key, value);
+	}
 
 	constructor(markdown: string) {
 		const lines = markdown.split('\n');
@@ -154,13 +244,13 @@ export class ImageMarkdownRoundTrip {
 				push(line);
 				continue;
 			}
-			const identity = `${image.source}\u0000${image.title}`;
+			const identity = occurrenceKey(image.source, image.title);
 			const occurrence = occurrences.get(identity) ?? 0;
 			occurrences.set(identity, occurrence + 1);
 			const meta = IMAGE_META_LINE.exec(lines[index + 1] ?? '');
 			const ratio = meta ? (numericRatio(meta[1] ?? '') ?? 1) : 1;
 			const alt = image.alt;
-			this.state.set(imageKey(image.source, image.title, occurrence), { alt, ratio });
+			this.store(this.state, image.source, image.title, occurrence, alt, ratio);
 			push(formatImageLine({ ...image, alt: ratio.toFixed(2) }));
 			if (meta) {
 				push(lines[index + 1] ?? '');
@@ -185,19 +275,24 @@ export class ImageMarkdownRoundTrip {
 	}
 
 	restore(markdown: string, commit = true, hint?: ImageChangeHint): string {
+		this.lastScopedHint = null;
 		if (this.lastInput !== null && markdown === this.lastInput) return this.lastOutput;
 		// A document without an image line needs no round-trip rewrite. The
 		// cheap marker scan avoids splitting and scanning a large note on text
 		// changes that cannot introduce an image.
 		if (!markdown.includes('![')) return markdown;
 		if (commit && hint && this.lastInput !== null) {
-			const scoped = this.restoreScoped(markdown, hint);
+			const scoped = measureImageStage('imageMarkdownScopedStage', () =>
+				this.restoreScoped(markdown, hint)
+			);
 			if (scoped !== null) {
 				recordImageCounter('imageMarkdownScoped');
 				return scoped;
 			}
 		}
-		const result = this.restoreFull(markdown, commit);
+		const result = measureImageStage('imageMarkdownFullStage', () =>
+			this.restoreFull(markdown, commit)
+		);
 		recordImageCounter('imageMarkdownFull');
 		return result;
 	}
@@ -205,7 +300,8 @@ export class ImageMarkdownRoundTrip {
 	/**
 	 * Splices a prose change that does not touch an image line. The previous
 	 * restored text and its image regions stay valid, so no line scan or
-	 * occurrence map rebuild is necessary.
+	 * occurrence map rebuild is necessary. An inserting change owns its leading
+	 * separator, so the exact inserted bytes come from the new Markdown span.
 	 */
 	private restoreScoped(markdown: string, hint: ImageChangeHint): string | null {
 		const lastInput = this.lastInput;
@@ -219,15 +315,23 @@ export class ImageMarkdownRoundTrip {
 			hint.nextTo > markdown.length
 		)
 			return null;
+		if (
+			!hint.insert &&
+			hint.nextTo - hint.nextFrom !==
+				hint.previousTo - hint.previousFrom + markdown.length - lastInput.length
+		)
+			return null;
 		const changed = markdown.slice(hint.nextFrom, hint.nextTo);
 		// Any image or fence syntax needs the full occurrence-aware scan.
 		if (/[!<`~]/.test(changed)) return null;
 		for (const region of this.regions) {
 			const overlaps = hint.previousFrom < region.inputEnd && hint.previousTo > region.inputStart;
+			// An insertion exactly at the region end follows the complete image
+			// line and its metadata line, so it is safe.
 			const insertionInside =
 				hint.previousFrom === hint.previousTo &&
 				hint.previousFrom >= region.inputStart &&
-				hint.previousFrom <= region.inputEnd;
+				hint.previousFrom < region.inputEnd;
 			if (overlaps || insertionInside) return null;
 		}
 		let delta = 0;
@@ -247,6 +351,13 @@ export class ImageMarkdownRoundTrip {
 		}
 		this.lastInput = markdown;
 		this.lastOutput = result;
+		this.lastScopedHint = {
+			previousFrom: outputFrom,
+			previousTo: outputTo,
+			nextFrom: outputFrom,
+			nextTo: outputFrom + changed.length,
+			...(hint.insert ? { insert: true } : {})
+		};
 		return result;
 	}
 
@@ -277,18 +388,22 @@ export class ImageMarkdownRoundTrip {
 				continue;
 			}
 			const regionStart = starts[index]!;
-			const identity = `${image.source}\u0000${image.title}`;
+			const identity = occurrenceKey(image.source, image.title);
 			const occurrence = occurrences.get(identity) ?? 0;
 			occurrences.set(identity, occurrence + 1);
-			const key = imageKey(image.source, image.title, occurrence);
-			const current = this.state.get(key);
+			const current = this.lookup(this.state, image.source, image.title, occurrence);
 			const ratio = numericRatio(image.alt) ?? current?.ratio ?? 1;
 			const alt = current?.alt ?? this.uploadedAlt.get(image.source) ?? image.title;
-			nextState.set(key, { alt, ratio });
+			this.store(nextState, image.source, image.title, occurrence, alt, ratio);
 			push(formatImageLine({ ...image, alt }));
 			if (Math.abs(ratio - 1) > 0.005) push(`<!-- mdsh:image ratio=${ratio.toFixed(2)} -->`);
-			const meta = IMAGE_META_LINE.test(lines[index + 1] ?? '');
-			if (meta) index++;
+			// The editor keeps the image block and a ratio comment as separate
+			// top-level blocks, so blank lines can separate them. The portable
+			// form keeps the comment directly after its image line. Consume the
+			// whole unit so later offsets stay on one linear mapping.
+			let metaIndex = index + 1;
+			while (metaIndex < lines.length && (lines[metaIndex] ?? '') === '') metaIndex += 1;
+			if (metaIndex > index && IMAGE_META_LINE.test(lines[metaIndex] ?? '')) index = metaIndex;
 			const inputEnd = starts[index]! + (lines[index] ?? '').length;
 			regions.push({ inputStart: regionStart, inputEnd, delta: outputLength - inputEnd });
 		}
