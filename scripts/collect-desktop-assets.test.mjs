@@ -77,7 +77,7 @@ test('a push publication passes the planned tag to the actual collector CLI', ()
 			'utf8'
 		);
 		const step = workflow.match(
-			/- name: Select installers and verify source before checksums\n([\s\S]*?)(?=\n      - name:)/
+			/- name: Select installers and verify source before checksums\n([\s\S]*?)(?=\n {6}- name:)/
 		)?.[1];
 		assert.ok(step, 'the actual publishing collector step exists');
 		const values = { sha: expected.sha, tag: expected.tag };

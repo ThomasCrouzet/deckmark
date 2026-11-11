@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -17,9 +25,9 @@ function setup() {
 	const output = join(root, 'output');
 	mkdirSync(input);
 	const artifacts = {
-		'desktop-installers-macos-arm': ['mdsh_aarch64.dmg'],
-		'desktop-installers-linux': ['mdsh.AppImage', 'mdsh.deb', 'mdsh.rpm'],
-		'desktop-installers-windows': ['mdsh.msi', 'mdsh-setup.exe']
+		'desktop-installers-macos-15': ['mdsh_aarch64.dmg'],
+		'desktop-installers-ubuntu-24.04': ['mdsh.AppImage', 'mdsh.deb'],
+		'desktop-installers-windows-2022': ['mdsh-setup.exe']
 	};
 	for (const [artifact, names] of Object.entries(artifacts)) {
 		const artifactPath = join(input, artifact);
@@ -27,21 +35,24 @@ function setup() {
 		for (const name of names) writeFileSync(join(artifactPath, name), name);
 		writeFileSync(join(artifactPath, 'desktop-source.json'), JSON.stringify(identity));
 	}
-	writeFileSync(join(input, 'desktop-installers-linux', 'sbom-npm.cdx.json'), 'npm sbom');
-	writeFileSync(join(input, 'desktop-installers-linux', 'sbom-cargo.cdx.json'), 'cargo sbom');
+	writeFileSync(join(input, 'desktop-installers-ubuntu-24.04', 'sbom-npm.cdx.json'), 'npm sbom');
+	writeFileSync(
+		join(input, 'desktop-installers-ubuntu-24.04', 'sbom-cargo.cdx.json'),
+		'cargo sbom'
+	);
 	return { input, output };
 }
 describe('release asset collection', () => {
 	it('flattens only installers and produces independently verifiable checksums', () => {
 		const { input, output } = setup();
-		mkdirSync(join(input, 'desktop-installers-macos-arm', 'mdsh.app'));
+		mkdirSync(join(input, 'desktop-installers-macos-15', 'mdsh.app'));
 		writeFileSync(
-			join(input, 'desktop-installers-macos-arm', 'mdsh.app', 'internal.exe'),
+			join(input, 'desktop-installers-macos-15', 'mdsh.app', 'internal.exe'),
 			'internal'
 		);
-		writeFileSync(join(input, 'desktop-installers-linux', 'build.log'), 'log');
+		writeFileSync(join(input, 'desktop-installers-ubuntu-24.04', 'build.log'), 'log');
 		const files = collectDesktopAssets(input, output, identity);
-		expect(files).toHaveLength(6);
+		expect(files).toHaveLength(4);
 		expect(files).not.toContain('internal.exe');
 		expect(files).not.toContain('sbom-npm.cdx.json');
 		expect(files).not.toContain('sbom-cargo.cdx.json');
@@ -62,10 +73,13 @@ describe('release asset collection', () => {
 		// An installer that already carries the release name collides with the renamed
 		// Apple Silicon build.
 		writeFileSync(
-			join(input, 'desktop-installers-linux', 'mdsh_macOS_Apple-Silicon.dmg'),
+			join(input, 'desktop-installers-macos-15', 'mdsh_macOS_Apple-Silicon.dmg'),
 			'other architecture'
 		);
-		expect(() => collectDesktopAssets(input, output, identity)).toThrow('Duplicate artifact names');
+		expect(() => collectDesktopAssets(input, output, identity)).toThrow(
+			'Duplicate installer format'
+		);
+		expect(existsSync(output)).toBe(false);
 	});
 	it('rejects invalid expected and supplied source identities', () => {
 		const { input, output } = setup();
@@ -75,7 +89,7 @@ describe('release asset collection', () => {
 		expect(() => collectDesktopAssets(input, output, { ...identity, tag: 'v1.5.1' })).toThrow(
 			'Invalid source identity'
 		);
-		const manifest = join(input, 'desktop-installers-linux', 'desktop-source.json');
+		const manifest = join(input, 'desktop-installers-ubuntu-24.04', 'desktop-source.json');
 		writeFileSync(manifest, JSON.stringify({ ...identity, sha: 'b'.repeat(40) }));
 		expect(() => collectDesktopAssets(input, output, identity)).toThrow('specified source');
 		writeFileSync(manifest, JSON.stringify({ ...identity, tag: 'v1.5.1' }));
@@ -85,7 +99,7 @@ describe('release asset collection', () => {
 	});
 	it('rejects a missing or malformed platform manifest', () => {
 		const { input, output } = setup();
-		const manifest = join(input, 'desktop-installers-windows', 'desktop-source.json');
+		const manifest = join(input, 'desktop-installers-windows-2022', 'desktop-source.json');
 		rmSync(manifest);
 		expect(() => collectDesktopAssets(input, output, identity)).toThrow('source manifest');
 		writeFileSync(manifest, '{');
@@ -93,9 +107,9 @@ describe('release asset collection', () => {
 	});
 	it('rejects an incomplete installer matrix', () => {
 		const { input, output } = setup();
-		rmSync(join(input, 'desktop-installers-windows', 'mdsh.msi'));
+		rmSync(join(input, 'desktop-installers-windows-2022', 'mdsh-setup.exe'));
 		expect(() => collectDesktopAssets(input, output, identity)).toThrow(
-			'Required artifact is missing'
+			'Required installer format is missing'
 		);
 	});
 });

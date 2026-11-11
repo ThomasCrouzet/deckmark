@@ -6,7 +6,8 @@
 // unrelated processes alive, and fail loudly on a bounded timeout.
 
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { once } from 'node:events';
 import test from 'node:test';
 
@@ -130,6 +131,31 @@ test('teardown terminates only the owned child', async () => {
 		await forceCleanup(target);
 		await forceCleanup(bystander);
 	}
+});
+
+test('a failed smoke cleanup emits a failed report and a nonzero process exit', () => {
+	const source = readFileSync(new URL('./native-smoke.mjs', import.meta.url), 'utf8');
+	const marker = '} finally {';
+	const body = source.slice(source.lastIndexOf(marker) + marker.length, source.lastIndexOf('}'));
+	assert.match(body, /await stopChild/);
+	const script = `
+const results = { passed: true };
+const secondary = null;
+const app = { pid: 123 };
+const output = 'unused';
+const join = (...parts) => parts.join('/');
+const stopChild = async () => { throw new Error('injected cleanup timeout'); };
+const writeFileSync = (_path, text) => process.stdout.write(text);
+const console = { error() {} };
+${body}`;
+	const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+		encoding: 'utf8',
+		timeout: 5_000
+	});
+	assert.equal(result.status, 1, result.stderr);
+	const report = JSON.parse(result.stdout);
+	assert.equal(report.passed, false);
+	assert.match(report.cleanupErrors[0].error, /injected cleanup timeout/);
 });
 
 test('an already exited child returns without a signal', async () => {

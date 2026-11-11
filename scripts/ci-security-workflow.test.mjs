@@ -17,7 +17,7 @@ function jobBlock(text, id) {
 	if (start < 0) throw new Error(`Missing job: ${id}`);
 	let end = lines.length;
 	for (let index = start + 1; index < lines.length; index += 1) {
-		if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[index]) || /^\S/.test(lines[index])) {
+		if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[index]) || /^\S/.test(lines[index])) {
 			end = index;
 			break;
 		}
@@ -75,11 +75,11 @@ function runShell(script, env) {
 }
 
 test('the required security job names remain present', () => {
-	assert.match(SECURITY, /^  dependency-review:$/m);
-	assert.match(SECURITY, /^  dependency-audit:$/m);
-	assert.match(SECURITY, /^    name: codeql \(javascript-typescript, none\)$/m);
-	assert.match(SECURITY, /^    name: codeql \(rust, none\)$/m);
-	assert.match(GITLEAKS, /^  secrets:$/m);
+	assert.match(SECURITY, /^ {2}dependency-review:$/m);
+	assert.match(SECURITY, /^ {2}dependency-audit:$/m);
+	assert.match(SECURITY, /^ {4}name: codeql \(javascript-typescript, none\)$/m);
+	assert.match(SECURITY, /^ {4}name: codeql \(rust, none\)$/m);
+	assert.match(GITLEAKS, /^ {2}secrets:$/m);
 });
 
 test('the Rust aggregate rejects a failed classifier and a missing scan', () => {

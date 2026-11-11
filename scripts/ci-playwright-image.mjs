@@ -44,13 +44,13 @@ function readJson(file, label) {
 	try {
 		raw = readFileSync(file, 'utf8');
 	} catch (error) {
-		throw new Error(`cannot read ${label} (${file}): ${error.message}`);
+		throw new Error(`cannot read ${label} (${file}): ${error.message}`, { cause: error });
 	}
 	let value;
 	try {
 		value = JSON.parse(raw);
 	} catch (error) {
-		throw new Error(`invalid JSON in ${label} (${file}): ${error.message}`);
+		throw new Error(`invalid JSON in ${label} (${file}): ${error.message}`, { cause: error });
 	}
 	if (value === null || typeof value !== 'object' || Array.isArray(value)) {
 		throw new Error(`${label} must contain a JSON object (${file})`);

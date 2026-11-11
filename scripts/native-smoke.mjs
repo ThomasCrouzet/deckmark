@@ -1410,13 +1410,10 @@ try {
 		}
 	}
 	if (cleanups.length) results.cleanups = cleanups;
-	if (cleanupErrors.length) results.cleanupErrors = cleanupErrors;
-	writeFileSync(join(output, 'results.json'), JSON.stringify(results, null, 2));
-	if (cleanupErrors.length && !results.error) {
-		throw new Error(
-			`Native smoke cleanup failed: ${cleanupErrors
-				.map(({ label, error }) => `${label}: ${error}`)
-				.join('; ')}`
-		);
+	if (cleanupErrors.length) {
+		results.cleanupErrors = cleanupErrors;
+		results.passed = false;
+		process.exitCode = 1;
 	}
+	writeFileSync(join(output, 'results.json'), JSON.stringify(results, null, 2));
 }

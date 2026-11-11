@@ -65,7 +65,10 @@ function isDocumentation(path) {
 	// Reject absolute, trailing-slash, control-character, backslash and
 	// unsatisfiable paths. A crafted path must not reach the cheap route.
 	if (path.startsWith('/') || path.endsWith('/')) return false;
-	if (/[\u0000-\u001f\u007f]/.test(path)) return false;
+	if (
+		[...path].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+	)
+		return false;
 	if (path.includes('\\')) return false;
 	const segments = path.split('/');
 	if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {

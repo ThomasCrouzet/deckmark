@@ -732,8 +732,8 @@ test('the standalone release workflow keeps only manual release management', () 
 		'a workflow and its job must not acquire the same concurrency group'
 	);
 	assert.doesNotMatch(RELEASE_WORKFLOW, /^\s*push:/m);
-	assert.match(RELEASE_WORKFLOW, /^on:\n  workflow_dispatch:/m);
+	assert.match(RELEASE_WORKFLOW, /^on:\n {2}workflow_dispatch:/m);
 	assert.doesNotMatch(RELEASE_WORKFLOW, /uses: \.\/\.github\/workflows\/desktop\.yml/);
-	assert.match(RELEASE_WORKFLOW, /concurrency:\n  group: release-please/);
+	assert.match(RELEASE_WORKFLOW, /concurrency:\n {2}group: release-please/);
 	assert.match(RELEASE_WORKFLOW, /googleapis\/release-please-action@[0-9a-f]{40}/);
 });

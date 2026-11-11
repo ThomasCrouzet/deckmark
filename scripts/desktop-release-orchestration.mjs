@@ -222,10 +222,9 @@ function runPlanUpload(argv) {
 	const output = argument(argv, 'output');
 	/** @type {ReleaseAsset[]} */
 	let existingAssets = [];
-	let release = null;
 	const releaseIndex = argv.indexOf('--release');
 	if (releaseIndex !== -1) {
-		release = JSON.parse(readFileSync(argument(argv, 'release'), 'utf8'));
+		const release = JSON.parse(readFileSync(argument(argv, 'release'), 'utf8'));
 		if (release.tagName !== tag) {
 			throw new Error('The existing Desktop release does not match the expected tag');
 		}

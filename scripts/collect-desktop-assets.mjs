@@ -51,12 +51,13 @@ export function collectDesktopAssets(input, output, expected) {
 		const platform = platformFromArtifact(basename(artifactPath));
 		const files = walk(artifactPath);
 		const sourcePaths = files.filter((path) => basename(path) === 'desktop-source.json');
-		if (sourcePaths.length !== 1) {
+		const sourcePath = sourcePaths[0];
+		if (sourcePaths.length !== 1 || sourcePath === undefined) {
 			throw new Error('Each installer artifact must contain one source manifest');
 		}
 		let source;
 		try {
-			source = JSON.parse(readFileSync(sourcePaths[0], 'utf8'));
+			source = JSON.parse(readFileSync(sourcePath, 'utf8'));
 		} catch {
 			throw new Error('Invalid source manifest');
 		}

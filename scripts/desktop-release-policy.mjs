@@ -42,7 +42,8 @@ export const DESKTOP_RELEASE_FORMATS = Object.freeze([
 		bundle: 'dmg',
 		label: 'macOS Apple Silicon DMG',
 		pattern: /_(?:aarch64|macOS_Apple-Silicon)\.dmg$/,
-		releaseName: (name) => name.replace(/_aarch64\.dmg$/, '_macOS_Apple-Silicon.dmg')
+		releaseName: (/** @type {string} */ name) =>
+			name.replace(/_aarch64\.dmg$/, '_macOS_Apple-Silicon.dmg')
 	}),
 	Object.freeze({
 		id: 'linux-deb',
@@ -50,7 +51,7 @@ export const DESKTOP_RELEASE_FORMATS = Object.freeze([
 		bundle: 'deb',
 		label: 'Linux x64 deb',
 		pattern: /\.deb$/,
-		releaseName: (name) => name
+		releaseName: (/** @type {string} */ name) => name
 	}),
 	Object.freeze({
 		id: 'linux-appimage',
@@ -58,7 +59,7 @@ export const DESKTOP_RELEASE_FORMATS = Object.freeze([
 		bundle: 'appimage',
 		label: 'Linux x64 AppImage',
 		pattern: /\.AppImage$/,
-		releaseName: (name) => name
+		releaseName: (/** @type {string} */ name) => name
 	}),
 	Object.freeze({
 		id: 'windows-nsis',
@@ -66,7 +67,7 @@ export const DESKTOP_RELEASE_FORMATS = Object.freeze([
 		bundle: 'nsis',
 		label: 'Windows x64 NSIS installer',
 		pattern: /-setup\.exe$/,
-		releaseName: (name) => name
+		releaseName: (/** @type {string} */ name) => name
 	})
 ]);
 

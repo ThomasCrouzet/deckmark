@@ -31,7 +31,7 @@ import { basename, join, resolve } from 'node:path';
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const TAG_PATTERN = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/;
-const RESULT_VALUES = new Set(['success', 'failure', 'cancelled', 'skipped']);
+
 const RELEASE_EVENTS = new Set(['push', 'workflow_dispatch']);
 const CLI_MANIFEST_SCHEMA = 'deckmark-cli-install/1';
 

@@ -38,7 +38,7 @@ if [ "\${1:-}" = '--version' ]; then
   echo 'cargo-audit 0.22.2'
   exit 0
 fi
-printf '%s\\n' "\$*" >> "\${AUDIT_LOG:?}"
+printf '%s\\n' "$*" >> "\${AUDIT_LOG:?}"
 EOF
 chmod +x "$root/bin/cargo-audit"
 `;

@@ -136,10 +136,10 @@ test('the standalone bundled-runtime contract and installed suite remain', () =>
 
 test('the workflow is callable but has no release, registry, or auth side effect', () => {
 	assert.match(CLI, /workflow_call:/);
-	assert.doesNotMatch(CLI, /workflow_run|^  release:/m);
+	assert.doesNotMatch(CLI, /workflow_run|^ {2}release:/m);
 	assert.doesNotMatch(CLI, /npm publish|npm login|registry-url|NODE_AUTH_TOKEN|secrets\./);
 	assert.doesNotMatch(CLI, /id-token:\s*write|contents:\s*write|packages:\s*write/);
-	assert.match(CLI, /permissions:\n  contents: read/);
+	assert.match(CLI, /permissions:\n {2}contents: read/);
 });
 
 test('the reusable call declares an opt-in upload input that defaults to off', () => {
