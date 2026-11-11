@@ -54,7 +54,10 @@ test('a documentation-only pull request selects the documentation class', () => 
 		'CONTRIBUTING.md',
 		'GOVERNANCE.md',
 		'LICENSE',
+		'README',
 		'README.md',
+		'README.markdown',
+		'README.txt',
 		'SECURITY.md',
 		'SUPPORT.md',
 		'THIRD_PARTY_NOTICES.md',
@@ -70,6 +73,25 @@ test('one non-documentation path selects full validation', () => {
 	const result = outputs(invoke({ paths: ['docs/CI.md', 'src/lib/editor-state.ts'] }));
 	assert.equal(result.class, 'full');
 	assert.equal(result.reason, 'full:non-documentation');
+});
+
+test('a root documentation name with a sensitive suffix selects full validation', () => {
+	for (const path of [
+		'README.js',
+		'README.sh',
+		'README.exe',
+		'README.json',
+		'README.html',
+		'README.md.js',
+		'LICENSE.js',
+		'SECURITY.ts',
+		'CHANGELOG.lock',
+		'ARCHITECTURE.ts'
+	]) {
+		const result = outputs(invoke({ paths: [path] }));
+		assert.equal(result.class, 'full', path);
+		assert.equal(result.reason, 'full:non-documentation', path);
+	}
 });
 
 test('runtime, test, workflow and policy paths select full validation', () => {

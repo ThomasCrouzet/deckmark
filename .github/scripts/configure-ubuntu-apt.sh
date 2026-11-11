@@ -145,7 +145,7 @@ parse_one_line() {
       sub(/[ \t]+#.*$/, "", line)
       if (line == "" || line ~ /^#/) next
       n = split(line, w, /[ \t]+/)
-      if (w[1] != "deb") next
+      if (w[1] != "deb" && w[1] != "deb-src") next
       i = 2
       if (i <= n && w[i] ~ /^\[/) {
         while (i <= n && w[i] !~ /\]$/) i++
@@ -153,7 +153,11 @@ parse_one_line() {
       }
       if (i + 1 > n) { printf "MALFORMED\t%s\n", file > "/dev/stderr"; next }
       uri = w[i]; i++
-      for (; i <= n; i++) printf "ENTRY\t%s\tline\t%s\t%s\n", file, uri, w[i]
+      # The one-line format is: type [options] URI suite component...
+      # Only the suite follows the URI. Components are package groups, not
+      # suites, so they must not become probed dists/<component>/ entries.
+      suite = w[i]
+      printf "ENTRY\t%s\tline\t%s\t%s\n", file, uri, suite
     }' "$file"
 }
 

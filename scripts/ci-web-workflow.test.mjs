@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 const { load } = await import('js-yaml');
@@ -30,6 +31,70 @@ function runAggregate(overrides = {}) {
 function steps() {
 	return Object.entries(workflow.jobs).flatMap(([job, value]) =>
 		(value.steps ?? []).map((step) => ({ job, step }))
+	);
+}
+
+// Run Git fixtures with no inherited GIT_* state. A developer shell must not
+// change rename detection or redirect the fixture repository.
+function gitEnvironment(overrides = {}) {
+	const environment = {};
+	for (const [name, value] of Object.entries(process.env)) {
+		if (!name.startsWith('GIT_')) environment[name] = value;
+	}
+	return {
+		...environment,
+		GIT_CONFIG_NOSYSTEM: '1',
+		GIT_CONFIG_GLOBAL: '/dev/null',
+		GIT_AUTHOR_NAME: 'CI fixture',
+		GIT_AUTHOR_EMAIL: 'ci@example.invalid',
+		GIT_COMMITTER_NAME: 'CI fixture',
+		GIT_COMMITTER_EMAIL: 'ci@example.invalid',
+		...overrides
+	};
+}
+
+function createGitRepository() {
+	const repository = mkdtempSync(join(tmpdir(), 'deckmark-change-set-'));
+	const runGit = (args) => {
+		const result = spawnSync('git', ['-C', repository, ...args], {
+			env: gitEnvironment(),
+			encoding: 'utf8'
+		});
+		assert.equal(result.status, 0, result.stderr);
+		return result.stdout.trim();
+	};
+	runGit(['init', '-q']);
+	runGit(['config', 'user.email', 'ci@example.invalid']);
+	runGit(['config', 'user.name', 'CI fixture']);
+	runGit(['config', 'diff.renames', 'true']);
+	return { repository, runGit };
+}
+
+// Execute the exact workflow shell step so the diff command and the
+// classifier stay coupled to the real workflow text.
+function runChangeStep(repository, base, head) {
+	const output = join(repository, 'github-output');
+	const step = workflow.jobs['ci-tier'].steps.find((value) => value.id === 'changes');
+	const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+		cwd: repository,
+		env: gitEnvironment({
+			EVENT_NAME: 'pull_request',
+			BASE_SHA: base,
+			HEAD_SHA: head,
+			GITHUB_OUTPUT: output
+		}),
+		encoding: 'utf8'
+	});
+	return { result, output };
+}
+
+function changeOutputs(result, output) {
+	assert.equal(result.status, 0, result.stderr);
+	return Object.fromEntries(
+		readFileSync(output, 'utf8')
+			.trim()
+			.split('\n')
+			.map((line) => line.split('='))
 	);
 }
 
@@ -144,7 +209,7 @@ test('ready and draft transitions rerun the policy on the same head', () => {
 
 test('the policy job classifies the change set from real commit paths', () => {
 	const step = workflow.jobs['ci-tier'].steps.find((value) => value.id === 'changes');
-	assert.match(step.run, /git diff --name-only -z/);
+	assert.match(step.run, /git diff --no-renames --name-only -z/);
 	assert.match(step.run, /scripts\/ci-changes\.mjs/);
 	assert.match(step.run, /"\$EVENT_NAME" = 'pull_request'/);
 	assert.equal(step.env.BASE_SHA, '${{ github.event.pull_request.base.sha }}');
@@ -154,6 +219,60 @@ test('the policy job classifies the change set from real commit paths', () => {
 		workflow.jobs['ci-tier'].outputs.class_reason,
 		'${{ steps.changes.outputs.reason }}'
 	);
+});
+
+test('a real documentation-only commit selects the documentation class', () => {
+	const { repository, runGit } = createGitRepository();
+	try {
+		mkdirSync(join(repository, 'docs'));
+		writeFileSync(join(repository, 'docs', 'guide.md'), '# Guide\n');
+		runGit(['add', '-A']);
+		runGit(['commit', '-qm', 'base']);
+		const base = runGit(['rev-parse', 'HEAD']);
+		writeFileSync(join(repository, 'docs', 'CI.md'), '# CI\n');
+		runGit(['add', '-A']);
+		runGit(['commit', '-qm', 'docs']);
+		const head = runGit(['rev-parse', 'HEAD']);
+		mkdirSync(join(repository, 'scripts'));
+		copyFileSync(
+			fileURLToPath(new URL('./ci-changes.mjs', import.meta.url)),
+			join(repository, 'scripts', 'ci-changes.mjs')
+		);
+
+		const { result, output } = runChangeStep(repository, base, head);
+		const values = changeOutputs(result, output);
+		assert.equal(values.class, 'docs');
+		assert.equal(values.reason, 'docs-only:1');
+	} finally {
+		rmSync(repository, { recursive: true, force: true });
+	}
+});
+
+test('a real git rename from a test tree into docs still selects full validation', () => {
+	const { repository, runGit } = createGitRepository();
+	try {
+		mkdirSync(join(repository, 'e2e'));
+		mkdirSync(join(repository, 'docs'));
+		writeFileSync(join(repository, 'e2e', 'critical.spec.ts'), 'test("critical", () => {});\n');
+		runGit(['add', '-A']);
+		runGit(['commit', '-qm', 'base']);
+		const base = runGit(['rev-parse', 'HEAD']);
+		runGit(['mv', 'e2e/critical.spec.ts', 'docs/critical.md']);
+		runGit(['commit', '-qm', 'rename']);
+		const head = runGit(['rev-parse', 'HEAD']);
+		mkdirSync(join(repository, 'scripts'));
+		copyFileSync(
+			fileURLToPath(new URL('./ci-changes.mjs', import.meta.url)),
+			join(repository, 'scripts', 'ci-changes.mjs')
+		);
+
+		const { result, output } = runChangeStep(repository, base, head);
+		const values = changeOutputs(result, output);
+		assert.equal(values.class, 'full');
+		assert.equal(values.reason, 'full:non-documentation');
+	} finally {
+		rmSync(repository, { recursive: true, force: true });
+	}
 });
 
 test('the pinned image is resolved once, fails closed and feeds every container job', () => {
@@ -286,9 +405,11 @@ test('both origins deploy in parallel behind the same gates and one verification
 	const pages = workflow.jobs.deploy;
 	const mirror = workflow.jobs['deploy-cloudflare'];
 	assert.deepEqual(pages.needs, ['check', 'build', 'e2e', 'lighthouse']);
-	for (const gate of ['build', 'e2e', 'lighthouse']) {
-		assert.ok(mirror.needs.includes(gate), gate);
-	}
+	assert.deepEqual(
+		mirror.needs,
+		pages.needs,
+		'the mirror must keep the exact fast-check, build, browser and Lighthouse gates'
+	);
 	assert.ok(!mirror.needs.includes('deploy'), 'the mirror does not wait for Pages');
 	assert.deepEqual(workflow.jobs['verify-public'].needs, ['deploy', 'deploy-cloudflare']);
 });

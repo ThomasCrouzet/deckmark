@@ -74,7 +74,10 @@ jobs:
         run: |
           if [ "$EVENT_NAME" = 'pull_request' ]; then
             # Compare the base and head commits of this pull request.
-            git diff --name-only -z "$BASE_SHA...$HEAD_SHA" \
+            # Disable rename detection so the deleted source path stays in the
+            # set. A rename from a test or source tree into docs/ must not
+            # select the documentation-only route.
+            git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" \
               | node scripts/ci-changes.mjs --event-name "$EVENT_NAME" >> "$GITHUB_OUTPUT"
           else
             # Every other event selects full validation.
@@ -634,10 +637,10 @@ jobs:
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
 
   deploy-cloudflare:
-    # The mirror deploys in parallel with Pages. It keeps the same build,
-    # browser and Lighthouse gates. The final verification waits for both
-    # origins, so one stale origin still fails the run.
-    needs: [build, e2e, lighthouse]
+    # The mirror deploys in parallel with Pages. It keeps the same fast-check,
+    # build, browser and Lighthouse gates. The final verification waits for
+    # both origins, so one stale origin still fails the run.
+    needs: [check, build, e2e, lighthouse]
     if: >-
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main'

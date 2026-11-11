@@ -23,9 +23,11 @@ const documentationExtensions = new Set([
 	'webp'
 ]);
 // Repository-root documentation files. The pattern cannot match a path with a
-// slash, so a same-named file in another directory keeps full validation.
+// slash, so a same-named file in another directory keeps full validation. A
+// suffix must be a documentation extension: README.js must not skip the browser
+// matrix.
 const rootDocumentationPattern =
-	/^(?:AGENTS|ARCHITECTURE|CHANGELOG|CODE_OF_CONDUCT|CONTRIBUTING|GOVERNANCE|LICENSE|README|SECURITY|SUPPORT|THIRD_PARTY_NOTICES)(?:\.[A-Za-z0-9.+-]+)?$/;
+	/^(?:AGENTS|ARCHITECTURE|CHANGELOG|CODE_OF_CONDUCT|CONTRIBUTING|GOVERNANCE|LICENSE|README|SECURITY|SUPPORT|THIRD_PARTY_NOTICES)(?:\.(?:gif|ico|jpeg|jpg|markdown|md|pdf|png|svg|txt|webp))?$/i;
 
 class ClassifierError extends Error {}
 

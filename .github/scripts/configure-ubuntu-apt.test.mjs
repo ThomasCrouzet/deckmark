@@ -221,7 +221,11 @@ test('a one-line sources.list entry is parsed and repaired', () => {
 		sources: null,
 		oneLine:
 			'deb http://archive.ubuntu.com/ubuntu noble main universe\ndeb http://security.ubuntu.com/ubuntu noble-security main universe\n',
-		dns: 'security.ubuntu.com fail\n'
+		dns: 'security.ubuntu.com fail\n',
+		// A real archive serves suites, not components. Without per-URL codes
+		// a parser that probes dists/main and dists/universe would pass.
+		defaultCode: '404',
+		http: `${'http://archive.ubuntu.com/ubuntu/dists/noble/InRelease'} 200\n${'http://archive.ubuntu.com/ubuntu/dists/noble-security/InRelease'} 200\n`
 	});
 	const result = run(context);
 	assert.equal(result.status, 0, result.stderr);
@@ -232,6 +236,37 @@ test('a one-line sources.list entry is parsed and repaired', () => {
 		/^deb http:\/\/archive\.ubuntu\.com\/ubuntu noble-security main universe$/m
 	);
 	assert.doesNotMatch(sources, /security\.ubuntu\.com/);
+	assert.doesNotMatch(readState(context, 'curl.log'), /dists\/(?:main|universe)\//);
+});
+
+test('a one-line source keeps options, suite and components after repair', () => {
+	const options = '[arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg]';
+	const context = fixture({
+		sources: null,
+		oneLine: `deb ${options} http://archive.ubuntu.com/ubuntu noble main universe\ndeb-src ${options} http://security.ubuntu.com/ubuntu noble-security main\n`,
+		dns: 'security.ubuntu.com fail\n',
+		defaultCode: '404',
+		http: `${'http://archive.ubuntu.com/ubuntu/dists/noble/InRelease'} 200\n${'http://archive.ubuntu.com/ubuntu/dists/noble-security/InRelease'} 200\n`
+	});
+	const result = run(context);
+	assert.equal(result.status, 0, result.stderr);
+	const sources = read(context, 'sources.list');
+	assert.match(
+		sources,
+		new RegExp(
+			`^deb ${options.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} http://archive\\.ubuntu\\.com/ubuntu noble main universe$`,
+			'm'
+		)
+	);
+	assert.match(
+		sources,
+		new RegExp(
+			`^deb-src ${options.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} http://archive\\.ubuntu\\.com/ubuntu noble-security main$`,
+			'm'
+		)
+	);
+	assert.doesNotMatch(sources, /security\.ubuntu\.com/);
+	assert.doesNotMatch(readState(context, 'curl.log'), /dists\/main\//);
 });
 
 test('a non-Ubuntu source is never rewritten', () => {
