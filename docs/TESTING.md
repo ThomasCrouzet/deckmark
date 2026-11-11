@@ -88,6 +88,25 @@ The WebKit project runs the same cases. The spec attaches the raw counters, the
 replacement byte length and the observed image pixels. A cached string and DOM
 result do not prove GPU texture release or native WebView memory.
 
+## Image block geometry risks
+
+Keep the image sizing work bounded. The risks are a ResizeObserver feedback
+loop, a synchronous layout read for every image on every frame, a fetch policy
+write during a sizing pass and an offscreen image with a 2.4em intrinsic height.
+The editor stores the observed block width once per delivery, reads all sizes
+before writes and writes a style only when the value changes. An image block
+uses the measured display width and aspect height for its intrinsic box.
+
+Run:
+
+```sh
+npx playwright test e2e/image-resize-budget.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The Chromium, Firefox and WebKit projects run the case. It attaches the block
+metrics, the attribute mutations from a viewport resize and a typing burst, and
+a screenshot. A DOM attribute count is not a compositor or layout count.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading

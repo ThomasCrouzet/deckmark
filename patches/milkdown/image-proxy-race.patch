@@ -1,34 +1,21 @@
-diff --git a/src/image-block/view/index.ts b/src/image-block/view/index.ts
-index 2109c65..b4caef7 100644
---- a/src/image-block/view/index.ts
-+++ b/src/image-block/view/index.ts
-@@ -14,7 +14,7 @@ export const imageBlockView = $view(
-   imageBlockSchema.node,
-   (ctx): NodeViewConstructor => {
-     return (initialNode, view, getPos) => {
--      const src = ref(initialNode.attrs.src)
-+      const src = ref('')
-       const caption = ref(initialNode.attrs.caption)
-       const ratio = ref(initialNode.attrs.ratio)
-       const selected = ref(false)
-diff --git a/src/image-inline/view.ts b/src/image-inline/view.ts
-index 6290114..bec0981 100644
---- a/src/image-inline/view.ts
-+++ b/src/image-inline/view.ts
-@@ -14,7 +14,7 @@ export const inlineImageView = $view(
-   imageSchema.node,
-   (ctx): NodeViewConstructor => {
-     return (initialNode, view, getPos) => {
--      const src = ref(initialNode.attrs.src)
-+      const src = ref('')
-       const alt = ref(initialNode.attrs.alt)
-       const title = ref(initialNode.attrs.title)
-       const selected = ref(false)
 diff --git a/lib/image-block/index.js b/lib/image-block/index.js
-index ea1abe9..f898d4f 100644
 --- a/lib/image-block/index.js
 +++ b/lib/image-block/index.js
-@@ -569,7 +569,7 @@ const imageBlockView = $view(
+@@ -389,9 +389,10 @@
+       if (config.maxHeight && transformedHeight > config.maxHeight)
+         transformedHeight = config.maxHeight;
+       const h2 = (transformedHeight * ((_a2 = ratio.value) != null ? _a2 : 1)).toFixed(2);
+-      image.dataset.origin = transformedHeight.toFixed(2);
+-      image.dataset.height = h2;
+-      image.style.height = `${h2}px`;
++      const origin = transformedHeight.toFixed(2);
++      if (image.dataset.origin !== origin) image.dataset.origin = origin;
++      if (image.dataset.height !== h2) image.dataset.height = h2;
++      if (image.style.height !== `${h2}px`) image.style.height = `${h2}px`;
+       if (config.maxWidth) image.style.maxWidth = `${config.maxWidth}px`;
+     };
+     const onToggleCaption = (e) => {
+@@ -570,7 +571,7 @@
    imageBlockSchema.node,
    (ctx) => {
      return (initialNode, view, getPos) => {
@@ -38,10 +25,9 @@ index ea1abe9..f898d4f 100644
        const ratio = ref(initialNode.attrs.ratio);
        const selected = ref(false);
 diff --git a/lib/image-inline/index.js b/lib/image-inline/index.js
-index 3a83b6a..fdd3337 100644
 --- a/lib/image-inline/index.js
 +++ b/lib/image-inline/index.js
-@@ -287,7 +287,7 @@ const inlineImageView = $view(
+@@ -287,7 +287,7 @@
    imageSchema.node,
    (ctx) => {
      return (initialNode, view, getPos) => {
@@ -50,3 +36,44 @@ index 3a83b6a..fdd3337 100644
        const alt = ref(initialNode.attrs.alt);
        const title = ref(initialNode.attrs.title);
        const selected = ref(false);
+diff --git a/src/image-block/view/components/image-viewer.tsx b/src/image-block/view/components/image-viewer.tsx
+--- a/src/image-block/view/components/image-viewer.tsx
++++ b/src/image-block/view/components/image-viewer.tsx
+@@ -68,9 +68,10 @@
+         transformedHeight = config.maxHeight
+ 
+       const h = (transformedHeight * (ratio.value ?? 1)).toFixed(2)
+-      image.dataset.origin = transformedHeight.toFixed(2)
+-      image.dataset.height = h
+-      image.style.height = `${h}px`
++      const origin = transformedHeight.toFixed(2)
++      if (image.dataset.origin !== origin) image.dataset.origin = origin
++      if (image.dataset.height !== h) image.dataset.height = h
++      if (image.style.height !== `${h}px`) image.style.height = `${h}px`
+ 
+       if (config.maxWidth) image.style.maxWidth = `${config.maxWidth}px`
+     }
+diff --git a/src/image-block/view/index.ts b/src/image-block/view/index.ts
+--- a/src/image-block/view/index.ts
++++ b/src/image-block/view/index.ts
+@@ -14,7 +14,7 @@
+   imageBlockSchema.node,
+   (ctx): NodeViewConstructor => {
+     return (initialNode, view, getPos) => {
+-      const src = ref(initialNode.attrs.src)
++      const src = ref('')
+       const caption = ref(initialNode.attrs.caption)
+       const ratio = ref(initialNode.attrs.ratio)
+       const selected = ref(false)
+diff --git a/src/image-inline/view.ts b/src/image-inline/view.ts
+--- a/src/image-inline/view.ts
++++ b/src/image-inline/view.ts
+@@ -14,7 +14,7 @@
+   imageSchema.node,
+   (ctx): NodeViewConstructor => {
+     return (initialNode, view, getPos) => {
+-      const src = ref(initialNode.attrs.src)
++      const src = ref('')
+       const alt = ref(initialNode.attrs.alt)
+       const title = ref(initialNode.attrs.title)
+       const selected = ref(false)

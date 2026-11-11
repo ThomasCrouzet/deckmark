@@ -94,7 +94,9 @@
 		const observer = new ResizeObserver(scheduleUpdate);
 		observer.observe(element);
 		const mutations = new MutationObserver(scheduleUpdate);
-		mutations.observe(element, { childList: true, subtree: true, characterData: true });
+		// A text mutation changes no scroll target until the next scroll or
+		// resize. Structural nodes still refresh the button state.
+		mutations.observe(element, { childList: true, subtree: true });
 		unbind = () => {
 			element.removeEventListener('scroll', update);
 			observer.disconnect();
