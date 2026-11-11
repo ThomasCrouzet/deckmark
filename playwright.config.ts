@@ -106,7 +106,8 @@ export default defineConfig({
 				'**/presentation-format.spec.ts',
 				'**/docs-site-export-svg.spec.ts',
 				'**/docs-site-export-html.spec.ts',
-				'**/docs-site-search-paths.spec.ts'
+				'**/docs-site-search-paths.spec.ts',
+				'**/export-download-lifetime.spec.ts'
 			]
 		},
 		{
@@ -149,7 +150,8 @@ export default defineConfig({
 				'**/docs-site-export-svg.spec.ts',
 				'**/docs-site-export-html.spec.ts',
 				'**/docs-site-search-paths.spec.ts',
-				'**/docs-site-fragments.spec.ts'
+				'**/docs-site-fragments.spec.ts',
+				'**/export-download-lifetime.spec.ts'
 			]
 		},
 		{

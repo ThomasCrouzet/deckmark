@@ -153,9 +153,44 @@ export function sanitizeFilename(name: string): string {
 }
 
 /**
+ * A browser reads the object URL after the click task returns. WebKit fails
+ * the download when the URL is revoked in that same task (WebKit bug 211234).
+ * Keep the URL reachable for a bounded time, then release it.
+ */
+const DOWNLOAD_URL_LIFETIME_MS = 5_000;
+
+const pendingDownloadUrls = new Set<string>();
+let downloadUrlCleanupInstalled = false;
+
+function releaseDownloadUrl(url: string): void {
+	if (!pendingDownloadUrls.delete(url)) return;
+	URL.revokeObjectURL(url);
+}
+
+/** Releases every retained URL when the page leaves the active lifecycle. */
+function releaseAllDownloadUrls(): void {
+	for (const url of [...pendingDownloadUrls]) releaseDownloadUrl(url);
+}
+
+function installDownloadUrlCleanup(): void {
+	if (downloadUrlCleanupInstalled || typeof window === 'undefined') return;
+	downloadUrlCleanupInstalled = true;
+	window.addEventListener('pagehide', releaseAllDownloadUrls);
+}
+
+function retainDownloadUrl(url: string): void {
+	pendingDownloadUrls.add(url);
+	installDownloadUrlCleanup();
+	setTimeout(() => releaseDownloadUrl(url), DOWNLOAD_URL_LIFETIME_MS);
+}
+
+/**
  * Triggers a file save. On the Tauri desktop shell, uses a native save dialog +
  * Rust write (WebView `<a download>` is unreliable across OS webviews). In the
  * browser, falls back to a blob + `<a download>` click.
+ *
+ * The returned `true` means a browser download started or a native write
+ * completed. It is not proof that the browser stored the file on disk.
  *
  * @returns `true` when a download/save was initiated; `false` when the user
  * cancelled the desktop save dialog (callers must NOT clear dirty or toast success).
@@ -168,13 +203,21 @@ export async function triggerDownload(blob: Blob, filename: string): Promise<boo
 		return tauriSaveExportBlob(blob, filename);
 	}
 	const url = URL.createObjectURL(blob);
+	let clicked = false;
 	const a = document.createElement('a');
 	a.href = url;
 	a.download = filename;
 	document.body.appendChild(a);
-	a.click();
-	a.remove();
-	URL.revokeObjectURL(url);
+	try {
+		a.click();
+		clicked = true;
+	} finally {
+		a.remove();
+		// A failed click cannot start a download. Release the URL now. A
+		// successful click keeps it until the browser has consumed it.
+		if (clicked) retainDownloadUrl(url);
+		else URL.revokeObjectURL(url);
+	}
 	return true;
 }
 
