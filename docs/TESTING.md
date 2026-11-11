@@ -623,6 +623,18 @@ those paths. Each browser case retains source metadata, fixtures, and screenshot
 The PDF viewer case uses full Chromium headless mode because the headless shell
 does not include the PDF viewer.
 
+The Quick Capture key handler must not cancel or save during IME composition.
+The retained risks are an Escape that closes the window while it dismisses a
+candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
+key code 229 event, a lost draft and a lost focus. The Web edition does not mount
+this component, so a browser workflow cannot reach it. `QuickCapture.component.test.ts`
+replaces the native window bridge and the stores. It dispatches composition and
+legacy key code sequences, then checks the normal Escape and Ctrl+Enter paths,
+the draft text, the focus and the call counts. Run
+`npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
+Synthetic composition events do not prove a physical IME, Windows WebView2,
+macOS WKWebView or Linux WebKitGTK behavior.
+
 The PDF case checks the native viewer, page count, rendered thumbnail pixels, and
 exact fixture text before and after reload. It also compares the downloaded bytes.
 Keep `frame-src blob:` and `object-src 'none'` in the production CSP.
