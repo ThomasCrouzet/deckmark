@@ -10,6 +10,7 @@
 		buildContext,
 		contextSystemPrompt,
 		isSecretPath,
+		previewContext,
 		type AiContextScope
 	} from '#lib/ai/context.js';
 	import { AiProviderError } from '#lib/ai/types.js';
@@ -90,7 +91,7 @@
 	onDestroy(() => controller?.abort());
 
 	const bundle = $derived(
-		buildContext({
+		previewContext({
 			scope,
 			activeId: filesStore.activeId,
 			selection: selectionText,
@@ -369,21 +370,22 @@
 							? [frozen.activeId]
 							: []
 			).filter((id) => !secretIds.has(id));
-			const revisions: Array<{
-				id: string;
-				deferred: boolean;
-				hash: string;
-				updatedAt: number;
-			}> = [];
-			for (const file of filesStore.library) {
-				if (!needed.includes(file.id)) continue;
-				revisions.push({
-					id: file.id,
-					deferred: !!file.contentDeferred,
-					hash: file.contentDeferred ? '' : contentHash(file.content),
-					updatedAt: file.updatedAt
-				});
-			}
+			const neededSet = new Set(needed);
+			const revisions = new Map(
+				filesStore.library
+					.filter((file) => neededSet.has(file.id))
+					.map(
+						(file) =>
+							[
+								file.id,
+								{
+									deferred: !!file.contentDeferred,
+									hash: file.contentDeferred ? '' : contentHash(file.content),
+									updatedAt: file.updatedAt
+								}
+							] as const
+					)
+			);
 			await waitForTestHydrationDelay();
 			await filesStore.ensureContent(
 				needed.filter((id) => !filesStore.active || id !== filesStore.active.id)
@@ -404,9 +406,14 @@
 				) ||
 				(aiStore.settings.maxTokens > 1024 ? aiStore.settings.maxTokens : 24000) !==
 					frozen.maxTokens;
+			const current = new Map(
+				filesStore.library
+					.filter((file) => neededSet.has(file.id))
+					.map((file) => [file.id, file] as const)
+			);
 			const revisionChanged = needed.some((id) => {
-				const file = filesStore.library.find((entry) => entry.id === id);
-				const snapshot = revisions.find((entry) => entry.id === id);
+				const file = current.get(id);
+				const snapshot = revisions.get(id);
 				if (!file || !snapshot) return true;
 				return snapshot.deferred
 					? file.updatedAt !== snapshot.updatedAt

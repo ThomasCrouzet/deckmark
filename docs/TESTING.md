@@ -825,6 +825,34 @@ traces with the command and source identity.
 CI=1 xvfb-run -a npm run test:e2e -- table-editing.spec.ts --workers=1 --retries=0
 ```
 
+## AI context serialization risks
+
+The provider context must keep an independent approval manifest and one JSON
+entry for each approved file. A file name or body that contains `</file>`, a
+fake `<file path="...">` tag, quote characters, newlines or Unicode separators
+must stay inside its JSON string. The preview manifest must list the same
+approved paths and token totals as the transmitted payload.
+
+`src/lib/ai/context.test.ts` checks hostile names and bodies, quote and newline
+handling, deterministic order and the selection payload. `e2e/ai-panel.spec.ts`
+sends the real request through the panel with a hostile body and checks that
+the provider receives one approved entry, not an invented one. Run:
+
+```sh
+npx vitest run src/lib/ai/context.test.ts --maxWorkers=1
+npx playwright test e2e/ai-panel.spec.ts --project=chromium --workers=1 --retries=0 --grep 'hostile file markers'
+```
+
+The preview path must not encode or hash a body that is ignored, secret,
+binary, outside the token budget or absent from the approved scope. A large
+library can hold 3000 documents, so a full-body pass on each input or scope
+change is the failure. The same isolated file spies on
+`TextEncoder.prototype.encode` for the budget and path exclusions, checks that
+`previewContext` does not encode a body, and compares the preview manifest with
+the transmitted entries. The panel builds the preview for the review UI and
+uses Set and Map indexes for the send revision guard. A browser timing check
+cannot attribute that work to one preview rebuild.
+
 ## Retained isolated risks
 
 ### Statistics counting risks
