@@ -37,7 +37,7 @@ test('closed documents remain searchable and wiki links reopen the same document
 	await closeAlpha();
 	await page.keyboard.press('ControlOrMeta+Shift+f');
 	await page.getByRole('combobox').fill('unique-closed-marker');
-	await page.locator('#search-listbox button').first().click();
+	await page.locator('#search-listbox [role="option"]').first().click();
 	await expect(page.locator('#app-toolbar input')).toHaveValue('alpha');
 	await expect(page.locator('.cm-content')).toContainText('unique-closed-marker');
 	await closeAlpha();
@@ -106,7 +106,7 @@ test('a large closed document hydrates on demand for search and export', async (
 	// Search must read the exact body from Dexie without keeping it in the store.
 	await page.keyboard.press('ControlOrMeta+Shift+f');
 	await page.getByRole('combobox').fill(marker);
-	await page.locator('#search-listbox button').first().click();
+	await page.locator('#search-listbox [role="option"]').first().click();
 	await expect(page.locator('#app-toolbar input')).toHaveValue('large315');
 	// The hit in the search listbox proves the exact closed body was hydrated.
 	// The editor viewport only renders nearby lines, so the export below is the
@@ -163,7 +163,9 @@ test('library Replace All previews and applies a deferred closed note', async ({
 
 	await page.keyboard.press('ControlOrMeta+Shift+f');
 	await page.getByRole('combobox').fill('needle');
-	await expect(page.locator('#search-listbox button').first()).toBeVisible({ timeout: 10_000 });
+	await expect(page.locator('#search-listbox [role="option"]').first()).toBeVisible({
+		timeout: 10_000
+	});
 	await page.getByTitle('Remplacer dans tous les fichiers').click();
 	await page.getByLabel('Texte de remplacement').fill('replacement');
 	await page.getByRole('button', { name: 'Remplacer tout' }).click();
@@ -184,7 +186,7 @@ test('library Replace All previews and applies a deferred closed note', async ({
 	});
 	await page.keyboard.press('ControlOrMeta+Shift+f');
 	await page.getByRole('combobox').fill('replacement');
-	const hits = page.locator('#search-listbox button');
+	const hits = page.locator('#search-listbox [role="option"]');
 	await expect(hits).toHaveCount(2, { timeout: 10_000 });
 	await hits.first().click();
 	await expect(page.locator('.cm-content')).toContainText('replacement');

@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { resetAppState, createFirstFile, writeSourceContent } from './helpers';
+import {
+	resetAppState,
+	createFirstFile,
+	openPalette,
+	renameActiveFile,
+	writeSourceContent
+} from './helpers';
 
 test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 	test.beforeEach(async ({ page }) => {
@@ -70,7 +76,9 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 		});
 		await page.keyboard.press('ControlOrMeta+Shift+f');
 		await page.getByRole('combobox').fill('needle');
-		await expect(page.locator('#search-listbox button').first()).toBeVisible({ timeout: 10_000 });
+		await expect(page.locator('#search-listbox [role="option"]').first()).toBeVisible({
+			timeout: 10_000
+		});
 		await page.getByTitle('Remplacer dans tous les fichiers').click();
 		await page.getByLabel('Texte de remplacement').fill('replacement');
 		await page.getByRole('button', { name: 'Remplacer tout' }).click();
@@ -136,5 +144,64 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 		await expect(editor).toBeFocused();
 		await expect(editor.locator('p')).toHaveText(['texte un', 'texte deux']);
 		await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('texte');
+	});
+});
+
+test('the announced search result option is the single activation target', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await renameActiveFile(page, 'alpha');
+	await writeSourceContent(page, '# Alpha\n\nsearch-option-marker alpha');
+
+	await page.locator('aside button[aria-label^="Nouveau fichier"]').first().click();
+	await page.getByTestId('create-note').click();
+	await renameActiveFile(page, 'beta');
+	await writeSourceContent(page, '# Beta\n\nsearch-option-marker beta');
+
+	await openPalette(page);
+	await page.getByRole('combobox').fill('Recherche cross-fichiers');
+	await page.keyboard.press('Enter');
+	const dialog = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+	await expect(dialog).toBeVisible();
+	const input = dialog.getByRole('combobox');
+	await input.fill('search-option-marker');
+	const options = page.locator('#search-listbox [role="option"]');
+	await expect(options).toHaveCount(2);
+
+	// The option owns the action. No nested button or second tab stop remains.
+	await expect(page.locator('#search-listbox [role="option"] button')).toHaveCount(0);
+	await expect(page.locator('#search-listbox [role="option"] [tabindex]')).toHaveCount(0);
+	await expect(options.first()).toHaveAccessibleName(/alpha|beta/);
+
+	// Assistive technology activates the element that carries role="option".
+	// Dispatch the click on that element, not on a visual descendant.
+	const alphaOption = options.filter({ hasText: 'alpha' });
+	await expect(alphaOption).toHaveCount(1);
+	await alphaOption.evaluate((element) => (element as HTMLElement).click());
+	await expect(page.locator('#app-toolbar input')).toHaveValue('alpha');
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+
+	// The keyboard path still opens the announced option.
+	await openPalette(page);
+	await page.getByRole('combobox').fill('Recherche cross-fichiers');
+	await page.keyboard.press('Enter');
+	const reopened = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+	const combobox = reopened.getByRole('combobox');
+	await combobox.fill('search-option-marker');
+	await expect(page.locator('#search-listbox [role="option"]')).toHaveCount(2);
+	await combobox.press('ArrowDown');
+	await combobox.press('Enter');
+	await expect(page.locator('#app-toolbar input')).toHaveValue('beta');
+
+	await info.attach('search-option-activation.json', {
+		body: JSON.stringify({
+			options: 2,
+			nestedButtons: 0,
+			pointerActivationTarget: 'role=option',
+			keyboardActivationTarget: 'role=option'
+		}),
+		contentType: 'application/json'
 	});
 });
