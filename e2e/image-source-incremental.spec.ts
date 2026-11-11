@@ -41,6 +41,35 @@ async function installStageProbe(page: Page) {
 	}, stageKey);
 }
 
+/**
+ * Waits until the editor has no queued publish. A loaded runner can delay the
+ * idle callback, so a fixed delay can merge two edits into one fallback.
+ */
+async function waitForStablePublish(page: Page): Promise<void> {
+	let previous = -1;
+	await expect
+		.poll(
+			async () => {
+				const count = (await readCounters(page)).markdownUpdated ?? 0;
+				const stable = count === previous;
+				previous = count;
+				return stable;
+			},
+			{ intervals: [250], timeout: 15_000 }
+		)
+		.toBe(true);
+}
+
+/** Waits for the publish that belongs to the edit just made. */
+async function waitForNextPublish(page: Page, previous: number): Promise<void> {
+	await expect
+		.poll(async () => (await readCounters(page)).markdownUpdated ?? 0, {
+			intervals: [100],
+			timeout: 15_000
+		})
+		.toBeGreaterThan(previous);
+}
+
 async function readStagePercentiles(page: Page): Promise<Record<string, StageSummary>> {
 	const stages = await page.evaluate((key) => {
 		return JSON.parse(sessionStorage.getItem(key) ?? '{}') as Record<string, number[]>;
@@ -191,10 +220,14 @@ test('typing a new paragraph next to an embedded image stays on the scoped paths
 	const target = editor.locator('p', { hasText: 'Paragraph after the image.' });
 	await target.click();
 	await page.keyboard.press('End');
+	await waitForStablePublish(page);
 	const before = await readCounters(page);
+	const publishedBefore = before.markdownUpdated ?? 0;
 	await page.keyboard.press('Enter');
-	// Let the 200 ms quiet-period publish the empty paragraph before typing.
-	await page.waitForTimeout(400);
+	// Let the quiet-period publish the empty paragraph before typing. Poll the
+	// publish counter so a loaded runner cannot merge both edits.
+	await waitForNextPublish(page, publishedBefore);
+	await page.waitForTimeout(100);
 	const savedAt = Date.now();
 	await page.keyboard.insertText('New line.');
 	await expect
@@ -256,9 +289,12 @@ test('appending text after a trailing embedded image stays on the scoped paths',
 	const editor = page.locator('.ProseMirror');
 	await editor.click();
 	await page.keyboard.press('ControlOrMeta+End');
+	await waitForStablePublish(page);
 	const before = await readCounters(page);
+	const publishedBefore = before.markdownUpdated ?? 0;
 	await page.keyboard.press('Enter');
-	await page.waitForTimeout(400);
+	await waitForNextPublish(page, publishedBefore);
+	await page.waitForTimeout(100);
 	const savedAt = Date.now();
 	await page.keyboard.insertText('After the image.');
 	await expect

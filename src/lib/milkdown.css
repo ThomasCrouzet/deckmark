@@ -100,6 +100,11 @@ milkdown-editor,
 	> :is(pre, table, .milkdown-code-block) {
 	contain-intrinsic-size: auto 12em;
 }
+/* An image block is far taller than a text line. The editor replaces this
+   estimate with the measured display width and aspect height after load. */
+.mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine) .ProseMirror > .milkdown-image-block {
+	contain-intrinsic-size: auto 320px;
+}
 .mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine)
 	.ProseMirror
 	> :is(h1, h2, h3, h4, h5, h6) {

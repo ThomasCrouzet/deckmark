@@ -1,5 +1,7 @@
 import { applyRemoteImagePolicy, sanitizeHtml } from './sanitize-html';
 import { abortable, checkAborted } from '../abort';
+import { recordEditorCounter } from '../editor-perf';
+import { probeImageDimensions } from '../../image-block/dimensions';
 import { MAX_IMAGE_BYTES } from '../config';
 export { MAX_IMAGE_BYTES } from '../config';
 
@@ -204,6 +206,7 @@ async function readDimensions(
 	try {
 		if (typeof createImageBitmap === 'function') {
 			// WebKit can display SVG while its bitmap decoder rejects that format.
+			recordEditorCounter('imageBitmapDecode');
 			const bitmap = await createImageBitmap(blob).catch(() => null);
 			if (bitmap) {
 				const dimensions = { width: bitmap.width, height: bitmap.height };
@@ -212,6 +215,7 @@ async function readDimensions(
 				throw new Error('The decoded image has no pixels');
 			}
 		}
+		recordEditorCounter('imageElementDecode');
 		const image = new Image();
 		image.decoding = 'async';
 		image.referrerPolicy = 'no-referrer';
@@ -256,6 +260,19 @@ export async function embedImageBlob(
 	let bytes = original;
 	if (!hasExpectedSignature(bytes, mime)) {
 		throw new ImageFileError('invalid-content', 'The file content does not match its image type');
+	}
+	// A highly compressible raster can stay below the byte cap and still
+	// request a huge decoded surface. Reject a known oversize header before a
+	// decoder expands it. A format without a cheap probe keeps the decode path.
+	const probed = probeImageDimensions(bytes, mime);
+	if (
+		probed &&
+		(probed.width > MAX_IMAGE_DIMENSION ||
+			probed.height > MAX_IMAGE_DIMENSION ||
+			probed.width * probed.height > MAX_IMAGE_PIXELS)
+	) {
+		recordEditorCounter('imagePreflightReject');
+		throw new ImageFileError('dimensions', 'The image dimensions exceed the supported limit');
 	}
 	if (mime === 'image/svg+xml') bytes = await sanitizeSvg(bytes);
 	const dataUri = `data:${mime};base64,${bytesToBase64(bytes)}`;

@@ -154,7 +154,7 @@ describe('project image source', () => {
 		expect(projectMediaCacheStats().decodeCalls).toBe(2);
 	});
 
-	it('serves a repeated render from the validated content cache', async () => {
+	it('serves a repeated render from the resolved path cache without an asset read', async () => {
 		await seedDraft();
 		await seedAsset(svgA);
 		const context = { projectId: 'media-project', relativePath: 'notes/index.md' };
@@ -162,8 +162,10 @@ describe('project image source', () => {
 		resetProjectMediaStats();
 		const second = await projectImageSource('../assets/pixel.svg', context);
 		expect(second).toBe(first);
+		expect(projectMediaCacheStats().assetReads).toBe(0);
+		expect(projectMediaCacheStats().fingerprintCalls).toBe(0);
 		expect(projectMediaCacheStats().decodeCalls).toBe(0);
-		expect(projectMediaCacheStats().imageCacheHits).toBe(1);
+		expect(projectMediaCacheStats().resolvedHits).toBe(1);
 	});
 
 	it('stops waiting when the caller aborts without dropping the shared decode', async () => {

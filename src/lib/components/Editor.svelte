@@ -33,6 +33,11 @@
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { measureEditorStage, recordEditorCounter } from '#lib/editor-perf.js';
+	import {
+		localVisualPreview,
+		releaseVisualPreviews,
+		resolvedVisualPreview
+	} from '../../image-block/visual-preview';
 
 	interface Props {
 		fileId: string;
@@ -292,6 +297,8 @@
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity -- local non-reactive observer state
 		let observedImageBlocks = new Set<HTMLElement>();
 		let imageAlternatives = new WeakMap<HTMLImageElement, string>();
+		const imageBlockWidths = new WeakMap<HTMLElement, number>();
+		const imageIntrinsicSizes = new WeakMap<HTMLElement, string>();
 		const scheduleImageWork = () => {
 			if (imageFrame) return;
 			imageFrame = requestAnimationFrame(() => {
@@ -308,24 +315,50 @@
 			image: HTMLImageElement,
 			block: HTMLElement | null,
 			alt: string | undefined
-		): { image: HTMLImageElement; alt: string | undefined; width: string | null } => {
+		): {
+			image: HTMLImageElement;
+			block: HTMLElement | null;
+			alt: string | undefined;
+			width: string | null;
+		} => {
 			let width: string | null = null;
-			if (block && image.naturalWidth) {
-				const ratio = Number(image.dataset.height) / Number(image.dataset.origin) || 1;
-				width = `${Math.min(image.naturalWidth, block.clientWidth) * ratio}px`;
+			if (block) {
+				let blockWidth = imageBlockWidths.get(block);
+				if (blockWidth === undefined) {
+					blockWidth = block.clientWidth;
+					imageBlockWidths.set(block, blockWidth);
+				}
+				if (image.naturalWidth && blockWidth) {
+					const ratio = Number(image.dataset.height) / Number(image.dataset.origin) || 1;
+					width = `${Math.min(image.naturalWidth, blockWidth) * ratio}px`;
+				}
 			}
-			return { image, alt, width };
+			return { image, block, alt, width };
 		};
 		const writeImageSize = (update: {
 			image: HTMLImageElement;
+			block: HTMLElement | null;
 			alt: string | undefined;
 			width: string | null;
 		}) => {
-			const { image, alt, width } = update;
+			const { image, block, alt, width } = update;
 			if (alt !== undefined && image.alt !== alt) image.alt = alt;
-			image.referrerPolicy = 'no-referrer';
-			image.crossOrigin = 'anonymous';
-			if (width !== null && image.style.width !== width) image.style.width = width;
+			if (image.referrerPolicy !== 'no-referrer') image.referrerPolicy = 'no-referrer';
+			if (image.crossOrigin !== 'anonymous') image.crossOrigin = 'anonymous';
+			if (width === null) return;
+			if (image.style.width !== width) image.style.width = width;
+			// Offscreen blocks keep a stable intrinsic box from the measured
+			// display width and aspect ratio. This replaces the generic 2.4em
+			// estimate that is far too small for an image.
+			if (block) {
+				const measured = Number.parseFloat(width);
+				const height = Number(image.dataset.height) || measured;
+				const intrinsic = `auto ${Math.round(measured)}px ${Math.round(height)}px`;
+				if (imageIntrinsicSizes.get(block) !== intrinsic) {
+					block.style.setProperty('contain-intrinsic-size', intrinsic);
+					imageIntrinsicSizes.set(block, intrinsic);
+				}
+			}
 		};
 		const fullImageScan = () => {
 			const alternatives = roundTrip.alternatives;
@@ -374,8 +407,12 @@
 				pendingImages = new Set();
 				return;
 			}
-			const updates: { image: HTMLImageElement; alt: string | undefined; width: string | null }[] =
-				[];
+			const updates: {
+				image: HTMLImageElement;
+				block: HTMLElement | null;
+				alt: string | undefined;
+				width: string | null;
+			}[] = [];
 			for (const image of pendingImages) {
 				if (!image.isConnected) continue;
 				const block = image.closest<HTMLElement>('.milkdown-image-block');
@@ -491,16 +528,19 @@
 			blockCaptionPlaceholderText: t('editor.imageCaption'),
 			blockConfirmButton: t('prompt.confirm'),
 			inlineConfirmButton: t('prompt.confirm'),
-			proxyDomURL: async (source: string) => {
-				const { projectContextFor, projectImageSource } = await import('#lib/project-media.js');
-				try {
-					return (
-						(await projectImageSource(source, await projectContextFor(idForMount))) ??
-						editorImageSource(source)
-					);
-				} catch {
-					return editorImageSource(source);
-				}
+			proxyDomURL: (source: string) => {
+				recordEditorCounter('imageProxyCall');
+				const local = localVisualPreview(source);
+				if (local !== null) return local;
+				return (async () => {
+					const { projectContextFor, projectImageSource } = await import('#lib/project-media.js');
+					try {
+						const resolved = await projectImageSource(source, await projectContextFor(idForMount));
+						return resolved ? resolvedVisualPreview(resolved) : editorImageSource(source);
+					} catch {
+						return editorImageSource(source);
+					}
+				})();
 			},
 			onUpload: async (file: File) => {
 				try {
@@ -989,6 +1029,11 @@
 			});
 		};
 		crepe = instance;
+		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1') {
+			// Local diagnostic handle. A normal build never exposes the view.
+			(window as unknown as { __MDSH_EDITOR_VIEW__?: unknown }).__MDSH_EDITOR_VIEW__ =
+				instance.editor.action((ctx) => ctx.get(editorViewCtx));
+		}
 		restoreMountedMarkdown = restoreMarkdown;
 		// Milkdown wraps each native list item in a direct child of its list.
 		// Give that wrapper the list item role. Expose its contents only once.
@@ -1002,11 +1047,17 @@
 		};
 		applyListRoles();
 		imageResizeObserver = new ResizeObserver((entries) => {
+			let changed = false;
 			for (const entry of entries) {
-				const image = entry.target.querySelector('img');
+				const block = entry.target as HTMLElement;
+				const width = entry.contentRect.width;
+				if (imageBlockWidths.get(block) === width) continue;
+				imageBlockWidths.set(block, width);
+				const image = block.querySelector('img');
 				if (image) pendingImages.add(image);
+				changed = true;
 			}
-			if (entries.length) scheduleImageWork();
+			if (changed) scheduleImageWork();
 		});
 		imageObserver = new MutationObserver((records) => {
 			let imageDirty = false;
@@ -1111,6 +1162,9 @@
 	}
 
 	async function unmount() {
+		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1') {
+			delete (window as unknown as { __MDSH_EDITOR_VIEW__?: unknown }).__MDSH_EDITOR_VIEW__;
+		}
 		refreshMountedDiagrams = null;
 		cancelPendingMarkdown?.();
 		cancelPendingMarkdown = null;
@@ -1125,6 +1179,7 @@
 		imageObserver = null;
 		imageResizeObserver?.disconnect();
 		imageResizeObserver = null;
+		releaseVisualPreviews();
 		if (crepe) {
 			const instance = crepe;
 			const id = mountedFileId;

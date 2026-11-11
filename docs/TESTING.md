@@ -82,6 +82,119 @@ the fixture hash, browser version, source identity and command. The screenshot
 proves compositor output for the test viewport. It does not prove a physical
 display, a native WKWebView paint, or a different engine.
 
+## Image-rich rendered input risks
+
+Keep the image-heavy typing attribution independent from the text-only latency
+cases. The measured risks are a decoded bitmap that grows without a bound, a
+project image that is read and hashed again for an unchanged source, a NodeView
+update that resolves the proxy again, a resize callback loop, a late fetch
+policy write that restarts a load, and layout work that moves scroll anchors.
+Compare a text-only control with 1, 4 and 12 images at equal text size, a
+near-limit pixel image with small encoded bytes, and project-linked assets.
+Record p50 and p95 input-to-second-frame time, engine long tasks, image proxy
+calls, project media reads, decodes and the saved Markdown bytes.
+
+Run:
+
+```sh
+E2E_PORT=4395 npx playwright test e2e/image-input-latency.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The spec attaches `image-input-latency.json` with the fixture hash, image sizes,
+raw samples, counters and the browser version, plus `saved-note.md`. The WebKit
+project runs the same scenarios. A Chromium and WebKit result does not cover a
+native WebView, a physical display or a thermal state.
+
+The visual preview budget is separate from the upload limit. Keep the original
+Markdown, the original image bytes and the Read and export sources exact. The
+WYSIWYG node may use a bounded object URL. Retain the preflight rejection case:
+an image with a small encoded size and a huge declared pixel count must fail
+before a bitmap decode. Run
+`npx playwright test e2e/image-preview-budget.spec.ts --project=chromium --workers=1 --retries=0`
+and the WebKit project. The reports record the decoded size, generated previews,
+revoked object URLs, import counters and available heap values.
+
+## Project media cache epochs
+
+A repeated resolve of an unchanged project image must return the resolved data
+URI before an IndexedDB read or a byte fingerprint. Retain the counters
+`assetReads`, `fingerprintCalls`, `decodeCalls` and `resolvedHits` in the
+`__MDSH_PROJECT_MEDIA__` probe. A draft content save in another tab must not
+increment the global media epoch or cancel another document's image work. An
+asset write, a project asset broadcast and a backup restore must still invalidate
+the resolved path. The same ID, MIME and byte length with different bytes must
+return the new image.
+
+Run:
+
+```sh
+npx playwright test e2e/project-media-cache.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The WebKit project runs the same cases. The spec attaches the raw counters, the
+replacement byte length and the observed image pixels. A cached string and DOM
+result do not prove GPU texture release or native WebView memory.
+
+## Image block geometry risks
+
+Keep the image sizing work bounded. The risks are a ResizeObserver feedback
+loop, a synchronous layout read for every image on every frame, a fetch policy
+write during a sizing pass and an offscreen image with a 2.4em intrinsic height.
+The editor stores the observed block width once per delivery, reads all sizes
+before writes and writes a style only when the value changes. An image block
+uses the measured display width and aspect height for its intrinsic box.
+
+Run:
+
+```sh
+npx playwright test e2e/image-resize-budget.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The Chromium, Firefox and WebKit projects run the case. It attaches the block
+metrics, the attribute mutations from a viewport resize and a typing burst, and
+a screenshot. A DOM attribute count is not a compositor or layout count.
+
+## Image NodeView proxy risks
+
+Keep the NodeView proxy work tied to a changed image source. The risks are a
+resolution for an unchanged source, a late promise that writes an older image
+into a newer node, and a write after the NodeView is destroyed. The patched
+Milkdown 7.23.0 view stores the bound source, checks it before the proxy call
+and fences each promise with a monotonic token. A self-contained `data:` image
+returns a synchronous visual source and never imports the project media module.
+
+Run:
+
+```sh
+npx playwright test e2e/image-nodeview-proxy.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The Chromium, Firefox and WebKit projects run the two cases. The spec uses the
+instrumented editor view handle, which a normal build does not expose. It
+attaches proxy and project media counters. The stale case fails on the earlier
+view with the 1500 px project image after a newer 80 px inline source. A
+counter is not a native WebView result.
+
+## Image fetch policy ordering
+
+Set `crossorigin` and `referrerpolicy` before the first `src` value. A relevant
+image-data update restarts resource selection when those attributes change
+after a load starts. Retain a probe that records each image when it enters the
+DOM and every later change to those two attributes. The image-node and inline
+views in the pinned Milkdown patch carry the attributes when the element is
+created. The editor sizing path writes them only when a value differs.
+
+Run:
+
+```sh
+npx playwright test e2e/image-fetch-policy.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The Chromium, Firefox and WebKit projects run the case. It attaches each
+inserted image record, the policy mutations, a per-element load count and the
+saved Markdown. The earlier view fails the insertion assertion. The load count
+is local evidence for a data URI and does not prove a network request count.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading

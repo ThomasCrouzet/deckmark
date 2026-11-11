@@ -13,10 +13,19 @@ const CONTEXT_CACHE_ENTRIES = 512;
 
 const imageCache = new Map<string, string>();
 let imageCacheBytes = 0;
+const resolvedImages = new Map<string, ResolvedImage>();
+let resolvedImageBytes = 0;
+const RESOLVED_CACHE_BYTES = 8 * 1024 * 1024;
 const contextCache = new Map<string, ProjectContext | undefined>();
 const contextInFlight = new Map<string, Promise<ProjectContext | undefined>>();
+const contextEpochs = new Map<string, number>();
 const imageInFlight = new Map<string, { promise: Promise<ImageResult>; epoch: number }>();
 const assetIndexes = new Map<string, AssetIndex>();
+
+interface ResolvedImage {
+	uri: string;
+	generation: number;
+}
 
 interface AssetIndexEntry {
 	path: string;
@@ -34,6 +43,8 @@ interface ImageResult {
 }
 
 let mediaEpoch = 1;
+let assetGeneration = 1;
+let contextGeneration = 0;
 let invalidationInstalled = false;
 let mediaChannel: BroadcastChannel | null = null;
 
@@ -52,7 +63,11 @@ const stats = {
 	assetKeysVisited: 0,
 	decodeCalls: 0,
 	imageCacheHits: 0,
-	imageCacheMisses: 0
+	imageCacheMisses: 0,
+	resolvedHits: 0,
+	resolvedMisses: 0,
+	fingerprintCalls: 0,
+	fingerprintBytes: 0
 };
 
 export interface ProjectMediaCacheStats {
@@ -66,6 +81,10 @@ export interface ProjectMediaCacheStats {
 	decodeCalls: number;
 	imageCacheHits: number;
 	imageCacheMisses: number;
+	resolvedHits: number;
+	resolvedMisses: number;
+	fingerprintCalls: number;
+	fingerprintBytes: number;
 	epoch: number;
 }
 
@@ -85,6 +104,17 @@ export function projectMediaCacheStats(): ProjectMediaCacheStats {
 	};
 }
 
+if (typeof window !== 'undefined') {
+	(
+		window as unknown as {
+			__MDSH_PROJECT_MEDIA__?: {
+				stats: typeof projectMediaCacheStats;
+				reset: typeof resetProjectMediaStats;
+			};
+		}
+	).__MDSH_PROJECT_MEDIA__ = { stats: projectMediaCacheStats, reset: resetProjectMediaStats };
+}
+
 /** Resets the IO counters without dropping valid cached media. */
 export function resetProjectMediaStats(): void {
 	for (const key of Object.keys(stats) as (keyof typeof stats)[]) stats[key] = 0;
@@ -93,18 +123,27 @@ export function resetProjectMediaStats(): void {
 /** Drops cached previews after an asset write or a project location change. */
 export function invalidateProjectMediaCache(): void {
 	mediaEpoch++;
+	assetGeneration++;
+	contextGeneration++;
 	imageCache.clear();
 	imageCacheBytes = 0;
+	resolvedImages.clear();
+	resolvedImageBytes = 0;
 	contextCache.clear();
 	contextInFlight.clear();
 	imageInFlight.clear();
 	assetIndexes.clear();
 }
 
+/** Invalidates one file's project context without touching unrelated image work. */
 function dropContext(fileId: string): void {
-	mediaEpoch++;
+	contextEpochs.set(fileId, (contextEpochs.get(fileId) ?? 0) + 1);
 	contextCache.delete(fileId);
 	contextInFlight.delete(fileId);
+}
+
+function contextEpoch(fileId: string): number {
+	return contextGeneration + (contextEpochs.get(fileId) ?? 0);
 }
 
 /**
@@ -163,17 +202,20 @@ const BYTE_HASH_SEEDS = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35] as cons
 
 /**
  * Wide content identity for asset bytes. Four lanes plus the length keep a
- * same-ID, same-MIME replacement from aliasing the earlier image.
+ * same-ID, same-MIME replacement from aliasing the earlier image. One pass
+ * updates all lanes, so a rehash costs one byte read, not four.
  */
 function bytesFingerprint(data: Uint8Array): string {
-	const lanes = BYTE_HASH_SEEDS.map((seed) => {
-		let hash = seed >>> 0;
-		for (const byte of data) {
-			hash ^= byte;
-			hash = Math.imul(hash, 0x01000193) >>> 0;
-		}
-		return hash.toString(16).padStart(8, '0');
-	});
+	let [a, b, c, d] = BYTE_HASH_SEEDS;
+	for (const byte of data) {
+		a = Math.imul(a ^ byte, 0x01000193) >>> 0;
+		b = Math.imul(b ^ byte, 0x01000193) >>> 0;
+		c = Math.imul(c ^ byte, 0x01000193) >>> 0;
+		d = Math.imul(d ^ byte, 0x01000193) >>> 0;
+	}
+	stats.fingerprintCalls++;
+	stats.fingerprintBytes += data.byteLength;
+	const lanes = [a, b, c, d].map((hash) => hash.toString(16).padStart(8, '0'));
 	return `${lanes.join('')}:${data.byteLength.toString(36)}`;
 }
 
@@ -199,6 +241,30 @@ function touchImage(key: string): string {
 	imageCache.delete(key);
 	imageCache.set(key, value);
 	return value;
+}
+
+function rememberResolved(key: string, uri: string, generation: number): void {
+	if (generation !== assetGeneration) return;
+	const existing = resolvedImages.get(key);
+	if (existing) resolvedImageBytes -= existing.uri.length;
+	resolvedImages.delete(key);
+	resolvedImages.set(key, { uri, generation });
+	resolvedImageBytes += uri.length;
+	while (
+		resolvedImages.size > 1 &&
+		(resolvedImages.size > 256 || resolvedImageBytes > RESOLVED_CACHE_BYTES)
+	) {
+		const oldest = resolvedImages.keys().next().value!;
+		resolvedImageBytes -= resolvedImages.get(oldest)!.uri.length;
+		resolvedImages.delete(oldest);
+	}
+}
+
+function touchResolved(key: string): string {
+	const entry = resolvedImages.get(key)!;
+	resolvedImages.delete(key);
+	resolvedImages.set(key, entry);
+	return entry.uri;
 }
 
 export interface ProjectContext {
@@ -280,9 +346,9 @@ export async function projectContextFor(fileId: string): Promise<ProjectContext 
 	installInvalidation();
 	if (contextCache.has(fileId)) return contextCache.get(fileId);
 	for (let attempt = 0; attempt < 2; attempt++) {
-		const epoch = mediaEpoch;
+		const epoch = contextEpoch(fileId);
 		const value = await sharedContextRead(fileId);
-		if (epoch === mediaEpoch) {
+		if (epoch === contextEpoch(fileId)) {
 			cacheContext(fileId, value);
 			return value;
 		}
@@ -396,6 +462,13 @@ function startAssetRead(
 	epoch: number
 ): Promise<ImageResult> {
 	const batchKey = `${context.projectId}\u0000${path}`;
+	const generation = assetGeneration;
+	const cachedResolution = resolvedImages.get(batchKey);
+	if (cachedResolution && cachedResolution.generation === generation) {
+		stats.resolvedHits++;
+		return Promise.resolve({ uri: touchResolved(batchKey), epoch });
+	}
+	stats.resolvedMisses++;
 	const promise = (async (): Promise<ImageResult> => {
 		let canonical: string;
 		try {
@@ -411,14 +484,19 @@ function startAssetRead(
 		const cached = imageCache.get(key);
 		if (cached !== undefined) {
 			stats.imageCacheHits++;
-			return { uri: touchImage(key), epoch };
+			const uri = touchImage(key);
+			rememberResolved(batchKey, uri, generation);
+			return { uri, epoch };
 		}
 		stats.imageCacheMisses++;
 		const image = await embedImageBlob(
 			new Blob([new Uint8Array(asset.data)], { type: asset.mime })
 		);
 		stats.decodeCalls++;
-		if (epoch === mediaEpoch) cacheImage(key, image.dataUri);
+		if (epoch === mediaEpoch) {
+			cacheImage(key, image.dataUri);
+			rememberResolved(batchKey, image.dataUri, generation);
+		}
 		return { uri: image.dataUri, epoch };
 	})();
 	const entry = { promise, epoch };
