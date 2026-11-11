@@ -32,6 +32,7 @@
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
+	import { editorDocumentPolicy } from '#lib/editor-document-policy.js';
 	import { measureEditorStage, recordEditorCounter } from '#lib/editor-perf.js';
 	import {
 		localVisualPreview,
@@ -81,6 +82,10 @@
 	// until a forced layout. Vendor is an engine-family gate, not a version
 	// guess, so every Apple WebKit build keeps live blocks in the layout tree.
 	const webkitEngine = typeof navigator !== 'undefined' && /Apple/i.test(navigator.vendor ?? '');
+	// Paint containment and the caret plugin follow the rendered interaction
+	// surface, not the encoded length of an embedded image. The source length
+	// still bounds the render confirmation and the storage/import caps.
+	const documentPolicy = $derived(editorDocumentPolicy(content));
 
 	// These tokens can start a presentation marker, an escaped line or a framed
 	// presentation element. A change that touches one of them must keep the full
@@ -693,6 +698,7 @@
 					}
 				})
 		);
+		const initialPolicy = editorDocumentPolicy(initial);
 		const instance = new Crepe({
 			root: container,
 			defaultValue: roundTrip.editorMarkdown,
@@ -710,7 +716,7 @@
 				[Crepe.Feature.TopBar]: false
 			},
 			featureConfigs: {
-				[Crepe.Feature.Cursor]: { virtual: initial.length < 256 * 1024 },
+				[Crepe.Feature.Cursor]: { virtual: initialPolicy.virtualCursor },
 				[Crepe.Feature.BlockEdit]: blockEditConfig,
 				[Crepe.Feature.Toolbar]: toolbarConfig,
 				[Crepe.Feature.LinkTooltip]: linkTooltipConfig,
@@ -1265,7 +1271,7 @@
 <div
 	bind:this={container}
 	class="mdsh-editor"
-	class:mdsh-long-document={content.length >= 256 * 1024}
+	class:mdsh-long-document={documentPolicy.longDocument}
 	class:mdsh-webkit-engine={webkitEngine}
 	role="region"
 	aria-label={t('editor.ariaLabel')}

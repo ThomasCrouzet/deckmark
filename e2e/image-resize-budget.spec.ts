@@ -27,7 +27,9 @@ async function seedNote(page: Page, id: string): Promise<{ content: string }> {
 			content += `Paragraph before image ${index}.\n\n![Measured image ${index}](${draw(index % 2 ? '#234' : '#834')})\n\nParagraph after image ${index}.\n\n`;
 		}
 		let section = 0;
-		while (content.length < 340_000) {
+		// Long-document containment now ignores embedded image payload bytes.
+		// Keep enough plain text to select the policy after that removal.
+		while (content.length < 600_000) {
 			content += `## Section ${section}\n\n${paragraph.repeat(6)}\n\n`;
 			section += 1;
 		}
