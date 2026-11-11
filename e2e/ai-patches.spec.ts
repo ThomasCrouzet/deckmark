@@ -15,6 +15,26 @@ import {
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce', ignoreHTTPSErrors: true });
 
+interface ContextFile {
+	path: string;
+	hash: string;
+	content: string;
+}
+
+function contextFiles(prompt: string): ContextFile[] {
+	const start = prompt.indexOf('<context>');
+	const end = prompt.indexOf('</context>', start + 1);
+	if (start === -1 || end === -1) return [];
+	try {
+		const parsed = JSON.parse(prompt.slice(start + '<context>'.length, end).trim()) as {
+			files?: ContextFile[];
+		};
+		return Array.isArray(parsed.files) ? parsed.files : [];
+	} catch {
+		return [];
+	}
+}
+
 async function configureAi(page: Page, mode: 'valid' | 'stale') {
 	await page.addInitScript(() => {
 		localStorage.setItem(
@@ -47,7 +67,7 @@ async function configureAi(page: Page, mode: 'valid' | 'stale') {
 			messages: Array<{ content: string }>;
 		};
 		const prompt = body.messages.at(-1)?.content ?? '';
-		const file = /<file path="([^"]+)" hash="([^"]+)">\n([\s\S]*?)\n<\/file>/.exec(prompt);
+		const [file] = contextFiles(prompt);
 		if (!file) {
 			await route.fulfill({
 				status: 200,
@@ -56,7 +76,7 @@ async function configureAi(page: Page, mode: 'valid' | 'stale') {
 			});
 			return;
 		}
-		const [, path, hash, content] = file;
+		const { path, hash, content } = file;
 		const patch = {
 			files: [
 				{
@@ -117,7 +137,7 @@ async function configureCustomAi(
 		};
 		requests.push(body);
 		const prompt = body.messages.at(-1)?.content ?? '';
-		const file = /<file path="([^"]+)" hash="([^"]+)">\n([\s\S]*?)\n<\/file>/.exec(prompt);
+		const [file] = contextFiles(prompt);
 		if (!file) {
 			await route.fulfill({
 				status: 200,
@@ -126,7 +146,7 @@ async function configureCustomAi(
 			});
 			return;
 		}
-		const [, path, hash, content] = file;
+		const { path, hash, content } = file;
 		const patch = {
 			files: [{ path, baseHash: hash, hunks: buildHunks(content) }]
 		};
@@ -179,12 +199,10 @@ async function configureMultiFileAi(
 		};
 		requests.push(body);
 		const prompt = body.messages.at(-1)?.content ?? '';
-		const files = [
-			...prompt.matchAll(/<file path="([^"]+)" hash="([^"]+)">\n([\s\S]*?)\n<\/file>/g)
-		].map(([, path, hash, content]) => ({
-			path: path!,
-			baseHash: hash!,
-			hunks: buildHunks(path!, content!)
+		const files = contextFiles(prompt).map(({ path, hash, content }) => ({
+			path,
+			baseHash: hash,
+			hunks: buildHunks(path, content)
 		}));
 		const chunk = JSON.stringify({
 			choices: [{ delta: { content: '```json\n' + JSON.stringify({ files }) + '\n```' } }]
@@ -236,7 +254,7 @@ async function configureSequenceAi(
 		};
 		requests.push(body);
 		const prompt = body.messages.at(-1)?.content ?? '';
-		const file = /<file path="([^"]+)" hash="([^"]+)">\n([\s\S]*?)\n<\/file>/.exec(prompt);
+		const [file] = contextFiles(prompt);
 		if (!file) {
 			await route.fulfill({
 				status: 200,
@@ -245,7 +263,7 @@ async function configureSequenceAi(
 			});
 			return;
 		}
-		const [, path, hash, content] = file;
+		const { path, hash, content } = file;
 		const buildHunks = sequence[Math.min(index, sequence.length - 1)]!;
 		index += 1;
 		const patch = { files: [{ path, baseHash: hash, hunks: buildHunks(content) }] };
