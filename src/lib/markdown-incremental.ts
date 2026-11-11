@@ -226,7 +226,9 @@ function buildStructuralState(
 		else prefixes.push(separator);
 	}
 	if (right) {
-		prefixes.push(separator);
+		// A silent block owns no bytes, so its cached empty prefix stays. A
+		// visible neighbor keeps the validated separator.
+		prefixes.push(state.silent[oldEnd] ? (state.prefixes[oldEnd] ?? '') : separator);
 		for (let index = oldEnd + 1; index < oldCount; index += 1)
 			prefixes.push(state.prefixes[index]!);
 	}
@@ -355,9 +357,11 @@ function updateStructuralSpan(
 			);
 		if (separator === null) return null;
 	}
-	// Cached boundaries inside and beside the change must use one separator.
+	// Cached boundaries inside and beside the change must use one separator. A
+	// silent right block owns no bytes, so its empty prefix cannot constrain it.
 	if (left && oldEnd > start && state.prefixes[start] !== separator) return null;
-	if (right && oldEnd > 0 && state.prefixes[oldEnd] !== separator) return null;
+	if (right && oldEnd > 0 && !state.silent[oldEnd] && state.prefixes[oldEnd] !== separator)
+		return null;
 	const next = buildStructuralState(
 		state,
 		doc,
