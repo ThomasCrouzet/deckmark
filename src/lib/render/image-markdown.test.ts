@@ -92,6 +92,90 @@ describe('ImageMarkdownRoundTrip', () => {
 		).toBe(new ImageMarkdownRoundTrip(source).restore(second));
 	});
 
+	it('splices a prose edit beside unchanged punctuation in the same block', () => {
+		const source = [
+			'![Figure](figure.png "Caption")',
+			'',
+			'Wow! Keep this text <stable> with `code` and ~tilde~ unchanged.',
+			'',
+			'![Second](second.png)'
+		].join('\n');
+		const roundTrip = new ImageMarkdownRoundTrip(source);
+		roundTrip.restore(roundTrip.editorMarkdown);
+		const input = roundTrip.editorMarkdown;
+		const before = 'Wow! Keep this text <stable> with `code` and ~tilde~ unchanged.';
+		const after = 'Wow! Keep this whole text <stable> with `code` and ~tilde~ unchanged.';
+		const at = input.indexOf(before);
+		expect(at).toBeGreaterThan(0);
+		const changed = input.replace(before, after);
+		const expected = new ImageMarkdownRoundTrip(source).restore(changed);
+		const spy = vi.spyOn(String.prototype, 'split');
+		try {
+			expect(
+				roundTrip.restore(changed, true, {
+					previousFrom: at,
+					previousTo: at + before.length,
+					nextFrom: at,
+					nextTo: at + after.length
+				})
+			).toBe(expected);
+			expect(
+				spy,
+				'unchanged punctuation must not force the full image scan'
+			).not.toHaveBeenCalled();
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it('falls back when a prose edit turns a line into an image line', () => {
+		const source = '![Figure](figure.png)\n\nKeep ![literal](not-an-image.png)x here.';
+		const roundTrip = new ImageMarkdownRoundTrip(source);
+		roundTrip.restore(roundTrip.editorMarkdown);
+		const input = roundTrip.editorMarkdown;
+		const before = 'Keep ![literal](not-an-image.png)x here.';
+		const after = 'Keep ![literal](not-an-image.png) here.';
+		const at = input.indexOf(before);
+		const changed = input.replace(before, after);
+		expect(
+			roundTrip.restore(changed, true, {
+				previousFrom: at,
+				previousTo: at + before.length,
+				nextFrom: at,
+				nextTo: at + after.length
+			})
+		).toBe(new ImageMarkdownRoundTrip(source).restore(changed));
+	});
+
+	it('accepts a block insertion and rejects a stale scoped hint', () => {
+		const source = imageHeavyMarkdown();
+		const roundTrip = new ImageMarkdownRoundTrip(source);
+		roundTrip.restore(roundTrip.editorMarkdown);
+		const input = roundTrip.editorMarkdown;
+		const at = input.indexOf('Paragraph 7 keeps a stable sentence.');
+		const changed = input.replace(
+			'Paragraph 7 keeps a stable sentence.',
+			'Paragraph 7 keeps a stable sentence.\n\nInserted block.'
+		);
+		const expected = new ImageMarkdownRoundTrip(source).restore(changed);
+		expect(
+			roundTrip.restore(changed, true, {
+				previousFrom: at,
+				previousTo: at + 'Paragraph 7 keeps a stable sentence.'.length,
+				nextFrom: at,
+				nextTo: at + 'Paragraph 7 keeps a stable sentence.\n\nInserted block.'.length
+			})
+		).toBe(expected);
+		expect(
+			roundTrip.restore(changed, true, {
+				previousFrom: input.length + 1,
+				previousTo: input.length + 2,
+				nextFrom: 0,
+				nextTo: 1
+			})
+		).toBe(expected);
+	});
+
 	it('falls back when an image line or image membership changes', () => {
 		const source = imageHeavyMarkdown();
 		const changedTrip = new ImageMarkdownRoundTrip(source);

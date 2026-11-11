@@ -208,6 +208,177 @@ test.beforeEach(async ({ page }) => {
 	await createFirstFile(page);
 });
 
+test('typing beside unchanged punctuation stays on the scoped image path', async ({
+	page
+}, info) => {
+	test.setTimeout(240_000);
+	const payload = await largePng(page, 200);
+	const paragraph = 'Wow! Keep this plain text unchanged.';
+	const source = [
+		'Opening paragraph.',
+		'',
+		`![Figure one](data:image/png;base64,${payload})`,
+		'',
+		paragraph,
+		'',
+		'Closing paragraph.',
+		''
+	].join('\n');
+	await writeSourceContent(page, source);
+	await openVisualEditor(page);
+	const editor = page.locator('.ProseMirror');
+	await editor.locator('p', { hasText: 'Wow! Keep this' }).click();
+	await page.keyboard.press('End');
+	await waitForStablePublish(page);
+	const before = await readCounters(page);
+	const publishedBefore = before.markdownUpdated ?? 0;
+	await page.keyboard.insertText(' More');
+	await waitForNextPublish(page, publishedBefore);
+	await expect
+		.poll(async () => (await storedContent(page)).includes('More'), {
+			timeout: 20_000,
+			intervals: [250, 500, 1_000]
+		})
+		.toBe(true);
+	await page.waitForTimeout(400);
+	const change = delta(before, await readCounters(page));
+	const expected = source.replace(paragraph, `${paragraph} More`);
+	const exported = await stableExport(page);
+	await attachEvidence(info, 'unchanged-punctuation-publish', {
+		noteBytes: source.length,
+		embeddedImageBytes: payload.length,
+		counters: change,
+		stages: await readStagePercentiles(page)
+	});
+	await info.attach('expected.md', { body: expected, contentType: 'text/markdown' });
+	await info.attach('exported.md', { body: exported, contentType: 'text/markdown' });
+
+	expect(change.imageMarkdownFull ?? 0, 'unchanged punctuation must not force a full scan').toBe(0);
+	expect(change.imageMarkdownScoped ?? 0, 'the image round trip splices').toBeGreaterThan(0);
+	expect(change.sourceFidelityFull ?? 0, 'source fidelity stays scoped').toBe(0);
+	expect(exported).toBe(expected);
+});
+
+test('records the image round-trip path for 0, 1, 4 and 12 embedded images', async ({
+	page
+}, info) => {
+	test.setTimeout(600_000);
+	const payload = await largePng(page, 120);
+	const side = 120;
+	const samples: Array<Record<string, unknown>> = [];
+	for (const imageCount of [0, 1, 4, 12]) {
+		const blocks: string[] = [];
+		let sourceLength = 0;
+		const push = (line: string) => {
+			blocks.push(line);
+			sourceLength += line.length + 1;
+		};
+		push('# Image round-trip matrix');
+		push('');
+		let imageIndex = 0;
+		while (sourceLength < 1_000_000) {
+			push(`Paragraph ${blocks.length} keeps a stable sentence with words to type.`);
+			push('');
+			if (imageIndex < imageCount) {
+				push(`![Figure ${imageIndex}](data:image/png;base64,${payload})`);
+				push('');
+				imageIndex += 1;
+			}
+		}
+		const source = `${blocks.join('\n')}\n`;
+		await page.evaluate(
+			(content) =>
+				new Promise<void>((resolve, reject) => {
+					const opening = indexedDB.open('mdsh');
+					opening.onerror = () => reject(opening.error);
+					opening.onsuccess = () => {
+						const database = opening.result;
+						const transaction = database.transaction('drafts', 'readwrite');
+						const store = transaction.objectStore('drafts');
+						const request = store.getAll();
+						request.onsuccess = () => {
+							for (const row of request.result) {
+								store.put({ ...row, content, contentDeferred: false, updatedAt: Date.now() });
+							}
+						};
+						transaction.oncomplete = () => {
+							database.close();
+							resolve();
+						};
+						transaction.onabort = () => reject(transaction.error);
+					};
+				}),
+			source
+		);
+		await page.reload();
+		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+			state: 'visible',
+			timeout: 15_000
+		});
+		await page.evaluate((key) => sessionStorage.removeItem(key), stageKey);
+		await openVisualEditor(page);
+		const editor = page.locator('.ProseMirror');
+		const target = editor.locator('p', { hasText: 'Paragraph 2 keeps' });
+		await target.click();
+		await page.keyboard.press('End');
+		await waitForStablePublish(page);
+		const before = await readCounters(page);
+		const publishedBefore = before.markdownUpdated ?? 0;
+		const startedAt = Date.now();
+		await page.keyboard.insertText(' Added.');
+		await waitForNextPublish(page, publishedBefore);
+		const publishLatencyMs = Date.now() - startedAt;
+		await expect
+			.poll(async () => (await storedContent(page)).includes('Added.'), {
+				timeout: 30_000,
+				intervals: [250, 500, 1_000]
+			})
+			.toBe(true);
+		await page.waitForTimeout(400);
+		const change = delta(before, await readCounters(page));
+		const stages = await readStagePercentiles(page);
+		const expected = source.replace(
+			'Paragraph 2 keeps a stable sentence with words to type.',
+			'Paragraph 2 keeps a stable sentence with words to type. Added.'
+		);
+		const exported = await stableExport(page);
+		const featureFlags = await page.evaluate(() => ({
+			longDocument: document
+				.querySelector('.mdsh-editor')
+				?.classList.contains('mdsh-long-document'),
+			virtualCursor: document
+				.querySelector('.ProseMirror')
+				?.classList.contains('virtual-cursor-enabled')
+		}));
+		samples.push({
+			imageCount,
+			noteBytes: source.length,
+			embeddedImageBytes: payload.length * imageCount,
+			decodedPixels: side * side * imageCount,
+			renderedBlocks: await editor.evaluate((element) => element.children.length),
+			publishLatencyMs,
+			counters: change,
+			stages,
+			featureFlags,
+			exportedBytes: exported.length,
+			source: info.config.metadata.source,
+			workingDiffSha256: info.config.metadata.workingDiffSha256
+		});
+		expect(change.imageMarkdownFull ?? 0, `${imageCount} images stay on the scoped path`).toBe(0);
+		if (imageCount > 0)
+			expect(
+				change.imageMarkdownScoped ?? 0,
+				`${imageCount} images take the splice`
+			).toBeGreaterThan(0);
+		expect(exported).toBe(expected);
+	}
+	await attachEvidence(info, 'image-round-trip-matrix', {
+		method:
+			'One 1 MB note per image count, 400 ms quiet period, one End-of-paragraph insertion. Counter deltas come from deckmark:editor-perf; stage samples are raw milliseconds for this run only.',
+		samples
+	});
+});
+
 test('typing a new paragraph next to an embedded image stays on the scoped paths', async ({
 	page
 }, info) => {

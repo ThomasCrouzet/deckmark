@@ -165,6 +165,81 @@ interface ImageRegion {
 	delta: number;
 }
 
+/** Syntax that can start an image, a fence or an HTML comment near a change. */
+const SYNTAX_SENSITIVE = /[!<`~]/;
+/** Unchanged characters inspected before and after the minimal change span. */
+const SYNTAX_CONTEXT_CHARS = 4;
+const FENCE_LINE_START = /^ {0,3}(?:`{3,}|~{3,})/;
+
+/**
+ * Narrows a block hint to the bytes that actually differ. The serializer scopes
+ * a change to the complete top-level block, so unchanged punctuation in that
+ * block must not travel to the syntax guard.
+ */
+function minimalChangeContext(
+	previous: string,
+	next: string
+): { previous: string; next: string } | null {
+	const limit = Math.min(previous.length, next.length);
+	let prefix = 0;
+	while (prefix < limit && previous.charCodeAt(prefix) === next.charCodeAt(prefix)) prefix += 1;
+	let suffix = 0;
+	while (
+		suffix < limit - prefix &&
+		previous.charCodeAt(previous.length - 1 - suffix) === next.charCodeAt(next.length - 1 - suffix)
+	)
+		suffix += 1;
+	const previousEnd = previous.length - suffix;
+	const nextEnd = next.length - suffix;
+	if (previousEnd === prefix && nextEnd === prefix) return null;
+	return {
+		previous: previous.slice(
+			Math.max(0, prefix - SYNTAX_CONTEXT_CHARS),
+			Math.min(previous.length, previousEnd + SYNTAX_CONTEXT_CHARS)
+		),
+		next: next.slice(
+			Math.max(0, prefix - SYNTAX_CONTEXT_CHARS),
+			Math.min(next.length, nextEnd + SYNTAX_CONTEXT_CHARS)
+		)
+	};
+}
+
+/**
+ * Counts lines that the full scanner must classify. A change that turns a text
+ * line into an image, metadata or fence line needs the full occurrence-aware
+ * scan even when the changed character is far from the syntax.
+ */
+function dangerousLineCount(span: string): number {
+	let count = 0;
+	let start = 0;
+	while (start <= span.length) {
+		const newline = span.indexOf('\n', start);
+		const end = newline === -1 ? span.length : newline;
+		const line = span.slice(start, end).replace(/\r$/, '');
+		if (IMAGE_LINE.test(line) || IMAGE_META_LINE.test(line) || FENCE_LINE_START.test(line))
+			count += 1;
+		if (newline === -1) break;
+		start = newline + 1;
+	}
+	return count;
+}
+
+/**
+ * Accepts only a single-line prose change whose own bytes and immediate context
+ * cannot introduce Markdown image, fence or comment syntax. Any uncertain
+ * context keeps the full fallback.
+ */
+function scopedChangeIsSafe(previous: string, next: string): boolean {
+	// An inserted empty block owns no bytes and cannot introduce syntax.
+	if (previous === next) return previous.length === 0;
+	const change = minimalChangeContext(previous, next);
+	if (!change) return false;
+	// Adding or removing a fence, image or metadata line changes the line state
+	// that the occurrence-aware scan depends on.
+	if (dangerousLineCount(next) !== dangerousLineCount(previous)) return false;
+	return !SYNTAX_SENSITIVE.test(change.previous) && !SYNTAX_SENSITIVE.test(change.next);
+}
+
 /**
  * Adapts standalone images to the Crepe image block without letting its numeric
  * ratio overwrite Markdown alternative text. A small HTML comment stores a
@@ -322,8 +397,6 @@ export class ImageMarkdownRoundTrip {
 		)
 			return null;
 		const changed = markdown.slice(hint.nextFrom, hint.nextTo);
-		// Any image or fence syntax needs the full occurrence-aware scan.
-		if (/[!<`~]/.test(changed)) return null;
 		for (const region of this.regions) {
 			const overlaps = hint.previousFrom < region.inputEnd && hint.previousTo > region.inputStart;
 			// An insertion exactly at the region end follows the complete image
@@ -334,6 +407,11 @@ export class ImageMarkdownRoundTrip {
 				hint.previousFrom < region.inputEnd;
 			if (overlaps || insertionInside) return null;
 		}
+		// The serializer scopes the block, not the edited characters. Test the
+		// actual change and its immediate context so an unchanged `!` elsewhere
+		// in the paragraph does not force a full scan.
+		if (!scopedChangeIsSafe(lastInput.slice(hint.previousFrom, hint.previousTo), changed))
+			return null;
 		let delta = 0;
 		for (const region of this.regions) {
 			if (region.inputEnd > hint.previousFrom) break;
