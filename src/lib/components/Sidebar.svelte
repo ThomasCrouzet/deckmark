@@ -79,6 +79,9 @@
 	let scrollContainer = $state<HTMLDivElement | null>(null);
 	let scrollTop = $state(0);
 	let containerHeight = $state(600);
+	// Keep the first visible file in place when a pointer change resizes rows.
+	let anchorRowId: string | null = null;
+	let anchorRowOffset = 0;
 
 	// §5.1 - List of unique tags computed from the store. Recomputed on every
 	// corpus change via $derived (runes reactivity).
@@ -187,7 +190,30 @@
 	function handleListScroll(e: Event) {
 		const el = e.currentTarget as HTMLDivElement;
 		scrollTop = el.scrollTop;
+		const index = rowIndexAt(el.scrollTop);
+		anchorRowId = filteredFiles[index]?.id ?? null;
+		anchorRowOffset = el.scrollTop - rowOffsets[index]!;
 	}
+
+	// Row heights change when the pointer capability changes. Restore the
+	// scroll offset from the row that was at the top, instead of leaving the
+	// browser to anchor an arbitrary descendant.
+	let previousTouchCapable = $state(false);
+	$effect(() => {
+		if (touchCapable === previousTouchCapable) return;
+		previousTouchCapable = touchCapable;
+		const id = anchorRowId;
+		const offset = anchorRowOffset;
+		if (!id) return;
+		void tick().then(() => {
+			if (!scrollContainer) return;
+			const index = filteredFiles.findIndex((file) => file.id === id);
+			if (index === -1) return;
+			const target = Math.max(0, rowOffsets[index]! + offset);
+			scrollTop = target;
+			scrollContainer.scrollTop = target;
+		});
+	});
 
 	// Observe the container height to correctly compute the visible
 	// window (and recompute it if the user resizes their window).
@@ -234,6 +260,15 @@
 	// otherwise reappear as an unexplained batch bar on the next open.
 	$effect(() => {
 		if (!open && selectionMode) exitSelectionMode();
+	});
+
+	// A fine-only pointer keeps the current selection but leaves the explicit
+	// touch mode. Taps must navigate again once no coarse pointer is available.
+	$effect(() => {
+		if (!touchCapable && selectionMode) {
+			selectionMode = false;
+			lastClickedId = null;
+		}
 	});
 
 	function handleSelect(e: MouseEvent, id: string) {

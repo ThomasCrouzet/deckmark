@@ -15,7 +15,7 @@
 	grid-column: 3;
 	grid-row: 1;
 }
-@media (max-width: 639px), (pointer: coarse) {
+@media (max-width: 639px), (any-pointer: coarse) {
 	.mdsh-embedded-notice button {
 		min-width: 44px;
 		min-height: 44px;
@@ -438,26 +438,26 @@ body.typewriter-mode .mdsh-editor {
 	--syntax-title: #215580;
 	--syntax-built-in: #5f4917;
 }
-@media (pointer: coarse) {
-	#app-toolbar button,
-	#app-statusbar button,
-	[data-document-navigation] button,
-	#files-panel button,
-	[role='dialog'] button,
-	[role='dialog'] summary,
-	#files-panel summary,
-	body > button {
-		min-height: 44px;
-		min-width: 44px;
-	}
-	.mdsh-file-row button {
-		opacity: 1;
-	}
-	input,
-	select,
-	textarea {
-		font-size: max(1rem, 16px);
-	}
+/* `data-touch-capable` mirrors `(any-pointer: coarse)`. A hybrid device with a
+   fine primary pointer and an available touch screen keeps the touch targets. */
+:root[data-touch-capable='true'] #app-toolbar button,
+:root[data-touch-capable='true'] #app-statusbar button,
+:root[data-touch-capable='true'] [data-document-navigation] button,
+:root[data-touch-capable='true'] #files-panel button,
+:root[data-touch-capable='true'] [role='dialog'] button,
+:root[data-touch-capable='true'] [role='dialog'] summary,
+:root[data-touch-capable='true'] #files-panel summary,
+:root[data-touch-capable='true'] body > button {
+	min-height: 44px;
+	min-width: 44px;
+}
+:root[data-touch-capable='true'] .mdsh-file-row button {
+	opacity: 1;
+}
+:root[data-touch-capable='true'] input,
+:root[data-touch-capable='true'] select,
+:root[data-touch-capable='true'] textarea {
+	font-size: max(1rem, 16px);
 }
 @media (max-height: 500px) {
 	[role='dialog'] {
@@ -500,8 +500,6 @@ body.typewriter-mode .mdsh-editor {
 	min-height: 28px;
 }
 
-@media (pointer: coarse) {
-	.mdsh-toc-col button {
-		min-height: 44px;
-	}
+:root[data-touch-capable='true'] .mdsh-toc-col button {
+	min-height: 44px;
 }
