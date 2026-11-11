@@ -1,5 +1,11 @@
 import { computeSelectionStats, computeStats, createStatsCache } from './stats';
-import type { DocStats, SelectionStats } from './stats-count';
+import type {
+	DocStats,
+	SelectionStats,
+	StatsPatch,
+	StatsRequest,
+	StatsResponse
+} from './stats-count';
 
 export type StatsRuntime = ReturnType<typeof createStatsRuntime>;
 
@@ -7,6 +13,30 @@ const WORKER_THRESHOLD = 256 * 1024;
 const SELECTION_THRESHOLD = 64 * 1024;
 const SELECTION_TIMEOUT = 5000;
 const WORKER_TIMEOUT = 5000;
+// A bigger replacement sends the full text. The Worker keeps the baseline, so
+// an ordinary edit transfers only its changed span.
+const MAX_PATCH = 256 * 1024;
+
+type PatchSpan = Pick<StatsPatch, 'start' | 'remove' | 'insert'>;
+
+function diffPatch(base: string, next: string): PatchSpan | null {
+	const limit = Math.min(base.length, next.length);
+	let start = 0;
+	while (start < limit && base.charCodeAt(start) === next.charCodeAt(start)) start += 1;
+	let baseEnd = base.length;
+	let nextEnd = next.length;
+	while (
+		baseEnd > start &&
+		nextEnd > start &&
+		base.charCodeAt(baseEnd - 1) === next.charCodeAt(nextEnd - 1)
+	) {
+		baseEnd -= 1;
+		nextEnd -= 1;
+	}
+	const remove = baseEnd - start;
+	if (remove + (nextEnd - start) > MAX_PATCH) return null;
+	return { start, remove, insert: next.slice(start, nextEnd) };
+}
 
 type SelectionPending = {
 	token: number;
@@ -29,6 +59,11 @@ export function createStatsRuntime(
 	let workerUnavailable = false;
 	let workerFailures = 0;
 	let workerRetryAt = 0;
+	// The source that the Worker holds. A patch is valid only for this text and
+	// this job token.
+	let workerBase: string | null = null;
+	let workerBaseToken = 0;
+	let workerStats: DocStats | null = null;
 	let sequence = 0;
 	let selectionWorker: Worker | null = null;
 	let selectionSequence = 0;
@@ -65,7 +100,7 @@ export function createStatsRuntime(
 			const worker = new Worker(new URL('./workers/stats.worker.ts', import.meta.url), {
 				type: 'module'
 			});
-			worker.onmessage = (event: MessageEvent<{ token: number; selection?: SelectionStats }>) => {
+			worker.onmessage = (event: MessageEvent<StatsResponse>) => {
 				const pending = selectionPending;
 				if (!pending || event.data.token !== pending.token || !event.data.selection) return;
 				selectionPending = null;
@@ -98,7 +133,7 @@ export function createStatsRuntime(
 			};
 			selectionPending = pending;
 			try {
-				worker.postMessage({ token, text, mode: 'selection' });
+				worker.postMessage({ token, text, mode: 'selection' } satisfies StatsRequest);
 			} catch {
 				failSelection();
 			}
@@ -109,6 +144,9 @@ export function createStatsRuntime(
 		worker?.terminate();
 		worker = null;
 		workerBusy = false;
+		workerBase = null;
+		workerBaseToken = 0;
+		workerStats = null;
 	}
 
 	function cancelPending() {
@@ -137,6 +175,10 @@ export function createStatsRuntime(
 			publish(id, content, computeStats(content));
 			return;
 		}
+		if (workerBase === content && workerStats) {
+			publish(id, content, workerStats);
+			return;
+		}
 		const fallback = () => {
 			if (!current()) return;
 			resetWorker();
@@ -151,24 +193,40 @@ export function createStatsRuntime(
 			worker ??= new Worker(new URL('./workers/stats.worker.ts', import.meta.url), {
 				type: 'module'
 			});
+			const patch = workerBase === null ? null : diffPatch(workerBase, content);
+			const request: StatsRequest = patch
+				? { token, patch: { ...patch, baseRevision: workerBaseToken } }
+				: { token, text: content };
 			workerBusy = true;
-			worker.onmessage = (event: MessageEvent<{ token: number; stats: DocStats }>) => {
-				if (!current() || event.data.token !== token) return;
+			worker.onmessage = (event: MessageEvent<StatsResponse>) => {
+				const data = event.data;
+				if (!current() || data.token !== token) return;
+				if (data.needFull) {
+					workerBase = null;
+					workerBaseToken = 0;
+					workerStats = null;
+					worker!.postMessage({ token, text: content } satisfies StatsRequest);
+					return;
+				}
+				if (!data.stats) return;
 				if (workerTimer) clearTimeout(workerTimer);
 				workerTimer = null;
 				workerBusy = false;
 				workerUnavailable = false;
 				workerFailures = 0;
 				workerRetryAt = 0;
+				workerBase = content;
+				workerBaseToken = token;
+				workerStats = data.stats;
 				worker!.onmessage = null;
 				worker!.onerror = null;
 				worker!.onmessageerror = null;
-				publish(id, content, event.data.stats);
+				publish(id, content, data.stats);
 			};
 			worker.onerror = fallback;
 			worker.onmessageerror = fallback;
 			workerTimer = setTimeout(fallback, WORKER_TIMEOUT);
-			worker.postMessage({ token, text: content });
+			worker.postMessage(request);
 		} catch {
 			fallback();
 		}

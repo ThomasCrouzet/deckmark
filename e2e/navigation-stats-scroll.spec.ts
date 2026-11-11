@@ -545,6 +545,19 @@ async function statsWorkerPosts(page: Page): Promise<StatsWorkerPost[]> {
 	});
 }
 
+function imageHeavyFixture(bytes: number): string {
+	const prose = Array.from(
+		{ length: Math.ceil(bytes / 90) },
+		(_, index) => `Paragraph ${index} has ordinary words for the counter.`
+	).join('\n\n');
+	const imageBytes = 120_000;
+	const images = Array.from(
+		{ length: 6 },
+		(_, index) => `![shot ${index}](data:image/png;base64,${'A'.repeat(imageBytes)})`
+	).join('\n\n');
+	return `# Image note\n\n${prose}\n\n${images}\n`;
+}
+
 test('large note switches wait for the statistics Worker', async ({ page }, info) => {
 	test.setTimeout(120_000);
 	await installStatsWorkerProbe(page);
@@ -582,6 +595,60 @@ test('large note switches wait for the statistics Worker', async ({ page }, info
 				status: await status.innerText(),
 				method:
 					'The probe holds the switch document message in window.Worker; the pending status is read before release. No timing budget is asserted.'
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
+test('image-heavy edits send only the changed span to the statistics Worker', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await installStatsWorkerProbe(page);
+	await resetAppState(page);
+	const content = imageHeavyFixture(400_000);
+	await seedStatsFiles(page, [{ name: 'Stats images', content }]);
+	const status = page.getByTestId('document-stats');
+	await expect(status).toContainText(`${baselineStats(content).words} mots`, { timeout: 30_000 });
+	const source = page.locator('.cm-content').first();
+	await source.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText(' extra words');
+	const edited = content + ' extra words';
+	const expected = baselineStats(edited);
+	await expect(status).toContainText(`${expected.chars} car.`, { timeout: 30_000 });
+	await expect(status).toContainText(`${expected.words} mots`);
+	await expect(status).toContainText(`${expected.lines} lignes`);
+	const posts = await statsWorkerPosts(page);
+	const documents = posts.filter((post) => post.mode === 'document');
+	expect(documents.length).toBeGreaterThanOrEqual(2);
+	const first = documents[0]!;
+	expect(first.text).toBe(content.length);
+	expect(first.hasImage).toBe(true);
+	const updates = documents.slice(1);
+	expect(
+		updates.every((post) => post.text === null),
+		'no full document copy after the baseline'
+	).toBe(true);
+	expect(
+		updates.every((post) => post.hasImage === false),
+		'no Base64 image payload after the baseline'
+	).toBe(true);
+	expect(
+		updates.every((post) => (post.patch ?? Number.POSITIVE_INFINITY) < 1024),
+		'only the edited span is transferred'
+	).toBe(true);
+	await info.attach('stats-image-delta.json', {
+		body: JSON.stringify(
+			{
+				contentBytes: content.length,
+				base64Bytes: content.length - content.replace(/data:image[^)]*/g, '').length,
+				expected,
+				posts,
+				status: await status.innerText()
 			},
 			null,
 			2
