@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 const { load } = await import('js-yaml');
@@ -166,6 +168,40 @@ test('the pinned image is resolved once, fails closed and feeds every container 
 
 	for (const name of ['e2e-shard', 'e2e-manifest']) {
 		assert.equal(workflow.jobs[name].container.image, '${{ needs.ci-tier.outputs.image }}', name);
+	}
+});
+
+test('the image resolver shell writes usable Actions outputs in both workflows', () => {
+	const verification = load(
+		readFileSync(new URL('../.github/workflows/verify-deployment.yml', import.meta.url), 'utf8')
+	);
+	const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+		.devDependencies['@playwright/test'];
+	for (const job of [workflow.jobs['ci-tier'], verification.jobs['resolve-image']]) {
+		const directory = mkdtempSync(join(tmpdir(), 'deckmark-image-output-'));
+		try {
+			const output = join(directory, 'outputs');
+			const script = job.steps.find((step) => step.id === 'image').run;
+			const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
+				cwd: new URL('..', import.meta.url),
+				env: { ...process.env, GITHUB_OUTPUT: output },
+				encoding: 'utf8'
+			});
+			assert.equal(result.status, 0, result.stderr);
+			const values = Object.fromEntries(
+				readFileSync(output, 'utf8')
+					.trim()
+					.split('\n')
+					.map((line) => line.split('='))
+			);
+			assert.match(
+				values.image ?? '',
+				/^mcr\.microsoft\.com\/playwright(?::v[\d.]+-noble)?@sha256:[a-f0-9]{64}$/
+			);
+			assert.equal(values.playwright, version);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	}
 });
 

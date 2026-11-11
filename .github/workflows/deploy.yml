@@ -83,7 +83,10 @@ jobs:
 
       - name: Resolve the pinned Playwright image
         id: image
-        run: node scripts/ci-playwright-image.mjs >> "$GITHUB_OUTPUT"
+        run: |
+          image="$(node scripts/ci-playwright-image.mjs)"
+          playwright="$(node -p "require('./package.json').devDependencies['@playwright/test']")"
+          printf 'image=%s\nplaywright=%s\n' "$image" "$playwright" >> "$GITHUB_OUTPUT"
 
       - name: Define the shard count
         id: shards
