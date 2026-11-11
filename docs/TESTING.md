@@ -843,6 +843,28 @@ or a native WebView.
 
 Run `npx playwright test e2e/presentation-inspector-width.spec.ts --project=chromium --workers=1 --retries=0`.
 
+## Note scroll shortcut scope
+
+The Alt+Home and Alt+End note shortcuts listen on `window`. The retained risks
+are a scroll of an inert note while a dialog is open, a consumed key that
+belongs to a foreground control, a scroll of a short note with no scroll target,
+a stale scroller after a mode or file switch, and a scroll during IME
+composition.
+
+`ScrollNav.svelte` resolves the live scroller on each keydown. It ignores an
+event that is already prevented, a composition event, a repeat, a target in an
+inert subtree, an open modal dialog, and an editable field outside the active
+note. It also ignores a note without a scroll range. The pointer and touch
+buttons stay available when the note is scrollable.
+
+`e2e/scroll-nav-scope.spec.ts` checks both boundaries in a long note, then the
+same keys with Settings open, with an outside field focused, during a synthetic
+composition, and in a short note. It records `defaultPrevented` and the scroller
+position. Synthetic events and desktop emulation do not prove a physical iPad
+keyboard, a screen reader or a native WebView.
+
+Run `npx playwright test e2e/scroll-nav-scope.spec.ts --project=chromium --workers=1 --retries=0`.
+
 ## Version 2.0 project risks
 
 At native 200% browser zoom in a 320 by 844 viewport, save-status text can wrap
