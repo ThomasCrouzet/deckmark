@@ -770,6 +770,36 @@ WebKit uses a stopped origin server because [Playwright offline emulation can re
 The report records the disruption and confirms service worker control.
 This server outage check does not reproduce every operating system network condition.
 
+## Durable draft projection reuse
+
+The `manifest` and `metadata` keys are index projections on the `drafts` table.
+Dexie reports a field in the update hook only when its value changed. A save
+that keeps the content, name, kind, project location and binary presence can
+therefore reuse the content-derived slots of the durable manifest key. The
+metadata hook already skips an update that touches none of these fields.
+
+Retain these failure risks: a reused slot can describe a previous content
+revision; a rename can keep an old document kind; a project move can keep an old
+byte count; a missing or damaged key must fall back to a full projection; and an
+external or raw write must still be detected at boot. An unchanged image-rich
+save must report `reused` with zero scanned bytes. A source edit must report the
+new metadata title, targets and content length.
+
+`e2e/draft-projection-performance.spec.ts` creates real drafts with 0, 1 and 4
+embedded images, waits for the durable projections, then closes the tab. It
+reads the instrumented `mdsh:draft-manifest` and `mdsh:draft-metadata` measures
+and checks the durable key values after the save. Run:
+
+```sh
+npx playwright test e2e/draft-projection-performance.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the attached `draft-projection-reuse-*.json` and
+`draft-projection-recompute.json` files with the standard report metadata. The
+measure records hook duration, reuse state and scanned bytes. It does not
+measure garbage collection, native WebView behavior or another browser engine.
+Next-input latency stays in `editor-input-latency.spec.ts`.
+
 ## Visual table risks
 
 `table-editing.spec.ts` checks Enter and Shift+Enter in header and body cells.
