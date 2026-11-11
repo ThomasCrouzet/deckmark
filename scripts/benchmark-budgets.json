@@ -160,11 +160,13 @@
 				"typingSource": {
 					"p95": 150,
 					"unit": "ms",
-					"note": "Insert dispatch to the next animation frame. Includes product work triggered by the input."
+					"minimumRuns": 20,
+					"note": "Insert dispatch to the next animation frame. Includes product work triggered by the input. Twenty samples make p95 the second-worst value."
 				},
 				"typingSourceSync": {
 					"p95": 50,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingSourceDriver": {
 					"p95": 8000,
@@ -173,11 +175,13 @@
 				},
 				"typingLarge": {
 					"p95": 200,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingLargeSync": {
 					"p95": 50,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"readModeSwitch": {
 					"p95": 2500,
@@ -276,11 +280,13 @@
 				"typingSource": {
 					"p95": 6000,
 					"unit": "ms",
-					"note": "The recorded run measured about 3.5 s after a save, with 900 stored documents. Keep the sample; investigate before treating it as acceptable."
+					"minimumRuns": 20,
+					"note": "The recorded run measured about 3.5 s after a save, with 900 stored documents. Keep the sample; investigate before treating it as acceptable. Twenty samples make p95 the second-worst value."
 				},
 				"typingSourceSync": {
 					"p95": 100,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingSourceDriver": {
 					"p95": 6000,
@@ -288,11 +294,13 @@
 				},
 				"typingLarge": {
 					"p95": 6000,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingLargeSync": {
 					"p95": 100,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"readModeSwitch": {
 					"p95": 3000,
@@ -390,11 +398,14 @@
 				},
 				"typingSource": {
 					"p95": 200,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Twenty samples make p95 the second-worst value after issue #552. One 346 ms frame stall failed a five-sample run while p50 stayed at 18 ms."
 				},
 				"typingSourceSync": {
 					"p95": 100,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingSourceDriver": {
 					"p95": 6000,
@@ -403,11 +414,13 @@
 				},
 				"typingLarge": {
 					"p95": 200,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"typingLargeSync": {
 					"p95": 100,
-					"unit": "ms"
+					"unit": "ms",
+					"minimumRuns": 20
 				},
 				"readModeSwitch": {
 					"p95": 6000,

@@ -132,6 +132,7 @@ export default defineConfig({
 				'**/wiki-links.spec.ts',
 				'**/source-fidelity.spec.ts',
 				'**/markdown-blank-lines.spec.ts',
+				'**/editor-large-note-visibility.spec.ts',
 				'**/presentation-editor.spec.ts',
 				'**/presentation-export.spec.ts',
 				'**/presentation-files.spec.ts',
