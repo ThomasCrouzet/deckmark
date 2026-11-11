@@ -3,6 +3,18 @@ import type { DocStats, SelectionStats } from './stats-count';
 
 export type StatsRuntime = ReturnType<typeof createStatsRuntime>;
 
+const WORKER_THRESHOLD = 256 * 1024;
+const SELECTION_THRESHOLD = 64 * 1024;
+const SELECTION_TIMEOUT = 5000;
+const WORKER_TIMEOUT = 5000;
+
+type SelectionPending = {
+	token: number;
+	text: string;
+	resolve: (value: SelectionStats | null) => void;
+	timer: ReturnType<typeof setTimeout>;
+};
+
 export function createStatsRuntime(
 	onStats: (id: string | null, content: string, stats: DocStats) => void
 ) {
@@ -20,41 +32,83 @@ export function createStatsRuntime(
 	let sequence = 0;
 	let selectionWorker: Worker | null = null;
 	let selectionSequence = 0;
+	let selectionPending: SelectionPending | null = null;
 
-	function selection(text: string): Promise<SelectionStats> {
-		if (text.length < 64 * 1024 || typeof Worker === 'undefined')
-			return Promise.resolve(computeSelectionStats(text));
-		selectionSequence += 1;
-		const token = selectionSequence;
+	function dropSelection(): void {
+		const pending = selectionPending;
+		selectionPending = null;
+		if (!pending) return;
+		clearTimeout(pending.timer);
+		// A superseded selection result must not replace the current counters.
+		pending.resolve(null);
+	}
+
+	function stopSelection(): void {
+		dropSelection();
 		selectionWorker?.terminate();
-		let worker: Worker;
+		selectionWorker = null;
+	}
+
+	function failSelection(): void {
+		const pending = selectionPending;
+		selectionWorker?.terminate();
+		selectionWorker = null;
+		selectionPending = null;
+		if (!pending) return;
+		clearTimeout(pending.timer);
+		pending.resolve(computeSelectionStats(pending.text));
+	}
+
+	function ensureSelectionWorker(): Worker | null {
+		if (selectionWorker) return selectionWorker;
 		try {
-			worker = new Worker(new URL('./workers/stats.worker.ts', import.meta.url), {
+			const worker = new Worker(new URL('./workers/stats.worker.ts', import.meta.url), {
 				type: 'module'
 			});
-		} catch {
-			return Promise.resolve(computeSelectionStats(text));
-		}
-		selectionWorker = worker;
-		return new Promise<SelectionStats>((resolve) => {
-			let settled = false;
-			const finish = (value: SelectionStats) => {
-				if (settled) return;
-				settled = true;
-				clearTimeout(timer);
-				worker.terminate();
-				if (selectionWorker === worker) selectionWorker = null;
-				resolve(value);
-			};
-			const timer = setTimeout(() => finish(computeSelectionStats(text)), 5000);
 			worker.onmessage = (event: MessageEvent<{ token: number; selection?: SelectionStats }>) => {
-				if (event.data.token !== token || !event.data.selection) return;
-				finish(event.data.selection);
+				const pending = selectionPending;
+				if (!pending || event.data.token !== pending.token || !event.data.selection) return;
+				selectionPending = null;
+				clearTimeout(pending.timer);
+				pending.resolve(event.data.selection);
 			};
-			worker.onerror = () => finish(computeSelectionStats(text));
-			worker.onmessageerror = () => finish(computeSelectionStats(text));
-			worker.postMessage({ token, text, mode: 'selection' });
+			worker.onerror = failSelection;
+			worker.onmessageerror = failSelection;
+			selectionWorker = worker;
+			return worker;
+		} catch {
+			return null;
+		}
+	}
+
+	function selection(text: string): Promise<SelectionStats | null> {
+		dropSelection();
+		if (text.length < SELECTION_THRESHOLD || typeof Worker === 'undefined')
+			return Promise.resolve(computeSelectionStats(text));
+		const worker = ensureSelectionWorker();
+		if (!worker) return Promise.resolve(computeSelectionStats(text));
+		selectionSequence += 1;
+		const token = selectionSequence;
+		return new Promise<SelectionStats | null>((resolve) => {
+			const pending: SelectionPending = {
+				token,
+				text,
+				resolve,
+				timer: setTimeout(failSelection, SELECTION_TIMEOUT)
+			};
+			selectionPending = pending;
+			try {
+				worker.postMessage({ token, text, mode: 'selection' });
+			} catch {
+				failSelection();
+			}
 		});
+	}
+
+	function resetWorker(): void {
+		worker?.terminate();
+		worker = null;
+		workerBusy = false;
 	}
 
 	function cancelPending() {
@@ -63,11 +117,7 @@ export function createStatsRuntime(
 		if (workerTimer) clearTimeout(workerTimer);
 		debounceTimer = null;
 		workerTimer = null;
-		if (workerBusy) {
-			worker?.terminate();
-			worker = null;
-			workerBusy = false;
-		}
+		if (workerBusy) resetWorker();
 	}
 
 	function publish(id: string | null, content: string, stats: DocStats) {
@@ -80,7 +130,7 @@ export function createStatsRuntime(
 			!disposed && token === sequence && activeId === id && activeContent === content;
 		if (!current()) return;
 		if (
-			content.length < 256 * 1024 ||
+			content.length < WORKER_THRESHOLD ||
 			(workerUnavailable && Date.now() < workerRetryAt) ||
 			typeof Worker === 'undefined'
 		) {
@@ -89,9 +139,7 @@ export function createStatsRuntime(
 		}
 		const fallback = () => {
 			if (!current()) return;
-			worker?.terminate();
-			worker = null;
-			workerBusy = false;
+			resetWorker();
 			workerUnavailable = true;
 			workerFailures += 1;
 			workerRetryAt = Date.now() + Math.min(60_000, 1000 * 2 ** Math.min(workerFailures, 6));
@@ -119,7 +167,7 @@ export function createStatsRuntime(
 			};
 			worker.onerror = fallback;
 			worker.onmessageerror = fallback;
-			workerTimer = setTimeout(fallback, 5000);
+			workerTimer = setTimeout(fallback, WORKER_TIMEOUT);
 			worker.postMessage({ token, text: content });
 		} catch {
 			fallback();
@@ -129,8 +177,13 @@ export function createStatsRuntime(
 	return {
 		setDocument(id: string | null, content: string): void {
 			if (disposed) return;
-			cancelPending();
 			const switched = id !== activeId;
+			cancelPending();
+			if (switched) {
+				// Release the previous file's Worker baseline and selection text.
+				stopSelection();
+				resetWorker();
+			}
 			activeId = id;
 			activeContent = content;
 			const hit = cached.get(id, content);
@@ -138,11 +191,17 @@ export function createStatsRuntime(
 				onStats(id, content, hit);
 				return;
 			}
-			if (switched || !id) {
+			// A short document keeps the synchronous fast path.
+			if (!id || content.length < WORKER_THRESHOLD) {
 				publish(id, content, computeStats(content));
 				return;
 			}
 			const token = sequence;
+			// The first activation and a file switch must not count in the UI task.
+			if (switched) {
+				measure(id, content, token);
+				return;
+			}
 			debounceTimer = setTimeout(() => {
 				debounceTimer = null;
 				measure(id, content, token);
@@ -152,10 +211,8 @@ export function createStatsRuntime(
 		dispose(): void {
 			disposed = true;
 			cancelPending();
-			worker?.terminate();
-			worker = null;
-			selectionWorker?.terminate();
-			selectionWorker = null;
+			stopSelection();
+			resetWorker();
 			cached.clear();
 			activeId = null;
 			activeContent = '';
