@@ -813,6 +813,16 @@ npx vitest run src/lib/ai/context.test.ts --maxWorkers=1
 npx playwright test e2e/ai-panel.spec.ts --project=chromium --workers=1 --retries=0 --grep 'hostile file markers'
 ```
 
+The preview path must not encode or hash a body that is ignored, secret,
+binary, outside the token budget or absent from the approved scope. A large
+library can hold 3000 documents, so a full-body pass on each input or scope
+change is the failure. The same isolated file spies on
+`TextEncoder.prototype.encode` for the budget and path exclusions, checks that
+`previewContext` does not encode a body, and compares the preview manifest with
+the transmitted entries. The panel builds the preview for the review UI and
+uses Set and Map indexes for the send revision guard. A browser timing check
+cannot attribute that work to one preview rebuild.
+
 ## Retained isolated risks
 
 ### Statistics counting risks

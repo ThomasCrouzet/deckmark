@@ -10,13 +10,16 @@ export interface AiContextFile {
 	kind?: DocumentKind;
 	projectId?: string;
 	relativePath?: string;
+	/** Exact UTF-8 byte size when the caller already knows it. */
+	bytes?: number;
 }
 
 export interface AiManifestEntry {
 	id: string;
 	path: string;
 	kind: DocumentKind;
-	bytes: number;
+	/** Exact UTF-8 byte size when the body was measured or supplied. */
+	bytes?: number;
 	tokens: number;
 	includedTokens: number;
 	truncated: boolean;
@@ -38,6 +41,13 @@ export interface AiContextBundle {
 	manifest: AiManifestEntry[];
 	/** JSON context payload with deterministic entries. */
 	text: string;
+	estimatedTokens: number;
+	truncated: boolean;
+}
+
+/** Cheap scope review without body encoding, hashing or payload construction. */
+export interface AiContextPreview {
+	manifest: AiManifestEntry[];
 	estimatedTokens: number;
 	truncated: boolean;
 }
@@ -146,12 +156,36 @@ function ignored(path: string, patterns: readonly string[]): boolean {
 	});
 }
 
-/**
- * Builds the exact text and manifest sent to a provider. Secrets and binary
- * documents are excluded before any network call. The budget is deterministic:
- * files are processed in path order and the last file may be truncated.
- */
-export function buildContext(request: AiContextRequest): AiContextBundle {
+/** UTF-8 size without allocating a copy of the file body. */
+function utf8ByteLength(text: string): number {
+	let bytes = 0;
+	for (let index = 0; index < text.length; index++) {
+		const code = text.charCodeAt(index);
+		if (code < 0x80) {
+			bytes += 1;
+		} else if (code < 0x800) {
+			bytes += 2;
+		} else if (code >= 0xd800 && code <= 0xdbff) {
+			const next = text.charCodeAt(index + 1);
+			if (next >= 0xdc00 && next <= 0xdfff) {
+				bytes += 4;
+				index += 1;
+			} else {
+				// TextEncoder replaces a lone surrogate with U+FFFD.
+				bytes += 3;
+			}
+		} else {
+			bytes += 3;
+		}
+	}
+	return bytes;
+}
+
+function measuredBytes(file: AiContextFile, withPayload: boolean): number | undefined {
+	return withPayload ? utf8ByteLength(file.content) : file.bytes;
+}
+
+function collectContext(request: AiContextRequest, withPayload: boolean): AiContextBundle {
 	const budget = Math.max(256, request.maxTokens ?? 24000);
 	const patterns = request.ignorePatterns ?? [];
 	const entries: AiManifestEntry[] = [];
@@ -165,15 +199,23 @@ export function buildContext(request: AiContextRequest): AiContextBundle {
 		const tokens = tokenEstimate(text);
 		const includedTokens = Math.min(tokens, budget);
 		const isTruncated = tokens > includedTokens;
+		const bytes = withPayload ? utf8ByteLength(text) : undefined;
 		entries.push({
 			id: 'selection',
 			path: 'Selection',
 			kind: 'note',
-			bytes: new TextEncoder().encode(text).length,
 			tokens,
 			includedTokens,
-			truncated: isTruncated
+			truncated: isTruncated,
+			...(bytes === undefined ? {} : { bytes })
 		});
+		if (!withPayload)
+			return {
+				manifest: entries,
+				text: '',
+				estimatedTokens: includedTokens,
+				truncated: isTruncated
+			};
 		const clipped = text.slice(0, includedTokens * 4);
 		const hash = contentHash(text);
 		wireManifest.push(manifestValue('Selection', hash, tokens, includedTokens, isTruncated));
@@ -188,18 +230,17 @@ export function buildContext(request: AiContextRequest): AiContextBundle {
 	for (const file of selectedFiles(request)) {
 		const path = pathOf(file);
 		const kind = documentKindForFile(file);
-		const bytes = new TextEncoder().encode(file.content).length;
 		const tokens = tokenEstimate(file.content);
 		if (kind === 'image') {
 			entries.push({
 				id: file.id,
 				path,
 				kind,
-				bytes,
 				tokens: 0,
 				includedTokens: 0,
 				truncated: false,
-				reason: 'binary'
+				reason: 'binary',
+				...(file.bytes === undefined ? {} : { bytes: file.bytes })
 			});
 			continue;
 		}
@@ -208,11 +249,11 @@ export function buildContext(request: AiContextRequest): AiContextBundle {
 				id: file.id,
 				path,
 				kind,
-				bytes,
 				tokens,
 				includedTokens: 0,
 				truncated: false,
-				reason: 'secret'
+				reason: 'secret',
+				...(file.bytes === undefined ? {} : { bytes: file.bytes })
 			});
 			continue;
 		}
@@ -221,11 +262,11 @@ export function buildContext(request: AiContextRequest): AiContextBundle {
 				id: file.id,
 				path,
 				kind,
-				bytes,
 				tokens,
 				includedTokens: 0,
 				truncated: false,
-				reason: 'ignored'
+				reason: 'ignored',
+				...(file.bytes === undefined ? {} : { bytes: file.bytes })
 			});
 			continue;
 		}
@@ -237,30 +278,33 @@ export function buildContext(request: AiContextRequest): AiContextBundle {
 				id: file.id,
 				path,
 				kind,
-				bytes,
 				tokens,
 				includedTokens: 0,
 				truncated: true,
-				reason: 'budget'
+				reason: 'budget',
+				...(file.bytes === undefined ? {} : { bytes: file.bytes })
 			});
 			continue;
 		}
 		const clipped =
 			includedTokens < tokens ? file.content.slice(0, includedTokens * 4) : file.content;
-		const hash = contentHash(file.content);
-		wireManifest.push(manifestValue(path, hash, tokens, includedTokens, includedTokens < tokens));
-		wireFiles.push(fileValue(path, hash, clipped, includedTokens < tokens));
+		const bytes = measuredBytes(file, withPayload);
+		if (withPayload) {
+			const hash = contentHash(file.content);
+			wireManifest.push(manifestValue(path, hash, tokens, includedTokens, includedTokens < tokens));
+			wireFiles.push(fileValue(path, hash, clipped, includedTokens < tokens));
+		}
 		used += includedTokens;
 		if (includedTokens < tokens) truncated = true;
 		entries.push({
 			id: file.id,
 			path,
 			kind,
-			bytes,
 			tokens,
 			includedTokens,
 			truncated: includedTokens < tokens,
-			...(includedTokens < tokens ? { reason: 'budget' as const } : {})
+			...(includedTokens < tokens ? { reason: 'budget' as const } : {}),
+			...(bytes === undefined ? {} : { bytes })
 		});
 	}
 
@@ -272,6 +316,25 @@ export function buildContext(request: AiContextRequest): AiContextBundle {
 				: '',
 		estimatedTokens: used,
 		truncated
+	};
+}
+
+/**
+ * Builds the exact text and manifest sent to a provider. Secrets and binary
+ * documents are excluded before any network call. The budget is deterministic:
+ * files are processed in path order and the last file may be truncated.
+ */
+export function buildContext(request: AiContextRequest): AiContextBundle {
+	return collectContext(request, true);
+}
+
+/** Builds the scope manifest only. It does not encode, hash or serialize bodies. */
+export function previewContext(request: AiContextRequest): AiContextPreview {
+	const bundle = collectContext(request, false);
+	return {
+		manifest: bundle.manifest,
+		estimatedTokens: bundle.estimatedTokens,
+		truncated: bundle.truncated
 	};
 }
 
