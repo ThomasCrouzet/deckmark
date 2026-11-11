@@ -928,6 +928,23 @@ cannot attribute that work to one preview rebuild.
 
 ## Retained isolated risks
 
+### Service worker update lifecycle risks
+
+The update entry point is a page singleton. The retained risks are a second
+`updatefound` listener, a second hourly poller, a late failed attempt that
+reports an error after a newer attempt succeeded, a duplicate offline or update
+notification, and a retry that stacks a poller on the active registration. The
+browser suite cannot count duplicated pollers or hold a registration promise in
+the out-of-order state without a test-only hook in the production page.
+
+`src/lib/ui/pwa-update.test.ts` holds fake timers and deferred registration
+promises for these cases. It checks one base path for the root host and one for
+the nested GitHub Pages host. It also checks that an update activation flushes
+the draft queue before the reload, and that a failed flush stops the reload.
+Run `npx vitest run src/lib/ui/pwa-update.test.ts --maxWorkers=1`.
+These cases do not prove real browser activation, a native WebView, or the
+update check of a live deployment.
+
 ### Statistics counting risks
 
 `stats.test.ts` compares the exact legacy stripping order and UTF-16 counts with
