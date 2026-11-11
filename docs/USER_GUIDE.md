@@ -117,6 +117,7 @@ Select **Check links** to list missing resources, ambiguous wiki links, paths ou
 
 Select **Export project** to download the documents and resources together.
 The ZIP contains `.mdsh/project.json` and `.mdsh/link-report.json` for project metadata and link diagnostics.
+A portable manifest can contain up to 1 MiB. DeckMark refuses a larger manifest before it reads or parses the file, for both a ZIP import and a folder import.
 Image data embedded in Markdown becomes a separate asset in the archive. The stored source remains unchanged.
 An individual Markdown download keeps its relative references. Use the project ZIP when those references need local resources.
 

@@ -18,6 +18,41 @@ async function importArchive(page: Page, data: Buffer, name: string, info: TestI
 	return panel;
 }
 
+interface FolderEntry {
+	path: string;
+	text?: string;
+	/** Creates this many space bytes instead of sending the payload. */
+	spaceBytes?: number;
+}
+
+async function importFolder(page: Page, entries: FolderEntry[]): Promise<void> {
+	const panel = await openProjects(page);
+	await panel.locator('input[webkitdirectory]').evaluate((input, files) => {
+		const transfer = new DataTransfer();
+		for (const entry of files) {
+			const body = entry.spaceBytes
+				? new Uint8Array(entry.spaceBytes).fill(0x20)
+				: (entry.text ?? '');
+			const file = new File([body], entry.path.split('/').pop()!);
+			Object.defineProperty(file, 'webkitRelativePath', { value: entry.path });
+			transfer.items.add(file);
+		}
+		(input as HTMLInputElement).files = transfer.files;
+		input.dispatchEvent(new Event('change', { bubbles: true }));
+	}, entries);
+}
+
+test('refuses an oversized folder manifest before creating a project', async ({ page }) => {
+	await importFolder(page, [
+		{ path: 'workspace/README.md', text: '# Doc' },
+		{ path: 'workspace/.mdsh/project.json', spaceBytes: 1024 * 1024 + 1 }
+	]);
+	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await expect(panel.getByRole('alert')).toBeVisible();
+	await expect(panel.locator('[data-project-document]')).toHaveCount(0);
+	expect(await readProjectDocuments(page)).toEqual([]);
+});
+
 async function downloadBuffer(page: Page, action: () => Promise<void>): Promise<Buffer> {
 	const download = page.waitForEvent('download');
 	await action();

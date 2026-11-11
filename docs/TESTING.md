@@ -610,6 +610,14 @@ Run the focused workflow with `npx playwright test e2e/slide-zoom-review.spec.ts
 --project=chromium --workers=1 --retries=0`. Record source revision, environment,
 build hashes, command, fixtures, and results with each report.
 
+A folder import can read and parse an oversized `.mdsh/project.json` before it applies
+the ZIP manifest limit. `src/lib/project-archive.test.ts` keeps the no-read case with a
+fake `File` whose `arrayBuffer()` records a call. The browser suite cannot observe
+whether a real file read occurred. The Chromium case in
+`e2e/project-archive-risks.spec.ts` checks the visible rejection and the absence of a
+stored project. Run `npx vitest run src/lib/project-archive.test.ts --maxWorkers=1` and
+`npx playwright test e2e/project-archive-risks.spec.ts --project=chromium --workers=1 --retries=0 --grep 'oversized folder manifest'`.
+
 Write browser scenarios before implementation. Test the following failures through visible results and downloaded artifacts where possible.
 
 - Old drafts or backups can lose documents during the schema upgrade. Keep a version 1.9 fixture and compare its complete content.

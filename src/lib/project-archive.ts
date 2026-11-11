@@ -51,6 +51,7 @@ interface ParsedProjectManifest {
 const PROJECT_MANIFEST_PATH = '.mdsh/project.json';
 const PROJECT_MANIFEST_FORMAT = 'mdsh-project';
 const PROJECT_MANIFEST_VERSION = 2;
+const PROJECT_MANIFEST_BYTES = 1024 * 1024;
 const DOCUMENT_KINDS = new Set<ProjectDocumentKind>([
 	'note',
 	'presentation',
@@ -282,7 +283,7 @@ export async function readProjectZip(file: File): Promise<ProjectInput> {
 	const manifest = manifestEntry
 		? parseProjectManifest(
 				new TextDecoder('utf-8', { fatal: true }).decode(
-					await readZipEntry(manifestEntry, 1024 * 1024)
+					await readZipEntry(manifestEntry, PROJECT_MANIFEST_BYTES)
 				)
 			)
 		: null;
@@ -329,6 +330,8 @@ export async function readProjectFolder(files: readonly File[]): Promise<Project
 		);
 		return path === PROJECT_MANIFEST_PATH;
 	});
+	if (manifestFile && manifestFile.size > PROJECT_MANIFEST_BYTES)
+		throw new Error('Project manifest size limit');
 	const manifest = manifestFile
 		? parseProjectManifest(
 				new TextDecoder('utf-8', { fatal: true }).decode(await manifestFile.arrayBuffer())

@@ -1,8 +1,30 @@
-import { describe, expect, it } from 'vitest';
-import { buildProjectZip } from './project-archive';
+import { describe, expect, it, vi } from 'vitest';
+import { buildProjectZip, readProjectFolder, readProjectZip } from './project-archive';
 
 const IMAGE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const IMAGE_URL = `data:image/png;base64,${Buffer.from(IMAGE).toString('base64')}`;
+const MANIFEST_LIMIT = 1024 * 1024;
+
+function withArrayBuffer(file: File): File {
+	if (typeof file.arrayBuffer === 'function') return file;
+	Object.defineProperty(file, 'arrayBuffer', {
+		configurable: true,
+		value: () =>
+			new Promise<ArrayBuffer>((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(reader.result as ArrayBuffer);
+				reader.onerror = () => reject(reader.error);
+				reader.readAsArrayBuffer(file);
+			})
+	});
+	return file;
+}
+
+function folderFile(relative: string, content: string | Uint8Array): File {
+	const file = withArrayBuffer(new File([content], relative.split('/').pop()!));
+	Object.defineProperty(file, 'webkitRelativePath', { value: relative });
+	return file;
+}
 
 async function loadArchive(blob: Blob) {
 	const { default: JSZip } = await import('jszip');
@@ -15,6 +37,57 @@ async function loadArchive(blob: Blob) {
 	});
 	return JSZip.loadAsync(bytes);
 }
+
+describe('folder manifest size limit', () => {
+	it('rejects an oversized manifest without reading its bytes', async () => {
+		const manifest = folderFile('workspace/.mdsh/project.json', '');
+		Object.defineProperty(manifest, 'size', { value: MANIFEST_LIMIT + 1 });
+		const read = vi.fn(() => Promise.reject(new Error('the manifest was read')));
+		Object.defineProperty(manifest, 'arrayBuffer', { value: read });
+
+		await expect(
+			readProjectFolder([folderFile('workspace/README.md', '# Doc'), manifest])
+		).rejects.toThrow(/manifest size/i);
+		expect(read).not.toHaveBeenCalled();
+	});
+
+	it('accepts a manifest exactly at the limit', async () => {
+		const base = JSON.stringify({ format: 'mdsh-project', schemaVersion: 1, name: 'Padded' });
+		const text = base + ' '.repeat(MANIFEST_LIMIT - base.length);
+		const input = await readProjectFolder([
+			folderFile('workspace/README.md', '# Doc'),
+			folderFile('workspace/.mdsh/project.json', text)
+		]);
+		expect(input.name).toBe('Padded');
+		expect(input.documents).toHaveLength(1);
+	});
+
+	it('rejects malformed manifest bytes before import', async () => {
+		await expect(
+			readProjectFolder([
+				folderFile('workspace/README.md', '# Doc'),
+				folderFile('workspace/.mdsh/project.json', new Uint8Array([0xff, 0xfe, 0x00]))
+			])
+		).rejects.toThrow();
+		await expect(
+			readProjectFolder([
+				folderFile('workspace/README.md', '# Doc'),
+				folderFile('workspace/.mdsh/project.json', '{"format":')
+			])
+		).rejects.toThrow(/Invalid project manifest/i);
+	});
+
+	it('applies the same manifest limit to a ZIP archive', async () => {
+		const { default: JSZip } = await import('jszip');
+		const zip = new JSZip();
+		zip.file('README.md', '# Doc');
+		zip.file('.mdsh/project.json', ' '.repeat(MANIFEST_LIMIT + 1));
+		const bytes = await zip.generateAsync({ type: 'uint8array' });
+		await expect(
+			readProjectZip(withArrayBuffer(new File([bytes as Uint8Array<ArrayBuffer>], 'oversized.zip')))
+		).rejects.toThrow(/Expanded archive limit/i);
+	});
+});
 
 describe('portable project ZIP binary documents', () => {
 	it('writes the exact bytes of a typed image document without an asset copy', async () => {
