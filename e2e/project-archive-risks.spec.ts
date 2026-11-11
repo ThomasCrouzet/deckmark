@@ -101,22 +101,28 @@ async function downloadBuffer(page: Page, action: () => Promise<void>): Promise<
 async function readProjectDocuments(page: Page) {
 	return page.evaluate(
 		() =>
-			new Promise<Array<{ id: string; content: string; relativePath?: string }>>(
-				(resolve, reject) => {
-					const opening = indexedDB.open('mdsh');
-					opening.onerror = () => reject(opening.error);
-					opening.onsuccess = () => {
-						const request = opening.result.transaction('drafts').objectStore('drafts').getAll();
-						request.onerror = () => reject(request.error);
-						request.onsuccess = () =>
-							resolve(
-								(
-									request.result as Array<{ id: string; content: string; relativePath?: string }>
-								).filter((row) => row.relativePath)
-							);
-					};
-				}
-			)
+			new Promise<
+				Array<{ id: string; content: string; relativePath?: string; kind?: string; mime?: string }>
+			>((resolve, reject) => {
+				const opening = indexedDB.open('mdsh');
+				opening.onerror = () => reject(opening.error);
+				opening.onsuccess = () => {
+					const request = opening.result.transaction('drafts').objectStore('drafts').getAll();
+					request.onerror = () => reject(request.error);
+					request.onsuccess = () =>
+						resolve(
+							(
+								request.result as Array<{
+									id: string;
+									content: string;
+									relativePath?: string;
+									kind?: string;
+									mime?: string;
+								}>
+							).filter((row) => row.relativePath)
+						);
+				};
+			})
 	);
 }
 
@@ -372,4 +378,53 @@ test('keeps reserved wiki characters encoded through rename and reimport', async
 	await page.locator('[data-mode=read]').click();
 	await page.locator('.mdsh-preview a').filter({ hasText: 'Special target' }).click();
 	await expect(page.locator('.mdsh-preview h1')).toHaveText('Special target');
+});
+
+test('keeps an explicit code MIME through project export and reimport', async ({ page }, info) => {
+	const zip = new (await import('jszip')).default();
+	zip.file('README.md', '# Home');
+	zip.file('scripts/build.py', 'print("ok")\n');
+	zip.file(
+		'.mdsh/project.json',
+		JSON.stringify({
+			format: 'mdsh-project',
+			schemaVersion: 2,
+			name: 'MIME project',
+			documents: [{ path: 'scripts/build.py', kind: 'code', mime: 'text/x-python' }]
+		})
+	);
+	let panel = await importArchive(
+		page,
+		await zip.generateAsync({ type: 'nodebuffer' }),
+		'mime-project.zip',
+		info
+	);
+	await expect(
+		panel.getByRole('button', { name: 'Ouvrir scripts/build.py', exact: true })
+	).toBeVisible();
+	const output = await downloadBuffer(page, () =>
+		panel.getByRole('button', { name: 'Exporter le projet', exact: true }).click()
+	);
+	await info.attach('mime-project-output.zip', {
+		body: output,
+		contentType: 'application/zip'
+	});
+	const exported = await (await import('jszip')).default.loadAsync(output);
+	const manifest = JSON.parse(await exported.file('.mdsh/project.json')!.async('string'));
+	expect(manifest.documents).toContainEqual({
+		path: 'scripts/build.py',
+		kind: 'code',
+		mime: 'text/x-python'
+	});
+	expect(await exported.file('scripts/build.py')!.async('string')).toBe('print("ok")\n');
+	await resetAppState(page);
+	panel = await importArchive(page, output, 'mime-project-reimport.zip', info);
+	await expect(
+		panel.getByRole('button', { name: 'Ouvrir scripts/build.py', exact: true })
+	).toBeVisible();
+	expect(
+		(await readProjectDocuments(page)).find(
+			(document) => document.relativePath === 'scripts/build.py'
+		)
+	).toMatchObject({ kind: 'code', mime: 'text/x-python', content: 'print("ok")\n' });
 });

@@ -188,6 +188,7 @@ export async function exportProject(projectId: string): Promise<boolean> {
 			relativePath: doc.relativePath!,
 			content: doc.content,
 			...(doc.kind ? { kind: doc.kind } : {}),
+			...(doc.mime ? { mime: doc.mime } : {}),
 			...(doc.data ? { data: doc.data } : {})
 		})),
 		snapshot.assets

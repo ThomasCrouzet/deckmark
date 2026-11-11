@@ -68,6 +68,23 @@ const DOCUMENT_KINDS = new Set<ProjectDocumentKind>([
 	'image',
 	'pdf'
 ]);
+// Media type with optional parameters. Control characters and spaces outside a
+// parameter separator are refused before the value reaches the manifest.
+const PROJECT_MIME_PATTERN =
+	/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(?:\s*;\s*[a-z0-9!#$&^_.+-]+=[a-z0-9!#$&^_.+-]+)*$/i;
+
+/** Validates a retained document MIME. An absent value keeps the default. */
+function projectMime(value: unknown): string | undefined {
+	if (value === undefined) return undefined;
+	if (
+		typeof value !== 'string' ||
+		value.length === 0 ||
+		value.length > 200 ||
+		!PROJECT_MIME_PATTERN.test(value)
+	)
+		throw new Error('Invalid project document type');
+	return value;
+}
 
 function isBinaryKind(kind: ProjectDocumentKind): boolean {
 	return kind === 'image' || kind === 'pdf';
@@ -112,19 +129,19 @@ function parseProjectManifest(text: string): ParsedProjectManifest {
 			if (path.startsWith('.mdsh/')) throw new Error('Reserved project path');
 			const kind = entry.kind as ProjectDocumentKind;
 			if (!DOCUMENT_KINDS.has(kind)) throw new Error('Invalid project document kind');
+			const mime = projectMime(entry.mime);
 			const key = pathKey(path);
 			if (documents.has(key)) throw new Error('Duplicate project document path');
 			if (isBinaryKind(kind)) {
-				if (typeof entry.mime !== 'string' || entry.mime.length === 0)
-					throw new Error('Missing project document type');
-				if (kind === 'pdf' && entry.mime !== 'application/pdf')
+				if (!mime) throw new Error('Missing project document type');
+				if (kind === 'pdf' && mime !== 'application/pdf')
 					throw new Error('Project PDF type does not match');
-				if (kind === 'image' && !entry.mime.startsWith('image/'))
+				if (kind === 'image' && !mime.startsWith('image/'))
 					throw new Error('Project image type does not match');
 			}
 			documents.set(key, {
 				kind,
-				...(typeof entry.mime === 'string' ? { mime: entry.mime } : {})
+				...(mime ? { mime } : {})
 			});
 		}
 	}
@@ -466,6 +483,7 @@ export async function buildProjectZip(
 		const documentKey = pathKey(documentPath);
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
+		const documentMime = projectMime(document.mime);
 		const typeInfo = { ...document, name: documentPath };
 		const kind = documentKindForFile(typeInfo);
 		if (isBinaryDocument(typeInfo)) {
@@ -562,7 +580,11 @@ export async function buildProjectZip(
 			content,
 			kind
 		});
-		manifestDocuments.push({ path: documentPath, kind });
+		manifestDocuments.push({
+			path: documentPath,
+			kind,
+			...(documentMime ? { mime: documentMime } : {})
+		});
 		zip.file(documentPath, content, entryOptions);
 	}
 	for (const asset of exportedAssets.values())

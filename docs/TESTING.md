@@ -628,6 +628,14 @@ legacy manifest key. Run
 project workflows in `e2e/binary-review.spec.ts` and `e2e/project-archive-risks.spec.ts`
 still prove binary bytes and archive import through the application.
 
+A portable project manifest can carry a MIME value for a text or code document.
+`src/lib/projects.test.ts` keeps the direct `buildProjectZip` to `readProjectZip`
+path, the manifest value, a malformed value and the schema 1 default. The browser
+workflow in `e2e/project-archive-risks.spec.ts` checks the user-facing import, export
+and reimport. Run `npx vitest run src/lib/projects.test.ts --maxWorkers=1` and
+`npx playwright test e2e/project-archive-risks.spec.ts --project=chromium --workers=1 --retries=0 --grep 'explicit code MIME'`.
+A ZIP manifest check alone cannot show that the durable row keeps the value.
+
 Write browser scenarios before implementation. Test the following failures through visible results and downloaded artifacts where possible.
 
 - Old drafts or backups can lose documents during the schema upgrade. Keep a version 1.9 fixture and compare its complete content.

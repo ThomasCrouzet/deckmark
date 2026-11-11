@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from './db';
-import { addProjectImage, createProject, createProjectDocument } from './projects';
+import { addProjectImage, createProject, createProjectDocument, importProject } from './projects';
+import { buildProjectZip, readProjectZip } from './project-archive';
 
 const PNG_BYTES = Uint8Array.from(
 	atob(
@@ -97,5 +98,90 @@ describe('project image assets', () => {
 		const assets = await db.projectAssets.where('projectId').equals(project.id).toArray();
 		expect(assets).toHaveLength(2);
 		expect(assets.every((asset) => asset.data.byteLength === PNG_BYTES.byteLength)).toBe(true);
+	});
+});
+
+function readBlob(blob: Blob): Promise<ArrayBuffer> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(reader.result as ArrayBuffer);
+		reader.onerror = () => reject(reader.error);
+		reader.readAsArrayBuffer(blob);
+	});
+}
+
+async function zipFile(blob: Blob): Promise<File> {
+	const file = new File([await readBlob(blob)], 'project.zip', { type: 'application/zip' });
+	Object.defineProperty(file, 'arrayBuffer', {
+		configurable: true,
+		value: () => readBlob(file)
+	});
+	return file;
+}
+
+describe('portable project metadata', () => {
+	it('keeps an explicit code MIME through ZIP export and import', async () => {
+		const blob = await buildProjectZip(
+			'Project',
+			[
+				{ relativePath: 'README.md', content: '# Readme\n' },
+				{
+					relativePath: 'scripts/build.py',
+					content: 'print("ok")\n',
+					kind: 'code',
+					mime: 'text/x-python'
+				}
+			],
+			[]
+		);
+		const project = await importProject(await readProjectZip(await zipFile(blob)));
+		const rows = await db.drafts.where('projectId').equals(project.id).toArray();
+		expect(rows.find((row) => row.relativePath === 'scripts/build.py')).toMatchObject({
+			kind: 'code',
+			mime: 'text/x-python',
+			content: 'print("ok")\n'
+		});
+	});
+
+	it('writes the MIME in the portable manifest', async () => {
+		const blob = await buildProjectZip(
+			'Project',
+			[
+				{ relativePath: 'README.md', content: '# Readme\n' },
+				{ relativePath: 'query.sql', content: 'select 1;\n', kind: 'code', mime: 'text/x-sql' }
+			],
+			[]
+		);
+		const { default: JSZip } = await import('jszip');
+		const zip = await JSZip.loadAsync(await readBlob(blob));
+		const manifest = JSON.parse(await zip.file('.mdsh/project.json')!.async('string'));
+		expect(manifest.schemaVersion).toBe(2);
+		expect(manifest.documents).toContainEqual({
+			path: 'query.sql',
+			kind: 'code',
+			mime: 'text/x-sql'
+		});
+	});
+
+	it('rejects a malformed document MIME before creating an archive', async () => {
+		await expect(
+			buildProjectZip(
+				'Project',
+				[{ relativePath: 'a.py', content: 'x', kind: 'code', mime: 'text plain' }],
+				[]
+			)
+		).rejects.toThrow(/Project document type/i);
+	});
+
+	it('imports a project without MIME using the existing defaults', async () => {
+		const blob = await buildProjectZip(
+			'Project',
+			[{ relativePath: 'README.md', content: '# A' }],
+			[]
+		);
+		const project = await importProject(await readProjectZip(await zipFile(blob)));
+		const row = await db.drafts.where('projectId').equals(project.id).first();
+		expect(row).toMatchObject({ relativePath: 'README.md' });
+		expect(row?.mime).toBeUndefined();
 	});
 });
