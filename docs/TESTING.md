@@ -225,6 +225,30 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Presentation visual-viewport movement
+
+An open software keyboard can move the visual viewport without a window resize.
+The presentation editor must recompute focused-control visibility from the
+viewport size and offset on `visualViewport.resize` and
+`visualViewport.scroll`. A scroll-only change must not leave a stale height or
+scroll target. Repeated events at the same offset must not move the editor
+again, and closing or changing the presentation must remove both listeners.
+
+`e2e/presentation-visual-viewport.spec.ts` installs a test-only VisualViewport
+target before the application starts. It changes `offsetTop` at a constant
+`height`, dispatches only `scroll`, and checks the editor height, the focused
+field bounds, a stable second event and listener teardown. Run:
+
+```sh
+npx playwright test e2e/presentation-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/presentation-visual-viewport.spec.ts --project=mobile-chromium --workers=1 --retries=0
+```
+
+This simulates the event and the geometry. It does not reproduce an operating
+system keyboard, a WebKit visual viewport or a physical display. A device check
+must still enter text in a slide and in the presenter notes, move the page, and
+confirm that the field, caret and saved source remain correct.
+
 ## Presentation thumbnail retention
 
 An intersection callback can mount a thumbnail once and retain its rich subtree

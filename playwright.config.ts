@@ -70,6 +70,7 @@ export default defineConfig({
 				'**/mobile.spec.ts',
 				'**/presentation-mobile.spec.ts',
 				'**/presentation-responsive-tasks.spec.ts',
+				'**/presentation-visual-viewport.spec.ts',
 				'**/safe-area.spec.ts'
 			]
 		},

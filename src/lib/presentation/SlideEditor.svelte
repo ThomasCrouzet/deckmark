@@ -378,6 +378,9 @@
 		if (root) resizeObserver.observe(root);
 		window.addEventListener('resize', keepFocusedControlVisible);
 		visualViewport?.addEventListener('resize', keepFocusedControlVisible);
+		// Mobile browser chrome and an open keyboard can move the visual viewport
+		// without a resize. Recompute from both the viewport size and offset.
+		visualViewport?.addEventListener('scroll', keepFocusedControlVisible);
 		root?.addEventListener('focusin', keepFocusedControlVisible);
 		root?.addEventListener('focusout', keepFocusedControlVisible);
 		return () => {
@@ -392,6 +395,7 @@
 			resizeObserver.disconnect();
 			window.removeEventListener('resize', keepFocusedControlVisible);
 			visualViewport?.removeEventListener('resize', keepFocusedControlVisible);
+			visualViewport?.removeEventListener('scroll', keepFocusedControlVisible);
 			root?.removeEventListener('focusin', keepFocusedControlVisible);
 			root?.removeEventListener('focusout', keepFocusedControlVisible);
 			if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
