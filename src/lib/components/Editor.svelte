@@ -491,6 +491,7 @@
 			blockConfirmButton: t('prompt.confirm'),
 			inlineConfirmButton: t('prompt.confirm'),
 			proxyDomURL: async (source: string) => {
+				recordEditorCounter('imageProxyCall');
 				const { projectContextFor, projectImageSource } = await import('#lib/project-media.js');
 				try {
 					return (

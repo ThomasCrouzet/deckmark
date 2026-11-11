@@ -1,5 +1,6 @@
 import { applyRemoteImagePolicy, sanitizeHtml } from './sanitize-html';
 import { abortable, checkAborted } from '../abort';
+import { recordEditorCounter } from '../editor-perf';
 import { MAX_IMAGE_BYTES } from '../config';
 export { MAX_IMAGE_BYTES } from '../config';
 
@@ -204,6 +205,7 @@ async function readDimensions(
 	try {
 		if (typeof createImageBitmap === 'function') {
 			// WebKit can display SVG while its bitmap decoder rejects that format.
+			recordEditorCounter('imageBitmapDecode');
 			const bitmap = await createImageBitmap(blob).catch(() => null);
 			if (bitmap) {
 				const dimensions = { width: bitmap.width, height: bitmap.height };
@@ -212,6 +214,7 @@ async function readDimensions(
 				throw new Error('The decoded image has no pixels');
 			}
 		}
+		recordEditorCounter('imageElementDecode');
 		const image = new Image();
 		image.decoding = 'async';
 		image.referrerPolicy = 'no-referrer';

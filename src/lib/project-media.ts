@@ -85,6 +85,17 @@ export function projectMediaCacheStats(): ProjectMediaCacheStats {
 	};
 }
 
+if (typeof window !== 'undefined') {
+	(
+		window as unknown as {
+			__MDSH_PROJECT_MEDIA__?: {
+				stats: typeof projectMediaCacheStats;
+				reset: typeof resetProjectMediaStats;
+			};
+		}
+	).__MDSH_PROJECT_MEDIA__ = { stats: projectMediaCacheStats, reset: resetProjectMediaStats };
+}
+
 /** Resets the IO counters without dropping valid cached media. */
 export function resetProjectMediaStats(): void {
 	for (const key of Object.keys(stats) as (keyof typeof stats)[]) stats[key] = 0;

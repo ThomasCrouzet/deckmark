@@ -35,6 +35,29 @@ an unchanged top-level block must not be serialized after a local edit. Browser
 export checks establish source bytes but do not identify that internal work.
 Use the browser source-fidelity corpus for actual Milkdown serialization.
 
+## Image-rich rendered input risks
+
+Keep the image-heavy typing attribution independent from the text-only latency
+cases. The measured risks are a decoded bitmap that grows without a bound, a
+project image that is read and hashed again for an unchanged source, a NodeView
+update that resolves the proxy again, a resize callback loop, a late fetch
+policy write that restarts a load, and layout work that moves scroll anchors.
+Compare a text-only control with 1, 4 and 12 images at equal text size, a
+near-limit pixel image with small encoded bytes, and project-linked assets.
+Record p50 and p95 input-to-second-frame time, engine long tasks, image proxy
+calls, project media reads, decodes and the saved Markdown bytes.
+
+Run:
+
+```sh
+E2E_PORT=4395 npx playwright test e2e/image-input-latency.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The spec attaches `image-input-latency.json` with the fixture hash, image sizes,
+raw samples, counters and the browser version, plus `saved-note.md`. The WebKit
+project runs the same scenarios. A Chromium and WebKit result does not cover a
+native WebView, a physical display or a thermal state.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading
