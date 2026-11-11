@@ -22,23 +22,80 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# Container jobs use the image shell. Keep bash for every run step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   ci-tier:
+    # One policy job. It reads the tier and the change class, resolves the
+    # pinned Playwright image, and defines the shard count once. Every heavy
+    # job reads these outputs. A failed step fails the job, so a missing
+    # output can never select the cheap route.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       full: ${{ steps.tier.outputs.full }}
       tier: ${{ steps.tier.outputs.tier }}
+      class: ${{ steps.changes.outputs.class }}
+      class_reason: ${{ steps.changes.outputs.reason }}
+      image: ${{ steps.image.outputs.image }}
+      playwright: ${{ steps.image.outputs.playwright }}
+      shard_count: ${{ steps.shards.outputs.count }}
+      shard_matrix: ${{ steps.shards.outputs.shards }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The change class compares two commits. Trees are enough for a name
+          # diff, so the clone skips file contents.
+          fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .node-version
+
       - name: Classify CI tier
         id: tier
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: node scripts/ci-tier.mjs --event-name "$EVENT_NAME" --event "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Classify the change set
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = 'pull_request' ]; then
+            # Compare the base and head commits of this pull request.
+            # Disable rename detection so the deleted source path stays in the
+            # set. A rename from a test or source tree into docs/ must not
+            # select the documentation-only route.
+            git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" \
+              | node scripts/ci-changes.mjs --event-name "$EVENT_NAME" >> "$GITHUB_OUTPUT"
+          else
+            # Every other event selects full validation.
+            node scripts/ci-changes.mjs --event-name "$EVENT_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve the pinned Playwright image
+        id: image
+        run: |
+          image="$(node scripts/ci-playwright-image.mjs)"
+          playwright="$(node -p "require('./package.json').devDependencies['@playwright/test']")"
+          printf 'image=%s\nplaywright=%s\n' "$image" "$playwright" >> "$GITHUB_OUTPUT"
+
+      - name: Define the shard count
+        id: shards
+        run: |
+          echo 'shards=[1,2,3,4,5,6,7,8]' >> "$GITHUB_OUTPUT"
+          echo 'count=8' >> "$GITHUB_OUTPUT"
 
   pages-config:
     # Read the real Pages configuration before the build.
@@ -91,14 +148,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
@@ -116,14 +173,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
@@ -143,19 +200,21 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
-      - name: Isolated failure tests and diagnostic coverage
-        run: npm run test:coverage
+      # The same isolated failure tests run on every tier and every class.
+      # No workflow step reads a coverage report, so the run does not write one.
+      - name: Isolated failure tests
+        run: npm test
 
   check:
     # Keep the required check name after the fast checks run in parallel.
@@ -178,8 +237,12 @@ jobs:
     # Build one instrumented app for every browser shard. Each shard verifies
     # this artifact against its source and inputs before it starts the preview
     # server. The source-fidelity instrumentation is a distinct build input.
+    # A documentation-only pull request changes no build input, so the browser
+    # route is not applicable there.
     needs: [ci-tier]
-    if: needs.ci-tier.outputs.full == 'true'
+    if: >-
+      needs.ci-tier.outputs.full == 'true' &&
+      needs.ci-tier.outputs.class == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -191,7 +254,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
       - name: Cache node_modules
@@ -199,7 +262,7 @@ jobs:
         id: cache-nm
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
@@ -223,33 +286,30 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  e2e-config:
-    # One source for the shard count. The matrix, the planner, the list
-    # loop and the partition check read these outputs.
-    needs: [ci-tier]
-    if: needs.ci-tier.outputs.full == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      shards: ${{ steps.config.outputs.shards }}
-      count: ${{ steps.config.outputs.count }}
-    steps:
-      - name: Define the shard count
-        id: config
-        run: |
-          echo 'shards=[1,2,3,4,5,6,7,8]' >> "$GITHUB_OUTPUT"
-          echo 'count=8' >> "$GITHUB_OUTPUT"
-
   e2e-shard:
-    # E2E uses one verified instrumented build. The shards still check out the
-    # source, install dependencies and browsers, then verify the artifact.
-    needs: [ci-tier, e2e-build, e2e-config]
-    if: needs.ci-tier.outputs.full == 'true'
+    # Each shard runs in the pinned Playwright container. The image supplies the
+    # browsers and their system libraries, so the job does not run APT. The
+    # shard still checks out the source, installs the project dependencies and
+    # verifies the artifact before it runs a test.
+    needs: [ci-tier, e2e-build]
+    if: >-
+      needs.ci-tier.outputs.full == 'true' &&
+      needs.ci-tier.outputs.class == 'full'
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.ci-tier.outputs.image }}
+      # Keep one identity for checkout, cache and provenance.
+      options: --user root
+    # Firefox refuses to start when $HOME is not owned by the user that runs it.
+    # The image HOME is not root-owned, so use one root HOME for checkout, cache,
+    # provenance and every browser in this job.
+    env:
+      HOME: /root
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.e2e-config.outputs.shards) }}
+        # The policy job defines the shard count. No other job defines it.
+        shard: ${{ fromJSON(needs.ci-tier.outputs.shard_matrix) }}
     # Each shard retains one worker and the complete browser project selection.
     # Eight shards reduce the critical path without increasing the worker count
     # on one runner. The shard check compares the local report with the expected
@@ -262,49 +322,54 @@ jobs:
         with:
           persist-credentials: false
 
+      # The image bundles Node.js, but the project pins its own version.
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      # §A4.1 - Cache extracted node_modules. setup-node@v5 cache: npm covers ~/.npm tarballs only.
-      # Extraction takes about 10-15 seconds per job across four jobs.
-      # A node_modules cache hit restores files in about 2 seconds.
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
 
-      # Cache Playwright browsers in ~/.cache/ms-playwright to avoid repeated downloads (about 150 MB for Chromium and WebKit).
-      # Use the lockfile in the cache key because it fixes the @playwright/test version.
-      # On a cache hit, install only system dependencies through apt.
-      - name: Cache Playwright browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: cache-pw
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
-      - name: Configure Ubuntu APT
-        run: bash .github/scripts/configure-ubuntu-apt.sh
-
-      - name: Install Playwright browsers (+ system dependencies)
-        if: steps.cache-pw.outputs.cache-hit != 'true'
-        # The Ubuntu apt mirror can be slow on a shared runner.
-        timeout-minutes: 20
-        run: npx playwright install --with-deps chromium firefox webkit
-
-      - name: Install Playwright system dependencies (cache hit)
-        if: steps.cache-pw.outputs.cache-hit == 'true'
-        timeout-minutes: 20
-        run: npx playwright install-deps chromium firefox webkit
+      # Fail closed before any test when the container does not match the pin.
+      - name: Verify the pinned browser environment
+        env:
+          EXPECTED_PLAYWRIGHT: ${{ needs.ci-tier.outputs.playwright }}
+        run: |
+          set -euo pipefail
+          expected_node="$(tr -d '[:space:]' < .node-version)"
+          actual_node="$(node -p 'process.versions.node')"
+          case "$actual_node" in
+            "$expected_node" | "$expected_node".*) ;;
+            *)
+              echo "::error::Node $actual_node does not satisfy .node-version $expected_node."
+              exit 1
+              ;;
+          esac
+          test -n "$HOME" && test -w "$HOME"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test -n "${PLAYWRIGHT_BROWSERS_PATH:-}"
+          test -d "$PLAYWRIGHT_BROWSERS_PATH"
+          actual_playwright="$(npx --no-install playwright --version | awk '{print $2}')"
+          if [ "$actual_playwright" != "$EXPECTED_PLAYWRIGHT" ]; then
+            echo "::error::Playwright $actual_playwright does not match the pinned $EXPECTED_PLAYWRIGHT."
+            exit 1
+          fi
+          for browser in chromium firefox webkit; do
+            if ! compgen -G "$PLAYWRIGHT_BROWSERS_PATH/$browser-*" > /dev/null; then
+              echo "::error::The pinned image has no $browser browser."
+              exit 1
+            fi
+          done
 
       - name: Download verified test build
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -326,7 +391,7 @@ jobs:
           node scripts/e2e-shards.mjs plan --list "$RUNNER_TEMP/all-tests.json" --weights scripts/e2e-shard-weights.json --shards "$SHARD_COUNT" --out "$RUNNER_TEMP/e2e-plan"
         env:
           E2E_PREBUILT: '1'
-          SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
+          SHARD_COUNT: ${{ needs.ci-tier.outputs.shard_count }}
 
       - name: List the expected shard tests
         run: npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --test-list="$RUNNER_TEMP/e2e-plan/shard-$SHARD.list" --reporter=json > "$RUNNER_TEMP/expected-shard.json"
@@ -334,7 +399,7 @@ jobs:
           E2E_PREBUILT: '1'
           E2E_SHARD_META: ${{ runner.temp }}/e2e-plan/shard-${{ matrix.shard }}.meta.json
           SHARD: ${{ matrix.shard }}
-          SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
+          SHARD_COUNT: ${{ needs.ci-tier.outputs.shard_count }}
 
       - name: E2E tests (without visual snapshots)
         run: xvfb-run -a npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --test-list="$RUNNER_TEMP/e2e-plan/shard-$SHARD.list"
@@ -342,7 +407,7 @@ jobs:
           E2E_PREBUILT: '1'
           E2E_SHARD_META: ${{ runner.temp }}/e2e-plan/shard-${{ matrix.shard }}.meta.json
           SHARD: ${{ matrix.shard }}
-          SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
+          SHARD_COUNT: ${{ needs.ci-tier.outputs.shard_count }}
 
       - name: Check the shard manifest
         if: always()
@@ -352,9 +417,18 @@ jobs:
     # Prove that the shard lists partition the full test list. Every list stays
     # on this runner. No report is uploaded or archived on GitHub. This job
     # proves the partition, not execution; each shard proves its own execution.
-    needs: [ci-tier, e2e-config]
-    if: needs.ci-tier.outputs.full == 'true'
+    needs: [ci-tier]
+    if: >-
+      needs.ci-tier.outputs.full == 'true' &&
+      needs.ci-tier.outputs.class == 'full'
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.ci-tier.outputs.image }}
+      options: --user root
+    # Use the same root HOME as the shard job. Playwright and the browser need
+    # a HOME that the container user owns.
+    env:
+      HOME: /root
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -364,21 +438,26 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
+      # actions/checkout writes safe.directory under a temporary HOME. The steps
+      # below use the job HOME, so trust the workspace there. Git also needs this
+      # entry when the checkout owner differs from the container user.
+      - name: Trust the checked-out workspace for Git provenance
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: List the full test set and every shard
         env:
           E2E_PREBUILT: '1'
-          SHARD_COUNT: ${{ needs.e2e-config.outputs.count }}
+          SHARD_COUNT: ${{ needs.ci-tier.outputs.shard_count }}
         run: |
           npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --reporter=json > "$RUNNER_TEMP/all-tests.json"
           node scripts/e2e-shards.mjs plan --list "$RUNNER_TEMP/all-tests.json" --weights scripts/e2e-shard-weights.json --shards "$SHARD_COUNT" --out "$RUNNER_TEMP/e2e-plan"
@@ -400,6 +479,8 @@ jobs:
           TIER_RESULT: ${{ needs.ci-tier.result }}
           FULL: ${{ needs.ci-tier.outputs.full }}
           TIER: ${{ needs.ci-tier.outputs.tier }}
+          CLASS: ${{ needs.ci-tier.outputs.class }}
+          CLASS_REASON: ${{ needs.ci-tier.outputs.class_reason }}
           BUILD_RESULT: ${{ needs.e2e-build.result }}
           SHARD_RESULT: ${{ needs.e2e-shard.result }}
           MANIFEST_RESULT: ${{ needs.e2e-manifest.result }}
@@ -410,9 +491,41 @@ jobs:
             echo 'Mark the pull request ready for review to validate the final head.' >&2
             exit 1
           fi
-          test "$BUILD_RESULT" = success
-          test "$SHARD_RESULT" = success
-          test "$MANIFEST_RESULT" = success
+          case "$CLASS" in
+            docs)
+              # A documentation-only class is the only accepted not-applicable
+              # result. The reason proves the allowlist matched, and the heavy
+              # jobs must be skipped, not run and ignored.
+              case "$CLASS_REASON" in
+                docs-only:*) ;;
+                *)
+                  echo 'The change class has no valid documentation reason. This is not a pass.' >&2
+                  exit 1
+                  ;;
+              esac
+              test "$BUILD_RESULT" = skipped
+              test "$SHARD_RESULT" = skipped
+              test "$MANIFEST_RESULT" = skipped
+              echo 'Documentation-only change: the browser matrix is not applicable.'
+              echo 'The fast correctness tier, both production builds and Lighthouse still ran.'
+              ;;
+            full)
+              case "$CLASS_REASON" in
+                full:* | event:*) ;;
+                *)
+                  echo 'The full class has no valid classifier reason. This is not a pass.' >&2
+                  exit 1
+                  ;;
+              esac
+              test "$BUILD_RESULT" = success
+              test "$SHARD_RESULT" = success
+              test "$MANIFEST_RESULT" = success
+              ;;
+            *)
+              echo 'The change class is missing or unknown. This is not a pass.' >&2
+              exit 1
+              ;;
+          esac
 
   build:
     # The build starts as soon as the Pages paths are known. It does not wait
@@ -441,18 +554,15 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      # §A4.1 - Cache extracted node_modules. setup-node@v5 cache: npm covers ~/.npm tarballs only.
-      # Extraction takes about 10-15 seconds per job across four jobs.
-      # A node_modules cache hit restores files in about 2 seconds.
       - name: Cache node_modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-nm
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
@@ -541,7 +651,10 @@ jobs:
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
 
   deploy-cloudflare:
-    needs: [build, e2e, lighthouse, deploy]
+    # The mirror deploys in parallel with Pages. It keeps the same fast-check,
+    # build, browser and Lighthouse gates. The final verification waits for
+    # both origins, so one stale origin still fails the run.
+    needs: [check, build, e2e, lighthouse]
     if: >-
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main'
@@ -578,6 +691,8 @@ jobs:
           command: pages deploy build --project-name=deckmark --branch=main --commit-hash=${{ github.sha }}
 
   verify-public:
+    # Both origins must serve the expected source. A missing origin result or a
+    # stale origin fails the run.
     needs: [deploy, deploy-cloudflare]
     uses: ./.github/workflows/verify-deployment.yml
     with:

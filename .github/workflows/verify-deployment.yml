@@ -10,9 +10,52 @@ on:
 permissions:
   contents: read
 
+# The verification job runs in the pinned Playwright container. Keep bash for
+# every run step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  browser:
+  resolve-image:
+    # Resolve the image from the expected source. A pin that does not match the
+    # installed Playwright version fails here, before any browser runs.
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      playwright: ${{ steps.image.outputs.playwright }}
+    steps:
+      - name: Checkout the expected source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .node-version
+
+      - name: Resolve the pinned Playwright image
+        id: image
+        run: |
+          image="$(node scripts/ci-playwright-image.mjs)"
+          playwright="$(node -p "require('./package.json').devDependencies['@playwright/test']")"
+          printf 'image=%s\nplaywright=%s\n' "$image" "$playwright" >> "$GITHUB_OUTPUT"
+
+  browser:
+    needs: [resolve-image]
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.resolve-image.outputs.image }}
+      # Keep one identity and one HOME for checkout, cache and the browser.
+      options: --user root
+    # Firefox refuses to start when $HOME is not owned by the user that runs it.
+    # The image HOME is not root-owned, so use one root HOME for checkout, cache
+    # and the browser.
+    env:
+      HOME: /root
     timeout-minutes: 15
     steps:
       - name: Checkout the expected source
@@ -24,7 +67,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
       - name: Cache node_modules
@@ -32,24 +75,44 @@ jobs:
         id: cache-nm
         with:
           path: node_modules
-          key: nm-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      # Fail closed before the public check when the container does not match
+      # the pin or cannot reach a browser.
+      - name: Verify the pinned browser environment
+        env:
+          EXPECTED_PLAYWRIGHT: ${{ needs.resolve-image.outputs.playwright }}
+        run: |
+          set -euo pipefail
+          expected_node="$(tr -d '[:space:]' < .node-version)"
+          actual_node="$(node -p 'process.versions.node')"
+          case "$actual_node" in
+            "$expected_node" | "$expected_node".*) ;;
+            *)
+              echo "::error::Node $actual_node does not satisfy .node-version $expected_node."
+              exit 1
+              ;;
+          esac
+          test -n "$HOME" && test -w "$HOME"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test -n "${PLAYWRIGHT_BROWSERS_PATH:-}"
+          test -d "$PLAYWRIGHT_BROWSERS_PATH"
+          actual_playwright="$(npx --no-install playwright --version | awk '{print $2}')"
+          if [ "$actual_playwright" != "$EXPECTED_PLAYWRIGHT" ]; then
+            echo "::error::Playwright $actual_playwright does not match the pinned $EXPECTED_PLAYWRIGHT."
+            exit 1
+          fi
+          if ! compgen -G "$PLAYWRIGHT_BROWSERS_PATH/chromium-*" > /dev/null; then
+            echo '::error::The pinned image has no Chromium browser.'
+            exit 1
+          fi
 
-      - name: Configure Ubuntu APT
-        run: bash .github/scripts/configure-ubuntu-apt.sh
-
-      - name: Install Chromium and system dependencies
-        run: npx playwright install --with-deps chromium
-
+      # Both origins are checked in one run. A missing, stale or redirected
+      # origin fails the check.
       - name: Verify both public origins
         run: npx playwright test --config=playwright.production.config.ts
         env:

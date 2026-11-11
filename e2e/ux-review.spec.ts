@@ -105,7 +105,11 @@ for (const locale of ['en', 'fr'] as const) {
 			}, baseURL);
 			for (const action of ['welcome-new', 'welcome-import', 'welcome-demo']) {
 				const button = zoomPage.getByTestId(action);
-				await button.scrollIntoViewIfNeeded();
+				// Centre the control so a scroll offset snapped to the device pixel grid
+				// cannot leave a sub-pixel overhang outside the scrollport.
+				await button.evaluate((element) =>
+					element.scrollIntoView({ block: 'center', inline: 'nearest' })
+				);
 				const bounds = await button.evaluate((element) => {
 					const box = element.getBoundingClientRect();
 					const shell = element.closest('.welcome-shell')!.getBoundingClientRect();
