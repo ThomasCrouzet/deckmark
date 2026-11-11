@@ -365,11 +365,11 @@ of the same report with 100 ms input-to-frame fails every case with
 `over-budget`; the unmodified report passes the strict audit with an external
 receipt. These local results do not replace a CI baseline or a native measurement.
 
-Parent review must still approve the limits, full native adapters, the remaining
-modes and CI workload selection before #327 can close. Read, slide text and slide
-notes now have the mode suite above. WYSIWYG, annotation, slide canvas and
-Advanced Presentation Source have no stress adapter. Native mode transport is
-also absent. This delivery does not change release workflows or claim full
+The limits, the available native adapters, the mode suite and CI workload
+selection were accepted, and #327 closed on 2026-11-10. Read, slide text and
+slide notes have the mode suite above. WYSIWYG, annotation, slide canvas and
+Advanced Presentation Source still have no stress adapter. Native mode transport
+is also absent. This delivery does not change release workflows or claim full
 cross-mode CI. Do not copy debug native limits into a release profile or
 auto-raise a limit.
 
