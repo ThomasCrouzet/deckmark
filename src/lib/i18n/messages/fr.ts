@@ -387,6 +387,7 @@ export const fr: Record<MessageKey, string> = {
 		"Les phrases secrètes ne correspondent pas. Aucune sauvegarde n'a été créée.",
 	'page.exitFocusMode': 'Quitter le mode focus',
 	'palette.showMore': 'Afficher {n} commandes de plus',
+	'palette.moreShown': '{shown} commandes affichées sur {total}.',
 	'palette.commandIndex': 'Commandes',
 	'palette.availableCount': '{n} disponibles',
 	'palette.requiresDocument': 'Ouvre un document pour utiliser cette commande.',
