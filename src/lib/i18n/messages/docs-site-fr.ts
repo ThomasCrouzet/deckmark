@@ -34,6 +34,8 @@ export const docsSiteFr: Record<DocsSiteMessageKey, string> = {
 	'docsSite.severity.error': 'Erreur',
 	'docsSite.severity.warning': 'Avertissement',
 	'docsSite.issue.anchor-missing': 'Ancre absente « {target} ».',
+	'docsSite.issue.document-renamed':
+		'Le document « {target} » est publié avec le suffixe .txt pour que le site ne puisse pas l’exécuter.',
 	'docsSite.issue.document-skipped':
 		'Le document « {target} » n’est pas une page Markdown et n’est pas inclus.',
 	'docsSite.issue.image-external':
