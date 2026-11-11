@@ -103,6 +103,20 @@ npm run test:e2e -- e2e/presentation-performance.spec.ts --project=chromium --wo
 Retain `presentation-cache-bounds.json` with the fixture hash, browser, command and
 cache counters.
 
+## Presentation connector endpoint lookup
+
+A dense slide with linked connectors must not scan every element for each
+connector endpoint. The browser suite checks visible connector geometry. It
+cannot count the element reads behind one render pass, so it cannot detect a
+return to a full slide scan per connector. `render-connectors.test.ts` keeps that
+bound. It checks one endpoint index per render pass, a linear id-read count, the
+connected and missing endpoint fallback, duplicate ids, and a geometry change
+after the index is built. The same file records a 4,000-element,
+2,000-connector render benchmark.
+
+Run `npx vitest run src/lib/presentation/render-connectors.test.ts --maxWorkers=1`.
+The read count and timings are local diagnostics, not a CI latency budget.
+
 ## Large presentation source risks
 
 Decks above 512 KiB open their Advanced source in a lazily loaded CodeMirror
