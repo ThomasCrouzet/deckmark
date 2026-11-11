@@ -610,6 +610,32 @@ Run the focused workflow with `npx playwright test e2e/slide-zoom-review.spec.ts
 --project=chromium --workers=1 --retries=0`. Record source revision, environment,
 build hashes, command, fixtures, and results with each report.
 
+A folder import can read and parse an oversized `.mdsh/project.json` before it applies
+the ZIP manifest limit. `src/lib/project-archive.test.ts` keeps the no-read case with a
+fake `File` whose `arrayBuffer()` records a call. The browser suite cannot observe
+whether a real file read occurred. The Chromium case in
+`e2e/project-archive-risks.spec.ts` checks the visible rejection and the absence of a
+stored project. Run `npx vitest run src/lib/project-archive.test.ts --maxWorkers=1` and
+`npx playwright test e2e/project-archive-risks.spec.ts --project=chromium --workers=1 --retries=0 --grep 'oversized folder manifest'`.
+
+A typed image or PDF document stores its bytes in `data` with an empty `content`.
+A project capacity check that sums only `content` omits those bytes and can accept a
+project that later fails portable export. `src/lib/project-transfer-capacity.test.ts`
+keeps the occupancy, legacy manifest fallback, import, Create Document and manifest
+projection cases. A browser workflow cannot fill a 64 MiB project cheaply or forge a
+legacy manifest key. Run
+`npx vitest run src/lib/project-transfer-capacity.test.ts --maxWorkers=1`. The portable
+project workflows in `e2e/binary-review.spec.ts` and `e2e/project-archive-risks.spec.ts`
+still prove binary bytes and archive import through the application.
+
+A portable project manifest can carry a MIME value for a text or code document.
+`src/lib/projects.test.ts` keeps the direct `buildProjectZip` to `readProjectZip`
+path, the manifest value, a malformed value and the schema 1 default. The browser
+workflow in `e2e/project-archive-risks.spec.ts` checks the user-facing import, export
+and reimport. Run `npx vitest run src/lib/projects.test.ts --maxWorkers=1` and
+`npx playwright test e2e/project-archive-risks.spec.ts --project=chromium --workers=1 --retries=0 --grep 'explicit code MIME'`.
+A ZIP manifest check alone cannot show that the durable row keeps the value.
+
 Write browser scenarios before implementation. Test the following failures through visible results and downloaded artifacts where possible.
 
 - Old drafts or backups can lose documents during the schema upgrade. Keep a version 1.9 fixture and compare its complete content.

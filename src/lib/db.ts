@@ -379,6 +379,22 @@ class MdshDB extends Dexie {
 					})
 			);
 
+		// v18: the manifest projection stores the decoded byte length of a typed
+		// binary payload. A project capacity check can then count binary
+		// documents with metadata only. The upgrade rewrites every key once.
+		this.version(18)
+			.stores({
+				drafts: 'id, updatedAt, order, projectId, &[projectId+relativePath], manifest, metadata'
+			})
+			.upgrade((transaction) =>
+				transaction
+					.table<DraftRow>('drafts')
+					.toCollection()
+					.modify((row) => {
+						row.manifest = encodeDraftManifest(row);
+					})
+			);
+
 		this.drafts.hook('creating', (_primaryKey, row) => {
 			row.manifest = encodeDraftManifest(row);
 		});

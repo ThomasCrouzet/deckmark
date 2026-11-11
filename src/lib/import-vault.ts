@@ -161,18 +161,20 @@ export function normalizeImportedProject(input: ProjectInput): MigrationResult {
 		documents: 0,
 		assets: 0,
 		renamed: [],
-		skipped: [],
+		skipped: [...(input.skipped ?? [])],
 		unsupported: [],
 		links: []
 	};
 	const used = new Set<string>();
 	const rename = (original: string): string | null => {
-		let path = projectPath(stripRoot(original, root));
-		if (kind === 'notion') path = projectPath(notionName(path));
+		// Internal vault metadata is skipped before portable path validation, so
+		// a deep or non-portable internal entry cannot fail the import.
 		if (kind === 'obsidian' && OBSIDIAN_INTERNAL.test(original)) {
 			report.skipped.push(original);
 			return null;
 		}
+		let path = projectPath(stripRoot(original, root));
+		if (kind === 'notion') path = projectPath(notionName(path));
 		if (path.startsWith('.mdsh/') || path.split('/').includes('..')) {
 			report.skipped.push(original);
 			return null;

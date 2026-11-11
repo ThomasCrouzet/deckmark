@@ -63,6 +63,24 @@ describe('normalizeImportedProject', () => {
 		expect(result.report.unsupported).toEqual(['Canvas.canvas']);
 		expect(result.input.assets).toHaveLength(1);
 	});
+
+	it('skips an Obsidian internal entry before path validation', () => {
+		const result = normalizeImportedProject({
+			...base,
+			documents: [
+				{ relativePath: 'Vault/notes/a.md', content: '# A' },
+				{
+					relativePath: 'Vault/.obsidian/a/b/c/d/e/f/g/h/i/j/k/l/m/config.json',
+					content: '{}'
+				}
+			]
+		});
+		expect(result.report.kind).toBe('obsidian');
+		expect(result.input.documents.map((entry) => entry.relativePath)).toEqual(['notes/a.md']);
+		expect(result.report.skipped).toEqual([
+			'Vault/.obsidian/a/b/c/d/e/f/g/h/i/j/k/l/m/config.json'
+		]);
+	});
 });
 
 describe('normalizeImportedProject link rewriting', () => {

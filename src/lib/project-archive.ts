@@ -34,6 +34,8 @@ export interface ProjectInput {
 	name: string;
 	documents: ProjectDocumentInput[];
 	assets: ProjectAssetInput[];
+	/** Raw folder paths excluded before portable path validation. */
+	skipped?: string[];
 }
 
 type ProjectDocumentKind = NonNullable<ProjectDocumentInput['kind']>;
@@ -51,6 +53,14 @@ interface ParsedProjectManifest {
 const PROJECT_MANIFEST_PATH = '.mdsh/project.json';
 const PROJECT_MANIFEST_FORMAT = 'mdsh-project';
 const PROJECT_MANIFEST_VERSION = 2;
+const PROJECT_MANIFEST_BYTES = 1024 * 1024;
+// Bound the raw folder scan separately from the admitted entry budget. Ignored
+// trees do not consume the budget, but the browser work stays finite.
+const PROJECT_RAW_ENTRY_LIMIT = 100_000;
+// Internal trees that never become project files.
+const IGNORED_FOLDER_SEGMENTS = new Set(['.git', 'node_modules']);
+// Vault metadata trees stay visible to vault detection when their path is safe.
+const VAULT_INTERNAL_SEGMENTS = new Set(['.obsidian', '.trash']);
 const DOCUMENT_KINDS = new Set<ProjectDocumentKind>([
 	'note',
 	'presentation',
@@ -58,6 +68,23 @@ const DOCUMENT_KINDS = new Set<ProjectDocumentKind>([
 	'image',
 	'pdf'
 ]);
+// Media type with optional parameters. Control characters and spaces outside a
+// parameter separator are refused before the value reaches the manifest.
+const PROJECT_MIME_PATTERN =
+	/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(?:\s*;\s*[a-z0-9!#$&^_.+-]+=[a-z0-9!#$&^_.+-]+)*$/i;
+
+/** Validates a retained document MIME. An absent value keeps the default. */
+function projectMime(value: unknown): string | undefined {
+	if (value === undefined) return undefined;
+	if (
+		typeof value !== 'string' ||
+		value.length === 0 ||
+		value.length > 200 ||
+		!PROJECT_MIME_PATTERN.test(value)
+	)
+		throw new Error('Invalid project document type');
+	return value;
+}
 
 function isBinaryKind(kind: ProjectDocumentKind): boolean {
 	return kind === 'image' || kind === 'pdf';
@@ -102,19 +129,19 @@ function parseProjectManifest(text: string): ParsedProjectManifest {
 			if (path.startsWith('.mdsh/')) throw new Error('Reserved project path');
 			const kind = entry.kind as ProjectDocumentKind;
 			if (!DOCUMENT_KINDS.has(kind)) throw new Error('Invalid project document kind');
+			const mime = projectMime(entry.mime);
 			const key = pathKey(path);
 			if (documents.has(key)) throw new Error('Duplicate project document path');
 			if (isBinaryKind(kind)) {
-				if (typeof entry.mime !== 'string' || entry.mime.length === 0)
-					throw new Error('Missing project document type');
-				if (kind === 'pdf' && entry.mime !== 'application/pdf')
+				if (!mime) throw new Error('Missing project document type');
+				if (kind === 'pdf' && mime !== 'application/pdf')
 					throw new Error('Project PDF type does not match');
-				if (kind === 'image' && !entry.mime.startsWith('image/'))
+				if (kind === 'image' && !mime.startsWith('image/'))
 					throw new Error('Project image type does not match');
 			}
 			documents.set(key, {
 				kind,
-				...(typeof entry.mime === 'string' ? { mime: entry.mime } : {})
+				...(mime ? { mime } : {})
 			});
 		}
 	}
@@ -282,7 +309,7 @@ export async function readProjectZip(file: File): Promise<ProjectInput> {
 	const manifest = manifestEntry
 		? parseProjectManifest(
 				new TextDecoder('utf-8', { fatal: true }).decode(
-					await readZipEntry(manifestEntry, 1024 * 1024)
+					await readZipEntry(manifestEntry, PROJECT_MANIFEST_BYTES)
 				)
 			)
 		: null;
@@ -317,34 +344,70 @@ export async function readProjectZip(file: File): Promise<ProjectInput> {
 	return input;
 }
 
+/** Relative path of a folder selection entry without portable validation. */
+function folderRelativePath(file: File): string {
+	const relative = file.webkitRelativePath || file.name;
+	return file.webkitRelativePath ? relative.split('/').slice(1).join('/') : relative;
+}
+
+/** True when a raw relative path contains one of the named tree segments. */
+function hasTreeSegment(relative: string, segments: ReadonlySet<string>): boolean {
+	return relative
+		.replace(/\\/g, '/')
+		.split('/')
+		.some((part) => segments.has(part.toLowerCase()));
+}
+
+/**
+ * Returns the portable path of an admitted folder entry. Ignored trees are
+ * recognized from the raw path before validation. A vault metadata path that
+ * fails validation is skipped, while every other unsafe path still rejects.
+ */
+function admittedFolderPath(file: File): string | null {
+	const relative = folderRelativePath(file);
+	if (hasTreeSegment(relative, IGNORED_FOLDER_SEGMENTS)) return null;
+	try {
+		return projectPath(relative);
+	} catch (error) {
+		if (hasTreeSegment(relative, VAULT_INTERNAL_SEGMENTS)) return null;
+		throw error;
+	}
+}
+
 export async function readProjectFolder(files: readonly File[]): Promise<ProjectInput> {
-	if (!files.length || files.length > PROJECT_LIMITS.maxEntries)
-		throw new Error('Project entry limit');
+	if (!files.length) throw new Error('Project entry limit');
+	if (files.length > PROJECT_RAW_ENTRY_LIMIT) throw new Error('Project entry limit');
 	const first = files[0]!;
-	const name = first.webkitRelativePath.split('/')[0] || 'Project';
-	const manifestFile = files.find((file) => {
-		const relative = file.webkitRelativePath || file.name;
-		const path = projectPath(
-			file.webkitRelativePath ? relative.split('/').slice(1).join('/') : relative
-		);
-		return path === PROJECT_MANIFEST_PATH;
-	});
-	const manifest = manifestFile
+	const name = (first.webkitRelativePath || first.name).split('/')[0] || 'Project';
+	const entries: Array<{ file: File; path: string }> = [];
+	const skipped: string[] = [];
+	for (const file of files) {
+		const path = admittedFolderPath(file);
+		if (path) entries.push({ file, path });
+		else if (hasTreeSegment(folderRelativePath(file), VAULT_INTERNAL_SEGMENTS))
+			skipped.push(folderRelativePath(file));
+	}
+	if (entries.length > PROJECT_LIMITS.maxEntries) throw new Error('Project entry limit');
+	const manifestEntry = entries.find((entry) => entry.path === PROJECT_MANIFEST_PATH);
+	if (manifestEntry && manifestEntry.file.size > PROJECT_MANIFEST_BYTES)
+		throw new Error('Project manifest size limit');
+	const manifest = manifestEntry
 		? parseProjectManifest(
-				new TextDecoder('utf-8', { fatal: true }).decode(await manifestFile.arrayBuffer())
+				new TextDecoder('utf-8', { fatal: true }).decode(await manifestEntry.file.arrayBuffer())
 			)
 		: null;
 	const roles = manifest?.documents ?? new Map<string, ProjectManifestRole>();
-	const input: ProjectInput = { name: manifest?.name ?? name, documents: [], assets: [] };
+	const input: ProjectInput = {
+		name: manifest?.name ?? name,
+		documents: [],
+		assets: [],
+		...(skipped.length ? { skipped } : {})
+	};
 	const paths = new Set<string>();
 	const seen = new Set<string>();
 	let size = 0;
-	for (const file of files) {
-		const relative = file.webkitRelativePath || file.name;
-		const path = projectPath(
-			file.webkitRelativePath ? relative.split('/').slice(1).join('/') : relative
-		);
-		if (path.split('/').some((part) => part === '.git' || part === 'node_modules')) continue;
+	for (const { file, path } of entries) {
+		if (path === PROJECT_MANIFEST_PATH) continue;
 		const key = pathKey(path);
 		if (paths.has(key)) throw new Error('Duplicate project path');
 		paths.add(key);
@@ -420,6 +483,7 @@ export async function buildProjectZip(
 		const documentKey = pathKey(documentPath);
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
 		if (occupied.has(documentKey)) throw new Error('Duplicate project path');
+		const documentMime = projectMime(document.mime);
 		const typeInfo = { ...document, name: documentPath };
 		const kind = documentKindForFile(typeInfo);
 		if (isBinaryDocument(typeInfo)) {
@@ -516,7 +580,11 @@ export async function buildProjectZip(
 			content,
 			kind
 		});
-		manifestDocuments.push({ path: documentPath, kind });
+		manifestDocuments.push({
+			path: documentPath,
+			kind,
+			...(documentMime ? { mime: documentMime } : {})
+		});
 		zip.file(documentPath, content, entryOptions);
 	}
 	for (const asset of exportedAssets.values())

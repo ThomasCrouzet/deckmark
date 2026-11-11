@@ -9,8 +9,9 @@
 
 import type { DraftRow } from './db';
 import { documentKindForFile } from './document-kind';
+import { binaryDataBytes } from './project-limits';
 
-export const DRAFT_MANIFEST_VERSION = 1;
+export const DRAFT_MANIFEST_VERSION = 2;
 const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 
 /** Local evidence for the projection hooks. Inert in a normal build. */
@@ -43,6 +44,8 @@ export interface DraftManifest {
 	open: boolean;
 	contentLength: number;
 	contentBytes: number;
+	/** Decoded bytes of a typed binary document payload. */
+	binaryBytes: number;
 	hasData: boolean;
 }
 
@@ -62,6 +65,7 @@ type EncodedManifest = [
 	0 | 1,
 	number,
 	0 | 1,
+	number,
 	number
 ];
 
@@ -101,6 +105,8 @@ export interface DraftManifestDerived {
 	kind: NonNullable<DraftRow['kind']>;
 	contentLength: number;
 	contentBytes: number;
+	/** Decoded bytes of a typed binary document payload. */
+	binaryBytes: number;
 	hasData: boolean;
 }
 
@@ -112,6 +118,7 @@ export function draftManifestDerived(row: ManifestSource): DraftManifestDerived 
 		kind: row.kind ?? documentKindForFile(row),
 		contentLength: row.content.length,
 		contentBytes: row.projectId ? new TextEncoder().encode(row.content).byteLength : 0,
+		binaryBytes: row.projectId ? binaryDataBytes(row.data) : 0,
 		hasData: Boolean(row.data)
 	};
 }
@@ -133,7 +140,8 @@ function encodeDraftManifestFrom(row: ManifestSource, derived: DraftManifestDeri
 		row.open === false ? 0 : 1,
 		derived.contentLength,
 		derived.hasData ? 1 : 0,
-		derived.contentBytes
+		derived.contentBytes,
+		derived.binaryBytes
 	];
 	return JSON.stringify(encoded);
 }
@@ -173,23 +181,28 @@ function decodeDraftManifestDerived(key: unknown): DraftManifestDerived | null {
 	} catch {
 		return null;
 	}
-	if (!Array.isArray(value) || value.length !== 16 || value[0] !== DRAFT_MANIFEST_VERSION)
-		return null;
+	if (!Array.isArray(value) || (value.length !== 16 && value.length !== 17)) return null;
+	if (value[0] !== 1 && value[0] !== DRAFT_MANIFEST_VERSION) return null;
 	const kind = value[8];
 	const contentLength = value[13];
 	const hasData = value[14];
 	const contentBytes = value[15];
+	const binaryBytes = typeof value[16] === 'number' ? value[16] : 0;
 	if (
 		typeof kind !== 'string' ||
 		typeof contentLength !== 'number' ||
 		(hasData !== 0 && hasData !== 1) ||
-		typeof contentBytes !== 'number'
+		typeof contentBytes !== 'number' ||
+		// A v1 key has no binary byte slot. Recompute it from the row when the
+		// document carries a payload.
+		(hasData === 1 && typeof value[16] !== 'number')
 	)
 		return null;
 	return {
 		kind: kind as DraftManifestDerived['kind'],
 		contentLength,
 		contentBytes,
+		binaryBytes,
 		hasData: hasData === 1
 	};
 }
