@@ -58,7 +58,13 @@ describe('Metadata worker derivation parity', () => {
 		};
 		const previous = deriveMetadata(source);
 		const plain = { ...source, content: source.content.replace('Plain body.', 'Plain body text.') };
-		const reused = updateMetadata(previous, plain);
+		const reused = updateMetadata(previous, plain, [
+			{
+				from: source.content.indexOf('Plain body.'),
+				to: source.content.indexOf('Plain body.') + 11,
+				insert: 'Plain body text.'
+			}
+		]);
 		expect(reused.incremental).toBe(true);
 		expect(reused.snapshot).toEqual(deriveMetadata(plain));
 		for (const [before, after] of [
@@ -70,10 +76,52 @@ describe('Metadata worker derivation parity', () => {
 			['Plain body.', '```\n[[Other]]']
 		]) {
 			const changed = { ...source, content: source.content.replace(before!, after!) };
-			const result = updateMetadata(previous, changed);
+			const from = source.content.indexOf(before!);
+			const result = updateMetadata(previous, changed, [
+				{ from, to: from + before!.length, insert: after! }
+			]);
 			expect(result.incremental).toBe(false);
 			expect(result.snapshot).toEqual(deriveMetadata(changed));
 		}
+	});
+
+	it('matches full recomputation through revision deltas at parser boundaries', () => {
+		const fragments = [
+			'Plain body.',
+			'[[Target|alias]]',
+			'`[[Hidden]]`',
+			'```md\n[[Hidden]]\n```',
+			'~~~\n[[Hidden]]\n~~~',
+			'    [[Code]]',
+			'- item\n    [[Target]]',
+			'\\[[Escaped]]',
+			'# Heading',
+			'[[../Target#anchor]]',
+			'---\ntitle: YAML\ntags: [one, two]\n---',
+			'\uFEFF',
+			'\r\n',
+			'Accented text, with a dash - and an apostrophe.\n'
+		];
+		let seed = 911;
+		let content = 'Plain body.\n';
+		let previous: MetadataSnapshot | undefined;
+		let incremental = 0;
+		for (let step = 0; step < 600; step++) {
+			seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+			const at = seed % (content.length + 1);
+			const remove = Math.min(seed % 9, content.length - at);
+			const fragment = fragments[(seed >>> 8) % fragments.length]!;
+			const next = content.slice(0, at) + fragment + content.slice(at + remove);
+			const source = { name: 'note.md', content: next, isNote: step % 17 !== 0 };
+			const result = updateMetadata(previous, source, [
+				{ from: at, to: at + remove, insert: fragment }
+			]);
+			expect(result.snapshot, `seed=${seed}, step=${step}`).toEqual(deriveMetadata(source));
+			if (result.incremental) incremental += 1;
+			previous = result.snapshot;
+			content = next;
+		}
+		expect(incremental, 'the corpus must exercise the reuse path').toBeGreaterThan(0);
 	});
 
 	it('matches full recomputation through seeded edits at parser boundaries', () => {

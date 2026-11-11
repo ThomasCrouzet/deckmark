@@ -47,6 +47,121 @@ async function readCounters(page: Page): Promise<Counters> {
 	);
 }
 
+interface TransferRequest {
+	at: number;
+	id: string;
+	keys: string;
+	kind: string;
+	sourceBytes: number;
+	editBytes: number;
+	totalBytes: number;
+}
+
+interface TransferResponse {
+	at: number;
+	id: string;
+	mode: string;
+	incremental: boolean;
+	documentRevision: number;
+	workerMs: number;
+}
+
+interface TransferState {
+	requests: TransferRequest[];
+	responses: TransferResponse[];
+}
+
+async function installTransferProbe(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const state = {
+			requests: [] as unknown[],
+			responses: [] as unknown[],
+			workers: [] as Worker[]
+		};
+		Object.assign(window, { metadataTransfer: state });
+		const NativeWorker = window.Worker;
+		window.Worker = class extends NativeWorker {
+			constructor(url: string | URL, options?: WorkerOptions) {
+				super(url, options);
+				if (options?.name !== 'metadata') return;
+				state.workers.push(this);
+				this.addEventListener('message', (event) => {
+					state.responses.push({ at: performance.now(), ...event.data });
+				});
+			}
+			override postMessage(message: unknown): void {
+				if (!state.workers.includes(this)) return super.postMessage(message);
+				const request = message as {
+					id?: string;
+					kind?: string;
+					source?: { content?: string };
+					edits?: Array<{ insert: string }>;
+				};
+				state.requests.push({
+					at: performance.now(),
+					id: request.id,
+					keys: Object.keys(message as object).join(','),
+					kind: request.kind ?? 'full',
+					sourceBytes: request.source?.content?.length ?? 0,
+					editBytes: request.edits?.reduce((total, edit) => total + edit.insert.length, 0) ?? 0,
+					totalBytes: JSON.stringify(message).length
+				});
+				super.postMessage(message);
+			}
+		};
+	});
+}
+
+async function readTransfer(page: Page): Promise<TransferState> {
+	return page.evaluate(() => {
+		const state = (
+			window as unknown as {
+				metadataTransfer: { requests: TransferRequest[]; responses: TransferResponse[] };
+			}
+		).metadataTransfer;
+		return { requests: [...state.requests], responses: [...state.responses] };
+	});
+}
+
+async function resetTransfer(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const state = (
+			window as unknown as {
+				metadataTransfer: { requests: unknown[]; responses: unknown[] };
+			}
+		).metadataTransfer;
+		state.requests.length = 0;
+		state.responses.length = 0;
+	});
+}
+
+/** Large note with one embedded image and a plain editable tail line. */
+function imageRichNote(tag: string, target: string): string {
+	const base64 =
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+	const image = `![pixel](data:image/png;base64,${base64.repeat(8_000)})\n\n`;
+	const body = 'Ordinary body text for the large note.\n'.repeat(8_000);
+	return `---\ntags: [${tag}]\n---\n# ${tag}\n\nSee [[${target}]].\n\n${image}${body}Editable tail of ${tag}\n`;
+}
+
+async function openNote(page: Page, id: string): Promise<void> {
+	await page.locator(`aside button[data-file-id="${id}"]`).click();
+	await expect(page.locator('.cm-content').first()).toContainText(id, { timeout: 30_000 });
+}
+
+async function appendAtEnd(page: Page, text: string): Promise<void> {
+	const source = page.locator('.cm-content').first();
+	await source.click();
+	await page.keyboard.press('ControlOrMeta+End');
+	await page.keyboard.insertText(text);
+}
+
+async function waitForResponse(page: Page, previous: number): Promise<void> {
+	await expect
+		.poll(async () => (await readTransfer(page)).responses.length, { timeout: 20_000 })
+		.toBeGreaterThan(previous);
+}
+
 async function seedLibrary(page: Page, rows: SeedRow[]) {
 	await page.evaluate(async (library) => {
 		await new Promise<void>((resolve, reject) => {
@@ -395,6 +510,128 @@ test.describe('Metadata index incremental update', () => {
 		await attachEvidence(info, evidence, page);
 
 		expect(delta, 'a single note edit must not rebuild the backlinks index').toBe(0);
+	});
+
+	test('a plain one-character edit transfers a delta and keeps both large baselines', async ({
+		page
+	}, info) => {
+		test.setTimeout(180_000);
+		await installTransferProbe(page);
+		const fixture: SeedRow[] = [
+			{
+				id: 'large-a',
+				name: 'large-a.md',
+				content: imageRichNote('large-a', 'target-one'),
+				order: 0
+			},
+			{
+				id: 'large-b',
+				name: 'large-b.md',
+				content: imageRichNote('large-b', 'target-two'),
+				order: 1
+			},
+			{ id: 'target-one', name: 'target-one.md', content: '# Target one\n', order: 2 },
+			{ id: 'target-two', name: 'target-two.md', content: '# Target two\n', order: 3 }
+		];
+		await seedLibrary(page, fixture);
+		await page.reload();
+		await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 30_000 });
+		const tagFilter = (tag: string) =>
+			page.locator('aside').getByRole('button', { name: `Filter by tag ${tag}`, exact: true });
+		await expect(tagFilter('large-a')).toBeVisible({ timeout: 30_000 });
+		await expect(tagFilter('large-b')).toBeVisible({ timeout: 30_000 });
+
+		// The first edit of each file has no Worker baseline yet. It establishes
+		// the per-file baseline that the measured edits must reuse.
+		const baseline: Record<string, number> = {};
+		for (const id of ['large-a', 'large-b']) {
+			await openNote(page, id);
+			const before = (await readTransfer(page)).responses.length;
+			await appendAtEnd(page, 'x');
+			await waitForResponse(page, before);
+			baseline[id] = (await readTransfer(page)).requests.at(-1)?.sourceBytes ?? 0;
+			await page.waitForTimeout(300);
+		}
+
+		const measured: Array<{ id: string; state: TransferState }> = [];
+		for (const id of ['large-a', 'large-b', 'large-a']) {
+			await resetTransfer(page);
+			await openNote(page, id);
+			const before = (await readTransfer(page)).responses.length;
+			await appendAtEnd(page, 'y');
+			await waitForResponse(page, before);
+			measured.push({ id, state: await readTransfer(page) });
+			await page.waitForTimeout(300);
+		}
+
+		// The structural fallback replaces the whole body through the text path.
+		await resetTransfer(page);
+		await page.locator('.cm-content').first().click();
+		await page.keyboard.press('ControlOrMeta+a');
+		await page.keyboard.insertText(
+			'---\ntags: [structural-a]\n---\n# Structural A\n\nSee [[target-two]].\n'
+		);
+		await expect(tagFilter('structural-a')).toBeVisible({ timeout: 30_000 });
+		await expect(tagFilter('large-a')).toHaveCount(0);
+		await expect(tagFilter('large-b')).toBeVisible();
+		const structural = await readTransfer(page);
+		const measures = await page.evaluate(() =>
+			performance
+				.getEntriesByName('mdsh:metadata-transfer')
+				.map((entry) => (entry as PerformanceMeasure).detail)
+		);
+		const jobs = await page.evaluate(() =>
+			performance
+				.getEntriesByName('mdsh:metadata-job')
+				.map((entry) => (entry as PerformanceMeasure).detail)
+		);
+
+		await page.locator('aside button[data-file-id="target-two"]').click();
+		const backlinks = page.locator('aside [aria-label="Backlinks"]');
+		await expect(backlinks).toContainText('Structural A');
+		await expect(backlinks).toContainText('large-b');
+		await page.locator('aside button[data-file-id="target-one"]').click();
+		await expect(page.locator('aside [aria-label="Backlinks"]')).toHaveCount(0);
+
+		await attachEvidence(
+			info,
+			{
+				fixture: {
+					notes: ['large-a', 'large-b'],
+					sourceBytes: fixture.slice(0, 2).map((row) => row.content.length),
+					embeddedImage: true
+				},
+				baseline,
+				measured,
+				structural,
+				measures,
+				jobs
+			},
+			page
+		);
+
+		for (const { id, state } of measured) {
+			expect(state.requests, `${id} must send exactly one metadata job`).toHaveLength(1);
+			const request = state.requests[0]!;
+			expect(request.kind, `${id} must send a delta`).toBe('delta');
+			expect(request.sourceBytes, `${id} must not copy the full source`).toBe(0);
+			expect(request.totalBytes, `${id} delta must stay small`).toBeLessThan(4_096);
+			expect(state.responses[0]?.mode, `${id} Worker must apply the delta`).toBe('delta');
+			expect(state.responses[0]?.incremental, `${id} metadata must be reused`).toBe(true);
+			expect(state.responses[0]?.workerMs, `${id} Worker CPU must be recorded`).toBeGreaterThan(0);
+		}
+		expect(
+			measures.some((detail) => detail?.kind === 'delta' && detail?.sourceBytes === 0),
+			'the transfer diagnostic must record the delta'
+		).toBe(true);
+		expect(
+			jobs.some((detail) => detail?.mode === 'delta' && detail?.workerMs > 0),
+			'the job diagnostic must record Worker CPU'
+		).toBe(true);
+		expect(
+			structural.requests.some((request) => request.kind === 'full' && request.sourceBytes > 0),
+			'a structural replacement must send one full snapshot'
+		).toBe(true);
 	});
 
 	test('a pending write still refreshes metadata for the next edit', async ({ page }, info) => {

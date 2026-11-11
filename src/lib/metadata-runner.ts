@@ -12,12 +12,13 @@ export class MetadataRunner {
 	private recovery: ReturnType<typeof setTimeout> | undefined;
 	private current: {
 		request: MetadataRequest;
+		startedAt: number;
 		resolve: (response: MetadataResponse | null) => void;
 	} | null = null;
 
 	run(request: MetadataRequest): Promise<MetadataResponse | null> {
 		return new Promise((resolve) => {
-			this.current = { request, resolve };
+			this.current = { request, startedAt: META_METRICS ? performance.now() : 0, resolve };
 			if (!this.worker && typeof Worker !== 'undefined' && Date.now() >= this.retryAt) {
 				try {
 					this.worker = new Worker(new URL('./metadata.worker.ts', import.meta.url), {
@@ -38,7 +39,27 @@ export class MetadataRunner {
 			if (this.worker) {
 				try {
 					this.deadline = setTimeout(() => this.failWorker(), 10_000);
+					const started = META_METRICS ? performance.now() : 0;
 					this.worker.postMessage(request);
+					if (META_METRICS) {
+						try {
+							performance.measure('mdsh:metadata-transfer', {
+								start: started,
+								end: performance.now(),
+								detail: {
+									id: request.id,
+									kind: request.kind,
+									sourceBytes: request.kind === 'full' ? request.source.content.length : 0,
+									editBytes:
+										request.kind === 'delta'
+											? request.edits.reduce((total, edit) => total + edit.insert.length, 0)
+											: 0
+								}
+							});
+						} catch {
+							// Diagnostics must not change the metadata result.
+						}
+					}
 					return;
 				} catch {
 					this.failWorker();
@@ -62,10 +83,30 @@ export class MetadataRunner {
 		)
 			return;
 		clearTimeout(this.deadline);
+		const startedAt = current.startedAt;
 		this.current = null;
-		this.failures = 0;
-		this.retryAt = 0;
+		if (response.mode !== 'rejected') {
+			this.failures = 0;
+			this.retryAt = 0;
+		}
 		current.resolve(response);
+		if (META_METRICS) {
+			try {
+				performance.measure('mdsh:metadata-job', {
+					start: startedAt,
+					end: performance.now(),
+					detail: {
+						id: response.id,
+						revision: response.revision,
+						mode: response.mode,
+						workerMs: response.workerMs,
+						incremental: response.incremental
+					}
+				});
+			} catch {
+				// Diagnostics must not change the metadata result.
+			}
+		}
 	}
 
 	private failWorker(): void {
@@ -85,8 +126,29 @@ export class MetadataRunner {
 		this.recovery = setTimeout(() => {
 			const request = this.current?.request;
 			if (!request) return;
+			if (request.kind === 'delta') {
+				// A delta needs the Worker baseline. Ask the caller for one full
+				// snapshot instead of deriving from a partial request.
+				this.finish({
+					id: request.id,
+					revision: request.revision,
+					documentRevision: -1,
+					incremental: false,
+					mode: 'rejected',
+					workerMs: 0
+				});
+				return;
+			}
 			if (META_METRICS) performance.mark('meta-index-parse');
-			this.finish({ ...request, values: deriveMetadata(request.source), incremental: false });
+			this.finish({
+				id: request.id,
+				revision: request.revision,
+				documentRevision: request.documentRevision,
+				values: deriveMetadata(request.source),
+				incremental: false,
+				mode: 'fallback',
+				workerMs: 0
+			});
 		}, 0);
 	}
 
