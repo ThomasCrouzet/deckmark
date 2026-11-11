@@ -53,6 +53,20 @@ function gitEnvironment(overrides = {}) {
 	};
 }
 
+// The runner starts container steps with HOME=/github/home. actions/checkout
+// writes its safe.directory entry under a temporary HOME instead, so a later
+// step cannot read the checkout. This environment uses the HOME Git config and
+// forces Git to treat the fixture as owned by another user.
+function homeEnvironment(home) {
+	const environment = gitEnvironment();
+	delete environment.GIT_CONFIG_GLOBAL;
+	return { ...environment, HOME: home, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' };
+}
+
+function runGitInHome(home, cwd, args) {
+	return spawnSync('git', args, { cwd, env: homeEnvironment(home), encoding: 'utf8' });
+}
+
 function createGitRepository() {
 	const repository = mkdtempSync(join(tmpdir(), 'deckmark-change-set-'));
 	const runGit = (args) => {
@@ -183,6 +197,88 @@ test('heavy browser jobs require the successful full tier and the full class', (
 	assert.ok(lighthouse.needs.includes('ci-tier'));
 	assert.match(lighthouse.if, /needs\.ci-tier\.outputs\.full == 'true'/);
 	assert.doesNotMatch(lighthouse.if, /always\(\)/);
+});
+
+test('container browser jobs trust the workspace in the HOME that runs their steps', () => {
+	const trust = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"';
+	for (const name of ['e2e-shard', 'e2e-manifest']) {
+		const job = workflow.jobs[name];
+		assert.equal(job.container.options, '--user root', name);
+		const lines = job.steps.flatMap((step) =>
+			(step.run ?? '').split('\n').map((line) => line.trim())
+		);
+		assert.equal(lines.filter((line) => line === trust).length, 1, name);
+		assert.doesNotMatch(lines.join('\n'), /safe\.directory\s+\*/i, name);
+		const trustIndex = job.steps.findIndex((step) =>
+			(step.run ?? '').split('\n').some((line) => line.trim() === trust)
+		);
+		assert.ok(trustIndex >= 0, name);
+		assert.ok(
+			trustIndex < job.steps.findIndex((step) => /playwright test/.test(step.run ?? '')),
+			`${name} trusts the workspace before Playwright reads it`
+		);
+	}
+	const checkout = workflow.jobs['e2e-manifest'].steps.find((step) =>
+		step.uses?.startsWith('actions/checkout@')
+	);
+	assert.equal(checkout.with['persist-credentials'], false);
+});
+
+test('a checkout trust entry in a temporary HOME cannot replace the effective HOME trust', () => {
+	const { repository, runGit } = createGitRepository();
+	const checkoutHome = mkdtempSync(join(tmpdir(), 'deckmark-checkout-home-'));
+	const effectiveHome = mkdtempSync(join(tmpdir(), 'deckmark-effective-home-'));
+	try {
+		writeFileSync(join(repository, 'note.md'), '# One\n');
+		runGit(['add', '-A']);
+		runGit(['commit', '-qm', 'base']);
+		writeFileSync(join(repository, 'note.md'), '# Two\n');
+		const head = runGit(['rev-parse', 'HEAD']);
+
+		// actions/checkout adds the safe directory to its temporary HOME only.
+		const checkoutTrust = spawnSync(
+			'git',
+			['config', '--global', '--add', 'safe.directory', repository],
+			{ cwd: repository, env: homeEnvironment(checkoutHome), encoding: 'utf8' }
+		);
+		assert.equal(checkoutTrust.status, 0, checkoutTrust.stderr);
+
+		// The fixture must reproduce the job symptom: Git cannot read the commit.
+		const before = runGitInHome(effectiveHome, repository, ['diff', '--binary', 'HEAD']);
+		assert.equal(before.status, 129, before.stderr);
+		assert.match(before.stderr, /Not a git repository|dubious ownership/);
+
+		const step = workflow.jobs['e2e-manifest'].steps.find((value) =>
+			/safe\.directory/.test(value.run ?? '')
+		);
+		assert.ok(step, 'the manifest job has an effective HOME trust step');
+		const trust = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+			cwd: repository,
+			env: { ...homeEnvironment(effectiveHome), GITHUB_WORKSPACE: repository },
+			encoding: 'utf8'
+		});
+		assert.equal(trust.status, 0, trust.stderr);
+
+		const after = runGitInHome(effectiveHome, repository, ['diff', '--binary', 'HEAD']);
+		assert.equal(after.status, 0, after.stderr);
+		assert.match(after.stdout, /\+# Two/);
+		assert.equal(
+			runGitInHome(effectiveHome, repository, ['rev-parse', 'HEAD']).stdout.trim(),
+			head
+		);
+
+		const trusted = runGitInHome(effectiveHome, repository, [
+			'config',
+			'--global',
+			'--get-all',
+			'safe.directory'
+		]);
+		assert.deepEqual(trusted.stdout.trim().split('\n'), [repository]);
+	} finally {
+		rmSync(repository, { recursive: true, force: true });
+		rmSync(checkoutHome, { recursive: true, force: true });
+		rmSync(effectiveHome, { recursive: true, force: true });
+	}
 });
 
 test('the fast checks and both production builds run on every tier and class', () => {

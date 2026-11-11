@@ -440,6 +440,10 @@ jobs:
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
+      # actions/checkout writes safe.directory under a temporary HOME. The steps
+      # below use HOME=/github/home, so trust the workspace in that HOME.
+      - name: Trust the checked-out workspace for Git provenance
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: List the full test set and every shard
         env:
           E2E_PREBUILT: '1'
