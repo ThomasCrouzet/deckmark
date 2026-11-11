@@ -1,7 +1,16 @@
 diff --git a/lib/image-block/index.js b/lib/image-block/index.js
 --- a/lib/image-block/index.js
 +++ b/lib/image-block/index.js
-@@ -389,9 +389,10 @@
+@@ -324,6 +324,8 @@
+       } }, uploadPlaceholderText))), currentLink.value && /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h("div", { class: "image-preview" }, /* @__PURE__ */ h(
+         "img",
+         {
++          crossorigin: "anonymous",
++          referrerpolicy: "no-referrer",
+           src: currentLink.value,
+           alt: "",
+           onError: (e) => Promise.resolve(onImageLoadError == null ? void 0 : onImageLoadError(e)).catch(() => {
+@@ -389,9 +391,10 @@
        if (config.maxHeight && transformedHeight > config.maxHeight)
          transformedHeight = config.maxHeight;
        const h2 = (transformedHeight * ((_a2 = ratio.value) != null ? _a2 : 1)).toFixed(2);
@@ -15,7 +24,16 @@ diff --git a/lib/image-block/index.js b/lib/image-block/index.js
        if (config.maxWidth) image.style.maxWidth = `${config.maxWidth}px`;
      };
      const onToggleCaption = (e) => {
-@@ -570,7 +571,7 @@
+@@ -454,6 +457,8 @@
+       return /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h("div", { class: "image-wrapper" }, /* @__PURE__ */ h("div", { class: "operation" }, /* @__PURE__ */ h("div", { class: "operation-item", onPointerdown: onToggleCaption }, /* @__PURE__ */ h(Icon, { icon: config.captionIcon }))), /* @__PURE__ */ h(
+         "img",
+         {
++          crossorigin: "anonymous",
++          referrerpolicy: "no-referrer",
+           ref: imageRef,
+           "data-type": IMAGE_DATA_TYPE,
+           onLoad: onImageLoad,
+@@ -570,7 +575,7 @@
    imageBlockSchema.node,
    (ctx) => {
      return (initialNode, view, getPos) => {
@@ -24,7 +42,7 @@ diff --git a/lib/image-block/index.js b/lib/image-block/index.js
        const caption = ref(initialNode.attrs.caption);
        const ratio = ref(initialNode.attrs.ratio);
        const selected = ref(false);
-@@ -608,17 +609,23 @@
+@@ -608,17 +613,23 @@
          }
        });
        const proxyDomURL = config.proxyDomURL;
@@ -57,7 +75,7 @@ diff --git a/lib/image-block/index.js b/lib/image-block/index.js
            }
          }
          ratio.value = node.attrs.ratio;
-@@ -645,6 +652,7 @@
+@@ -645,6 +656,7 @@
            selected.value = false;
          },
          destroy: () => {
@@ -68,7 +86,25 @@ diff --git a/lib/image-block/index.js b/lib/image-block/index.js
 diff --git a/lib/image-inline/index.js b/lib/image-inline/index.js
 --- a/lib/image-inline/index.js
 +++ b/lib/image-inline/index.js
-@@ -287,7 +287,7 @@
+@@ -207,6 +207,8 @@
+       } }, uploadPlaceholderText))), currentLink.value && /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h("div", { class: "image-preview" }, /* @__PURE__ */ h(
+         "img",
+         {
++          crossorigin: "anonymous",
++          referrerpolicy: "no-referrer",
+           src: currentLink.value,
+           alt: "",
+           onError: (e) => Promise.resolve(onImageLoadError == null ? void 0 : onImageLoadError(e)).catch(() => {
+@@ -274,6 +276,8 @@
+         "img",
+         {
+           class: "image-inline",
++          crossorigin: "anonymous",
++          referrerpolicy: "no-referrer",
+           src: src.value,
+           alt: alt.value,
+           title: title.value
+@@ -287,7 +291,7 @@
    imageSchema.node,
    (ctx) => {
      return (initialNode, view, getPos) => {
@@ -77,7 +113,7 @@ diff --git a/lib/image-inline/index.js b/lib/image-inline/index.js
        const alt = ref(initialNode.attrs.alt);
        const title = ref(initialNode.attrs.title);
        const selected = ref(false);
-@@ -325,17 +325,23 @@
+@@ -325,17 +329,23 @@
          }
        });
        const proxyDomURL = config.proxyDomURL;
@@ -110,7 +146,7 @@ diff --git a/lib/image-inline/index.js b/lib/image-inline/index.js
            }
          }
          alt.value = node.attrs.alt;
-@@ -361,6 +367,7 @@
+@@ -361,6 +371,7 @@
            selected.value = false;
          },
          destroy: () => {
@@ -135,6 +171,15 @@ diff --git a/src/image-block/view/components/image-viewer.tsx b/src/image-block/
  
        if (config.maxWidth) image.style.maxWidth = `${config.maxWidth}px`
      }
+@@ -152,6 +153,8 @@
+               </div>
+             </div>
+             <img
++              crossorigin="anonymous"
++              referrerpolicy="no-referrer"
+               ref={imageRef}
+               data-type={IMAGE_DATA_TYPE}
+               onLoad={onImageLoad}
 diff --git a/src/image-block/view/index.ts b/src/image-block/view/index.ts
 --- a/src/image-block/view/index.ts
 +++ b/src/image-block/view/index.ts
@@ -192,6 +237,18 @@ diff --git a/src/image-block/view/index.ts b/src/image-block/view/index.ts
            disposeSelectedWatcher()
            app.unmount()
            dom.remove()
+diff --git a/src/image-inline/components/image-inline.tsx b/src/image-inline/components/image-inline.tsx
+--- a/src/image-inline/components/image-inline.tsx
++++ b/src/image-inline/components/image-inline.tsx
+@@ -75,6 +75,8 @@
+       return (
+         <img
+           class="image-inline"
++          crossorigin="anonymous"
++          referrerpolicy="no-referrer"
+           src={src.value}
+           alt={alt.value}
+           title={title.value}
 diff --git a/src/image-inline/view.ts b/src/image-inline/view.ts
 --- a/src/image-inline/view.ts
 +++ b/src/image-inline/view.ts
@@ -249,3 +306,15 @@ diff --git a/src/image-inline/view.ts b/src/image-inline/view.ts
            disposeSelectedWatcher()
            app.unmount()
            dom.remove()
+diff --git a/src/__internal__/components/image-input.tsx b/src/__internal__/components/image-input.tsx
+--- a/src/__internal__/components/image-input.tsx
++++ b/src/__internal__/components/image-input.tsx
+@@ -163,6 +163,8 @@
+             <>
+               <div class="image-preview">
+                 <img
++                  crossorigin="anonymous"
++                  referrerpolicy="no-referrer"
+                   src={currentLink.value}
+                   alt=""
+                   onError={(e) =>

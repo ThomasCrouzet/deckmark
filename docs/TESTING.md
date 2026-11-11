@@ -128,6 +128,26 @@ attaches proxy and project media counters. The stale case fails on the earlier
 view with the 1500 px project image after a newer 80 px inline source. A
 counter is not a native WebView result.
 
+## Image fetch policy ordering
+
+Set `crossorigin` and `referrerpolicy` before the first `src` value. A relevant
+image-data update restarts resource selection when those attributes change
+after a load starts. Retain a probe that records each image when it enters the
+DOM and every later change to those two attributes. The image-node and inline
+views in the pinned Milkdown patch carry the attributes when the element is
+created. The editor sizing path writes them only when a value differs.
+
+Run:
+
+```sh
+npx playwright test e2e/image-fetch-policy.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The Chromium, Firefox and WebKit projects run the case. It attaches each
+inserted image record, the policy mutations, a per-element load count and the
+saved Markdown. The earlier view fails the insertion assertion. The load count
+is local evidence for a data URI and does not prove a network request count.
+
 ## Split heading index risks
 
 Retain the complete navigation index separately from the legacy 300-heading
