@@ -134,6 +134,8 @@ export default [
 			'.svelte-kit/',
 			'node_modules/',
 			'package-lock.json',
+			// Pinned third-party bytes. The patch script resets from this copy.
+			'patches/milkdown/pristine/',
 			'dist/',
 			// Tauri Rust build artifacts (generated JS helpers under target/).
 			'src-tauri/target/',

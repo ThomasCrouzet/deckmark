@@ -12,6 +12,8 @@ package-lock.json
 node_modules
 # scripts/vendor-glib.mjs checks and regenerates these upstream sources.
 src-tauri/vendor
+# Pinned @milkdown/components 7.23.0 bytes. The patch script resets from this copy.
+patches/milkdown/pristine/
 *.md
 # Local agent / editor tooling (gitignored); must not break `npm run lint`.
 .codex
