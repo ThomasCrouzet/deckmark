@@ -1,12 +1,20 @@
 name: gitleaks
 
-# Scan the full Git history for secrets with the pinned official Docker image.
-# This follows the CREAJ secrets job convention without a mutable third-party action.
+# Scan Git history for secrets with the pinned official Docker image.
 # Add specific false-positive exclusions to .gitleaks.toml in the repository root.
+#
+# Push events scan only the pushed range when the before and head commits are
+# reachable and ordered. A new branch, force push, or malformed value scans the
+# complete history. The weekly schedule and a manual run also scan the complete
+# history, so the baseline is never lost. A pull request scans its reachable
+# base..head range and fails when that range is unavailable. The workflow uses
+# no secret and no credential, so a fork pull request is safe.
 on:
   push:
     branches: [main, master]
   pull_request:
+  schedule:
+    - cron: '23 4 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -26,13 +34,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Select scan range
+        id: range
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          log_opts=$(bash scripts/ci-security-gitleaks-range.sh \
+            --event "$EVENT_NAME" \
+            --before "$BEFORE_SHA" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA")
+          printf 'log_opts=%s\n' "$log_opts" >> "$GITHUB_OUTPUT"
+
       - name: gitleaks (pinned image)
         env:
-          # A pull request checks only the commits it adds. The checkout fetches
-          # every branch, and a full-history scan would report a fixture on an
-          # unrelated branch against this pull request. Pushes to main and
-          # manual runs still scan the complete history.
-          LOG_OPTS: ${{ github.event_name == 'pull_request' && format('origin/{0}..HEAD', github.base_ref) || '' }}
+          LOG_OPTS: ${{ steps.range.outputs.log_opts }}
         run: |
           args=(git /repo --config /repo/.gitleaks.toml --no-banner --redact --exit-code 1)
           if [ -n "$LOG_OPTS" ]; then

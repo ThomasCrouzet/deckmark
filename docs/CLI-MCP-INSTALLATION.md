@@ -26,6 +26,28 @@ The bundled runtime is the smallest supported model for all three targets. It
 uses the existing CLI bundle and the existing MCP source. It needs no rewrite
 and no new runtime dependency.
 
+## Distribution contract
+
+The supported installed-user distribution is the standalone archive with the
+bundled Node runtime. Keep this contract, the package layout, and the
+installed-package tests together. Do not replace the contract with an npm
+package while the installed user must not install Node.
+
+The `CLI package` workflow validates this archive on Linux x64, Windows x64,
+and macOS ARM64. A pull request, a push, and a manual run upload nothing. The
+workflow is callable with `workflow_call` for the native release owner. Only
+that call uploads the built archive as a build deliverable. The artifact name
+contains the exact source SHA and the target. The native release workflow owns
+the caller, the release asset, and any publication decision. This workflow
+adds no release trigger, no registry login, no npm publication, and no
+credential. A `workflow_call` artifact is not a release. The native owner must
+attach it to the approved release.
+
+The validation run and the release consumer are separate. A green validation
+run is not a published download. The source checkout build command remains the
+developer path. The release integration request below is not applied in this
+change. Coordinate it through the main integration branch.
+
 ## Package layout
 
 Linux and macOS:
@@ -440,38 +462,38 @@ verification on hosted runners, not a manual clean-OS audit. It does not replace
 the procedures below.
 
 The `CLI package` workflow creates temporary archives for its installed checks.
-It does not upload, publish or sign those archives. Adding a CLI release asset
-needs the unapplied integration below and a separate decision by the release
-owner. Signing remains deferred.
+A pull request, a push, and a manual run do not upload, publish, or sign those
+archives. A `workflow_call` run uploads the archive as a build deliverable for
+the release owner. The native owner must attach it to an approved release. The
+integration below is not applied in this change. Signing remains deferred.
 
 ## Release integration request, not applied
 
-This task does not change a workflow. The release owner must add one pack step
-to the existing `build-desktop` job in `.github/workflows/desktop.yml`, after
-`npm ci --legacy-peer-deps` and before `tauri-action`:
+This change makes `.github/workflows/cli-package.yml` callable with
+`workflow_call`. That call uploads artifacts named
+`deckmark-cli-<source-sha>-<platform>-<arch>`. The release owner, in the native
+release workflow, must add the caller and attach the exact-source artifact.
+This change does not edit that workflow.
+
+One caller shape, not applied:
 
 ```yaml
-- name: Pack installed CLI and MCP
-  run: node scripts/pack-cli.mjs --out build/cli-pack --archive
-
-- name: Upload installed CLI and MCP
-  uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-  with:
-    name: deckmark-cli-${{ runner.os }}-${{ runner.arch }}
-    path: build/deckmark-cli-*
-    if-no-files-found: error
-    retention-days: 14
+jobs:
+  cli-package:
+    uses: ./.github/workflows/cli-package.yml
 ```
 
-The glob matches one archive on each runner: `deckmark-cli-<version>-linux-x64.tar.gz`,
-`...-windows-x64.zip`, or `...-darwin-arm64.tar.gz`. Attach the archive of the
-run operating system only. Do not upload both suffixes.
+The called workflow has no inputs. It checks out the caller source, validates
+the three targets, and uploads one archive for each target. Download the
+artifact in a later release job with `actions/download-artifact`, then add the
+archive to the release asset set. Keep the source SHA in `deckmark-build.json`
+and in the artifact name.
 
-The existing Node 22 setup is sufficient. The matrix already uses
-`ubuntu-24.04` x64, `windows-2022` x64, and `macos-15` arm64. The pack step
-does not need Node 26 and does not change the Tauri configuration. Add the
-archive to the release asset set and keep the source SHA in
-`deckmark-build.json`. Do not add a signing step in this task.
+Do not add a release trigger or a `workflow_run` consumer to the CLI workflow.
+Do not add npm publication, registry login, or authentication. The existing
+Node 22 setup is sufficient. The matrix already uses `ubuntu-24.04` x64,
+`windows-2022` x64, and `macos-15` arm64. Do not add a signing step in this
+task.
 
 ## Windows and macOS clean-install validation
 
