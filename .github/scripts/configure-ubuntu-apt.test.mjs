@@ -31,6 +31,55 @@ const mirrors = `http://azure.archive.ubuntu.com/ubuntu/ priority:2
 http://archive.ubuntu.com/ubuntu/ priority:1
 `;
 
+// Exact shape of /etc/apt/sources.list.d/ubuntu.sources on the Ubuntu 24.04
+// runner image. The file starts with a comment paragraph, then an unseparated
+// comment header directly above the first stanza.
+const runnerSources = `# See http://help.ubuntu.com/community/UpgradeNotes for how to upgrade to
+# newer versions of the distribution.
+
+## Ubuntu distribution repository
+##
+## The following settings can be adjusted to configure which packages to use from Ubuntu.
+## Mirror your choices (except for URIs and Suites) in the security section below to
+## ensure timely security updates.
+##
+## Types: Append deb-src to enable the fetching of source package.
+## URIs: A URL to the repository (you may add multiple URLs)
+## Suites: The following additional suites can be configured
+##   <name>-updates   - Major bug fix updates produced after the final release of the
+##                      distribution.
+##   <name>-backports - software from this repository may not have been tested as
+##                      extensively as that contained in the main release, although it includes
+##                      newer versions of some applications which may provide useful features.
+##                      Also, please note that software in backports WILL NOT receive any review
+##                      or updates from the Ubuntu security team.
+## Components: Aside from main, the following components can be added to the list
+##   restricted  - Software that may not be under a free license, or protected by patents.
+##   universe    - Community maintained packages. Software in this repository receives maintenance
+##                 from volunteers in the Ubuntu community, or a 10 year security maintenance
+##                 commitment from Canonical when an Ubuntu Pro subscription is attached.
+##   multiverse  - Community maintained of restricted. Software from this repository is
+##                 ENTIRELY UNSUPPORTED by the Ubuntu team, and may not be under a free
+##                 licence. Please satisfy yourself as to your rights to use the software.
+##                 Also, please note that software in multiverse WILL NOT receive any
+##                 review or updates from the Ubuntu security team.
+##
+## See the sources.list(5) manual page for further settings.
+Types: deb
+URIs: http://archive.ubuntu.com/ubuntu/
+Suites: noble noble-updates noble-backports
+Components: main universe restricted multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+## Ubuntu security updates. Aside from URIs and Suites,
+## this should mirror your choices in the previous section.
+Types: deb
+URIs: http://security.ubuntu.com/ubuntu/
+Suites: noble-security
+Components: main universe restricted multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+`;
+
 function shim(directory, name, body) {
 	const path = join(directory, name);
 	writeFileSync(path, `#!/usr/bin/env bash\n${body}\n`);
@@ -149,6 +198,36 @@ test('a healthy runner configuration passes and keeps every source', () => {
 	assert.equal(readState(context, 'sudo.log'), '');
 });
 
+test('the stock runner source shape passes and keeps both stanzas', () => {
+	const context = fixture({ sources: runnerSources });
+	const result = run(context);
+	assert.equal(result.status, 0, result.stderr);
+	const sources = read(context, 'sources.list.d/ubuntu.sources');
+	assert.equal(sources, runnerSources);
+	const curlLog = readState(context, 'curl.log');
+	assert.match(curlLog, /archive\.ubuntu\.com\/ubuntu\/dists\/noble\/InRelease/);
+	assert.match(curlLog, /security\.ubuntu\.com\/ubuntu\/dists\/noble-security\/InRelease/);
+	assert.equal(readState(context, 'sudo.log'), '');
+});
+
+test('a comment-only header paragraph is not a source stanza', () => {
+	const sources = `## Repository header
+## Types: deb
+## URIs: http://example.invalid/ubuntu
+## Suites: noble
+
+Types: deb
+URIs: http://archive.ubuntu.com/ubuntu/
+Suites: noble
+Components: main
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+`;
+	const context = fixture({ sources });
+	const result = run(context);
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(read(context, 'sources.list.d/ubuntu.sources'), sources);
+});
+
 test('a dead security host moves to a mirror that serves the same suite', () => {
 	const context = fixture({ dns: 'security.ubuntu.com fail\n' });
 	const result = run(context);
@@ -190,7 +269,8 @@ test('a malformed deb822 source fails closed and names the file', () => {
 	for (const sources of [
 		'Types: deb\nSuites: noble\nComponents: main\n',
 		'URIs: http://archive.ubuntu.com/ubuntu\nComponents: main\n',
-		'Types: deb\nURIs: http://archive.ubuntu.com/ubuntu\nComponents: main\n'
+		'Types: deb\nURIs: http://archive.ubuntu.com/ubuntu\nComponents: main\n',
+		'# Header comment\n\nTypes: deb\nSuites: noble\nComponents: main\n'
 	]) {
 		const context = fixture({ sources });
 		const result = run(context);
