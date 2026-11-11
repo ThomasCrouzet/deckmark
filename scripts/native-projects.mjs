@@ -698,6 +698,286 @@ export async function nativeProjects({
 		45_000
 	);
 
+	// External removals must stay visible, keep the local bytes, and survive a
+	// restart until the user reviews them. No review step may destroy data.
+	const removedCleanPath = join(fixtureRoot, 'notes', 'removed-clean.md');
+	const removedDirtyPath = join(fixtureRoot, 'notes', 'removed-dirty.md');
+	const removedAssetPath = join(fixtureRoot, 'images', 'removed.png');
+	const removedCleanContent = '# Removed clean\n';
+	const removedDirtyMarker = 'REMOVED_DIRTY_LOCAL_REVISION';
+	const removedAssetBytes = [137, 80, 78, 71, 21];
+	writeFileSync(removedCleanPath, removedCleanContent);
+	writeFileSync(removedDirtyPath, '# Removed dirty\n');
+	writeFileSync(removedAssetPath, Buffer.from(removedAssetBytes));
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await waitForProjectDocument('notes/removed-clean.md');
+	await waitForProjectDocument('notes/removed-dirty.md');
+	await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return state.assets.some(
+				(asset) => asset.projectId === uiProject.id && asset.path === 'images/removed.png'
+			);
+		},
+		'import removal fixture asset',
+		45_000
+	);
+
+	const missingPathsOf = () =>
+		execute(
+			`const section = document.querySelector('[data-native-project-missing]');
+			if (!section) return false;
+			return [...section.querySelectorAll('[data-native-missing-path]')]
+				.map(node => node.getAttribute('data-native-missing-path'))
+				.sort();`
+		);
+
+	// An external rename that keeps the exact bytes moves the existing local
+	// row instead of creating a second document.
+	const externalRenameSource = join(fixtureRoot, 'notes', 'external-rename.md');
+	const externalRenameTarget = join(fixtureRoot, 'notes', 'external-renamed.md');
+	writeFileSync(externalRenameSource, '# External rename\n');
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await waitForProjectDocument('notes/external-rename.md');
+	database = await readProjectDatabase();
+	const externalRenameBefore = database.documents.find(
+		(document) =>
+			document.projectId === uiProject.id && document.relativePath === 'notes/external-rename.md'
+	);
+	assert.ok(externalRenameBefore);
+	renameSync(externalRenameSource, externalRenameTarget);
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await waitForProjectDocument('notes/external-renamed.md');
+	database = await readProjectDatabase();
+	const externalRenameAfter = database.documents.find(
+		(document) =>
+			document.projectId === uiProject.id && document.relativePath === 'notes/external-renamed.md'
+	);
+	assert.equal(externalRenameAfter?.id, externalRenameBefore.id);
+	assert.equal(
+		database.documents.some(
+			(document) =>
+				document.projectId === uiProject.id && document.relativePath === 'notes/external-rename.md'
+		),
+		false
+	);
+	const missingAfterRename = await missingPathsOf();
+	assert.equal(
+		Array.isArray(missingAfterRename)
+			? missingAfterRename.includes('notes/external-rename.md')
+			: false,
+		false
+	);
+	record('External rename keeps one local document identity', {
+		id: externalRenameAfter?.id,
+		path: 'notes/external-renamed.md'
+	});
+
+	await openProjectDocument('notes/removed-dirty.md');
+	await until(
+		() =>
+			execute(
+				`const button = document.querySelector('button[data-mode="source"]');
+				if (!button || !button.getClientRects().length) return false;
+				button.click(); return true;`
+			),
+		'open removal fixture source editor',
+		45_000
+	);
+	await until(
+		() =>
+			execute(
+				`const editor = document.querySelector('.cm-content');
+				if (!editor || !editor.getClientRects().length) return false;
+				editor.focus();
+				const range = document.createRange(); range.selectNodeContents(editor);
+				const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+				return document.execCommand('insertText', false, arguments[0]);`,
+				[`# ${removedDirtyMarker}\n\nKept locally after the disk deletion.\n`]
+			),
+		'edit removal fixture document',
+		45_000
+	);
+	const removedDirtyLocal = await until(
+		async () => {
+			const state = await readProjectDatabase();
+			return state.documents.find(
+				(document) =>
+					document.projectId === uiProject.id &&
+					document.relativePath === 'notes/removed-dirty.md' &&
+					document.content.includes(removedDirtyMarker)
+			)?.content;
+		},
+		'durable removal fixture edit',
+		45_000
+	);
+
+	rmSync(removedCleanPath);
+	rmSync(removedDirtyPath);
+	rmSync(removedAssetPath);
+	await openProjectsPanel();
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	const removedPaths = ['images/removed.png', 'notes/removed-clean.md', 'notes/removed-dirty.md'];
+	const missingPaths = await until(
+		async () => {
+			const paths = await missingPathsOf();
+			return Array.isArray(paths) && removedPaths.every((path) => paths.includes(path))
+				? paths
+				: false;
+		},
+		'missing disk paths',
+		45_000
+	);
+	for (const path of removedPaths) assert.ok(missingPaths.includes(path), path);
+	await waitForProjectsIdle();
+	database = await readProjectDatabase();
+	assert.equal(
+		database.documents.find(
+			(document) =>
+				document.projectId === uiProject.id && document.relativePath === 'notes/removed-clean.md'
+		)?.content,
+		removedCleanContent
+	);
+	assert.equal(
+		database.documents.find(
+			(document) =>
+				document.projectId === uiProject.id && document.relativePath === 'notes/removed-dirty.md'
+		)?.content,
+		removedDirtyLocal
+	);
+	assert.equal(
+		database.assets
+			.find((asset) => asset.projectId === uiProject.id && asset.path === 'images/removed.png')
+			?.bytes.join(','),
+		removedAssetBytes.join(',')
+	);
+	record('External disk removals keep local bytes and report exact paths', {
+		paths: missingPaths,
+		dirtyContentRetained: true,
+		assetBytesRetained: removedAssetBytes
+	});
+
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	await waitForProjectsIdle();
+	const repeatedMissing = (await missingPathsOf()) || [];
+	for (const path of removedPaths) assert.ok(repeatedMissing.includes(path), path);
+	record('A repeated refresh keeps the unresolved removal review', { paths: removedPaths });
+
+	const clickMissingAction = async (relativePath, label) => {
+		await until(
+			() =>
+				execute(
+					`const row = document.querySelector('[data-native-missing-path="' + arguments[0] + '"]');
+					if (!row) return false;
+					const button = [...row.querySelectorAll('button')].find(node => node.textContent.trim() === arguments[1]);
+					if (!button || button.disabled || !button.getClientRects().length) return false;
+					button.click(); return true;`,
+					[relativePath, label]
+				),
+			`missing action ${label} for ${relativePath}`,
+			45_000
+		);
+	};
+
+	await restart();
+	await openProjectsPanel();
+	const missingAfterRestart = await until(missingPathsOf, 'missing paths after restart', 45_000);
+	for (const path of removedPaths) assert.ok(missingAfterRestart.includes(path), path);
+	record('The removal review survives an application restart', { paths: removedPaths });
+
+	await execute(
+		`const original = IDBObjectStore.prototype.put;
+		window.__restoreMissingReviewPut = () => { IDBObjectStore.prototype.put = original; };
+		IDBObjectStore.prototype.put = function (value, key) {
+			const row = Array.isArray(value) ? value[0] : value;
+			if (row && typeof row === 'object' && typeof row.key === 'string' &&
+				row.key.startsWith('project-native-missing:'))
+				throw new DOMException('Injected removal review write failure', 'QuotaExceededError');
+			return key === undefined ? original.call(this, value) : original.call(this, value, key);
+		};
+		return true;`
+	);
+	await clickMissingAction('notes/removed-clean.md', 'Recréer sur le disque');
+	await until(
+		() => execute(`return !!document.querySelector('[role="alert"]');`),
+		'failed removal review write',
+		45_000
+	);
+	await execute('window.__restoreMissingReviewPut?.(); return true;');
+	assert.equal(readFileSync(removedCleanPath, 'utf8'), removedCleanContent);
+	const failedMissing =
+		(await until(missingPathsOf, 'missing paths after a failed review write', 45_000)) || [];
+	for (const path of removedPaths) assert.ok(failedMissing.includes(path), path);
+	record('A failed resolution write keeps the review retryable', {
+		path: 'notes/removed-clean.md',
+		diskBytesWritten: true,
+		reviewRetained: true
+	});
+
+	// The disk file now exists, so the next refresh closes that review without
+	// a second write. The remaining two entries still need an explicit choice.
+	await clickVisibleText('button', 'Actualiser depuis le disque');
+	await until(
+		async () => {
+			const paths = await missingPathsOf();
+			const ours = Array.isArray(paths) ? paths.filter((path) => removedPaths.includes(path)) : [];
+			return ours.length === 2 ? ours : false;
+		},
+		'restored path closes its removal review',
+		45_000
+	);
+	await clickMissingAction('images/removed.png', 'Recréer sur le disque');
+	await until(
+		async () => {
+			const paths = await missingPathsOf();
+			const ours = Array.isArray(paths) ? paths.filter((path) => removedPaths.includes(path)) : [];
+			return ours.length === 1 ? ours : false;
+		},
+		'recreated asset leaves the review',
+		45_000
+	);
+	assert.deepEqual([...readFileSync(removedAssetPath)], removedAssetBytes);
+	await waitForProjectsIdle();
+
+	await clickMissingAction('notes/removed-dirty.md', 'Conserver la copie locale');
+	await until(
+		() =>
+			execute(
+				`const row = document.querySelector('[data-native-missing-path="notes/removed-dirty.md"]');
+				return !!row?.querySelector('[data-native-missing-local-only]');`
+			),
+		'retained document shows its local-only state',
+		45_000
+	);
+	const remainingPaths = (await missingPathsOf()) || [];
+	for (const path of remainingPaths.filter((path) => path !== 'notes/removed-dirty.md')) {
+		const localOnly = () =>
+			execute(
+				`const row = document.querySelector('[data-native-missing-path="' + arguments[0] + '"]');
+				return !!row?.querySelector('[data-native-missing-local-only]');`,
+				[path]
+			);
+		if (!(await localOnly())) await clickMissingAction(path, 'Conserver la copie locale');
+		await until(localOnly, `retained extra path ${path}`, 45_000);
+	}
+	await clickVisibleText('button', 'Enregistrer le projet sur disque');
+	await waitForProjectsIdle();
+	assert.equal(existsSync(removedDirtyPath), false);
+	database = await readProjectDatabase();
+	assert.equal(
+		database.documents.find(
+			(document) =>
+				document.projectId === uiProject.id && document.relativePath === 'notes/removed-dirty.md'
+		)?.content,
+		removedDirtyLocal
+	);
+	record('Keep local retains exact bytes and Save does not recreate the path', {
+		path: 'notes/removed-dirty.md',
+		diskPathExists: existsSync(removedDirtyPath),
+		localContentRetained: true
+	});
+
 	await openProjectDocument('notes/start.md');
 	await until(
 		() =>

@@ -53,9 +53,20 @@ export interface NativeProjectFailure {
 	message: string;
 }
 
+export interface NativeProjectMissingEntry {
+	/** Project-relative path of the local entry that has no disk file. */
+	path: string;
+	kind: 'markdown' | 'asset';
+	/** Disk revision recorded before the removal. */
+	revision: string;
+	/** The user chose to keep the local copy without a disk file. */
+	localOnly: boolean;
+}
+
 export interface NativeProjectReport {
 	succeeded: string[];
 	failed: NativeProjectFailure[];
+	missing: NativeProjectMissingEntry[];
 }
 
 export class NativeProjectOperationError extends Error {
@@ -184,9 +195,14 @@ async function storeBaseline(projectId: string, baseline: Record<string, string>
 }
 
 const MANIFEST_PREFIX = 'project-native-manifest:';
+const MISSING_PREFIX = 'project-native-missing:';
 
 interface StoredManifestEntry extends NativeProjectManifestEntry {
 	revision: string;
+}
+
+interface StoredMissingEntry extends NativeProjectMissingEntry {
+	detectedAt: number;
 }
 
 interface DiskEntry extends NativeProjectManifestEntry {
@@ -205,6 +221,62 @@ interface DiskDelta {
 
 function manifestKey(projectId: string): string {
 	return `${MANIFEST_PREFIX}${projectId}`;
+}
+
+function missingKey(projectId: string): string {
+	return `${MISSING_PREFIX}${projectId}`;
+}
+
+function publicMissing(entries: Iterable<StoredMissingEntry>): NativeProjectMissingEntry[] {
+	return [...entries]
+		.map((entry) => ({
+			path: entry.path,
+			kind: entry.kind,
+			revision: entry.revision,
+			localOnly: entry.localOnly
+		}))
+		.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function loadMissing(projectId: string): Promise<Map<string, StoredMissingEntry>> {
+	const result = new Map<string, StoredMissingEntry>();
+	const row = await db.metadata.get(missingKey(projectId));
+	if (!row) return result;
+	try {
+		const parsed: unknown = JSON.parse(row.value);
+		if (!Array.isArray(parsed)) return result;
+		for (const value of parsed) {
+			if (!value || typeof value !== 'object') continue;
+			const entry = value as Record<string, unknown>;
+			if (typeof entry.path !== 'string' || (entry.kind !== 'markdown' && entry.kind !== 'asset')) {
+				continue;
+			}
+			const path = projectPath(entry.path);
+			result.set(pathKey(path), {
+				path,
+				kind: entry.kind,
+				revision: typeof entry.revision === 'string' ? entry.revision : '',
+				localOnly: entry.localOnly === true,
+				detectedAt:
+					typeof entry.detectedAt === 'number' && Number.isFinite(entry.detectedAt)
+						? entry.detectedAt
+						: Date.now()
+			});
+		}
+	} catch {
+		/* A malformed review record must not grant or discard local bytes. */
+	}
+	return result;
+}
+
+async function storeMissing(
+	projectId: string,
+	entries: Iterable<StoredMissingEntry>
+): Promise<void> {
+	const value = JSON.stringify(
+		[...entries].sort((left, right) => left.path.localeCompare(right.path))
+	);
+	await db.metadata.put({ key: missingKey(projectId), value });
 }
 
 function manifestOf(entries: Iterable<StoredManifestEntry>): string {
@@ -651,6 +723,13 @@ class BaselineChanges {
 		this.changes += 1;
 	}
 
+	move(from: string, to: string, revision: string): void {
+		for (const key of Object.keys(this.values)) {
+			if (key !== to && pathKey(key) === pathKey(from)) this.remove(key);
+		}
+		this.set(to, revision);
+	}
+
 	async flush(force = false): Promise<void> {
 		if (this.changes === 0) return;
 		if (!force && this.changes < 128) return;
@@ -794,6 +873,84 @@ async function resolveAssetConflict(
 	return 'resolved';
 }
 
+/** Adopt the on-disk spelling of a path that only changed letter case. */
+async function moveLocalEntryPath(known: LocalEntry, path: string): Promise<void> {
+	if (known.kind === 'markdown') {
+		if (known.row.relativePath === path) return;
+		const memory = filesStore.library.find((file) => file.id === known.row.id);
+		if (!fileMatchesRow(memory, known.row)) {
+			throw new Error('Local document changed during native refresh');
+		}
+		const durable = await db.drafts.get(known.row.id);
+		if (
+			!durable ||
+			durable.content !== known.row.content ||
+			durable.relativePath !== known.row.relativePath ||
+			durable.updatedAt !== known.row.updatedAt
+		) {
+			throw new Error('Durable document changed during native refresh');
+		}
+		const updated: DraftRow = {
+			...known.row,
+			relativePath: path,
+			name: path.split('/').pop()!,
+			updatedAt: Date.now()
+		};
+		await db.drafts.put(updated);
+		known.row = updated;
+		filesStore.acceptProjectRows([updated]);
+		const current = filesStore.library.find((file) => file.id === updated.id);
+		if (current) current.dirty = false;
+		return;
+	}
+	if (known.row.path === path) return;
+	const durable = await db.projectAssets.get(known.row.id);
+	if (!durable || durable.path !== known.row.path || !bytesEqual(durable.data, known.row.data)) {
+		throw new Error('Local asset changed during native refresh');
+	}
+	const updated: ProjectAssetRow = { ...known.row, path };
+	await db.projectAssets.put(updated);
+	known.row = updated;
+	const { invalidateProjectMediaCache } = await import('./project-media');
+	invalidateProjectMediaCache();
+}
+
+/**
+ * A removed path and an added path with the same kind and exact revision are
+ * one external rename. Pair them only when the match is unambiguous, and only
+ * for a clean local copy. A dirty local copy keeps both sides so no edit is
+ * lost.
+ */
+function pairExternalRenames(
+	removed: readonly StoredManifestEntry[],
+	changed: readonly NativeProjectEntry[],
+	local: LocalProjectIndex
+): Map<string, StoredManifestEntry> {
+	const sources = new Map<string, StoredManifestEntry[]>();
+	for (const entry of removed) {
+		const key = `${entry.kind}:${entry.revision}`;
+		const list = sources.get(key) ?? [];
+		list.push(entry);
+		sources.set(key, list);
+	}
+	const targets = new Map<string, NativeProjectEntry[]>();
+	for (const entry of changed) {
+		if (local.paths.has(pathKey(entry.relativePath))) continue;
+		const key = `${entry.kind}:${entry.revision}`;
+		const list = targets.get(key) ?? [];
+		list.push(entry);
+		targets.set(key, list);
+	}
+	const pairs = new Map<string, StoredManifestEntry>();
+	for (const [key, list] of targets) {
+		const source = sources.get(key);
+		if (list.length === 1 && source?.length === 1) {
+			pairs.set(pathKey(list[0]!.relativePath), source[0]!);
+		}
+	}
+	return pairs;
+}
+
 async function refreshNativeProjectFromDiskInternal(
 	projectId: string,
 	providedSnapshot?: NativeProjectSnapshot,
@@ -827,6 +984,36 @@ async function refreshNativeProjectFromDiskInternal(
 	// load a single document body or binary asset row.
 	const local = await loadLocalProjectIndex(projectId);
 
+	// A path that exists on disk again was restored outside DeckMark. Its local
+	// bytes are already present, so the missing review can close.
+	const missing = await loadMissing(projectId);
+	let missingChanged = false;
+	for (const key of [...missing.keys()]) {
+		// The disk file or the local row can disappear while the review waits.
+		if (delta.entries.has(key) || !local.paths.has(key)) {
+			missing.delete(key);
+			missingChanged = true;
+		}
+	}
+	// Every removed path with a local row stays visible until the user reviews
+	// it. The manifest drops the disk path, but this record preserves the
+	// baseline revision and the retry state across restarts.
+	for (const entry of delta.removed) {
+		const key = pathKey(entry.relativePath);
+		if (!local.paths.has(key)) continue;
+		const previous = missing.get(key);
+		missing.set(key, {
+			path: projectPath(entry.relativePath),
+			kind: entry.kind,
+			revision: entry.revision,
+			localOnly: previous?.localOnly === true,
+			detectedAt: previous?.detectedAt ?? Date.now()
+		});
+		missingChanged = true;
+	}
+	const renames = pairExternalRenames(delta.removed, delta.changed, local);
+	if (missingChanged) await storeMissing(projectId, missing.values());
+
 	// Two disk entries that fold to one path cannot both become project rows.
 	// Reject every member of the collision before the first one can enter the
 	// local index for this refresh.
@@ -837,10 +1024,15 @@ async function refreshNativeProjectFromDiskInternal(
 		if (seenKeys.has(key)) duplicateKeys.add(key);
 		seenKeys.add(key);
 	}
-	const report: NativeProjectReport = { succeeded: [], failed: [] };
+	const report: NativeProjectReport = {
+		succeeded: [],
+		failed: [],
+		missing: []
+	};
 	if (!delta.changed.length && !delta.removed.length) {
 		// The stored manifest already matches the verified disk state. A quiet
 		// refresh writes no manifest and no baseline.
+		report.missing = publicMissing(missing.values());
 		return report;
 	}
 	for (const entry of delta.changed) {
@@ -851,6 +1043,31 @@ async function refreshNativeProjectFromDiskInternal(
 			const indexed = local.entries.get(key);
 			const known = indexed ? await loadLocalEntry(projectId, indexed) : undefined;
 			if (!known) {
+				const source = renames.get(key);
+				const sourceKey = source ? pathKey(source.relativePath) : null;
+				const sourceEntry = sourceKey ? local.entries.get(sourceKey) : undefined;
+				const candidate = sourceEntry ? await loadLocalEntry(projectId, sourceEntry) : undefined;
+				if (source && candidate) {
+					const candidateRevision =
+						candidate.kind === 'markdown'
+							? await sha256(textBytes(candidate.row.content))
+							: await sha256(candidate.row.data);
+					if (candidateRevision === entry.revision && candidate.kind === entry.kind) {
+						await moveLocalEntryPath(candidate, path);
+						baseline.move(projectPath(source.relativePath), path, entry.revision);
+						remember(entry, entry.revision);
+						report.succeeded.push(path);
+						if (sourceKey) local.entries.delete(sourceKey);
+						if (sourceEntry) {
+							sourceEntry.relativePath = path;
+							local.entries.set(key, sourceEntry);
+						}
+						if (missing.delete(pathKey(source.relativePath))) {
+							await storeMissing(projectId, missing.values());
+						}
+						continue;
+					}
+				}
 				await addDiskEntry(projectId, entry, local);
 				baseline.set(path, entry.revision);
 				remember(entry, entry.revision);
@@ -863,6 +1080,15 @@ async function refreshNativeProjectFromDiskInternal(
 					? await sha256(textBytes(known.row.content))
 					: await sha256(known.row.data);
 			if (localRevision === entry.revision) {
+				if (
+					(known.kind === 'markdown' && known.row.relativePath !== path) ||
+					(known.kind === 'asset' && known.row.path !== path)
+				) {
+					const previousPath = known.kind === 'markdown' ? known.row.relativePath! : known.row.path;
+					await moveLocalEntryPath(known, path);
+					baseline.move(previousPath, path, entry.revision);
+					if (indexed) indexed.relativePath = path;
+				}
 				baseline.set(path, entry.revision);
 				remember(entry, entry.revision);
 				report.succeeded.push(path);
@@ -905,6 +1131,7 @@ async function refreshNativeProjectFromDiskInternal(
 	}
 	await baseline.flush(true);
 	await storeManifest(projectId, delta.stored.values()).catch(() => {});
+	report.missing = publicMissing(missing.values());
 	if (report.failed.length)
 		throw new NativeProjectOperationError('Native project refresh failed', report);
 	return report;
@@ -921,6 +1148,80 @@ export function refreshNativeProjectFromDisk(
 			providedSnapshot,
 			options?.authoritative === true
 		)
+	);
+}
+
+/** Pending disk removals for a project survive a restart until the user reviews them. */
+export async function listNativeProjectMissingEntries(
+	projectId: string
+): Promise<NativeProjectMissingEntry[]> {
+	return publicMissing((await loadMissing(projectId)).values());
+}
+
+async function recreateMissingEntry(projectId: string, record: StoredMissingEntry): Promise<void> {
+	const session = await ensureSession(projectId);
+	const baseline = await loadBaseline(projectId);
+	const manifest = (await loadManifest(projectId)) ?? new Map<string, StoredManifestEntry>();
+	const path = projectPath(record.path);
+	const key = pathKey(path);
+	if (record.kind === 'markdown') {
+		const row = (await db.drafts.where('projectId').equals(projectId).toArray()).find(
+			(entry) => pathKey(entry.relativePath!) === key
+		);
+		if (!row) throw new Error('Local document is missing');
+		const written = await writeNativeProjectText(session.token, path, row.content, null);
+		baseline[path] = written.revision;
+		await storeBaseline(projectId, baseline);
+		manifest.set(path, storedEntry(written, written.revision));
+		await storeManifest(projectId, manifest.values());
+		const current = filesStore.library.find((file) => file.id === row.id);
+		if (current) current.dirty = false;
+		return;
+	}
+	const row = (await db.projectAssets.where('projectId').equals(projectId).toArray()).find(
+		(entry) => pathKey(entry.path) === key
+	);
+	if (!row) throw new Error('Local asset is missing');
+	const written = await writeNativeProjectAsset(session.token, path, row.data, null);
+	baseline[path] = written.revision;
+	await storeBaseline(projectId, baseline);
+	manifest.set(path, storedEntry(written, written.revision));
+	await storeManifest(projectId, manifest.values());
+}
+
+async function resolveMissingEntryInternal(
+	projectId: string,
+	path: string,
+	resolution: 'recreate' | 'retain'
+): Promise<NativeProjectMissingEntry[]> {
+	const normalized = projectPath(path);
+	const key = pathKey(normalized);
+	const missing = await loadMissing(projectId);
+	const record = missing.get(key);
+	if (!record) return publicMissing(missing.values());
+	if (resolution === 'retain') {
+		missing.set(key, { ...record, localOnly: true });
+		await storeMissing(projectId, missing.values());
+		return publicMissing(missing.values());
+	}
+	await recreateMissingEntry(projectId, record);
+	missing.delete(key);
+	await storeMissing(projectId, missing.values());
+	return publicMissing(missing.values());
+}
+
+/**
+ * Resolve one missing disk path without destroying local bytes.
+ * `recreate` writes the exact local bytes back. `retain` keeps the document or
+ * asset in the library and stops project saves from recreating it unseen.
+ */
+export function resolveNativeProjectMissingEntry(
+	projectId: string,
+	path: string,
+	resolution: 'recreate' | 'retain'
+): Promise<NativeProjectMissingEntry[]> {
+	return runProjectOperation(projectId, () =>
+		resolveMissingEntryInternal(projectId, path, resolution)
 	);
 }
 
@@ -962,12 +1263,20 @@ async function saveNativeProjectInternal(projectId: string): Promise<NativeProje
 			.map((file) => pathKey(file.relativePath!))
 	);
 	const local = await loadLocalProjectIndex(projectId);
-	const report: NativeProjectReport = { succeeded: [], failed: [] };
+	// A retained copy has no disk file. Saving it unseen would recreate the path
+	// that the user chose to keep local only.
+	const retained = new Set(
+		[...(await loadMissing(projectId)).values()]
+			.filter((entry) => entry.localOnly)
+			.map((entry) => pathKey(entry.path))
+	);
+	const report: NativeProjectReport = { succeeded: [], failed: [], missing: [] };
 	for (const indexed of local.entries.values()) {
 		if (indexed.kind !== 'markdown') continue;
 		const path = projectPath(indexed.relativePath);
 		const key = pathKey(path);
 		try {
+			if (retained.has(key)) continue;
 			const entry = disk.get(key);
 			if (!dirty.has(key) && entry && baseline.values[path] === entry.revision) continue;
 			const loaded = await loadLocalEntry(projectId, indexed);
@@ -1024,6 +1333,7 @@ async function saveNativeProjectInternal(projectId: string): Promise<NativeProje
 		if (indexed.kind !== 'asset') continue;
 		const path = projectPath(indexed.relativePath);
 		try {
+			if (retained.has(pathKey(path))) continue;
 			const loaded = await loadLocalEntry(projectId, indexed);
 			if (!loaded || loaded.kind !== 'asset') throw new Error('Local asset is missing');
 			const row = loaded.row;
@@ -1110,6 +1420,7 @@ async function disconnectNativeProjectInternal(projectId: string): Promise<void>
 		await db.projects.put({ ...localProject, updatedAt: Date.now() });
 		await db.metadata.delete(baselineKey(projectId));
 		await db.metadata.delete(manifestKey(projectId));
+		await db.metadata.delete(missingKey(projectId));
 	});
 	sessions.delete(projectId);
 }

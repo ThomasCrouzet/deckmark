@@ -31,6 +31,34 @@ Browser tests cannot observe these native filesystem and registry failures:
 - A failed registry update can leave an unreachable persistent grant after disconnect.
 - A local asset can change while its disk conflict dialog is open.
 - Two disk paths can collide after case folding in the frontend database.
+- An external removal can disappear from the manifest while the local document or asset still has bytes.
+- A removal review can be lost when its state write, the disk recreation or the application restart fails.
+- An external rename can create a second local document for the same bytes.
+- A retained local copy can be recreated by a later project save without review.
+
+## Removal policy
+
+A refresh never deletes a local document, asset, version or disk baseline.
+When a manifested path is absent from the disk scan, DeckMark records the path,
+kind, last disk revision and detection time in the `project-native-missing:`
+metadata row. The refresh result and the Projects panel list every pending path.
+The review survives a failed write, a cancelled operation and an application
+restart. The user can recreate the exact local bytes on disk or keep the copy
+local only. A local-only entry is skipped by project save until it is recreated.
+A path that reappears on disk closes its review. When one removed path and one
+added path share the same kind and exact revision, DeckMark moves the existing
+local row instead of adding a second document. A dirty local copy is not paired,
+so both sides stay available.
+
+`scripts/native-removal-repro.mjs` is the focused removal reproduction. It
+imports a small project, reloads, deletes a clean note, a second note and a
+binary asset outside DeckMark, then refreshes twice. It records the
+`project-native-missing:` key and entries, the Projects panel paths, the stored
+manifest paths and the local document and asset bytes. On `babfff5` it reports
+`missingKey: false`, no review rows and an empty manifest while both local
+documents and the asset bytes remain. On the fix it reports the three exact
+paths in metadata and in the panel on both refreshes, with the local bytes still
+present.
 
 ## Refresh cost checks
 
@@ -58,14 +86,16 @@ with an IndexedDB `put` wrapper for these observable checks:
 
 `scripts/native-refresh-cost-smoke.mjs` is the focused reproduction and
 benchmark. It creates a native project, imports it through the Projects panel,
-restarts so closed bodies are deferred, then measures a no-change refresh and a
+reloads so closed bodies are deferred, then measures a no-change refresh and a
 save with IndexedDB `drafts.get`, baseline `put`, RSS and Linux process CPU
 counters. Run it for 600, 1000 and 3000 documents with
-`NATIVE_REFRESH_DOCS=<n> NATIVE_REFRESH_REPEAT=5` and compare the pre-fix and
+`NATIVE_REFRESH_DOCS=<n> NATIVE_REFRESH_REPEAT=5` against the pre-fix and
 post-fix binaries. It records p50 and p95 refresh time, body reads, baseline
 writes, manifest versus full-snapshot IPC bytes, RSS before and after, and CPU
-time. The counts and timings are local diagnostics, not a native latency budget.
-A metadata manifest still hashes every file on an explicit verified refresh; it
+time. The pre-fix commit read 344 bodies and wrote the baseline 601 times at 600
+documents; the post-fix run reads and writes zero at 600, 1000 and 3000. The
+counts and timings are local diagnostics, not a native latency budget. A
+metadata manifest still hashes every file on an explicit verified refresh; it
 never transfers file contents to the webview unless the entry changed.
 
 The native smoke workflow uses real directories and files. It checks command
@@ -165,8 +195,16 @@ Run these scenarios through the desktop WebView with a real temporary directory:
    keeps the local draft and reports the changed revision.
 7. Choose overwrite. Verify the external checkpoint and the expected-revision
    write. A second external change must reject the write.
-8. Delete a disk document and refresh. Verify that the local draft remains in the
-   library and that a later save does not silently recreate it.
+8. Delete a disk document and refresh. Every removed path with a local row appears
+   in the Missing from disk review with its exact project path. The local bytes,
+   the dirty state and the version history stay unchanged. A second refresh and an
+   application restart show the same review. The user can recreate the exact local
+   bytes on disk or keep the copy local only. A retained copy is not recreated by
+   a later project save. A failed review write keeps the entry retryable.
+8b. Delete a clean Markdown document, a dirty Markdown document and a binary asset.
+   Recreate one entry and keep another. Verify the exact disk bytes, the local-only
+   state, the closed review after a disk restore, and one local row per external
+   rename.
 9. Add local documents and assets, then save. Verify exclusive creation and exact
    bytes. A concurrent disk creation must reject the operation.
 10. Cause one write to fail during a multi-file save. Verify the successful

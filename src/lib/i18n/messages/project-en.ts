@@ -81,7 +81,15 @@ export const projectEn = {
 	'projects.unlink': 'Disconnect disk folder',
 	'projects.saved': 'Project saved to disk.',
 	'projects.refreshed': 'Project refreshed from disk.',
-	'projects.refreshedVerified': 'Project refreshed and content revisions verified from disk.'
+	'projects.refreshedVerified': 'Project refreshed and content revisions verified from disk.',
+	'projects.missingOnDiskTitle': 'Missing from disk',
+	'projects.missingOnDiskMessage':
+		'{n} local file(s) have no disk copy. Local bytes and history stay in the library.',
+	'projects.recreateOnDisk': 'Recreate on disk',
+	'projects.keepLocalCopy': 'Keep local copy',
+	'projects.localOnly': 'Local only',
+	'projects.recreated': '{path} recreated on disk.',
+	'projects.keptLocal': '{path} stays local only. Save does not recreate it.'
 } as const;
 
 export type ProjectMessageKey = keyof typeof projectEn;

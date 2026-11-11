@@ -643,11 +643,26 @@ document native projects, reloads so closed bodies are deferred, and records
 p50/p95 refresh time, body reads, baseline writes, manifest versus snapshot IPC
 bytes, RSS and Linux process CPU. The same file ran against the pre-fix commit:
 the 601-document first refresh read 344 document bodies and the save wrote the
-baseline 601 times; the post-fix run reads and writes zero. These are local
-diagnostics on the native smoke build, not a browser heap or a universal CPU
-budget. The verified manual refresh still hashes every file on the native side so
-a same-size, same-mtime external write cannot be missed; the hashes are metadata
-and no file body crosses IPC.
+baseline 601 times; the 1001-document run read 744 bodies and wrote 1001 times.
+The post-fix runs read and write zero at 600, 1000 and 3000 documents. These are
+local diagnostics on the native smoke build, not a browser heap or a universal
+CPU budget. The verified manual refresh still hashes every file on the native side
+so a same-size, same-mtime external write cannot be missed; the hashes are
+metadata and no file body crosses IPC.
+
+### Native project removal review risks
+
+An external disk removal must not drop the last record of a local document or
+asset. The `project-native-missing:` metadata review keeps the exact path, kind,
+last disk revision and local-only choice. A refresh reports pending paths; it
+does not remove local bytes, history or the disk baseline. Recreate writes the
+exact local bytes with a null expected revision. Keep local skips later project
+saves until the path is recreated. A failed review write, a cancelled operation
+and a restart keep the review retryable. A path restored on disk closes it.
+`scripts/native-projects.mjs` checks clean and dirty Markdown, a binary asset,
+a second refresh, a restart, an injected metadata failure, recreate, keep local
+and a later save. That workflow requires the native smoke binary on a desktop
+session. The browser suite cannot run these Tauri commands.
 
 ## Code snippets
 
