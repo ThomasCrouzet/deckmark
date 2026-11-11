@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { MetaIndex } from './meta-index';
 import { WikiLinkIndex } from './wiki-link-index';
 import type { FileItem } from './types';
-import { deriveMetadata, updateMetadata, type MetadataSnapshot } from './metadata-derive';
+import { deriveMetadata, type MetadataSnapshot } from './metadata-derive';
+import { updateMetadata } from './metadata-update';
 
 function makeFile(partial: Partial<FileItem> & { id: string; name: string }): FileItem {
 	return {

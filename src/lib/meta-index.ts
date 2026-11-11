@@ -19,17 +19,11 @@ import type { ChangeSet } from '@codemirror/state';
 import type { FileItem } from './types';
 import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-utils';
-import {
-	deriveMetadata,
-	metadataEditReuse,
-	metadataFrontmatterEnd,
-	type MetadataSource,
-	type MetadataValues
-} from './metadata-derive';
+import { deriveMetadata, type MetadataSource, type MetadataValues } from './metadata-derive';
 import type { MetadataRequest, MetadataResponse } from './metadata.worker';
 import type { WikiLinkIndex } from './wiki-link-index';
 import type { MetadataRunner } from './metadata-runner';
-import { codemirrorChanges, composeTextEdits, type DocumentEdits } from './document-revisions';
+import type { DocumentEdits } from './document-revisions';
 import { reportWarning } from './report';
 
 const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
@@ -48,8 +42,6 @@ interface MetaEntry {
 	sourceKind: FileItem['kind'];
 	/** Content fingerprint: we invalidate if `content !== file.content`. */
 	content: string;
-	/** Length of the front-matter prefix, including the byte order mark. */
-	frontmatterEnd: number;
 	title: string;
 	documentTitle: string;
 	tags: string[];
@@ -65,17 +57,15 @@ export class MetaIndex {
 	private allTagsCache: string[] | null = null;
 	private tagCounts: Map<string, number> | null = null;
 	private pending = new Map<string, number>();
+	/** Document revision of the content currently held by `file.content`. */
+	private contentRevisions = new Map<string, number>();
 	private revision = 0;
 	private runner: MetadataRunner | null = null;
 	private disposed = false;
 	private timer: ReturnType<typeof setTimeout> | undefined;
-	private active: (MetadataRequest & { sourceKind: FileItem['kind']; name: string }) | null = null;
+	private active: MetadataRequest | null = null;
 	/** Accepted edit chains per file, coalesced until the next Worker job. */
 	private editChains = new Map<string, EditRecord[]>();
-	/** Document revision of the content currently held by `file.content`. */
-	private contentRevisions = new Map<string, number>();
-	/** Document revision held as the Worker baseline for each file. */
-	private workerBaselines = new Map<string, number>();
 
 	/** Reference to the current files state (injected by the store). */
 	private getFiles: () => readonly FileItem[];
@@ -101,7 +91,6 @@ export class MetaIndex {
 				isNote: documentKindForFile(file) === 'note',
 				sourceKind: file.kind,
 				content: file.content,
-				frontmatterEnd: metadataFrontmatterEnd(file.content),
 				title: durable.title,
 				documentTitle: durable.documentTitle,
 				tags: durable.tags,
@@ -138,7 +127,6 @@ export class MetaIndex {
 			isNote: documentKindForFile(file) === 'note',
 			sourceKind: file.kind,
 			content: file.content,
-			frontmatterEnd: metadataFrontmatterEnd(file.content),
 			title,
 			documentTitle,
 			tags,
@@ -159,10 +147,10 @@ export class MetaIndex {
 	//
 	// `documentRevision` is passed only by the document publish path. It keeps
 	// the accepted edit chain, which the next job may send as one delta.
-	invalidateMeta(id: string, options?: { documentRevision?: number }): void {
+	invalidateMeta(id: string, documentRevision?: number): void {
 		if (this.disposed) return;
-		if (options?.documentRevision !== undefined) {
-			this.contentRevisions.set(id, options.documentRevision);
+		if (documentRevision !== undefined) {
+			this.contentRevisions.set(id, documentRevision);
 		} else {
 			this.editChains.delete(id);
 			this.contentRevisions.delete(id);
@@ -173,7 +161,6 @@ export class MetaIndex {
 			this.pending.delete(id);
 			this.editChains.delete(id);
 			this.contentRevisions.delete(id);
-			this.workerBaselines.delete(id);
 			this.publish(id, null);
 			this.onPublish?.(id);
 		} else if (this.onPublish) {
@@ -183,25 +170,20 @@ export class MetaIndex {
 	}
 
 	/**
-	 * Records one accepted editor change. The chain is only usable while it
-	 * starts at the Worker baseline and ends at the published content revision.
-	 * Only the compact change set is retained; the editor state is not.
+	 * Records one accepted editor change. The chain is usable while it stays
+	 * contiguous and ends at the published content revision. Only the compact
+	 * change set is retained; the editor state is not.
 	 */
 	recordEdit(id: string, base: number, next: number, edits: DocumentEdits): void {
 		if (this.disposed) return;
-		const changes = codemirrorChanges(edits);
+		const changes = edits.kind === 'codemirror' ? edits.changes : null;
 		if (!changes) {
 			this.editChains.delete(id);
 			return;
 		}
-		const chain = this.editChains.get(id);
-		if (chain?.length && chain.at(-1)!.next !== base) this.editChains.delete(id);
 		const current = this.editChains.get(id) ?? [];
 		current.push({ base, next, changes });
-		// Bound the retained chain. A very long burst without a completed job
-		// falls back to one full snapshot instead of unbounded change sets.
-		if (current.length > 256) this.editChains.delete(id);
-		else this.editChains.set(id, current);
+		this.editChains.set(id, current);
 	}
 
 	private publish(id: string, current: MetaEntry | null): void {
@@ -242,7 +224,11 @@ export class MetaIndex {
 	}
 
 	private runNext(): void {
-		const next = this.nextPending();
+		const active = this.getActiveFile?.() ?? null;
+		const next: [string, number] | undefined =
+			active && this.pending.has(active)
+				? [active, this.pending.get(active)!]
+				: this.pending.entries().next().value;
 		if (!next || this.disposed) return;
 		const [id, revision] = next;
 		const file = this.getFiles().find((file) => file.id === id);
@@ -251,11 +237,28 @@ export class MetaIndex {
 			this.schedule();
 			return;
 		}
-		const request = this.buildRequest(id, revision, file);
-		this.active = { ...request, sourceKind: file.kind, name: this.requestName(request) };
+		const documentRevision = this.contentRevisions.get(id);
+		const full: Extract<MetadataRequest, { kind: 'full' }> = {
+			kind: 'full',
+			id,
+			revision,
+			documentRevision: documentRevision ?? -1,
+			source: this.source(file)
+		};
+		this.active = full;
 		void import('./draft-access')
-			.then(({ MetadataRunner }) => {
+			.then(({ buildRequest, MetadataRunner }) => {
 				if (this.disposed) return null;
+				const request = buildRequest({
+					id,
+					revision,
+					full,
+					documentRevision,
+					chain: this.editChains.get(id),
+					previous: this.metaCache.get(id),
+					source: full.source
+				});
+				if (this.active) this.active = request;
 				this.runner ??= new MetadataRunner();
 				return this.runner.run(request);
 			})
@@ -265,7 +268,6 @@ export class MetaIndex {
 			.catch(() => {
 				if (this.disposed) return;
 				reportWarning('metadata runner unavailable');
-				this.workerBaselines.delete(id);
 				this.editChains.delete(id);
 				this.timer = setTimeout(() => {
 					this.timer = undefined;
@@ -283,68 +285,6 @@ export class MetaIndex {
 			});
 	}
 
-	/** Prefer the open document, then the oldest pending file. */
-	private nextPending(): [string, number] | undefined {
-		const active = this.getActiveFile?.() ?? null;
-		if (active && this.pending.has(active)) return [active, this.pending.get(active)!];
-		return this.pending.entries().next().value;
-	}
-
-	private requestName(request: MetadataRequest): string {
-		return request.kind === 'full' ? request.source.name : request.name;
-	}
-
-	private buildRequest(id: string, revision: number, file: FileItem): MetadataRequest {
-		const documentRevision = this.contentRevisions.get(id);
-		const delta = this.buildDelta(id, revision, documentRevision);
-		if (delta) return delta;
-		return {
-			kind: 'full',
-			id,
-			revision,
-			documentRevision: documentRevision ?? -1,
-			source: this.source(file)
-		};
-	}
-
-	/**
-	 * Builds one delta when the Worker baseline, the accepted edit chain and the
-	 * published content revision all describe the same document. Every other
-	 * case sends a full snapshot.
-	 */
-	private buildDelta(
-		id: string,
-		revision: number,
-		documentRevision: number | undefined
-	): MetadataRequest | null {
-		const baseline = this.workerBaselines.get(id);
-		if (baseline === undefined || documentRevision === undefined) return null;
-		const chain = this.editChains.get(id);
-		if (!chain?.length || chain[0]!.base !== baseline || chain.at(-1)!.next !== documentRevision)
-			return null;
-		const previous = this.metaCache.get(id);
-		const file = this.getFiles().find((entry) => entry.id === id);
-		if (!previous || !file) return null;
-		const spans = composeTextEdits(chain.map((record) => record.changes));
-		if (!spans) return null;
-		const source = this.source(file);
-		// The Worker validates the same rule against its exact baseline. This
-		// check keeps a structural edit on the full-snapshot path.
-		if (!metadataEditReuse(previous.content, source.content, previous.frontmatterEnd, spans))
-			return null;
-		return {
-			kind: 'delta',
-			id,
-			revision,
-			documentRevision,
-			base: baseline,
-			name: source.name,
-			isNote: source.isNote,
-			length: source.content.length,
-			edits: spans
-		};
-	}
-
 	private finish(response: MetadataResponse): void {
 		const request = this.active;
 		if (
@@ -358,17 +298,14 @@ export class MetaIndex {
 		if (response.mode === 'rejected') {
 			// The Worker does not hold the required baseline. Drop the edit chain
 			// and send one full snapshot for the still-pending revision.
-			this.workerBaselines.delete(response.id);
 			this.editChains.delete(response.id);
 			this.schedule();
 			return;
 		}
 		if (response.mode === 'fallback') {
 			// A synchronous fallback did not enter the Worker baseline cache.
-			this.workerBaselines.delete(response.id);
 			this.editChains.delete(response.id);
 		} else {
-			this.workerBaselines.set(response.id, response.documentRevision);
 			this.trimEdits(response.id, response.documentRevision);
 		}
 		const file = this.getFiles().find((file) => file.id === request.id);
@@ -377,8 +314,7 @@ export class MetaIndex {
 			if (
 				file &&
 				response.values &&
-				file.name === request.name &&
-				file.kind === request.sourceKind &&
+				file.name === (request.kind === 'full' ? request.source.name : request.name) &&
 				(request.kind === 'full'
 					? file.content === request.source.content
 					: this.contentRevisions.get(request.id) === response.documentRevision)
@@ -409,10 +345,9 @@ export class MetaIndex {
 		this.runner = null;
 		this.active = null;
 		this.pending.clear();
+		this.contentRevisions.clear();
 		this.metaCache.clear();
 		this.editChains.clear();
-		this.contentRevisions.clear();
-		this.workerBaselines.clear();
 		this.wikiIndex = null;
 		this.tagCounts = null;
 		this.allTagsCache = null;
@@ -426,10 +361,9 @@ export class MetaIndex {
 		const ids = new Set(this.getFiles().map((file) => file.id));
 		for (const id of this.metaCache.keys()) if (!ids.has(id)) this.metaCache.delete(id);
 		for (const id of this.pending.keys()) if (!ids.has(id)) this.pending.delete(id);
-		for (const id of this.editChains.keys()) if (!ids.has(id)) this.editChains.delete(id);
 		for (const id of this.contentRevisions.keys())
 			if (!ids.has(id)) this.contentRevisions.delete(id);
-		for (const id of this.workerBaselines.keys()) if (!ids.has(id)) this.workerBaselines.delete(id);
+		for (const id of this.editChains.keys()) if (!ids.has(id)) this.editChains.delete(id);
 	}
 
 	/**

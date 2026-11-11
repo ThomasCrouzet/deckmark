@@ -17,40 +17,6 @@ export type DocumentEdits =
 	| { readonly kind: 'prosemirror'; readonly transaction: Transaction }
 	| { readonly kind: 'structured'; readonly operations: readonly unknown[] };
 
-/** One changed range against the original text, with its replacement. */
-export interface TextEditSpan {
-	readonly from: number;
-	readonly to: number;
-	readonly insert: string;
-}
-
-/**
- * Combines accepted CodeMirror change sets into spans against the original
- * text. Returns null when the sets do not compose, so the caller falls back to
- * one full snapshot.
- */
-export function composeTextEdits(changes: readonly ChangeSet[]): TextEditSpan[] | null {
-	let composed: ChangeSet | null = null;
-	for (const change of changes) {
-		try {
-			composed = composed ? composed.compose(change) : change;
-		} catch {
-			return null;
-		}
-	}
-	if (!composed) return null;
-	const spans: TextEditSpan[] = [];
-	composed.iterChanges((from, to, _fromB, _toB, inserted) => {
-		spans.push({ from, to, insert: inserted.toString() });
-	});
-	return spans;
-}
-
-/** Returns the compact change set of an accepted edit, when it has one. */
-export function codemirrorChanges(edits: DocumentEdits): ChangeSet | null {
-	return edits.kind === 'codemirror' ? edits.changes : null;
-}
-
 export interface DocumentChange {
 	readonly base: DocumentRevision;
 	readonly edits: DocumentEdits;

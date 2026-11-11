@@ -4,6 +4,7 @@
 export { applyDraftContent, buildSearchCorpus } from './draft-content';
 export { loadDraftLibrary } from './draft-load';
 export { MetadataRunner } from './metadata-runner';
+export { buildRequest } from './metadata-delta';
 // Rare or deferred actions share this lazy boundary so they do not add a
 // precache entry for each small helper.
 export { resolveProjectLink } from './project-link-target';

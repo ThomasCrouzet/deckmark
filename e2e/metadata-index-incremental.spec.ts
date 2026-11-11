@@ -156,9 +156,13 @@ async function appendAtEnd(page: Page, text: string): Promise<void> {
 	await page.keyboard.insertText(text);
 }
 
+function acceptedResponses(state: TransferState): number {
+	return state.responses.filter((response) => response.mode !== 'rejected').length;
+}
+
 async function waitForResponse(page: Page, previous: number): Promise<void> {
 	await expect
-		.poll(async () => (await readTransfer(page)).responses.length, { timeout: 20_000 })
+		.poll(async () => acceptedResponses(await readTransfer(page)), { timeout: 20_000 })
 		.toBeGreaterThan(previous);
 }
 
@@ -546,7 +550,7 @@ test.describe('Metadata index incremental update', () => {
 		const baseline: Record<string, number> = {};
 		for (const id of ['large-a', 'large-b']) {
 			await openNote(page, id);
-			const before = (await readTransfer(page)).responses.length;
+			const before = acceptedResponses(await readTransfer(page));
 			await appendAtEnd(page, 'x');
 			await waitForResponse(page, before);
 			baseline[id] = (await readTransfer(page)).requests.at(-1)?.sourceBytes ?? 0;
@@ -557,7 +561,7 @@ test.describe('Metadata index incremental update', () => {
 		for (const id of ['large-a', 'large-b', 'large-a']) {
 			await resetTransfer(page);
 			await openNote(page, id);
-			const before = (await readTransfer(page)).responses.length;
+			const before = acceptedResponses(await readTransfer(page));
 			await appendAtEnd(page, 'y');
 			await waitForResponse(page, before);
 			measured.push({ id, state: await readTransfer(page) });

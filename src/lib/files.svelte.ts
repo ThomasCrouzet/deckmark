@@ -218,7 +218,7 @@ class FilesStore {
 			const file = this.library.find((entry) => entry.id === snapshot.revision.fileId);
 			if (!file || !this.documents.isCurrent(snapshot.revision)) return;
 			file.content = snapshot.text;
-			this.metaIndex.invalidateMeta(file.id, { documentRevision: snapshot.revision.generation });
+			this.metaIndex.invalidateMeta(file.id, snapshot.revision.generation);
 			this.metaRev += 1;
 		},
 		(error) => reportPersistenceError(error, 'save')

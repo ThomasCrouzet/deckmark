@@ -1,12 +1,8 @@
-import {
-	updateMetadata,
-	type MetadataEdit,
-	type MetadataSnapshot,
-	type MetadataSource,
-	type MetadataValues
-} from './metadata-derive';
+import { type MetadataSnapshot, type MetadataSource, type MetadataValues } from './metadata-derive';
+import { updateMetadata } from './metadata-update';
+import type { MetadataEdit } from './metadata-delta';
 
-export type { MetadataEdit } from './metadata-derive';
+export type { MetadataEdit } from './metadata-delta';
 
 export type MetadataRequest =
 	| {
