@@ -69,7 +69,8 @@ export default defineConfig({
 			testMatch: [
 				'**/mobile.spec.ts',
 				'**/presentation-mobile.spec.ts',
-				'**/presentation-responsive-tasks.spec.ts'
+				'**/presentation-responsive-tasks.spec.ts',
+				'**/safe-area.spec.ts'
 			]
 		},
 		{

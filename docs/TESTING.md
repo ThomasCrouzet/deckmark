@@ -666,6 +666,39 @@ and repeat with `--project=firefox` and `--project=webkit`.
 
 ## Edition and hosting checks
 
+### Installed iOS and iPadOS chrome
+
+The viewport uses `viewport-fit=cover`. The shared shell resolves the platform
+`env(safe-area-inset-*)` values once and applies them to the persistent toolbar,
+editor and status bar. The fixed mobile drawer applies the same values at the
+viewport boundary. WebKit deprecated the `black-translucent` status-bar mode;
+the document must not request `apple-mobile-web-app-status-bar-style`.
+
+`e2e/safe-area.spec.ts` overrides the resolved custom properties to simulate a
+notched device and checks the toolbar, drawer and status bar against the
+simulated box. It also checks that zero insets add no gap. A custom-property
+override does not reproduce WebKit installation geometry: some iOS releases
+inset the web content before `env()` is resolved, and a fresh install can report
+different values than an older install. The browser suite cannot replace the
+device checks below.
+
+Run:
+
+```sh
+npx playwright test e2e/safe-area.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/safe-area.spec.ts --project=mobile-chromium --workers=1 --retries=0
+```
+
+On a notched iPhone, record the device model, iOS version, install date,
+orientation, `innerHeight`, `visualViewport` values and each
+`env(safe-area-inset-*)` value in Safari tab and Home Screen mode. Repeat on an
+iPad in portrait, landscape and two window widths. Check the toolbar actions,
+drawer controls, editor area and save status. Reinstall the Home Screen app once
+to compare a fresh install with the earlier one. Keep the screenshots and
+measurements with the report. A Chromium viewport emulation is not a device test.
+
+## Version 2.0 project risks
+
 ### Retained hosting failure risks
 
 Record these risks before changes to the deployment workflow or production checks:

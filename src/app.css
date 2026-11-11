@@ -242,6 +242,23 @@ body.typewriter-mode .mdsh-editor {
 }
 
 /* ==========================================================================
+   Safe-area policy
+   The viewport uses `viewport-fit=cover`, so installed iOS/iPadOS web apps can
+   extend below the status bar and above the home indicator. Resolve the
+   platform insets once here. The shared shell applies them to the persistent
+   toolbar, editor and status bar. Fixed mobile navigation applies the same
+   variables at its own viewport boundary. Tests can override the variables to
+   simulate a device that reports non-zero insets; do not add a second inset in
+   an individual chrome component.
+   ========================================================================== */
+:root {
+	--mdsh-safe-top: env(safe-area-inset-top, 0px);
+	--mdsh-safe-right: env(safe-area-inset-right, 0px);
+	--mdsh-safe-bottom: env(safe-area-inset-bottom, 0px);
+	--mdsh-safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* ==========================================================================
    mdsh interface
    A faint grid structures the app surfaces. It does not cover the document,
    and it is hidden in the light theme.
@@ -250,6 +267,10 @@ body.typewriter-mode .mdsh-editor {
 	position: relative;
 	isolation: isolate;
 	background-color: var(--color-bg);
+	padding-top: var(--mdsh-safe-top);
+	padding-right: var(--mdsh-safe-right);
+	padding-bottom: var(--mdsh-safe-bottom);
+	padding-left: var(--mdsh-safe-left);
 }
 
 :root:not([data-theme='light']) .mdsh-shell::before {
