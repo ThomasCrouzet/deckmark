@@ -786,6 +786,18 @@ Run these checks in a fresh browser profile for each base path:
    reaches IndexedDB before the page reloads.
 5. Confirm that application assets and the service worker use the same base path.
 6. Confirm that no Desktop-only native module appears in the Web build or precache.
+7. Read the served manifest. Its effective `id` must be `/` for the root build
+   and `/deckmark/` for the project build. Its effective `start_url` and `scope`
+   must match the same app root. The two IDs must differ.
+
+`scripts/manifest-id.test.mjs` applies the build emitter to both base paths and
+resolves the three URLs against the public manifest URL. The manifest case in
+`e2e/pwa.spec.ts` checks the root artifact. After a real project-path build, run
+`BASE_PATH=/deckmark npm run build` and read `build/manifest.webmanifest`. A
+published identity change also needs the reinstall check in
+[EDITIONS.md](EDITIONS.md#hosting-and-downloads). An installed copy with the
+earlier identity can remain separate; browser storage is origin-local and must
+keep the drafts.
 
 Confirm HTTPS and an independent app at each origin. The GitHub Pages URL must
 not redirect to the Cloudflare site. Keep the existing DNS setup and leave the

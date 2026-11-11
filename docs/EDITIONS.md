@@ -144,6 +144,14 @@ a future signed release. See [Desktop updates](UPDATES.md) and the
   fonts, and export modules for the active base path.
 - The service worker scope is `/` on a custom domain and `/deckmark/` on the
   GitHub Pages project URL.
+- The manifest ID is `/` on `https://www.deckmark.dev/` and `/deckmark/` on
+  `https://thomascrouzet.github.io/deckmark/`. The ID is the installed
+  application identity, not the navigation scope. The two IDs do not overlap.
+- A browser can treat a manifest ID change as a new application. Installations
+  made before this change keep their earlier identity until the user removes
+  them. Remove the old Home Screen or browser entry, install the current site,
+  and confirm that the drafts remain. Browser storage stays with the origin and
+  is not erased by the manifest change.
 - Unknown deep links open the app shell from the cache. A refresh of a deep link
   does not need a server route.
 - The workflow builds the root for Cloudflare Pages and `/deckmark` for the
@@ -240,6 +248,22 @@ Production browser checks verify these values, startup, saved edits, and offline
 use at both public URLs. A daily check detects stale sites and starts the same
 gated deployment workflow. The detection run fails with a repair message.
 Post-deployment checks must pass before the repair is confirmed.
+
+The build writes the manifest identity for its base path. The canonical host
+keeps `/`. The GitHub Pages build writes `/deckmark/`, so an unrelated project
+application on the same `thomascrouzet.github.io` origin cannot share its install
+identity. `start_url` and `scope` stay relative and resolve under the same
+project path. After a change to the manifest identity, check both hosts:
+
+1. In the browser application panel, read the effective manifest `id`,
+   `start_url` and `scope` at the served URL.
+2. Keep a draft, then install the site in a fresh browser profile. Confirm that
+   the installed app opens offline and that the draft remains.
+3. If an installed copy uses the earlier identity, remove that copy and install
+   the current site once. Confirm that the origin still shows the earlier
+   drafts. Do not expect the browser to merge two installed identities.
+4. Repeat the check on Chromium, Android Chromium, and Safari Home Screen. The
+   engines interpret manifest identity differently; record each result.
 
 The sites do not share drafts or PWA installations. Export a backup from one
 origin and restore it on the other to move local data. See

@@ -38,10 +38,21 @@ test.describe('PWA - manifest', () => {
 
 		const manifest = (await res.json()) as {
 			name?: string;
+			id?: string;
+			start_url?: string;
+			scope?: string;
 			icons?: Array<{ src: string; sizes?: string }>;
 		};
 		expect(manifest.name).toBeTruthy();
 		expect(Array.isArray(manifest.icons) && manifest.icons.length).toBeGreaterThan(0);
+
+		const manifestUrl = new URL(href as string, page.url()).toString();
+		const appRoot = new URL('.', page.url()).toString();
+		expect(manifest.id).toBe('/');
+		for (const key of ['id', 'start_url', 'scope'] as const) {
+			expect(manifest[key], `manifest ${key} absent`).toBeTruthy();
+			expect(new URL(manifest[key] as string, manifestUrl).toString()).toBe(appRoot);
+		}
 	});
 });
 
