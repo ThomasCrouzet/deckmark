@@ -49,7 +49,6 @@
 	import {
 		formatStorageBytes,
 		getStorageHealth,
-		recordBackupReminderShown,
 		recordExternalBackupFailure,
 		recordExternalBackupSuccess,
 		type StorageHealth
@@ -210,8 +209,9 @@
 	}
 
 	async function refreshStorageHealth(): Promise<void> {
+		// A health read is not a reminder action. Only an explicit dismissal or a
+		// successful backup records the reminder timestamp.
 		storageHealth = await getStorageHealth();
-		if (storageHealth.backupReminderDue) recordBackupReminderShown();
 	}
 
 	function formatBackupDate(value: number): string {

@@ -1,5 +1,5 @@
 import { test, expect, type Download, type Page, type TestInfo } from '@playwright/test';
-import { createFirstFile, resetAppState, writeSourceContent } from './helpers';
+import { createFirstFile, renameActiveFile, resetAppState, writeSourceContent } from './helpers';
 
 // Issue #620 - the StatusBar keeps its own backup-reminder state. These cases
 // check the reminder before and after a manual external backup, a failed
@@ -133,21 +133,20 @@ test('a successful Settings export clears the overdue reminder in the same tab',
 	});
 });
 
-test('a failed export keeps an overdue reminder and records no success', async ({ page }, info) => {
+test('a failed export preserves the overdue reminder across close and reload', async ({
+	page
+}, info) => {
 	await overdueLibrary(page);
 	await expect(reminder(page)).toBeVisible();
 	const before = await timestamps(page);
+	expect(before.reminder).toBeNull();
 
+	// Opening Settings through the toolbar is a read. It must not acknowledge
+	// the reminder or move the controlled overdue state.
 	await openSettings(page);
-	// Opening Settings acknowledges a due reminder through the existing
-	// refreshStorageHealth path. This behaviour is unchanged, not a regression.
-	const acknowledged = await timestamps(page);
-	expect(acknowledged.reminder).not.toBeNull();
-	expect(Number(acknowledged.reminder)).toBeGreaterThan(Number(before.backup));
-	// Re-age the reminder under the open Settings panel. The failed export must
-	// not write a new success timestamp, and the overdue state must survive a reload.
-	const controlled = Date.now() - 90 * DAY;
-	await seedTimestamps(page, controlled, null);
+	const afterOpen = await timestamps(page);
+	expect(afterOpen).toEqual(before);
+
 	await page.evaluate(() => {
 		const original = URL.createObjectURL;
 		(window as unknown as { __restoreObjectUrl: () => void }).__restoreObjectUrl = () => {
@@ -178,42 +177,80 @@ test('a failed export keeps an overdue reminder and records no success', async (
 			(window as unknown as { __restoreObjectUrl?: () => void }).__restoreObjectUrl?.();
 		});
 	}
-	// The failure path records its own error and then refreshes the Settings
-	// health, which acknowledges the due reminder. Record that existing
-	// acknowledgement explicitly. It is not a regression of this candidate.
+	// The actual failure must leave the controlled overdue state untouched.
 	const afterFailure = await timestamps(page);
-	expect(afterFailure.backup).toBe(String(controlled));
+	expect(afterFailure.backup).toBe(before.backup);
+	expect(afterFailure.reminder).toBe(before.reminder);
 	expect(afterFailure.error).not.toBeNull();
-	expect(afterFailure.reminder).not.toBeNull();
-	// Re-age once more after the failure acknowledgement, so the reload checks
-	// the stored overdue state that the failed export must not clear.
-	await seedTimestamps(page, controlled, null);
+	expect(downloaded).toBe(false);
+
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Réglages' })).toBeHidden();
 	await expect(reminder(page)).toBeVisible();
-
-	const after = await timestamps(page);
-	expect(after.backup).toBe(String(controlled));
-	expect(after.error).not.toBeNull();
-	expect(downloaded).toBe(false);
+	const afterClose = await timestamps(page);
+	expect(afterClose.backup).toBe(before.backup);
+	expect(afterClose.reminder).toBeNull();
 
 	await page.reload();
 	await ready(page);
 	await expect(reminder(page)).toBeVisible();
 	const reloaded = await timestamps(page);
-	expect(reloaded.backup).toBe(String(controlled));
+	expect(reloaded.backup).toBe(before.backup);
+	expect(reloaded.reminder).toBeNull();
 	expect(Date.now() - Number(reloaded.backup)).toBeGreaterThan(30 * DAY);
 	await attach(info, 'backup-reminder-failure.json', {
 		before,
-		acknowledged,
-		controlled,
+		afterOpen,
 		afterFailure,
-		after,
+		afterClose,
 		reloaded,
 		downloaded,
-		reminderVisibleAfterReload: await reminder(page).isVisible(),
-		failureAcknowledgement:
-			'The failing export refreshes the Settings health and acknowledges a due reminder. The case re-ages after that acknowledgement and does not claim it as a regression.'
+		reminderVisibleAfterReload: await reminder(page).isVisible()
+	});
+});
+
+test('opening, closing Settings and changing documents keep the reminder due', async ({
+	page
+}, info) => {
+	await overdueLibrary(page);
+	await renameActiveFile(page, 'Reminder note');
+	await expect(reminder(page)).toBeVisible();
+	const before = await timestamps(page);
+	expect(before.reminder).toBeNull();
+
+	await openSettings(page);
+	expect(await timestamps(page)).toEqual(before);
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog', { name: 'Réglages' })).toBeHidden();
+	expect(await timestamps(page)).toEqual(before);
+	await expect(reminder(page)).toBeVisible();
+
+	// Create a second note, then return to the first. A document change is not
+	// a reminder action.
+	await page
+		.getByRole('button', { name: /^Nouveau fichier/ })
+		.first()
+		.click();
+	await page.getByTestId('create-note').click();
+	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toBeVisible();
+	expect(await timestamps(page)).toEqual(before);
+	await page
+		.locator('aside')
+		.getByRole('button', { name: /^Reminder note/ })
+		.first()
+		.click();
+	expect(await timestamps(page)).toEqual(before);
+	await expect(reminder(page)).toBeVisible();
+
+	await page.reload();
+	await ready(page);
+	await expect(reminder(page)).toBeVisible();
+	const reloaded = await timestamps(page);
+	expect(reloaded).toEqual(before);
+	await attach(info, 'backup-reminder-open-close.json', {
+		before,
+		reloaded,
+		reminderVisibleAfterReload: await reminder(page).isVisible()
 	});
 });
 
