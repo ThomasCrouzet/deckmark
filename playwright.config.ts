@@ -69,7 +69,9 @@ export default defineConfig({
 			testMatch: [
 				'**/mobile.spec.ts',
 				'**/presentation-mobile.spec.ts',
-				'**/presentation-responsive-tasks.spec.ts'
+				'**/presentation-responsive-tasks.spec.ts',
+				'**/presentation-visual-viewport.spec.ts',
+				'**/safe-area.spec.ts'
 			]
 		},
 		{
@@ -104,6 +106,7 @@ export default defineConfig({
 				'**/read-annotations.spec.ts',
 				'**/modal-isolation-review.spec.ts',
 				'**/palette-load-review.spec.ts',
+				'**/palette-pagination.spec.ts',
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
@@ -114,7 +117,9 @@ export default defineConfig({
 				'**/prompt-keyboard.spec.ts',
 				'**/code-creation.spec.ts',
 				'**/ime-dialogs.spec.ts',
-				'**/snippets-keyboard.spec.ts'
+				'**/snippets-keyboard.spec.ts',
+				'**/frontmatter-properties.spec.ts',
+				'**/export-profiles.spec.ts'
 			]
 		},
 		{
@@ -157,6 +162,7 @@ export default defineConfig({
 				'**/read-annotations.spec.ts',
 				'**/modal-isolation-review.spec.ts',
 				'**/palette-load-review.spec.ts',
+				'**/palette-pagination.spec.ts',
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
@@ -169,7 +175,9 @@ export default defineConfig({
 				'**/prompt-keyboard.spec.ts',
 				'**/code-creation.spec.ts',
 				'**/ime-dialogs.spec.ts',
-				'**/snippets-keyboard.spec.ts'
+				'**/snippets-keyboard.spec.ts',
+				'**/frontmatter-properties.spec.ts',
+				'**/export-profiles.spec.ts'
 			]
 		},
 		{

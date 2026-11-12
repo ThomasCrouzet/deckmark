@@ -11,6 +11,7 @@ mod projects;
 mod shell;
 mod update;
 mod vault;
+mod window_geometry;
 
 use disk::{collect_argv_paths, collect_paths_from_directory, CapabilityStore, PendingOpenPaths};
 use tauri::{Emitter, Manager};
@@ -140,6 +141,8 @@ pub fn run() {
             capture::desktop_capture_register,
             capture::desktop_capture_unregister,
             capture::desktop_capture_status,
+            #[cfg(feature = "native-smoke")]
+            window_geometry::desktop_window_geometry,
         ])
         .setup(move |app| {
             app.state::<CapabilityStore>()
@@ -154,6 +157,13 @@ pub fn run() {
             let project_registry = app.path().app_data_dir()?.join("project-roots.json");
             app.state::<projects::ProjectStore>()
                 .set_registry(project_registry)?;
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) =
+                    window_geometry::constrain_window(&window, window_geometry::MAIN_MINIMUM)
+                {
+                    eprintln!("[mdsh-window] could not fit the main window: {error}");
+                }
+            }
             #[cfg(feature = "native-smoke")]
             smoke_startup_phase(started, "user-setup");
             Ok(())
@@ -181,6 +191,33 @@ pub fn run() {
             smoke_startup_phase(started, "run-ready");
         }
         match &event {
+            tauri::RunEvent::Ready => {
+                // The window-state plugin restores a saved size on window
+                // creation. Fit the main window after that restore.
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    if let Err(error) =
+                        window_geometry::constrain_window(&window, window_geometry::MAIN_MINIMUM)
+                    {
+                        eprintln!("[mdsh-window] could not fit the main window: {error}");
+                    }
+                }
+            }
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::ScaleFactorChanged { .. },
+                ..
+            } => {
+                if let Some(window) = app_handle.get_webview_window(label) {
+                    let minimum = if label == capture::CAPTURE_LABEL {
+                        window_geometry::CAPTURE_MINIMUM
+                    } else {
+                        window_geometry::MAIN_MINIMUM
+                    };
+                    if let Err(error) = window_geometry::constrain_window(&window, minimum) {
+                        eprintln!("[mdsh-window] could not fit {label}: {error}");
+                    }
+                }
+            }
             tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::CloseRequested { api, .. },

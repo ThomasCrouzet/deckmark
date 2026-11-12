@@ -13,7 +13,9 @@
 		<link rel="canonical" href="https://www.deckmark.dev/" />
 		<meta name="referrer" content="no-referrer" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
-		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<!-- Do not add the apple-mobile-web-app-status-bar-style meta. WebKit
+		     deprecated black-translucent because one status-bar style cannot fit
+		     light and dark page colors. The status bar follows the page color. -->
 		<meta name="apple-mobile-web-app-title" content="DeckMark" />
 		<meta name="mobile-web-app-capable" content="yes" />
 

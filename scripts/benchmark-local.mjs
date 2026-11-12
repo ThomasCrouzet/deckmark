@@ -518,33 +518,116 @@ async function measureReadMode(page, runs) {
 
 async function measureScroll(page, runs) {
 	const values = [];
-	for (let run = 0; run < runs; run += 1) {
-		const result = await page.evaluate(
-			(ratio) =>
-				new Promise((resolvePromise) => {
-					const scroller = document.querySelector('.mdsh-read');
-					if (!scroller) {
-						resolvePromise(null);
-						return;
+	const diagnostics = [];
+	/** @type {string | undefined} */
+	let longTaskSupport;
+	/** @type {Array<{ start: number, duration: number }> | undefined} */
+	let longTasks;
+	try {
+		// The observer is installed once for the scroll samples. Its callback only
+		// pushes a bounded entry when the engine reports a long task. It reads no
+		// DOM, layout or paint data. It is disconnected in the finally block.
+		longTaskSupport = await page.evaluate(() => {
+			window.__scrollLongTaskEntries = [];
+			window.__scrollLongTaskObserver = null;
+			const supported =
+				typeof PerformanceObserver === 'function' &&
+				Array.isArray(PerformanceObserver.supportedEntryTypes) &&
+				PerformanceObserver.supportedEntryTypes.includes('longtask');
+			if (!supported) return 'unavailable';
+			try {
+				const observer = new PerformanceObserver((list) => {
+					for (const entry of list.getEntries()) {
+						if (window.__scrollLongTaskEntries.length < 32) {
+							window.__scrollLongTaskEntries.push({
+								start: entry.startTime,
+								duration: entry.duration
+							});
+						}
 					}
-					const room = scroller.scrollHeight - scroller.clientHeight;
-					const startedAt = performance.now();
-					scroller.scrollTop = Math.round(room * ratio);
-					requestAnimationFrame(() => {
+				});
+				observer.observe({ type: 'longtask', buffered: false });
+				window.__scrollLongTaskObserver = observer;
+				return 'available';
+			} catch {
+				window.__scrollLongTaskObserver = null;
+				return 'unavailable';
+			}
+		});
+		for (let run = 0; run < runs; run += 1) {
+			const ratio = ((run % 8) + 1) / 9;
+			const ratioLabel = `${(run % 8) + 1}/9`;
+			const result = await page.evaluate(
+				(ratio) =>
+					new Promise((resolvePromise) => {
+						const scroller = document.querySelector('.mdsh-read');
+						if (!scroller) {
+							resolvePromise(null);
+							return;
+						}
+						const room = scroller.scrollHeight - scroller.clientHeight;
+						const startedAt = performance.now();
+						const requested = Math.round(room * ratio);
+						scroller.scrollTop = requested;
 						requestAnimationFrame(() => {
-							resolvePromise({
-								ms: performance.now() - startedAt,
-								applied: scroller.scrollTop,
-								room
+							const frame1 = performance.now();
+							requestAnimationFrame(() => {
+								const frame2 = performance.now();
+								resolvePromise({
+									ms: frame2 - startedAt,
+									start: startedAt,
+									frame1,
+									frame2,
+									requested,
+									applied: scroller.scrollTop,
+									room
+								});
 							});
 						});
-					});
-				}),
-			((run % 8) + 1) / 9
-		);
-		values.push(result && result.room > 0 ? round(result.ms) : null);
+					}),
+				ratio
+			);
+			if (result && result.room > 0) {
+				const ms = round(result.ms);
+				values.push(ms);
+				diagnostics.push({
+					run,
+					ratio: ratioLabel,
+					ms,
+					start: round(result.start),
+					frame1: round(result.frame1),
+					frame2: round(result.frame2),
+					frame1Gap: round(result.frame1 - result.start),
+					frame2Gap: round(result.frame2 - result.frame1),
+					requested: result.requested,
+					applied: result.applied,
+					room: result.room
+				});
+			} else {
+				values.push(null);
+			}
+		}
+	} finally {
+		// Flush queued observer callbacks outside the measured windows, then
+		// disconnect. A missing page keeps the support value and returns no entries.
+		await page
+			.evaluate(() => new Promise((resolvePromise) => setTimeout(resolvePromise, 0)))
+			.catch(() => {});
+		const entries = await page
+			.evaluate(() => {
+				const observer = window.__scrollLongTaskObserver;
+				const observed = window.__scrollLongTaskEntries ?? [];
+				if (observer) observer.disconnect();
+				window.__scrollLongTaskObserver = null;
+				return observed;
+			})
+			.catch(() => []);
+		longTasks = entries.map((entry) => ({
+			start: round(entry.start),
+			duration: round(entry.duration)
+		}));
 	}
-	return values;
+	return { values, diagnostics, longTaskSupport, longTasks };
 }
 
 async function measureModeSwitch(page, runs) {
@@ -797,7 +880,7 @@ async function runWebBenchmark(options, fixtures) {
 		// present. Let that work settle before the two-frame scroll sample, or a
 		// single first-paint stall becomes the p95 of five samples.
 		await waitForIdle(page);
-		const scrollFrame = await measureScroll(page, options.runs);
+		const scroll = await measureScroll(page, options.runs);
 		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
 		// Twenty samples make p95 the second-worst value for the visual typing
@@ -835,7 +918,7 @@ async function runWebBenchmark(options, fixtures) {
 			typingLarge: typingLarge.values,
 			typingLargeSync: typingLarge.sync,
 			readModeSwitch: readMode,
-			scrollFrame,
+			scrollFrame: scroll.values,
 			wysiwygLoad: modeSwitch.wysiwygLoad,
 			typingWysiwyg: modeSwitch.typing,
 			typingWysiwygSync: modeSwitch.typingSync,
@@ -904,6 +987,11 @@ async function runWebBenchmark(options, fixtures) {
 			forcedBudgetFailure: budgetGateFailed(budget, options.enforceBudgets),
 			summary,
 			samples,
+			scrollDiagnostics: {
+				support: scroll.longTaskSupport,
+				runs: scroll.diagnostics,
+				longTasks: scroll.longTasks
+			},
 			startupDiagnostics,
 			diagnostics: {
 				typingSource: typingSource.diagnostics,
@@ -1003,7 +1091,53 @@ function printBudgetFailureDiagnostics(result) {
 				shown.length > 0 ? shown.join(',') : 'none'
 			}`
 		);
+		if (metric === 'scrollFrame') printScrollFailureTimeline(result);
 	}
+}
+
+/**
+ * Count long-task entries that overlap one scroll sample interval.
+ * A zero count is a bounded observation, not proof that no stall occurred.
+ * @param {{ start: number, frame2: number }} run
+ * @param {Array<{ start: number, duration: number }>} longTasks
+ */
+function scrollLongTaskOverlaps(run, longTasks) {
+	return longTasks.filter(
+		(task) => task.start < run.frame2 && task.start + task.duration > run.start
+	).length;
+}
+
+/**
+ * Print bounded per-run scroll evidence only after a scrollFrame budget failure.
+ * The diagnostics are separate from the numeric samples and never enter the
+ * summary, budget, exit code or thrown error.
+ * @param {Record<string, any>} result
+ */
+function printScrollFailureTimeline(result) {
+	const diagnostics = result?.scrollDiagnostics;
+	const runs = diagnostics?.runs;
+	if (!Array.isArray(runs) || runs.length === 0) return;
+	const support = diagnostics.support === 'available' ? 'available' : 'unavailable';
+	const longTasks = Array.isArray(diagnostics.longTasks) ? diagnostics.longTasks : [];
+	for (const run of runs.slice(0, failureSampleLimit)) {
+		const overlap =
+			support === 'available' ? scrollLongTaskOverlaps(run, longTasks) : 'unavailable';
+		console.log(
+			`Scroll sample timeline: run=${run.run} ratio=${run.ratio} ms=${run.ms} start=${run.start} frame1=${run.frame1} frame2=${run.frame2} requested=${run.requested} applied=${run.applied} room=${run.room} longtask=${overlap}`
+		);
+	}
+	if (support === 'unavailable') {
+		console.log('Scroll long tasks: support=unavailable');
+		return;
+	}
+	const bounded = longTasks.slice(0, 8);
+	console.log(
+		`Scroll long tasks: support=available count=${longTasks.length} samples=${
+			bounded.length > 0
+				? bounded.map((task) => `${task.start}:${task.duration}`).join(',')
+				: 'none'
+		}`
+	);
 }
 
 async function main() {

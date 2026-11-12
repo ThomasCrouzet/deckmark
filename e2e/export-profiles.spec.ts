@@ -69,6 +69,16 @@ async function profileNames(page: Page) {
 	return profileOptions(page).allTextContents();
 }
 
+async function optionIsVisible(page: Page, id: string): Promise<boolean> {
+	return page.getByTestId(`export-profile-${id}`).evaluate((element) => {
+		const scroller = element.closest('.profile-body');
+		if (!scroller) return false;
+		const option = element.getBoundingClientRect();
+		const view = scroller.getBoundingClientRect();
+		return option.top >= view.top - 1 && option.bottom <= view.bottom + 1;
+	});
+}
+
 test('applies a reusable profile to HTML exports deterministically', async ({
 	page
 }, info: TestInfo) => {
@@ -260,6 +270,248 @@ test('keeps the previous collection when the active selection cannot be saved', 
 	await expect(page.getByTestId('export-profiles-error')).toHaveCount(0);
 	await expect(profileOptions(page)).toHaveCount(2);
 	expect((await storedState(page)).active).toBe('new-a');
+});
+
+test('moves the profile selection with arrows and keeps one Tab stop', async ({ page }, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await openProfiles(page);
+	const dialog = page.getByTestId('export-profiles');
+	const listbox = page.getByRole('listbox', { name: 'Profils d’export' });
+	const close = dialog.getByRole('button', { name: 'Fermer' });
+	const name = page.getByTestId('export-profile-name');
+	const entries = Array.from({ length: 100 }, (_, index) =>
+		profile(`p${index}`, `Profile ${index + 1}`)
+	);
+	await importProfiles(page, entries.slice(0, 30));
+	await expect(profileOptions(page)).toHaveCount(30);
+
+	await close.focus();
+	await page.keyboard.press('Tab');
+	await expect(listbox).toBeFocused();
+	expect(await listbox.getAttribute('tabindex')).toBe('0');
+	expect(
+		await profileOptions(page).evaluateAll((nodes) => nodes.map((node) => node.tabIndex))
+	).toEqual(Array.from({ length: 30 }, () => -1));
+	await expect(profileOptions(page).nth(0)).toHaveAttribute('aria-selected', 'true');
+
+	await page.keyboard.press('ArrowDown');
+	await expect(profileOptions(page).nth(1)).toHaveAttribute('aria-selected', 'true');
+	await expect(profileOptions(page).nth(0)).toHaveAttribute('aria-selected', 'false');
+	await expect(name).toHaveValue('Profile 2');
+	expect(await page.evaluate(() => localStorage.getItem('mdsh:export-profile-active'))).toBe('p0');
+
+	await page.keyboard.press('End');
+	await expect(profileOptions(page).nth(29)).toHaveAttribute('aria-selected', 'true');
+	await expect(name).toHaveValue('Profile 30');
+	await page.keyboard.press('Home');
+	await expect(profileOptions(page).nth(0)).toHaveAttribute('aria-selected', 'true');
+	await page.keyboard.press('ArrowUp');
+	await expect(profileOptions(page).nth(0)).toHaveAttribute('aria-selected', 'true');
+	await page.keyboard.press('ArrowDown');
+	await expect(profileOptions(page).nth(1)).toHaveAttribute('aria-selected', 'true');
+
+	const activeDescendant = await listbox.getAttribute('aria-activedescendant');
+	expect(activeDescendant).toBeTruthy();
+	expect(await page.locator(`#${activeDescendant}`).getAttribute('aria-selected')).toBe('true');
+
+	await page.keyboard.press('Tab');
+	await expect(name).toBeFocused();
+
+	const traversal: Array<{ count: number; tabsToForm: number }> = [];
+	for (const count of [1, 2, 100]) {
+		await importProfiles(page, entries.slice(0, count));
+		await expect(profileOptions(page)).toHaveCount(count);
+		await close.focus();
+		await page.keyboard.press('Tab');
+		await expect(listbox).toBeFocused();
+		await page.keyboard.press('ArrowDown');
+		await page.keyboard.press('Tab');
+		await expect(name).toBeFocused();
+		traversal.push({ count, tabsToForm: 1 });
+		expect(
+			await profileOptions(page).evaluateAll((nodes) => nodes.map((node) => node.tabIndex))
+		).toEqual(Array.from({ length: count }, () => -1));
+	}
+
+	await info.attach('export-profile-listbox-navigation.json', {
+		body: JSON.stringify(
+			{
+				optionCount: 30,
+				activeBeforeKeyboard: 'p0',
+				activeDescendant,
+				traversal
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps selection and focus coherent after profile changes', async ({ page }, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await openProfiles(page);
+	const dialog = page.getByTestId('export-profiles');
+	const listbox = page.getByRole('listbox', { name: 'Profils d’export' });
+	const name = page.getByTestId('export-profile-name');
+	await importProfiles(
+		page,
+		Array.from({ length: 5 }, (_, index) => profile(`p${index}`, `Profile ${index + 1}`))
+	);
+	await expect(profileOptions(page)).toHaveCount(5);
+
+	await profileOptions(page).nth(3).click();
+	await expect(profileOptions(page).nth(3)).toHaveAttribute('aria-selected', 'true');
+	await expect(name).toHaveValue('Profile 4');
+	await expect(listbox).toBeFocused();
+	expect(await page.evaluate(() => localStorage.getItem('mdsh:export-profile-active'))).toBe('p0');
+
+	await name.fill('Renamed profile');
+	await expect(name).toBeFocused();
+	await expect(profileOptions(page).nth(3)).toContainText('Renamed profile');
+	const format = page.getByTestId('export-profile-format');
+	await format.focus();
+	await format.selectOption('pdf');
+	await expect(format).toBeFocused();
+	await expect(profileOptions(page).nth(3)).toContainText('PDF');
+
+	await importProfiles(page, [
+		profile('a', 'Imported A'),
+		profile('b', 'Imported B'),
+		profile('c', 'Imported C')
+	]);
+	await expect(profileOptions(page)).toHaveCount(3);
+	await listbox.focus();
+	await page.getByTestId('export-profile-name').fill('Temporary name');
+	await listbox.focus();
+	await importProfiles(page, [
+		profile('a', 'Imported A'),
+		profile('b', 'Imported B'),
+		profile('c', 'Imported C')
+	]);
+	await expect(profileOptions(page)).toHaveCount(3);
+	await expect(listbox).toBeFocused();
+
+	await page.getByRole('button', { name: 'Supprimer le profil' }).focus();
+	await page.keyboard.press('Enter');
+	await expect(profileOptions(page)).toHaveCount(2);
+	expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+
+	await page.getByTestId('export-profile-use').focus();
+	await page.keyboard.press('Enter');
+	await expect(page.getByTestId('export-profile-use')).toContainText('Utilisé');
+	await expect(page.getByTestId('export-profile-use')).toBeFocused();
+	await expect(
+		page.getByRole('listbox', { name: 'Profils d’export' }).getByRole('option', { selected: true })
+	).toHaveCount(1);
+
+	await info.attach('export-profile-focus-retention.json', {
+		body: JSON.stringify(
+			{ stored: await storedState(page), options: await profileNames(page) },
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
+test('scrolls the active and newly added profile into view', async ({ page }, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await openProfiles(page);
+	const listbox = page.getByRole('listbox', { name: 'Profils d’export' });
+	await importProfiles(
+		page,
+		Array.from({ length: 30 }, (_, index) => profile(`p${index}`, `Profile ${index + 1}`))
+	);
+	await expect(profileOptions(page)).toHaveCount(30);
+
+	await profileOptions(page).nth(29).click();
+	await page.getByTestId('export-profile-use').click();
+	await page.keyboard.press('Escape');
+	await openProfiles(page);
+	await expect(profileOptions(page)).toHaveCount(30);
+	await listbox.focus();
+	await expect(profileOptions(page).nth(29)).toHaveAttribute('aria-selected', 'true');
+	await expect.poll(() => optionIsVisible(page, 'p29')).toBe(true);
+	const focusScroll = await page.getByTestId('export-profile-p29').evaluate((element) => {
+		const scroller = element.closest('.profile-body');
+		return {
+			optionTop: element.getBoundingClientRect().top,
+			scrollTop: scroller?.scrollTop ?? null
+		};
+	});
+
+	await page.getByRole('button', { name: 'Nouveau profil' }).click();
+	await expect(profileOptions(page)).toHaveCount(31);
+	await expect(page.getByTestId('export-profile-name')).toHaveValue('Nouveau profil d’export');
+	const addedId = (await profileOptions(page).nth(30).getAttribute('data-testid'))!.replace(
+		'export-profile-',
+		''
+	);
+	await expect.poll(() => optionIsVisible(page, addedId)).toBe(true);
+	const addScroll = await page.getByTestId(`export-profile-${addedId}`).evaluate((element) => {
+		const scroller = element.closest('.profile-body');
+		return {
+			optionTop: element.getBoundingClientRect().top,
+			scrollTop: scroller?.scrollTop ?? null
+		};
+	});
+
+	await info.attach('export-profile-scroll.json', {
+		body: JSON.stringify({ focusScroll, addScroll }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps the listbox keyboard model at 375px and simulated 200 percent zoom', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await page.setViewportSize({ width: 375, height: 740 });
+	await openProfiles(page);
+	const dialog = page.getByTestId('export-profiles');
+	const listbox = page.getByRole('listbox', { name: 'Profils d’export' });
+	const close = dialog.getByRole('button', { name: 'Fermer' });
+	const name = page.getByTestId('export-profile-name');
+	await importProfiles(
+		page,
+		Array.from({ length: 30 }, (_, index) => profile(`p${index}`, `Profile ${index + 1}`))
+	);
+	await expect(profileOptions(page)).toHaveCount(30);
+
+	async function checkTraversal() {
+		await close.focus();
+		await page.keyboard.press('Tab');
+		await expect(listbox).toBeFocused();
+		await page.keyboard.press('Home');
+		await page.keyboard.press('ArrowDown');
+		await expect(profileOptions(page).nth(1)).toHaveAttribute('aria-selected', 'true');
+		await page.keyboard.press('Tab');
+		await expect(name).toBeFocused();
+		const box = await name.boundingBox();
+		expect(box?.width ?? 0).toBeGreaterThan(0);
+		return box;
+	}
+
+	const narrow = await checkTraversal();
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.evaluate(() => {
+		document.documentElement.style.zoom = '2';
+	});
+	const zoomed = await checkTraversal();
+	expect(zoomed?.width ?? 0).toBeGreaterThan(0);
+	await page.evaluate(() => {
+		document.documentElement.style.zoom = '';
+	});
+
+	await info.attach('export-profile-viewport.json', {
+		body: JSON.stringify({ method: 'CSS zoom', narrow, zoomed }, null, 2),
+		contentType: 'application/json'
+	});
 });
 
 test('persists the active profile across reloads', async ({ page }) => {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { X } from '@lucide/svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { i18n, t } from '#lib/i18n/index.js';
@@ -66,7 +66,9 @@
 	let activeId = $state('');
 	let error = $state('');
 	let importInput = $state<HTMLInputElement | null>(null);
+	let listbox = $state<HTMLDivElement | null>(null);
 	const selected = $derived(profiles.find((profile) => profile.id === selectedId) ?? null);
+	const selectedIndex = $derived(profiles.findIndex((profile) => profile.id === selectedId));
 
 	onMount(load);
 
@@ -75,6 +77,68 @@
 		activeId = activeProfile(profiles)?.id ?? '';
 		// Always offer a profile for editing. Only `activeId` controls exports.
 		selectedId = activeId || (profiles[0]?.id ?? '');
+	}
+
+	function optionId(index: number): string {
+		return `export-profile-option-${index}`;
+	}
+
+	async function scrollOptionIntoView(index: number) {
+		await tick();
+		listbox?.querySelector<HTMLElement>(`[id="${optionId(index)}"]`)?.scrollIntoView({
+			block: 'nearest'
+		});
+	}
+
+	/** Moves selection without activating the profile for exports. */
+	async function moveSelection(index: number) {
+		if (profiles.length === 0) return;
+		const next = Math.min(Math.max(index, 0), profiles.length - 1);
+		const profile = profiles[next];
+		if (!profile) return;
+		selectedId = profile.id;
+		await scrollOptionIntoView(next);
+	}
+
+	/** Returns the selected index, or recovers a stale identifier to the first row. */
+	function recoverSelection(): number {
+		const index = profiles.findIndex((profile) => profile.id === selectedId);
+		if (index >= 0) return index;
+		const first = profiles[0];
+		if (!first) return -1;
+		selectedId = first.id;
+		return 0;
+	}
+
+	function nextIndex(delta: number): number {
+		return selectedIndex < 0 ? 0 : selectedIndex + delta;
+	}
+
+	function onListboxKeydown(event: KeyboardEvent) {
+		if (event.altKey || event.ctrlKey || event.metaKey) return;
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			void moveSelection(nextIndex(1));
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			void moveSelection(nextIndex(-1));
+		} else if (event.key === 'Home') {
+			event.preventDefault();
+			void moveSelection(0);
+		} else if (event.key === 'End') {
+			event.preventDefault();
+			void moveSelection(profiles.length - 1);
+		}
+	}
+
+	function selectWithPointer(id: string) {
+		selectedId = id;
+		listbox?.focus();
+	}
+
+	function focusActiveOption() {
+		const index = recoverSelection();
+		if (index >= 0) void scrollOptionIntoView(index);
 	}
 
 	function update(patch: Partial<ExportProfile>) {
@@ -92,7 +156,7 @@
 		error = '';
 	}
 
-	function add() {
+	async function add() {
 		const profile = createProfile(t('exportProfiles.newName'));
 		const next = [...profiles, profile];
 		try {
@@ -104,6 +168,7 @@
 		profiles = next;
 		selectedId = profile.id;
 		error = '';
+		await scrollOptionIntoView(profiles.length - 1);
 	}
 
 	function remove() {
@@ -180,14 +245,26 @@
 					><X size={16} /></button
 				>
 			</header>
-			<div class="profile-body">
-				<div class="profile-list" role="listbox" aria-label={t('exportProfiles.list')}>
-					{#each profiles as profile (profile.id)}
+			<div class="profile-body" tabindex="-1">
+				<div
+					bind:this={listbox}
+					class="profile-list"
+					role="listbox"
+					tabindex="0"
+					aria-label={t('exportProfiles.list')}
+					aria-orientation="vertical"
+					aria-activedescendant={selectedIndex < 0 ? undefined : optionId(selectedIndex)}
+					onfocus={focusActiveOption}
+					onkeydown={onListboxKeydown}
+				>
+					{#each profiles as profile, index (profile.id)}
 						<button
 							type="button"
 							role="option"
+							id={optionId(index)}
+							tabindex="-1"
 							aria-selected={selectedId === profile.id}
-							onclick={() => (selectedId = profile.id)}
+							onclick={() => selectWithPointer(profile.id)}
 							data-testid={`export-profile-${profile.id}`}
 						>
 							<span>{profile.name}</span>
@@ -390,6 +467,11 @@
 		min-width: 0;
 		flex-direction: column;
 		gap: 4px;
+		border-radius: var(--radius-xs);
+	}
+	.profile-list:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 2px;
 	}
 	.profile-list button {
 		display: flex;

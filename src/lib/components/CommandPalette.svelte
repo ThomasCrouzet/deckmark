@@ -884,9 +884,11 @@
 
 	const PAGE_COMMANDS = 100;
 	let visibleLimit = $state(PAGE_COMMANDS);
+	let paginationStatus = $state('');
 	$effect(() => {
 		void query;
 		visibleLimit = PAGE_COMMANDS;
+		paginationStatus = '';
 	});
 	const matches: Command[] = $derived.by(() => {
 		const all = [
@@ -1011,6 +1013,16 @@
 		});
 	});
 
+	/** Adds one page without moving the action inside the listbox. */
+	function showMoreCommands() {
+		visibleLimit += PAGE_COMMANDS;
+		paginationStatus = t('palette.moreShown', {
+			shown: Math.min(visibleLimit, matches.length),
+			total: matches.length
+		});
+		void tick().then(() => inputEl?.focus());
+	}
+
 	function handleKey(e: KeyboardEvent) {
 		if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
 		if (e.key === 'Escape') {
@@ -1134,6 +1146,9 @@
 					<span>{t('palette.availableCount', { n: filtered.filter(isAvailable).length })}</span>
 				</div>
 
+				<p id="cmd-palette-pagination-status" class="sr-only" role="status" aria-live="polite">
+					{paginationStatus}
+				</p>
 				<ul
 					id="cmd-palette-listbox"
 					role="listbox"
@@ -1191,19 +1206,20 @@
 								{/if}
 							</li>
 						{/each}
-						{#if filtered.length < matches.length}
-							<li class="px-4 py-2 text-center text-xs">
-								<button
-									type="button"
-									class="text-fg-muted underline"
-									onclick={() => (visibleLimit += PAGE_COMMANDS)}
-								>
-									{t('palette.showMore', { n: matches.length - filtered.length })}
-								</button>
-							</li>
-						{/if}
 					{/if}
 				</ul>
+				{#if filtered.length > 0 && filtered.length < matches.length}
+					<div class="border-t border-border px-4 py-2 text-center text-xs">
+						<button
+							type="button"
+							class="text-fg-muted underline"
+							aria-controls="cmd-palette-listbox"
+							onclick={showMoreCommands}
+						>
+							{t('palette.showMore', { n: matches.length - filtered.length })}
+						</button>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
