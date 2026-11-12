@@ -250,6 +250,13 @@ test.describe('Editor state isolation and restoration', () => {
 			}));
 			await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles(files);
 			await expect(page.locator('.cm-content').first()).toBeVisible();
+			// The input handler starts an asynchronous import, and every imported
+			// file becomes active. Wait for the last file so a later activation
+			// cannot replace the file that receives the first selection.
+			await expect(page.locator('aside li[aria-setsize]').first()).toHaveAttribute(
+				'aria-setsize',
+				String(files.length)
+			);
 			await openDraft(page, files[0].name);
 			await page.locator('.cm-content').first().focus();
 			await page.keyboard.press('ControlOrMeta+End');
