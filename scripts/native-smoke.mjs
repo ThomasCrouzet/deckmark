@@ -22,6 +22,7 @@ import { nativeExportCancellation } from './native-export-cancellation.mjs';
 import { nativePresentationPdf } from './native-presentation.mjs';
 import { checkDesktopTools } from './native-desktop-tools.mjs';
 import { nativeProjects } from './native-projects.mjs';
+import { nativeGit } from './native-git.mjs';
 import { nativeCapture } from './native-capture.mjs';
 import { processTreeMemory } from './native-process-memory.mjs';
 import { stopChild } from './native-smoke-process.mjs';
@@ -1138,6 +1139,16 @@ try {
 		}
 	});
 	passed('native project roots remain confined across refresh restart and revocation');
+	results.nativeGit = await nativeGit({
+		execute,
+		executeAsync,
+		until,
+		request,
+		session,
+		fixtureRoot: nativeProjectRoot,
+		output
+	});
+	passed('native Git diff review reaches the final section and returns');
 	const treeStartedAt = performance.now();
 	await click('[data-testid="projects-open"]');
 	await until(

@@ -73,18 +73,6 @@ export async function nativeGit({
 			`click ${selector}`,
 			45_000
 		);
-	const clickButtonText = (text) =>
-		until(
-			() =>
-				execute(
-					`const element = [...document.querySelectorAll('button')].find(node => node.textContent.trim() === arguments[0]);
-					if (!element || element.disabled || element.closest('[inert]') || !element.getClientRects().length) return false;
-					element.click(); return true;`,
-					[text]
-				),
-			`click ${text}`,
-			45_000
-		);
 	const readDiff = () =>
 		execute(
 			`const panel = document.querySelector('[data-testid=git-panel]');
@@ -99,8 +87,21 @@ export async function nativeGit({
 			};`,
 			[firstLine, lastLine]
 		);
-
-	const projects = await executeAsync(`const done = arguments[arguments.length - 1];
+	const clickGitFile = (name) =>
+		until(
+			() =>
+				execute(
+					`const panel = document.querySelector('[data-testid=git-panel]');
+					const element = [...(panel?.querySelectorAll('button') ?? [])].find(node => node.textContent.trim() === arguments[0]);
+					if (!element || element.disabled || !element.getClientRects().length) return false;
+					element.click(); return true;`,
+					[name]
+				),
+			`click Git file ${name}`,
+			45_000
+		);
+	const readProjects = () =>
+		executeAsync(`const done = arguments[arguments.length - 1];
 		const request = indexedDB.open('mdsh');
 		request.onerror = () => done({ error: String(request.error) });
 		request.onsuccess = () => {
@@ -112,13 +113,6 @@ export async function nativeGit({
 				done(query.result.map(({ id, name, nativeRootId }) => ({ id, name, nativeRootId })));
 			};
 		};`);
-	assert.ok(Array.isArray(projects), JSON.stringify(projects));
-	const project = projects.find((row) => row.nativeRootId);
-	if (!project) {
-		record('native Git review', { skipped: true, reason: 'No linked native project row.' });
-		writeFileSync(join(output, 'native-git.json'), JSON.stringify({ evidence }, null, 2));
-		return evidence;
-	}
 
 	const base = `# Native Git review\n\nBase body.\n`;
 	writeFileSync(join(fixtureRoot, 'long.md'), base);
@@ -150,6 +144,30 @@ export async function nativeGit({
 		'Projects panel opens',
 		45_000
 	);
+	let projects = await readProjects();
+	assert.ok(Array.isArray(projects), JSON.stringify(projects));
+	let project = projects.find((row) => row.nativeRootId);
+	if (!project) {
+		await until(
+			() =>
+				execute(
+					`const element = [...document.querySelectorAll('button')].find(node => /dossier du disque|disk folder/i.test(node.textContent));
+					if (!element || element.disabled || element.closest('[inert]') || !element.getClientRects().length) return false;
+					element.click(); return true;`
+				),
+			'open the native project folder',
+			60_000
+		);
+		project = await until(
+			async () => {
+				const rows = await readProjects();
+				if (!Array.isArray(rows)) return false;
+				return rows.find((row) => row.nativeRootId) ?? false;
+			},
+			'native project becomes linked',
+			60_000
+		);
+	}
 	await until(
 		() =>
 			execute(
@@ -169,7 +187,7 @@ export async function nativeGit({
 		'Git panel opens',
 		45_000
 	);
-	await clickButtonText('long.md');
+	await clickGitFile('long.md');
 	await until(
 		async () => {
 			const state = await readDiff();
