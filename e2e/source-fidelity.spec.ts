@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { resetAppState, seedFiles, openPalette, createFirstFile } from './helpers';
 import { fidelityFixtures, sentence, replacement } from './fixtures/source-fidelity';
 import { openPresentationSource, presentationFixture } from './presentation-helpers';
@@ -229,6 +229,31 @@ test('literal syntax in a visual sentence keeps its meaning and nearby bytes', a
 	await expect(page.locator('.mdsh-preview')).toContainText(text);
 });
 
+/**
+ * Reads the committed content of one draft row.
+ * docs/TESTING.md: imported document reload checks wait for the exact committed
+ * fixture. The editor text and the unload flush do not prove that save.
+ */
+async function readCommittedDraft(page: Page, id: string): Promise<string | null> {
+	return page.evaluate(
+		(id) =>
+			new Promise<string | null>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const read = database.transaction('drafts').objectStore('drafts').get(id);
+					read.onsuccess = () => {
+						database.close();
+						resolve((read.result as { content?: string } | undefined)?.content ?? null);
+					};
+					read.onerror = () => reject(read.error);
+				};
+			}),
+		id
+	);
+}
+
 test('undo, redo, two edits, mode changes, and reload keep source bytes', async ({
 	page
 }, info) => {
@@ -250,9 +275,17 @@ test('undo, redo, two edits, mode changes, and reload keep source bytes', async 
 	await page.locator('[data-mode=source]').click();
 	await page.locator('[data-mode=read]').click();
 	await recordFidelity(info, page, 'two-edits', source, expected, await exportSource(page));
+	// The unload flush is best effort. Wait for the exact committed draft row
+	// before the reload, as docs/TESTING.md requires for imported documents.
+	const draftId = await page.evaluate(() => localStorage.getItem('mdsh:activeId'));
+	if (!draftId) throw new Error('The imported draft has no active id before the reload.');
+	await expect.poll(() => readCommittedDraft(page, draftId)).toBe(expected);
 	await page.reload();
 	await page.locator('[data-mode=wysiwyg]').click();
 	await expect(page.locator('.ProseMirror')).toContainText(replacement);
+	expect(await readCommittedDraft(page, draftId), 'The reload kept the committed draft.').toBe(
+		expected
+	);
 	await editSentence(page, replacement, 'The green bird sings.');
 	await recordFidelity(
 		info,

@@ -170,6 +170,157 @@ function assertFits(label, geometry) {
 	);
 }
 
+async function checkMainControls(label) {
+	const saveState = await execute(
+		`const node = document.querySelector('[data-testid=save-document]');
+		return node ? { present: true, disabled: node.hasAttribute('disabled') } : { present: false };`
+	);
+	if (!saveState.present || saveState.disabled) {
+		const demoClicked = await execute(
+			`const node = document.querySelector('[data-testid=welcome-demo]');
+			if (!node) return false;
+			node.click();
+			return true;`
+		);
+		if (!demoClicked) {
+			await execute(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true }));
+				return true;`);
+			await until(
+				() => execute(`return !!document.querySelector('[data-testid=create-note]');`),
+				`${label}: new document dialog`,
+				15_000
+			);
+			await execute(`document.querySelector('[data-testid=create-note]').click(); return true;`);
+		}
+		await until(
+			() =>
+				execute(
+					`const node = document.querySelector('[data-testid=save-document]');
+					return !!node && !node.hasAttribute('disabled');`
+				),
+			`${label}: main document opens`,
+			45_000
+		);
+	}
+	const controls = await execute(`const rect = (node) => {
+		if (!node) return null;
+		const box = node.getBoundingClientRect();
+		return {
+			testid: node.getAttribute('data-testid'),
+			label: node.getAttribute('aria-label'),
+			width: box.width,
+			height: box.height,
+			top: box.top,
+			bottom: box.bottom,
+			left: box.left,
+			right: box.right
+		};
+	};
+	return {
+		viewport: { width: innerWidth, height: innerHeight },
+		toolbar: rect(document.querySelector('#app-toolbar')),
+		buttons: [...document.querySelectorAll('#app-toolbar button')]
+			.map(rect)
+			.filter((entry) => entry.width > 0 && entry.height > 0)
+	};`);
+	evidence[`${label}Controls`] = controls;
+	const { viewport, toolbar, buttons } = controls;
+	assert.ok(toolbar && toolbar.width > 0 && toolbar.height > 0, `${label}: toolbar has no box`);
+	assert.ok(
+		toolbar.left >= -1 && toolbar.top >= -1,
+		`${label}: toolbar starts outside the viewport`
+	);
+	assert.ok(
+		toolbar.right <= viewport.width + 1 && toolbar.bottom <= viewport.height + 1,
+		`${label}: toolbar ends outside the ${viewport.width}x${viewport.height} viewport`
+	);
+	assert.ok(buttons.length > 0, `${label}: the toolbar has no visible control`);
+	for (const button of buttons) {
+		assert.ok(
+			button.left >= -1 && button.top >= -1,
+			`${label}: ${button.label} starts outside the viewport`
+		);
+		assert.ok(
+			button.right <= viewport.width + 1 && button.bottom <= viewport.height + 1,
+			`${label}: ${button.label} ends outside the viewport`
+		);
+	}
+	passed(`${label}: main toolbar and ${buttons.length} visible controls are inside the viewport`);
+}
+
+async function checkMainCommands(label) {
+	const commands = [
+		{ query: 'save', id: 'save' },
+		{ query: 'export', id: 'export-md' },
+		{ query: 'settings', id: 'settings' }
+	];
+	await until(
+		() =>
+			execute(`const trigger = document.querySelector('.palette-trigger');
+			if (!trigger) return false;
+			trigger.click();
+			return true;`),
+		`${label}: command palette trigger`,
+		15_000
+	);
+	for (const command of commands) {
+		await until(
+			() =>
+				execute(
+					`const input = document.querySelector('[role=combobox]');
+				if (!input) return false;
+				input.value = arguments[0];
+				input.dispatchEvent(new Event('input', { bubbles: true }));
+				return true;`,
+					[command.query]
+				),
+			`${label}: ${command.id} query`,
+			15_000
+		);
+		const option = await until(
+			() =>
+				execute(
+					`const node = document.querySelector('#cmd-palette-opt-' + arguments[0]);
+				if (!node) return null;
+				const box = node.getBoundingClientRect();
+				return {
+					disabled: node.getAttribute('aria-disabled'),
+					width: box.width,
+					height: box.height,
+					top: box.top,
+					bottom: box.bottom,
+					left: box.left,
+					right: box.right,
+					viewport: { width: innerWidth, height: innerHeight }
+				};`,
+					[command.id]
+				),
+			`${label}: ${command.id} command`,
+			15_000
+		);
+		evidence[`${label}${command.id}`] = option;
+		assert.notEqual(option.disabled, 'true', `${label}: ${command.id} is unavailable`);
+		assert.ok(option.width > 0 && option.height > 0, `${label}: ${command.id} has no box`);
+		assert.ok(
+			option.left >= -1 && option.top >= -1,
+			`${label}: ${command.id} starts outside the viewport`
+		);
+		assert.ok(
+			option.right <= option.viewport.width + 1 && option.bottom <= option.viewport.height + 1,
+			`${label}: ${command.id} ends outside the viewport`
+		);
+	}
+	await execute(`const dialog = document.querySelector('[role=dialog][aria-modal=true]');
+		if (dialog) dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		return true;`);
+	await until(
+		() => execute(`return !document.querySelector('#cmd-palette-listbox');`),
+		`${label}: command palette closes`,
+		15_000
+	);
+	passed(`${label}: Save, Export and Settings are reachable from the command palette`);
+}
+
 async function checkCaptureControls(label) {
 	await until(
 		() => execute('return !!document.querySelector("#quick-capture-title")'),
@@ -272,6 +423,8 @@ async function run() {
 	assertFits('main launch', main);
 	evidence.mainScreenshot = await screenshot('main-window.png');
 	passed('main window fits the monitor work area at launch');
+	await checkMainControls('main launch');
+	await checkMainCommands('main launch');
 
 	const shown = await invoke('desktop_capture_show');
 	assert.equal(shown.rejection, undefined, shown.rejection);

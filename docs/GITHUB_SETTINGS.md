@@ -14,10 +14,16 @@ This file records settings that a maintainer must apply manually. Repository aut
 ## Main branch protection
 
 This checklist is the intended policy, not proof of the live settings. A read on
-2026-11-07 found the Web and security checks below configured, but not
-`desktop-validation`. Conversation resolution was also not required. Inspect
-Desktop results explicitly until the maintainer applies and verifies that policy.
-The draft-tier scheduling change does not modify these repository settings.
+2026-11-11 found the Web and security checks below configured, but not
+`desktop-validation`. The live checks did not require an up-to-date branch. Legacy
+branch protection required conversation resolution. Inspect both legacy protection
+and repository rulesets before making a merge decision. Inspect Desktop results
+explicitly until the maintainer applies and verifies that policy.
+
+The CI scheduling changes do not modify these repository settings. Keep the current
+required check names until a replacement has real workflow evidence and a separately
+reviewed settings change. A documentation-only path must prove that validation is
+not applicable; a missing, failed or deferred result must not become a passing gate.
 
 - Require a pull request before merging.
 - Require the branch to be up to date before merging.

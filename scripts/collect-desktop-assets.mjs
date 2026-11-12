@@ -9,6 +9,12 @@ import {
 } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+	DESKTOP_RELEASE_FORMATS,
+	formatForFile,
+	platformFromArtifact,
+	releaseNameFor
+} from './desktop-release-policy.mjs';
 
 /** @param {string} root @returns {string[]} */
 function walk(root) {
@@ -19,14 +25,13 @@ function walk(root) {
 	});
 }
 
-/** @param {string} name */
-function releaseName(name) {
-	return name.replace(/_aarch64\.dmg$/, '_macOS_Apple-Silicon.dmg');
-}
-
-const installerPattern = /\.(?:dmg|AppImage|deb|rpm|msi)$|-setup\.exe$/;
-
-/** @param {string} input @param {string} output @param {{ sha: string, tag: string, version: string }} expected */
+/**
+ * Collect the accepted installers from the per-runner workflow artifacts.
+ * The policy is the single format list. A missing format, an extra format,
+ * an installer from the wrong runner artifact and a different source identity
+ * all fail before any byte reaches the release directory.
+ * @param {string} input @param {string} output @param {{ sha: string, tag: string, version: string }} expected
+ */
 export function collectDesktopAssets(input, output, expected) {
 	if (
 		!/^[a-f0-9]{40}$/.test(expected.sha) ||
@@ -39,11 +44,15 @@ export function collectDesktopAssets(input, output, expected) {
 	const artifactPaths = readdirSync(input, { withFileTypes: true })
 		.filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
 		.map((entry) => join(input, entry.name));
-	const candidates = artifactPaths.flatMap((artifactPath) => {
+	if (artifactPaths.length === 0) throw new Error('No installer artifact was downloaded');
+	/** @type {{ path: string, formatId: string }[]} */
+	const candidates = [];
+	for (const artifactPath of artifactPaths) {
+		const platform = platformFromArtifact(basename(artifactPath));
 		const files = walk(artifactPath);
 		const sourcePaths = files.filter((path) => basename(path) === 'desktop-source.json');
 		const sourcePath = sourcePaths[0];
-		if (!sourcePath || sourcePaths.length !== 1) {
+		if (sourcePaths.length !== 1 || sourcePath === undefined) {
 			throw new Error('Each installer artifact must contain one source manifest');
 		}
 		let source;
@@ -62,32 +71,42 @@ export function collectDesktopAssets(input, output, expected) {
 		) {
 			throw new Error('The artifacts do not match the specified source');
 		}
-		return files.filter((path) => installerPattern.test(basename(path)));
-	});
-	const names = candidates.map((path) => basename(path));
-	if (new Set(names).size !== names.length) throw new Error('Duplicate artifact names');
-	for (const pattern of [
-		/aarch64\.dmg$/,
-		/\.AppImage$/,
-		/\.deb$/,
-		/\.rpm$/,
-		/-setup\.exe$/,
-		/\.msi$/
-	]) {
-		if (!names.some((name) => pattern.test(name)))
-			throw new Error(`Required artifact is missing: ${pattern}`);
+		for (const path of files) {
+			const name = basename(path);
+			const format = formatForFile(name);
+			if (!format) continue;
+			if (format.platform !== platform) {
+				throw new Error(
+					`${name} appears in the ${platform} artifact but belongs to ${format.platform}`
+				);
+			}
+			candidates.push({ path, formatId: format.id });
+		}
 	}
-	const publishedNames = names.map(releaseName);
-	if (new Set(publishedNames).size !== publishedNames.length)
+	const seenFormats = new Set();
+	for (const candidate of candidates) {
+		if (seenFormats.has(candidate.formatId)) {
+			throw new Error(`Duplicate installer format: ${candidate.formatId}`);
+		}
+		seenFormats.add(candidate.formatId);
+	}
+	for (const format of DESKTOP_RELEASE_FORMATS) {
+		if (!seenFormats.has(format.id)) {
+			throw new Error(`Required installer format is missing: ${format.id}`);
+		}
+	}
+	const publishedNames = candidates.map((candidate) => releaseNameFor(basename(candidate.path)));
+	if (new Set(publishedNames).size !== publishedNames.length) {
 		throw new Error('Duplicate artifact names');
+	}
 	mkdirSync(output, { recursive: true });
 	const checksums = candidates
-		.sort((a, b) => basename(a).localeCompare(basename(b)))
-		.map((path) => {
-			const name = releaseName(basename(path));
+		.sort((a, b) => basename(a.path).localeCompare(basename(b.path)))
+		.map((candidate) => {
+			const name = releaseNameFor(basename(candidate.path));
 			if (/[\r\n]/.test(name)) throw new Error('Invalid filename');
-			copyFileSync(path, join(output, name), constants.COPYFILE_EXCL);
-			return `${createHash('sha256').update(readFileSync(path)).digest('hex')}  ${name}`;
+			copyFileSync(candidate.path, join(output, name), constants.COPYFILE_EXCL);
+			return `${createHash('sha256').update(readFileSync(candidate.path)).digest('hex')}  ${name}`;
 		});
 	writeFileSync(join(output, 'SHA256SUMS'), `${checksums.join('\n')}\n`, { flag: 'wx' });
 	return publishedNames;
