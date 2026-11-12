@@ -927,6 +927,15 @@
 	.mdsh-sidebar {
 		box-shadow: 16px 0 48px rgba(0, 0, 0, 0.12);
 	}
+	/* The mobile drawer is fixed to the viewport, so it does not inherit the
+	   shell padding. Keep it inside the same resolved safe-area box. */
+	@media (max-width: 767px) {
+		.mdsh-sidebar {
+			top: var(--mdsh-safe-top, 0px);
+			bottom: var(--mdsh-safe-bottom, 0px);
+			left: var(--mdsh-safe-left, 0px);
+		}
+	}
 	@media (min-width: 768px) {
 		.mdsh-sidebar[inert] {
 			display: none;

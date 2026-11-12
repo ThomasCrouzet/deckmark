@@ -225,6 +225,30 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Presentation visual-viewport movement
+
+An open software keyboard can move the visual viewport without a window resize.
+The presentation editor must recompute focused-control visibility from the
+viewport size and offset on `visualViewport.resize` and
+`visualViewport.scroll`. A scroll-only change must not leave a stale height or
+scroll target. Repeated events at the same offset must not move the editor
+again, and closing or changing the presentation must remove both listeners.
+
+`e2e/presentation-visual-viewport.spec.ts` installs a test-only VisualViewport
+target before the application starts. It changes `offsetTop` at a constant
+`height`, dispatches only `scroll`, and checks the editor height, the focused
+field bounds, a stable second event and listener teardown. Run:
+
+```sh
+npx playwright test e2e/presentation-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/presentation-visual-viewport.spec.ts --project=mobile-chromium --workers=1 --retries=0
+```
+
+This simulates the event and the geometry. It does not reproduce an operating
+system keyboard, a WebKit visual viewport or a physical display. A device check
+must still enter text in a slide and in the presenter notes, move the page, and
+confirm that the field, caret and saved source remain correct.
+
 ## Presentation thumbnail retention
 
 An intersection callback can mount a thumbnail once and retain its rich subtree
@@ -735,6 +759,37 @@ and repeat with `--project=firefox` and `--project=webkit`.
 
 ## Edition and hosting checks
 
+### Installed iOS and iPadOS chrome
+
+The viewport uses `viewport-fit=cover`. The shared shell resolves the platform
+`env(safe-area-inset-*)` values once and applies them to the persistent toolbar,
+editor and status bar. The fixed mobile drawer applies the same values at the
+viewport boundary. WebKit deprecated the `black-translucent` status-bar mode;
+the document must not request `apple-mobile-web-app-status-bar-style`.
+
+`e2e/safe-area.spec.ts` overrides the resolved custom properties to simulate a
+notched device and checks the toolbar, drawer and status bar against the
+simulated box. It also checks that zero insets add no gap. A custom-property
+override does not reproduce WebKit installation geometry: some iOS releases
+inset the web content before `env()` is resolved, and a fresh install can report
+different values than an older install. The browser suite cannot replace the
+device checks below.
+
+Run:
+
+```sh
+npx playwright test e2e/safe-area.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/safe-area.spec.ts --project=mobile-chromium --workers=1 --retries=0
+```
+
+On a notched iPhone, record the device model, iOS version, install date,
+orientation, `innerHeight`, `visualViewport` values and each
+`env(safe-area-inset-*)` value in Safari tab and Home Screen mode. Repeat on an
+iPad in portrait, landscape and two window widths. Check the toolbar actions,
+drawer controls, editor area and save status. Reinstall the Home Screen app once
+to compare a fresh install with the earlier one. Keep the screenshots and
+measurements with the report. A Chromium viewport emulation is not a device test.
+
 ### Retained hosting failure risks
 
 Record these risks before changes to the deployment workflow or production checks:
@@ -799,6 +854,18 @@ Run these checks in a fresh browser profile for each base path:
    reaches IndexedDB before the page reloads.
 5. Confirm that application assets and the service worker use the same base path.
 6. Confirm that no Desktop-only native module appears in the Web build or precache.
+7. Read the served manifest. Its effective `id` must be `/` for the root build
+   and `/deckmark/` for the project build. Its effective `start_url` and `scope`
+   must match the same app root. The two IDs must differ.
+
+`scripts/manifest-id.test.mjs` applies the build emitter to both base paths and
+resolves the three URLs against the public manifest URL. The manifest case in
+`e2e/pwa.spec.ts` checks the root artifact. After a real project-path build, run
+`BASE_PATH=/deckmark npm run build` and read `build/manifest.webmanifest`. A
+published identity change also needs the reinstall check in
+[EDITIONS.md](EDITIONS.md#hosting-and-downloads). An installed copy with the
+earlier identity can remain separate; browser storage is origin-local and must
+keep the drafts.
 
 Confirm HTTPS and an independent app at each origin. The GitHub Pages URL must
 not redirect to the Cloudflare site. Keep the existing DNS setup and leave the
