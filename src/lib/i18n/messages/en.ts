@@ -97,6 +97,8 @@ export const en = {
 		'The property "{key}" already exists in the source and may use a complex YAML style. Edit or remove it in Source mode.',
 	'properties.saveFailed':
 		'The properties were not saved. Your edits are kept. Check the source, then try again.',
+	'properties.invalidNumber':
+		'Enter a complete number, or remove the property. The typed text is kept.',
 	'properties.note':
 		'Only the edited values change. Comments, ordering and unrelated YAML stay intact.',
 	'properties.save': 'Save properties',

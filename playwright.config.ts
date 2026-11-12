@@ -113,7 +113,9 @@ export default defineConfig({
 				'**/docs-site-export-svg.spec.ts',
 				'**/docs-site-export-html.spec.ts',
 				'**/docs-site-search-paths.spec.ts',
-				'**/export-download-lifetime.spec.ts'
+				'**/export-download-lifetime.spec.ts',
+				'**/frontmatter-properties.spec.ts',
+				'**/export-profiles.spec.ts'
 			]
 		},
 		{
@@ -165,7 +167,9 @@ export default defineConfig({
 				'**/docs-site-search-paths.spec.ts',
 				'**/image-source-incremental.spec.ts',
 				'**/docs-site-fragments.spec.ts',
-				'**/export-download-lifetime.spec.ts'
+				'**/export-download-lifetime.spec.ts',
+				'**/frontmatter-properties.spec.ts',
+				'**/export-profiles.spec.ts'
 			]
 		},
 		{
