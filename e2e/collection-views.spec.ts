@@ -680,20 +680,28 @@ test('keeps saved views consistent when localStorage rejects writes', async ({
 	expect(JSON.parse(before ?? '[]')).toHaveLength(1);
 
 	await setWriteFailure(true);
+	await expect(error).toHaveCount(0);
+	await selector.selectOption(stableId);
+	const deleteButton = page.getByRole('button', { name: 'Supprimer la vue' });
+	await expect(deleteButton).toBeVisible();
+	await deleteButton.click();
+	await expect(error).toBeVisible();
+	await expect(error).toContainText('enregistr');
+	await expect(selector.locator(`option[value="${stableId}"]`)).toHaveCount(1);
+	await expect(selector).toHaveValue(stableId);
+	expect(await stored()).toBe(before);
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+	await expect(error).toHaveCount(0);
+	await setWriteFailure(true);
 	await field.fill('Phantom');
 	await page.getByTestId('collection-save-view').click();
 	await expect(error).toBeVisible();
 	await expect(error).toContainText('enregistr');
 	await expect(selector).not.toContainText('Phantom');
 	await expect(field).toHaveValue('Phantom');
-	expect(await stored()).toBe(before);
-
-	await selector.selectOption(stableId);
-	await expect(page.getByRole('button', { name: 'Supprimer la vue' })).toBeVisible();
-	await page.getByRole('button', { name: 'Supprimer la vue' }).click();
-	await expect(error).toBeVisible();
-	await expect(selector.locator(`option[value="${stableId}"]`)).toHaveCount(1);
-	await expect(selector).toHaveValue(stableId);
 	expect(await stored()).toBe(before);
 
 	await field.fill('Rapid');
@@ -824,6 +832,80 @@ test('does not overwrite unread saved views when reads fail', async ({ page }, i
 	};
 	await writeArtifact('collection-view-read-failure.json', result);
 	await info.attach('collection-view-read-failure.json', {
+		body: JSON.stringify(result, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('does not overwrite a valid JSON non-array saved-view value', async ({
+	page
+}, info: TestInfo) => {
+	const { failures, rejections } = await trackCollectionFailures(page);
+	await resetAppState(page);
+	await seedFiles(page, files);
+	const raw = JSON.stringify({ format: 'foreign', entries: [{ id: 'kept', name: 'Kept' }] });
+	await page.evaluate((value) => localStorage.setItem('mdsh:collection-views', value), raw);
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+
+	const field = page.getByRole('textbox', { name: 'Nom de la vue' });
+	const save = page.getByTestId('collection-save-view');
+	const selector = page.getByTestId('collection-views');
+	const error = page.getByTestId('collection-views-error');
+	const stored = () => page.evaluate(() => localStorage.getItem('mdsh:collection-views'));
+
+	await expect(error).toContainText('stockage');
+	await expect(selector.locator('option')).toHaveCount(1);
+	await expect(page.getByTestId('collection-table')).toContainText('Alpha');
+	expect(await stored()).toBe(raw);
+
+	await field.fill('New');
+	await save.click();
+	await expect(error).toContainText('stockage');
+	await expect(selector).not.toContainText('New');
+	expect(await stored()).toBe(raw);
+
+	const existing = {
+		id: 'kept',
+		name: 'Kept',
+		filter: '',
+		sortKey: 'title',
+		sortDirection: 'asc',
+		groupKey: '',
+		mode: 'table'
+	};
+	await page.evaluate(
+		(value) => localStorage.setItem('mdsh:collection-views', JSON.stringify([value])),
+		existing
+	);
+	await save.click();
+	await expect(error).toHaveCount(0);
+	await expect(selector).toContainText('Kept');
+	await expect(selector).toContainText('New');
+	const after = JSON.parse((await stored()) ?? '[]') as Array<{ name: string }>;
+	expect(after.map((view) => view.name)).toEqual(['Kept', 'New']);
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+	await expect(page.getByTestId('collection-views')).toContainText('Kept');
+	await expect(page.getByTestId('collection-views')).toContainText('New');
+	expect(failures).toEqual([]);
+	expect(await rejections()).toEqual([]);
+
+	const result = {
+		fixture: { notes: files.length, storedValue: raw },
+		result: {
+			nonArrayUnreadable: true,
+			rawPreserved: true,
+			repairedNames: after.map((view) => view.name),
+			pageErrors: failures,
+			unhandledRejections: await rejections()
+		}
+	};
+	await writeArtifact('collection-view-non-array.json', result);
+	await info.attach('collection-view-non-array.json', {
 		body: JSON.stringify(result, null, 2),
 		contentType: 'application/json'
 	});

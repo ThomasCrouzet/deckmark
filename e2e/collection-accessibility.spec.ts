@@ -128,27 +128,60 @@ test('keeps a persistent accessible name on the view name field', async ({
 	const restored = page.getByRole('textbox', { name: 'Nom de la vue' });
 	await expect(restored).toBeVisible();
 	await expect(restored).toHaveValue('');
-	await expect(page.getByTestId('collection-views')).toContainText('Vue accessibilité');
+	const selector = page.getByTestId('collection-views');
+	await expect(selector).toContainText('Vue accessibilité');
+	const saveButton = page.getByTestId('collection-save-view');
+	const deleteButton = page.getByRole('button', { name: 'Supprimer la vue' });
 
-	await page.getByTestId('collection-views').focus();
+	await selector.selectOption({ label: 'Vue accessibilité' });
+	await expect(deleteButton).toBeVisible();
+	await selector.focus();
 	await page.keyboard.press('Tab');
 	await expect(restored).toBeFocused();
 	await page.keyboard.press('Tab');
-	await expect(page.getByTestId('collection-save-view')).toBeFocused();
+	await expect(saveButton).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(deleteButton).toBeFocused();
 
-	const bounds = await field.evaluate((element) => {
+	const tableBounds = await field.evaluate((element) => {
 		const rect = element.getBoundingClientRect();
 		return { left: rect.left, right: rect.right, width: rect.width };
 	});
-	expect(bounds.left).toBeGreaterThanOrEqual(0);
-	expect(bounds.right).toBeLessThanOrEqual(520);
+	expect(tableBounds.left).toBeGreaterThanOrEqual(0);
+	expect(tableBounds.right).toBeLessThanOrEqual(520);
+
+	await page.setViewportSize({ width: 400, height: 720 });
+	await page.getByRole('button', { name: 'Tableau blanc' }).click();
+	await expect(page.getByTestId('collection-board')).toBeVisible();
+	await expect(restored).toHaveAccessibleName('Nom de la vue');
+	await selector.focus();
+	await page.keyboard.press('Tab');
+	await expect(restored).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(saveButton).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(deleteButton).toBeFocused();
+
+	const boardBounds = await field.evaluate((element) => {
+		const rect = element.getBoundingClientRect();
+		return { left: rect.left, right: rect.right, width: rect.width };
+	});
+	expect(boardBounds.left).toBeGreaterThanOrEqual(0);
+	expect(boardBounds.right).toBeLessThanOrEqual(400);
 
 	await writeArtifact('collection-view-name-label.json', {
-		fixture: { notes: oneNote.length, viewport: '520x720' },
-		result: { accessibleName: 'Nom de la vue', bounds, restoredValue: await restored.inputValue() }
+		fixture: { notes: oneNote.length, tableViewport: '520x720', boardViewport: '400x720' },
+		result: {
+			accessibleName: 'Nom de la vue',
+			tableTraversal: ['savedViews', 'viewName', 'saveView', 'deleteView'],
+			boardTraversal: ['savedViews', 'viewName', 'saveView', 'deleteView'],
+			tableBounds,
+			boardBounds,
+			restoredValue: await restored.inputValue()
+		}
 	});
 	await info.attach('collection-view-name-label.json', {
-		body: JSON.stringify({ bounds }, null, 2),
+		body: JSON.stringify({ tableBounds, boardBounds }, null, 2),
 		contentType: 'application/json'
 	});
 });
@@ -220,12 +253,12 @@ test('reports logical ARIA indices in the virtualized table', async ({ page }, i
 		}))
 	);
 	expect(headers[0]?.index).toBe('1');
-	const visibleHeaders = headers.slice(1).filter((header) => header.hidden !== 'true');
-	const yamlHeaderIndices = visibleHeaders.map((header) => Number(header.index));
-	const expectedHeaderIndices = visibleHeaders.map(
+	const renderedHeaders = headers.slice(1).filter((header) => header.hidden !== 'true');
+	const yamlHeaderIndices = renderedHeaders.map((header) => Number(header.index));
+	const expectedHeaderIndices = renderedHeaders.map(
 		(header) => 2 + a11yColumns.indexOf(header.text)
 	);
-	expect(visibleHeaders[0]?.text).not.toBe('field00');
+	expect(renderedHeaders[0]?.text).not.toBe('field00');
 	expect(yamlHeaderIndices).toEqual(expectedHeaderIndices);
 	expect(yamlHeaderIndices[0]).toBeGreaterThan(2);
 	expect(
@@ -241,9 +274,9 @@ test('reports logical ARIA indices in the virtualized table', async ({ page }, i
 				hidden: cell.getAttribute('aria-hidden')
 			}))
 		);
-	const visibleCells = firstRowCells.filter((cell) => cell.hidden !== 'true');
-	expect(visibleCells[0]?.index).toBe('1');
-	expect(visibleCells.slice(1).map((cell) => Number(cell.index))).toEqual(yamlHeaderIndices);
+	const renderedCells = firstRowCells.filter((cell) => cell.hidden !== 'true');
+	expect(renderedCells[0]?.index).toBe('1');
+	expect(renderedCells.slice(1).map((cell) => Number(cell.index))).toEqual(yamlHeaderIndices);
 	expect(
 		firstRowCells.filter((cell) => cell.hidden === 'true').every((cell) => cell.index === null)
 	).toBe(true);
@@ -318,7 +351,7 @@ test('reports logical ARIA indices in the virtualized table', async ({ page }, i
 			rowcount: A11Y_NOTE_COUNT + 1,
 			colcount: a11yColumns.length + 1,
 			headerRowIndex: await headerRow.getAttribute('aria-rowindex'),
-			firstYamlHeader: visibleHeaders[0]?.text,
+			firstRenderedYamlHeader: renderedHeaders[0]?.text,
 			yamlHeaderIndices,
 			rowSamples: rowData.slice(0, 3),
 			rowWindowFirst: rowData[0]?.index,

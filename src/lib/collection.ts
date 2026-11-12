@@ -544,7 +544,7 @@ export function readCollectionViews(): CollectionViewsRead {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (raw === null) return { ok: true, views: [] };
 		const values = JSON.parse(raw) as unknown;
-		if (!Array.isArray(values)) return { ok: true, views: [] };
+		if (!Array.isArray(values)) return { ok: false };
 		const seen = new Set<string>();
 		const views: CollectionView[] = [];
 		for (const value of values) {
