@@ -139,6 +139,15 @@ test('a failed export keeps an overdue reminder and records no success', async (
 	const before = await timestamps(page);
 
 	await openSettings(page);
+	// Opening Settings acknowledges a due reminder through the existing
+	// refreshStorageHealth path. This behaviour is unchanged, not a regression.
+	const acknowledged = await timestamps(page);
+	expect(acknowledged.reminder).not.toBeNull();
+	expect(Number(acknowledged.reminder)).toBeGreaterThan(Number(before.backup));
+	// Re-age the reminder under the open Settings panel. The failed export must
+	// not write a new success timestamp, and the overdue state must survive a reload.
+	const controlled = Date.now() - 90 * DAY;
+	await seedTimestamps(page, controlled, null);
 	await page.evaluate(() => {
 		const original = URL.createObjectURL;
 		(window as unknown as { __restoreObjectUrl: () => void }).__restoreObjectUrl = () => {
@@ -169,19 +178,117 @@ test('a failed export keeps an overdue reminder and records no success', async (
 			(window as unknown as { __restoreObjectUrl?: () => void }).__restoreObjectUrl?.();
 		});
 	}
+	// The failure path records its own error and then refreshes the Settings
+	// health, which acknowledges the due reminder. Record that existing
+	// acknowledgement explicitly. It is not a regression of this candidate.
+	const afterFailure = await timestamps(page);
+	expect(afterFailure.backup).toBe(String(controlled));
+	expect(afterFailure.error).not.toBeNull();
+	expect(afterFailure.reminder).not.toBeNull();
+	// Re-age once more after the failure acknowledgement, so the reload checks
+	// the stored overdue state that the failed export must not clear.
+	await seedTimestamps(page, controlled, null);
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Réglages' })).toBeHidden();
 	await expect(reminder(page)).toBeVisible();
 
 	const after = await timestamps(page);
-	expect(after.backup).toBe(before.backup);
+	expect(after.backup).toBe(String(controlled));
 	expect(after.error).not.toBeNull();
 	expect(downloaded).toBe(false);
+
+	await page.reload();
+	await ready(page);
+	await expect(reminder(page)).toBeVisible();
+	const reloaded = await timestamps(page);
+	expect(reloaded.backup).toBe(String(controlled));
+	expect(Date.now() - Number(reloaded.backup)).toBeGreaterThan(30 * DAY);
 	await attach(info, 'backup-reminder-failure.json', {
 		before,
+		acknowledged,
+		controlled,
+		afterFailure,
 		after,
+		reloaded,
 		downloaded,
-		reminderVisible: await reminder(page).isVisible()
+		reminderVisibleAfterReload: await reminder(page).isVisible(),
+		failureAcknowledgement:
+			'The failing export refreshes the Settings health and acknowledges a due reminder. The case re-ages after that acknowledgement and does not claim it as a regression.'
+	});
+});
+
+test('unavailable reminder timestamps do not crash export or clear the reminder', async ({
+	page
+}, info) => {
+	await overdueLibrary(page);
+	await expect(reminder(page)).toBeVisible();
+	const before = await timestamps(page);
+	const pageErrors: string[] = [];
+	page.on('pageerror', (error) => pageErrors.push(error.message));
+
+	// Block only the reminder timestamp keys after app setup. The app already
+	// loaded its other preferences, so this stays inside the status bar path.
+	await page.evaluate(() => {
+		const proto = Storage.prototype;
+		const get = proto.getItem;
+		const set = proto.setItem;
+		const remove = proto.removeItem;
+		const blocked = (key: unknown) => typeof key === 'string' && key.startsWith('mdsh:storage:');
+		proto.getItem = function (key) {
+			if (blocked(key)) throw new DOMException('blocked', 'SecurityError');
+			return get.call(this, key);
+		};
+		proto.setItem = function (key, value) {
+			if (blocked(key)) throw new DOMException('blocked', 'SecurityError');
+			return set.call(this, key, value);
+		};
+		proto.removeItem = function (key) {
+			if (blocked(key)) throw new DOMException('blocked', 'SecurityError');
+			return remove.call(this, key);
+		};
+		(window as unknown as { __restoreTimestampStorage: () => void }).__restoreTimestampStorage =
+			() => {
+				proto.getItem = get;
+				proto.setItem = set;
+				proto.removeItem = remove;
+			};
+	});
+	try {
+		await openSettings(page);
+		const pending = page.waitForEvent('download', { timeout: 15_000 });
+		await page.getByRole('button', { name: 'Exporter une sauvegarde', exact: true }).click();
+		const download = await pending;
+		const bytes = await downloadBytes(download);
+		expect((JSON.parse(bytes.toString()) as { format?: string }).format).toBe('mdsh-backup');
+		await expect(
+			page.getByRole('status').filter({ hasText: 'Sauvegarde exportée.' }).last()
+		).toBeVisible();
+		// The success signal recomputes from unreadable timestamps. It must keep
+		// the reminder due instead of publishing a false cleared state.
+		await expect(reminder(page)).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(page.getByRole('dialog', { name: 'Réglages' })).toBeHidden();
+		await expect(reminder(page)).toBeVisible();
+	} finally {
+		await page.evaluate(() => {
+			(
+				window as unknown as { __restoreTimestampStorage?: () => void }
+			).__restoreTimestampStorage?.();
+		});
+	}
+	expect(pageErrors).toEqual([]);
+	const after = await timestamps(page);
+	expect(after.backup).toBe(before.backup);
+	expect(after.reminder).toBe(before.reminder);
+	expect(after.error).toBeNull();
+	await page.reload();
+	await ready(page);
+	await expect(reminder(page)).toBeVisible();
+	await attach(info, 'backup-reminder-unavailable.json', {
+		before,
+		after,
+		pageErrors,
+		reminderVisibleAfterReload: await reminder(page).isVisible()
 	});
 });
 

@@ -591,21 +591,41 @@ async function installSelectionTextProbe(page: Page) {
 	});
 }
 
-async function selectPreviewText(page: Page, length: number): Promise<void> {
-	await page
+async function selectPreviewText(page: Page, length: number): Promise<number> {
+	return page
 		.locator('.mdsh-preview p')
 		.first()
 		.evaluate((element, limit) => {
-			const node = element.firstChild;
-			if (!node || node.nodeType !== Node.TEXT_NODE) throw new Error('No preview text node');
+			const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+			const first = walker.nextNode();
+			if (!first || first.nodeType !== Node.TEXT_NODE) throw new Error('No preview text node');
+			// A browser can split one long line into several text nodes. Walk them
+			// so the range covers the requested length across chunk boundaries.
+			let remaining = limit;
+			let endNode: Node = first;
+			let endOffset = Math.min(limit, (first as Text).length);
+			let current: Node | null = first;
+			while (current) {
+				const text = current as Text;
+				if (remaining <= text.length) {
+					endNode = current;
+					endOffset = remaining;
+					break;
+				}
+				remaining -= text.length;
+				endNode = current;
+				endOffset = text.length;
+				current = walker.nextNode();
+			}
 			const range = document.createRange();
-			range.setStart(node, 0);
-			range.setEnd(node, Math.min(limit, node.textContent?.length ?? 0));
+			range.setStart(first, 0);
+			range.setEnd(endNode, endOffset);
 			const selection = window.getSelection();
 			if (!selection) throw new Error('No selection');
 			selection.removeAllRanges();
 			selection.addRange(range);
 			document.dispatchEvent(new Event('selectionchange'));
+			return range.toString().length;
 		}, length);
 }
 
@@ -903,14 +923,20 @@ test.describe('stats module lifecycle', () => {
 				.click({ timeout: 5000 })
 				.catch(() => {});
 			await expect(page.locator('.mdsh-preview p').first()).toBeVisible({ timeout: 30_000 });
-			await selectPreviewText(page, 80_000);
+			const selectedLength = await selectPreviewText(page, 80_000);
+			expect(
+				selectedLength,
+				'the selection crosses the 64 KiB Worker threshold'
+			).toBeGreaterThanOrEqual(64 * 1024);
 			await expect
 				.poll(
 					() =>
-						page.evaluate(() =>
-							(
-								window as unknown as { __selectionTextProbe?: { lengths: number[] } }
-							).__selectionTextProbe?.lengths.includes(80_000)
+						page.evaluate(
+							(length) =>
+								(
+									window as unknown as { __selectionTextProbe?: { lengths: number[] } }
+								).__selectionTextProbe?.lengths.includes(length),
+							selectedLength
 						),
 					{ timeout: 10_000 }
 				)
@@ -940,7 +966,7 @@ test.describe('stats module lifecycle', () => {
 				body: JSON.stringify(
 					{
 						requested,
-						clearedSelectionLength: 80_000,
+						clearedSelectionLength: selectedLength,
 						selectionPosts: posted,
 						selectionTokens: posted.map((post) => post.token),
 						smallSelection: { text: smallText, ...small },
@@ -985,14 +1011,20 @@ test.describe('stats module lifecycle', () => {
 				.click({ timeout: 5000 })
 				.catch(() => {});
 			await expect(page.locator('.mdsh-preview p').first()).toBeVisible({ timeout: 30_000 });
-			await selectPreviewText(page, 80_000);
+			const selectedLength = await selectPreviewText(page, 80_000);
+			expect(
+				selectedLength,
+				'the selection crosses the 64 KiB Worker threshold'
+			).toBeGreaterThanOrEqual(64 * 1024);
 			await expect
 				.poll(
 					() =>
-						page.evaluate(() =>
-							(
-								window as unknown as { __selectionTextProbe?: { lengths: number[] } }
-							).__selectionTextProbe?.lengths.includes(80_000)
+						page.evaluate(
+							(length) =>
+								(
+									window as unknown as { __selectionTextProbe?: { lengths: number[] } }
+								).__selectionTextProbe?.lengths.includes(length),
+							selectedLength
 						),
 					{ timeout: 10_000 }
 				)
@@ -1051,14 +1083,20 @@ test.describe('stats module lifecycle', () => {
 				.click({ timeout: 5000 })
 				.catch(() => {});
 			await expect(page.locator('.mdsh-preview p').first()).toBeVisible({ timeout: 30_000 });
-			await selectPreviewText(page, 80_000);
+			const selectedLength = await selectPreviewText(page, 80_000);
+			expect(
+				selectedLength,
+				'the selection crosses the 64 KiB Worker threshold'
+			).toBeGreaterThanOrEqual(64 * 1024);
 			await expect
 				.poll(
 					() =>
-						page.evaluate(() =>
-							(
-								window as unknown as { __selectionTextProbe?: { lengths: number[] } }
-							).__selectionTextProbe?.lengths.includes(80_000)
+						page.evaluate(
+							(length) =>
+								(
+									window as unknown as { __selectionTextProbe?: { lengths: number[] } }
+								).__selectionTextProbe?.lengths.includes(length),
+							selectedLength
 						),
 					{ timeout: 10_000 }
 				)
