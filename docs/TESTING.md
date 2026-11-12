@@ -2542,6 +2542,92 @@ requires `npm run check`, `npm run lint`, `npm run test`, `npm run build`, and t
 full E2E suite because document types affect navigation, storage, export, and PWA
 paths. A focused run does not replace that gate.
 
+## Read navigation lifecycle
+
+Issue #618 keeps read navigation continuity separate from draft durability. The
+read view writes the position when the document becomes hidden, and it keeps a
+per-file live offset for a same-file rerender. A lifecycle save skips a deferred
+render that can report a clamped zero. The restoration still assumes that
+`sessionStorage` survives the reload. It does not claim survival after an
+operating-system process discard.
+
+`e2e/read-lifecycle.spec.ts` runs five Chromium workflows:
+
+- A changed position is saved on `visibilitychange` without `pagehide`. A repeat
+  hidden event keeps the deep position, and a wake does not move the document.
+- A reload that keeps `sessionStorage` restores the saved position.
+- A same-file theme rerender keeps the live position instead of the older cached
+  position.
+- A project link with a fragment wins over a stale cached read offset. The test
+  opens the target, scrolls deep, returns to the source note and follows the
+  fragment link. It checks the heading position and the settled scroll offset.
+- A short source note opens a target with a deep cached position. A
+  MutationObserver hides the document after the final render marker and before
+  the restore animation frame. The stored deep read position must remain. The
+  test also checks the normal restore and a reload.
+
+The read view owns a pending restore from the time it schedules an animation
+frame until the frame applies the saved offset. A lifecycle save must not treat
+the initial scroller offset as authoritative in that window. The live user
+offset still wins. A newer restore token supersedes an older restore, and an
+older callback cannot clear the newer guard.
+
+Keep the JSON attachments with the fixture hashes and the screenshot. The suite
+does not simulate a physical iPhone or iPad background cycle, an installed PWA
+relaunch, or a native Tauri WebView.
+
+## Cancelled read ink
+
+Issue #626 separates a committed release from an interrupted gesture. `pointerup`
+commits the stroke. `pointercancel` and an unexpected `lostpointercapture` remove
+the partial pen, highlighter or eraser stroke from the band index and repaint the
+viewport. A later `lostpointercapture` after a completed release must not remove
+the committed stroke.
+
+`e2e/read-annotations.spec.ts` adds two Chromium cases. They record the real
+`pointerId` from `pointerdown`, dispatch `pointercancel` or `lostpointercapture`,
+and check canvas alpha before and after the event. They also check a scroll away
+and back, a later valid stroke, and the existing Clear, print, reload, large-note
+and mode-switch cases. Canvas pixels and the repaint check are the observable
+index evidence. The index is not exposed to the test.
+
+## Cancelled image annotation gestures
+
+`src/lib/components/ImageDocument.svelte` uses the same cancelled gesture
+contract for image pen, highlighter and eraser input. `pointerup` commits exactly
+once. `pointercancel` and an unexpected `lostpointercapture` discard the active
+stroke, repaint the image and committed strokes, and keep the redo stack. The
+handlers match `pointerId`, so a second pointer cannot extend or end the active
+stroke.
+
+`e2e/image-annotations.spec.ts` adds two Chromium cases. The pen case draws a
+committed stroke, undoes another stroke to fill the redo stack, cancels a partial
+stroke and checks the pixel, the redo state and the flattened export. It then
+replays redo, draws a later stroke and clears the ink. The second case cancels
+highlighter and eraser input, checks the exact restored pixels, cancels a
+capture, and sends a pointer id that does not match the active pointer before a
+later valid move and release.
+
+Run:
+
+```sh
+E2E_PORT=4203 npx playwright test e2e/read-annotations.spec.ts e2e/read-lifecycle.spec.ts e2e/image-annotations.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Physical iPhone and iPad touch, Apple Pencil cancellation, iPad trackpad
+cancellation and native desktop WebView pen input remain separate hardware
+checks. A synthetic `PointerEvent` does not prove those devices. A flattened PNG
+check proves the decoded export at the sampled points, not a native print or
+display pipeline.
+
+The cancellation cases record raw evidence, not only claim flags. The read cases
+store canvas alpha at each sampled coordinate and phase, plus the final
+nontransparent pixel count. The image pen case stores RGB and alpha at each
+sampled canvas and export coordinate, the exported PNG byte length and SHA-256,
+and attaches the flattened PNG. The image tool case stores the baseline,
+interim and restored RGB values. Keep these values with the report.
+
+
 ## Version 2 accessibility
 
 The project tree, split view, history comparison, and disk comparison must support keyboard operation.
