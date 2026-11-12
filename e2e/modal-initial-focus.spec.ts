@@ -1,5 +1,11 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import {
+	createFirstFile,
+	openPalette,
+	resetAppState,
+	switchToSource,
+	writeSourceContent
+} from './helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce', serviceWorkers: 'block' });
 
@@ -85,12 +91,83 @@ for (const panel of panels) {
 		expect(after.ariaLabel).toBe('Fermer');
 		await expect(page.locator('.mdsh-shell')).toHaveAttribute('inert');
 
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId(panel.testId)).toHaveCount(0);
+		const restored = await focusSnapshot(page);
+		expect(restored.dialogTestId).toBeNull();
+		expect(restored.inInert).toBe(false);
+		await expect(page.getByRole('button', { name: 'Palette de commandes' })).toBeFocused();
+
 		await info.attach('initial-focus.json', {
-			body: JSON.stringify({ panel: panel.name, before, after }, null, 2),
+			body: JSON.stringify({ panel: panel.name, before, after, restored }, null, 2),
 			contentType: 'application/json'
 		});
 	});
 }
+
+test('a keyboard-only palette route opens and closes Collections with a visible restore', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const trigger = page.locator('aside button[data-file-id]').first();
+	await trigger.focus();
+	await trigger.evaluate((el) => el.setAttribute('data-focus-probe-trigger', 'true'));
+
+	await page.keyboard.press('ControlOrMeta+Shift+p');
+	const palette = page.getByRole('dialog', { name: 'Palette de commandes' });
+	await expect(palette).toBeVisible();
+	await expect(palette.locator('input[type="text"]')).toBeFocused();
+	await page.keyboard.type('vues tableau');
+	await expect(palette.getByRole('option').first()).toContainText(/vues tableau/i);
+	await page.keyboard.press('Enter');
+
+	await expect(page.getByTestId('collection-panel')).toBeVisible();
+	await expect(closeButton(page, 'collection-panel')).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(page.getByTestId('collection-panel')).toHaveCount(0);
+	await expect(page.locator('[data-focus-probe-trigger="true"]')).toBeFocused();
+	const restored = await focusSnapshot(page);
+	expect(restored.dialogTestId).toBeNull();
+	expect(restored.inInert).toBe(false);
+
+	await info.attach('keyboard-focus.json', {
+		body: JSON.stringify({ route: 'keyboard-only', restored }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('an unsaved editor change survives a named dialog open and close', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await switchToSource(page);
+	const editor = page.locator('.cm-content').first();
+	await editor.focus();
+	await page.keyboard.insertText('Unsaved token A11Y-629');
+	const before = await editor.innerText();
+
+	await page.keyboard.press('ControlOrMeta+Shift+p');
+	const palette = page.getByRole('dialog', { name: 'Palette de commandes' });
+	await expect(palette).toBeVisible();
+	await page.keyboard.type('profils d’export');
+	await expect(palette.getByRole('option').first()).toContainText(/profils d’export/i);
+	await page.keyboard.press('Enter');
+	await expect(page.getByTestId('export-profiles')).toBeVisible();
+	await expect(closeButton(page, 'export-profiles')).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(page.getByTestId('export-profiles')).toHaveCount(0);
+
+	await expect(editor).toContainText('Unsaved token A11Y-629');
+	await expect(editor).toBeFocused();
+	const after = await focusSnapshot(page);
+	expect(after.inInert).toBe(false);
+	await info.attach('unsaved-input.json', {
+		body: JSON.stringify({ before, after }, null, 2),
+		contentType: 'application/json'
+	});
+});
 
 test('Collections wraps Tab and Shift+Tab from the shared trap', async ({ page }) => {
 	await resetAppState(page);
