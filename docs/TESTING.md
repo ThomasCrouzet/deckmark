@@ -560,25 +560,35 @@ filename with a missing or incomplete EOCD indicates truncation. A complete
 boundary with a JSZip failure points to central-directory or parser
 investigation. A retry recovery is flaky, not a clean pass.
 
-Run the real library case with one worker and no retries:
+`downloadBytes` now rejects one download only: the live download whose URL equals
+the current `pdf-frame` `src` at event time. Headless Chromium can auto-download
+the preview iframe blob as a UUID-named PDF before the intended export. The
+predicate keeps the native wait deadline and event order. It does not filter by
+MIME, filename suffix, byte length or the PDF type. A different PDF, including
+the intended `review.pdf` save-as export, remains visible to the original
+assertions.
+
+The controls use real browser events. A preview-only case makes one UUID PDF
+download and the predicate rejects it; no export succeeds. A non-preview PDF
+save-as produces `review.pdf`, the predicate accepts it, and JSZip still rejects
+its bytes, so the original ZIP and filename assertions remain effective. These
+are helper-contract controls, not product regression claims.
+
+Run the real library and PDF save-as cases with one worker and no retries:
 
 ```sh
 E2E_PORT=4227 npx playwright test e2e/binary-review.spec.ts \
-  --project=chromium --workers=1 --retries=0 --grep 'library ZIP preserves'
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 \
+  --grep 'library ZIP preserves|preserves review.pdf bytes'
 ```
 
-The zero, truncated and non-ZIP checks are test-only evidence controls. They
-prove the boundary fields and the preserved JSZip error. They are not product
+The zero, truncated and non-ZIP boundary checks are test-only evidence controls.
+They prove the boundary fields and the preserved JSZip error. They are not product
 RED, a hosted reproduction, or proof that the export is corrupt. The hosted
-failure artifact remains unavailable, so the boundary still cannot choose the
-cause without a future failing payload. The local validation of this lot
-produced a 39-byte PDF download: the boundary recorded a nonmatching filename,
-no ZIP local header and no EOCD. That is a wrong-command or wrong-download
-signal, not product corruption. The case remained red at both the candidate and
-the unmodified base. The same file context also failed the two PDF save-as
-filename assertions with UUID.pdf names; those tests are unchanged by this lot.
-A separate approved interaction correction is needed before the real case can be
-green.
+failure artifact remains unavailable, so the old hosted incident is not
+retroactively clean. The local pre-repair run produced a 39-byte UUID PDF; the
+repair ignores only that exact preview URL. Native and physical-device checks
+remain separate.
 
 The native Git tests use real repositories. They check executable filters,
 included configuration, parent-repository confinement, literal diff paths, and

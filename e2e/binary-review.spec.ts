@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Download, type Page, type TestInfo } from '@playwright/test';
 import { openPalette, resetAppState } from './helpers';
 
 test.use({ locale: 'fr-FR', reducedMotion: 'reduce' });
@@ -60,13 +60,22 @@ async function importBinary(page: Page, fixture: (typeof fixtures)[number]) {
 	);
 }
 
+async function isIntendedDownload(page: Page, download: Download): Promise<boolean> {
+	const previewUrl = await page.evaluate(
+		() => document.querySelector('[data-testid="pdf-frame"]')?.getAttribute('src') ?? null
+	);
+	return !previewUrl || download.url() !== previewUrl;
+}
+
 async function downloadBytes(
 	page: Page,
 	info: TestInfo,
 	name: string,
 	action: () => Promise<void>
 ) {
-	const pending = page.waitForEvent('download');
+	const pending = page.waitForEvent('download', {
+		predicate: (download) => isIntendedDownload(page, download)
+	});
 	await action();
 	const download = await pending;
 	const path = info.outputPath(name);
