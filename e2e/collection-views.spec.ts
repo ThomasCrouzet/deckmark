@@ -55,7 +55,7 @@ test('filters, sorts and groups note properties', async ({ page }, info: TestInf
 	await expect(page.getByTestId('collection-board')).toContainText('active');
 	await expect(page.getByTestId('collection-board')).toContainText('done');
 
-	await page.getByPlaceholder('Nom de la vue').fill('Active docs');
+	await page.getByRole('textbox', { name: 'Nom de la vue' }).fill('Active docs');
 	await page.getByTestId('collection-save-view').click();
 	await page.keyboard.press('Escape');
 	await page.reload();

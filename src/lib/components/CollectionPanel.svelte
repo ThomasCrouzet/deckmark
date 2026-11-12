@@ -337,7 +337,13 @@
 					<option value="">{t('collection.savedViews')}</option>
 					{#each views as view (view.id)}<option value={view.id}>{view.name}</option>{/each}
 				</select>
-				<input type="text" bind:value={viewName} placeholder={t('collection.viewName')} />
+				<label for="collection-view-name">{t('collection.viewName')}</label>
+				<input
+					id="collection-view-name"
+					type="text"
+					bind:value={viewName}
+					data-testid="collection-view-name"
+				/>
 				<button type="button" onclick={saveView} data-testid="collection-save-view">
 					{t('collection.saveView')}
 				</button>
