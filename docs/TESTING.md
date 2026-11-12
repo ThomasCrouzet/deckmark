@@ -1634,6 +1634,32 @@ the input triggers, such as save scheduling and index updates. WebDriver text
 insertion is recorded separately because it includes driver IPC. Do not compare
 an engine that handles one insert with an engine that processes each key.
 
+### Scroll sample timeline diagnostics
+
+A `scrollFrame` budget failure keeps the existing summary line and adds one
+bounded numeric line for each scroll sample. The CI gate uses five samples. The
+line records the run, the scroll ratio, the measured duration, the start time,
+the two animation frame times, the requested and applied `scrollTop`, the scroll
+room and the number of reported long-task entries that overlap the sample. A
+final line records the long-task support and a bounded entry list.
+
+The two-frame timer does not wait for paint or compositing. The timeline can show
+a delayed frame or a deferred charge to a later sample. It does not prove the
+cause.
+
+The long-task observer is installed once for the scroll samples, only when the
+engine lists the `longtask` entry type. It keeps at most 32 entries, performs no
+DOM read, and is disconnected in a `finally` block. The observer adds one
+callback per reported long task. The first-frame timestamp adds one monotonic
+clock read. The second frame keeps the existing end read. If the engine does not
+support the entry type, the output says `unavailable`. A zero entry count is not
+proof that no stall occurred.
+
+These diagnostics never enter the numeric samples, the summary, the budget, the
+exit code or the thrown error. Use them only on a dedicated regression run with a
+local report outside the repository. Do not upload the report or print paths,
+document text or private data.
+
 ### Fixture corpus and budgets
 
 `scripts/benchmark-fixtures/manifest.json` describes the corpus. The repository
