@@ -39,6 +39,10 @@
 	// Last scroll offset observed while this file was rendered. It keeps a
 	// same-file rerender from restoring an older cached position.
 	let livePosition: { fileId: string; scrollTop: number } | null = null;
+	// A restore owns the scroller until its animation frame applies the saved
+	// offset. Until then the scroller offset is not authoritative for a save.
+	let pendingRestore: { fileId: string; token: number } | null = null;
+	let restoreToken = 0;
 
 	let annotate = $state(false);
 	let hasInk = $state(false);
@@ -267,10 +271,11 @@
 		if (!readScroller) return;
 		// Prefer the live offset of the rendered file. A file switch can already
 		// have replaced the `fileId` prop, so the scroller offset is authoritative
-		// only for the file that is still rendered.
+		// only for the file that is still rendered and has no pending restore.
 		let scrollTop: number | null = null;
-		if (id === fileId && renderedFileId === id) scrollTop = readScroller.scrollTop;
-		else if (livePosition?.fileId === id) scrollTop = livePosition.scrollTop;
+		if (livePosition?.fileId === id) scrollTop = livePosition.scrollTop;
+		else if (pendingRestore?.fileId !== id && id === fileId && renderedFileId === id)
+			scrollTop = readScroller.scrollTop;
 		if (scrollTop === null) return;
 		editorStateCache.setPosition(id, 'read', {
 			anchor: 0,
@@ -286,9 +291,21 @@
 		const position = liveTop === null ? editorStateCache.getPosition(id, 'read') : undefined;
 		const scrollTop = liveTop ?? position?.scrollTop;
 		if (scrollTop === undefined) return;
+		const token = ++restoreToken;
+		pendingRestore = { fileId: id, token };
 		void tick().then(() => {
 			requestAnimationFrame(() => {
-				if (readScroller && fileId === id) readScroller.scrollTop = scrollTop;
+				if (pendingRestore?.token !== token) return;
+				if (!readScroller || fileId !== id) {
+					pendingRestore = null;
+					return;
+				}
+				readScroller.scrollTop = scrollTop;
+				// Keep the guard when the document cannot reach the saved offset
+				// yet. A later render restores again with a newer token.
+				if (scrollTop === 0 || Math.abs(readScroller.scrollTop - scrollTop) <= 1) {
+					pendingRestore = null;
+				}
 			});
 		});
 	}

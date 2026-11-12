@@ -270,3 +270,148 @@ test('keeps the live read position through a same-file theme rerender', async ({
 		contentType: 'application/json'
 	});
 });
+
+test('keeps the deep cached position when the page hides before the restore frame', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	const short = '# Short\n\nShort source note.';
+	const target = longNote('R1 target marker');
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'Short.md', content: short },
+		{ name: 'Target.md', content: target }
+	]);
+	await openReadMode(page);
+	await expect(page.locator('.mdsh-preview')).toContainText('R1 target marker');
+	const deep = await setReadScroll(page, 2600);
+	expect(deep).toBeGreaterThan(1000);
+
+	await page.locator('aside button[data-file-id]').filter({ hasText: 'Short' }).click();
+	await expect(page.locator('.mdsh-preview')).toContainText('Short source note.', {
+		timeout: 30_000
+	});
+	await page.evaluate((key) => {
+		const scroller = document.querySelector<HTMLElement>('.mdsh-read');
+		if (!scroller) throw new Error('Read scroller is missing');
+		const state: {
+			triggered: boolean;
+			samples: {
+				generation: string | null;
+				scrollerTop: number | null;
+				stored: number | null;
+				activeFileId: string | null;
+			}[];
+			error: string | null;
+		} = {
+			triggered: false,
+			samples: [],
+			error: null
+		};
+		(window as Window & { __r1?: typeof state }).__r1 = state;
+		const sample = () => {
+			const article = document.querySelector<HTMLElement>('.mdsh-preview');
+			if (!article?.textContent?.includes('R1 target marker')) return;
+			state.triggered = true;
+			Object.defineProperty(document, 'visibilityState', {
+				configurable: true,
+				get: () => 'hidden'
+			});
+			document.dispatchEvent(new Event('visibilitychange'));
+			try {
+				const active =
+					document
+						.querySelector('aside button[data-file-id][aria-current="true"]')
+						?.getAttribute('data-file-id') ?? null;
+				const raw = sessionStorage.getItem(key);
+				const values = raw
+					? (JSON.parse(raw) as {
+							fileId: string;
+							positions: { read?: { scrollTop: number } };
+						}[])
+					: [];
+				state.samples.push({
+					generation: article.dataset.renderGeneration ?? null,
+					scrollerTop: scroller.scrollTop,
+					stored:
+						values.find((value) => value.fileId === active)?.positions.read?.scrollTop ?? null,
+					activeFileId: active
+				});
+			} catch (error) {
+				state.error = error instanceof Error ? error.message : String(error);
+			}
+		};
+		const observer = new MutationObserver(sample);
+		observer.observe(scroller, {
+			childList: true,
+			subtree: true,
+			characterData: true,
+			attributes: true,
+			attributeFilter: ['data-render-generation']
+		});
+		(window as Window & { __r1Observer?: MutationObserver }).__r1Observer = observer;
+	}, STORAGE_KEY);
+	await page.locator('aside button[data-file-id]').filter({ hasText: 'Target' }).click();
+	await expect
+		.poll(
+			() =>
+				page.evaluate(
+					() => (window as Window & { __r1?: { triggered: boolean } }).__r1?.triggered ?? false
+				),
+			{ timeout: 30_000 }
+		)
+		.toBe(true);
+	await expect.poll(() => readScroll(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(deep - 2);
+	const record = await page.evaluate(() => {
+		(window as Window & { __r1Observer?: MutationObserver }).__r1Observer?.disconnect();
+		return (
+			window as Window & {
+				__r1?: {
+					triggered: boolean;
+					samples: {
+						generation: string | null;
+						scrollerTop: number | null;
+						stored: number | null;
+						activeFileId: string | null;
+					}[];
+					error: string | null;
+				};
+			}
+		).__r1;
+	});
+	expect(record?.error).toBeNull();
+	expect(record?.samples.length).toBeGreaterThan(0);
+	for (const sample of record!.samples) {
+		expect(sample.activeFileId).toBeTruthy();
+		expect(sample.stored).not.toBeNull();
+		expect(Math.abs(sample.stored! - deep)).toBeLessThanOrEqual(1);
+	}
+
+	await page.evaluate(() => {
+		Object.defineProperty(document, 'visibilityState', {
+			configurable: true,
+			get: () => 'visible'
+		});
+	});
+	await expect.poll(() => readScroll(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(deep - 2);
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openReadMode(page);
+	await expect.poll(() => readScroll(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(deep - 2);
+
+	await info.attach('read-pending-restore.json', {
+		body: JSON.stringify({
+			deepOffset: deep,
+			samples: record?.samples,
+			zeroStoredSamples: record?.samples.filter((sample) => sample.stored === 0).length ?? null,
+			restoredAfterVisible: await readScroll(page),
+			fixture: {
+				shortBytes: Buffer.byteLength(short),
+				targetBytes: Buffer.byteLength(target),
+				targetSha256: createHash('sha256').update(target).digest('hex')
+			}
+		}),
+		contentType: 'application/json'
+	});
+});
