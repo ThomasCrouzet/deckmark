@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { resetAppState } from './helpers';
+import { resetAppState, seedFiles } from './helpers';
 
 async function dispatchEscape(
 	locator: Locator,
@@ -9,6 +9,26 @@ async function dispatchEscape(
 		(element, value) => {
 			const event = new KeyboardEvent('keydown', {
 				key: 'Escape',
+				bubbles: true,
+				cancelable: true,
+				isComposing: value.composing
+			});
+			if (value.legacyKeyCode) Object.defineProperty(event, 'keyCode', { value: 229 });
+			element.dispatchEvent(event);
+			return event.defaultPrevented;
+		},
+		{ composing: options.composing ?? true, legacyKeyCode: options.legacyKeyCode ?? false }
+	);
+}
+
+async function dispatchEnter(
+	locator: Locator,
+	options: { composing?: boolean; legacyKeyCode?: boolean } = {}
+) {
+	return locator.evaluate(
+		(element, value) => {
+			const event = new KeyboardEvent('keydown', {
+				key: 'Enter',
 				bubbles: true,
 				cancelable: true,
 				isComposing: value.composing
@@ -145,4 +165,48 @@ test('keeps Settings open for composing Escape', async ({ page }, info) => {
 	await page.keyboard.press('Escape');
 	await expect(settings).toBeHidden();
 	await attach(info, 'ime-settings.json', { composing: 'kept open', legacy: 'kept open' });
+});
+
+test('keeps the Library open for composing Enter and activates once after composition', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'alpha-library', content: '# Alpha' },
+		{ name: 'beta-library', content: '# Beta' }
+	]);
+	const toolbar = page.locator('#app-toolbar input');
+	await expect(toolbar).toHaveValue('beta-library');
+	await page.getByRole('button', { name: 'Actions', exact: true }).click();
+	await page.getByRole('button', { name: 'Bibliothèque de documents', exact: true }).click();
+	const library = page.getByRole('dialog', { name: 'Bibliothèque de documents', exact: true });
+	const input = library.getByRole('textbox');
+	await expect(input).toBeFocused();
+	await input.fill('alpha-library');
+	await expect(
+		library.getByRole('button', { name: 'Ouvrir alpha-library.md', exact: true })
+	).toBeVisible();
+
+	const composing = await dispatchEnter(input, { composing: true });
+	await expect(library).toBeVisible();
+	await expect(input).toHaveValue('alpha-library');
+	await expect(input).toBeFocused();
+	await expect(toolbar).toHaveValue('beta-library');
+
+	const legacy = await dispatchEnter(input, { legacyKeyCode: true });
+	await expect(library).toBeVisible();
+	await expect(input).toHaveValue('alpha-library');
+	await expect(input).toBeFocused();
+	await expect(toolbar).toHaveValue('beta-library');
+
+	await page.keyboard.press('Enter');
+	await expect(library).toBeHidden();
+	await expect(toolbar).toHaveValue('alpha-library');
+	await attach(info, 'ime-library.json', {
+		composingDefaultPrevented: composing,
+		legacyDefaultPrevented: legacy,
+		queryAfterComposition: 'alpha-library',
+		activeAfterComposition: 'beta-library',
+		activeAfterNormalEnter: 'alpha-library'
+	});
 });
