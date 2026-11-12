@@ -33,6 +33,21 @@ export async function nativePresentationPdf({
 	capturePdf
 }) {
 	const mac = process.platform === 'darwin';
+
+	// The Properties inspector starts closed when the usable editor width is
+	// below its side-panel breakpoint. Open it before the fixture sets a slide
+	// field that lives in that panel.
+	async function ensureInspector() {
+		const open = await execute(
+			'return !!document.querySelector(`[data-testid="slide-inspector"]`)'
+		);
+		if (open) return;
+		await click('[data-testid="slide-properties"]');
+		await until(
+			() => execute('return !!document.querySelector(`[data-testid="slide-inspector"]`)'),
+			'native presentation properties inspector'
+		);
+	}
 	const shortcut = mac
 		? nativeShortcut
 		: (key, shift = false) =>
@@ -75,6 +90,7 @@ export async function nativePresentationPdf({
 		'presentation filename committed'
 	);
 
+	await ensureInspector();
 	await setControl(execute, '[data-testid="slide-background"]', '#dbeafe');
 	const initialObjectCount = await execute(
 		'return document.querySelectorAll(`[data-testid="slide-object"]`).length'

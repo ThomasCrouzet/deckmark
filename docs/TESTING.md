@@ -623,6 +623,18 @@ those paths. Each browser case retains source metadata, fixtures, and screenshot
 The PDF viewer case uses full Chromium headless mode because the headless shell
 does not include the PDF viewer.
 
+The Quick Capture key handler must not cancel or save during IME composition.
+The retained risks are an Escape that closes the window while it dismisses a
+candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
+key code 229 event, a lost draft and a lost focus. The Web edition does not mount
+this component, so a browser workflow cannot reach it. `QuickCapture.component.test.ts`
+replaces the native window bridge and the stores. It dispatches composition and
+legacy key code sequences, then checks the normal Escape and Ctrl+Enter paths,
+the draft text, the focus and the call counts. Run
+`npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
+Synthetic composition events do not prove a physical IME, Windows WebView2,
+macOS WKWebView or Linux WebKitGTK behavior.
+
 The PDF case checks the native viewer, page count, rendered thumbnail pixels, and
 exact fixture text before and after reload. It also compares the downloaded bytes.
 Keep `frame-src blob:` and `object-src 'none'` in the production CSP.
@@ -793,6 +805,79 @@ serve the expected source and pass the startup, edit, and offline checks.
 
 See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the hosting contract and
 [DEVELOPMENT.md](DEVELOPMENT.md#web-publishing) for the maintainer steps.
+
+## Dialog visual viewport risks
+
+The search, command, settings and library dialogs use a fixed overlay. A fixed
+overlay follows the layout viewport, so an on-screen keyboard, browser chrome or
+pinch zoom can hide the focused field or the close control. The retained risks
+are a lost query or selection after a viewport change, a dialog that leaves the
+visible region, a close control that is not reachable, and a changed desktop
+layout when no keyboard is present.
+
+`src/lib/a11y/focusTrap.ts` exports the `visualViewportPanel` action that keeps
+the overlay inside the visual viewport.
+It applies only when the visual viewport is smaller than the layout viewport or
+moves from the top. It restores the CSS defaults when the viewport is unchanged.
+The action sets the overlay top and height and a panel maximum height from the
+visible height and the overlay padding.
+
+`e2e/dialog-visual-viewport.spec.ts` replaces `window.visualViewport` before the
+application starts and moves or shrinks it for all four dialogs. It checks the
+dialog panel, the focused field, the close control, the query, the input
+selection and the dialog scroll. It also checks that a normal viewport keeps the
+CSS defaults. This is a simulation and does not prove a physical iOS keyboard,
+Safari viewport panning, VoiceOver output or a native WebView.
+
+Run `npx playwright test e2e/dialog-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep `visual-viewport-dialogs.json` with the source revision, browser version,
+command and the viewport cases. Physical iPhone Safari in tab and PWA mode, and
+iPad Safari in portrait and landscape, remain required evidence.
+
+## Presentation inspector width risks
+
+The presentation Properties inspector uses a 252 px side panel above an 800 px
+container width and an absolute overlay below it. The retained risks are a
+default open state from the outer window width, a stale open state after an
+orientation or window change, a reopen after the user closed the panel, a lost
+focus when the panel closes, an overlay without a reachable dismiss control, and
+a changed selected object.
+
+`SlideEditor.svelte` reads the actual presentation container width with a
+`ResizeObserver`. The automatic state follows the 800 px breakpoint. A manual
+toggle sets an explicit open or closed preference that later resizes keep. An
+automatic close moves focus to the Properties toggle when the panel held focus.
+
+`e2e/presentation-inspector-width.spec.ts` resizes one open deck without a
+reload across the breakpoint in both directions. It checks the container width,
+the panel presence, the toggle state, the overlay bounds, the dismiss control
+and the focused control. It attaches the geometry JSON and a screenshot. The
+case does not prove iPad multitasking, native window minimum size, browser zoom
+or a native WebView.
+
+Run `npx playwright test e2e/presentation-inspector-width.spec.ts --project=chromium --workers=1 --retries=0`.
+
+## Note scroll shortcut scope
+
+The Alt+Home and Alt+End note shortcuts listen on `window`. The retained risks
+are a scroll of an inert note while a dialog is open, a consumed key that
+belongs to a foreground control, a scroll of a short note with no scroll target,
+a stale scroller after a mode or file switch, and a scroll during IME
+composition.
+
+`ScrollNav.svelte` resolves the live scroller on each keydown. It ignores an
+event that is already prevented, a composition event, a repeat, a target in an
+inert subtree, an open modal dialog, and an editable field outside the active
+note. It also ignores a note without a scroll range. The pointer and touch
+buttons stay available when the note is scrollable.
+
+`e2e/scroll-nav-scope.spec.ts` checks both boundaries in a long note, then the
+same keys with Settings open, with an outside field focused, during a synthetic
+composition, and in a short note. It records `defaultPrevented` and the scroller
+position. Synthetic events and desktop emulation do not prove a physical iPad
+keyboard, a screen reader or a native WebView.
+
+Run `npx playwright test e2e/scroll-nav-scope.spec.ts --project=chromium --workers=1 --retries=0`.
 
 ## Version 2.0 project risks
 

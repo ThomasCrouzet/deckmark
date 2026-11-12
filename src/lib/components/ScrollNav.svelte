@@ -128,11 +128,30 @@
 	});
 
 	function onKeydown(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.isComposing || event.repeat) return;
 		if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-		if (event.key === 'Home' || event.key === 'End') {
-			event.preventDefault();
-			go(event.key === 'Home' ? 'top' : 'bottom');
-		}
+		if (event.key !== 'Home' && event.key !== 'End') return;
+		const target = event.target instanceof Element ? event.target : null;
+		// A foreground modal or an inert workspace owns the keyboard.
+		if (target?.closest('[inert]')) return;
+		if (
+			typeof document !== 'undefined' &&
+			document.querySelector('[role="dialog"][aria-modal="true"]')
+		)
+			return;
+		// Keep native editing keys for fields outside the active note.
+		if (
+			target?.closest('input, textarea, select, [contenteditable="true"]') &&
+			!contentRoot?.contains(target)
+		)
+			return;
+		const element = scroller();
+		// A short note has no scroll target, so the shortcut is not a document
+		// navigation command and the browser keeps it.
+		if (!element || !element.isConnected) return;
+		if (element.scrollHeight <= element.clientHeight + 24) return;
+		event.preventDefault();
+		go(event.key === 'Home' ? 'top' : 'bottom');
 	}
 
 	if (typeof window !== 'undefined') window.addEventListener('keydown', onKeydown);
