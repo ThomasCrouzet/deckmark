@@ -973,6 +973,49 @@ a second refresh, a restart, an injected metadata failure, recreate, keep local
 and a later save. That workflow requires the native smoke binary on a desktop
 session. The browser suite cannot run these Tauri commands.
 
+## Collections saved views and ARIA indices
+
+`e2e/collection-views.spec.ts` and `e2e/collection-accessibility.spec.ts` retain
+these failure risks:
+
+- A saved-view write can fail after the live list changes. A rejected Save must
+  keep the list, stored value and entered name unchanged, and show one translated
+  alert. A rejected Delete must keep the view and its selection.
+- A failed `getItem` must not become an empty trusted list. A later save must
+  retry the read before it appends. It must not overwrite unread views. A
+  present value that parses as a non-array is unreadable. Keep its exact bytes
+  until a later read can parse a proper list. Absence of the key stays an empty
+  trusted list. The table must stay usable when preference storage is
+  unavailable.
+- A retry must append each view once and preserve filter, sort, direction, group
+  and mode after reload.
+- Empty names must not add a view. Duplicate stored IDs must not crash the keyed
+  list. Quota and security exceptions must not escape as `pageerror` or
+  `unhandledrejection`.
+- The view-name field needs an explicit label. Do not use a placeholder as its
+  only accessible name. Check `getByLabel`, `element.labels` and the accessible
+  name in English and French.
+- The virtualized table must expose `aria-rowcount`, `aria-colcount`, header
+  `aria-rowindex=1`, absolute body `aria-rowindex` and absolute `aria-colindex`
+  for the title and each rendered YAML column. Check sort, both scroll axes,
+  filter and resize. Spacers stay `aria-hidden` and carry no index. Keep an
+  accessibility tree snapshot.
+
+Run the focused cases with one worker and no retries:
+
+```sh
+npx playwright test e2e/collection-views.spec.ts e2e/collection-accessibility.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The storage cases inject failures only for `mdsh:collection-views`. Keep
+`collection-view-storage-failure.json`, `collection-view-read-failure.json`,
+`collection-view-non-array.json`, `collection-view-duplicate-ids.json`,
+`collection-view-name-label.json` and `collection-aria-indices.json` with the
+local browser report.
+
+Browser emulation does not prove physical iPad, VoiceOver, NVDA or native WebView
+behavior. Record those checks separately.
+
 ## Code snippets
 
 `e2e/snippets.spec.ts` checks the snippet library in Chromium. The cases are:
