@@ -98,7 +98,7 @@
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			handleCancel();
-		} else if (e.key === 'Enter' && mode === 'prompt') {
+		} else if (e.key === 'Enter' && mode === 'prompt' && e.target === inputEl) {
 			e.preventDefault();
 			handleConfirm();
 		}
