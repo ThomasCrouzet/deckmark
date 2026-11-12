@@ -1758,12 +1758,13 @@ cargo test --manifest-path src-tauri/Cargo.toml window_geometry::tests
 `scripts/native-window-geometry.mjs` runs against the real WebView. It records
 the monitor work area, physical and logical window bounds, scale factor, OS,
 WebView version and a screenshot for the main window and for the capture window
-at launch and after reuse. It also checks that the main toolbar, Save, the
-Settings command and the capture title, content field, Cancel and Save stay
-reachable. Run it on a small screen or at a high scale:
+at launch and after reuse. It checks the main toolbar and every visible button.
+At narrow widths, it checks Save, Export and Settings through the command palette.
+It also checks the capture title, content field, Cancel and Save. Run it on a
+small screen or at a high scale:
 
 ```sh
-GDK_SCALE=2 NATIVE_TEST_OUTPUT=/tmp/native-window-geometry \
+GDK_SCALE=2 NATIVE_TEST_OUTPUT="${TMPDIR:-$HOME/.cache}/deckmark-native-window-geometry" \
   dbus-run-session -- xvfb-run -a -s "-screen 0 1366x768x24" \
   node scripts/native-window-geometry.mjs
 ```
@@ -1774,6 +1775,15 @@ window fits at 560 by 368. A 30 px logical title bar reduces the main content
 height to 338 px, so the decorated outer box stays inside the work area. The
 artifact `native-window-geometry.json` and the screenshots are local evidence.
 Keep the command, source revision, platform and WebView version with them.
+Keep the tested binary and its SHA-256 before another build replaces it.
+
+The 30 px decoration is a pure geometry fixture, not a measured native title bar.
+The decorated Linux run used a maximized window with a 24 px title bar. It proves
+that the maximized state stays fitted. It does not exercise a non-maximized
+decorated shrink. For that path, record a nonzero decoration and `isMaximized`
+false. Keep Windows, macOS, monitor moves and DPI transitions separate. A geometry
+query error can still abort capture creation; the success runs do not prove that
+failure path.
 
 `scripts/native-capture.mjs` also records the main and capture geometry in the
 regular native smoke run on Ubuntu, Windows and macOS. It checks the outer
