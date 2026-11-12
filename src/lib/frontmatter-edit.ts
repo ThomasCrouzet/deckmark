@@ -266,20 +266,29 @@ function keyRanges(yaml: string): LineRange[] {
 }
 
 /**
- * A decimal YAML number. The YAML parser also accepts a leading sign, a leading
- * dot, a trailing dot and an exponent. Underscores stay strings, as in the parser.
+ * The decimal forms js-yaml reads as numbers. A sign applies only to the
+ * digit-led branch, a leading dot is unsigned, and a finite result is required.
+ * Hex, octal, binary, .inf and .nan stay strings here, as they did before.
  */
-const NUMERIC_LITERAL = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/;
+const SOURCE_DECIMAL_LITERAL = /^(?:[-+]?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?|\.\d+(?:[eE][-+]?\d+)?)$/;
 
 /**
- * Parses a complete numeric input. Returns null for blank text, an intermediate
- * sign or dot, an exponent marker alone and every non-finite result.
+ * Parses a complete typed number. This accepts a signed leading dot and an
+ * exponent. Returns null for blank text, an intermediate sign or dot and every
+ * non-finite result.
  */
+const TYPED_DECIMAL_LITERAL = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/;
+
 export function parseNumericInput(text: string): number | null {
 	const trimmed = text.trim();
-	if (!NUMERIC_LITERAL.test(trimmed)) return null;
+	if (!TYPED_DECIMAL_LITERAL.test(trimmed)) return null;
 	const value = Number(trimmed);
 	return Number.isFinite(value) ? value : null;
+}
+
+function isSourceNumber(text: string): boolean {
+	if (!SOURCE_DECIMAL_LITERAL.test(text)) return false;
+	return Number.isFinite(Number(text));
 }
 
 function classify(key: string, raw: string): FrontmatterProperty['kind'] {
@@ -289,7 +298,7 @@ function classify(key: string, raw: string): FrontmatterProperty['kind'] {
 	if (trimmed === '') return 'other';
 	if (/^['"]/.test(trimmed)) return 'string';
 	if (/^(true|false)$/i.test(trimmed)) return 'boolean';
-	if (NUMERIC_LITERAL.test(trimmed)) return 'number';
+	if (isSourceNumber(trimmed)) return 'number';
 	if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return 'date';
 	return 'string';
 }

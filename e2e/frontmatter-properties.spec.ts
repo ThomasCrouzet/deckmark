@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import { databaseState } from './storage-evidence';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
@@ -80,6 +81,12 @@ test('keeps a comment-only value separate from the new property text', async ({
 	expect(updated).toContain('title: New # keep this comment');
 	expect(updated).not.toContain('title: New#');
 	expect(updated).toContain('status: draft');
+	// Wait for the 400 ms draft save before reload. WebKit can reload first.
+	await expect
+		.poll(async () => (await databaseState(page)).drafts.map((row) => row.content).join('\n'), {
+			timeout: 20_000
+		})
+		.toContain('title: New # keep this comment');
 
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
@@ -233,16 +240,18 @@ test('keeps intermediate numeric input states before parsing', async ({ page }, 
 	await openProperties(page);
 	const priority = page.getByTestId('frontmatter-priority').locator('input');
 	const score = page.getByTestId('frontmatter-score').locator('input');
-	const samples: Array<{ field: string; step: string; value: string; caret: number | null }> = [];
+	type Sample = { field: string; step: string; value: string; caret: number | null };
+	const samples: Sample[] = [];
+	const scientificSamples: Sample[] = [];
 
 	async function caretOf(input: typeof priority): Promise<number | null> {
 		return input.evaluate((element) => (element as HTMLInputElement).selectionStart);
 	}
 
-	async function typeKeys(field: string, input: typeof priority, text: string) {
+	async function typeKeys(target: Sample[], field: string, input: typeof priority, text: string) {
 		for (const character of text) {
 			await page.keyboard.type(character);
-			samples.push({
+			target.push({
 				field,
 				step: `type ${character}`,
 				value: await input.inputValue(),
@@ -251,44 +260,35 @@ test('keeps intermediate numeric input states before parsing', async ({ page }, 
 		}
 	}
 
-	samples.push({
-		field: 'priority',
-		step: 'initial',
-		value: await priority.inputValue(),
-		caret: await caretOf(priority)
-	});
-	await priority.click();
-	await page.keyboard.press('Control+a');
-	await page.keyboard.press('Backspace');
-	samples.push({
-		field: 'priority',
-		step: 'cleared',
-		value: await priority.inputValue(),
-		caret: await caretOf(priority)
-	});
-	expect(await priority.inputValue()).toBe('');
-	await typeKeys('priority', priority, '-12.75');
-	expect(await priority.inputValue()).toBe('-12.75');
-	expect(await caretOf(priority)).toBe(6);
+	async function clearField(target: Sample[], field: string, input: typeof priority, step: string) {
+		await input.click();
+		await page.keyboard.press('Control+a');
+		await page.keyboard.press('Backspace');
+		target.push({ field, step, value: await input.inputValue(), caret: await caretOf(input) });
+	}
 
-	samples.push({
-		field: 'score',
-		step: 'initial',
-		value: await score.inputValue(),
-		caret: await caretOf(score)
-	});
-	await score.click();
-	await page.keyboard.press('Control+a');
-	await page.keyboard.press('Backspace');
-	samples.push({
-		field: 'score',
-		step: 'cleared',
-		value: await score.inputValue(),
-		caret: await caretOf(score)
-	});
-	expect(await score.inputValue()).toBe('');
-	await typeKeys('score', score, '0.125');
-	expect(await score.inputValue()).toBe('0.125');
+	await expect(priority).toHaveValue('12');
+	await expect(score).toHaveValue('-2.5');
+	await clearField(samples, 'priority', priority, 'cleared');
+	await typeKeys(samples, 'priority', priority, '-12.75');
+	await clearField(samples, 'score', score, 'cleared');
+	await typeKeys(samples, 'score', score, '0.125');
+
+	expect(samples).toEqual([
+		{ field: 'priority', step: 'cleared', value: '', caret: 0 },
+		{ field: 'priority', step: 'type -', value: '-', caret: 1 },
+		{ field: 'priority', step: 'type 1', value: '-1', caret: 2 },
+		{ field: 'priority', step: 'type 2', value: '-12', caret: 3 },
+		{ field: 'priority', step: 'type .', value: '-12.', caret: 4 },
+		{ field: 'priority', step: 'type 7', value: '-12.7', caret: 5 },
+		{ field: 'priority', step: 'type 5', value: '-12.75', caret: 6 },
+		{ field: 'score', step: 'cleared', value: '', caret: 0 },
+		{ field: 'score', step: 'type 0', value: '0', caret: 1 },
+		{ field: 'score', step: 'type .', value: '0.', caret: 2 },
+		{ field: 'score', step: 'type 1', value: '0.1', caret: 3 },
+		{ field: 'score', step: 'type 2', value: '0.12', caret: 4 },
+		{ field: 'score', step: 'type 5', value: '0.125', caret: 5 }
+	]);
 
 	await page.getByTestId('frontmatter-save').click();
 	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
@@ -302,11 +302,14 @@ test('keeps intermediate numeric input states before parsing', async ({ page }, 
 	const reopenedPriority = page.getByTestId('frontmatter-priority').locator('input');
 	await expect(page.getByTestId('frontmatter-priority').locator('small')).toHaveText('nombre');
 	await expect(reopenedPriority).toHaveValue('-12.75');
-	await reopenedPriority.click();
-	await page.keyboard.press('Control+a');
-	await page.keyboard.press('Backspace');
-	await typeKeys('priority', reopenedPriority, '1e3');
-	expect(await reopenedPriority.inputValue()).toBe('1e3');
+	await clearField(scientificSamples, 'priority', reopenedPriority, 'cleared again');
+	await typeKeys(scientificSamples, 'priority', reopenedPriority, '1e3');
+	expect(scientificSamples).toEqual([
+		{ field: 'priority', step: 'cleared again', value: '', caret: 0 },
+		{ field: 'priority', step: 'type 1', value: '1', caret: 1 },
+		{ field: 'priority', step: 'type e', value: '1e', caret: 2 },
+		{ field: 'priority', step: 'type 3', value: '1e3', caret: 3 }
+	]);
 	await page.getByTestId('frontmatter-save').click();
 	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
 	const scientific = await source(page);
@@ -319,7 +322,48 @@ test('keeps intermediate numeric input states before parsing', async ({ page }, 
 	await expect(page.getByTestId('frontmatter-due').locator('small')).toHaveText('date');
 	await expect(page.getByTestId('frontmatter-due').locator('input')).toHaveValue('2026-11-12');
 	await info.attach('frontmatter-number-input.json', {
-		body: JSON.stringify({ initial, updated, scientific, samples }, null, 2),
+		body: JSON.stringify({ initial, updated, scientific, samples, scientificSamples }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps parser string tokens out of the numeric editor', async ({ page }, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial = '---\ntitle: "First"\nscore: -.5\nbig: 1e999\n---\n\n# Body\n\nKeep.\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+	const score = page.getByTestId('frontmatter-score');
+	const big = page.getByTestId('frontmatter-big');
+
+	await expect(score.locator('small')).toHaveText('texte');
+	await expect(score.locator('input')).toHaveValue('-.5');
+	await expect(big.locator('small')).toHaveText('texte');
+	await expect(big.locator('input')).toHaveValue('1e999');
+
+	await page.getByTestId('frontmatter-title').locator('input').fill('Second');
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+	const updated = await source(page);
+	expect(updated).toContain('title: Second');
+	expect(updated).toContain('score: -.5');
+	expect(updated).toContain('big: 1e999');
+	expect(updated).toContain('# Body\n\nKeep.\n');
+
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-score').locator('input')).toHaveValue('-.5');
+	await expect(page.getByTestId('frontmatter-big').locator('input')).toHaveValue('1e999');
+	await page.getByTestId('frontmatter-remove-big').click();
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+	const removed = await source(page);
+	expect(removed).not.toContain('big:');
+	expect(removed).toContain('score: -.5');
+	expect(removed).toContain('title: Second');
+	expect(removed).toContain('# Body\n\nKeep.\n');
+
+	await info.attach('frontmatter-source-numbers.json', {
+		body: JSON.stringify({ initial, updated, removed }, null, 2),
 		contentType: 'application/json'
 	});
 });
