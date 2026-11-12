@@ -83,8 +83,11 @@
 		return `export-profile-option-${index}`;
 	}
 
-	function currentIndex(): number {
-		return selectedIndex < 0 ? 0 : selectedIndex;
+	async function scrollOptionIntoView(index: number) {
+		await tick();
+		listbox?.querySelector<HTMLElement>(`[id="${optionId(index)}"]`)?.scrollIntoView({
+			block: 'nearest'
+		});
 	}
 
 	/** Moves selection without activating the profile for exports. */
@@ -94,20 +97,31 @@
 		const profile = profiles[next];
 		if (!profile) return;
 		selectedId = profile.id;
-		await tick();
-		listbox?.querySelector<HTMLElement>(`[id="${optionId(next)}"]`)?.scrollIntoView({
-			block: 'nearest'
-		});
+		await scrollOptionIntoView(next);
+	}
+
+	/** Returns the selected index, or recovers a stale identifier to the first row. */
+	function recoverSelection(): number {
+		const index = profiles.findIndex((profile) => profile.id === selectedId);
+		if (index >= 0) return index;
+		const first = profiles[0];
+		if (!first) return -1;
+		selectedId = first.id;
+		return 0;
+	}
+
+	function nextIndex(delta: number): number {
+		return selectedIndex < 0 ? 0 : selectedIndex + delta;
 	}
 
 	function onListboxKeydown(event: KeyboardEvent) {
 		if (event.altKey || event.ctrlKey || event.metaKey) return;
 		if (event.key === 'ArrowDown') {
 			event.preventDefault();
-			void moveSelection(currentIndex() + 1);
+			void moveSelection(nextIndex(1));
 		} else if (event.key === 'ArrowUp') {
 			event.preventDefault();
-			void moveSelection(currentIndex() - 1);
+			void moveSelection(nextIndex(-1));
 		} else if (event.key === 'Home') {
 			event.preventDefault();
 			void moveSelection(0);
@@ -123,8 +137,8 @@
 	}
 
 	function focusActiveOption() {
-		if (selectedId || profiles.length === 0) return;
-		selectedId = profiles[0]!.id;
+		const index = recoverSelection();
+		if (index >= 0) void scrollOptionIntoView(index);
 	}
 
 	function update(patch: Partial<ExportProfile>) {
@@ -142,7 +156,7 @@
 		error = '';
 	}
 
-	function add() {
+	async function add() {
 		const profile = createProfile(t('exportProfiles.newName'));
 		const next = [...profiles, profile];
 		try {
@@ -154,6 +168,7 @@
 		profiles = next;
 		selectedId = profile.id;
 		error = '';
+		await scrollOptionIntoView(profiles.length - 1);
 	}
 
 	function remove() {
@@ -230,7 +245,7 @@
 					><X size={16} /></button
 				>
 			</header>
-			<div class="profile-body">
+			<div class="profile-body" tabindex="-1">
 				<div
 					bind:this={listbox}
 					class="profile-list"

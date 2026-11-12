@@ -69,6 +69,16 @@ async function profileNames(page: Page) {
 	return profileOptions(page).allTextContents();
 }
 
+async function optionIsVisible(page: Page, id: string): Promise<boolean> {
+	return page.getByTestId(`export-profile-${id}`).evaluate((element) => {
+		const scroller = element.closest('.profile-body');
+		if (!scroller) return false;
+		const option = element.getBoundingClientRect();
+		const view = scroller.getBoundingClientRect();
+		return option.top >= view.top - 1 && option.bottom <= view.bottom + 1;
+	});
+}
+
 test('applies a reusable profile to HTML exports deterministically', async ({
 	page
 }, info: TestInfo) => {
@@ -403,6 +413,55 @@ test('keeps selection and focus coherent after profile changes', async ({ page }
 			null,
 			2
 		),
+		contentType: 'application/json'
+	});
+});
+
+test('scrolls the active and newly added profile into view', async ({ page }, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await openProfiles(page);
+	const listbox = page.getByRole('listbox', { name: 'Profils d’export' });
+	await importProfiles(
+		page,
+		Array.from({ length: 30 }, (_, index) => profile(`p${index}`, `Profile ${index + 1}`))
+	);
+	await expect(profileOptions(page)).toHaveCount(30);
+
+	await profileOptions(page).nth(29).click();
+	await page.getByTestId('export-profile-use').click();
+	await page.keyboard.press('Escape');
+	await openProfiles(page);
+	await expect(profileOptions(page)).toHaveCount(30);
+	await listbox.focus();
+	await expect(profileOptions(page).nth(29)).toHaveAttribute('aria-selected', 'true');
+	await expect.poll(() => optionIsVisible(page, 'p29')).toBe(true);
+	const focusScroll = await page.getByTestId('export-profile-p29').evaluate((element) => {
+		const scroller = element.closest('.profile-body');
+		return {
+			optionTop: element.getBoundingClientRect().top,
+			scrollTop: scroller?.scrollTop ?? null
+		};
+	});
+
+	await page.getByRole('button', { name: 'Nouveau profil' }).click();
+	await expect(profileOptions(page)).toHaveCount(31);
+	await expect(page.getByTestId('export-profile-name')).toHaveValue('Nouveau profil d’export');
+	const addedId = (await profileOptions(page).nth(30).getAttribute('data-testid'))!.replace(
+		'export-profile-',
+		''
+	);
+	await expect.poll(() => optionIsVisible(page, addedId)).toBe(true);
+	const addScroll = await page.getByTestId(`export-profile-${addedId}`).evaluate((element) => {
+		const scroller = element.closest('.profile-body');
+		return {
+			optionTop: element.getBoundingClientRect().top,
+			scrollTop: scroller?.scrollTop ?? null
+		};
+	});
+
+	await info.attach('export-profile-scroll.json', {
+		body: JSON.stringify({ focusScroll, addScroll }, null, 2),
 		contentType: 'application/json'
 	});
 });
