@@ -22,6 +22,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const worktreePath = 'long.md';
 const stagedPath = 'staged.md';
+const hugePath = 'huge.md';
 const worktreeFirst = 'worktree line 0001';
 const worktreeLast = 'worktree line 2600 WORKTREE-END';
 const stagedFirst = 'staged line 0001';
@@ -38,6 +39,14 @@ function git(cwd, args) {
 	return execFileSync('git', args, {
 		cwd,
 		encoding: 'utf8',
+		env: { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull }
+	});
+}
+
+function gitBuffer(cwd, args) {
+	return execFileSync('git', args, {
+		cwd,
+		maxBuffer: 8 * 1024 * 1024,
 		env: { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull }
 	});
 }
@@ -108,6 +117,23 @@ export async function nativeGit({
 			};`,
 			[first, last]
 		);
+	const readLimit = () =>
+		execute(
+			`const panel = document.querySelector('[data-testid=git-panel]');
+			const diffSection = [...(panel?.querySelectorAll('section') ?? [])].find((section) => section.getAttribute('aria-labelledby') === 'git-diff-title');
+			const list = diffSection?.querySelector('ol');
+			const notice = panel?.querySelector('[data-testid=git-diff-too-large]');
+			const generic = panel?.querySelector('[data-testid=git-operation-error]');
+			const range = panel?.querySelector('[data-testid=git-diff-range]');
+			return {
+				tooLarge: !!notice,
+				text: notice?.textContent?.trim() ?? '',
+				generic: !!generic,
+				errorText: generic?.textContent?.trim() ?? '',
+				rows: list ? list.querySelectorAll('li').length : 0,
+				range: range?.textContent?.trim() ?? ''
+			};`
+		);
 	const clickGitFile = (name) =>
 		until(
 			() =>
@@ -152,8 +178,9 @@ export async function nativeGit({
 	const base = `# Native Git review\n\nBase body.\n`;
 	writeFileSync(join(fixtureRoot, worktreePath), base);
 	writeFileSync(join(fixtureRoot, stagedPath), base);
+	writeFileSync(join(fixtureRoot, hugePath), base);
 	git(fixtureRoot, ['init', '-q']);
-	git(fixtureRoot, ['add', '--', worktreePath, stagedPath]);
+	git(fixtureRoot, ['add', '--', worktreePath, stagedPath, hugePath]);
 	git(fixtureRoot, [
 		'-c',
 		'user.name=DeckMark native smoke',
@@ -166,9 +193,27 @@ export async function nativeGit({
 	]);
 	const worktreeContent = `# Native Git review\n\n${buildLines('worktree', 'WORKTREE-END')}\n`;
 	const stagedContent = `# Native Git staged review\n\n${buildLines('staged', 'STAGED-END')}\n`;
+	const hugeContent = `# Native Git large review\n\n${Array.from(
+		{ length: 12000 },
+		(_, index) => `huge line ${String(index + 1).padStart(5, '0')} ${'x'.repeat(80)}`
+	).join('\n')}\n`;
 	writeFileSync(join(fixtureRoot, worktreePath), worktreeContent);
 	writeFileSync(join(fixtureRoot, stagedPath), stagedContent);
+	writeFileSync(join(fixtureRoot, hugePath), hugeContent);
 	git(fixtureRoot, ['add', '--', stagedPath]);
+	const hugeDiffBytes = gitBuffer(fixtureRoot, [
+		'diff',
+		'--no-ext-diff',
+		'--no-textconv',
+		'--no-color',
+		'--unified=3',
+		'--',
+		':(literal)huge.md'
+	]).length;
+	assert.ok(
+		hugeDiffBytes > 1024 * 1024,
+		`huge.md diff must exceed 1 MiB; got ${hugeDiffBytes} bytes`
+	);
 	record('fixture repository', {
 		fixtureRoot,
 		head: git(fixtureRoot, ['rev-parse', 'HEAD']).trim(),
@@ -185,6 +230,12 @@ export async function nativeGit({
 			first: stagedFirst,
 			last: stagedLast,
 			sha256: createHash('sha256').update(stagedContent).digest('hex')
+		},
+		outputLimit: {
+			path: hugePath,
+			diffBytes: hugeDiffBytes,
+			capBytes: 1024 * 1024,
+			sha256: createHash('sha256').update(hugeContent).digest('hex')
 		},
 		indexStatus: git(fixtureRoot, ['status', '--porcelain']).trim()
 	});
@@ -460,6 +511,37 @@ export async function nativeGit({
 	assert.equal(worktreeAgain.first, true);
 	assert.equal(worktreeAgain.total, worktreeInitial.total);
 
+	await clickGitFile(hugePath);
+	await until(
+		async () => {
+			const state = await readLimit();
+			return state.tooLarge && !state.generic && state.rows === 0;
+		},
+		'native output cap shows the distinct size-limit state',
+		45_000
+	);
+	const outputLimitState = record('native output cap rejection', await readLimit());
+	assert.match(outputLimitState.text, /1 MiB|1 Mio/);
+	assert.equal(outputLimitState.generic, false);
+	assert.equal(outputLimitState.rows, 0);
+	assert.equal(outputLimitState.range, '');
+
+	await clickGitFile(worktreePath);
+	await until(
+		async () => {
+			const state = await readDiff();
+			return state.rows === 2000 && state.state === 'partial' && state.first && !state.last;
+		},
+		'worktree view returns after the size-limit rejection',
+		45_000
+	);
+	const worktreeAfterLimit = record(
+		'worktree view restored after the size-limit rejection',
+		await readDiff()
+	);
+	assert.equal(worktreeAfterLimit.first, true);
+	assert.equal(worktreeAfterLimit.total, worktreeInitial.total);
+
 	writeFileSync(
 		join(output, 'native-git.json'),
 		JSON.stringify(
@@ -486,6 +568,16 @@ export async function nativeGit({
 				worktreeKeyboard,
 				stagedKeyboard,
 				modeDistinct: true,
+				outputLimit: {
+					path: hugePath,
+					diffBytes: hugeDiffBytes,
+					capBytes: 1024 * 1024,
+					tooLarge: outputLimitState.tooLarge,
+					generic: outputLimitState.generic,
+					rows: outputLimitState.rows,
+					range: outputLimitState.range,
+					message: outputLimitState.text
+				},
 				evidence
 			},
 			null,
