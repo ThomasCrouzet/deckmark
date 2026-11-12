@@ -283,7 +283,7 @@
 	}
 
 	function handleSearchKey(event: KeyboardEvent) {
-		if (event.isComposing || event.defaultPrevented) return;
+		if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
 		if (event.key === 'ArrowDown') {
 			event.preventDefault();
 			moveSelection(1);
@@ -361,10 +361,11 @@
 			if (event.target === event.currentTarget && !promptStore.open) onClose();
 		}}
 		onkeydown={(event) => {
+			if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
 			if (event.key === 'Escape' && !promptStore.open && mode === 'detail') {
 				event.stopPropagation();
 				onClose();
-			} else if (event.key === 'Escape' && mode === 'create') {
+			} else if (event.key === 'Escape' && !promptStore.open && mode === 'create') {
 				event.preventDefault();
 				void cancelEdit();
 			}

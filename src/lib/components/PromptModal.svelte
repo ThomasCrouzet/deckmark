@@ -94,7 +94,7 @@
 	}
 
 	function handleKey(e: KeyboardEvent) {
-		if (e.isComposing || e.defaultPrevented) return;
+		if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			handleCancel();

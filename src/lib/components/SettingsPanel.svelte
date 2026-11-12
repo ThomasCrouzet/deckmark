@@ -124,7 +124,8 @@
 		);
 	}
 	function captureShortcut(event: KeyboardEvent, id: string): void {
-		if (event.key === 'Tab' || event.key === 'Escape' || event.isComposing) return;
+		if (event.key === 'Tab' || event.key === 'Escape' || event.isComposing || event.keyCode === 229)
+			return;
 		if (['Control', 'Meta', 'Shift', 'Alt'].includes(event.key)) return;
 		event.preventDefault();
 		event.stopPropagation();
@@ -636,6 +637,7 @@
 			if (e.target === e.currentTarget) onClose();
 		}}
 		onkeydown={(e) => {
+			if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
 			if (e.key === 'Escape') onClose();
 		}}
 		role="dialog"
