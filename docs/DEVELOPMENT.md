@@ -227,7 +227,13 @@ Desktop publishing does not generate or upload SBOMs. `npm run sbom:npm` generat
 an npm SBOM from the lockfile. `scripts/annotate-cargo-sbom.mjs` adds GLib backport
 records to an existing Cargo SBOM; it does not generate the inventory.
 
-Desktop publishing reuses successful validation only when the source SHA matches exactly.
-A manual Desktop run requires `release_tag` and must run from that source tag.
-Pushing a tag alone does not start the Desktop workflow.
+On a main push, Desktop validation, source release creation, packaging and
+publication use one workflow dependency chain. The release planner binds the
+source SHA, run SHA and tag before publication. It does not poll another run or
+accept validation from a nearby commit. See [CI.md](CI.md#release-orchestration-and-installers).
+
+A manual Desktop run can set `release_tag` and must run from that source tag.
+Alternatively, `packaging_only` builds and verifies the four installers without
+creating a tag, release or attestation. Pushing a tag alone does not start the
+Desktop workflow. CLI build archives remain run artifacts, not release assets.
 See [GITHUB_SETTINGS.md](GITHUB_SETTINGS.md) for repository controls.

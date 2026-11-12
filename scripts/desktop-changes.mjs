@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 const desktopPatterns = [
 	/^(?:src|src-tauri|static|patches)\//,
 	/^scripts\//,
+	// Shared CI helpers and composite actions change the native environment.
+	/^\.github\/(?:ci|actions|scripts)\//,
 	/^\.github\/workflows\/desktop\.yml$/,
 	/^(?:\.node-version|\.npmrc|package(?:-lock)?\.json|rust-toolchain\.toml|svelte\.config\.js|tsconfig\.json|vite\.config\.ts)$/
 ];

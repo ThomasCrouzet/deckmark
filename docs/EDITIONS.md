@@ -103,13 +103,18 @@ passes on every device.
 | Platform | Release artifact | Requirement |
 | --- | --- | --- |
 | macOS | `deckmark_<version>_macOS_Apple-Silicon.dmg` | macOS 14 or later on an Apple Silicon Mac. |
-| Windows x64 | `deckmark_<version>_x64-setup.exe` or `.msi` | WebView2. The installer can add WebView2 when it is absent. |
-| Linux x64 | `.AppImage`, `.deb`, or `.rpm` | WebKitGTK 4.1 and the packaged native libraries. |
+| Windows x64 | `deckmark_<version>_x64-setup.exe` | WebView2. The installer can add WebView2 when it is absent. |
+| Linux x64 | `deckmark_<version>_amd64.deb` or `deckmark_<version>_amd64.AppImage` | WebKitGTK 4.1 and the packaged native libraries. |
 
 The Desktop workflow builds these targets from the same source tag as the stable
 release. The installers are unsigned beta artifacts. macOS can show a Gatekeeper
 warning, and Windows can show a SmartScreen warning. Compare each file with
 `SHA256SUMS` and check the GitHub build provenance attestation before you install.
+
+The Beta channel publishes these four installers from three operating-system
+builds. A managed MSI package and a Fedora or openSUSE native package are not
+part of this channel. `scripts/desktop-release-policy.mjs` is the single format
+policy for the build, the collector and the download table in the release notes.
 
 Desktop Complete installers are unsigned. Update delivery is on standby: the
 application does not check for updates, does not contact an update server, and
