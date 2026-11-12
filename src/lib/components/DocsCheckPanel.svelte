@@ -38,7 +38,6 @@
 
 	let projects = $state<ProjectRow[]>([]);
 	let selected = $state<string | null>(null);
-	let report = $state<DocsCheckReport | null>(null);
 	let busy = $state(false);
 	let error = $state(false);
 	let closeButton: HTMLButtonElement | null = $state(null);
@@ -46,7 +45,25 @@
 	let runToken = 0;
 	let cancelRequested = false;
 
+	interface BoundReport {
+		report: DocsCheckReport;
+		projectId: string;
+		projectName: string;
+	}
+
+	// A report belongs to the project that produced it. It is never a property
+	// of whatever the selector shows later.
+	let reportBinding = $state<BoundReport | null>(null);
+	const report = $derived(
+		reportBinding && reportBinding.projectId === selected ? reportBinding.report : null
+	);
+
 	const selectedProject = $derived(projects.find((project) => project.id === selected) ?? null);
+
+	function resetReport(): void {
+		if (busy) return;
+		reportBinding = null;
+	}
 
 	onMount(() => {
 		selected = initialProjectId;
@@ -75,10 +92,11 @@
 	async function runCheck(): Promise<void> {
 		const projectId = selected;
 		if (!projectId) return;
+		const projectName = selectedProject?.name ?? 'project';
 		const token = ++runToken;
 		busy = true;
 		error = false;
-		report = null;
+		reportBinding = null;
 		cancelRequested = false;
 		try {
 			const input = await projectDocumentSources(projectId);
@@ -87,7 +105,7 @@
 			const result = await activeRun.promise;
 			if (token !== runToken) return;
 			activeRun = null;
-			if (result) report = result;
+			if (result) reportBinding = { report: result, projectId, projectName };
 			else if (!cancelRequested) error = true;
 		} catch (failure) {
 			if (token !== runToken) return;
@@ -131,11 +149,12 @@
 	}
 
 	async function exportReport(): Promise<void> {
-		if (!report) return;
+		const binding = reportBinding;
+		if (!binding || binding.projectId !== selected) return;
 		try {
-			const name = `${selectedProject?.name ?? 'project'}-docs-check.json`;
+			const name = `${binding.projectName || 'project'}-docs-check.json`;
 			const saved = await triggerDownload(
-				new Blob([serializeDocsCheckReport(report)], { type: 'application/json' }),
+				new Blob([serializeDocsCheckReport(binding.report)], { type: 'application/json' }),
 				sanitizeFilename(name)
 			);
 			if (saved) notify.success(td('docsCheck.exported'));
@@ -181,7 +200,9 @@
 			<label class="flex min-w-48 flex-1 flex-col gap-1 text-xs text-fg-muted">
 				{td('docsCheck.project')}
 				<select
+					data-testid="docs-check-project"
 					bind:value={selected}
+					onchange={resetReport}
 					disabled={busy}
 					class="min-w-0 rounded border border-border bg-bg px-2 py-2 text-sm text-fg"
 				>
@@ -217,7 +238,10 @@
 			{:else if busy}
 				<p role="status" class="py-6 text-sm text-fg-muted">{td('docsCheck.running')}</p>
 			{:else if report}
-				<p data-docs-check-summary class="text-sm text-fg-muted">
+				<p data-testid="docs-check-report-origin" class="text-xs text-fg-muted">
+					{reportBinding?.projectName}
+				</p>
+				<p data-docs-check-summary data-testid="docs-check-summary" class="text-sm text-fg-muted">
 					{td('docsCheck.summary', {
 						documents: report.documents,
 						errors: report.summary.errors,
