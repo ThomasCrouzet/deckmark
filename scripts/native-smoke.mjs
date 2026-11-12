@@ -1139,16 +1139,6 @@ try {
 		}
 	});
 	passed('native project roots remain confined across refresh restart and revocation');
-	results.nativeGit = await nativeGit({
-		execute,
-		executeAsync,
-		until,
-		request,
-		session,
-		fixtureRoot: nativeProjectRoot,
-		output
-	});
-	passed('native Git diff review reaches the final section and returns');
 	const treeStartedAt = performance.now();
 	await click('[data-testid="projects-open"]');
 	await until(
@@ -1376,6 +1366,16 @@ try {
 
 	results.desktopTools = await checkDesktopTools({ executeAsync, passed, output });
 	passed('native desktop backup and update boundaries');
+	results.nativeGit = await nativeGit({
+		execute,
+		executeAsync,
+		until,
+		request,
+		session,
+		fixtureRoot: nativeProjectRoot,
+		output
+	});
+	passed('native Git diff review reaches the final section and returns');
 	sampleMemory('final');
 	results.passed = true;
 } catch (error) {
