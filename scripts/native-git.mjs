@@ -210,6 +210,7 @@ export async function nativeGit({
 	let keyboardFocused = false;
 	let keyboardActivated = false;
 	let pointerFallback = false;
+	let nativeKey = null;
 	if (request && session) {
 		keyboardFocused = await execute(
 			`const element = document.querySelector('[data-testid=git-diff-last]');
@@ -223,28 +224,51 @@ export async function nativeGit({
 		);
 		const elementId = element?.['element-6066-11e4-a52e-4f735466cecf'];
 		assert.ok(elementId, JSON.stringify(element));
-		try {
-			await request(
-				`/session/${session}/actions`,
-				{
-					actions: [
-						{
-							type: 'key',
-							id: 'keyboard',
-							actions: [
-								{ type: 'keyDown', value: '\uE007' },
-								{ type: 'keyUp', value: '\uE007' }
-							]
-						}
-					]
-				},
-				'POST'
-			);
-			await delay(500);
-			const afterKey = await readDiff();
-			keyboardActivated = afterKey.state === 'complete' && afterKey.rows === expectedLastRows;
-		} catch (error) {
-			record('keyboard action error', String(error));
+		if (process.platform === 'linux' && process.env.DISPLAY) {
+			try {
+				const windows = execFileSync('xdotool', ['search', '--onlyvisible', '--name', 'DeckMark'], {
+					encoding: 'utf8'
+				})
+					.trim()
+					.split('\n')
+					.filter(Boolean);
+				if (windows.length > 0) {
+					execFileSync('xdotool', ['windowfocus', '--sync', windows[0]], { stdio: 'ignore' });
+					execFileSync('xdotool', ['key', '--clearmodifiers', 'Return'], { stdio: 'ignore' });
+					await delay(500);
+					const afterNative = await readDiff();
+					keyboardActivated =
+						afterNative.state === 'complete' && afterNative.rows === expectedLastRows;
+					nativeKey = keyboardActivated ? 'xdotool' : 'xdotool-no-activation';
+				}
+			} catch (error) {
+				record('native key action error', String(error));
+			}
+		}
+		if (!keyboardActivated) {
+			try {
+				await request(
+					`/session/${session}/actions`,
+					{
+						actions: [
+							{
+								type: 'key',
+								id: 'keyboard',
+								actions: [
+									{ type: 'keyDown', value: '\uE007' },
+									{ type: 'keyUp', value: '\uE007' }
+								]
+							}
+						]
+					},
+					'POST'
+				);
+				await delay(500);
+				const afterKey = await readDiff();
+				keyboardActivated = afterKey.state === 'complete' && afterKey.rows === expectedLastRows;
+			} catch (error) {
+				record('keyboard action error', String(error));
+			}
 		}
 		if (!keyboardActivated) {
 			await request(`/session/${session}/element/${elementId}/click`, {}, 'POST');
@@ -266,7 +290,8 @@ export async function nativeGit({
 		...(await readDiff()),
 		keyboardFocused,
 		keyboardActivated,
-		pointerFallback
+		pointerFallback,
+		nativeKey
 	});
 	assert.equal(last.rows, expectedLastRows);
 	assert.equal(last.last, true);
