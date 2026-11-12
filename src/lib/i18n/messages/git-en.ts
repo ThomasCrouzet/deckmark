@@ -39,6 +39,16 @@ export const gitEn = {
 	'git.diff.loading': 'Loading diff...',
 	'git.diff.empty': 'No diff to show.',
 	'git.diff.truncated': 'The diff is long. The first 2000 lines are shown.',
+	'git.diff.review.first': 'First section',
+	'git.diff.review.previous': 'Previous section',
+	'git.diff.review.next': 'Next section',
+	'git.diff.review.last': 'Last section',
+	'git.diff.review.partial':
+		'Partial preview: lines {start} to {end} of {total}. Section {page} of {pages}.',
+	'git.diff.review.complete':
+		'Final section: lines {start} to {end} of {total}. All {total} lines are reviewable in {pages} sections.',
+	'git.diff.review.tooLarge':
+		'This diff is larger than the 1 MiB native Git output limit, so it is not shown. Review the file with another Git tool.',
 	'git.selectFile': 'Select a file to show its diff.',
 	'git.commit.title': 'Create a commit',
 	'git.commit.message': 'Commit message',

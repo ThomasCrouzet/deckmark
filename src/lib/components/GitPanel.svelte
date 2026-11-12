@@ -61,6 +61,9 @@
 	let closeButton: HTMLButtonElement;
 	let refreshCounter = 0;
 	let diffCounter = 0;
+	const DIFF_PAGE_SIZE = 2000;
+	let diffPage = $state(0);
+	let diffTooLarge = $state(false);
 
 	const mutable = $derived(status?.repository === 'self');
 	const stagedFiles = $derived(
@@ -117,9 +120,19 @@
 		void status;
 		groupLimit = 100;
 	});
-	const diffLines = $derived.by(() => diff.split('\n').map((line) => line));
-	const diffTruncated = $derived(diffLines.length > 2000);
-	const diffRows = $derived(diffLines.slice(0, 2000));
+	const diffLines = $derived.by(() => {
+		const lines = diff.split('\n');
+		// A unified diff ends with a newline. Do not count the empty tail as a line.
+		if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+		return lines;
+	});
+	const diffPageCount = $derived(Math.max(1, Math.ceil(diffLines.length / DIFF_PAGE_SIZE)));
+	const diffPageIndex = $derived(Math.min(diffPage, diffPageCount - 1));
+	const diffStart = $derived(diffPageIndex * DIFF_PAGE_SIZE);
+	const diffEnd = $derived(Math.min(diffStart + DIFF_PAGE_SIZE, diffLines.length));
+	const diffTruncated = $derived(diffLines.length > DIFF_PAGE_SIZE);
+	const diffOnLastPage = $derived(diffPageIndex === diffPageCount - 1);
+	const diffRows = $derived(diffLines.slice(diffStart, diffEnd));
 	const commitCount = $derived(stagedFiles.length);
 	const commitDisabled = $derived(
 		busy ||
@@ -144,6 +157,15 @@
 			: [file.path];
 	}
 
+	/** The native command rejects output above 1 MiB before Git returns a diff. */
+	function isGitOutputTooLarge(error: unknown): boolean {
+		return /exceeds the 1 MiB limit/i.test(String(error));
+	}
+
+	function goToDiffPage(page: number): void {
+		diffPage = Math.min(Math.max(page, 0), diffPageCount - 1);
+	}
+
 	function formatDate(timestamp: number): string {
 		if (!timestamp) return '';
 		return new Date(timestamp * 1000).toLocaleString(i18n.locale === 'fr' ? 'fr-FR' : 'en-US', {
@@ -157,17 +179,30 @@
 		const request = ++diffCounter;
 		if (!path) {
 			diff = '';
+			diffPage = 0;
+			diffTooLarge = false;
 			diffLoading = false;
 			return;
 		}
 		diffLoading = true;
 		try {
 			const value = await gitDiff(rootId, path, diffStaged);
-			if (request === diffCounter) diff = value;
+			if (request === diffCounter) {
+				diff = value;
+				diffPage = 0;
+				diffTooLarge = false;
+			}
 		} catch (error) {
 			if (request === diffCounter) {
 				diff = '';
-				errorMessage = tg('git.operationFailed', { message: String(error) });
+				diffPage = 0;
+				if (isGitOutputTooLarge(error)) {
+					diffTooLarge = true;
+					errorMessage = '';
+				} else {
+					diffTooLarge = false;
+					errorMessage = tg('git.operationFailed', { message: String(error) });
+				}
 			}
 		} finally {
 			if (request === diffCounter) diffLoading = false;
@@ -187,6 +222,8 @@
 			if (selectedPath && !nextStatus.files.some((file) => file.path === selectedPath)) {
 				selectedPath = null;
 				diff = '';
+				diffPage = 0;
+				diffTooLarge = false;
 			}
 			if (selectedPath) await loadDiff();
 		} catch (error) {
@@ -205,12 +242,16 @@
 		selectedPath = file.path;
 		diffStaged = file.index !== '.' && !file.untracked && !file.conflicted;
 		diff = '';
+		diffPage = 0;
+		diffTooLarge = false;
 		await loadDiff();
 	}
 
 	async function setDiffMode(staged: boolean): Promise<void> {
 		if (diffStaged === staged) return;
 		diffStaged = staged;
+		diffPage = 0;
+		diffTooLarge = false;
 		await loadDiff();
 	}
 
@@ -351,7 +392,11 @@
 			{/if}
 		</div>
 		{#if errorMessage}
-			<p role="alert" class="border-b border-border bg-bg-2 px-4 py-2 text-sm text-danger">
+			<p
+				role="alert"
+				data-testid="git-operation-error"
+				class="border-b border-border bg-bg-2 px-4 py-2 text-sm text-danger"
+			>
 				{errorMessage}
 			</p>
 		{/if}
@@ -475,6 +520,14 @@
 								<p class="mt-2 text-sm text-fg-muted">{tg('git.selectFile')}</p>
 							{:else if diffLoading}
 								<p role="status" class="mt-2 text-sm text-fg-muted">{tg('git.diff.loading')}</p>
+							{:else if diffTooLarge}
+								<p
+									role="alert"
+									data-testid="git-diff-too-large"
+									class="mt-2 rounded border border-danger p-3 text-sm text-danger"
+								>
+									{tg('git.diff.review.tooLarge')}
+								</p>
 							{:else if !diff}
 								<p class="mt-2 text-sm text-fg-muted">{tg('git.diff.empty')}</p>
 							{:else}
@@ -499,7 +552,61 @@
 									{/each}
 								</ol>
 								{#if diffTruncated}
-									<p class="mt-1 text-xs text-fg-muted">{tg('git.diff.truncated')}</p>
+									<div class="mt-2 flex flex-wrap items-center gap-2" data-testid="git-diff-review">
+										<button
+											type="button"
+											class="rounded border border-border px-2 py-0.5 text-xs"
+											data-testid="git-diff-first"
+											aria-disabled={diffPageIndex === 0}
+											onclick={() => goToDiffPage(0)}>{tg('git.diff.review.first')}</button
+										>
+										<button
+											type="button"
+											class="rounded border border-border px-2 py-0.5 text-xs"
+											data-testid="git-diff-previous"
+											aria-disabled={diffPageIndex === 0}
+											onclick={() => goToDiffPage(diffPageIndex - 1)}
+											>{tg('git.diff.review.previous')}</button
+										>
+										<button
+											type="button"
+											class="rounded border border-border px-2 py-0.5 text-xs"
+											data-testid="git-diff-next"
+											aria-disabled={diffOnLastPage}
+											onclick={() => goToDiffPage(diffPageIndex + 1)}
+											>{tg('git.diff.review.next')}</button
+										>
+										<button
+											type="button"
+											class="rounded border border-border px-2 py-0.5 text-xs"
+											data-testid="git-diff-last"
+											aria-disabled={diffOnLastPage}
+											onclick={() => goToDiffPage(diffPageCount - 1)}
+											>{tg('git.diff.review.last')}</button
+										>
+									</div>
+									<p
+										role="status"
+										aria-live="polite"
+										data-testid="git-diff-range"
+										data-review-state={diffOnLastPage ? 'complete' : 'partial'}
+										class="mt-1 text-xs text-fg-muted"
+									>
+										{diffOnLastPage
+											? tg('git.diff.review.complete', {
+													start: diffStart + 1,
+													end: diffEnd,
+													total: diffLines.length,
+													pages: diffPageCount
+												})
+											: tg('git.diff.review.partial', {
+													start: diffStart + 1,
+													end: diffEnd,
+													total: diffLines.length,
+													page: diffPageIndex + 1,
+													pages: diffPageCount
+												})}
+									</p>
 								{/if}
 							{/if}
 						</section>
