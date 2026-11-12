@@ -64,6 +64,7 @@
 	const DIFF_PAGE_SIZE = 2000;
 	let diffPage = $state(0);
 	let diffTooLarge = $state(false);
+	let diffList = $state<HTMLOListElement | null>(null);
 
 	const mutable = $derived(status?.repository === 'self');
 	const stagedFiles = $derived(
@@ -162,8 +163,15 @@
 		return /exceeds the 1 MiB limit/i.test(String(error));
 	}
 
-	function goToDiffPage(page: number): void {
-		diffPage = Math.min(Math.max(page, 0), diffPageCount - 1);
+	function goToDiffPage(page: number, align: 'start' | 'end' = 'start'): void {
+		const next = Math.min(Math.max(page, 0), diffPageCount - 1);
+		if (next !== diffPage) diffPage = next;
+		void tick().then(() => {
+			if (!diffList) return;
+			// The list keeps its old scroll offset when only the rows change.
+			// Reset the section start, or show the final hunk for Last.
+			diffList.scrollTop = align === 'end' ? diffList.scrollHeight : 0;
+		});
 	}
 
 	function formatDate(timestamp: number): string {
@@ -534,6 +542,7 @@
 								<!-- The focusable list lets keyboard users scroll long diffs. -->
 								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 								<ol
+									bind:this={diffList}
 									class="mt-2 max-h-[40dvh] overflow-auto rounded border border-border bg-bg p-0 font-mono text-xs leading-5"
 									aria-label={tg('git.diff', { path: selectedPath })}
 									tabindex="0"
@@ -581,7 +590,7 @@
 											class="rounded border border-border px-2 py-0.5 text-xs"
 											data-testid="git-diff-last"
 											aria-disabled={diffOnLastPage}
-											onclick={() => goToDiffPage(diffPageCount - 1)}
+											onclick={() => goToDiffPage(diffPageCount - 1, 'end')}
 											>{tg('git.diff.review.last')}</button
 										>
 									</div>

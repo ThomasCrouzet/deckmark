@@ -157,26 +157,43 @@ test('reviews the final hunk of a 2600-line diff and reports the native size lim
 		'partial'
 	);
 
-	const last = gitPanel.getByTestId('git-diff-last');
-	await last.focus();
-	await page.keyboard.press('Enter');
+	const lineInListViewport = (marker: string) =>
+		diffList.evaluate((list, text) => {
+			const line = [...list.querySelectorAll('li')].find((node) =>
+				node.textContent?.includes(text)
+			);
+			if (!line) return false;
+			const listRect = list.getBoundingClientRect();
+			const lineRect = line.getBoundingClientRect();
+			return lineRect.top >= listRect.top - 1 && lineRect.bottom <= listRect.bottom + 1;
+		}, marker);
+
+	// A user can scroll the first page to its end before choosing another section.
+	await diffList.evaluate((list) => {
+		list.scrollTop = list.scrollHeight;
+	});
+	await gitPanel.getByTestId('git-diff-last').click();
 	await expect(gitPanel.getByTestId('git-diff-range')).toHaveAttribute(
 		'data-review-state',
 		'complete'
 	);
 	await expect(diffList.locator('li')).toHaveCount(600);
-	await expect(gitPanel.getByText('line 2600 END')).toBeVisible();
+	await expect.poll(() => lineInListViewport('line 2600 END')).toBe(true);
 	await expect(
 		gitPanel.getByRole('heading', { name: new RegExp(longPath.replace('.', '\\.')) })
 	).toBeVisible();
 	await expect(gitPanel.getByRole('button', { name: 'Espace de travail' })).toBeVisible();
 
-	await gitPanel.getByTestId('git-diff-first').click();
+	const first = gitPanel.getByTestId('git-diff-first');
+	await first.focus();
+	await page.keyboard.press('Enter');
 	await expect(gitPanel.getByTestId('git-diff-range')).toHaveAttribute(
 		'data-review-state',
 		'partial'
 	);
-	await expect(gitPanel.getByText('line 0001')).toBeVisible();
+	await expect(first).toBeFocused();
+	await expect.poll(() => diffList.evaluate((list) => list.scrollTop)).toBe(0);
+	expect(await lineInListViewport('line 0001')).toBe(true);
 	await expect(gitPanel.getByText('line 2600 END')).toHaveCount(0);
 
 	await gitPanel.getByRole('button', { name: new RegExp(hugePath.replace('.', '\\.')) }).click();
@@ -224,7 +241,13 @@ test('reviews the final hunk of a 2600-line diff and reports the native size lim
 					lastPageState: 'complete',
 					selectedPathRetained: true,
 					worktreeModeRetained: true,
-					keyboardActivation: true,
+					lastSectionByPointer: true,
+					firstSectionByKeyboard: true,
+					finalHunkInListViewport: true,
+					firstLineInListViewport: true,
+					lastSectionScrollAtEnd: true,
+					firstSectionScrollTop: 0,
+					keyboardFocusRetained: true,
 					nativeSizeLimitState: true
 				},
 				test: info.title,
