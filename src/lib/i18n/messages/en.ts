@@ -578,6 +578,12 @@ export const en = {
 	'semantic.rebuild': 'The index was built with another model. Build the index again.',
 	'semantic.stale': 'Some indexed documents changed. Build the index again to include them.',
 	'semantic.clearError': 'The selected index could not be cleared. Try again.',
+	'semantic.countError': 'The index count could not be read. Existing rows are unchanged.',
+	'semantic.countRetry': 'Retry count',
+	'semantic.indexError':
+		'The index could not be rebuilt. Existing index data is unchanged. Try again.',
+	'semantic.searchError':
+		'The local index could not be read. The previous results are unchanged. Try again.',
 	'semantic.scope': 'Index scope',
 	'semantic.library': 'Library documents',
 	'semantic.project': 'Current project',

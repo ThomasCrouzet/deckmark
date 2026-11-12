@@ -591,6 +591,13 @@ export const fr: Record<MessageKey, string> = {
 	'semantic.stale':
 		'Certains documents indexés ont changé. Reconstruisez l’index pour les inclure.',
 	'semantic.clearError': 'Impossible d’effacer l’index sélectionné. Réessayez.',
+	'semantic.countError':
+		'Le nombre de documents indexés n’a pas pu être lu. Les entrées existantes sont inchangées.',
+	'semantic.countRetry': 'Relancer le comptage',
+	'semantic.indexError':
+		'L’index n’a pas pu être reconstruit. Les données existantes sont inchangées. Réessayez.',
+	'semantic.searchError':
+		'L’index local n’a pas pu être lu. Les résultats précédents sont inchangés. Réessayez.',
 	'semantic.scope': 'Portée de l’index',
 	'semantic.library': 'Documents de la bibliothèque',
 	'semantic.project': 'Projet actif',

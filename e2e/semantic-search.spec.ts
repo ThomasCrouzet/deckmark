@@ -315,3 +315,232 @@ test('rebuilds two sources that share one 32-bit digest', async ({ page }, info:
 		contentType: 'application/json'
 	});
 });
+
+interface SemanticFaultScope {
+	read?: { mode: 'delay-success' | 'delay-error'; gate: Promise<void> };
+	writeFail?: boolean;
+}
+
+/**
+ * Reject or delay IndexedDB work on the semantic index. The patch wraps the
+ * real request, so only the store and the selected operation change.
+ */
+async function installSemanticFaults(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const scope = window as unknown as {
+			__mdshSemanticFault?: SemanticFaultScope;
+			__mdshSemanticFaultInstalled?: boolean;
+			__mdshSemanticRelease?: () => void;
+		};
+		if (scope.__mdshSemanticFaultInstalled) return;
+		scope.__mdshSemanticFaultInstalled = true;
+		scope.__mdshSemanticFault = {};
+
+		const storeOf = (source: IDBObjectStore | IDBIndex): string =>
+			source instanceof IDBIndex ? source.objectStore.name : source.name;
+
+		for (const proto of [IDBObjectStore.prototype, IDBIndex.prototype] as unknown as Array<{
+			getAll: (...args: never[]) => IDBRequest;
+		}>) {
+			const original = proto.getAll;
+			proto.getAll = function (this: IDBObjectStore | IDBIndex, ...args: never[]) {
+				const request = original.apply(this, args);
+				const fault = scope.__mdshSemanticFault?.read;
+				if (storeOf(this) !== 'semanticIndex' || !fault) return request;
+				// One shot so a retry reads normally.
+				if (scope.__mdshSemanticFault) scope.__mdshSemanticFault.read = undefined;
+				const mode = fault.mode;
+				let successHandler: ((event: Event) => void) | null = null;
+				let errorHandler: ((event: Event) => void) | null = null;
+				const proxy = new Proxy(request, {
+					get(target, property) {
+						if (property === 'onsuccess') return successHandler;
+						if (property === 'onerror') return errorHandler;
+						const value = Reflect.get(target, property, target);
+						return typeof value === 'function' ? value.bind(target) : value;
+					},
+					set(target, property, value) {
+						if (property === 'onsuccess') {
+							successHandler = value as (event: Event) => void;
+							return true;
+						}
+						if (property === 'onerror') {
+							errorHandler = value as (event: Event) => void;
+							return true;
+						}
+						return Reflect.set(target, property, value, target);
+					}
+				});
+				request.onsuccess = (event) => {
+					void fault.gate.then(() => {
+						if (mode === 'delay-success') {
+							successHandler?.(event);
+							return;
+						}
+						errorHandler?.({
+							target: {
+								error: new DOMException('Injected semantic read', 'UnknownError')
+							},
+							stopPropagation() {},
+							preventDefault() {}
+						} as unknown as Event);
+					});
+				};
+				request.onerror = () => {};
+				return proxy;
+			};
+		}
+
+		const storePrototype = IDBObjectStore.prototype as unknown as {
+			put: (value: unknown, key?: IDBValidKey) => IDBRequest;
+		};
+		const originalPut = storePrototype.put;
+		storePrototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+			if (this.name === 'semanticIndex' && scope.__mdshSemanticFault?.writeFail) {
+				throw new DOMException('Injected semantic write', 'QuotaExceededError');
+			}
+			return originalPut.call(this, value, key);
+		};
+	});
+}
+
+async function armReadFault(page: Page, mode: 'delay-success' | 'delay-error'): Promise<void> {
+	await page.evaluate((nextMode) => {
+		const scope = window as unknown as {
+			__mdshSemanticFault?: SemanticFaultScope;
+			__mdshSemanticRelease?: () => void;
+		};
+		let release = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		scope.__mdshSemanticFault = {
+			...(scope.__mdshSemanticFault ?? {}),
+			read: { mode: nextMode, gate }
+		};
+		scope.__mdshSemanticRelease = release;
+	}, mode);
+}
+
+async function releaseReadFault(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticRelease?: () => void };
+		scope.__mdshSemanticRelease?.();
+		scope.__mdshSemanticRelease = undefined;
+	});
+}
+
+async function setWriteFault(page: Page, fail: boolean): Promise<void> {
+	await page.evaluate((value) => {
+		const scope = window as unknown as { __mdshSemanticFault?: SemanticFaultScope };
+		scope.__mdshSemanticFault = { ...(scope.__mdshSemanticFault ?? {}), writeFail: value };
+	}, fail);
+}
+
+test('shows recoverable errors for rejected index, count and query operations', async ({
+	page
+}, info: TestInfo) => {
+	test.setTimeout(180_000);
+	await page.addInitScript(() => {
+		const scope = window as unknown as { __mdshUnhandled?: string[] };
+		scope.__mdshUnhandled = [];
+		window.addEventListener('unhandledrejection', (event) => {
+			scope.__mdshUnhandled?.push(String(event.reason));
+		});
+	});
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' },
+		{ name: 'Recipe', content: '# Recipe\n\nCooking instructions.\n' }
+	]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	const panel = page.getByTestId('semantic-panel');
+	const countError = page.getByTestId('semantic-count-error');
+	const indexError = page.getByTestId('semantic-index-error');
+	const searchError = page.getByTestId('semantic-search-error');
+
+	await page.getByTestId('semantic-enabled').check();
+	await expect(panel).toContainText('0 document');
+
+	// A rejected scoped read must announce a count error and stay retryable.
+	await armReadFault(page, 'delay-error');
+	await page.getByTestId('semantic-enabled').uncheck();
+	await page.getByTestId('semantic-enabled').check();
+	await expect(countError).toHaveCount(0);
+	await releaseReadFault(page);
+	await expect(countError).toBeVisible();
+	await expect(countError).toHaveAttribute('role', 'alert');
+	await expect(countError).toContainText('Le nombre de documents indexés');
+	await page.getByTestId('semantic-count-retry').click();
+	await expect(countError).toHaveCount(0);
+	await expect(panel).toContainText('0 document');
+
+	// A rejected write must keep the committed rows and permit a retry.
+	await page.getByTestId('semantic-index').click();
+	await expect(panel).toContainText('2 document');
+	const committed = await semanticRows(page);
+	expect(committed).toHaveLength(2);
+
+	await setWriteFault(page, true);
+	await page.getByTestId('semantic-index').click();
+	await expect(indexError).toBeVisible();
+	await expect(indexError).toHaveAttribute('role', 'alert');
+	await expect(indexError).toContainText('Les données existantes sont inchangées');
+	await expect(panel).toContainText('2 document');
+	expect(await semanticRows(page)).toHaveLength(2);
+	await expect(page.getByTestId('semantic-index')).toBeEnabled();
+
+	await setWriteFault(page, false);
+	await page.getByTestId('semantic-index').click();
+	await expect(indexError).toHaveCount(0);
+	await expect(panel).toContainText('2 document');
+
+	// A rejected query keeps the last usable result visible.
+	await page.getByTestId('semantic-query').fill('document');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Guide');
+	await armReadFault(page, 'delay-error');
+	await page.getByTestId('semantic-query').fill('recipe');
+	await expect(searchError).toHaveCount(0);
+	await releaseReadFault(page);
+	await expect(searchError).toBeVisible();
+	await expect(searchError).toHaveAttribute('role', 'alert');
+	await expect(searchError).toContainText('Les résultats précédents sont inchangés');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Guide');
+
+	await page.getByTestId('semantic-query').fill('cooking');
+	await expect(searchError).toHaveCount(0);
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
+
+	// An obsolete failure must not replace a newer successful result.
+	await armReadFault(page, 'delay-error');
+	await page.getByTestId('semantic-query').fill('document');
+	await page.getByTestId('semantic-query').fill('cooking');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
+	await releaseReadFault(page);
+	await page.waitForTimeout(150);
+	await expect(searchError).toHaveCount(0);
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
+
+	const unhandled = await page.evaluate(
+		() => (window as unknown as { __mdshUnhandled?: string[] }).__mdshUnhandled ?? []
+	);
+	expect(unhandled).toEqual([]);
+	const rows = await semanticRows(page);
+	expect(rows).toHaveLength(2);
+	await info.attach('semantic-rejection-recovery.json', {
+		body: JSON.stringify(
+			{
+				countErrorRecovered: true,
+				indexRowsBefore: committed.length,
+				indexRowsAfterFailedWrite: 2,
+				queryErrorRecovered: true,
+				staleFailureIgnored: true,
+				unhandledRejections: unhandled.length
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
