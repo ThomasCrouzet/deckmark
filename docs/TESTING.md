@@ -2543,76 +2543,77 @@ full E2E suite because document types affect navigation, storage, export, and PW
 paths. A focused run does not replace that gate.
 
 ## Front matter numeric input risks
-7|
-8|Keep the raw text of a numeric front matter field until the value is complete. The
-9|measured risks are a cleared field that becomes `0`, a lost negative sign, decimal
-10|point or exponent marker, a moved caret, an incomplete number that saves as another
-11|value or an empty YAML scalar, and a numeric value that no longer round-trips through
-12|Source and Properties. A quoted string must stay a string.
-13|
-14|Keep typed number parsing separate from source classification. A typed field may accept
-15|a signed leading dot. Source classification must use the decimal grammar of js-yaml and
-16|must require a finite result. `-.5`, `+.5`, `1e999` and `1e309` are strings in the
-17|parser. They must show the string kind and keep their exact text. Hex, octal, binary,
-18|`.inf` and `.nan` keep their earlier string treatment in this panel.
-19|
-20|`e2e/frontmatter-properties.spec.ts` types every character with real key events. It
-21|asserts every recorded value and caret, not only the final value. It covers `12` to
-22|`-12.75`, `-2.5` to `0.125`, `1e3` to `1000`, a blank field, a lone minus sign, and the
-23|parser string tokens `-.5` and `1e999`. The invalid cases must keep the typed text,
-24|focus the field and leave the source unchanged. A removal case must delete an overflow
-25|token without a silent no-op.
-26|
-27|Run:
-28|
-29|```sh
-30|E2E_PORT=4205 npx playwright test e2e/frontmatter-properties.spec.ts \
-31|  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
-32|```
-33|
-34|The spec attaches `frontmatter-number-input.json` with every sample,
-35|`frontmatter-number-invalid.json` with the blocked values and
-36|`frontmatter-source-numbers.json` with the parser string tokens. A test that reloads a
-37|just-saved panel waits for the durable IndexedDB row before the reload. WebKit can
-38|reload before the 400 ms draft save otherwise.
-39|
-40|Chromium, Firefox and WebKit key events do not prove a physical iPhone or iPad software
-41|keyboard, a hardware keyboard, a native IME session or a Tauri WebView. Those checks
-42|stay separate.
-43|
-44|## Export profile listbox risks
-45|
-46|Keep one Tab stop for the profile listbox. The measured risks are one Tab stop per
-47|profile, missing ArrowUp, ArrowDown, Home and End, no active option for assistive
-48|technology, arrow navigation that activates a profile for exports, a selection,
-49|`aria-selected` or editing form that disagrees after keyboard or pointer input, and a
-50|selected option outside the visible scroll window. Focus must stay inside the dialog
-51|after delete, import, rename, format change or active status change. A 375 px viewport
-52|and simulated CSS zoom must keep the same model.
-53|
-54|A scrollable panel body can become its own Tab stop in Firefox. The export profile panel
-55|marks that container `tabindex="-1"` so the listbox stays the one Tab entry. Keep the
-56|selected option visible when the listbox receives focus and after Add.
-57|
-58|`e2e/export-profiles.spec.ts` imports 1, 2, 30 and 100 profiles. It checks one Tab into
-59|the listbox, one Tab to the first editing field, the `tabindex` values, the active
-60|descendant, arrow and Home and End selection, and an unchanged active profile before
-61|the Use action. It also checks pointer selection, focus retention, scroll of the active
-62|and newly added option, and a 375 px viewport with CSS zoom at 200 percent. Recovery
+
+Keep the raw text of a numeric front matter field until the value is complete. The
+measured risks are a cleared field that becomes `0`, a lost negative sign, decimal
+point or exponent marker, a moved caret, an incomplete number that saves as another
+value or an empty YAML scalar, and a numeric value that no longer round-trips through
+Source and Properties. A quoted string must stay a string.
+
+Keep typed number parsing separate from source classification. A typed field may accept
+a signed leading dot. Source classification must use the decimal grammar of js-yaml and
+must require a finite result. `-.5`, `+.5`, `1e999` and `1e309` are strings in the
+parser. They must show the string kind and keep their exact text. Hex, octal, binary,
+`.inf` and `.nan` keep their earlier string treatment in this panel.
+
+`e2e/frontmatter-properties.spec.ts` types every character with real key events. It
+asserts every recorded value and caret, not only the final value. It covers `12` to
+`-12.75`, `-2.5` to `0.125`, `1e3` to `1000`, a blank field, a lone minus sign, and the
+parser string tokens `-.5` and `1e999`. The invalid cases must keep the typed text,
+focus the field and leave the source unchanged. A removal case must delete an overflow
+token without a silent no-op.
+
+Run:
+
+```sh
+E2E_PORT=4205 npx playwright test e2e/frontmatter-properties.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
+```
+
+The spec attaches `frontmatter-number-input.json` with every sample,
+`frontmatter-number-invalid.json` with the blocked values and
+`frontmatter-source-numbers.json` with the parser string tokens. A test that reloads a
+just-saved panel waits for the durable IndexedDB row before the reload. The toolbar
+sync badge can stay pending after the draft is durable. It is not the reload boundary.
+
+Chromium, Firefox and WebKit key events do not prove a physical iPhone or iPad software
+keyboard, a hardware keyboard, a native IME session or a Tauri WebView. Those checks
+stay separate.
+
+## Export profile listbox risks
+
+Keep one Tab stop for the profile listbox. The measured risks are one Tab stop per
+profile, missing ArrowUp, ArrowDown, Home and End, no active option for assistive
+technology, arrow navigation that activates a profile for exports, a selection,
+`aria-selected` or editing form that disagrees after keyboard or pointer input, and a
+selected option outside the visible scroll window. Focus must stay inside the dialog
+after delete, import, rename, format change or active status change. A 375 px viewport
+and simulated CSS zoom must keep the same model.
+
+A scrollable panel body can become its own Tab stop in Firefox. The export profile panel
+marks that container `tabindex="-1"` so the listbox stays the one Tab entry. Keep the
+selected option visible when the listbox receives focus and after Add.
+
+`e2e/export-profiles.spec.ts` imports 1, 2, 30 and 100 profiles. It checks one Tab into
+the listbox, one Tab to the first editing field, the `tabindex` values, the active
+descendant, arrow and Home and End selection, and an unchanged active profile before
+the Use action. It also checks pointer selection, focus retention, scroll of the active
+and newly added option, and a 375 px viewport with CSS zoom at 200 percent. Recovery
 from a stale selection id is source-reviewed; it has no dedicated stale-id E2E case.
-63|
-64|Run:
-65|
-66|```sh
-67|E2E_PORT=4205 npx playwright test e2e/export-profiles.spec.ts \
-68|  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
-69|```
-70|
-71|The spec attaches `export-profile-listbox-navigation.json`,
-72|`export-profile-focus-retention.json`, `export-profile-scroll.json` and
-73|`export-profile-viewport.json`. CSS zoom is a simulation. It does not prove the browser
-74|zoom control, a physical iPad keyboard, VoiceOver, NVDA, Windows WebView2, Linux
-75|WebKitGTK or macOS WKWebView.
+
+Run:
+
+```sh
+E2E_PORT=4205 npx playwright test e2e/export-profiles.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
+```
+
+The spec attaches `export-profile-listbox-navigation.json`,
+`export-profile-focus-retention.json`, `export-profile-scroll.json` and
+`export-profile-viewport.json`. CSS zoom is a simulation. It does not prove the browser
+zoom control, a physical iPad keyboard, VoiceOver, NVDA, Windows WebView2, Linux
+WebKitGTK or macOS WKWebView.
+
 
 ## Version 2 accessibility
 
