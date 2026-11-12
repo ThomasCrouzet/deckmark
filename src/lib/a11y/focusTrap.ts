@@ -18,15 +18,26 @@ import type { Action } from 'svelte/action';
 const FOCUSABLE_SELECTOR = [
 	'a[href]',
 	'button:not([disabled])',
+	'summary',
 	'input:not([disabled])',
 	'select:not([disabled])',
 	'textarea:not([disabled])',
 	'[tabindex]:not([tabindex="-1"])'
 ].join(',');
 
+// A closed <details> hides its content. Only the summary that controls the
+// closed element stays tabbable. Checking this explicitly keeps the order
+// stable where getClientRects() still reports a box for hidden descendants.
+function isHiddenByClosedDetails(el: HTMLElement): boolean {
+	const closed = el.closest('details:not([open])');
+	if (!closed) return false;
+	return !(el.tagName === 'SUMMARY' && el.parentElement === closed);
+}
+
 function isTabbable(el: HTMLElement): boolean {
 	if (el.tabIndex < 0 || el.closest('[inert]')) return false;
 	if (el.getAttribute('aria-hidden') === 'true') return false;
+	if (isHiddenByClosedDetails(el)) return false;
 	const style = getComputedStyle(el);
 	return (
 		style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0

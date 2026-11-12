@@ -422,10 +422,20 @@
 	// onkeydown Escape but, not being focusable (tabindex=-1), it never received
 	// the event. Since focus is trapped in the aside (focusTrap), we listen at
 	// the window level as long as the mobile overlay is open.
+	//
+	// Escape is a top-most-layer action. A nested prompt or confirmation above
+	// the drawer consumes it first: its own handler calls preventDefault(). The
+	// drawer must also ignore a composition Escape (the IME dismisses its
+	// candidate list) and any foreground modal dialog the event cannot reach
+	// through the inert shell wrapper. Key code 229 covers the engines that end
+	// a composition with `isComposing` false.
 	$effect(() => {
 		if (!trapActive) return;
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') onClose();
+			if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
+			const foreground = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+			if (foreground && foreground.getClientRects().length > 0) return;
+			onClose();
 		};
 		window.addEventListener('keydown', onKey);
 		return () => window.removeEventListener('keydown', onKey);

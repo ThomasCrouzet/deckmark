@@ -81,3 +81,66 @@ it('excludes tabindex=-1 results from the last Tab target', () => {
 	expect(tab(container).defaultPrevented).toBe(true);
 	expect(document.activeElement).toBe(buttons[0]);
 });
+
+function makeDisclosure(
+	container: HTMLElement,
+	label: string,
+	open = false
+): { details: HTMLDetailsElement; summary: HTMLElement; action: HTMLElement } {
+	const details = document.createElement('details');
+	if (open) details.open = true;
+	const summary = document.createElement('summary');
+	summary.textContent = label;
+	const action = document.createElement('button');
+	action.textContent = `${label} action`;
+	details.append(summary, action);
+	container.appendChild(details);
+	return { details, summary, action };
+}
+
+describe('focusTrap with native details summaries', () => {
+	it('reaches collapsed summaries in forward order and wraps at them', () => {
+		const { container, buttons } = makeContainer(2);
+		makeDisclosure(container, 'Pages');
+		const second = makeDisclosure(container, 'Assets');
+		focusTrap(container);
+
+		// The last button is no longer the end of the order: native Tab must run.
+		buttons[1]!.focus();
+		expect(tab(container).defaultPrevented).toBe(false);
+
+		// The final summary is the real last tab stop.
+		second.summary.focus();
+		const wrap = tab(container);
+		expect(wrap.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(buttons[0]);
+
+		// Reverse traversal from the first control reaches the same summary.
+		buttons[0]!.focus();
+		const reverse = tab(container, true);
+		expect(reverse.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(second.summary);
+	});
+
+	it('keeps expanded descendants in DOM order at the end of the loop', () => {
+		const { container, buttons } = makeContainer(1);
+		makeDisclosure(container, 'Pages', true);
+		const second = makeDisclosure(container, 'Assets', true);
+		focusTrap(container);
+
+		// The last expanded action is the real end of the loop.
+		second.action.focus();
+		const forward = tab(container);
+		expect(forward.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(buttons[0]);
+
+		buttons[0]!.focus();
+		const reverse = tab(container, true);
+		expect(reverse.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(second.action);
+
+		// The summary is an ordinary stop before its expanded content.
+		second.summary.focus();
+		expect(tab(container).defaultPrevented).toBe(false);
+	});
+});
