@@ -526,6 +526,18 @@ export async function nativeGit({
 	assert.equal(outputLimitState.rows, 0);
 	assert.equal(outputLimitState.range, '');
 
+	const rawLimit = await executeAsync(
+		`const done = arguments[arguments.length - 1];
+		window.__TAURI__.core.invoke('git_diff', { rootId: arguments[0], path: arguments[1], staged: false }).then(
+			(value) => done({ ok: true, valueBytes: typeof value === 'string' ? value.length : null }),
+			(error) => done({ ok: false, rejection: String(error) })
+		);`,
+		[project.nativeRootId, hugePath]
+	);
+	assert.equal(rawLimit.ok, false);
+	assert.match(rawLimit.rejection, /1 MiB|exceeds/i);
+	record('native output cap backend rejection', rawLimit);
+
 	await clickGitFile(worktreePath);
 	await until(
 		async () => {
@@ -576,7 +588,15 @@ export async function nativeGit({
 					generic: outputLimitState.generic,
 					rows: outputLimitState.rows,
 					range: outputLimitState.range,
-					message: outputLimitState.text
+					message: outputLimitState.text,
+					backend: {
+						command: 'git_diff',
+						rootId: project.nativeRootId,
+						path: hugePath,
+						staged: false,
+						ok: rawLimit.ok,
+						rejection: rawLimit.rejection
+					}
 				},
 				evidence
 			},
