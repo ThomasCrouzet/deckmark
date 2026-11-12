@@ -3049,3 +3049,7 @@ boundary, the A to B to A corpus transition, a fresh-index oracle, and scoped ro
 reads at 300, 900 and 3,000 rows. The 3,000-row timing budget stays with #327.
 Keep the Playwright JSON and HTML reports with the command and source revision.
 
+## Native Git fixture config isolation
+
+Use an ordinary empty file for `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` in the owned fixture area, outside the repository under test. Git for Windows rejects the Windows null-device path returned by Node `os.devNull` with `Invalid argument` before `git init` completes. Keep the config file out of Git status and diffs. Preserve per-subprocess environments and fixture commit identities, no signing, source boundaries, all Git/UI assertions, the 1 MiB cap and the huge fixture. A Linux smoke pass does not prove the repaired Windows fixture; require fresh native Windows validation on the final head.
+
