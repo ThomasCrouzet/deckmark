@@ -32,6 +32,9 @@ test('typewriter coalesces caret bursts and cancels work on mode exit', async ({
 	expect
 		.soft(burst.maxPending, 'one CodeMirror measure frame, no per-key frames')
 		.toBeLessThanOrEqual(2);
+	expect
+		.soft(burst.centerHeads.length, 'the coalescing burst must centre at least once')
+		.toBeGreaterThanOrEqual(1);
 	expect.soft(burst.centerHeads.length).toBeLessThanOrEqual(1);
 	expect.soft(burst.centerHeads.every((head) => head === burst.head)).toBe(true);
 	await page.evaluate(async () => {
