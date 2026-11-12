@@ -380,15 +380,21 @@
 							aria-colcount={columns.length + 1}
 						>
 							<thead>
-								<tr>
-									<th scope="col" style={`width:${TITLE_WIDTH}px`}>{t('collection.titleColumn')}</th
+								<tr aria-rowindex="1">
+									<th scope="col" aria-colindex="1" style={`width:${TITLE_WIDTH}px`}
+										>{t('collection.titleColumn')}</th
 									>
 									{#if columnWindow.left > 0}
 										<th class="spacer" style={`width:${columnWindow.left}px`} aria-hidden="true"
 										></th>
 									{/if}
-									{#each columnWindow.columns as column (column)}
-										<th scope="col" style={`width:${COLUMN_WIDTH}px`} title={column}>{column}</th>
+									{#each columnWindow.columns as column, columnOffset (column)}
+										<th
+											scope="col"
+											aria-colindex={2 + columnWindow.first + columnOffset}
+											style={`width:${COLUMN_WIDTH}px`}
+											title={column}>{column}</th
+										>
 									{/each}
 									{#if columnWindow.right > 0}
 										<th class="spacer" style={`width:${columnWindow.right}px`} aria-hidden="true"
@@ -407,16 +413,18 @@
 								{/if}
 								{#each rowWindow.rows as row, index (row.id)}
 									<tr style={`height:${ROW_HEIGHT}px`} aria-rowindex={rowWindow.first + index + 2}>
-										<th scope="row" style={`width:${TITLE_WIDTH}px`}>
+										<th scope="row" aria-colindex="1" style={`width:${TITLE_WIDTH}px`}>
 											<button type="button" onclick={() => openRow(row)}>{row.title}</button>
 										</th>
 										{#if columnWindow.left > 0}
 											<td class="spacer" style={`width:${columnWindow.left}px`} aria-hidden="true"
 											></td>
 										{/if}
-										{#each columnWindow.columns as column (column)}
-											<td style={`width:${COLUMN_WIDTH}px`} title={cell(row, column)}
-												>{cell(row, column)}</td
+										{#each columnWindow.columns as column, columnOffset (column)}
+											<td
+												aria-colindex={2 + columnWindow.first + columnOffset}
+												style={`width:${COLUMN_WIDTH}px`}
+												title={cell(row, column)}>{cell(row, column)}</td
 											>
 										{/each}
 										{#if columnWindow.right > 0}
