@@ -227,6 +227,15 @@ test('keeps a final frame that has no trailing newline', async ({ page }, info: 
 	await openAiPanel(page);
 	await page.getByTestId('ai-action-explain').click();
 	await expect(page.getByTestId('ai-output')).toContainText('last');
+	const history = page.locator('.ai-history summary');
+	await expect(history).toBeVisible();
+	await page.getByTestId('ai-retry').focus();
+	await page.keyboard.press('Tab');
+	await expect(history).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(
+		page.getByTestId('ai-panel').getByRole('button', { name: 'Fermer', exact: true })
+	).toBeFocused();
 	await info.attach('ai-final-frame.json', {
 		body: JSON.stringify({ finalFrame: 'last' }),
 		contentType: 'application/json'
