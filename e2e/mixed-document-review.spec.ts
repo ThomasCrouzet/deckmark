@@ -165,16 +165,12 @@ test('mixed search names each type and activates the correct editor without chan
 		body: await page.screenshot(),
 		contentType: 'image/png'
 	});
-	await noteHit.getByRole('button').click();
+	await noteHit.click();
 	await expect(page.getByTestId('document-kind')).toHaveText('Note');
 	await expect(page.locator('.cm-content').first()).toContainText('MixedNeedle note');
 	await expect(page.getByTestId('presentation-editor')).toHaveCount(0);
 	dialog = await search(page, 'MixedNeedle');
-	await dialog
-		.getByRole('option')
-		.filter({ hasText: 'MixedNeedle deck' })
-		.getByRole('button')
-		.click();
+	await dialog.getByRole('option').filter({ hasText: 'MixedNeedle deck' }).click();
 	const editor = await waitForPresentation(page);
 	await expect(page.getByTestId('document-kind')).toHaveText('Presentation');
 	await expect(editor.getByTestId('slide-canvas')).toContainText('MixedNeedle deck');

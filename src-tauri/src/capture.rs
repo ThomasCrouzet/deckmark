@@ -11,6 +11,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
+use crate::window_geometry::{self, WorkArea, CAPTURE_MINIMUM};
+
 pub const CAPTURE_LABEL: &str = "capture";
 const CAPTURE_TITLE: &str = "DeckMark quick capture";
 const CAPTURE_QUERY: &str = "capture=1";
@@ -70,21 +72,40 @@ fn capture_url(app: &AppHandle) -> Result<Url, String> {
 
 fn create_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     let url = capture_url(app)?;
+    let area = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| WorkArea::from_monitor(&monitor));
+    let (width, height) = area
+        .map(|area| area.fit((CAPTURE_WIDTH, CAPTURE_HEIGHT), CAPTURE_MINIMUM))
+        .unwrap_or((CAPTURE_WIDTH, CAPTURE_HEIGHT));
+    let (min_width, min_height) = area
+        .map(|area| area.minimum(CAPTURE_MINIMUM))
+        .unwrap_or(CAPTURE_MINIMUM);
     let builder = WebviewWindowBuilder::new(app, CAPTURE_LABEL, WebviewUrl::External(url))
         .title(CAPTURE_TITLE)
-        .inner_size(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+        .inner_size(width, height)
+        .min_inner_size(min_width, min_height)
+        .prevent_overflow()
         .center()
         .always_on_top(true)
         .skip_taskbar(true)
         .decorations(false)
         .resizable(false);
-    builder.build().map_err(|error| error.to_string())
+    let window = builder.build().map_err(|error| error.to_string())?;
+    window_geometry::constrain_capture(&window)?;
+    Ok(window)
 }
 
 /// Shows the capture window. A known window is restored and focused.
 pub fn show(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(CAPTURE_LABEL) {
         let was_visible = window.is_visible().unwrap_or(false);
+        // A reused window can be on another monitor or another scale factor.
+        if let Err(error) = window_geometry::constrain_capture(&window) {
+            eprintln!("[mdsh-capture] could not fit the window: {error}");
+        }
         window.show().map_err(|error| error.to_string())?;
         let _ = window.unminimize();
         window.set_focus().map_err(|error| error.to_string())?;

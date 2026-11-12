@@ -31,6 +31,7 @@
 	let loading = $state(true);
 	let selectedId = $state<string | null>(null);
 	let loadedId = $state<string | null>(null);
+	let missingVersion = $state(false);
 	let closeButton: HTMLButtonElement | null = $state(null);
 
 	const selected = $derived(versions.find((v) => v.id === selectedId) ?? null);
@@ -40,6 +41,7 @@
 		if (!open || !browser) return;
 		let cancelled = false;
 		loading = true;
+		missingVersion = false;
 		const id = filesStore.active?.id;
 		loadedId = id ?? null;
 		if (!id) {
@@ -77,20 +79,31 @@
 	});
 
 	$effect(() => {
-		if (!open || !browser || !selectedId) {
+		const requestedId = selectedId;
+		if (!open || !browser || !requestedId) {
 			selectedContent = '';
+			contentLoading = false;
+			missingVersion = false;
 			return;
 		}
 		let cancelled = false;
 		contentLoading = true;
-		void getVersion(selectedId)
+		missingVersion = false;
+		void getVersion(requestedId)
 			.then((row) => {
-				if (cancelled || selectedId !== row?.id) return;
-				selectedContent = row?.content ?? '';
+				if (cancelled || selectedId !== requestedId) return;
 				contentLoading = false;
+				// A current read without a row is a missing version, not a stale
+				// request. Settle the preview and offer the refresh control.
+				if (!row) {
+					selectedContent = '';
+					missingVersion = true;
+					return;
+				}
+				selectedContent = row.content;
 			})
 			.catch((err) => {
-				if (cancelled) return;
+				if (cancelled || selectedId !== requestedId) return;
 				selectedContent = '';
 				contentLoading = false;
 				reportError('load version body', err, {
@@ -101,6 +114,32 @@
 			cancelled = true;
 		};
 	});
+
+	/** Rebuilds the summary list after a missing row and selects a usable one. */
+	async function refreshVersions(): Promise<void> {
+		const targetId = loadedId;
+		if (!targetId) return;
+		loading = true;
+		try {
+			const rows = await listVersionSummaries(targetId);
+			if (filesStore.activeId !== targetId) return;
+			versions = rows;
+			if (!rows.some((version) => version.id === selectedId)) {
+				selectedId = rows[0]?.id ?? null;
+				if (!selectedId) {
+					selectedContent = '';
+					contentLoading = false;
+					missingVersion = false;
+				}
+			}
+		} catch (err) {
+			reportError('load version history', err, {
+				notifyUser: t('versionHistory.loadError')
+			});
+		} finally {
+			loading = false;
+		}
+	}
 
 	async function handleRestore(): Promise<void> {
 		const v = selected;
@@ -217,6 +256,20 @@
 							<div class="min-h-0 flex-1 overflow-auto p-3">
 								{#if contentLoading}
 									<p class="text-sm text-fg-muted">{t('versionHistory.loading')}</p>
+								{:else if missingVersion}
+									<div class="flex flex-col items-start gap-2">
+										<p role="status" data-testid="history-missing" class="text-sm text-fg-muted">
+											{t('versionHistory.missing')}
+										</p>
+										<button
+											type="button"
+											data-testid="history-refresh"
+											class="rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg"
+											onclick={() => void refreshVersions()}
+										>
+											{t('versionHistory.refresh')}
+										</button>
+									</div>
 								{:else}
 									<DiffView
 										before={currentContent}
@@ -237,7 +290,7 @@
 					<button
 						class="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-bg-2 hover:text-fg disabled:opacity-40"
 						onclick={() => void handleRestore()}
-						disabled={!selected}
+						disabled={!selected || missingVersion}
 					>
 						<RotateCcw size={13} aria-hidden="true" />
 						<span>{t('versionHistory.restoreThisVersion')}</span>

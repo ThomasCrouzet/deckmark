@@ -187,6 +187,22 @@ test('documentation site export produces an offline navigable ZIP', async ({
 	await page.keyboard.press('Tab');
 	await expect(assetsSummary).toBeFocused();
 
+	// One continuous Tab walk crosses both summaries and wraps at Close.
+	const reportButton = panel.getByTestId('docs-site-export-report');
+	await reportButton.focus();
+	await page.keyboard.press('Tab');
+	await expect(pagesSummary).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(assetsSummary).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(closeSite).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(assetsSummary).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(pagesSummary).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(reportButton).toBeFocused();
+
 	const reportPath = await saveReport(page, testInfo, 'docs-site-report.json');
 	const reportText = await readFile(reportPath, 'utf8');
 	const report = JSON.parse(reportText);

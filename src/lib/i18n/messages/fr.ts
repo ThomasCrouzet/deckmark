@@ -93,6 +93,8 @@ export const fr: Record<MessageKey, string> = {
 		'La propriété « {key} » existe déjà dans la source et peut utiliser un style YAML complexe. Modifiez-la ou supprimez-la en mode Source.',
 	'properties.saveFailed':
 		"Les propriétés n'ont pas été enregistrées. Vos modifications sont conservées. Vérifiez la source, puis réessayez.",
+	'properties.invalidNumber':
+		'Saisissez un nombre complet ou supprimez la propriété. Le texte saisi est conservé.',
 	'properties.note':
 		'Seules les valeurs modifiées changent. Les commentaires, l’ordre et le YAML non lié restent intacts.',
 	'properties.save': 'Enregistrer les propriétés',
@@ -387,6 +389,7 @@ export const fr: Record<MessageKey, string> = {
 		"Les phrases secrètes ne correspondent pas. Aucune sauvegarde n'a été créée.",
 	'page.exitFocusMode': 'Quitter le mode focus',
 	'palette.showMore': 'Afficher {n} commandes de plus',
+	'palette.moreShown': '{shown} commandes affichées sur {total}.',
 	'palette.commandIndex': 'Commandes',
 	'palette.availableCount': '{n} disponibles',
 	'palette.requiresDocument': 'Ouvre un document pour utiliser cette commande.',
@@ -591,6 +594,13 @@ export const fr: Record<MessageKey, string> = {
 	'semantic.stale':
 		'Certains documents indexés ont changé. Reconstruisez l’index pour les inclure.',
 	'semantic.clearError': 'Impossible d’effacer l’index sélectionné. Réessayez.',
+	'semantic.countError':
+		'Le nombre de documents indexés n’a pas pu être lu. Les entrées existantes sont inchangées.',
+	'semantic.countRetry': 'Relancer le comptage',
+	'semantic.indexError':
+		'L’index n’a pas pu être reconstruit. Les données existantes sont inchangées. Réessayez.',
+	'semantic.searchError':
+		'L’index local n’a pas pu être lu. Les résultats précédents sont inchangés. Réessayez.',
 	'semantic.scope': 'Portée de l’index',
 	'semantic.library': 'Documents de la bibliothèque',
 	'semantic.project': 'Projet actif',
@@ -671,6 +681,8 @@ export const fr: Record<MessageKey, string> = {
 	'collection.viewName': 'Nom de la vue',
 	'collection.saveView': 'Enregistrer la vue',
 	'collection.deleteView': 'Supprimer la vue',
+	'collection.viewsStorageUnavailable':
+		'Impossible de lire ou d’enregistrer les vues. Vérifiez l’accès au stockage du navigateur et réessayez.',
 	'collection.loading': 'Lecture du front matter…',
 	'collection.empty': 'Aucune note avec front matter.',
 	'collection.missingBodies':
@@ -1074,6 +1086,9 @@ export const fr: Record<MessageKey, string> = {
 	'sidebar.selectedCount': '{n} sélectionnés',
 	'sidebar.selectedSuffix': ' (sélectionné)',
 	'sidebar.selectionActions': 'Actions sur la sélection',
+	'sidebar.selectionMode': 'Sélection de fichiers',
+	'sidebar.selectionModeStart': 'Sélectionner plusieurs fichiers',
+	'sidebar.selectionModeDone': 'Terminer la sélection',
 	'sidebar.tagFilters': 'Filtres par tag',
 	'sidebar.unexportedChangesHint': ' - modifications non exportées',
 
@@ -1217,6 +1232,8 @@ export const fr: Record<MessageKey, string> = {
 		"Aucune version enregistrée pour ce fichier. L'historique se constitue au fil de tes modifications (un instantané toutes les quelques minutes).",
 	'versionHistory.kept': '{n} version(s) conservée(s)',
 	'versionHistory.loadError': "Impossible de charger l'historique de versions.",
+	'versionHistory.missing': 'Cette version n’est plus dans le stockage local.',
+	'versionHistory.refresh': 'Actualiser les versions',
 	'versionHistory.staleDocument':
 		"Le document actif a changé. Rouvrez l'historique avant de restaurer.",
 	'versionHistory.loading': 'Chargement…',

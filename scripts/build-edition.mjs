@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { applyManifestId } from './manifest-id.mjs';
 
 const edition = process.argv[2] === 'desktop' ? 'desktop' : 'web';
 const env = { ...process.env, VITE_EDITION: edition };
@@ -23,6 +24,9 @@ function run(command, args) {
 
 run('node', ['scripts/patch-milkdown-images.mjs', '--write']);
 run('npx', ['vite', 'build']);
+// Desktop Complete does not install the web manifest. Keep its copied bytes
+// unchanged and scope this identity to the two Web Light origins.
+if (edition === 'web') applyManifestId('build', process.env.BASE_PATH ?? '');
 run('node', ['scripts/generate-service-worker.mjs']);
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));

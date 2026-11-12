@@ -95,13 +95,68 @@ async function projectDocuments(page: Page): Promise<StoredDocument[]> {
 	);
 }
 
-async function downloadReport(page: Page, testInfo: TestInfo, name: string): Promise<string> {
+async function downloadReport(
+	page: Page,
+	testInfo: TestInfo,
+	name: string
+): Promise<{ path: string; filename: string }> {
 	const downloadPromise = page.waitForEvent('download');
 	await page.getByTestId('docs-check-export').click();
 	const download: Download = await downloadPromise;
 	const path = testInfo.outputPath(name);
 	await download.saveAs(path);
-	return path;
+	return { path, filename: download.suggestedFilename() };
+}
+
+interface SeedProject {
+	id: string;
+	name: string;
+	documents: Array<{ id: string; path: string; content: string }>;
+}
+
+async function seedProjects(page: Page, projects: SeedProject[]): Promise<void> {
+	await page.evaluate(
+		(rows) =>
+			new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction(['drafts', 'projects'], 'readwrite');
+					const drafts = transaction.objectStore('drafts');
+					const projects = transaction.objectStore('projects');
+					rows.forEach((project, projectIndex) => {
+						projects.put({
+							id: project.id,
+							name: project.name,
+							createdAt: 1,
+							updatedAt: projectIndex + 1
+						});
+						project.documents.forEach((document, documentIndex) => {
+							drafts.put({
+								id: document.id,
+								name: document.path.split('/').at(-1),
+								projectId: project.id,
+								relativePath: document.path,
+								content: document.content,
+								kind: 'note',
+								order: documentIndex,
+								open: true,
+								createdAt: 1,
+								updatedAt: 1
+							});
+						});
+					});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => reject(transaction.error);
+					transaction.onabort = () => reject(transaction.error);
+				};
+			}),
+		projects
+	);
 }
 
 test('documentation check reports issues, opens locations, and exports stable JSON', async ({
@@ -166,12 +221,12 @@ test('documentation check reports issues, opens locations, and exports stable JS
 	]);
 
 	const firstReportPath = await downloadReport(page, testInfo, 'docs-check-report-first.json');
-	const firstReport = await readFile(firstReportPath, 'utf8');
+	const firstReport = await readFile(firstReportPath.path, 'utf8');
 
 	await panel.getByRole('button', { name: 'Lancer la vérification' }).click();
 	await expect(issues).toHaveCount(8);
 	const secondReportPath = await downloadReport(page, testInfo, 'docs-check-report-second.json');
-	const secondReport = await readFile(secondReportPath, 'utf8');
+	const secondReport = await readFile(secondReportPath.path, 'utf8');
 	expect(secondReport).toBe(firstReport);
 
 	const parsed = JSON.parse(firstReport);
@@ -227,11 +282,108 @@ test('documentation check reports issues, opens locations, and exports stable JS
 		'utf8'
 	);
 	await testInfo.attach('docs-check-report.json', {
-		path: firstReportPath,
+		path: firstReportPath.path,
 		contentType: 'application/json'
 	});
 	await testInfo.attach('docs-check-artifact.json', {
 		path: artifactPath,
+		contentType: 'application/json'
+	});
+});
+
+test('documentation check report stays bound to the audited project', async ({
+	page
+}, testInfo) => {
+	await resetAppState(page);
+	await seedProjects(page, [
+		{
+			id: 'alpha',
+			name: 'Alpha',
+			documents: [
+				{
+					id: 'alpha-home',
+					path: 'README.md',
+					content: '# Alpha\n\n[Broken](missing.md)\n'
+				}
+			]
+		},
+		{
+			id: 'beta',
+			name: 'Beta',
+			documents: [
+				{ id: 'beta-home', path: 'README.md', content: '# Beta\n' },
+				{ id: 'beta-guide', path: 'guide.md', content: '# Beta guide\n' }
+			]
+		}
+	]);
+	await page.reload();
+	await page.getByTestId('projects-open').click();
+	await page.getByRole('button', { name: 'Vérifier la documentation', exact: true }).click();
+	const panel = page.getByRole('dialog', { name: 'Vérifier la documentation' });
+	await expect(panel).toBeVisible();
+	const selector = panel.locator('select');
+	const summary = panel.locator('[data-docs-check-summary]');
+	const issues = panel.locator('[data-docs-check-issue]');
+	const reportOrigin = panel.getByTestId('docs-check-report-origin');
+	const exportButton = page.getByTestId('docs-check-export');
+
+	await selector.selectOption('alpha');
+	await panel.getByRole('button', { name: 'Lancer la vérification' }).click();
+	await expect(summary).toContainText('1 document(s)');
+	await expect(issues).toHaveCount(1);
+	await expect(issues.first()).toHaveAttribute('data-path', 'README.md');
+
+	const alphaDownload = await downloadReport(page, testInfo, 'alpha-docs-check.json');
+	expect(alphaDownload.filename).toBe('Alpha-docs-check.json');
+	const alphaReport = JSON.parse(await readFile(alphaDownload.path, 'utf8'));
+	expect(alphaReport.documents).toBe(1);
+	expect(alphaReport.issues.map((issue: { code: string }) => issue.code)).toEqual(['link-missing']);
+	expect(Object.keys(alphaReport)).toEqual(['schema', 'documents', 'summary', 'issues', 'skipped']);
+
+	// A selector change invalidates the report. Project B has no completed
+	// check, so its diagnostics and its export must not borrow Project A.
+	await selector.selectOption('beta');
+	await expect(summary).toHaveCount(0);
+	await expect(issues).toHaveCount(0);
+	await expect(reportOrigin).toHaveCount(0);
+	await expect(exportButton).toBeDisabled();
+
+	await panel.getByRole('button', { name: 'Lancer la vérification' }).click();
+	await expect(summary).toContainText('2 document(s)');
+	await expect(issues).toHaveCount(0);
+	await expect(reportOrigin).toHaveText('Beta');
+	const betaDownload = await downloadReport(page, testInfo, 'beta-docs-check.json');
+	expect(betaDownload.filename).toBe('Beta-docs-check.json');
+	const betaReport = JSON.parse(await readFile(betaDownload.path, 'utf8'));
+	expect(betaReport.documents).toBe(2);
+	expect(betaReport.issues).toEqual([]);
+
+	// The same rule applies on the way back to the first project.
+	await selector.selectOption('alpha');
+	await expect(summary).toHaveCount(0);
+	await expect(exportButton).toBeDisabled();
+	await panel.getByRole('button', { name: 'Lancer la vérification' }).click();
+	await expect(summary).toContainText('1 document(s)');
+	await expect(reportOrigin).toHaveText('Alpha');
+
+	await testInfo.attach('docs-check-provenance.json', {
+		body: JSON.stringify(
+			{
+				alpha: {
+					filename: alphaDownload.filename,
+					documents: alphaReport.documents,
+					codes: alphaReport.issues.map((issue: { code: string }) => issue.code)
+				},
+				beta: {
+					filename: betaDownload.filename,
+					documents: betaReport.documents,
+					issues: betaReport.issues.length
+				},
+				invalidatedOnSelectionChange: true
+			},
+			null,
+			2
+		),
 		contentType: 'application/json'
 	});
 });

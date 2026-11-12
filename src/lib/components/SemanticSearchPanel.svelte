@@ -22,6 +22,7 @@
 	} from '#lib/semantic-search.js';
 	import { LatestOnly } from '#lib/semantic-search-query.js';
 	import { readPreference, writePreference } from '#lib/misc-2.js';
+	import { reportError } from '#lib/report.js';
 	import { t } from '#lib/i18n/index.js';
 	import type { FileItem } from '#lib/types.js';
 
@@ -47,6 +48,9 @@
 	let staleRows = $state(0);
 	let clearFailed = $state(false);
 	let preferenceWarning = $state(false);
+	let countError = $state(false);
+	let indexError = $state(false);
+	let searchError = $state(false);
 
 	/** Latest query and latest count read. An older read cannot publish. */
 	const searchJob = new LatestOnly();
@@ -70,6 +74,9 @@
 		if (!open) {
 			searchJob.invalidate();
 			countJob.invalidate();
+			countError = false;
+			indexError = false;
+			searchError = false;
 		}
 	});
 
@@ -142,9 +149,17 @@
 	async function loadCount() {
 		const token = countJob.begin();
 		const scope = projectId;
-		const rows = await scopedRows(db.semanticIndex, scope);
-		if (!countJob.isCurrent(token) || scope !== projectId) return;
-		count = rows.length;
+		try {
+			const rows = await scopedRows(db.semanticIndex, scope);
+			if (!countJob.isCurrent(token) || scope !== projectId) return;
+			count = rows.length;
+			countError = false;
+		} catch (failure) {
+			// A superseded read must not publish its failure.
+			if (!countJob.isCurrent(token) || scope !== projectId) return;
+			countError = true;
+			reportError('semantic index count', failure);
+		}
 	}
 
 	function setEnabled(value: boolean) {
@@ -153,6 +168,9 @@
 		searchJob.invalidate();
 		countJob.invalidate();
 		clearFailed = false;
+		countError = false;
+		indexError = false;
+		searchError = false;
 		if (!value) {
 			results = [];
 			count = 0;
@@ -170,6 +188,9 @@
 		staleRows = 0;
 		incompatibleRows = 0;
 		clearFailed = false;
+		countError = false;
+		indexError = false;
+		searchError = false;
 		// Retain the saved trained model if the scope corpus did not change.
 		void loadCount();
 		if (query.trim()) void runSearch();
@@ -180,6 +201,7 @@
 		searchJob.invalidate();
 		staleRows = 0;
 		incompatibleRows = 0;
+		searchError = false;
 		void runSearch();
 	}
 
@@ -189,6 +211,7 @@
 		const model = modelId;
 		const signature = scopeSignature(scope);
 		indexing = true;
+		indexError = false;
 		// A search that started before the rebuild must not republish.
 		searchJob.invalidate();
 		countJob.invalidate();
@@ -208,8 +231,13 @@
 				count = rows.length;
 				staleRows = 0;
 				incompatibleRows = 0;
+				searchError = false;
 				if (query.trim()) void runSearch();
 			}
+		} catch (failure) {
+			// The transaction rolls back the clear, so committed rows survive.
+			if (scope === projectId) indexError = true;
+			reportError('semantic index build', failure);
 		} finally {
 			indexing = false;
 		}
@@ -222,31 +250,47 @@
 		const text = query;
 		const model = modelId;
 		const signature = scopeSignature(scope);
-		const embedder = await resolveEmbedder(scope, signature, model);
-		if (!searchJob.isCurrent(token)) return;
-		if (
-			scope !== projectId ||
-			text !== query ||
-			model !== modelId ||
-			signature !== scopeSignature(projectId)
-		)
-			return;
-		const rows = await scopedRows(db.semanticIndex, scope);
-		if (!searchJob.isCurrent(token)) return;
-		if (
-			scope !== projectId ||
-			text !== query ||
-			model !== modelId ||
-			signature !== scopeSignature(projectId)
-		)
-			return;
-		const files = new Map(scopeFiles(scope).map((file) => [file.id, file]));
-		const compatible = compatibleRows(rows, embedder, (row) =>
-			isCurrentSource(row, files.get(row.draftId), scope)
-		);
-		incompatibleRows = compatible.incompatible;
-		staleRows = compatible.stale;
-		results = search(compatible.rows, text, embedder);
+		try {
+			const embedder = await resolveEmbedder(scope, signature, model);
+			if (!searchJob.isCurrent(token)) return;
+			if (
+				scope !== projectId ||
+				text !== query ||
+				model !== modelId ||
+				signature !== scopeSignature(projectId)
+			)
+				return;
+			const rows = await scopedRows(db.semanticIndex, scope);
+			if (!searchJob.isCurrent(token)) return;
+			if (
+				scope !== projectId ||
+				text !== query ||
+				model !== modelId ||
+				signature !== scopeSignature(projectId)
+			)
+				return;
+			const files = new Map(scopeFiles(scope).map((file) => [file.id, file]));
+			const compatible = compatibleRows(rows, embedder, (row) =>
+				isCurrentSource(row, files.get(row.draftId), scope)
+			);
+			incompatibleRows = compatible.incompatible;
+			staleRows = compatible.stale;
+			results = search(compatible.rows, text, embedder);
+			searchError = false;
+		} catch (failure) {
+			// Keep the last usable results. Publish the failure only when this
+			// query is still the current one.
+			if (!searchJob.isCurrent(token)) return;
+			if (
+				scope !== projectId ||
+				text !== query ||
+				model !== modelId ||
+				signature !== scopeSignature(projectId)
+			)
+				return;
+			searchError = true;
+			reportError('semantic search', failure);
+		}
 	}
 
 	async function clearIndex() {
@@ -267,6 +311,7 @@
 			count = 0;
 			staleRows = 0;
 			incompatibleRows = 0;
+			searchError = false;
 		}
 		// A query started during the delete read the old rows.
 		searchJob.invalidate();
@@ -349,6 +394,23 @@
 					{#if clearFailed}
 						<p class="note" role="alert">{t('semantic.clearError')}</p>
 					{/if}
+					{#if countError}
+						<div class="note error" data-testid="semantic-count-error" role="alert">
+							<span>{t('semantic.countError')}</span>
+							<button
+								type="button"
+								data-testid="semantic-count-retry"
+								onclick={() => void loadCount()}
+							>
+								{t('semantic.countRetry')}
+							</button>
+						</div>
+					{/if}
+					{#if indexError}
+						<p class="note error" role="alert" data-testid="semantic-index-error">
+							{t('semantic.indexError')}
+						</p>
+					{/if}
 					<label>
 						<span>{t('semantic.model')}</span>
 						<select bind:value={modelId} onchange={changeModel} data-testid="semantic-model">
@@ -374,6 +436,11 @@
 							data-testid="semantic-query"
 						/>
 					</label>
+					{#if searchError}
+						<p class="note error" role="alert" data-testid="semantic-search-error">
+							{t('semantic.searchError')}
+						</p>
+					{/if}
 					<ul class="results" aria-label={t('semantic.results')}>
 						{#each results as hit (hit.draftId)}
 							<li>
@@ -508,5 +575,20 @@
 		margin: 0;
 		font-size: 11px;
 		color: var(--color-fg-muted);
+	}
+	.note.error {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		color: var(--color-danger);
+	}
+	.note.error button {
+		min-height: 28px;
+		padding: 2px 8px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-xs);
+		background: var(--color-bg-2);
+		color: var(--color-fg);
 	}
 </style>

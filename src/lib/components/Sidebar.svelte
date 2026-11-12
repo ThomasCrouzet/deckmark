@@ -72,11 +72,16 @@
 	// Keep virtual offsets equal to the rendered row heights. Project paths and
 	// touch controls need a second line or a larger activation area.
 	const VIRTUALIZATION_THRESHOLD = 80;
-	let coarsePointer = $state(false);
+	// Touch capability comes from `any-pointer`, not from the primary pointer.
+	// A hybrid tablet with a trackpad still sizes rows for direct touch.
+	let touchCapable = $state(false);
 	const OVERSCAN = 10;
 	let scrollContainer = $state<HTMLDivElement | null>(null);
 	let scrollTop = $state(0);
 	let containerHeight = $state(600);
+	// Keep the first visible file in place when a pointer change resizes rows.
+	let anchorRowId: string | null = null;
+	let anchorRowOffset = 0;
 
 	// §5.1 - List of unique tags computed from the store. Recomputed on every
 	// corpus change via $derived (runes reactivity).
@@ -125,7 +130,7 @@
 	const hasExplorer = $derived(projectRoots.length > 0);
 
 	const rowHeights = $derived(
-		filteredFiles.map((file) => (coarsePointer || file.relativePath ? 52 : 36))
+		filteredFiles.map((file) => (touchCapable || file.relativePath ? 52 : 36))
 	);
 	const rowOffsets = $derived.by(() => {
 		const offsets = [0];
@@ -175,8 +180,8 @@
 
 	onMount(() => {
 		if (!browser || typeof window.matchMedia !== 'function') return;
-		const pointer = window.matchMedia('(pointer: coarse)');
-		const update = () => (coarsePointer = pointer.matches);
+		const pointer = window.matchMedia('(any-pointer: coarse)');
+		const update = () => (touchCapable = pointer.matches);
 		update();
 		pointer.addEventListener('change', update);
 		return () => pointer.removeEventListener('change', update);
@@ -185,7 +190,30 @@
 	function handleListScroll(e: Event) {
 		const el = e.currentTarget as HTMLDivElement;
 		scrollTop = el.scrollTop;
+		const index = rowIndexAt(el.scrollTop);
+		anchorRowId = filteredFiles[index]?.id ?? null;
+		anchorRowOffset = el.scrollTop - rowOffsets[index]!;
 	}
+
+	// Row heights change when the pointer capability changes. Restore the
+	// scroll offset from the row that was at the top, instead of leaving the
+	// browser to anchor an arbitrary descendant.
+	let previousTouchCapable = $state(false);
+	$effect(() => {
+		if (touchCapable === previousTouchCapable) return;
+		previousTouchCapable = touchCapable;
+		const id = anchorRowId;
+		const offset = anchorRowOffset;
+		if (!id) return;
+		void tick().then(() => {
+			if (!scrollContainer) return;
+			const index = filteredFiles.findIndex((file) => file.id === id);
+			if (index === -1) return;
+			const target = Math.max(0, rowOffsets[index]! + offset);
+			scrollTop = target;
+			scrollContainer.scrollTop = target;
+		});
+	});
 
 	// Observe the container height to correctly compute the visible
 	// window (and recompute it if the user resizes their window).
@@ -213,7 +241,43 @@
 	// activeId) to enable Finder/VSCode-style Shift+click ranges.
 	let lastClickedId = $state<string | null>(null);
 
+	// Explicit selection mode for touch-only layouts. A tap toggles the row
+	// instead of opening the file, so the batch actions stay reachable
+	// without a physical modifier key.
+	let selectionMode = $state(false);
+
+	function enterSelectionMode(): void {
+		selectionMode = true;
+	}
+
+	function exitSelectionMode(): void {
+		selectionMode = false;
+		lastClickedId = null;
+		filesStore.selectionClear();
+	}
+
+	// Closing the mobile drawer ends the mode. A hidden selection would
+	// otherwise reappear as an unexplained batch bar on the next open.
+	$effect(() => {
+		if (!open && selectionMode) exitSelectionMode();
+	});
+
+	// A fine-only pointer keeps the current selection but leaves the explicit
+	// touch mode. Taps must navigate again once no coarse pointer is available.
+	$effect(() => {
+		if (!touchCapable && selectionMode) {
+			selectionMode = false;
+			lastClickedId = null;
+		}
+	});
+
 	function handleSelect(e: MouseEvent, id: string) {
+		if (selectionMode) {
+			if (e.shiftKey && lastClickedId) filesStore.selectionRange(lastClickedId, id);
+			else filesStore.selectionToggle(id);
+			lastClickedId = id;
+			return;
+		}
 		// Shift+click: range from the last anchor. Does not open the file
 		// (consistent with Finder), keeps focus inside the sidebar.
 		if (e.shiftKey && lastClickedId) {
@@ -331,6 +395,7 @@
 
 	function selectTag(tag: string | null) {
 		activeTag = tag;
+		if (selectionMode) exitSelectionMode();
 	}
 
 	async function handleProjectChanged(target: {
@@ -552,9 +617,72 @@
 		</div>
 	{/if}
 
+	<!-- Touch-only selection: an explicit mode replaces the modifier keys.
+	     Tapping a row toggles its selection instead of opening the file. -->
+	{#if touchCapable && filteredFiles.length > 0}
+		<div
+			class="flex flex-wrap items-center gap-1 border-b border-border bg-bg-2 px-3 py-2 text-xs"
+			role="group"
+			aria-label={t('sidebar.selectionMode')}
+		>
+			<button
+				type="button"
+				class="rounded border border-border px-2 py-1 text-fg transition hover:bg-bg-3"
+				aria-pressed={selectionMode}
+				data-testid="selection-mode-toggle"
+				onclick={() => (selectionMode ? exitSelectionMode() : enterSelectionMode())}
+			>
+				{selectionMode ? t('sidebar.selectionModeDone') : t('sidebar.selectionModeStart')}
+			</button>
+			{#if selectionMode || filesStore.selectedIds.size >= 2}
+				<span class="ml-auto text-fg" aria-live="polite" data-testid="selection-count"
+					>{t('sidebar.selectedCount', { n: filesStore.selectedIds.size })}</span
+				>
+				<div class="flex gap-1">
+					<button
+						type="button"
+						class="rounded p-1 text-fg-muted transition hover:bg-bg-3 hover:text-fg
+						       disabled:cursor-not-allowed disabled:opacity-50"
+						onclick={() => void filesStore.exportSelectedZip()}
+						disabled={spinnerStore.visible || filesStore.selectedIds.size < 2}
+						aria-label={t('sidebar.exportSelectionZip')}
+						title={t('sidebar.exportZip')}
+					>
+						<Archive size={12} />
+					</button>
+					<button
+						type="button"
+						class="rounded p-1 text-fg-muted transition hover:bg-bg-3 hover:text-fg
+						       disabled:cursor-not-allowed disabled:opacity-50"
+						onclick={() => filesStore.closeSelected()}
+						disabled={filesStore.selectedIds.size < 2}
+						aria-label={t('sidebar.closeSelection')}
+						title={t('sidebar.close')}
+					>
+						<X size={12} />
+					</button>
+					<button
+						type="button"
+						class="rounded p-1 text-fg-muted transition hover:bg-bg-3 hover:text-fg
+						       disabled:cursor-not-allowed disabled:opacity-50"
+						onclick={() => {
+							filesStore.selectionClear();
+							lastClickedId = null;
+						}}
+						disabled={filesStore.selectedIds.size === 0}
+						aria-label={t('sidebar.deselectAll')}
+						title={t('sidebar.deselect')}
+					>
+						<CircleX size={12} />
+					</button>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	<!-- §6.5 - Bulk actions bar: visible as soon as 2+ files are selected.
 	     Allows exporting to ZIP, closing in batch, or clearing the selection. -->
-	{#if filesStore.selectedIds.size >= 2}
+	{#if !touchCapable && filesStore.selectedIds.size >= 2}
 		<div
 			class="flex items-center justify-between gap-2 border-b border-border bg-bg-2 px-3 py-2 text-xs"
 			role="group"
@@ -926,6 +1054,15 @@
 <style>
 	.mdsh-sidebar {
 		box-shadow: 16px 0 48px rgba(0, 0, 0, 0.12);
+	}
+	/* The mobile drawer is fixed to the viewport, so it does not inherit the
+	   shell padding. Keep it inside the same resolved safe-area box. */
+	@media (max-width: 767px) {
+		.mdsh-sidebar {
+			top: var(--mdsh-safe-top, 0px);
+			bottom: var(--mdsh-safe-bottom, 0px);
+			left: var(--mdsh-safe-left, 0px);
+		}
 	}
 	@media (min-width: 768px) {
 		.mdsh-sidebar[inert] {
