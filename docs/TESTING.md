@@ -2998,6 +2998,25 @@ requires `npm run check`, `npm run lint`, `npm run test`, `npm run build`, and t
 full E2E suite because document types affect navigation, storage, export, and PWA
 paths. A focused run does not replace that gate.
 
+## Modal initial focus risks
+
+The shared `focusTrap` action moves initial focus to the first tabbable control
+when a dialog mounts. The retained risks are a double focus bounce with a panel
+that focuses its own control, focus in an inert or closed lower dialog, a nested
+prompt that loses focus, a pending frame that runs after close, a restore to the
+body or to a removed palette option, and a changed mobile drawer activation
+behavior.
+
+`e2e/modal-initial-focus.spec.ts` opens Collections, Export Profiles, Document
+properties, Linked content blocks and AI. It checks `document.activeElement`
+inside the foreground dialog, the header Close button, Tab and Shift+Tab wrap,
+the actual restore target after close, a keyboard-only palette route, an
+unsaved editor change, trigger restoration, rapid close and reopen, a nested
+project prompt, and a delayed lazy chunk. It attaches `initial-focus.json`,
+`keyboard-focus.json`, `unsaved-input.json` and `delayed-lazy-focus.json`.
+Each named dialog restores focus to the visible Palette de commandes button.
+The keyboard route restores the sidebar file control. The unsaved editor route
+keeps the text and restores the editor.
 ## Front matter numeric input risks
 
 Keep the raw text of a numeric front matter field until the value is complete. The
@@ -3022,6 +3041,20 @@ token without a silent no-op.
 Run:
 
 ```sh
+E2E_PORT=4207 npx playwright test e2e/modal-initial-focus.spec.ts \
+  --project=chromium --project=firefox --project=webkit \
+  --workers=1 --retries=0
+E2E_PORT=4207 npx playwright test e2e/mobile.spec.ts \
+  --project=mobile-chromium --project=mobile-webkit \
+  --workers=1 --retries=0
+```
+
+Keep the JSON and HTML reports, the command, the source revision, the working
+diff and the first failure. Browser runs on Chromium, Firefox and WebKit, and
+the mobile Chromium and WebKit emulation, do not prove physical iPhone or iPad
+Safari, VoiceOver, a hardware keyboard, a physical IME, a native WebView or the
+software keyboard outcome. The unsaved-input case measures editor content, not an
+unsaved input or select form field.
 E2E_PORT=4205 npx playwright test e2e/frontmatter-properties.spec.ts \
   --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
 ```
