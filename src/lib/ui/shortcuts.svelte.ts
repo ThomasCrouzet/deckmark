@@ -9,7 +9,6 @@
 import { keyboardStore } from './keyboard.svelte';
 import type { EditMode } from '#lib/types.js';
 import { isMac } from '#lib/platform.js';
-import { isDesktop } from '#lib/desktop.js';
 
 export interface ShortcutCallbacks {
 	// Files
@@ -68,8 +67,11 @@ export function buildKeydownHandler(cb: ShortcutCallbacks) {
 			return;
 		}
 
-		// Control-only keys on macOS belong to native text navigation.
-		if (isDesktop() && isMac() && !e.metaKey) return;
+		// App commands use the platform primary modifier. On macOS this is
+		// Command. Control-only keys keep their native text navigation in the
+		// browser and in the native WebView, whether the edition is web or
+		// desktop. On Windows and Linux the primary modifier is Control.
+		if (isMac() ? !e.metaKey : !e.ctrlKey) return;
 		const command = keyboardStore.match(e);
 		if (!command) return;
 		const activeId = cb.getActiveId();
