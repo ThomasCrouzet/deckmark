@@ -538,6 +538,48 @@ checks the native browser viewer under the production CSP. Retain fixture PDFs,
 downloads, ZIP files, screenshots, and JSON reports. Run both specs with
 `npx playwright test e2e/binary-review.spec.ts e2e/pdf-viewer.spec.ts --project=chromium --workers=1`.
 
+### Library ZIP download boundary
+
+Retain these failure risks for the library export: a saved download can be a
+different non-ZIP file, empty, or truncated before JSZip parses it. The first
+hosted failures in PR641, PR642, PR643 and PR645 were JSZip end-of-central-
+directory errors with no retained payload. On a JSZip parse failure only, the
+spec emits one compact `[library-zip-boundary]` JSON line and attaches
+`binary-library-zip-boundary.json`. The record contains the intended command,
+the actual suggested filename, the expected filename classification, the byte
+length, the first 8 and last 32 hex bytes, the local header, and the EOCD offset
+and end completeness. It does not include the complete binary. Missing values
+stay null.
+
+The diagnostic does not preempt JSZip, change a wait, timeout, retry, fixture or
+assertion, or replace the original exception. A failure to attach or format the
+diagnostic is reported on the console and the original JSZip exception is
+rethrown. A wrong filename indicates a wrong command or download. The expected
+filename with no local header indicates wrong or empty bytes. The expected
+filename with a missing or incomplete EOCD indicates truncation. A complete
+boundary with a JSZip failure points to central-directory or parser
+investigation. A retry recovery is flaky, not a clean pass.
+
+Run the real library case with one worker and no retries:
+
+```sh
+E2E_PORT=4227 npx playwright test e2e/binary-review.spec.ts \
+  --project=chromium --workers=1 --retries=0 --grep 'library ZIP preserves'
+```
+
+The zero, truncated and non-ZIP checks are test-only evidence controls. They
+prove the boundary fields and the preserved JSZip error. They are not product
+RED, a hosted reproduction, or proof that the export is corrupt. The hosted
+failure artifact remains unavailable, so the boundary still cannot choose the
+cause without a future failing payload. The local validation of this lot
+produced a 39-byte PDF download: the boundary recorded a nonmatching filename,
+no ZIP local header and no EOCD. That is a wrong-command or wrong-download
+signal, not product corruption. The case remained red at both the candidate and
+the unmodified base. The same file context also failed the two PDF save-as
+filename assertions with UUID.pdf names; those tests are unchanged by this lot.
+A separate approved interaction correction is needed before the real case can be
+green.
+
 The native Git tests use real repositories. They check executable filters,
 included configuration, parent-repository confinement, literal diff paths, and
 unstage before the first commit. Check unchanged index and working-tree bytes.

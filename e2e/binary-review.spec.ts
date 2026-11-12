@@ -75,6 +75,52 @@ async function downloadBytes(
 	return { name: download.suggestedFilename(), bytes: await readFile(path) };
 }
 
+const ZIP_LOCAL_HEADER = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+const ZIP_EOCD = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+const EXPECTED_LIBRARY_ZIP = /^deckmark-export-\d{4}-\d{2}-\d{2}\.zip$/;
+
+/** Bounded metadata for a failed library ZIP parse. Never includes raw bytes. */
+function zipBoundary(bytes: Buffer, suggestedFilename: string) {
+	const eocdOffset = bytes.lastIndexOf(ZIP_EOCD);
+	const eocdCommentLength =
+		eocdOffset >= 0 && eocdOffset + 22 <= bytes.length ? bytes.readUInt16LE(eocdOffset + 20) : null;
+	return {
+		triggerCommand: 'Exporter tous les fichiers',
+		suggestedFilename,
+		expectedFilenamePattern: EXPECTED_LIBRARY_ZIP.source,
+		filenameMatchesExpected: EXPECTED_LIBRARY_ZIP.test(suggestedFilename),
+		byteLength: bytes.length,
+		first8Hex: bytes.length >= 8 ? bytes.subarray(0, 8).toString('hex') : null,
+		last32Hex: bytes.length >= 32 ? bytes.subarray(-32).toString('hex') : null,
+		localHeader: bytes.length >= 4 ? bytes.subarray(0, 4).equals(ZIP_LOCAL_HEADER) : null,
+		eocdOffset: eocdOffset >= 0 ? eocdOffset : null,
+		eocdFromEnd: eocdOffset >= 0 ? bytes.length - eocdOffset : null,
+		eocdEndsAtLength:
+			eocdOffset >= 0 &&
+			eocdCommentLength !== null &&
+			eocdOffset + 22 + eocdCommentLength === bytes.length
+	};
+}
+
+async function loadLibraryZip(info: TestInfo, download: { name: string; bytes: Buffer }) {
+	try {
+		return await (await import('jszip')).default.loadAsync(download.bytes);
+	} catch (error) {
+		try {
+			const boundary = zipBoundary(download.bytes, download.name);
+			const payload = JSON.stringify(boundary);
+			console.error(`[library-zip-boundary] ${payload}`);
+			await info.attach('binary-library-zip-boundary.json', {
+				body: payload,
+				contentType: 'application/json'
+			});
+		} catch (diagnosticError) {
+			console.error('[library-zip-boundary] diagnostic capture failed', diagnosticError);
+		}
+		throw error;
+	}
+}
+
 async function exportLibrary(page: Page) {
 	await openPalette(page);
 	await page.keyboard.insertText('Exporter tous les fichiers');
@@ -119,7 +165,7 @@ for (const fixture of fixtures) {
 test('library ZIP preserves image and PDF bytes', async ({ page }, info) => {
 	for (const fixture of fixtures) await importBinary(page, fixture);
 	const download = await downloadBytes(page, info, 'binary-library.zip', () => exportLibrary(page));
-	const zip = await (await import('jszip')).default.loadAsync(download.bytes);
+	const zip = await loadLibraryZip(info, download);
 	for (const fixture of fixtures) {
 		const entry = zip.file(fixture.name);
 		expect(entry).not.toBeNull();
