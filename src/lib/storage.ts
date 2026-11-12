@@ -90,10 +90,43 @@ function writeTimestamp(key: string, value: number | null): void {
 	}
 }
 
+type BackupReminderListener = () => void;
+const backupReminderListeners = new Set<BackupReminderListener>();
+
+/**
+ * Notifies mounted panels when this tab records a new external backup. A
+ * same-document `localStorage` write does not fire a `storage` event.
+ */
+export function subscribeBackupReminder(listener: BackupReminderListener): () => void {
+	backupReminderListeners.add(listener);
+	return () => {
+		backupReminderListeners.delete(listener);
+	};
+}
+
+function emitBackupReminderChange(): void {
+	for (const listener of [...backupReminderListeners]) listener();
+}
+
+/**
+ * Reads only the two reminder timestamps. This is the cheap refresh path: no
+ * IndexedDB cursor, no `navigator.storage.estimate()`.
+ */
+export function isBackupReminderDueNow(now = Date.now()): boolean {
+	return isBackupReminderDue(
+		now,
+		readTimestamp(BACKUP_SUCCESS_KEY),
+		readTimestamp(BACKUP_REMINDER_KEY)
+	);
+}
+
 export function recordExternalBackupSuccess(now = Date.now()): void {
 	writeTimestamp(BACKUP_SUCCESS_KEY, now);
 	writeTimestamp(BACKUP_ERROR_KEY, null);
 	writeTimestamp(BACKUP_REMINDER_KEY, now);
+	// The listener recomputes from the timestamps. When the write failed, that
+	// value stays due, so unavailable storage never clears a real reminder.
+	emitBackupReminderChange();
 }
 
 export function recordExternalBackupFailure(now = Date.now()): void {

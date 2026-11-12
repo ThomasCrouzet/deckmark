@@ -78,6 +78,8 @@ export default defineConfig({
 			name: 'firefox',
 			use: { ...devices['Desktop Firefox'] },
 			testMatch: [
+				'**/backup-reminder.spec.ts',
+				'**/navigation-stats-scroll.spec.ts',
 				'**/json-tools.spec.ts',
 				'**/code-editor.spec.ts',
 				'**/editor-state.spec.ts',
@@ -105,6 +107,7 @@ export default defineConfig({
 				'**/read-preview-isolation.spec.ts',
 				'**/read-annotations.spec.ts',
 				'**/modal-isolation-review.spec.ts',
+				'**/modal-initial-focus.spec.ts',
 				'**/palette-load-review.spec.ts',
 				'**/palette-pagination.spec.ts',
 				'**/toolbar-density.spec.ts',
@@ -128,6 +131,7 @@ export default defineConfig({
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
 			testMatch: [
+				'**/backup-reminder.spec.ts',
 				'**/json-tools.spec.ts',
 				'**/code-editor.spec.ts',
 				'**/split-view.spec.ts',
@@ -161,6 +165,7 @@ export default defineConfig({
 				'**/read-preview-isolation.spec.ts',
 				'**/read-annotations.spec.ts',
 				'**/modal-isolation-review.spec.ts',
+				'**/modal-initial-focus.spec.ts',
 				'**/palette-load-review.spec.ts',
 				'**/palette-pagination.spec.ts',
 				'**/toolbar-density.spec.ts',

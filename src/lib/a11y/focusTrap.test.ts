@@ -44,6 +44,10 @@ function tab(node: HTMLElement, shift = false): KeyboardEvent {
 	return e;
 }
 
+function nextFrame(): Promise<void> {
+	return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
 describe('focusTrap', () => {
 	it('prevents Tab without an error when the container has no focusable element', () => {
 		const container = document.createElement('div');
@@ -70,6 +74,80 @@ describe('focusTrap', () => {
 		expect(document.activeElement).toBe(buttons[0]);
 		const e2 = tab(container, false);
 		expect(e2.defaultPrevented).toBe(false);
+	});
+});
+
+describe('focusTrap initial focus', () => {
+	it('moves focus to the first tabbable element after one frame', async () => {
+		const trigger = document.createElement('button');
+		document.body.appendChild(trigger);
+		trigger.focus();
+		const { container, buttons } = makeContainer(2);
+		focusTrap(container);
+
+		await nextFrame();
+		expect(document.activeElement).toBe(buttons[0]);
+	});
+
+	it('focuses the container when no tabbable element exists', async () => {
+		const container = document.createElement('div');
+		container.tabIndex = -1;
+		document.body.appendChild(container);
+		focusTrap(container);
+
+		await nextFrame();
+		expect(document.activeElement).toBe(container);
+	});
+
+	it('keeps focus that is already inside the trap', async () => {
+		const { container, buttons } = makeContainer(2);
+		buttons[1]!.focus();
+		focusTrap(container);
+
+		await nextFrame();
+		expect(document.activeElement).toBe(buttons[1]);
+	});
+
+	it('does not move focus when the trap mounts inactive and activates later', async () => {
+		const trigger = document.createElement('button');
+		document.body.appendChild(trigger);
+		trigger.focus();
+		const { container } = makeContainer(2);
+		const trap = focusTrap(container, { active: false });
+
+		trap.update({ active: true });
+		await nextFrame();
+		expect(document.activeElement).toBe(trigger);
+	});
+
+	it('does not focus a trap that is destroyed before its first frame', async () => {
+		const trigger = document.createElement('button');
+		document.body.appendChild(trigger);
+		trigger.focus();
+		const { container, buttons } = makeContainer(2);
+		const trap = focusTrap(container);
+
+		trap.destroy();
+		await nextFrame();
+		expect(document.activeElement).toBe(trigger);
+		expect(document.activeElement).not.toBe(buttons[0]);
+	});
+
+	it('gives the newest trap the initial focus', async () => {
+		const trigger = document.createElement('button');
+		document.body.appendChild(trigger);
+		trigger.focus();
+		const { container: parent } = makeContainer(2);
+		const child = document.createElement('div');
+		const input = document.createElement('input');
+		child.appendChild(input);
+		document.body.appendChild(child);
+
+		focusTrap(parent);
+		focusTrap(child);
+
+		await nextFrame();
+		expect(document.activeElement).toBe(input);
 	});
 });
 

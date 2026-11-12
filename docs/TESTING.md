@@ -3009,6 +3009,25 @@ requires `npm run check`, `npm run lint`, `npm run test`, `npm run build`, and t
 full E2E suite because document types affect navigation, storage, export, and PWA
 paths. A focused run does not replace that gate.
 
+## Modal initial focus risks
+
+The shared `focusTrap` action moves initial focus to the first tabbable control
+when a dialog mounts. The retained risks are a double focus bounce with a panel
+that focuses its own control, focus in an inert or closed lower dialog, a nested
+prompt that loses focus, a pending frame that runs after close, a restore to the
+body or to a removed palette option, and a changed mobile drawer activation
+behavior.
+
+`e2e/modal-initial-focus.spec.ts` opens Collections, Export Profiles, Document
+properties, Linked content blocks and AI. It checks `document.activeElement`
+inside the foreground dialog, the header Close button, Tab and Shift+Tab wrap,
+the actual restore target after close, a keyboard-only palette route, an
+unsaved editor change, trigger restoration, rapid close and reopen, a nested
+project prompt, and a delayed lazy chunk. It attaches `initial-focus.json`,
+`keyboard-focus.json`, `unsaved-input.json` and `delayed-lazy-focus.json`.
+Each named dialog restores focus to the visible Palette de commandes button.
+The keyboard route restores the sidebar file control. The unsaved editor route
+keeps the text and restores the editor.
 ## Front matter numeric input risks
 
 Keep the raw text of a numeric front matter field until the value is complete. The
@@ -3033,6 +3052,20 @@ token without a silent no-op.
 Run:
 
 ```sh
+E2E_PORT=4207 npx playwright test e2e/modal-initial-focus.spec.ts \
+  --project=chromium --project=firefox --project=webkit \
+  --workers=1 --retries=0
+E2E_PORT=4207 npx playwright test e2e/mobile.spec.ts \
+  --project=mobile-chromium --project=mobile-webkit \
+  --workers=1 --retries=0
+```
+
+Keep the JSON and HTML reports, the command, the source revision, the working
+diff and the first failure. Browser runs on Chromium, Firefox and WebKit, and
+the mobile Chromium and WebKit emulation, do not prove physical iPhone or iPad
+Safari, VoiceOver, a hardware keyboard, a physical IME, a native WebView or the
+software keyboard outcome. The unsaved-input case measures editor content, not an
+unsaved input or select form field.
 E2E_PORT=4205 npx playwright test e2e/frontmatter-properties.spec.ts \
   --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
 ```
@@ -3552,6 +3585,72 @@ Do not relabel the old artifact or repeat a large suite only to clean the label.
 The Library composing Enter case is in the same browser file and is part of
 the required #624 policy. It still needs a physical IME check with a hardware
 keyboard. Do not treat the synthetic event as that check.
+
+## Status bar state synchronization (#619, #620)
+
+Retain these failure risks:
+
+- A cold statistics runtime can publish a selection count after the selection
+  is cleared or the active file changes. The runtime must not publish its own
+  selection count. Only the selection effect owns the request generation, and
+  it must cancel a cleared selection.
+- A manual external backup can succeed while the mounted status bar keeps the
+  reminder from its mount. A same-document `localStorage` write does not fire a
+  `storage` event. The success path must notify mounted listeners, and the
+  reminder refresh must read only the two reminder timestamps. Do not poll the
+  full storage health, which reads project asset keys and calls
+  `navigator.storage.estimate()`.
+- A health read, a Settings open or close, and a document change are not
+  reminder actions. They must not write the reminder timestamp.
+- Only an explicit dismissal or a successful manual backup acknowledges the
+  reminder. A failed or cancelled export must preserve an overdue reminder and
+  must not write a success timestamp.
+- Unavailable timestamp storage must not throw into the status bar and must not
+  publish a false cleared reminder.
+- The numerical 30 day backup and 7 day reminder windows and the explicit
+  dismissal stay unchanged.
+
+Cases retained in `e2e/backup-reminder.spec.ts`:
+
+- Successful manual export removes the reminder in the same tab, while Settings
+  is open and after close, then stays hidden after reload.
+- Failed export with a controlled overdue state and no re-aging after the
+  failure: no download, no reminder timestamp, no success timestamp advance, an
+  error timestamp, and a visible reminder after close and reload.
+- Settings open, Settings close, a second note creation and a return to the
+  first note: no timestamp changes and the reminder stays due.
+- Unavailable timestamps: the three `mdsh:storage` keys throw after setup. A
+  successful export still downloads and shows its toast, no page error occurs,
+  no timestamp changes, and the reminder is still visible after reload.
+- Explicit dismissal still writes the reminder timestamp and survives reload.
+- Three age and reminder-window cases.
+
+Cold selection cases in `e2e/navigation-stats-scroll.spec.ts`:
+
+- Held result: a cleared selection while the cold runtime count is pending
+  shows no counters after the held Worker result is released.
+- No post: a selection cleared before the runtime is ready starts no selection
+  Worker post at all.
+- A file switch rejects the initial selection Worker result.
+
+The selection helper walks the preview text nodes. A browser can split a long
+line into several text nodes (WebKit used 65 536 character chunks), so a range
+on the first node alone can stay below the 64 KiB Worker threshold. The helper
+still requires at least 64 KiB and records the actual selected length.
+
+Commands:
+
+```sh
+E2E_PORT=4204 npx playwright test e2e/navigation-stats-scroll.spec.ts e2e/backup-reminder.spec.ts --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 --grep "cold runtime count is pending|cleared before the cold runtime|file switch rejects the initial selection|successful Settings export|failed export preserves|opening, closing Settings|unavailable reminder timestamps|dismissing the reminder|backup age and reminder windows"
+```
+
+Do not include the 5 MB multiline case in a status run. It times out at the
+input base on this host. The exclusion is local and does not change repository
+routing. Never describe the remaining targeted run as full-suite success.
+
+The repository routes backup reminders to Firefox and WebKit and cold-selection cases to Firefox through additive file entries. Every previous route stays. The local grep above is targeted; it does not remove the large-note cases from repository routing or prove full-suite success.
+
+Keep the direct process exit, source revision, working diff, command, environment and actual result objects with the attachments. Decode JSON attachment bodies from the reporter when needed. Count executed projects from their results, not from the configuration list. The browser cases do not prove physical iPhone/iPad, WebKitGTK, WKWebView, native Desktop save-dialog cancellation or screen-reader output. Web export has no cancellation path: the native dialog must separately prove the same non-success rule, with no success/reminder timestamp and an overdue reminder preserved.
 ## Native Git fixture config isolation
 
 Use an ordinary empty file for `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` in the owned fixture area, outside the repository under test. Git for Windows rejects the Windows null-device path returned by Node `os.devNull` with `Invalid argument` before `git init` completes. Keep the config file out of Git status and diffs. Preserve per-subprocess environments and fixture commit identities, no signing, source boundaries, all Git/UI assertions, the 1 MiB cap and the huge fixture. A Linux smoke pass does not prove the repaired Windows fixture; require fresh native Windows validation on the final head.
