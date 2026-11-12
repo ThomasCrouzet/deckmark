@@ -3143,3 +3143,11 @@ E2E_PORT=4216 npx playwright test e2e/navigation-stats-scroll.spec.ts \
 
 Retain the direct exit, source and working diff identity, command, environment, list log and per-project burst/centered attachments locally. Do not mistake a separate control `results.json` for the GREEN reporter object. Do not upload reports. These local controls do not establish the cause or recovery of the hosted Firefox scroll, WebKit input tail, history selection, TOC or typewriter failures. Record fresh exact-head CI evidence separately.
 
+## Modal drawer and disclosure evidence
+
+Keep these browser evidence limits for #614 and #615:
+
+- A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
+- After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
+- The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
+
