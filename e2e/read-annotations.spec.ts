@@ -554,15 +554,21 @@ test('discards cancelled pen, highlighter and eraser strokes', async ({ page }, 
 	await page.getByTestId('annotation-toggle').click();
 	await inkFrame(page);
 	await watchInkPointer(page);
+	const samples: { phase: string; x: number; y: number; alpha: number }[] = [];
+	const alphaAt = async (phase: string, x: number, y: number) => {
+		const alpha = await inkAlpha(page, x, y);
+		samples.push({ phase, x, y, alpha });
+		return alpha;
+	};
 
 	await inkLine(page, 120);
-	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+	expect(await alphaAt('committed-pen-before-cancel', 180, 120)).toBeGreaterThan(240);
 
 	await beginPointerLine(page, 200);
-	expect(await inkAlpha(page, 180, 200)).toBeGreaterThan(100);
+	expect(await alphaAt('pen-partial-before-cancel', 180, 200)).toBeGreaterThan(100);
 	await endPointerGesture(page, 'pointercancel');
-	expect(await inkAlpha(page, 180, 200)).toBe(0);
-	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+	expect(await alphaAt('pen-after-cancel', 180, 200)).toBe(0);
+	expect(await alphaAt('committed-pen-after-cancel', 180, 120)).toBeGreaterThan(240);
 	await page.locator('.mdsh-read').evaluate((element) => {
 		element.scrollTop = 400;
 	});
@@ -571,35 +577,30 @@ test('discards cancelled pen, highlighter and eraser strokes', async ({ page }, 
 		element.scrollTop = 0;
 	});
 	await inkFrame(page);
-	expect(await inkAlpha(page, 180, 200)).toBe(0);
-	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+	expect(await alphaAt('pen-after-scroll-away-and-back', 180, 200)).toBe(0);
+	expect(await alphaAt('committed-pen-after-scroll-away-and-back', 180, 120)).toBeGreaterThan(240);
 
 	await page.getByTestId('annotation-highlighter').click();
 	await beginPointerLine(page, 260);
-	expect(await inkAlpha(page, 180, 260)).toBeGreaterThan(60);
+	expect(await alphaAt('highlighter-partial-before-cancel', 180, 260)).toBeGreaterThan(60);
 	await endPointerGesture(page, 'pointercancel');
-	expect(await inkAlpha(page, 180, 260)).toBe(0);
-	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+	expect(await alphaAt('highlighter-after-cancel', 180, 260)).toBe(0);
+	expect(await alphaAt('committed-pen-after-highlighter-cancel', 180, 120)).toBeGreaterThan(240);
 
 	await page.getByTestId('annotation-eraser').click();
 	await beginPointerLine(page, 120, 170, 190);
-	expect(await inkAlpha(page, 180, 120)).toBe(0);
+	expect(await alphaAt('eraser-hole-before-cancel', 180, 120)).toBe(0);
 	await endPointerGesture(page, 'pointercancel');
-	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+	expect(await alphaAt('eraser-after-cancel', 180, 120)).toBeGreaterThan(240);
 
 	await page.getByTestId('annotation-pen').click();
 	await inkLine(page, 320);
-	expect(await inkAlpha(page, 180, 320)).toBeGreaterThan(240);
-	expect(await inkPixels(page)).toBeGreaterThan(100);
+	expect(await alphaAt('later-pen-stroke', 180, 320)).toBeGreaterThan(240);
+	const finalPixels = await inkPixels(page);
+	expect(finalPixels).toBeGreaterThan(100);
 
 	await info.attach('cancelled-ink.json', {
-		body: JSON.stringify({
-			penCancelled: true,
-			highlighterCancelled: true,
-			eraserCancelled: true,
-			committedStrokeRetained: true,
-			laterStrokeSucceeded: true
-		}),
+		body: JSON.stringify({ samples, finalPixels }),
 		contentType: 'application/json'
 	});
 	await info.attach('cancelled-ink.png', { body: await page.screenshot() });
@@ -612,36 +613,39 @@ test('treats lost pointer capture as cancellation without removing a completed s
 	await page.getByTestId('annotation-toggle').click();
 	await inkFrame(page);
 	await watchInkPointer(page);
+	const samples: { phase: string; x: number; y: number; alpha: number }[] = [];
+	const alphaAt = async (phase: string, x: number, y: number) => {
+		const alpha = await inkAlpha(page, x, y);
+		samples.push({ phase, x, y, alpha });
+		return alpha;
+	};
 
 	await inkLine(page, 120);
-	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+	expect(await alphaAt('committed-pen', 180, 120)).toBeGreaterThan(240);
 
 	await beginPointerLine(page, 200);
-	expect(await inkAlpha(page, 180, 200)).toBeGreaterThan(100);
+	expect(await alphaAt('interrupted-partial-before-capture-loss', 180, 200)).toBeGreaterThan(100);
 	await endPointerGesture(page, 'lostpointercapture');
-	expect(await inkAlpha(page, 180, 200)).toBe(0);
-	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+	expect(await alphaAt('interrupted-partial-after-capture-loss', 180, 200)).toBe(0);
+	expect(await alphaAt('committed-pen-after-capture-loss', 180, 120)).toBeGreaterThan(240);
 
 	await inkLine(page, 260);
-	expect(await inkAlpha(page, 180, 260)).toBeGreaterThan(240);
+	expect(await alphaAt('second-committed-pen', 180, 260)).toBeGreaterThan(240);
 	await endPointerGesture(page, 'lostpointercapture');
-	expect(await inkAlpha(page, 180, 260)).toBeGreaterThan(240);
+	expect(await alphaAt('second-committed-pen-after-late-capture-loss', 180, 260)).toBeGreaterThan(
+		240
+	);
 	await endPointerGesture(page, 'pointercancel');
-	expect(await inkAlpha(page, 180, 260)).toBeGreaterThan(240);
+	expect(await alphaAt('second-committed-pen-after-late-cancel', 180, 260)).toBeGreaterThan(240);
 
 	await beginPointerLine(page, 360);
 	await endPointerGesture(page, 'pointercancel');
-	expect(await inkAlpha(page, 180, 360)).toBe(0);
+	expect(await alphaAt('third-partial-after-cancel', 180, 360)).toBe(0);
 	await inkLine(page, 400);
-	expect(await inkAlpha(page, 180, 400)).toBeGreaterThan(240);
+	expect(await alphaAt('later-committed-pen', 180, 400)).toBeGreaterThan(240);
 
 	await info.attach('lost-capture-ink.json', {
-		body: JSON.stringify({
-			interruptedStrokeDiscarded: true,
-			completedStrokeRetained: true,
-			repeatEndEventIgnored: true,
-			laterStrokeSucceeded: true
-		}),
+		body: JSON.stringify({ samples }),
 		contentType: 'application/json'
 	});
 });
