@@ -64,15 +64,20 @@ async function snippetRows(page: Page): Promise<SnippetFixture[]> {
 }
 
 async function seedSnippet(page: Page, row: SnippetFixture) {
+	await seedSnippets(page, [row]);
+}
+
+async function seedSnippets(page: Page, rows: SnippetFixture[]) {
 	await page.evaluate(
-		(value) =>
+		(values) =>
 			new Promise<void>((resolve, reject) => {
 				const request = indexedDB.open('mdsh');
 				request.onerror = () => reject(request.error);
 				request.onsuccess = () => {
 					const database = request.result;
 					const tx = database.transaction('snippets', 'readwrite');
-					tx.objectStore('snippets').put(value);
+					const store = tx.objectStore('snippets');
+					for (const value of values) store.put(value);
 					tx.oncomplete = () => {
 						database.close();
 						resolve();
@@ -83,7 +88,7 @@ async function seedSnippet(page: Page, row: SnippetFixture) {
 					};
 				};
 			}),
-		row
+		rows
 	);
 }
 
@@ -230,6 +235,138 @@ test('copies placeholders from the keyboard and keeps a favorite after reload', 
 		favorite: true
 	});
 });
+
+async function activeSnippet(page: Page) {
+	return page.evaluate(() => {
+		const input = document.querySelector<HTMLInputElement>('[data-testid="snippet-search"]');
+		const listbox = document.getElementById('snippet-listbox');
+		const scroller = listbox?.parentElement ?? null;
+		const activeId = input?.getAttribute('aria-activedescendant') ?? null;
+		const row = activeId ? document.getElementById(activeId) : null;
+		const rowRect = row?.getBoundingClientRect() ?? null;
+		const boxRect = scroller?.getBoundingClientRect() ?? null;
+		return {
+			activeId,
+			activeTitle: row?.querySelector('span span')?.textContent?.trim() ?? null,
+			rowTop: rowRect?.top ?? null,
+			rowBottom: rowRect?.bottom ?? null,
+			boxTop: boxRect?.top ?? null,
+			boxBottom: boxRect?.bottom ?? null,
+			scrollTop: scroller?.scrollTop ?? null,
+			scrollHeight: scroller?.scrollHeight ?? null,
+			clientHeight: scroller?.clientHeight ?? null,
+			focusIsSearch: document.activeElement === input,
+			windowScrollY: window.scrollY,
+			optionCount: listbox?.querySelectorAll('[role="option"]').length ?? 0
+		};
+	});
+}
+
+async function nextFrames(page: Page) {
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) => {
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+			})
+	);
+}
+
+function expectFullyVisible(measurement: Awaited<ReturnType<typeof activeSnippet>>, label: string) {
+	expect(measurement.activeId, label).not.toBeNull();
+	expect(measurement.rowTop, label).not.toBeNull();
+	expect(measurement.boxTop, label).not.toBeNull();
+	expect(measurement.rowTop!, `${label}: row top`).toBeGreaterThanOrEqual(measurement.boxTop! - 1);
+	expect(measurement.rowBottom!, `${label}: row bottom`).toBeLessThanOrEqual(
+		measurement.boxBottom! + 1
+	);
+	expect(measurement.focusIsSearch, `${label}: focus`).toBe(true);
+	expect(measurement.windowScrollY, `${label}: window scroll`).toBe(0);
+}
+
+async function seedNavigationSnippets(page: Page) {
+	const rows: SnippetFixture[] = Array.from({ length: 120 }, (_, index) => ({
+		id: `nav-${String(index).padStart(3, '0')}`,
+		title: `Navigation ${String(index).padStart(3, '0')}`,
+		code: `const navigation${index} = ${index};\n`,
+		language: 'javascript',
+		tags: index % 3 === 0 ? ['navigation', 'favorite'] : ['navigation'],
+		favorite: index % 3 === 0,
+		createdAt: 1_700_000_000_000 + index,
+		updatedAt: 1_700_000_000_000 + index
+	}));
+	await seedSnippets(page, rows);
+	return rows;
+}
+
+for (const layout of [
+	{ name: '375px', width: 375, height: 812, zoom: null },
+	{ name: 'zoomed-desktop', width: 1280, height: 900, zoom: '200%' }
+] as const) {
+	test(`keeps the active snippet visible at ${layout.name}`, async ({ page, context }, info) => {
+		await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+		await page.setViewportSize({ width: layout.width, height: layout.height });
+		await resetAppState(page);
+		await seedNavigationSnippets(page);
+		if (layout.zoom) {
+			await page.evaluate((zoom) => {
+				document.body.style.zoom = zoom;
+			}, layout.zoom);
+		}
+		await openSnippets(page);
+		const search = page.getByTestId('snippet-search');
+		await search.fill('Navigation');
+		await expect(page.getByTestId('snippet-row')).toHaveCount(100, { timeout: 10_000 });
+		await search.focus();
+
+		for (let press = 0; press < 60; press += 1) await page.keyboard.press('ArrowDown');
+		await nextFrames(page);
+		const down = await activeSnippet(page);
+		expectFullyVisible(down, 'after ArrowDown');
+		expect(down.scrollTop!, 'scroller moved').toBeGreaterThan(0);
+		expect(down.activeTitle).toBe('Navigation 059');
+
+		for (let press = 0; press < 60; press += 1) await page.keyboard.press('ArrowUp');
+		await nextFrames(page);
+		const up = await activeSnippet(page);
+		expectFullyVisible(up, 'after ArrowUp');
+		expect(up.scrollTop, 'scroller returned').toBe(0);
+		expect(up.activeTitle).toBe('Navigation 119');
+
+		await page.keyboard.press('Enter');
+		await expect(page.getByTestId('snippet-status')).toContainText('Extrait copié');
+		await expect
+			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+			.toBe('const navigation119 = 119;\n');
+
+		for (let press = 0; press < 5; press += 1) await page.keyboard.press('ArrowDown');
+		await nextFrames(page);
+		const beforeEdit = await activeSnippet(page);
+		expectFullyVisible(beforeEdit, 'before Shift+Enter');
+		await page.keyboard.press('Shift+Enter');
+		await expect(page.getByTestId('snippet-title')).toHaveValue(beforeEdit.activeTitle ?? '');
+		await page.keyboard.press('Escape');
+		await expect(page.getByTestId('snippet-form')).toHaveCount(0);
+
+		await page.getByTestId('snippet-favorites-filter').click();
+		await expect(page.getByTestId('snippet-row').first()).toBeVisible();
+		await search.focus();
+		await expect.poll(async () => (await activeSnippet(page)).optionCount).toBeGreaterThan(0);
+		await nextFrames(page);
+		const filtered = await activeSnippet(page);
+		expectFullyVisible(filtered, 'after favorites filter');
+		expect(filtered.activeTitle, 'filter selects a visible favorite').toMatch(/^Navigation /);
+
+		await attach(info, 'snippets-active-visibility.json', {
+			layout,
+			down,
+			up,
+			beforeEdit,
+			filtered,
+			clipboard: 'const navigation119 = 119;\n'
+		});
+		await info.attach(`snippets-active-${layout.name}.png`, { body: await page.screenshot() });
+	});
+}
 
 test('keeps search responsive with thousands of metadata rows', async ({ page }, info) => {
 	await resetAppState(page);
