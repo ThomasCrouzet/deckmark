@@ -26,6 +26,31 @@ The bundled runtime is the smallest supported model for all three targets. It
 uses the existing CLI bundle and the existing MCP source. It needs no rewrite
 and no new runtime dependency.
 
+## Distribution contract
+
+The supported installed-user distribution is the standalone archive with the
+bundled Node runtime. Keep this contract, the package layout, and the
+installed-package tests together. Do not replace the contract with an npm
+package while the installed user must not install Node.
+
+The `CLI package` workflow validates this archive on Linux x64, Windows x64,
+and macOS ARM64. A pull request, a push, and a manual run upload nothing. The
+workflow is callable with `workflow_call`, and the Desktop release run calls it
+for the exact source commit of a release. Only that call uploads the built
+archives. The artifact name contains the exact source SHA and the target. The
+workflow adds no release trigger, no registry login, no npm publication, and no
+credential.
+
+The release run verifies its three CLI build deliverables and keeps them as run
+artifacts. It does not attach them to a release. The Desktop Beta release stays
+an installer channel and the source release stays a source channel. Publication
+as a release asset needs a separate approval and a separate release-asset
+policy, so this document promises no CLI release archive.
+
+The validation run and the release build are separate. A green validation run
+is not a published download. The source checkout build command remains the
+developer path.
+
 ## Package layout
 
 Linux and macOS:
@@ -440,38 +465,41 @@ verification on hosted runners, not a manual clean-OS audit. It does not replace
 the procedures below.
 
 The `CLI package` workflow creates temporary archives for its installed checks.
-It does not upload, publish or sign those archives. Adding a CLI release asset
-needs the unapplied integration below and a separate decision by the release
-owner. Signing remains deferred.
+A pull request, a push, and a manual run do not upload, publish, or sign those
+archives. The Desktop release run calls the workflow with `workflow_call` and
+uploads the archives as build deliverables. No release asset is created, and
+signing remains deferred.
 
-## Release integration request, not applied
+## Release build deliverables
 
-This task does not change a workflow. The release owner must add one pack step
-to the existing `build-desktop` job in `.github/workflows/desktop.yml`, after
-`npm ci --legacy-peer-deps` and before `tauri-action`:
+The Desktop workflow calls `.github/workflows/cli-package.yml` from its
+`cli-package` job. The call runs once, in the release run, for the commit the
+plan job approved. No later stage rebuilds an archive.
 
-```yaml
-- name: Pack installed CLI and MCP
-  run: node scripts/pack-cli.mjs --out build/cli-pack --archive
+| Target | Artifact name | Archive name |
+| --- | --- | --- |
+| Linux x64 | `deckmark-cli-<source-sha>-linux-x64` | `deckmark-cli-<version>-linux-x64.tar.gz` |
+| Windows x64 | `deckmark-cli-<source-sha>-win32-x64` | `deckmark-cli-<version>-windows-x64.zip` |
+| macOS ARM64 | `deckmark-cli-<source-sha>-darwin-arm64` | `deckmark-cli-<version>-darwin-arm64.tar.gz` |
 
-- name: Upload installed CLI and MCP
-  uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-  with:
-    name: deckmark-cli-${{ runner.os }}-${{ runner.arch }}
-    path: build/deckmark-cli-*
-    if-no-files-found: error
-    retention-days: 14
-```
+The `cli-verify` job then checks those artifacts with
+`scripts/ci-release-coordinator.mjs verify-cli`. The command compares the
+downloaded set with an explicit allowlist. It refuses a missing artifact, an
+extra artifact, a foreign source SHA, a wrong archive name, a wrong package
+version, a dirty source tree, or a wrong target. It reads the
+`deckmark-build.json` manifest inside the Linux and macOS archives, and it
+requires that manifest in the Windows archive. The installed-package suite of
+the called workflow reads the Windows manifest before it uploads.
 
-The glob matches one archive on each runner: `deckmark-cli-<version>-linux-x64.tar.gz`,
-`...-windows-x64.zip`, or `...-darwin-arm64.tar.gz`. Attach the archive of the
-run operating system only. Do not upload both suffixes.
+The three archives stay downloadable from the workflow run for seven days. Copy
+an archive to local storage to keep it longer. The files are build deliverables,
+not release assets. Attaching them to a release needs a separate decision that
+this workflow does not hold.
 
-The existing Node 22 setup is sufficient. The matrix already uses
-`ubuntu-24.04` x64, `windows-2022` x64, and `macos-15` arm64. The pack step
-does not need Node 26 and does not change the Tauri configuration. Add the
-archive to the release asset set and keep the source SHA in
-`deckmark-build.json`. Do not add a signing step in this task.
+Do not add a release trigger or a `workflow_run` consumer to the CLI workflow.
+Do not add npm publication, registry login, or authentication. The matrix uses
+`ubuntu-24.04` x64, `windows-2022` x64 and `macos-15` arm64. Do not add a
+signing step.
 
 ## Windows and macOS clean-install validation
 

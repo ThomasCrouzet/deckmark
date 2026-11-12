@@ -57,9 +57,9 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"lint": "eslint . && prettier --check .",
-		"test": "vitest run && node --test scripts/benchmark-shared.test.mjs scripts/benchmark-modes.test.mjs scripts/benchmark-stress.test.mjs scripts/build-provenance.test.mjs scripts/check-e2e-manifest.test.mjs scripts/e2e-shards.test.mjs scripts/ci-tier.test.mjs scripts/ci-web-workflow.test.mjs && node scripts/verify-desktop-backup-scheduler.mjs",
-		"test:benchmark-gate": "node --test scripts/benchmark-shared.test.mjs scripts/benchmark-modes.test.mjs scripts/benchmark-stress.test.mjs scripts/build-provenance.test.mjs scripts/check-e2e-manifest.test.mjs scripts/e2e-shards.test.mjs scripts/ci-tier.test.mjs scripts/ci-web-workflow.test.mjs",
-		"test:coverage": "vitest run --coverage && node --test scripts/benchmark-shared.test.mjs scripts/benchmark-modes.test.mjs scripts/benchmark-stress.test.mjs scripts/build-provenance.test.mjs scripts/check-e2e-manifest.test.mjs scripts/e2e-shards.test.mjs scripts/ci-tier.test.mjs scripts/ci-web-workflow.test.mjs && node scripts/verify-desktop-backup-scheduler.mjs",
+		"test": "vitest run && npm run test:ci && node scripts/verify-desktop-backup-scheduler.mjs",
+		"test:benchmark-gate": "npm run test:ci",
+		"test:coverage": "vitest run --coverage && npm run test:ci && node scripts/verify-desktop-backup-scheduler.mjs",
 		"test:watch": "vitest",
 		"test:e2e": "playwright test",
 		"test:fidelity": "playwright test source-fidelity.spec.ts",
@@ -75,7 +75,8 @@
 		"desktop:dev": "tauri dev",
 		"desktop:build": "tauri build",
 		"benchmark:modes": "node scripts/benchmark-modes.mjs",
-		"benchmark:modes:audit": "node scripts/benchmark-modes-audit.mjs"
+		"benchmark:modes:audit": "node scripts/benchmark-modes-audit.mjs",
+		"test:ci": "node --test --test-concurrency=1 scripts/benchmark-shared.test.mjs scripts/benchmark-modes.test.mjs scripts/benchmark-stress.test.mjs scripts/build-provenance.test.mjs scripts/check-e2e-manifest.test.mjs scripts/e2e-shards.test.mjs scripts/ci-tier.test.mjs scripts/ci-web-workflow.test.mjs .github/scripts/configure-ubuntu-apt.test.mjs scripts/ci-playwright-image.test.mjs scripts/ci-changes.test.mjs scripts/desktop-changes.test.mjs scripts/ci-security-scope.test.mjs scripts/ci-security-gitleaks.test.mjs scripts/ci-security-cargo-audit.test.mjs scripts/ci-security-workflow.test.mjs scripts/ci-cli-contract.test.mjs scripts/desktop-release-policy.test.mjs scripts/collect-desktop-assets.test.mjs scripts/desktop-release-orchestration.test.mjs scripts/ci-release-coordinator.test.mjs scripts/native-smoke-process.test.mjs"
 	},
 	"devDependencies": {
 		"@axe-core/playwright": "4.13.0",

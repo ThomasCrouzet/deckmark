@@ -30,7 +30,7 @@
 	},
 	"bundle": {
 		"active": true,
-		"targets": "all",
+		"targets": ["deb", "appimage"],
 		"category": "Productivity",
 		"shortDescription": "Local-first offline markdown editor",
 		"longDescription": "A local-first WYSIWYG markdown editor. Offline, 100% client-side. No server, no account, no telemetry.",

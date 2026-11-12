@@ -464,8 +464,12 @@ Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warn
 | Platform | Artifact | Requirement |
 | --- | --- | --- |
 | macOS | `deckmark_<version>_macOS_Apple-Silicon.dmg` | macOS 14 or later on an Apple Silicon Mac. |
-| Windows x64 | `deckmark_<version>_x64-setup.exe` or `.msi` | WebView2. The installer can add WebView2 if it is absent. |
-| Linux x64 | `.AppImage`, `.deb`, or `.rpm` | WebKitGTK 4.1 and the packaged native libraries. |
+| Windows x64 | `deckmark_<version>_x64-setup.exe` | WebView2. The installer can add WebView2 if it is absent. |
+| Linux x64 | `deckmark_<version>_amd64.deb` or `deckmark_<version>_amd64.AppImage` | WebKitGTK 4.1 and the packaged native libraries. |
+
+The Beta release provides these four installers. Choose the NSIS installer on
+Windows. Choose the deb package or the portable AppImage on Linux. A managed MSI
+package and an RPM package are not published.
 
 Earlier releases use the previous `mdsh_` filename prefix.
 Desktop update delivery is on standby. The app does not check for or install

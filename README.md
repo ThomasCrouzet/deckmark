@@ -213,6 +213,17 @@ updates. Download and install each new release manually.
 See the [Desktop guide](docs/USER_GUIDE.md#desktop-complete-app) for
 requirements and supported architectures.
 
+The Beta channel publishes four installers:
+
+| Platform | Installer |
+| --- | --- |
+| macOS Apple Silicon | `deckmark_<version>_macOS_Apple-Silicon.dmg` |
+| Windows x64 | `deckmark_<version>_x64-setup.exe` (NSIS) |
+| Linux x64 | `deckmark_<version>_amd64.deb` |
+| Linux x64 | `deckmark_<version>_amd64.AppImage` |
+
+Compare every file with `SHA256SUMS` in the same release.
+
 Desktop Complete does not provide unrestricted filesystem access. A native
 picker approves each path, and a session capability limits later operations to
 that path. Web Light uses the browser sandbox and any file link that the browser
