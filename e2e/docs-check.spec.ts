@@ -135,6 +135,18 @@ test('documentation check reports issues, opens locations, and exports stable JS
 	await expect(panel.locator('[data-docs-check-summary]')).toContainText('4 erreur(s)');
 	await expect(panel.locator('[data-docs-check-summary]')).toContainText('4 avertissement(s)');
 
+	// The report ends with the skipped-checks disclosure after the issue buttons.
+	const skipped = panel.locator('summary', { hasText: 'Non vérifié' });
+	const closeCheck = panel.getByRole('button', {
+		name: 'Fermer la vérification de la documentation'
+	});
+	await expect(skipped).toBeVisible();
+	await closeCheck.focus();
+	await page.keyboard.press('Shift+Tab');
+	await expect(skipped).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(closeCheck).toBeFocused();
+
 	const listed = await issues.evaluateAll((elements) =>
 		elements.map((element) => ({
 			code: element.getAttribute('data-code'),

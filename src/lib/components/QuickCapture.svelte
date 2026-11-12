@@ -26,6 +26,11 @@
 	let textarea = $state<HTMLTextAreaElement | null>(null);
 	let titleInput = $state<HTMLInputElement | null>(null);
 	let unlisten: (() => void) | undefined;
+	// A template read must not publish into a newer capture session or a newer
+	// template choice. Each reset, save, cancel, and selection increments one
+	// counter. Only the latest request may change the form.
+	let captureGeneration = 0;
+	let templateRequest = 0;
 
 	async function loadTemplates(): Promise<void> {
 		if (!browser || typeof indexedDB === 'undefined') return;
@@ -41,16 +46,29 @@
 	}
 
 	async function applyTemplate(): Promise<void> {
-		if (!templateId || body.trim()) return;
+		const request = ++templateRequest;
+		const generation = captureGeneration;
+		const requestedId = templateId;
+		const requestedKind = kind;
+		error = '';
+		if (!requestedId || requestedKind !== 'note' || body.trim()) return;
 		try {
 			const { templatesStore } = await import('#lib/templates.svelte.js');
-			const resolved = await templatesStore.resolve(templateId);
-			if (!resolved) return;
+			if (request !== templateRequest || generation !== captureGeneration) return;
+			const resolved = await templatesStore.resolve(requestedId);
+			if (request !== templateRequest || generation !== captureGeneration) return;
+			if (templateId !== requestedId || kind !== requestedKind || body.trim()) return;
+			if (!resolved) {
+				error = t('capture.templateMissing');
+				return;
+			}
 			if (!title.trim()) title = resolved.name.replace(/\.md$/i, '');
 			body = resolved.content;
 			textarea?.focus();
-		} catch {
-			error = t('capture.loadFailed');
+		} catch (cause) {
+			if (request === templateRequest && generation === captureGeneration) {
+				error = t('capture.templateFailed', { message: captureErrorMessage(cause) });
+			}
 		}
 	}
 
@@ -65,6 +83,8 @@
 	}
 
 	function reset(): void {
+		captureGeneration += 1;
+		templateRequest += 1;
 		title = '';
 		body = '';
 		error = '';
@@ -104,6 +124,7 @@
 	}
 
 	async function pasteFromClipboard(): Promise<void> {
+		templateRequest += 1;
 		error = '';
 		status = '';
 		try {
@@ -119,6 +140,7 @@
 
 	async function save(): Promise<void> {
 		if (busy) return;
+		templateRequest += 1;
 		if (!body.trim()) {
 			error = t('capture.contentRequired');
 			textarea?.focus();
@@ -162,6 +184,8 @@
 
 	async function cancel(): Promise<void> {
 		if (busy) return;
+		captureGeneration += 1;
+		templateRequest += 1;
 		try {
 			await hideCaptureWindow();
 		} catch (cause) {
@@ -170,6 +194,9 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent): void {
+		// An active IME owns Escape and Enter. Key code 229 covers the browsers
+		// that report the end of a composition with `isComposing` false.
+		if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			void cancel();
@@ -191,6 +218,8 @@
 			.then((dispose) => (unlisten = dispose))
 			.catch(() => {});
 		return () => {
+			captureGeneration += 1;
+			templateRequest += 1;
 			unlisten?.();
 			unlisten = undefined;
 		};
@@ -228,6 +257,9 @@
 			<input
 				bind:this={titleInput}
 				bind:value={title}
+				oninput={() => {
+					templateRequest += 1;
+				}}
 				type="text"
 				class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1.5 text-sm text-fg"
 				placeholder={t('capture.titlePlaceholder')}
@@ -241,6 +273,10 @@
 				<span>{t('capture.kind')}</span>
 				<select
 					bind:value={kind}
+					onchange={() => {
+						templateRequest += 1;
+						templateId = '';
+					}}
 					class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1.5 text-sm text-fg"
 					disabled={busy}
 					data-testid="capture-kind"
@@ -304,6 +340,9 @@
 			<textarea
 				bind:this={textarea}
 				bind:value={body}
+				oninput={() => {
+					templateRequest += 1;
+				}}
 				class="mt-1 min-h-32 flex-1 resize-none rounded border border-border bg-bg-2 px-2 py-1.5 font-mono text-sm text-fg"
 				placeholder={kind === 'snippet'
 					? t('capture.codePlaceholder')

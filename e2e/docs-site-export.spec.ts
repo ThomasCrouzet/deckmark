@@ -172,6 +172,37 @@ test('documentation site export produces an offline navigable ZIP', async ({
 		.evaluateAll((elements) => elements.map((element) => element.getAttribute('data-code')));
 	expect(issueCodes).toEqual(['image-external', 'link-external']);
 
+	// The report ends with two collapsed native disclosures. The shared focus
+	// trap must include them in the Tab loop after the action buttons.
+	const pagesSummary = panel.locator('summary', { hasText: 'Pages' });
+	const assetsSummary = panel.locator('summary', { hasText: 'Ressources' });
+	const closeSite = panel.getByRole('button', { name: 'Fermer l’export du site de documentation' });
+	await expect(assetsSummary).toBeVisible();
+	await closeSite.focus();
+	await page.keyboard.press('Shift+Tab');
+	await expect(assetsSummary).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(closeSite).toBeFocused();
+	await pagesSummary.focus();
+	await page.keyboard.press('Tab');
+	await expect(assetsSummary).toBeFocused();
+
+	// One continuous Tab walk crosses both summaries and wraps at Close.
+	const reportButton = panel.getByTestId('docs-site-export-report');
+	await reportButton.focus();
+	await page.keyboard.press('Tab');
+	await expect(pagesSummary).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(assetsSummary).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(closeSite).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(assetsSummary).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(pagesSummary).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(reportButton).toBeFocused();
+
 	const reportPath = await saveReport(page, testInfo, 'docs-site-report.json');
 	const reportText = await readFile(reportPath, 'utf8');
 	const report = JSON.parse(reportText);
