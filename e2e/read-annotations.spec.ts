@@ -501,6 +501,151 @@ test.describe('viewport ink', () => {
 	});
 });
 
+async function watchInkPointer(page: Page) {
+	await page.getByTestId('annotation-canvas').evaluate((element) => {
+		const state = window as Window & { __mdshInkPointer?: number };
+		element.addEventListener(
+			'pointerdown',
+			(event) => {
+				state.__mdshInkPointer = event.pointerId;
+			},
+			true
+		);
+	});
+}
+
+async function beginPointerLine(page: Page, y: number, from = 100, to = 280) {
+	const box = await page.getByTestId('annotation-canvas').boundingBox();
+	if (!box) throw new Error('Canvas has no box');
+	await page.mouse.move(box.x + from, box.y + y);
+	await page.mouse.down();
+	await page.mouse.move(box.x + to, box.y + y, { steps: 8 });
+	await inkFrame(page);
+}
+
+async function endPointerGesture(page: Page, type: 'pointercancel' | 'lostpointercapture') {
+	const pointerId = await page.evaluate(
+		() => (window as Window & { __mdshInkPointer?: number }).__mdshInkPointer
+	);
+	if (pointerId === undefined) throw new Error('No pointer id was recorded');
+	await page.getByTestId('annotation-canvas').evaluate(
+		(element, event) => {
+			element.dispatchEvent(
+				new PointerEvent(event.type, {
+					bubbles: true,
+					cancelable: true,
+					composed: true,
+					pointerId: event.pointerId,
+					pointerType: 'mouse',
+					isPrimary: true,
+					button: 0,
+					buttons: 0
+				})
+			);
+		},
+		{ type, pointerId }
+	);
+	await page.mouse.up();
+	await inkFrame(page);
+}
+
+test('discards cancelled pen, highlighter and eraser strokes', async ({ page }, info) => {
+	await readMode(page, 'Cancelled stroke target. '.repeat(160));
+	await page.getByTestId('annotation-toggle').click();
+	await inkFrame(page);
+	await watchInkPointer(page);
+
+	await inkLine(page, 120);
+	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+
+	await beginPointerLine(page, 200);
+	expect(await inkAlpha(page, 180, 200)).toBeGreaterThan(100);
+	await endPointerGesture(page, 'pointercancel');
+	expect(await inkAlpha(page, 180, 200)).toBe(0);
+	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+	await page.locator('.mdsh-read').evaluate((element) => {
+		element.scrollTop = 400;
+	});
+	await inkFrame(page);
+	await page.locator('.mdsh-read').evaluate((element) => {
+		element.scrollTop = 0;
+	});
+	await inkFrame(page);
+	expect(await inkAlpha(page, 180, 200)).toBe(0);
+	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+
+	await page.getByTestId('annotation-highlighter').click();
+	await beginPointerLine(page, 260);
+	expect(await inkAlpha(page, 180, 260)).toBeGreaterThan(60);
+	await endPointerGesture(page, 'pointercancel');
+	expect(await inkAlpha(page, 180, 260)).toBe(0);
+	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+
+	await page.getByTestId('annotation-eraser').click();
+	await beginPointerLine(page, 120, 170, 190);
+	expect(await inkAlpha(page, 180, 120)).toBe(0);
+	await endPointerGesture(page, 'pointercancel');
+	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+
+	await page.getByTestId('annotation-pen').click();
+	await inkLine(page, 320);
+	expect(await inkAlpha(page, 180, 320)).toBeGreaterThan(240);
+	expect(await inkPixels(page)).toBeGreaterThan(100);
+
+	await info.attach('cancelled-ink.json', {
+		body: JSON.stringify({
+			penCancelled: true,
+			highlighterCancelled: true,
+			eraserCancelled: true,
+			committedStrokeRetained: true,
+			laterStrokeSucceeded: true
+		}),
+		contentType: 'application/json'
+	});
+	await info.attach('cancelled-ink.png', { body: await page.screenshot() });
+});
+
+test('treats lost pointer capture as cancellation without removing a completed stroke', async ({
+	page
+}, info) => {
+	await readMode(page, 'Interrupted capture target. '.repeat(160));
+	await page.getByTestId('annotation-toggle').click();
+	await inkFrame(page);
+	await watchInkPointer(page);
+
+	await inkLine(page, 120);
+	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+
+	await beginPointerLine(page, 200);
+	expect(await inkAlpha(page, 180, 200)).toBeGreaterThan(100);
+	await endPointerGesture(page, 'lostpointercapture');
+	expect(await inkAlpha(page, 180, 200)).toBe(0);
+	expect(await inkAlpha(page, 180, 120)).toBeGreaterThan(240);
+
+	await inkLine(page, 260);
+	expect(await inkAlpha(page, 180, 260)).toBeGreaterThan(240);
+	await endPointerGesture(page, 'lostpointercapture');
+	expect(await inkAlpha(page, 180, 260)).toBeGreaterThan(240);
+	await endPointerGesture(page, 'pointercancel');
+	expect(await inkAlpha(page, 180, 260)).toBeGreaterThan(240);
+
+	await beginPointerLine(page, 360);
+	await endPointerGesture(page, 'pointercancel');
+	expect(await inkAlpha(page, 180, 360)).toBe(0);
+	await inkLine(page, 400);
+	expect(await inkAlpha(page, 180, 400)).toBeGreaterThan(240);
+
+	await info.attach('lost-capture-ink.json', {
+		body: JSON.stringify({
+			interruptedStrokeDiscarded: true,
+			completedStrokeRetained: true,
+			repeatEndEventIgnored: true,
+			laterStrokeSucceeded: true
+		}),
+		contentType: 'application/json'
+	});
+});
+
 test('clears all ink and exposes tools to the keyboard', async ({ page }) => {
 	await readMode(page, 'Short annotation target.');
 	await page.getByTestId('annotation-toggle').click();

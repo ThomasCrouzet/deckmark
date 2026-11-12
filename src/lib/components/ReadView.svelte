@@ -183,6 +183,19 @@
 		if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
 	}
 
+	function cancelInk(event: PointerEvent) {
+		if (activePointer !== event.pointerId) return;
+		const stroke = current;
+		activePointer = null;
+		current = null;
+		if (stroke) {
+			inkIndex.remove(stroke);
+			hasInk = !inkIndex.isEmpty;
+		}
+		if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+		scheduleInk();
+	}
+
 	function clearInk() {
 		const pointer = activePointer;
 		activePointer = null;
@@ -551,8 +564,8 @@
 					onpointerdown={startInk}
 					onpointermove={moveInk}
 					onpointerup={endInk}
-					onpointercancel={endInk}
-					onlostpointercapture={endInk}
+					onpointercancel={cancelInk}
+					onlostpointercapture={cancelInk}
 				></canvas>
 			</div>
 		{/if}
