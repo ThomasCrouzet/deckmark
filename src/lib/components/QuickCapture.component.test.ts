@@ -242,6 +242,69 @@ describe('Quick Capture template resolution race', () => {
 		expect(title.value).toBe('');
 	});
 
+	it('does not replace whitespace typed after the template started', async () => {
+		const pending = deferred<{ name: string; content: string } | null>();
+		bridge.resolve.mockReturnValueOnce(pending.promise);
+		const { content, title, select } = await renderCapture();
+
+		await startTemplate(select, templateA.id);
+		await fireEvent.input(content, { target: { value: '   ' } });
+		pending.resolve({ name: 'Late template', content: 'Template body' });
+		await settle();
+
+		expect(content.value).toBe('   ');
+		expect(title.value).toBe('');
+	});
+
+	it('does not replace an empty body after the user types and clears the draft', async () => {
+		const pending = deferred<{ name: string; content: string } | null>();
+		bridge.resolve.mockReturnValueOnce(pending.promise);
+		const { content, title, select } = await renderCapture();
+
+		await startTemplate(select, templateA.id);
+		await fireEvent.input(content, { target: { value: 'My draft' } });
+		await fireEvent.input(content, { target: { value: '' } });
+		pending.resolve({ name: 'Late template', content: 'Template body' });
+		await settle();
+
+		expect(content.value).toBe('');
+		expect(title.value).toBe('');
+	});
+
+	it('does not apply after a note to snippet to note round trip', async () => {
+		const pending = deferred<{ name: string; content: string } | null>();
+		bridge.resolve.mockReturnValueOnce(pending.promise);
+		const { content, title, select } = await renderCapture();
+
+		await startTemplate(select, templateA.id);
+		await fireEvent.change(screen.getByTestId('capture-kind'), {
+			target: { value: 'snippet' }
+		});
+		await fireEvent.change(screen.getByTestId('capture-kind'), {
+			target: { value: 'note' }
+		});
+		pending.resolve({ name: 'Late template', content: 'Template body' });
+		await settle();
+
+		expect(content.value).toBe('');
+		expect(title.value).toBe('');
+	});
+
+	it('does not publish a template after the capture window unmounts', async () => {
+		const pending = deferred<{ name: string; content: string } | null>();
+		bridge.resolve.mockReturnValueOnce(pending.promise);
+		const { content, select } = await renderCapture();
+		const focus = vi.spyOn(content, 'focus');
+
+		await startTemplate(select, templateA.id);
+		cleanup();
+		pending.resolve({ name: 'Late template', content: 'Template body' });
+		await settle();
+
+		expect(focus).not.toHaveBeenCalled();
+		expect(screen.queryByTestId('quick-capture')).not.toBeInTheDocument();
+	});
+
 	it('ignores a note template after the capture kind becomes a snippet', async () => {
 		const pending = deferred<{ name: string; content: string } | null>();
 		bridge.resolve.mockReturnValueOnce(pending.promise);
@@ -282,7 +345,7 @@ describe('Quick Capture template resolution race', () => {
 		expect(content.value).toBe('');
 	});
 
-	it('keeps typed text and reports a rejected template read', async () => {
+	it('keeps typed text and ignores a superseded template rejection', async () => {
 		const pending = deferred<{ name: string; content: string } | null>();
 		bridge.resolve.mockReturnValueOnce(pending.promise);
 		const { content, select } = await renderCapture();
@@ -293,6 +356,19 @@ describe('Quick Capture template resolution race', () => {
 		await settle();
 
 		expect(content.value).toBe('Typed before failure');
+		expect(screen.queryByTestId('capture-error')).not.toBeInTheDocument();
+	});
+
+	it('reports a rejected template read on an unchanged empty form', async () => {
+		const pending = deferred<{ name: string; content: string } | null>();
+		bridge.resolve.mockReturnValueOnce(pending.promise);
+		const { content, select } = await renderCapture();
+
+		await startTemplate(select, templateA.id);
+		pending.reject(new Error('template index read failed'));
+		await settle();
+
+		expect(content.value).toBe('');
 		expect(await screen.findByTestId('capture-error')).toHaveTextContent(
 			'template index read failed'
 		);

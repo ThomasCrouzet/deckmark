@@ -124,6 +124,7 @@
 	}
 
 	async function pasteFromClipboard(): Promise<void> {
+		templateRequest += 1;
 		error = '';
 		status = '';
 		try {
@@ -217,6 +218,8 @@
 			.then((dispose) => (unlisten = dispose))
 			.catch(() => {});
 		return () => {
+			captureGeneration += 1;
+			templateRequest += 1;
 			unlisten?.();
 			unlisten = undefined;
 		};
@@ -267,6 +270,10 @@
 				<span>{t('capture.kind')}</span>
 				<select
 					bind:value={kind}
+					onchange={() => {
+						templateRequest += 1;
+						templateId = '';
+					}}
 					class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1.5 text-sm text-fg"
 					disabled={busy}
 					data-testid="capture-kind"
@@ -330,6 +337,9 @@
 			<textarea
 				bind:this={textarea}
 				bind:value={body}
+				oninput={() => {
+					templateRequest += 1;
+				}}
 				class="mt-1 min-h-32 flex-1 resize-none rounded border border-border bg-bg-2 px-2 py-1.5 font-mono text-sm text-fg"
 				placeholder={kind === 'snippet'
 					? t('capture.codePlaceholder')
