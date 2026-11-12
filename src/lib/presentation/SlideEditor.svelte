@@ -1665,6 +1665,9 @@
 	.source-actions {
 		display: flex;
 		gap: 8px;
+		position: sticky;
+		bottom: 0;
+		background: var(--color-bg);
 	}
 	.next-slide {
 		position: relative;

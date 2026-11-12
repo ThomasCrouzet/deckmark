@@ -1055,6 +1055,9 @@ export const en = {
 	'sidebar.selectedCount': '{n} selected',
 	'sidebar.selectedSuffix': ' (selected)',
 	'sidebar.selectionActions': 'Actions on the selection',
+	'sidebar.selectionMode': 'File selection',
+	'sidebar.selectionModeStart': 'Select multiple files',
+	'sidebar.selectionModeDone': 'Finish selection',
 	'sidebar.tagFilters': 'Filters by tag',
 	'sidebar.unexportedChangesHint': ' - unexported changes',
 

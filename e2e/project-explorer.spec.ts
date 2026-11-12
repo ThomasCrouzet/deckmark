@@ -121,6 +121,19 @@ async function dropFiles(
 
 test.beforeEach(async ({ page }) => resetAppState(page));
 
+test('keeps document actions hidden until hover or focus on desktop', async ({ page }) => {
+	await importProject(page, 'Explorer', { 'README.md': '# Home\n' });
+	const root = await projectRoot(page, 'Explorer');
+	await expand(page, 'Explorer');
+	const actions = root.locator(
+		'[data-project-document="README.md"] [data-project-document-actions]'
+	);
+	await page.mouse.move(0, 0);
+	await expect(actions).toHaveCSS('opacity', '0');
+	await actions.getByRole('button', { name: 'Renommer le document' }).focus();
+	await expect(actions).toHaveCSS('opacity', '1');
+});
+
 test('sidebar explorer keeps expansion, opens one tab, and survives reload', async ({
 	page
 }, info) => {

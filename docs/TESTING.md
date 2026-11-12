@@ -2781,6 +2781,23 @@ come from fresh file snapshots. The case compares complete UTF-8 buffers before
 it decodes them for the source report. This checks the browser linked-file path
 with a real origin-private file handle. It cannot run Tauri native file writes.
 
+## Presentation source action containment
+
+A short landscape viewport can leave a fractional part of the source action
+row below the editor scrollport. Retain the full-containment assertion in
+`e2e/presentation-toolbar-density.spec.ts`. The row must stay inside the visible
+scrollport after an invalid Apply focuses its alert. Keep its normal position
+at taller sizes and keep every control reachable by keyboard.
+
+```sh
+npx playwright test e2e/presentation-toolbar-density.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/presentation-mobile.spec.ts --project=mobile-chromium --project=mobile-webkit --workers=1 --retries=0
+```
+
+Keep the local reports with the source identity, viewport and locale. Browser
+emulation does not prove physical Safari or native WebView behavior. Do not
+relax the viewport ratio to accept a clipped action.
+
 ## Presentation workflows
 
 Document type comes from content. Notes open in the note editor; valid and
