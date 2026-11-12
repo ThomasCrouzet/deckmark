@@ -2372,6 +2372,73 @@ readiness wait does not relax the click, the custom value, the chord, the dialog
 assertion, or the assertion timeout. Removing the stored override must still keep
 the configured shortcut from opening the palette after the app is interactive.
 
+## Documentation check report provenance
+
+A documentation check report belongs to the project that produced it. The
+retained risks are a report that stays visible after the project selector
+changes, an export that uses the newly selected project name with old report
+bytes, an Export button that stays enabled without a completed check, and a
+serialized report that gains a non-deterministic field.
+
+`e2e/docs-check.spec.ts` seeds two projects with different diagnostics. It runs
+Project A, changes the selector to Project B, and checks that the report and
+Export action are unavailable. It then runs Project B and compares the export
+name and bytes, and repeats the same rule on the way back to Project A.
+
+```sh
+npx playwright test e2e/docs-check.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the local JSON and HTML reports, downloaded JSON files, and the
+`docs-check-provenance.json` attachment with the command, revision, environment
+and fixtures. The case proves panel state and export bytes in Chromium. It does
+not prove another browser engine, a physical device or a native WebView.
+
+## Version history missing body
+
+A version summary can list a row that no longer exists when its body is read.
+The retained risks are a preview that stays in Loading, a Restore action that
+targets an absent row, a stale read that replaces a newer preview, and a refresh
+that keeps the missing selection.
+
+`e2e/version-history.spec.ts` seeds three version rows. The instrumented E2E
+build exposes a one-shot read gate for a version id. The case holds the read,
+deletes the row in a separate transaction, releases the read, and checks the
+missing status, disabled Restore action and refresh path. A second case holds
+an older read, selects another version, releases the read, and checks that the
+newer preview stays.
+
+```sh
+npx playwright test e2e/version-history.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the local reports and the `missing-version.json` and
+`out-of-order-version.json` attachments. The read gate is conditional on
+`VITE_SOURCE_FIDELITY_METRICS=1`, which the E2E build sets. Production builds
+must expose no read gate. This case does not prove an operating-system removal,
+a native WebView or a physical device.
+
+## Semantic search operation errors
+
+A local IndexedDB failure must not stay silent. The retained risks are an
+unhandled rejection from a count, build or query operation, a missing error
+state, a failed index write that removes committed rows, a failure that clears a
+usable result, and an obsolete failure that publishes after a newer success.
+
+`e2e/semantic-search.spec.ts` patches `semanticIndex` store and index requests in
+the page. It delays and rejects a scoped read, rejects an index write, and
+releases an older read after a newer query succeeds. The case checks alert
+text, committed rows before and after the failed write, the retry path, the
+retained result, and the `unhandledrejection` count.
+
+```sh
+npx playwright test e2e/semantic-search.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the local reports and the `semantic-rejection-recovery.json` attachment.
+Injected faults are browser evidence. They do not reproduce a real quota limit,
+a native IndexedDB implementation or a physical device.
+
 ## Documentation check risks
 
 The documentation check must not change files or start requests. A broad scan can

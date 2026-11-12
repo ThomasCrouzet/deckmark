@@ -191,8 +191,59 @@ export async function listVersionSummaries(draftId: string): Promise<VersionSumm
 	});
 }
 
+/**
+ * Test-only gate for one version body read. The E2E build exposes it so a
+ * browser case can remove the row between the summary list and the body read.
+ * A production build exposes no hook.
+ */
+interface VersionReadGate {
+	id: string;
+	opened: Promise<void>;
+	release: () => void;
+}
+
+let versionReadGate: VersionReadGate | null = null;
+let heldVersionReadGate: VersionReadGate | null = null;
+
+if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'undefined') {
+	(
+		window as unknown as {
+			__MDSH_VERSION_READS__?: {
+				hold: (id: string) => void;
+				release: () => void;
+			};
+		}
+	).__MDSH_VERSION_READS__ = {
+		hold(id: string): void {
+			let release = (): void => {};
+			const opened = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			versionReadGate = { id, opened, release };
+		},
+		release(): void {
+			const gate = versionReadGate ?? heldVersionReadGate;
+			versionReadGate = null;
+			heldVersionReadGate = null;
+			gate?.release();
+		}
+	};
+}
+
+async function awaitVersionReadGate(id: string): Promise<void> {
+	const gate = versionReadGate;
+	if (!gate || gate.id !== id) return;
+	// One shot: a later read of the same id must not wait again. Keep the
+	// gate reachable for release while the read is open.
+	versionReadGate = null;
+	heldVersionReadGate = gate;
+	await gate.opened;
+	if (heldVersionReadGate === gate) heldVersionReadGate = null;
+}
+
 /** Loads one version body for preview or restore. */
 export async function getVersion(id: string): Promise<VersionRow | undefined> {
+	await awaitVersionReadGate(id);
 	return db.versions.get(id);
 }
 
