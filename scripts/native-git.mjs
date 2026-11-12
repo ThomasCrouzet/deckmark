@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { devNull } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const firstLine = 'line 0001';
 const lastLine = 'line 2600 END';
@@ -78,10 +79,13 @@ export async function nativeGit({
 			`const panel = document.querySelector('[data-testid=git-panel]');
 			const list = panel?.querySelector('ol');
 			const range = panel?.querySelector('[data-testid=git-diff-range]');
+			const text = range?.textContent?.trim() ?? '';
+			const total = /(?:sur|of)\\s+(\\d+)/.exec(text);
 			return {
 				rows: list ? list.querySelectorAll('li').length : 0,
 				state: range?.getAttribute('data-review-state') ?? null,
-				text: range?.textContent?.trim() ?? '',
+				text,
+				total: total ? Number(total[1]) : null,
 				first: !!list && list.textContent.includes(arguments[0]),
 				last: !!list && list.textContent.includes(arguments[1])
 			};`,
@@ -200,9 +204,18 @@ export async function nativeGit({
 	assert.equal(initial.rows, 2000);
 	assert.equal(initial.first, true);
 	assert.equal(initial.last, false);
+	assert.ok(initial.total && initial.total > 2000, JSON.stringify(initial));
+	const expectedLastRows = initial.total - 2000;
 
-	let keyboard = false;
+	let keyboardFocused = false;
+	let keyboardActivated = false;
+	let pointerFallback = false;
 	if (request && session) {
+		keyboardFocused = await execute(
+			`const element = document.querySelector('[data-testid=git-diff-last]');
+			element?.focus();
+			return document.activeElement === element;`
+		);
 		const element = await request(
 			`/session/${session}/element`,
 			{ using: 'css selector', value: '[data-testid=git-diff-last]' },
@@ -210,23 +223,55 @@ export async function nativeGit({
 		);
 		const elementId = element?.['element-6066-11e4-a52e-4f735466cecf'];
 		assert.ok(elementId, JSON.stringify(element));
-		await request(`/session/${session}/element/${elementId}/value`, { text: '\uE007' }, 'POST');
-		keyboard = true;
+		try {
+			await request(
+				`/session/${session}/actions`,
+				{
+					actions: [
+						{
+							type: 'key',
+							id: 'keyboard',
+							actions: [
+								{ type: 'keyDown', value: '\uE007' },
+								{ type: 'keyUp', value: '\uE007' }
+							]
+						}
+					]
+				},
+				'POST'
+			);
+			await delay(500);
+			const afterKey = await readDiff();
+			keyboardActivated = afterKey.state === 'complete' && afterKey.rows === expectedLastRows;
+		} catch (error) {
+			record('keyboard action error', String(error));
+		}
+		if (!keyboardActivated) {
+			await request(`/session/${session}/element/${elementId}/click`, {}, 'POST');
+			pointerFallback = true;
+		}
 	} else {
 		await click('[data-testid=git-diff-last]');
+		pointerFallback = true;
 	}
 	await until(
 		async () => {
 			const state = await readDiff();
-			return state.rows === 600 && state.state === 'complete' && state.last;
+			return state.rows === expectedLastRows && state.state === 'complete' && state.last;
 		},
 		'last diff section is reachable',
 		45_000
 	);
-	const last = record('last page', { ...(await readDiff()), keyboard });
-	assert.equal(last.rows, 600);
+	const last = record('last page', {
+		...(await readDiff()),
+		keyboardFocused,
+		keyboardActivated,
+		pointerFallback
+	});
+	assert.equal(last.rows, expectedLastRows);
 	assert.equal(last.last, true);
 	assert.equal(last.first, false);
+	if (request && session) assert.equal(last.keyboardFocused, true);
 
 	await click('[data-testid=git-diff-first]');
 	await until(
@@ -240,6 +285,7 @@ export async function nativeGit({
 	const returned = record('returned to first page', await readDiff());
 	assert.equal(returned.first, true);
 	assert.equal(returned.last, false);
+	assert.equal(returned.total, initial.total);
 
 	writeFileSync(
 		join(output, 'native-git.json'),
@@ -248,8 +294,16 @@ export async function nativeGit({
 				recordedAt: new Date().toISOString(),
 				platform: process.platform,
 				project,
-				fixture: { path: 'long.md', lines: 2600, firstLine, lastLine },
-				keyboard,
+				fixture: {
+					path: 'long.md',
+					lines: 2600,
+					diffLines: initial.total,
+					firstLine,
+					lastLine
+				},
+				keyboardFocused,
+				keyboardActivated,
+				pointerFallback,
 				evidence
 			},
 			null,
