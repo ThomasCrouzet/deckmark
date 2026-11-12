@@ -168,6 +168,40 @@ test.describe('Mobile UI - sidebar drawer', () => {
 		await expect(drawer(page)).toBeVisible();
 		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
 	});
+
+	test('an IME composition end Escape with keyCode 229 keeps the prompt and drawer', async ({
+		page
+	}) => {
+		await importProjectForDrawer(page);
+		await page.getByTestId('sidebar-new-project').click();
+		const prompt = page.getByRole('dialog', { name: 'Nom du projet' });
+		const input = prompt.locator('input');
+		await expect(input).toBeFocused();
+
+		// Some engines end a composition with `isComposing` false and key code 229.
+		const records = await input.evaluate((element) => {
+			const seen: Array<{ keyCode: number; composing: boolean; defaultPrevented: boolean }> = [];
+			const event = new KeyboardEvent('keydown', {
+				key: 'Escape',
+				isComposing: false,
+				keyCode: 229,
+				bubbles: true,
+				cancelable: true
+			});
+			element.dispatchEvent(event);
+			seen.push({
+				keyCode: event.keyCode,
+				composing: event.isComposing,
+				defaultPrevented: event.defaultPrevented
+			});
+			return seen;
+		});
+
+		expect(records).toEqual([{ keyCode: 229, composing: false, defaultPrevented: false }]);
+		await expect(prompt).toBeVisible();
+		await expect(drawer(page)).toBeVisible();
+		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
+	});
 });
 
 test('mobile actions expose export and the document library with a neutral keyboard icon', async ({
