@@ -897,8 +897,11 @@ these failure risks:
   keep the list, stored value and entered name unchanged, and show one translated
   alert. A rejected Delete must keep the view and its selection.
 - A failed `getItem` must not become an empty trusted list. A later save must
-  retry the read before it appends. It must not overwrite unread views. The
-  collection table must stay usable when preference storage is unavailable.
+  retry the read before it appends. It must not overwrite unread views. A
+  present value that parses as a non-array is unreadable. Keep its exact bytes
+  until a later read can parse a proper list. Absence of the key stays an empty
+  trusted list. The table must stay usable when preference storage is
+  unavailable.
 - A retry must append each view once and preserve filter, sort, direction, group
   and mode after reload.
 - Empty names must not add a view. Duplicate stored IDs must not crash the keyed
@@ -921,8 +924,9 @@ npx playwright test e2e/collection-views.spec.ts e2e/collection-accessibility.sp
 
 The storage cases inject failures only for `mdsh:collection-views`. Keep
 `collection-view-storage-failure.json`, `collection-view-read-failure.json`,
-`collection-view-duplicate-ids.json`, `collection-view-name-label.json` and
-`collection-aria-indices.json` with the local browser report.
+`collection-view-non-array.json`, `collection-view-duplicate-ids.json`,
+`collection-view-name-label.json` and `collection-aria-indices.json` with the
+local browser report.
 
 Browser emulation does not prove physical iPad, VoiceOver, NVDA or native WebView
 behavior. Record those checks separately.
