@@ -126,6 +126,82 @@ async function capturePrint(page: Page) {
 	return () => html;
 }
 
+async function boundedCapture<T>(capture: () => Promise<T>, milliseconds = 2000): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			capture(),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => reject(new Error('capture timed out')), milliseconds);
+			})
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
+/** Read-only boundary state for a failed TOC visibility wait. Missing fields stay null. */
+async function tocBoundary(page: Page): Promise<Record<string, unknown>> {
+	return page.evaluate(() => {
+		const headingSelector =
+			'.ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .ProseMirror h4, .ProseMirror h5, .ProseMirror h6';
+		const headingElements = Array.from(document.querySelectorAll<HTMLElement>(headingSelector));
+		const aside = document.querySelector<HTMLElement>('.mdsh-toc-col');
+		const nav = aside?.querySelector<HTMLElement>('.mdsh-toc') ?? null;
+		const items = Array.from(aside?.querySelectorAll<HTMLElement>('.mdsh-toc li') ?? []);
+		const activeMode = document.querySelector<HTMLElement>(
+			'[role="radio"][aria-checked="true"][data-mode]'
+		);
+		let storedMode: string | null;
+		try {
+			storedMode = localStorage.getItem('mdsh:mode');
+		} catch {
+			storedMode = 'unreadable';
+		}
+		const origin = location.origin;
+		const resourceScripts = performance
+			.getEntriesByType('resource')
+			.filter((entry) => {
+				const resource = entry as PerformanceResourceTiming;
+				return resource.name.startsWith(origin) && resource.initiatorType === 'script';
+			})
+			.sort((left, right) => left.startTime - right.startTime)
+			.slice(-20)
+			.map((entry) => {
+				const resource = entry as PerformanceResourceTiming;
+				return {
+					name: resource.name.slice(resource.name.lastIndexOf('/') + 1).slice(0, 80),
+					startTime: Math.round(resource.startTime),
+					duration: Math.round(resource.duration),
+					transferSize: resource.transferSize
+				};
+			});
+		const style = aside ? getComputedStyle(aside) : null;
+		return {
+			headingCount: headingElements.length,
+			headings: headingElements.slice(0, 10).map((element) => ({
+				tag: element.tagName,
+				text: (element.textContent ?? '').trim().slice(0, 80)
+			})),
+			aside: aside
+				? {
+						className: aside.className,
+						connected: aside.isConnected,
+						inert: aside.hasAttribute('inert'),
+						display: style?.display ?? null,
+						visibility: style?.visibility ?? null
+					}
+				: null,
+			tocNavPresent: Boolean(nav),
+			itemCount: items.length,
+			itemTexts: items.slice(0, 5).map((item) => (item.textContent ?? '').trim().slice(0, 80)),
+			activeMode: activeMode?.getAttribute('data-mode') ?? null,
+			storedMode,
+			resourceScripts
+		};
+	});
+}
+
 function pdfRectangle(source: string, pattern: RegExp): [number, number, number, number] {
 	const values = pattern.exec(source)?.[1]?.trim().split(/\s+/).map(Number);
 	expect(values).toHaveLength(4);
@@ -485,7 +561,21 @@ test.describe('Editor width', () => {
 					await page.reload();
 					await expect(page.locator(content)).toBeVisible({ timeout: 20_000 });
 					// Each mode adds its outline after rendering, which moves the grip.
-					await expect(page.locator('.mdsh-toc-col')).toBeVisible();
+					try {
+						await expect(page.locator('.mdsh-toc-col')).toBeVisible();
+					} catch (error) {
+						try {
+							const boundary = await boundedCapture(() => tocBoundary(page));
+							console.log(`[toc-boundary] ${JSON.stringify(boundary)}`);
+							await testInfo.attach('toc-boundary.json', {
+								body: JSON.stringify(boundary, null, 2),
+								contentType: 'application/json'
+							});
+						} catch (captureError) {
+							console.log(`[toc-boundary] capture unavailable: ${String(captureError)}`);
+						}
+						throw error;
+					}
 					await expect
 						.poll(async () => (await page.locator(content).boundingBox())?.width ?? 0)
 						.toBeLessThan(before - 60);
