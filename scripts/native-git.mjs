@@ -16,8 +16,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { devNull } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const worktreePath = 'long.md';
@@ -35,20 +34,12 @@ function buildLines(prefix, endSuffix) {
 	}).join('\n');
 }
 
-function git(cwd, args) {
-	return execFileSync('git', args, {
-		cwd,
-		encoding: 'utf8',
-		env: { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull }
-	});
+function git(env, cwd, args) {
+	return execFileSync('git', args, { cwd, encoding: 'utf8', env });
 }
 
-function gitBuffer(cwd, args) {
-	return execFileSync('git', args, {
-		cwd,
-		maxBuffer: 8 * 1024 * 1024,
-		env: { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull }
-	});
+function gitBuffer(env, cwd, args) {
+	return execFileSync('git', args, { cwd, maxBuffer: 8 * 1024 * 1024, env });
 }
 
 /**
@@ -72,6 +63,15 @@ export async function nativeGit({
 	fixtureRoot,
 	output
 }) {
+	// Git for Windows rejects the Node null device path as a config file. Use an
+	// ordinary empty file in the owned fixture area, outside the test repository.
+	const emptyGitConfig = join(dirname(fixtureRoot), 'native-git-empty-config');
+	writeFileSync(emptyGitConfig, '');
+	const gitEnv = {
+		...process.env,
+		GIT_CONFIG_GLOBAL: emptyGitConfig,
+		GIT_CONFIG_SYSTEM: emptyGitConfig
+	};
 	const evidence = [];
 	const record = (scenario, result) => {
 		evidence.push({ scenario, result });
@@ -179,9 +179,9 @@ export async function nativeGit({
 	writeFileSync(join(fixtureRoot, worktreePath), base);
 	writeFileSync(join(fixtureRoot, stagedPath), base);
 	writeFileSync(join(fixtureRoot, hugePath), base);
-	git(fixtureRoot, ['init', '-q']);
-	git(fixtureRoot, ['add', '--', worktreePath, stagedPath, hugePath]);
-	git(fixtureRoot, [
+	git(gitEnv, fixtureRoot, ['init', '-q']);
+	git(gitEnv, fixtureRoot, ['add', '--', worktreePath, stagedPath, hugePath]);
+	git(gitEnv, fixtureRoot, [
 		'-c',
 		'user.name=DeckMark native smoke',
 		'-c',
@@ -200,8 +200,8 @@ export async function nativeGit({
 	writeFileSync(join(fixtureRoot, worktreePath), worktreeContent);
 	writeFileSync(join(fixtureRoot, stagedPath), stagedContent);
 	writeFileSync(join(fixtureRoot, hugePath), hugeContent);
-	git(fixtureRoot, ['add', '--', stagedPath]);
-	const hugeDiffBytes = gitBuffer(fixtureRoot, [
+	git(gitEnv, fixtureRoot, ['add', '--', stagedPath]);
+	const hugeDiffBytes = gitBuffer(gitEnv, fixtureRoot, [
 		'diff',
 		'--no-ext-diff',
 		'--no-textconv',
@@ -216,7 +216,7 @@ export async function nativeGit({
 	);
 	record('fixture repository', {
 		fixtureRoot,
-		head: git(fixtureRoot, ['rev-parse', 'HEAD']).trim(),
+		head: git(gitEnv, fixtureRoot, ['rev-parse', 'HEAD']).trim(),
 		worktree: {
 			path: worktreePath,
 			lines: 2600,
@@ -237,7 +237,7 @@ export async function nativeGit({
 			capBytes: 1024 * 1024,
 			sha256: createHash('sha256').update(hugeContent).digest('hex')
 		},
-		indexStatus: git(fixtureRoot, ['status', '--porcelain']).trim()
+		indexStatus: git(gitEnv, fixtureRoot, ['status', '--porcelain']).trim()
 	});
 
 	await click('[data-testid=projects-open]');
