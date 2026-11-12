@@ -19,6 +19,7 @@ test('typewriter coalesces caret bursts and cancels work on mode exit', async ({
 	await enableTypewriter(page);
 	await installTypewriterProbe(page);
 	await page.evaluate(async () => {
+		await window.typewriterProbe.ready();
 		window.typewriterProbe.burst(30, true);
 		await window.typewriterProbe.settle();
 	});
@@ -34,6 +35,7 @@ test('typewriter coalesces caret bursts and cancels work on mode exit', async ({
 	expect.soft(burst.centerHeads.length).toBeLessThanOrEqual(1);
 	expect.soft(burst.centerHeads.every((head) => head === burst.head)).toBe(true);
 	await page.evaluate(async () => {
+		await window.typewriterProbe.ready();
 		window.typewriterProbe.burst(1, false);
 		await window.typewriterProbe.settle();
 	});
