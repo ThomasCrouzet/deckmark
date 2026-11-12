@@ -18,7 +18,14 @@ test('typewriter coalesces caret bursts and cancels work on mode exit', async ({
 	await page.locator('.cm-content').press('ControlOrMeta+Home');
 	await enableTypewriter(page);
 	await installTypewriterProbe(page);
+	await page.locator('.cm-content').press('PageDown');
+	await page.evaluate(() => window.typewriterProbe.ready());
 	await page.evaluate(async () => {
+		const scroller = document.querySelector('.cm-scroller');
+		if (!scroller) throw new Error('The scroller is absent');
+		scroller.scrollTop += 40;
+		// Let CodeMirror queue the scroll measure before the second readiness wait.
+		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 		await window.typewriterProbe.ready();
 		window.typewriterProbe.burst(30, true);
 		await window.typewriterProbe.settle();
