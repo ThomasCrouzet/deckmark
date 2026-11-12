@@ -1195,6 +1195,8 @@ export const en = {
 		'No version saved for this file. The history builds up as you make changes (a snapshot every few minutes).',
 	'versionHistory.kept': '{n} version(s) kept',
 	'versionHistory.loadError': 'Could not load the version history.',
+	'versionHistory.missing': 'This version is no longer in local storage.',
+	'versionHistory.refresh': 'Refresh versions',
 	'versionHistory.staleDocument':
 		'The active document changed. Reopen the history panel before restoring.',
 	'versionHistory.loading': 'Loading...',

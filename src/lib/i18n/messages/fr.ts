@@ -1217,6 +1217,8 @@ export const fr: Record<MessageKey, string> = {
 		"Aucune version enregistrée pour ce fichier. L'historique se constitue au fil de tes modifications (un instantané toutes les quelques minutes).",
 	'versionHistory.kept': '{n} version(s) conservée(s)',
 	'versionHistory.loadError': "Impossible de charger l'historique de versions.",
+	'versionHistory.missing': 'Cette version n’est plus dans le stockage local.',
+	'versionHistory.refresh': 'Actualiser les versions',
 	'versionHistory.staleDocument':
 		"Le document actif a changé. Rouvrez l'historique avant de restaurer.",
 	'versionHistory.loading': 'Chargement…',
