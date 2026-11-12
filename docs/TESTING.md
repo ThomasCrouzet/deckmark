@@ -975,7 +975,9 @@ session. The browser suite cannot run these Tauri commands.
 
 ## Code snippets
 
-`e2e/snippets.spec.ts` checks the snippet library in Chromium. The cases are:
+`e2e/snippets.spec.ts` checks the legacy snippet library in Chromium.
+`e2e/snippets-keyboard.spec.ts` checks the active-descendant keyboard layout on
+Chromium, Firefox and WebKit. The cases are:
 
 - A selection becomes a snippet. A second save with the same code and language
   shows the duplicate message and does not add a row.
@@ -990,15 +992,24 @@ session. The browser suite cannot run these Tauri commands.
 - A backup export and restore keeps the snippet collection and the exact code.
 - A 375 by 812 viewport fits the panel. The dialog, search box, list, and close
   button have accessible names.
+- The active snippet stays fully visible through 60 ArrowDown and 60 ArrowUp
+  presses at 375 by 812 and at 200 percent zoom. Enter copies, Shift+Enter
+  edits, Escape cancels, and the favorites filter keeps a visible active
+  option.
 
-The spec attaches JSON reports and screenshots with the run. Run it with:
+The specs attach JSON reports and screenshots with the run. Run them with:
 
 ```sh
-E2E_PORT=4177 npx playwright test e2e/snippets.spec.ts --project=chromium --workers=1
+E2E_PORT=4177 npx playwright test e2e/snippets.spec.ts --project=chromium --workers=1 --retries=0
+E2E_PORT=4177 npx playwright test e2e/snippets-keyboard.spec.ts --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
 ```
 
-The checks use browser storage and the Chromium clipboard permission. A native
-Desktop clipboard and a physical screen reader need a manual smoke test.
+The legacy suite uses browser storage and the Chromium clipboard permission and
+proves OS readback. The cross-engine suite keeps that readback on Chromium. On
+Firefox and WebKit it records the exact text passed to the real
+`clipboard.writeText` call and requires the real write to resolve, but it does
+not prove OS clipboard readback on those engines. A native Desktop clipboard
+and a physical screen reader need a manual smoke test.
 The retained failure risks are a lost code byte during a backup round trip, a
 search path that reads code instead of metadata, a stale snippet list after a
 restore, and a panel that loads every code editor.
@@ -2923,19 +2934,24 @@ Retain these failure risks for the shared dialog fixes:
   must ignore `isComposing`, legacy key code 229 and an event a child already
   handled. A normal Escape must still close only the top layer.
 
-Run the focused Chromium cases:
+Run the focused cross-engine cases:
 
 ```sh
 E2E_PORT=4202 npx playwright test e2e/prompt-keyboard.spec.ts \
-  e2e/code-creation.spec.ts e2e/snippets.spec.ts e2e/ime-dialogs.spec.ts \
-  --project=chromium --workers=1 --retries=0 --trace=off
+  e2e/code-creation.spec.ts e2e/snippets-keyboard.spec.ts e2e/ime-dialogs.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 --trace=off
 ```
+
+The legacy `e2e/snippets.spec.ts` OS clipboard readback stays a Chromium case.
+Run it separately with `--project=chromium`.
 
 Keep `test-results/results.json`, the HTML report and the attached JSON files.
 The component cases use synthetic `KeyboardEvent` values. The browser cases use
-synthetic composing events and CSS zoom. These checks do not prove a physical
-IME, iPhone or iPad keyboard, VoiceOver, native Tauri webviews, or real browser
-zoom. Record those separately as remaining verification.
+synthetic composing events and CSS zoom. Firefox and WebKit prove the exact text
+passed to the real clipboard write, not OS clipboard readback. These checks do
+not prove a physical IME, iPhone or iPad keyboard, VoiceOver, native Tauri
+webviews, or real browser zoom. Record those separately as remaining
+verification.
 
 Keep the recorded source and working diff hash with each artifact. A run made
 before its commit can name the parent SHA plus a working diff hash. Prove the
@@ -2945,4 +2961,26 @@ Do not relabel the old artifact or repeat a large suite only to clean the label.
 The Library composing Enter case is in the same browser file and is part of
 the required #624 policy. It still needs a physical IME check with a hardware
 keyboard. Do not treat the synthetic event as that check.
+
+## CI failure evidence and typewriter setup
+
+Keep these risks and evidence boundaries for #628:
+
+- An enforcing benchmark can fail without preserving the values that crossed a budget. `scripts/benchmark-local.mjs` now prints one bounded line for each failed metric: metric name, count, min, max, p50, p95 and at most 64 numeric samples in run order. It does not print paths, notes, capabilities or the complete report. An ok budget emits no failure-sample line. The failure message, tolerance, budget and nonzero exit remain unchanged. A negative control uses the existing `--budgets` option with a stricter private budget file outside Git; retain its failed exit separately from a healthy run.
+- The image input probe retains the product duration events `imageMarkdownScopedStage`, `imageMarkdownFullStage`, `restoreMarkdown`, `filterTransaction` and `sourceFidelityScopeAttempt`. It clears events with the samples and long tasks before each position. Its local attachment has raw samples, overall and per-position stage summaries, and the count of samples at or above 100 ms. The console has the overall stage summary and gated sample metrics. These stage values are not gated p50 or p95. They have no timestamp or sample index, so they cannot identify the stage behind one named slow sample. The extra event listener and array push have unmeasured observer cost.
+- Work already queued before a typewriter burst can enter the burst observation. The probe `ready()` waits for two quiet frames with no queued object measure request and no new centre dispatch. It uses the frame function captured at installation, outside the pending-frame counter. It reads `view.measureRequests` from the pinned CodeMirror 6.43.15 and rejects a detached view, unavailable queue or two-second deadline. This is a pre-burst barrier, not a change to product scheduling.
+- A first burst at the clamped top can record no centre, which makes the same-head assertion vacuous. The retained first case requires at least one centre in addition to the existing upper bound, same-head check and `maxPending <= 2`. Before capture, PageDown moves the caret off the top, `ready()` drains the caret measure, a 40 px scroll offset queues the scroll measure, one frame lets it enter the queue, and a second `ready()` drains it. The original 30-key burst and 20-frame settle stay unchanged. A later centered collapse can legitimately need no centre. The zero-centre RED and external zero/duplicate controls are coverage and assertion controls, not product regressions.
+- The inactive-editor history selection poll can fail without retaining its DOM boundary. On failure only, `editor-state.spec.ts` prints `[selection-boundary]` and attaches the same JSON: focus, active element, range endpoints/text, mounted content count, active file, cached position and available EditorView selection/viewport/measure state. Missing fields stay null. Capture is bounded to two seconds and rethrows the original error. The 35-file sequence, selection assertion and timeout stay unchanged.
+- A TOC visibility failure can lack evidence of headings, mode and resource loading. On failure only, `editor-width.spec.ts` prints `[toc-boundary]` and attaches heading presence, bounded text, aside connectivity/inert/display/visibility, nav/items, active/stored mode and at most 20 same-origin script timings. It retains the exact 5000 ms visibility assertion, adds no pre-assertion wait and rethrows the original error after bounded capture.
+
+Run the focused positive coalescing case with one worker and no retries:
+
+```sh
+E2E_PORT=4216 npx playwright test e2e/navigation-stats-scroll.spec.ts \
+  --project=chromium --project=webkit --workers=1 --retries=0 \
+  --grep 'typewriter coalesces'
+```
+
+Retain the direct exit, source and working diff identity, command, environment, list log and per-project burst/centered attachments locally. Do not mistake a separate control `results.json` for the GREEN reporter object. Do not upload reports. These local controls do not establish the cause or recovery of the hosted Firefox scroll, WebKit input tail, history selection, TOC or typewriter failures. Record fresh exact-head CI evidence separately.
+
 

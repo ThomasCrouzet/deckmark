@@ -56,6 +56,147 @@ async function openSettings(page: Page): Promise<void> {
 	await expect(page.getByRole('dialog', { name: 'Réglages' })).toBeVisible();
 }
 
+async function boundedCapture<T>(capture: () => Promise<T>, milliseconds = 2000): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			capture(),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => reject(new Error('capture timed out')), milliseconds);
+			})
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
+/** Read-only boundary state for a failed selection poll. Missing fields stay null. */
+async function selectionBoundary(page: Page): Promise<Record<string, unknown>> {
+	return page.evaluate(() => {
+		type ViewShape = {
+			hasFocus: boolean;
+			dom: HTMLElement;
+			contentDOM: HTMLElement;
+			scrollDOM: HTMLElement;
+			viewport: { from: number; to: number };
+			viewportHeight: number;
+			visibleRanges: { from: number; to: number }[];
+			state: {
+				doc: { length: number };
+				selection: { main: { anchor: number; head: number; empty: boolean }; ranges: unknown[] };
+			};
+			measureScheduled: number;
+			measureRequests?: unknown[];
+			viewState?: { scrollTarget?: { from?: number; y?: number; x?: number } | null };
+		};
+		const describeNode = (node: Node | null) => {
+			if (!node) return null;
+			const element = node instanceof Element ? node : node.parentElement;
+			return {
+				nodeType: node.nodeType,
+				nodeName: node.nodeName,
+				tag: element?.tagName ?? null,
+				className: element?.className ?? null,
+				text: (node.textContent ?? '').slice(0, 60)
+			};
+		};
+		const selection = window.getSelection();
+		const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+		const active = document.activeElement as HTMLElement | null;
+		const content = document.querySelector<HTMLElement>('.cm-content');
+		const view = (content as (HTMLElement & { cmTile?: { root?: { view?: ViewShape } } }) | null)
+			?.cmTile?.root?.view;
+		const activeFileId =
+			document
+				.querySelector('aside button[data-file-id][aria-current="true"]')
+				?.getAttribute('data-file-id') ?? null;
+		let cache: { fileId: string | null; source: unknown; read: unknown } = {
+			fileId: activeFileId,
+			source: null,
+			read: null
+		};
+		try {
+			const raw = sessionStorage.getItem('mdsh:editor-view-state');
+			if (raw) {
+				const entries = JSON.parse(raw) as {
+					fileId: string;
+					positions?: { source?: Record<string, unknown>; read?: Record<string, unknown> };
+				}[];
+				const entry = entries.find((value) => value.fileId === activeFileId);
+				const bounded = (position: Record<string, unknown> | undefined) =>
+					position
+						? {
+								anchor: typeof position.anchor === 'number' ? position.anchor : null,
+								head: typeof position.head === 'number' ? position.head : null,
+								scrollTop: typeof position.scrollTop === 'number' ? position.scrollTop : null
+							}
+						: null;
+				cache = {
+					fileId: activeFileId,
+					source: bounded(entry?.positions?.source),
+					read: bounded(entry?.positions?.read)
+				};
+			}
+		} catch {
+			cache = { fileId: activeFileId, source: 'unreadable', read: 'unreadable' };
+		}
+		const scrollTarget = view?.viewState?.scrollTarget
+			? {
+					from: view.viewState.scrollTarget.from ?? null,
+					y: view.viewState.scrollTarget.y ?? null,
+					x: view.viewState.scrollTarget.x ?? null
+				}
+			: null;
+		return {
+			selectionText: selection?.toString() ?? null,
+			rangeCount: selection?.rangeCount ?? 0,
+			collapsed: selection?.isCollapsed ?? null,
+			rangeStart: describeNode(range?.startContainer ?? null),
+			rangeStartOffset: range?.startOffset ?? null,
+			rangeEnd: describeNode(range?.endContainer ?? null),
+			rangeEndOffset: range?.endOffset ?? null,
+			documentHasFocus: document.hasFocus(),
+			active: active
+				? {
+						tag: active.tagName,
+						id: active.id,
+						className: active.className,
+						connected: active.isConnected,
+						fileId: active.getAttribute('data-file-id'),
+						current: active.getAttribute('aria-current'),
+						text: (active.textContent ?? '').slice(0, 50)
+					}
+				: null,
+			cmContentCount: document.querySelectorAll('.cm-content').length,
+			cache,
+			view: view
+				? {
+						hasFocus: view.hasFocus,
+						docLength: view.state.doc.length,
+						anchor: view.state.selection.main.anchor,
+						head: view.state.selection.main.head,
+						empty: view.state.selection.main.empty,
+						ranges: view.state.selection.ranges.length,
+						domConnected: view.dom.isConnected,
+						contentConnected: view.contentDOM.isConnected,
+						scrollTop: view.scrollDOM.scrollTop,
+						scrollHeight: view.scrollDOM.scrollHeight,
+						clientHeight: view.scrollDOM.clientHeight,
+						viewportFrom: view.viewport.from,
+						viewportTo: view.viewport.to,
+						viewportHeight: view.viewportHeight,
+						visibleRanges: view.visibleRanges.map((entry) => [entry.from, entry.to]),
+						measureScheduled: view.measureScheduled,
+						measureRequests: Array.isArray(view.measureRequests)
+							? view.measureRequests.length
+							: null,
+						scrollTarget
+					}
+				: null
+		};
+	});
+}
+
 test.describe('Editor state isolation and restoration', () => {
 	test('source typing keeps undo and the caret after the store publishes its echo', async ({
 		page
@@ -125,9 +266,23 @@ test.describe('Editor state isolation and restoration', () => {
 			}
 			await openDraft(page, files[0].name);
 			await page.locator('.cm-content').first().focus();
-			await expect
-				.poll(() => page.evaluate(() => window.getSelection()?.toString()))
-				.toBe(selected);
+			try {
+				await expect
+					.poll(() => page.evaluate(() => window.getSelection()?.toString()))
+					.toBe(selected);
+			} catch (error) {
+				try {
+					const boundary = await boundedCapture(() => selectionBoundary(page));
+					console.log(`[selection-boundary] ${JSON.stringify(boundary)}`);
+					await info.attach('selection-boundary.json', {
+						body: JSON.stringify(boundary, null, 2),
+						contentType: 'application/json'
+					});
+				} catch (captureError) {
+					console.log(`[selection-boundary] capture unavailable: ${String(captureError)}`);
+				}
+				throw error;
+			}
 			await expect
 				.poll(() => scroller.evaluate((element) => element.scrollTop))
 				.toBeGreaterThan(100);
