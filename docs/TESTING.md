@@ -2025,6 +2025,75 @@ The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
 browser pass is not a native desktop pass, and a headless WebKit pass is not a
 WebKitGTK pass.
 
+### Native window work-area risks
+
+A fixed logical size can be larger than the monitor work area at a high display
+scale or on a small screen. A saved window can also restore to an origin on a
+monitor that is no longer connected. The quick capture window is frameless and
+not resizable, so an oversized window can hide its Cancel and Save controls
+with no way to resize it.
+
+A window decoration also counts against the work area. A title bar or frame
+makes the outer rectangle larger than the inner content box. A fit that uses
+only the inner size can put the lower outer edge below the work area. A
+maximized window needs no resize, because a size change can restore it to the
+normal state.
+
+The retained failure risks are:
+
+- The main default or minimum size exceeds the logical work area.
+- A decoration makes the outer rectangle exceed the work area after a fit.
+- A restored main window keeps an origin outside the work area.
+- A reused capture window stays sized for a monitor with another scale factor.
+- A short work area hides the capture content field or its footer actions.
+- A size change moves the window to an origin that belonged to the old size.
+- A launch fit shrinks a maximized saved window and restores the normal state.
+
+`src-tauri/src/window_geometry.rs` owns the fit and clamp rules. The fit
+subtracts the measured decoration, which is the outer minus inner size, before
+it clamps the content size. A maximized window keeps its size and origin. Run
+the pure fit cases with:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml window_geometry::tests
+```
+
+`scripts/native-window-geometry.mjs` runs against the real WebView. It records
+the monitor work area, physical and logical window bounds, scale factor, OS,
+WebView version and a screenshot for the main window and for the capture window
+at launch and after reuse. It checks the main toolbar and every visible button.
+At narrow widths, it checks Save, Export and Settings through the command palette.
+It also checks the capture title, content field, Cancel and Save. Run it on a
+small screen or at a high scale:
+
+```sh
+GDK_SCALE=2 NATIVE_TEST_OUTPUT="${TMPDIR:-$HOME/.cache}/deckmark-native-window-geometry" \
+  dbus-run-session -- xvfb-run -a -s "-screen 0 1366x768x24" \
+  node scripts/native-window-geometry.mjs
+```
+
+At that scale the logical work area is 683 by 384 pixels. On a test window
+manager without decorations the main window fits at 667 by 368 and the capture
+window fits at 560 by 368. A 30 px logical title bar reduces the main content
+height to 338 px, so the decorated outer box stays inside the work area. The
+artifact `native-window-geometry.json` and the screenshots are local evidence.
+Keep the command, source revision, platform and WebView version with them.
+Keep the tested binary and its SHA-256 before another build replaces it.
+
+The 30 px decoration is a pure geometry fixture, not a measured native title bar.
+The decorated Linux run used a maximized window with a 24 px title bar. It proves
+that the maximized state stays fitted. It does not exercise a non-maximized
+decorated shrink. For that path, record a nonzero decoration and `isMaximized`
+false. Keep Windows, macOS, monitor moves and DPI transitions separate. A geometry
+query error can still abort capture creation; the success runs do not prove that
+failure path.
+
+`scripts/native-capture.mjs` also records the main and capture geometry in the
+regular native smoke run on Ubuntu, Windows and macOS. It checks the outer
+right and bottom edges for decorated windows too. This proves the default work
+area on each runner. A Windows WebView2 or macOS high-scale desktop remains an
+on-device check, and the script does not simulate a multi-monitor move.
+
 ### CI tier and routing failure risks
 
 Browser tests cannot observe Actions event routing or aggregate process exits.
