@@ -265,6 +265,23 @@ function keyRanges(yaml: string): LineRange[] {
 	return ranges;
 }
 
+/**
+ * A decimal YAML number. The YAML parser also accepts a leading sign, a leading
+ * dot, a trailing dot and an exponent. Underscores stay strings, as in the parser.
+ */
+const NUMERIC_LITERAL = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/;
+
+/**
+ * Parses a complete numeric input. Returns null for blank text, an intermediate
+ * sign or dot, an exponent marker alone and every non-finite result.
+ */
+export function parseNumericInput(text: string): number | null {
+	const trimmed = text.trim();
+	if (!NUMERIC_LITERAL.test(trimmed)) return null;
+	const value = Number(trimmed);
+	return Number.isFinite(value) ? value : null;
+}
+
 function classify(key: string, raw: string): FrontmatterProperty['kind'] {
 	if (key === 'tags' || key === 'aliases') return 'tags';
 	const trimmed = raw.trim();
@@ -272,7 +289,7 @@ function classify(key: string, raw: string): FrontmatterProperty['kind'] {
 	if (trimmed === '') return 'other';
 	if (/^['"]/.test(trimmed)) return 'string';
 	if (/^(true|false)$/i.test(trimmed)) return 'boolean';
-	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return 'number';
+	if (NUMERIC_LITERAL.test(trimmed)) return 'number';
 	if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return 'date';
 	return 'string';
 }

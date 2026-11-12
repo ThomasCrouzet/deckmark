@@ -225,6 +225,142 @@ test('keeps YAML-like text as a string property', async ({ page }, info: TestInf
 	});
 });
 
+test('keeps intermediate numeric input states before parsing', async ({ page }, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial = '---\npriority: 12\nscore: -2.5\n---\n\n# Body\n\nKeep.\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+	const priority = page.getByTestId('frontmatter-priority').locator('input');
+	const score = page.getByTestId('frontmatter-score').locator('input');
+	const samples: Array<{ field: string; step: string; value: string; caret: number | null }> = [];
+
+	async function caretOf(input: typeof priority): Promise<number | null> {
+		return input.evaluate((element) => (element as HTMLInputElement).selectionStart);
+	}
+
+	async function typeKeys(field: string, input: typeof priority, text: string) {
+		for (const character of text) {
+			await page.keyboard.type(character);
+			samples.push({
+				field,
+				step: `type ${character}`,
+				value: await input.inputValue(),
+				caret: await caretOf(input)
+			});
+		}
+	}
+
+	samples.push({
+		field: 'priority',
+		step: 'initial',
+		value: await priority.inputValue(),
+		caret: await caretOf(priority)
+	});
+	await priority.click();
+	await page.keyboard.press('Control+a');
+	await page.keyboard.press('Backspace');
+	samples.push({
+		field: 'priority',
+		step: 'cleared',
+		value: await priority.inputValue(),
+		caret: await caretOf(priority)
+	});
+	expect(await priority.inputValue()).toBe('');
+	await typeKeys('priority', priority, '-12.75');
+	expect(await priority.inputValue()).toBe('-12.75');
+	expect(await caretOf(priority)).toBe(6);
+
+	samples.push({
+		field: 'score',
+		step: 'initial',
+		value: await score.inputValue(),
+		caret: await caretOf(score)
+	});
+	await score.click();
+	await page.keyboard.press('Control+a');
+	await page.keyboard.press('Backspace');
+	samples.push({
+		field: 'score',
+		step: 'cleared',
+		value: await score.inputValue(),
+		caret: await caretOf(score)
+	});
+	expect(await score.inputValue()).toBe('');
+	await typeKeys('score', score, '0.125');
+	expect(await score.inputValue()).toBe('0.125');
+
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+	const updated = await source(page);
+	expect(updated).toContain('priority: -12.75');
+	expect(updated).toContain('score: 0.125');
+	expect(updated).toContain('# Body\n\nKeep.\n');
+
+	await openProperties(page);
+	const reopenedPriority = page.getByTestId('frontmatter-priority').locator('input');
+	await expect(page.getByTestId('frontmatter-priority').locator('small')).toHaveText('nombre');
+	await expect(reopenedPriority).toHaveValue('-12.75');
+	await reopenedPriority.click();
+	await page.keyboard.press('Control+a');
+	await page.keyboard.press('Backspace');
+	await typeKeys('priority', reopenedPriority, '1e3');
+	expect(await reopenedPriority.inputValue()).toBe('1e3');
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+	const scientific = await source(page);
+	expect(scientific).toContain('priority: 1000');
+	expect(scientific).toContain('score: 0.125');
+
+	await openProperties(page);
+	await expect(page.getByTestId('frontmatter-priority').locator('input')).toHaveValue('1000');
+	await info.attach('frontmatter-number-input.json', {
+		body: JSON.stringify({ initial, updated, scientific, samples }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('refuses an incomplete numeric value and keeps the typed text', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial = '---\npriority: 12\n---\n\n# Body\n\nKeep.\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+	const priority = page.getByTestId('frontmatter-priority').locator('input');
+	const numberError = page.getByTestId('frontmatter-number-error-priority');
+
+	await priority.click();
+	await page.keyboard.press('Control+a');
+	await page.keyboard.press('Backspace');
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toBeVisible();
+	await expect(numberError).toContainText('nombre complet');
+	await expect(priority).toHaveValue('');
+	await expect(priority).toBeFocused();
+	expect(await source(page)).toBe(initial);
+
+	await page.keyboard.type('-');
+	await page.getByTestId('frontmatter-save').click();
+	await expect(numberError).toContainText('nombre complet');
+	await expect(priority).toHaveValue('-');
+	await expect(priority).toBeFocused();
+	expect(await source(page)).toBe(initial);
+
+	await page.keyboard.type('12');
+	await expect(numberError).toHaveCount(0);
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+	const updated = await source(page);
+	expect(updated).toContain('priority: -12');
+	expect(updated).toContain('# Body\n\nKeep.\n');
+	await info.attach('frontmatter-number-invalid.json', {
+		body: JSON.stringify({ initial, updated, blockedValues: ['', '-'] }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 test('reports malformed YAML and refuses to edit it', async ({ page }, info: TestInfo) => {
 	await resetAppState(page);
 	await createFirstFile(page);

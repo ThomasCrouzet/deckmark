@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { X } from '@lucide/svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { parseFrontmatter } from '#lib/frontmatter.js';
 	import {
+		parseNumericInput,
 		readFrontmatterKeys,
 		readFrontmatterProperties,
 		updateFrontmatter,
@@ -17,6 +18,10 @@
 
 	let properties = $state<FrontmatterProperty[]>([]);
 	let values = $state<Record<string, FrontmatterValue>>({});
+	// A number field keeps the exact text the user typed until the value is
+	// complete. Parsed state changes only for a complete number.
+	let numberDrafts = $state<Record<string, string>>({});
+	let numberErrors = $state<Record<string, string>>({});
 	let original = $state<Record<string, FrontmatterValue>>({});
 	let error = $state('');
 	let addError = $state('');
@@ -45,7 +50,65 @@
 		values = { ...values, [key]: value };
 	}
 
+	function clearNumberError(key: string) {
+		if (!(key in numberErrors)) return;
+		const next = { ...numberErrors };
+		delete next[key];
+		numberErrors = next;
+	}
+
+	function clearNumberDraft(key: string) {
+		clearNumberError(key);
+		if (!(key in numberDrafts)) return;
+		const next = { ...numberDrafts };
+		delete next[key];
+		numberDrafts = next;
+	}
+
+	function numberText(property: FrontmatterProperty): string {
+		return numberDrafts[property.key] ?? String(values[property.key] ?? '');
+	}
+
+	function changeNumber(key: string, text: string) {
+		numberDrafts = { ...numberDrafts, [key]: text };
+		clearNumberError(key);
+		const parsed = parseNumericInput(text);
+		if (parsed !== null) setValue(key, parsed);
+	}
+
+	function commitNumber(key: string) {
+		const draft = numberDrafts[key];
+		if (draft === undefined) return;
+		const parsed = parseNumericInput(draft);
+		if (parsed === null) {
+			numberErrors = { ...numberErrors, [key]: t('properties.invalidNumber') };
+			return;
+		}
+		setValue(key, parsed);
+		clearNumberError(key);
+	}
+
+	/** Blocks Save on every incomplete number and focuses the first one. */
+	function rejectIncompleteNumbers(): boolean {
+		for (const property of properties) {
+			if (property.kind !== 'number' || numberDrafts[property.key] === undefined) continue;
+			const parsed = parseNumericInput(numberDrafts[property.key]!);
+			if (parsed !== null) {
+				setValue(property.key, parsed);
+				continue;
+			}
+			const key = property.key;
+			numberErrors = { ...numberErrors, [key]: t('properties.invalidNumber') };
+			void tick().then(() => {
+				document.getElementById(`frontmatter-input-${key}`)?.focus();
+			});
+			return true;
+		}
+		return false;
+	}
+
 	function remove(key: string) {
+		clearNumberDraft(key);
 		setValue(key, null);
 	}
 
@@ -69,6 +132,7 @@
 
 	function save() {
 		if (busy || error) return;
+		if (rejectIncompleteNumbers()) return;
 		saveError = '';
 		const changes = Object.entries(values)
 			.filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(original[key] ?? null))
@@ -158,10 +222,29 @@
 									/>
 								{:else if property.kind === 'number'}
 									<input
-										type="number"
-										value={String(values[property.key] ?? '')}
-										oninput={(event) => setValue(property.key, Number(event.currentTarget.value))}
+										id={`frontmatter-input-${property.key}`}
+										type="text"
+										inputmode="decimal"
+										autocomplete="off"
+										spellcheck="false"
+										value={numberText(property)}
+										aria-invalid={numberErrors[property.key] ? 'true' : undefined}
+										aria-describedby={numberErrors[property.key]
+											? `frontmatter-number-error-${property.key}`
+											: undefined}
+										oninput={(event) => changeNumber(property.key, event.currentTarget.value)}
+										onblur={() => commitNumber(property.key)}
 									/>
+									{#if numberErrors[property.key]}
+										<small
+											id={`frontmatter-number-error-${property.key}`}
+											class="fm-inline-error"
+											role="alert"
+											data-testid={`frontmatter-number-error-${property.key}`}
+										>
+											{numberErrors[property.key]}
+										</small>
+									{/if}
 								{:else}
 									<input
 										type="text"
@@ -294,8 +377,10 @@
 	.fm-row small {
 		color: var(--color-fg-dim);
 	}
-	.fm-row input[type='text'],
-	.fm-row input[type='number'] {
+	.fm-row small.fm-inline-error {
+		color: var(--color-danger);
+	}
+	.fm-row input[type='text'] {
 		min-height: 34px;
 		width: 100%;
 		border: 1px solid var(--color-border);
