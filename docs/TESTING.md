@@ -579,8 +579,13 @@ Run the real library and PDF save-as cases with one worker and no retries:
 ```sh
 E2E_PORT=4227 npx playwright test e2e/binary-review.spec.ts \
   --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 \
-  --grep 'library ZIP preserves|preserves review.pdf bytes'
+  --grep 'library ZIP preserves|save-as preserves review.pdf bytes'
 ```
+
+PDF save-to-disk is a Chromium-only control in this file. Firefox and WebKit
+have no routed save-to-disk control, so a broad grep that includes it fails at
+`getByTestId('save-to-disk')` before any download. That is an unrelated routed-
+control limit, not an export or predicate regression.
 
 The zero, truncated and non-ZIP boundary checks are test-only evidence controls.
 They prove the boundary fields and the preserved JSZip error. They are not product
