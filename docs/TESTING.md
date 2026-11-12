@@ -538,6 +538,63 @@ checks the native browser viewer under the production CSP. Retain fixture PDFs,
 downloads, ZIP files, screenshots, and JSON reports. Run both specs with
 `npx playwright test e2e/binary-review.spec.ts e2e/pdf-viewer.spec.ts --project=chromium --workers=1`.
 
+### Library ZIP download boundary
+
+Retain these failure risks for the library export: a saved download can be a
+different non-ZIP file, empty, or truncated before JSZip parses it. The first
+hosted failures in PR641, PR642, PR643 and PR645 were JSZip end-of-central-
+directory errors with no retained payload. On a JSZip parse failure only, the
+spec emits one compact `[library-zip-boundary]` JSON line and attaches
+`binary-library-zip-boundary.json`. The record contains the intended command,
+the actual suggested filename, the expected filename classification, the byte
+length, the first 8 and last 32 hex bytes, the local header, and the EOCD offset
+and end completeness. It does not include the complete binary. Missing values
+stay null.
+
+The diagnostic does not preempt JSZip, change a wait, timeout, retry, fixture or
+assertion, or replace the original exception. A failure to attach or format the
+diagnostic is reported on the console and the original JSZip exception is
+rethrown. A wrong filename indicates a wrong command or download. The expected
+filename with no local header indicates wrong or empty bytes. The expected
+filename with a missing or incomplete EOCD indicates truncation. A complete
+boundary with a JSZip failure points to central-directory or parser
+investigation. A retry recovery is flaky, not a clean pass.
+
+`downloadBytes` now rejects one download only: the live download whose URL equals
+the current `pdf-frame` `src` at event time. Headless Chromium can auto-download
+the preview iframe blob as a UUID-named PDF before the intended export. The
+predicate keeps the native wait deadline and event order. It does not filter by
+MIME, filename suffix, byte length or the PDF type. A different PDF, including
+the intended `review.pdf` save-as export, remains visible to the original
+assertions.
+
+The controls use real browser events. A preview-only case makes one UUID PDF
+download and the predicate rejects it; no export succeeds. A non-preview PDF
+save-as produces `review.pdf`, the predicate accepts it, and JSZip still rejects
+its bytes, so the original ZIP and filename assertions remain effective. These
+are helper-contract controls, not product regression claims.
+
+Run the real library and PDF save-as cases with one worker and no retries:
+
+```sh
+E2E_PORT=4227 npx playwright test e2e/binary-review.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 \
+  --grep 'library ZIP preserves|save-as preserves review.pdf bytes'
+```
+
+PDF save-to-disk is a Chromium-only control in this file. Firefox and WebKit
+have no routed save-to-disk control, so a broad grep that includes it fails at
+`getByTestId('save-to-disk')` before any download. That is an unrelated routed-
+control limit, not an export or predicate regression.
+
+The zero, truncated and non-ZIP boundary checks are test-only evidence controls.
+They prove the boundary fields and the preserved JSZip error. They are not product
+RED, a hosted reproduction, or proof that the export is corrupt. The hosted
+failure artifact remains unavailable, so the old hosted incident is not
+retroactively clean. The local pre-repair run produced a 39-byte UUID PDF; the
+repair ignores only that exact preview URL. Native and physical-device checks
+remain separate.
+
 The native Git tests use real repositories. They check executable filters,
 included configuration, parent-repository confinement, literal diff paths, and
 unstage before the first commit. Check unchanged index and working-tree bytes.
