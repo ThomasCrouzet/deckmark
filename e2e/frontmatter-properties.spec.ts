@@ -228,7 +228,7 @@ test('keeps YAML-like text as a string property', async ({ page }, info: TestInf
 test('keeps intermediate numeric input states before parsing', async ({ page }, info: TestInfo) => {
 	await resetAppState(page);
 	await createFirstFile(page);
-	const initial = '---\npriority: 12\nscore: -2.5\n---\n\n# Body\n\nKeep.\n';
+	const initial = '---\npriority: 12\nscore: -2.5\ndue: 2026-11-12\n---\n\n# Body\n\nKeep.\n';
 	await writeSourceContent(page, initial);
 	await openProperties(page);
 	const priority = page.getByTestId('frontmatter-priority').locator('input');
@@ -295,6 +295,7 @@ test('keeps intermediate numeric input states before parsing', async ({ page }, 
 	const updated = await source(page);
 	expect(updated).toContain('priority: -12.75');
 	expect(updated).toContain('score: 0.125');
+	expect(updated).toContain('due: 2026-11-12');
 	expect(updated).toContain('# Body\n\nKeep.\n');
 
 	await openProperties(page);
@@ -311,9 +312,12 @@ test('keeps intermediate numeric input states before parsing', async ({ page }, 
 	const scientific = await source(page);
 	expect(scientific).toContain('priority: 1000');
 	expect(scientific).toContain('score: 0.125');
+	expect(scientific).toContain('due: 2026-11-12');
 
 	await openProperties(page);
 	await expect(page.getByTestId('frontmatter-priority').locator('input')).toHaveValue('1000');
+	await expect(page.getByTestId('frontmatter-due').locator('small')).toHaveText('date');
+	await expect(page.getByTestId('frontmatter-due').locator('input')).toHaveValue('2026-11-12');
 	await info.attach('frontmatter-number-input.json', {
 		body: JSON.stringify({ initial, updated, scientific, samples }, null, 2),
 		contentType: 'application/json'
