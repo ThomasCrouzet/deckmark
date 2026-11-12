@@ -43,6 +43,8 @@
 	let viewName = $state('');
 	let views = $state<CollectionView[]>([]);
 	let selectedView = $state('');
+	let viewsError = $state('');
+	let viewsReadFailed = $state(false);
 	let tableScroll = $state<HTMLElement | null>(null);
 	let scrollTop = $state(0);
 	let scrollLeft = $state(0);
@@ -210,7 +212,13 @@
 	}
 
 	onMount(() => {
-		views = readCollectionViews();
+		const stored = readCollectionViews();
+		if (stored.ok) {
+			views = stored.views;
+		} else {
+			viewsReadFailed = true;
+			viewsError = t('collection.viewsStorageUnavailable');
+		}
 		void load();
 		window.addEventListener('focus', refreshOnFocus);
 		return () => {
@@ -234,21 +242,41 @@
 		return Array.isArray(value) ? value.join(', ') : String(value);
 	}
 
+	function ensureViewsReadable(): boolean {
+		if (!viewsReadFailed) return true;
+		const stored = readCollectionViews();
+		if (!stored.ok) {
+			viewsError = t('collection.viewsStorageUnavailable');
+			return false;
+		}
+		views = stored.views;
+		viewsReadFailed = false;
+		viewsError = '';
+		return true;
+	}
+
 	function saveView() {
-		if (!viewName.trim()) return;
+		const name = viewName.trim();
+		if (!name) return;
+		if (!ensureViewsReadable()) return;
 		const view: CollectionView = {
 			id: crypto.randomUUID(),
-			name: viewName.trim(),
+			name,
 			filter: query,
 			sortKey,
 			sortDirection,
 			groupKey,
 			mode
 		};
-		views = [...views, view];
-		saveCollectionViews(views);
+		const next = [...views, view];
+		if (!saveCollectionViews(next)) {
+			viewsError = t('collection.viewsStorageUnavailable');
+			return;
+		}
+		views = next;
 		selectedView = view.id;
 		viewName = '';
+		viewsError = '';
 	}
 
 	function applyView(id: string) {
@@ -262,9 +290,16 @@
 	}
 
 	function deleteView(id: string) {
-		views = views.filter((entry) => entry.id !== id);
-		saveCollectionViews(views);
+		if (!ensureViewsReadable()) return;
+		const next = views.filter((entry) => entry.id !== id);
+		if (next.length === views.length) return;
+		if (!saveCollectionViews(next)) {
+			viewsError = t('collection.viewsStorageUnavailable');
+			return;
+		}
+		views = next;
 		if (selectedView === id) selectedView = '';
+		viewsError = '';
 	}
 </script>
 
@@ -353,6 +388,11 @@
 					</button>
 				{/if}
 			</div>
+			{#if viewsError}
+				<p class="collection-views-error" role="alert" data-testid="collection-views-error">
+					{viewsError}
+				</p>
+			{/if}
 			<div class="collection-body" bind:this={tableScroll}>
 				{#if loadState === 'ready' && missingCount > 0}
 					<p class="collection-warning" role="status" data-testid="collection-missing">
@@ -579,6 +619,13 @@
 	.collection-controls button[aria-pressed='true'] {
 		border-color: var(--color-accent);
 		color: var(--color-accent);
+	}
+	.collection-views-error {
+		margin: 0;
+		padding: 6px 16px;
+		border-bottom: 1px solid var(--color-border);
+		font-size: 11px;
+		color: var(--color-danger);
 	}
 	.collection-body {
 		min-height: 0;

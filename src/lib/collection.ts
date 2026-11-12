@@ -26,6 +26,12 @@ export interface CollectionView {
 	mode: 'table' | 'board';
 }
 
+/**
+ * A read that fails is not an empty list. Callers must not persist a new list
+ * over stored views they could not read.
+ */
+export type CollectionViewsRead = { ok: true; views: CollectionView[] } | { ok: false };
+
 export interface CollectionBuildStats {
 	/** Notes whose front matter was parsed in this build. */
 	parsed: number;
@@ -533,31 +539,50 @@ export function groupRows(
 		.map(([group, list]) => ({ key: group, rows: list }));
 }
 
-export function readCollectionViews(): CollectionView[] {
+export function readCollectionViews(): CollectionViewsRead {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return [];
+		if (raw === null) return { ok: true, views: [] };
 		const values = JSON.parse(raw) as unknown;
-		return Array.isArray(values)
-			? values.filter((value): value is CollectionView => {
-					if (!value || typeof value !== 'object') return false;
-					const view = value as Partial<CollectionView>;
-					return (
-						typeof view.id === 'string' &&
-						typeof view.name === 'string' &&
-						typeof view.filter === 'string' &&
-						typeof view.sortKey === 'string' &&
-						(view.sortDirection === 'asc' || view.sortDirection === 'desc') &&
-						typeof view.groupKey === 'string' &&
-						(view.mode === 'table' || view.mode === 'board')
-					);
-				})
-			: [];
+		if (!Array.isArray(values)) return { ok: true, views: [] };
+		const seen = new Set<string>();
+		const views: CollectionView[] = [];
+		for (const value of values) {
+			if (!value || typeof value !== 'object') continue;
+			const view = value as Partial<CollectionView>;
+			if (
+				typeof view.id !== 'string' ||
+				typeof view.name !== 'string' ||
+				typeof view.filter !== 'string' ||
+				typeof view.sortKey !== 'string' ||
+				(view.sortDirection !== 'asc' && view.sortDirection !== 'desc') ||
+				typeof view.groupKey !== 'string' ||
+				(view.mode !== 'table' && view.mode !== 'board')
+			)
+				continue;
+			if (seen.has(view.id)) continue;
+			seen.add(view.id);
+			views.push({
+				id: view.id,
+				name: view.name,
+				filter: view.filter,
+				sortKey: view.sortKey,
+				sortDirection: view.sortDirection,
+				groupKey: view.groupKey,
+				mode: view.mode
+			});
+		}
+		return { ok: true, views };
 	} catch {
-		return [];
+		return { ok: false };
 	}
 }
 
-export function saveCollectionViews(views: readonly CollectionView[]): void {
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(views));
+export function saveCollectionViews(views: readonly CollectionView[]): boolean {
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(views));
+		return true;
+	} catch {
+		return false;
+	}
 }

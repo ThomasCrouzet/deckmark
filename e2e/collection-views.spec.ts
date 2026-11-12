@@ -614,3 +614,268 @@ test('backfills rows whose persisted collection projection is missing', async ({
 		contentType: 'application/json'
 	});
 });
+
+async function trackCollectionFailures(page: Page) {
+	const failures: string[] = [];
+	page.on('pageerror', (error) => failures.push(error.message));
+	await page.addInitScript(() => {
+		const state = window as unknown as { __mdshRejections?: string[] };
+		state.__mdshRejections = [];
+		window.addEventListener('unhandledrejection', (event) => {
+			state.__mdshRejections?.push(String(event.reason));
+		});
+	});
+	const rejections = () =>
+		page.evaluate(
+			() => (window as unknown as { __mdshRejections?: string[] }).__mdshRejections ?? []
+		);
+	return { failures, rejections };
+}
+
+test('keeps saved views consistent when localStorage rejects writes', async ({
+	page
+}, info: TestInfo) => {
+	const { failures, rejections } = await trackCollectionFailures(page);
+	await page.addInitScript(() => {
+		const state = window as unknown as { __mdshFailViewWrites: boolean };
+		state.__mdshFailViewWrites = false;
+		const original = Storage.prototype.setItem;
+		Storage.prototype.setItem = function (key, value) {
+			if (state.__mdshFailViewWrites && key === 'mdsh:collection-views') {
+				throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+			}
+			return original.call(this, key, value);
+		};
+	});
+	await resetAppState(page);
+	await seedFiles(page, files);
+	await openCollection(page);
+
+	const field = page.getByRole('textbox', { name: 'Nom de la vue' });
+	const selector = page.getByTestId('collection-views');
+	const error = page.getByTestId('collection-views-error');
+	const stored = () => page.evaluate(() => localStorage.getItem('mdsh:collection-views'));
+	const setWriteFailure = (value: boolean) =>
+		page.evaluate((failure) => {
+			(window as unknown as { __mdshFailViewWrites: boolean }).__mdshFailViewWrites = failure;
+		}, value);
+
+	await field.fill('   ');
+	await page.getByTestId('collection-save-view').click();
+	await expect(selector.locator('option')).toHaveCount(1);
+	expect(await stored()).toBeNull();
+
+	await page.getByTestId('collection-filter').fill('docs');
+	await page.getByTestId('collection-sort').selectOption('priority');
+	await page.getByTestId('collection-direction').click();
+	await page.getByTestId('collection-group').selectOption('status');
+	await page.getByRole('button', { name: 'Tableau blanc' }).click();
+	await expect(page.getByTestId('collection-board')).toBeVisible();
+	await field.fill('Stable');
+	await page.getByTestId('collection-save-view').click();
+	await expect(selector).toContainText('Stable');
+	const stableId = await selector.inputValue();
+	expect(stableId).not.toBe('');
+	const before = await stored();
+	expect(JSON.parse(before ?? '[]')).toHaveLength(1);
+
+	await setWriteFailure(true);
+	await field.fill('Phantom');
+	await page.getByTestId('collection-save-view').click();
+	await expect(error).toBeVisible();
+	await expect(error).toContainText('enregistr');
+	await expect(selector).not.toContainText('Phantom');
+	await expect(field).toHaveValue('Phantom');
+	expect(await stored()).toBe(before);
+
+	await selector.selectOption(stableId);
+	await expect(page.getByRole('button', { name: 'Supprimer la vue' })).toBeVisible();
+	await page.getByRole('button', { name: 'Supprimer la vue' }).click();
+	await expect(error).toBeVisible();
+	await expect(selector.locator(`option[value="${stableId}"]`)).toHaveCount(1);
+	await expect(selector).toHaveValue(stableId);
+	expect(await stored()).toBe(before);
+
+	await field.fill('Rapid');
+	await page.getByTestId('collection-save-view').dblclick();
+	await expect(selector).not.toContainText('Rapid');
+	expect(await stored()).toBe(before);
+
+	await setWriteFailure(false);
+	await page.getByTestId('collection-save-view').click();
+	await expect(error).toHaveCount(0);
+	await expect(selector).toContainText('Rapid');
+	const after = JSON.parse((await stored()) ?? '[]') as Array<{ name: string }>;
+	expect(after.map((view) => view.name)).toEqual(['Stable', 'Rapid']);
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+	const restored = page.getByTestId('collection-views');
+	await expect(restored).toContainText('Stable');
+	await expect(restored).toContainText('Rapid');
+	await restored.selectOption({ label: 'Stable' });
+	await expect(page.getByTestId('collection-filter')).toHaveValue('docs');
+	await expect(page.getByTestId('collection-sort')).toHaveValue('priority');
+	await expect(page.getByTestId('collection-direction')).toHaveText('Z-A');
+	await expect(page.getByTestId('collection-group')).toHaveValue('status');
+	await expect(page.getByTestId('collection-board')).toBeVisible();
+	await expect(page.getByTestId('collection-table')).toHaveCount(0);
+
+	expect(failures).toEqual([]);
+	expect(await rejections()).toEqual([]);
+	const result = {
+		fixture: { notes: files.length },
+		result: {
+			storedBefore: JSON.parse(before ?? '[]'),
+			storedAfter: after,
+			pageErrors: failures,
+			unhandledRejections: await rejections()
+		}
+	};
+	await writeArtifact('collection-view-storage-failure.json', result);
+	await info.attach('collection-view-storage-failure.json', {
+		body: JSON.stringify(result, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('does not overwrite unread saved views when reads fail', async ({ page }, info: TestInfo) => {
+	const { failures, rejections } = await trackCollectionFailures(page);
+	await page.addInitScript(() => {
+		const state = window as unknown as {
+			__mdshFailViewReads: boolean;
+			__mdshOriginalGetItem: Storage['getItem'];
+		};
+		state.__mdshFailViewReads = sessionStorage.getItem('__mdshFailViewReads') === '1';
+		const original = Storage.prototype.getItem;
+		state.__mdshOriginalGetItem = original;
+		Storage.prototype.getItem = function (key) {
+			if (state.__mdshFailViewReads && key === 'mdsh:collection-views') {
+				throw new DOMException('Access is denied.', 'SecurityError');
+			}
+			return original.call(this, key);
+		};
+	});
+	await resetAppState(page);
+	await seedFiles(page, files);
+	await openCollection(page);
+
+	const field = page.getByRole('textbox', { name: 'Nom de la vue' });
+	const save = page.getByTestId('collection-save-view');
+	const selector = page.getByTestId('collection-views');
+	await field.fill('Existing');
+	await save.click();
+	await expect(selector).toContainText('Existing');
+	const before = await page.evaluate(() => localStorage.getItem('mdsh:collection-views'));
+	expect(JSON.parse(before ?? '[]')).toHaveLength(1);
+
+	await page.evaluate(() => sessionStorage.setItem('__mdshFailViewReads', '1'));
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+	await expect(page.getByTestId('collection-views-error')).toContainText('stockage');
+	await expect(selector.locator('option')).toHaveCount(1);
+	await expect(page.getByTestId('collection-table')).toContainText('Alpha');
+	await expect(page.getByTestId('collection-table')).toContainText('Gamma');
+
+	await field.fill('New');
+	await save.click();
+	await expect(page.getByTestId('collection-views-error')).toContainText('stockage');
+	await expect(selector).not.toContainText('New');
+	const unread = await page.evaluate(() =>
+		(window as unknown as { __mdshOriginalGetItem: Storage['getItem'] }).__mdshOriginalGetItem.call(
+			localStorage,
+			'mdsh:collection-views'
+		)
+	);
+	expect(unread).toBe(before);
+
+	await page.evaluate(() => {
+		(window as unknown as { __mdshFailViewReads: boolean }).__mdshFailViewReads = false;
+		sessionStorage.setItem('__mdshFailViewReads', '0');
+	});
+	await save.click();
+	await expect(page.getByTestId('collection-views-error')).toHaveCount(0);
+	await expect(selector).toContainText('Existing');
+	await expect(selector).toContainText('New');
+	const after = await page.evaluate(() => localStorage.getItem('mdsh:collection-views'));
+	const names = (JSON.parse(after ?? '[]') as Array<{ name: string }>).map((view) => view.name);
+	expect(names).toEqual(['Existing', 'New']);
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+	await expect(page.getByTestId('collection-views')).toContainText('Existing');
+	await expect(page.getByTestId('collection-views')).toContainText('New');
+	expect(failures).toEqual([]);
+	expect(await rejections()).toEqual([]);
+
+	const result = {
+		fixture: { notes: files.length },
+		result: {
+			readFailureShown: true,
+			readOnlyTableRows: 3,
+			storedBefore: JSON.parse(before ?? '[]'),
+			storedAfter: names,
+			pageErrors: failures,
+			unhandledRejections: await rejections()
+		}
+	};
+	await writeArtifact('collection-view-read-failure.json', result);
+	await info.attach('collection-view-read-failure.json', {
+		body: JSON.stringify(result, null, 2),
+		contentType: 'application/json'
+	});
+});
+
+test('ignores duplicate stored view IDs', async ({ page }, info: TestInfo) => {
+	const { failures, rejections } = await trackCollectionFailures(page);
+	await resetAppState(page);
+	await seedFiles(page, files);
+	await page.evaluate(() => {
+		const view = {
+			filter: '',
+			sortKey: 'title',
+			sortDirection: 'asc',
+			groupKey: '',
+			mode: 'table'
+		};
+		localStorage.setItem(
+			'mdsh:collection-views',
+			JSON.stringify([
+				{ ...view, id: 'duplicate', name: 'First copy' },
+				{ ...view, id: 'duplicate', name: 'Second copy' },
+				{ ...view, id: 'unique', name: 'Unique' }
+			])
+		);
+	});
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+
+	const selector = page.getByTestId('collection-views');
+	await expect(selector.locator('option')).toHaveCount(3);
+	await expect(selector).toContainText('First copy');
+	await expect(selector).not.toContainText('Second copy');
+	await selector.selectOption('unique');
+	await page.getByRole('button', { name: 'Supprimer la vue' }).click();
+	await expect(selector.locator('option')).toHaveCount(2);
+	await expect(selector).toContainText('First copy');
+	const after = await page.evaluate(() => localStorage.getItem('mdsh:collection-views'));
+	const stored = JSON.parse(after ?? '[]') as Array<{ id: string; name: string }>;
+	expect(stored).toHaveLength(1);
+	expect(stored[0]?.name).toBe('First copy');
+	expect(failures).toEqual([]);
+	expect(await rejections()).toEqual([]);
+
+	const result = {
+		fixture: { notes: files.length, storedIds: ['duplicate', 'duplicate', 'unique'] },
+		result: { rendered: 2, storedAfterDelete: stored, pageErrors: failures }
+	};
+	await writeArtifact('collection-view-duplicate-ids.json', result);
+	await info.attach('collection-view-duplicate-ids.json', {
+		body: JSON.stringify(result, null, 2),
+		contentType: 'application/json'
+	});
+});
