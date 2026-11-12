@@ -894,23 +894,48 @@ iPad Safari in portrait and landscape, remain required evidence.
 ## Presentation inspector width risks
 
 The presentation Properties inspector uses a 252 px side panel above an 800 px
-container width and an absolute overlay below it. The retained risks are a
-default open state from the outer window width, a stale open state after an
-orientation or window change, a reopen after the user closed the panel, a lost
-focus when the panel closes, an overlay without a reachable dismiss control, and
-a changed selected object.
+container width and an absolute overlay below it. The retained risks are:
+
+- A default open state read from the outer window width while the files sidebar
+  holds part of that width.
+- A stale open state after an orientation or window change.
+- A reopen after the user closed the panel.
+- A lost focus when the panel closes.
+- An overlay without a reachable dismiss control.
+- A changed selected object.
+- An essential toolbar control hidden by the overlay.
+- A viewport change that turns the desktop sidebar into a drawer.
 
 `SlideEditor.svelte` reads the actual presentation container width with a
 `ResizeObserver`. The automatic state follows the 800 px breakpoint. A manual
 toggle sets an explicit open or closed preference that later resizes keep. An
 automatic close moves focus to the Properties toggle when the panel held focus.
+An explicit dismiss also returns focus to the toggle.
 
-`e2e/presentation-inspector-width.spec.ts` resizes one open deck without a
-reload across the breakpoint in both directions. It checks the container width,
-the panel presence, the toggle state, the overlay bounds, the dismiss control
-and the focused control. It attaches the geometry JSON and a screenshot. The
-case does not prove iPad multitasking, native window minimum size, browser zoom
-or a native WebView.
+`e2e/presentation-inspector-width.spec.ts` keeps the original live resize case.
+It adds two cases:
+
+1. A deck starts at a 960 px viewport with the files sidebar closed. The editor
+   is wider than 800 px and the inspector opens. Opening the sidebar narrows the
+   editor below 800 px and closes the inspector. Closing the sidebar reopens it.
+2. A narrow editor opens the inspector as an overlay. The case adds and selects
+   a text object. It checks the Close control and the add text, export, notes,
+   present and properties controls as real hit targets. It checks that the
+   overlay stays inside the editor. It resizes to a 1500 px viewport, then to a
+   720 px viewport where the sidebar collapses to a closed drawer. It checks
+   that the selected object, the selection status and the focus stay stable. An
+   explicit Close returns focus to the toggle, keeps the object selected and
+   makes the canvas a hit target again.
+
+Both cases resize without a reload. They attach JSON and screenshots. The JSON
+records the source revision and tree, the working diff hash, the environment,
+the viewport, the editor and inspector boxes, the sidebar state, the toggle
+state, the selected object and the focused element.
+
+The cases use desktop Chromium viewport simulation. They do not prove physical
+iPad portrait or landscape, iPad Stage Manager windows, the native 720 px
+minimum window, browser or platform zoom, Tauri WebView layout, touch input or
+presentation playback.
 
 Run `npx playwright test e2e/presentation-inspector-width.spec.ts --project=chromium --workers=1 --retries=0`.
 
