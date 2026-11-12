@@ -439,6 +439,48 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 	await switchWindow('main');
 	record('hide command after template cancel', await invoke('desktop_capture_hide'));
 
+	// A synchronous input after the template change runs before the dynamic
+	// import and the IndexedDB read can resume. A late template result must not
+	// replace this text or set the title.
+	record('show command for a typed template race', await invoke('desktop_capture_show'));
+	await openCapture();
+	await until(
+		() =>
+			executeIn(
+				`const select = document.querySelector('[data-testid=capture-template]');
+				return !!select && select.options.length > 1;`
+			),
+		'quick capture template selector is available for the race',
+		15_000
+	);
+	const raceTyped = await executeIn(
+		`const select = document.querySelector('[data-testid=capture-template]');
+		const titleInput = document.querySelector('[data-testid=capture-title]');
+		const bodyInput = document.querySelector('[data-testid=capture-content]');
+		if (!select || !titleInput || !bodyInput) return null;
+		select.value = select.options[1].value;
+		select.dispatchEvent(new Event('change', { bubbles: true }));
+		titleInput.value = '';
+		titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+		bodyInput.value = 'Typed while the template loaded';
+		bodyInput.dispatchEvent(new Event('input', { bubbles: true }));
+		return { body: bodyInput.value, title: titleInput.value };`
+	);
+	assert.deepEqual(raceTyped, { body: 'Typed while the template loaded', title: '' });
+	await delay(1500);
+	const raceAfter = record(
+		'typed text survives a late template resolution',
+		await executeIn(
+			`const titleInput = document.querySelector('[data-testid=capture-title]');
+			const bodyInput = document.querySelector('[data-testid=capture-content]');
+			return { body: bodyInput?.value ?? null, title: titleInput?.value ?? null };`
+		)
+	);
+	assert.deepEqual(raceAfter, { body: 'Typed while the template loaded', title: '' });
+	await executeIn(`document.querySelector('[data-testid=capture-cancel]').click(); return true;`);
+	await switchWindow('main');
+	record('hide command after typed template race', await invoke('desktop_capture_hide'));
+
 	writeFileSync(
 		join(output, 'native-capture.json'),
 		JSON.stringify(

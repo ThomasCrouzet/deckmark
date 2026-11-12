@@ -27,6 +27,8 @@ export const captureEn = {
 	'capture.clipboardFailed': 'Cannot read the clipboard. Paste with the keyboard instead.',
 	'capture.saveFailed': 'Could not save the note: {message}',
 	'capture.loadFailed': 'The quick capture window could not load.',
+	'capture.templateMissing': 'This template is no longer available. The note text was not changed.',
+	'capture.templateFailed': 'The template could not be loaded: {message}',
 	'settings.capture': 'Quick capture (optional)',
 	'settings.captureHelp':
 		'Open a small capture window from any application with a global shortcut. The shortcut is off by default.',
