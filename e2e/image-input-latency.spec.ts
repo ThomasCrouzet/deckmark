@@ -14,6 +14,8 @@ const counterKey = 'deckmark:image-perf-counters';
 
 type Counters = Record<string, number>;
 
+type StageSamples = Record<string, number[]>;
+
 type ImageSpec = {
 	width: number;
 	height: number;
@@ -240,6 +242,14 @@ async function installInputProbe(page: Page) {
 	await page.locator('.ProseMirror').evaluate((element) => {
 		const samples: number[] = [];
 		const longTasks: number[] = [];
+		const stages: Record<string, number[]> = {};
+		// Product stage durations arrive as kind: 'duration' events. They stay
+		// outside the gated sample list and only describe the work around a key.
+		window.addEventListener('deckmark:editor-perf', (event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string; value?: number }>).detail;
+			if (detail.kind !== 'duration' || detail.value === undefined) return;
+			(stages[detail.name] ??= []).push(detail.value);
+		});
 		(element as HTMLElement).addEventListener(
 			'beforeinput',
 			() => {
@@ -261,17 +271,20 @@ async function installInputProbe(page: Page) {
 		}
 		(window as unknown as { __imageInputProbe: unknown }).__imageInputProbe = {
 			samples,
-			longTasks
+			longTasks,
+			stages
 		};
 	});
 }
 
-async function readInputProbe(page: Page): Promise<{ samples: number[]; longTasks: number[] }> {
+async function readInputProbe(
+	page: Page
+): Promise<{ samples: number[]; longTasks: number[]; stages: StageSamples }> {
 	return page.evaluate(
 		() =>
 			(
 				window as unknown as {
-					__imageInputProbe: { samples: number[]; longTasks: number[] };
+					__imageInputProbe: { samples: number[]; longTasks: number[]; stages: StageSamples };
 				}
 			).__imageInputProbe
 	);
@@ -293,6 +306,18 @@ function percentile(values: readonly number[], ratio: number): number {
 	if (!values.length) return 0;
 	const sorted = [...values].sort((left, right) => left - right);
 	return sorted[Math.ceil(sorted.length * ratio) - 1]!;
+}
+
+/** Summarize product stage durations without mixing them into the gated samples. */
+function summarizeStages(
+	stages: StageSamples
+): Record<string, { count: number; p50: number; p95: number }> {
+	return Object.fromEntries(
+		Object.entries(stages).map(([name, values]) => [
+			name,
+			{ count: values.length, p50: percentile(values, 0.5), p95: percentile(values, 0.95) }
+		])
+	);
 }
 
 async function typeAndSample(page: Page, characters: number): Promise<void> {
@@ -378,6 +403,7 @@ for (const scenario of scenarios) {
 		const heapBefore = await heap(page);
 		const positions: Record<string, number[]> = {};
 		const positionTasks: Record<string, number[]> = {};
+		const positionStages: Record<string, StageSamples> = {};
 		for (const position of ['start', 'end'] as const) {
 			const block =
 				position === 'start' ? visual.locator('h1').first() : visual.locator('p').last();
@@ -387,15 +413,24 @@ for (const scenario of scenarios) {
 			await page.waitForTimeout(1_200);
 			await page.evaluate(() => {
 				const probe = (
-					window as unknown as { __imageInputProbe: { samples: number[]; longTasks: number[] } }
+					window as unknown as {
+						__imageInputProbe: {
+							samples: number[];
+							longTasks: number[];
+							stages: Record<string, number[]>;
+						};
+					}
 				).__imageInputProbe;
 				probe.samples.length = 0;
 				probe.longTasks.length = 0;
+				for (const values of Object.values(probe.stages)) values.length = 0;
 			});
 			await typeAndSample(page, 30);
 			await page.waitForTimeout(700);
-			positions[position] = (await readInputProbe(page)).samples;
-			positionTasks[position] = (await readInputProbe(page)).longTasks;
+			const measured = await readInputProbe(page);
+			positions[position] = measured.samples;
+			positionTasks[position] = measured.longTasks;
+			positionStages[position] = measured.stages;
 		}
 		const countersAfter = await readCounters(page);
 		const counterDelta = delta(countersBefore, countersAfter);
@@ -406,6 +441,18 @@ for (const scenario of scenarios) {
 		const p50 = percentile(probe.samples, 0.5);
 		const p95 = percentile(probe.samples, 0.95);
 		const longestTask = probe.longTasks.length ? Math.max(...probe.longTasks) : 0;
+		const samplesAtOrAbove100 = probe.samples.filter((value) => value >= 100).length;
+		const allStages = Object.values(positionStages).reduce<StageSamples>((all, stages) => {
+			for (const [name, values] of Object.entries(stages)) (all[name] ??= []).push(...values);
+			return all;
+		}, {});
+		const stageSummary = summarizeStages(allStages);
+		const positionStageSummary = Object.fromEntries(
+			Object.entries(positionStages).map(([position, stages]) => [
+				position,
+				summarizeStages(stages)
+			])
+		);
 		const typedTail = 'abcdefghijklmnopqrstuvwxyz0123';
 		let saved = '';
 		await expect
@@ -449,8 +496,10 @@ for (const scenario of scenarios) {
 				scenario: scenario.name,
 				p50,
 				p95,
+				samplesAtOrAbove100,
 				longestTask,
 				samples: probe.samples,
+				stages: stageSummary,
 				counters: counterDelta
 			})
 		);
@@ -460,14 +509,19 @@ for (const scenario of scenarios) {
 					fixture: fixtureSummary,
 					method:
 						'Thirty trusted insertText events at the start and thirty at the end. Each sample is beforeinput to the second animation frame. Long tasks are engine-reported.',
+					stageMethod:
+						'Product duration events are recorded by name. They stay outside the gated p50 and p95 and describe the work around a position.',
 					scenario: scenario.name,
 					positions,
 					positionTasks,
+					positionStages: positionStageSummary,
 					samples: probe.samples,
 					longTasks: probe.longTasks,
 					p50,
 					p95,
+					samplesAtOrAbove100,
 					longestTask,
+					stages: stageSummary,
 					counters: counterDelta,
 					heap: { before: heapBefore, after: heapAfter },
 					savedBytes: Buffer.byteLength(saved),

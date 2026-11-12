@@ -23,6 +23,11 @@ test.describe('PWA - manifest', () => {
 		expect(href).toContain('manifest.webmanifest');
 	});
 
+	test('does not request the deprecated translucent status bar', async ({ page }) => {
+		await page.goto('/');
+		await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveCount(0);
+	});
+
 	test('serves a valid manifest with a name and icons', async ({ page, request }) => {
 		await page.goto('/');
 		const href = await page.locator('head link[rel="manifest"]').getAttribute('href');
@@ -33,10 +38,21 @@ test.describe('PWA - manifest', () => {
 
 		const manifest = (await res.json()) as {
 			name?: string;
+			id?: string;
+			start_url?: string;
+			scope?: string;
 			icons?: Array<{ src: string; sizes?: string }>;
 		};
 		expect(manifest.name).toBeTruthy();
 		expect(Array.isArray(manifest.icons) && manifest.icons.length).toBeGreaterThan(0);
+
+		const manifestUrl = new URL(href as string, page.url()).toString();
+		const appRoot = new URL('.', page.url()).toString();
+		expect(manifest.id).toBe('/');
+		for (const key of ['id', 'start_url', 'scope'] as const) {
+			expect(manifest[key], `manifest ${key} absent`).toBeTruthy();
+			expect(new URL(manifest[key] as string, manifestUrl).toString()).toBe(appRoot);
+		}
 	});
 });
 

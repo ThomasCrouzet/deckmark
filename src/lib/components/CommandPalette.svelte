@@ -33,7 +33,7 @@
 	import { filterCommands } from '#lib/palette-rank.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { aiStore } from '#lib/ai/store.svelte.js';
-	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import { formatKbd } from '#lib/platform.js';
 	import {
 		FilePlus,
@@ -884,9 +884,11 @@
 
 	const PAGE_COMMANDS = 100;
 	let visibleLimit = $state(PAGE_COMMANDS);
+	let paginationStatus = $state('');
 	$effect(() => {
 		void query;
 		visibleLimit = PAGE_COMMANDS;
+		paginationStatus = '';
 	});
 	const matches: Command[] = $derived.by(() => {
 		const all = [
@@ -1011,6 +1013,16 @@
 		});
 	});
 
+	/** Adds one page without moving the action inside the listbox. */
+	function showMoreCommands() {
+		visibleLimit += PAGE_COMMANDS;
+		paginationStatus = t('palette.moreShown', {
+			shown: Math.min(visibleLimit, matches.length),
+			total: matches.length
+		});
+		void tick().then(() => inputEl?.focus());
+	}
+
 	function handleKey(e: KeyboardEvent) {
 		if (e.isComposing || e.defaultPrevented) return;
 		if (e.key === 'Escape') {
@@ -1047,6 +1059,7 @@
 		aria-label={t(view === 'actions' ? 'actions.title' : 'palette.dialogLabel')}
 		tabindex="-1"
 		use:focusTrap
+		use:visualViewportPanel
 	>
 		<div
 			class="mdsh-dialog-panel flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border
@@ -1132,6 +1145,9 @@
 					<span>{t('palette.availableCount', { n: filtered.filter(isAvailable).length })}</span>
 				</div>
 
+				<p id="cmd-palette-pagination-status" class="sr-only" role="status" aria-live="polite">
+					{paginationStatus}
+				</p>
 				<ul
 					id="cmd-palette-listbox"
 					role="listbox"
@@ -1189,19 +1205,20 @@
 								{/if}
 							</li>
 						{/each}
-						{#if filtered.length < matches.length}
-							<li class="px-4 py-2 text-center text-xs">
-								<button
-									type="button"
-									class="text-fg-muted underline"
-									onclick={() => (visibleLimit += PAGE_COMMANDS)}
-								>
-									{t('palette.showMore', { n: matches.length - filtered.length })}
-								</button>
-							</li>
-						{/if}
 					{/if}
 				</ul>
+				{#if filtered.length > 0 && filtered.length < matches.length}
+					<div class="border-t border-border px-4 py-2 text-center text-xs">
+						<button
+							type="button"
+							class="text-fg-muted underline"
+							aria-controls="cmd-palette-listbox"
+							onclick={showMoreCommands}
+						>
+							{t('palette.showMore', { n: matches.length - filtered.length })}
+						</button>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>

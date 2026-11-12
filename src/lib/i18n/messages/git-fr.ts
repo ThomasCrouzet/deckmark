@@ -38,6 +38,16 @@ export const gitFr: Record<GitMessageKey, string> = {
 	'git.diff.loading': 'Chargement de la différence...',
 	'git.diff.empty': 'Aucune différence à afficher.',
 	'git.diff.truncated': 'La différence est longue. Les 2000 premières lignes sont affichées.',
+	'git.diff.review.first': 'Première section',
+	'git.diff.review.previous': 'Section précédente',
+	'git.diff.review.next': 'Section suivante',
+	'git.diff.review.last': 'Dernière section',
+	'git.diff.review.partial':
+		'Aperçu partiel : lignes {start} à {end} sur {total}. Section {page} sur {pages}.',
+	'git.diff.review.complete':
+		'Dernière section : lignes {start} à {end} sur {total}. Les {total} lignes sont consultables en {pages} sections.',
+	'git.diff.review.tooLarge':
+		"Cette différence dépasse la limite de sortie Git native de 1 MiB. Elle n'est pas affichée. Consultez le fichier avec un autre outil Git.",
 	'git.selectFile': 'Sélectionnez un fichier pour afficher sa différence.',
 	'git.commit.title': 'Créer un commit',
 	'git.commit.message': 'Message du commit',

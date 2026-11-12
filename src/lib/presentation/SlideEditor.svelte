@@ -104,6 +104,10 @@
 	let exportOpen = $state(false);
 	let notesOpen = $state(true);
 	let inspectorOpen = $state(true);
+	// 'auto' follows the usable editor width. A manual toggle keeps the user
+	// choice across later resizes.
+	let inspectorPreference = $state<'auto' | 'open' | 'closed'>('auto');
+	const INSPECTOR_SIDE_BREAKPOINT = 800;
 	let multiSelect = $state(false);
 	let presenting = $state(false);
 	let showNotes = $state(false);
@@ -327,6 +331,30 @@
 		};
 	});
 	$effect(() => {
+		const element = root;
+		if (!element) return;
+		const update = () => {
+			const width = element.getBoundingClientRect().width;
+			if (inspectorPreference !== 'auto') return;
+			const next = width >= INSPECTOR_SIDE_BREAKPOINT;
+			if (next === inspectorOpen) return;
+			const active = document.activeElement;
+			const hadFocus =
+				active instanceof HTMLElement &&
+				active !== element &&
+				!!active.closest('[data-testid="slide-inspector"]');
+			inspectorOpen = next;
+			if (!next && hadFocus)
+				void tick().then(() =>
+					element.querySelector<HTMLButtonElement>('[data-testid="slide-properties"]')?.focus()
+				);
+		};
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(element);
+		return () => observer.disconnect();
+	});
+	$effect(() => {
 		void editor.source;
 		void editor.revision;
 		void editor.index;
@@ -342,7 +370,6 @@
 		return () => clearTimeout(timer);
 	});
 	onMount(() => {
-		inspectorOpen = window.innerWidth >= 768;
 		if (editor.error) parseAlert?.focus();
 		else root?.focus();
 		const nativeAction = (event: Event) => {
@@ -378,6 +405,9 @@
 		if (root) resizeObserver.observe(root);
 		window.addEventListener('resize', keepFocusedControlVisible);
 		visualViewport?.addEventListener('resize', keepFocusedControlVisible);
+		// Mobile browser chrome and an open keyboard can move the visual viewport
+		// without a resize. Recompute from both the viewport size and offset.
+		visualViewport?.addEventListener('scroll', keepFocusedControlVisible);
 		root?.addEventListener('focusin', keepFocusedControlVisible);
 		root?.addEventListener('focusout', keepFocusedControlVisible);
 		return () => {
@@ -386,12 +416,15 @@
 			onPresentingChange(false);
 			disposed = true;
 			clipboardShortcut = null;
+			thumbnailTouch = null;
+			slideDragIndex = null;
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
 			window.removeEventListener('mdsh:flush-editor', flush);
 			resizeObserver.disconnect();
 			window.removeEventListener('resize', keepFocusedControlVisible);
 			visualViewport?.removeEventListener('resize', keepFocusedControlVisible);
+			visualViewport?.removeEventListener('scroll', keepFocusedControlVisible);
 			root?.removeEventListener('focusin', keepFocusedControlVisible);
 			root?.removeEventListener('focusout', keepFocusedControlVisible);
 			if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
@@ -798,6 +831,29 @@
 			editor.moveSlide(thumbnailTouch.from, Number(target.dataset.slideIndex));
 		thumbnailTouch = null;
 	}
+	function thumbnailPointerCancel(event: PointerEvent) {
+		if (thumbnailTouch?.pointerId === event.pointerId) thumbnailTouch = null;
+	}
+	function endThumbnailDrag() {
+		slideDragIndex = null;
+	}
+	function dropThumbnail(event: DragEvent, index: number) {
+		event.preventDefault();
+		event.stopPropagation();
+		const payload = event.dataTransfer?.getData('text/x-mdsh-slide') ?? '';
+		const from = Number.parseInt(payload, 10);
+		// Accept only a live filmstrip drag that started in this filmstrip. A
+		// cancelled drag or an unrelated drop must not reuse a stale origin.
+		if (slideDragIndex === null || from !== slideDragIndex) {
+			slideDragIndex = null;
+			return;
+		}
+		editor.moveSlide(from, index);
+		slideDragIndex = null;
+	}
+	function cancelThumbnailDragOnEscape(event: KeyboardEvent) {
+		if (event.key === 'Escape') slideDragIndex = null;
+	}
 </script>
 
 <svelte:window
@@ -806,7 +862,11 @@
 		gestures.pointerEnd(event);
 		thumbnailPointerUp(event);
 	}}
-	onpointercancel={(event) => gestures.pointerEnd(event, true)}
+	onpointercancel={(event) => {
+		gestures.pointerEnd(event, true);
+		thumbnailPointerCancel(event);
+	}}
+	onkeydown={cancelThumbnailDragOnEscape}
 />
 
 {#snippet action(
@@ -1052,6 +1112,7 @@
 				aria-pressed={inspectorOpen}
 				onclick={() => {
 					inspectorOpen = !inspectorOpen;
+					inspectorPreference = inspectorOpen ? 'open' : 'closed';
 				}}
 				><SlidersHorizontal size={17} /><span class="compact-label">{t('slides.properties')}</span
 				></button
@@ -1135,16 +1196,12 @@
 									event.dataTransfer?.setData('text/x-mdsh-slide', String(index));
 									event.stopPropagation();
 								}}
+								ondragend={endThumbnailDrag}
 								ondragover={(event) => {
 									event.preventDefault();
 									event.stopPropagation();
 								}}
-								ondrop={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									if (slideDragIndex !== null) editor.moveSlide(slideDragIndex, index);
-									slideDragIndex = null;
-								}}
+								ondrop={(event) => dropThumbnail(event, index)}
 							>
 								<span class="slide-number">{index + 1}</span><span
 									class="thumbnail-preview"
@@ -1465,6 +1522,7 @@
 					{multiSelect}
 					onClose={() => {
 						inspectorOpen = false;
+						inspectorPreference = 'closed';
 						void tick().then(() =>
 							root?.querySelector<HTMLButtonElement>('[data-testid="slide-properties"]')?.focus()
 						);
@@ -1607,6 +1665,9 @@
 	.source-actions {
 		display: flex;
 		gap: 8px;
+		position: sticky;
+		bottom: 0;
+		background: var(--color-bg);
 	}
 	.next-slide {
 		position: relative;

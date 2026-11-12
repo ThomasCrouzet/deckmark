@@ -225,6 +225,30 @@ which risk each test detects and why the browser suite cannot detect it. Do not 
 tests only to increase coverage. Do not test dependency internals, type contracts,
 constant values, or mocked call sequences alone.
 
+## Presentation visual-viewport movement
+
+An open software keyboard can move the visual viewport without a window resize.
+The presentation editor must recompute focused-control visibility from the
+viewport size and offset on `visualViewport.resize` and
+`visualViewport.scroll`. A scroll-only change must not leave a stale height or
+scroll target. Repeated events at the same offset must not move the editor
+again, and closing or changing the presentation must remove both listeners.
+
+`e2e/presentation-visual-viewport.spec.ts` installs a test-only VisualViewport
+target before the application starts. It changes `offsetTop` at a constant
+`height`, dispatches only `scroll`, and checks the editor height, the focused
+field bounds, a stable second event and listener teardown. Run:
+
+```sh
+npx playwright test e2e/presentation-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/presentation-visual-viewport.spec.ts --project=mobile-chromium --workers=1 --retries=0
+```
+
+This simulates the event and the geometry. It does not reproduce an operating
+system keyboard, a WebKit visual viewport or a physical display. A device check
+must still enter text in a slide and in the presenter notes, move the page, and
+confirm that the field, caret and saved source remain correct.
+
 ## Presentation thumbnail retention
 
 An intersection callback can mount a thumbnail once and retain its rich subtree
@@ -538,6 +562,63 @@ checks the native browser viewer under the production CSP. Retain fixture PDFs,
 downloads, ZIP files, screenshots, and JSON reports. Run both specs with
 `npx playwright test e2e/binary-review.spec.ts e2e/pdf-viewer.spec.ts --project=chromium --workers=1`.
 
+### Library ZIP download boundary
+
+Retain these failure risks for the library export: a saved download can be a
+different non-ZIP file, empty, or truncated before JSZip parses it. The first
+hosted failures in PR641, PR642, PR643 and PR645 were JSZip end-of-central-
+directory errors with no retained payload. On a JSZip parse failure only, the
+spec emits one compact `[library-zip-boundary]` JSON line and attaches
+`binary-library-zip-boundary.json`. The record contains the intended command,
+the actual suggested filename, the expected filename classification, the byte
+length, the first 8 and last 32 hex bytes, the local header, and the EOCD offset
+and end completeness. It does not include the complete binary. Missing values
+stay null.
+
+The diagnostic does not preempt JSZip, change a wait, timeout, retry, fixture or
+assertion, or replace the original exception. A failure to attach or format the
+diagnostic is reported on the console and the original JSZip exception is
+rethrown. A wrong filename indicates a wrong command or download. The expected
+filename with no local header indicates wrong or empty bytes. The expected
+filename with a missing or incomplete EOCD indicates truncation. A complete
+boundary with a JSZip failure points to central-directory or parser
+investigation. A retry recovery is flaky, not a clean pass.
+
+`downloadBytes` now rejects one download only: the live download whose URL equals
+the current `pdf-frame` `src` at event time. Headless Chromium can auto-download
+the preview iframe blob as a UUID-named PDF before the intended export. The
+predicate keeps the native wait deadline and event order. It does not filter by
+MIME, filename suffix, byte length or the PDF type. A different PDF, including
+the intended `review.pdf` save-as export, remains visible to the original
+assertions.
+
+The controls use real browser events. A preview-only case makes one UUID PDF
+download and the predicate rejects it; no export succeeds. A non-preview PDF
+save-as produces `review.pdf`, the predicate accepts it, and JSZip still rejects
+its bytes, so the original ZIP and filename assertions remain effective. These
+are helper-contract controls, not product regression claims.
+
+Run the real library and PDF save-as cases with one worker and no retries:
+
+```sh
+E2E_PORT=4227 npx playwright test e2e/binary-review.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 \
+  --grep 'library ZIP preserves|save-as preserves review.pdf bytes'
+```
+
+PDF save-to-disk is a Chromium-only control in this file. Firefox and WebKit
+have no routed save-to-disk control, so a broad grep that includes it fails at
+`getByTestId('save-to-disk')` before any download. That is an unrelated routed-
+control limit, not an export or predicate regression.
+
+The zero, truncated and non-ZIP boundary checks are test-only evidence controls.
+They prove the boundary fields and the preserved JSZip error. They are not product
+RED, a hosted reproduction, or proof that the export is corrupt. The hosted
+failure artifact remains unavailable, so the old hosted incident is not
+retroactively clean. The local pre-repair run produced a 39-byte UUID PDF; the
+repair ignores only that exact preview URL. Native and physical-device checks
+remain separate.
+
 The native Git tests use real repositories. They check executable filters,
 included configuration, parent-repository confinement, literal diff paths, and
 unstage before the first commit. Check unchanged index and working-tree bytes.
@@ -623,6 +704,18 @@ those paths. Each browser case retains source metadata, fixtures, and screenshot
 The PDF viewer case uses full Chromium headless mode because the headless shell
 does not include the PDF viewer.
 
+The Quick Capture key handler must not cancel or save during IME composition.
+The retained risks are an Escape that closes the window while it dismisses a
+candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
+key code 229 event, a lost draft and a lost focus. The Web edition does not mount
+this component, so a browser workflow cannot reach it. `QuickCapture.component.test.ts`
+replaces the native window bridge and the stores. It dispatches composition and
+legacy key code sequences, then checks the normal Escape and Ctrl+Enter paths,
+the draft text, the focus and the call counts. Run
+`npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
+Synthetic composition events do not prove a physical IME, Windows WebView2,
+macOS WKWebView or Linux WebKitGTK behavior.
+
 The PDF case checks the native viewer, page count, rendered thumbnail pixels, and
 exact fixture text before and after reload. It also compares the downloaded bytes.
 Keep `frame-src blob:` and `object-src 'none'` in the production CSP.
@@ -665,6 +758,37 @@ Run `npx playwright test e2e/export-download-lifetime.spec.ts --project=chromium
 and repeat with `--project=firefox` and `--project=webkit`.
 
 ## Edition and hosting checks
+
+### Installed iOS and iPadOS chrome
+
+The viewport uses `viewport-fit=cover`. The shared shell resolves the platform
+`env(safe-area-inset-*)` values once and applies them to the persistent toolbar,
+editor and status bar. The fixed mobile drawer applies the same values at the
+viewport boundary. WebKit deprecated the `black-translucent` status-bar mode;
+the document must not request `apple-mobile-web-app-status-bar-style`.
+
+`e2e/safe-area.spec.ts` overrides the resolved custom properties to simulate a
+notched device and checks the toolbar, drawer and status bar against the
+simulated box. It also checks that zero insets add no gap. A custom-property
+override does not reproduce WebKit installation geometry: some iOS releases
+inset the web content before `env()` is resolved, and a fresh install can report
+different values than an older install. The browser suite cannot replace the
+device checks below.
+
+Run:
+
+```sh
+npx playwright test e2e/safe-area.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/safe-area.spec.ts --project=mobile-chromium --workers=1 --retries=0
+```
+
+On a notched iPhone, record the device model, iOS version, install date,
+orientation, `innerHeight`, `visualViewport` values and each
+`env(safe-area-inset-*)` value in Safari tab and Home Screen mode. Repeat on an
+iPad in portrait, landscape and two window widths. Check the toolbar actions,
+drawer controls, editor area and save status. Reinstall the Home Screen app once
+to compare a fresh install with the earlier one. Keep the screenshots and
+measurements with the report. A Chromium viewport emulation is not a device test.
 
 ### Retained hosting failure risks
 
@@ -730,6 +854,18 @@ Run these checks in a fresh browser profile for each base path:
    reaches IndexedDB before the page reloads.
 5. Confirm that application assets and the service worker use the same base path.
 6. Confirm that no Desktop-only native module appears in the Web build or precache.
+7. Read the served manifest. Its effective `id` must be `/` for the root build
+   and `/deckmark/` for the project build. Its effective `start_url` and `scope`
+   must match the same app root. The two IDs must differ.
+
+`scripts/manifest-id.test.mjs` applies the build emitter to both base paths and
+resolves the three URLs against the public manifest URL. The manifest case in
+`e2e/pwa.spec.ts` checks the root artifact. After a real project-path build, run
+`BASE_PATH=/deckmark npm run build` and read `build/manifest.webmanifest`. A
+published identity change also needs the reinstall check in
+[EDITIONS.md](EDITIONS.md#hosting-and-downloads). An installed copy with the
+earlier identity can remain separate; browser storage is origin-local and must
+keep the drafts.
 
 Confirm HTTPS and an independent app at each origin. The GitHub Pages URL must
 not redirect to the Cloudflare site. Keep the existing DNS setup and leave the
@@ -793,6 +929,104 @@ serve the expected source and pass the startup, edit, and offline checks.
 
 See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the hosting contract and
 [DEVELOPMENT.md](DEVELOPMENT.md#web-publishing) for the maintainer steps.
+
+## Dialog visual viewport risks
+
+The search, command, settings and library dialogs use a fixed overlay. A fixed
+overlay follows the layout viewport, so an on-screen keyboard, browser chrome or
+pinch zoom can hide the focused field or the close control. The retained risks
+are a lost query or selection after a viewport change, a dialog that leaves the
+visible region, a close control that is not reachable, and a changed desktop
+layout when no keyboard is present.
+
+`src/lib/a11y/focusTrap.ts` exports the `visualViewportPanel` action that keeps
+the overlay inside the visual viewport.
+It applies only when the visual viewport is smaller than the layout viewport or
+moves from the top. It restores the CSS defaults when the viewport is unchanged.
+The action sets the overlay top and height and a panel maximum height from the
+visible height and the overlay padding.
+
+`e2e/dialog-visual-viewport.spec.ts` replaces `window.visualViewport` before the
+application starts and moves or shrinks it for all four dialogs. It checks the
+dialog panel, the focused field, the close control, the query, the input
+selection and the dialog scroll. It also checks that a normal viewport keeps the
+CSS defaults. This is a simulation and does not prove a physical iOS keyboard,
+Safari viewport panning, VoiceOver output or a native WebView.
+
+Run `npx playwright test e2e/dialog-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep `visual-viewport-dialogs.json` with the source revision, browser version,
+command and the viewport cases. Physical iPhone Safari in tab and PWA mode, and
+iPad Safari in portrait and landscape, remain required evidence.
+
+## Presentation inspector width risks
+
+The presentation Properties inspector uses a 252 px side panel above an 800 px
+container width and an absolute overlay below it. The retained risks are:
+
+- A default open state read from the outer window width while the files sidebar
+  holds part of that width.
+- A stale open state after an orientation or window change.
+- A reopen after the user closed the panel.
+- A lost focus when the panel closes.
+- An overlay without a reachable dismiss control.
+- A changed selected object.
+- An essential toolbar control hidden by the overlay.
+- A viewport change that turns the desktop sidebar into a drawer.
+
+`SlideEditor.svelte` reads the actual presentation container width with a
+`ResizeObserver`. The automatic state follows the 800 px breakpoint. A manual
+toggle sets an explicit open or closed preference that later resizes keep. An
+automatic close moves focus to the Properties toggle when the panel held focus.
+An explicit dismiss also returns focus to the toggle.
+
+`e2e/presentation-inspector-width.spec.ts` keeps the original live resize case.
+It adds two cases:
+
+1. A deck starts at a 960 px viewport with the files sidebar closed. The editor
+   is wider than 800 px and the inspector opens. Opening the sidebar narrows the
+   editor below 800 px and closes the inspector. Closing the sidebar reopens it.
+2. A narrow editor opens the inspector as an overlay. The case adds and selects
+   a text object. It checks the Close control and the add text, export, notes,
+   present and properties controls as real hit targets. It checks that the
+   overlay stays inside the editor. It resizes to a 1500 px viewport, then to a
+   720 px viewport where the sidebar collapses to a closed drawer. It checks
+   that the selected object, the selection status and the focus stay stable. An
+   explicit Close returns focus to the toggle, keeps the object selected and
+   makes the canvas a hit target again.
+
+Both cases resize without a reload. They attach JSON and screenshots. The JSON
+records the source revision and tree, the working diff hash, the environment,
+the viewport, the editor and inspector boxes, the sidebar state, the toggle
+state, the selected object and the focused element.
+
+The cases use desktop Chromium viewport simulation. They do not prove physical
+iPad portrait or landscape, iPad Stage Manager windows, the native 720 px
+minimum window, browser or platform zoom, Tauri WebView layout, touch input or
+presentation playback.
+
+Run `npx playwright test e2e/presentation-inspector-width.spec.ts --project=chromium --workers=1 --retries=0`.
+
+## Note scroll shortcut scope
+
+The Alt+Home and Alt+End note shortcuts listen on `window`. The retained risks
+are a scroll of an inert note while a dialog is open, a consumed key that
+belongs to a foreground control, a scroll of a short note with no scroll target,
+a stale scroller after a mode or file switch, and a scroll during IME
+composition.
+
+`ScrollNav.svelte` resolves the live scroller on each keydown. It ignores an
+event that is already prevented, a composition event, a repeat, a target in an
+inert subtree, an open modal dialog, and an editable field outside the active
+note. It also ignores a note without a scroll range. The pointer and touch
+buttons stay available when the note is scrollable.
+
+`e2e/scroll-nav-scope.spec.ts` checks both boundaries in a long note, then the
+same keys with Settings open, with an outside field focused, during a synthetic
+composition, and in a short note. It records `defaultPrevented` and the scroller
+position. Synthetic events and desktop emulation do not prove a physical iPad
+keyboard, a screen reader or a native WebView.
+
+Run `npx playwright test e2e/scroll-nav-scope.spec.ts --project=chromium --workers=1 --retries=0`.
 
 ## Version 2.0 project risks
 
@@ -887,6 +1121,49 @@ and a restart keep the review retryable. A path restored on disk closes it.
 a second refresh, a restart, an injected metadata failure, recreate, keep local
 and a later save. That workflow requires the native smoke binary on a desktop
 session. The browser suite cannot run these Tauri commands.
+
+## Collections saved views and ARIA indices
+
+`e2e/collection-views.spec.ts` and `e2e/collection-accessibility.spec.ts` retain
+these failure risks:
+
+- A saved-view write can fail after the live list changes. A rejected Save must
+  keep the list, stored value and entered name unchanged, and show one translated
+  alert. A rejected Delete must keep the view and its selection.
+- A failed `getItem` must not become an empty trusted list. A later save must
+  retry the read before it appends. It must not overwrite unread views. A
+  present value that parses as a non-array is unreadable. Keep its exact bytes
+  until a later read can parse a proper list. Absence of the key stays an empty
+  trusted list. The table must stay usable when preference storage is
+  unavailable.
+- A retry must append each view once and preserve filter, sort, direction, group
+  and mode after reload.
+- Empty names must not add a view. Duplicate stored IDs must not crash the keyed
+  list. Quota and security exceptions must not escape as `pageerror` or
+  `unhandledrejection`.
+- The view-name field needs an explicit label. Do not use a placeholder as its
+  only accessible name. Check `getByLabel`, `element.labels` and the accessible
+  name in English and French.
+- The virtualized table must expose `aria-rowcount`, `aria-colcount`, header
+  `aria-rowindex=1`, absolute body `aria-rowindex` and absolute `aria-colindex`
+  for the title and each rendered YAML column. Check sort, both scroll axes,
+  filter and resize. Spacers stay `aria-hidden` and carry no index. Keep an
+  accessibility tree snapshot.
+
+Run the focused cases with one worker and no retries:
+
+```sh
+npx playwright test e2e/collection-views.spec.ts e2e/collection-accessibility.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The storage cases inject failures only for `mdsh:collection-views`. Keep
+`collection-view-storage-failure.json`, `collection-view-read-failure.json`,
+`collection-view-non-array.json`, `collection-view-duplicate-ids.json`,
+`collection-view-name-label.json` and `collection-aria-indices.json` with the
+local browser report.
+
+Browser emulation does not prove physical iPad, VoiceOver, NVDA or native WebView
+behavior. Record those checks separately.
 
 ## Code snippets
 
@@ -1549,6 +1826,32 @@ the input triggers, such as save scheduling and index updates. WebDriver text
 insertion is recorded separately because it includes driver IPC. Do not compare
 an engine that handles one insert with an engine that processes each key.
 
+### Scroll sample timeline diagnostics
+
+A `scrollFrame` budget failure keeps the existing summary line and adds one
+bounded numeric line for each scroll sample. The CI gate uses five samples. The
+line records the run, the scroll ratio, the measured duration, the start time,
+the two animation frame times, the requested and applied `scrollTop`, the scroll
+room and the number of reported long-task entries that overlap the sample. A
+final line records the long-task support and a bounded entry list.
+
+The two-frame timer does not wait for paint or compositing. The timeline can show
+a delayed frame or a deferred charge to a later sample. It does not prove the
+cause.
+
+The long-task observer is installed once for the scroll samples, only when the
+engine lists the `longtask` entry type. It keeps at most 32 entries, performs no
+DOM read, and is disconnected in a `finally` block. The observer adds one
+callback per reported long task. The first-frame timestamp adds one monotonic
+clock read. The second frame keeps the existing end read. If the engine does not
+support the entry type, the output says `unavailable`. A zero entry count is not
+proof that no stall occurred.
+
+These diagnostics never enter the numeric samples, the summary, the budget, the
+exit code or the thrown error. Use them only on a dedicated regression run with a
+local report outside the repository. Do not upload the report or print paths,
+document text or private data.
+
 ### Fixture corpus and budgets
 
 `scripts/benchmark-fixtures/manifest.json` describes the corpus. The repository
@@ -1721,6 +2024,75 @@ have native command coverage in `native-desktop-tools.mjs`.
 The repository keeps browser E2E on Chromium, Firefox and WebKit. A Chromium
 browser pass is not a native desktop pass, and a headless WebKit pass is not a
 WebKitGTK pass.
+
+### Native window work-area risks
+
+A fixed logical size can be larger than the monitor work area at a high display
+scale or on a small screen. A saved window can also restore to an origin on a
+monitor that is no longer connected. The quick capture window is frameless and
+not resizable, so an oversized window can hide its Cancel and Save controls
+with no way to resize it.
+
+A window decoration also counts against the work area. A title bar or frame
+makes the outer rectangle larger than the inner content box. A fit that uses
+only the inner size can put the lower outer edge below the work area. A
+maximized window needs no resize, because a size change can restore it to the
+normal state.
+
+The retained failure risks are:
+
+- The main default or minimum size exceeds the logical work area.
+- A decoration makes the outer rectangle exceed the work area after a fit.
+- A restored main window keeps an origin outside the work area.
+- A reused capture window stays sized for a monitor with another scale factor.
+- A short work area hides the capture content field or its footer actions.
+- A size change moves the window to an origin that belonged to the old size.
+- A launch fit shrinks a maximized saved window and restores the normal state.
+
+`src-tauri/src/window_geometry.rs` owns the fit and clamp rules. The fit
+subtracts the measured decoration, which is the outer minus inner size, before
+it clamps the content size. A maximized window keeps its size and origin. Run
+the pure fit cases with:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml window_geometry::tests
+```
+
+`scripts/native-window-geometry.mjs` runs against the real WebView. It records
+the monitor work area, physical and logical window bounds, scale factor, OS,
+WebView version and a screenshot for the main window and for the capture window
+at launch and after reuse. It checks the main toolbar and every visible button.
+At narrow widths, it checks Save, Export and Settings through the command palette.
+It also checks the capture title, content field, Cancel and Save. Run it on a
+small screen or at a high scale:
+
+```sh
+GDK_SCALE=2 NATIVE_TEST_OUTPUT="${TMPDIR:-$HOME/.cache}/deckmark-native-window-geometry" \
+  dbus-run-session -- xvfb-run -a -s "-screen 0 1366x768x24" \
+  node scripts/native-window-geometry.mjs
+```
+
+At that scale the logical work area is 683 by 384 pixels. On a test window
+manager without decorations the main window fits at 667 by 368 and the capture
+window fits at 560 by 368. A 30 px logical title bar reduces the main content
+height to 338 px, so the decorated outer box stays inside the work area. The
+artifact `native-window-geometry.json` and the screenshots are local evidence.
+Keep the command, source revision, platform and WebView version with them.
+Keep the tested binary and its SHA-256 before another build replaces it.
+
+The 30 px decoration is a pure geometry fixture, not a measured native title bar.
+The decorated Linux run used a maximized window with a 24 px title bar. It proves
+that the maximized state stays fitted. It does not exercise a non-maximized
+decorated shrink. For that path, record a nonzero decoration and `isMaximized`
+false. Keep Windows, macOS, monitor moves and DPI transitions separate. A geometry
+query error can still abort capture creation; the success runs do not prove that
+failure path.
+
+`scripts/native-capture.mjs` also records the main and capture geometry in the
+regular native smoke run on Ubuntu, Windows and macOS. It checks the outer
+right and bottom edges for decorated windows too. This proves the default work
+area on each runner. A Windows WebView2 or macOS high-scale desktop remains an
+on-device check, and the script does not simulate a multi-monitor move.
 
 ### CI tier and routing failure risks
 
@@ -1999,6 +2371,73 @@ bootstrap race can fail the case for a reason it does not intend to test. The
 readiness wait does not relax the click, the custom value, the chord, the dialog
 assertion, or the assertion timeout. Removing the stored override must still keep
 the configured shortcut from opening the palette after the app is interactive.
+
+## Documentation check report provenance
+
+A documentation check report belongs to the project that produced it. The
+retained risks are a report that stays visible after the project selector
+changes, an export that uses the newly selected project name with old report
+bytes, an Export button that stays enabled without a completed check, and a
+serialized report that gains a non-deterministic field.
+
+`e2e/docs-check.spec.ts` seeds two projects with different diagnostics. It runs
+Project A, changes the selector to Project B, and checks that the report and
+Export action are unavailable. It then runs Project B and compares the export
+name and bytes, and repeats the same rule on the way back to Project A.
+
+```sh
+npx playwright test e2e/docs-check.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the local JSON and HTML reports, downloaded JSON files, and the
+`docs-check-provenance.json` attachment with the command, revision, environment
+and fixtures. The case proves panel state and export bytes in Chromium. It does
+not prove another browser engine, a physical device or a native WebView.
+
+## Version history missing body
+
+A version summary can list a row that no longer exists when its body is read.
+The retained risks are a preview that stays in Loading, a Restore action that
+targets an absent row, a stale read that replaces a newer preview, and a refresh
+that keeps the missing selection.
+
+`e2e/version-history.spec.ts` seeds three version rows. The instrumented E2E
+build exposes a one-shot read gate for a version id. The case holds the read,
+deletes the row in a separate transaction, releases the read, and checks the
+missing status, disabled Restore action and refresh path. A second case holds
+an older read, selects another version, releases the read, and checks that the
+newer preview stays.
+
+```sh
+npx playwright test e2e/version-history.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the local reports and the `missing-version.json` and
+`out-of-order-version.json` attachments. The read gate is conditional on
+`VITE_SOURCE_FIDELITY_METRICS=1`, which the E2E build sets. Production builds
+must expose no read gate. This case does not prove an operating-system removal,
+a native WebView or a physical device.
+
+## Semantic search operation errors
+
+A local IndexedDB failure must not stay silent. The retained risks are an
+unhandled rejection from a count, build or query operation, a missing error
+state, a failed index write that removes committed rows, a failure that clears a
+usable result, and an obsolete failure that publishes after a newer success.
+
+`e2e/semantic-search.spec.ts` patches `semanticIndex` store and index requests in
+the page. It delays and rejects a scoped read, rejects an index write, and
+releases an older read after a newer query succeeds. The case checks alert
+text, committed rows before and after the failed write, the retry path, the
+retained result, and the `unhandledrejection` count.
+
+```sh
+npx playwright test e2e/semantic-search.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the local reports and the `semantic-rejection-recovery.json` attachment.
+Injected faults are browser evidence. They do not reproduce a real quota limit,
+a native IndexedDB implementation or a physical device.
 
 ## Documentation check risks
 
@@ -2478,6 +2917,23 @@ come from fresh file snapshots. The case compares complete UTF-8 buffers before
 it decodes them for the source report. This checks the browser linked-file path
 with a real origin-private file handle. It cannot run Tauri native file writes.
 
+## Presentation source action containment
+
+A short landscape viewport can leave a fractional part of the source action
+row below the editor scrollport. Retain the full-containment assertion in
+`e2e/presentation-toolbar-density.spec.ts`. The row must stay inside the visible
+scrollport after an invalid Apply focuses its alert. Keep its normal position
+at taller sizes and keep every control reachable by keyboard.
+
+```sh
+npx playwright test e2e/presentation-toolbar-density.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/presentation-mobile.spec.ts --project=mobile-chromium --project=mobile-webkit --workers=1 --retries=0
+```
+
+Keep the local reports with the source identity, viewport and locale. Browser
+emulation does not prove physical Safari or native WebView behavior. Do not
+relax the viewport ratio to accept a clipped action.
+
 ## Presentation workflows
 
 Document type comes from content. Notes open in the note editor; valid and
@@ -2608,6 +3064,46 @@ highlighter and eraser input, checks the exact restored pixels, cancels a
 capture, and sends a pointer id that does not match the active pointer before a
 later valid move and release.
 
+## Modal initial focus risks
+
+The shared `focusTrap` action moves initial focus to the first tabbable control
+when a dialog mounts. The retained risks are a double focus bounce with a panel
+that focuses its own control, focus in an inert or closed lower dialog, a nested
+prompt that loses focus, a pending frame that runs after close, a restore to the
+body or to a removed palette option, and a changed mobile drawer activation
+behavior.
+
+`e2e/modal-initial-focus.spec.ts` opens Collections, Export Profiles, Document
+properties, Linked content blocks and AI. It checks `document.activeElement`
+inside the foreground dialog, the header Close button, Tab and Shift+Tab wrap,
+the actual restore target after close, a keyboard-only palette route, an
+unsaved editor change, trigger restoration, rapid close and reopen, a nested
+project prompt, and a delayed lazy chunk. It attaches `initial-focus.json`,
+`keyboard-focus.json`, `unsaved-input.json` and `delayed-lazy-focus.json`.
+Each named dialog restores focus to the visible Palette de commandes button.
+The keyboard route restores the sidebar file control. The unsaved editor route
+keeps the text and restores the editor.
+## Front matter numeric input risks
+
+Keep the raw text of a numeric front matter field until the value is complete. The
+measured risks are a cleared field that becomes `0`, a lost negative sign, decimal
+point or exponent marker, a moved caret, an incomplete number that saves as another
+value or an empty YAML scalar, and a numeric value that no longer round-trips through
+Source and Properties. A quoted string must stay a string.
+
+Keep typed number parsing separate from source classification. A typed field may accept
+a signed leading dot. Source classification must use the decimal grammar of js-yaml and
+must require a finite result. `-.5`, `+.5`, `1e999` and `1e309` are strings in the
+parser. They must show the string kind and keep their exact text. Hex, octal, binary,
+`.inf` and `.nan` keep their earlier string treatment in this panel.
+
+`e2e/frontmatter-properties.spec.ts` types every character with real key events. It
+asserts every recorded value and caret, not only the final value. It covers `12` to
+`-12.75`, `-2.5` to `0.125`, `1e3` to `1000`, a blank field, a lone minus sign, and the
+parser string tokens `-.5` and `1e999`. The invalid cases must keep the typed text,
+focus the field and leave the source unchanged. A removal case must delete an overflow
+token without a silent no-op.
+
 Run:
 
 ```sh
@@ -2626,6 +3122,215 @@ nontransparent pixel count. The image pen case stores RGB and alpha at each
 sampled canvas and export coordinate, the exported PNG byte length and SHA-256,
 and attaches the flattened PNG. The image tool case stores the baseline,
 interim and restored RGB values. Keep these values with the report.
+
+E2E_PORT=4207 npx playwright test e2e/modal-initial-focus.spec.ts \
+  --project=chromium --project=firefox --project=webkit \
+  --workers=1 --retries=0
+E2E_PORT=4207 npx playwright test e2e/mobile.spec.ts \
+  --project=mobile-chromium --project=mobile-webkit \
+  --workers=1 --retries=0
+```
+
+Keep the JSON and HTML reports, the command, the source revision, the working
+diff and the first failure. Browser runs on Chromium, Firefox and WebKit, and
+the mobile Chromium and WebKit emulation, do not prove physical iPhone or iPad
+Safari, VoiceOver, a hardware keyboard, a physical IME, a native WebView or the
+software keyboard outcome. The unsaved-input case measures editor content, not an
+unsaved input or select form field.
+E2E_PORT=4205 npx playwright test e2e/frontmatter-properties.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
+```
+
+The spec attaches `frontmatter-number-input.json` with every sample,
+`frontmatter-number-invalid.json` with the blocked values and
+`frontmatter-source-numbers.json` with the parser string tokens. A test that reloads a
+just-saved panel waits for the durable IndexedDB row before the reload. The toolbar
+sync badge can stay pending after the draft is durable. It is not the reload boundary.
+
+Chromium, Firefox and WebKit key events do not prove a physical iPhone or iPad software
+keyboard, a hardware keyboard, a native IME session or a Tauri WebView. Those checks
+stay separate.
+
+## Export profile listbox risks
+
+Keep one Tab stop for the profile listbox. The measured risks are one Tab stop per
+profile, missing ArrowUp, ArrowDown, Home and End, no active option for assistive
+technology, arrow navigation that activates a profile for exports, a selection,
+`aria-selected` or editing form that disagrees after keyboard or pointer input, and a
+selected option outside the visible scroll window. Focus must stay inside the dialog
+after delete, import, rename, format change or active status change. A 375 px viewport
+and simulated CSS zoom must keep the same model.
+
+A scrollable panel body can become its own Tab stop in Firefox. The export profile panel
+marks that container `tabindex="-1"` so the listbox stays the one Tab entry. Keep the
+selected option visible when the listbox receives focus and after Add.
+
+`e2e/export-profiles.spec.ts` imports 1, 2, 30 and 100 profiles. It checks one Tab into
+the listbox, one Tab to the first editing field, the `tabindex` values, the active
+descendant, arrow and Home and End selection, and an unchanged active profile before
+the Use action. It also checks pointer selection, focus retention, scroll of the active
+and newly added option, and a 375 px viewport with CSS zoom at 200 percent. Recovery
+from a stale selection id is source-reviewed; it has no dedicated stale-id E2E case.
+
+Run:
+
+```sh
+E2E_PORT=4205 npx playwright test e2e/export-profiles.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
+```
+
+The spec attaches `export-profile-listbox-navigation.json`,
+`export-profile-focus-retention.json`, `export-profile-scroll.json` and
+`export-profile-viewport.json`. CSS zoom is a simulation. It does not prove the browser
+zoom control, a physical iPad keyboard, VoiceOver, NVDA, Windows WebView2, Linux
+WebKitGTK or macOS WKWebView.
+## Native Git diff review and quick-capture template race
+
+Two Desktop Complete workflows do not have a Web Light surface. Keep one
+isolation choice for each workflow, not a duplicate unit set beside the stronger
+browser or native check.
+
+### Git diff review beyond the 2000-line preview
+
+The retained risks are a late diff response for another file, an unreachable
+final hunk, a lost selected path or worktree/staged mode, a whole-diff DOM mount,
+an exact last-page range, lost keyboard focus at a page bound, a stale scroll
+offset that hides the start of a section, an aria-disabled control that moves
+the list, a native 1 MiB rejection shown as a generic error or an empty diff, a
+partial preview confused with a full review, and a stale page after a refresh.
+The panel keeps a 2000-line page, shows the current range and section count, and
+offers first, previous, next, and last section controls. The last section states
+that all lines are reviewable. A native output rejection shows a separate
+size-limit state. A section change resets the list scroll to the section start.
+The Last control moves the list to its end so the final hunk is visible without
+another scroll. A control at its page bound returns before it changes the page,
+scroll, or focus.
+
+`e2e/git-diff.spec.ts` is the retained Git review check. It is a real Chromium
+workflow against a Desktop Complete build with a Git and project command
+fixture. It checks the bounded first page, scrolls it to its end, activates the
+last section by pointer, requires the final marker inside the list viewport,
+keeps the path and mode, returns to the first page by keyboard, requires
+scrollTop 0 and line 0001 inside the list viewport, checks the First and Next
+boundary controls do not move the list or focus, checks the separate 1 MiB
+state, and checks a generic Git error. A separate GitPanel component set was
+removed because it duplicated this stronger browser case and could not measure
+layout, scroll, or viewport reach. The 1 MiB state in this Chromium workflow is a
+fixture; the real backend rejection is proved by the native case below.
+
+The Desktop workflow is opt-in because the default Playwright server builds Web
+Light, where the Git panel cannot mount. Use a concrete configuration file at
+the repository root as `playwright.desktop.config.ts`. Keep this local test file
+untracked and remove it after the run. For an external config, replace the import
+and test directory with the actual absolute repository paths:
+
+```ts
+import base from './playwright.config';
+
+export default {
+	...base,
+	testDir: './e2e',
+	webServer: undefined,
+	use: { ...base.use, baseURL: 'http://127.0.0.1:4206' },
+	projects: (base.projects ?? []).filter((project) => project.name === 'chromium')
+};
+```
+
+In one terminal at the repository root, build and serve the artifact:
+
+```sh
+npm run build:desktop
+node scripts/preview-build.mjs --host 127.0.0.1 --port 4206
+```
+
+In a second terminal at the same repository root, run the file with one worker
+and no retries:
+
+```sh
+GIT_REVIEW_DESKTOP=1 npx playwright test e2e/git-diff.spec.ts \
+  --config=playwright.desktop.config.ts --project=chromium --workers=1 --retries=0
+```
+
+The default suite skips this file because the standard server is Web Light. A
+Chromium result is not native WebView proof.
+
+`scripts/native-git.mjs` prepares a real repository with a 2600-line worktree
+change in `long.md` and a distinct 2600-line staged change in `staged.md`. It
+opens the native project, checks the worktree page and final hunk, checks the
+staged page and final hunk, checks the staged file has no worktree diff, returns
+to the staged diff, then returns to the worktree diff. The script focuses the
+Last control, sends a real X Return key with `xdotool` when `DISPLAY` is
+available, tries WebDriver key actions, and falls back to a pointer click. It
+records the focus result, the activation method, and the fallback. A Linux
+WebKitGTK run with `xdotool` activated the control; a run without it records the
+focus path and the pointer fallback. `scripts/native-smoke.mjs` calls it after
+the native capture scenario.
+
+The same native case adds `huge.md`, a real worktree change whose measured
+`git diff` output is 1,176,171 bytes against the backend cap of 1,048,576 bytes.
+It selects the file in the real Git panel and requires the distinct size-limit
+message, with no empty diff, generic error, or partial preview. A direct
+`git_diff` command for the same file rejects with exactly
+`Git output exceeds the 1 MiB limit`. The staged and
+worktree paging, final hunks, boundary controls, selected path, and row bounds
+stay unchanged. `native-git.json` records the diff byte count, cap, UI state,
+and message; it does not retain the large fixture content. The retained
+native-smoke binary was built at 25f6388 and reused after its SHA-256 and app
+source equivalence were checked. The retained copy has SHA-256
+20dc0c6774ecb7c1bf97d528a8e3478fd998c7df8f02478ff39b95c12109f42b. The final
+head differs only in `scripts/native-git.mjs`; no rebuild was needed. Keep `native-git.json`, the
+repository head, the fixture SHA-256 values, the row counts, the range state,
+the staged and worktree markers, the output-cap result, the keyboard result,
+and the browser and native runtime identity with the report.
+
+A Linux WebKitGTK result does not prove Windows WebView2 or macOS WKWebView.
+High-DPI and keyboard-zoom checks remain separate. Linux high-DPI at a
+non-default scale may also require the separately owned PR625 window geometry
+fix; this stream does not edit its Rust files and does not treat simulated scale
+as physical hardware. The Chromium workflow still mocks the 1 MiB rejection; the
+real backend rejection is proved on Linux WebKitGTK.
+
+### Quick-capture late template resolution
+
+The retained risks are a late template result that replaces typed text or typed
+whitespace, an older A result that overwrites a newer B choice, a reset, cancel,
+or save that receives a late write, a note template that fills a snippet, a
+note-to-snippet-to-note round trip that revives the old request, a cleared
+selection that still applies, a body or title that is typed then cleared, a
+typed title that is replaced, a missing or rejected template without a useful
+error, a late rejection after a superseding edit, an unhandled rejection, a
+settlement after unmount, and lost focus after a superseded result.
+
+The component stores a capture generation and a template request counter. It
+rechecks the body, title, selected id, kind, and generation after each await. A
+body input, a title input, a paste, a kind change, a template selection, reset,
+save, cancel, and component teardown invalidate pending work. A kind change
+clears the template selection. Only the current request may set the title, body,
+and focus. The textarea and title stay editable and the publication path does
+not take focus from a superseded edit.
+
+Keep the QuickCapture component cases. Issue 638 explicitly requires deferred
+component cases for lifecycle races that a browser workflow cannot force, and
+the default Web Light server cannot mount the capture window. The file uses
+deferred `resolve()` promises, input actions, a reset listener, and capture-kind
+changes. It keeps the PR 613 composition cases and covers the body and title
+typed-text races, whitespace, typed-then-cleared, A/B out-of-order, reset,
+cancel, kind switch, note-to-snippet-to-note, cleared selection, unmount, the
+normal empty-form application with focus, a missing template, a superseded
+rejection, and a current empty-form rejection. Run
+`npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
+
+PR 613 also adds IME cases to this file and a composition guard to
+`handleKeydown`. The merged file keeps both test groups. This stream does not
+change the IME guard.
+
+`scripts/native-capture.mjs` adds a native race case. It uses a programmatic
+value assignment and input event, not physical typing. It selects a template and
+writes the body before the dynamic import and IndexedDB read can resume, waits,
+and checks that the programmatic body and the empty title remain. Keep
+`native-capture.json` with the other capture evidence. A native Linux WebKitGTK
+run does not prove Windows WebView2 or macOS WKWebView focus and lifecycle, and
+it does not prove a physical keyboard or IME.
 
 
 ## Version 2 accessibility
@@ -2900,4 +3605,131 @@ B may publish. `src/lib/semantic-search.test.ts` checks the trained-revision
 boundary, the A to B to A corpus transition, a fresh-index oracle, and scoped row
 reads at 300, 900 and 3,000 rows. The 3,000-row timing budget stays with #327.
 Keep the Playwright JSON and HTML reports with the command and source revision.
+
+## Status bar state synchronization (#619, #620)
+
+Retain these failure risks:
+
+- A cold statistics runtime can publish a selection count after the selection
+  is cleared or the active file changes. The runtime must not publish its own
+  selection count. Only the selection effect owns the request generation, and
+  it must cancel a cleared selection.
+- A manual external backup can succeed while the mounted status bar keeps the
+  reminder from its mount. A same-document `localStorage` write does not fire a
+  `storage` event. The success path must notify mounted listeners, and the
+  reminder refresh must read only the two reminder timestamps. Do not poll the
+  full storage health, which reads project asset keys and calls
+  `navigator.storage.estimate()`.
+- A health read, a Settings open or close, and a document change are not
+  reminder actions. They must not write the reminder timestamp.
+- Only an explicit dismissal or a successful manual backup acknowledges the
+  reminder. A failed or cancelled export must preserve an overdue reminder and
+  must not write a success timestamp.
+- Unavailable timestamp storage must not throw into the status bar and must not
+  publish a false cleared reminder.
+- The numerical 30 day backup and 7 day reminder windows and the explicit
+  dismissal stay unchanged.
+
+Cases retained in `e2e/backup-reminder.spec.ts`:
+
+- Successful manual export removes the reminder in the same tab, while Settings
+  is open and after close, then stays hidden after reload.
+- Failed export with a controlled overdue state and no re-aging after the
+  failure: no download, no reminder timestamp, no success timestamp advance, an
+  error timestamp, and a visible reminder after close and reload.
+- Settings open, Settings close, a second note creation and a return to the
+  first note: no timestamp changes and the reminder stays due.
+- Unavailable timestamps: the three `mdsh:storage` keys throw after setup. A
+  successful export still downloads and shows its toast, no page error occurs,
+  no timestamp changes, and the reminder is still visible after reload.
+- Explicit dismissal still writes the reminder timestamp and survives reload.
+- Three age and reminder-window cases.
+
+Cold selection cases in `e2e/navigation-stats-scroll.spec.ts`:
+
+- Held result: a cleared selection while the cold runtime count is pending
+  shows no counters after the held Worker result is released.
+- No post: a selection cleared before the runtime is ready starts no selection
+  Worker post at all.
+- A file switch rejects the initial selection Worker result.
+
+The selection helper walks the preview text nodes. A browser can split a long
+line into several text nodes (WebKit used 65 536 character chunks), so a range
+on the first node alone can stay below the 64 KiB Worker threshold. The helper
+still requires at least 64 KiB and records the actual selected length.
+
+Commands:
+
+```sh
+E2E_PORT=4204 npx playwright test e2e/navigation-stats-scroll.spec.ts e2e/backup-reminder.spec.ts --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 --grep "cold runtime count is pending|cleared before the cold runtime|file switch rejects the initial selection|successful Settings export|failed export preserves|opening, closing Settings|unavailable reminder timestamps|dismissing the reminder|backup age and reminder windows"
+```
+
+Do not include the 5 MB multiline case in a status run. It times out at the
+input base on this host. The exclusion is local and does not change repository
+routing. Never describe the remaining targeted run as full-suite success.
+
+The repository routes backup reminders to Firefox and WebKit and cold-selection cases to Firefox through additive file entries. Every previous route stays. The local grep above is targeted; it does not remove the large-note cases from repository routing or prove full-suite success.
+
+Keep the direct process exit, source revision, working diff, command, environment and actual result objects with the attachments. Decode JSON attachment bodies from the reporter when needed. Count executed projects from their results, not from the configuration list. The browser cases do not prove physical iPhone/iPad, WebKitGTK, WKWebView, native Desktop save-dialog cancellation or screen-reader output. Web export has no cancellation path: the native dialog must separately prove the same non-success rule, with no success/reminder timestamp and an overdue reminder preserved.
+## Native Git fixture config isolation
+
+Use an ordinary empty file for `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` in the owned fixture area, outside the repository under test. Git for Windows rejects the Windows null-device path returned by Node `os.devNull` with `Invalid argument` before `git init` completes. Keep the config file out of Git status and diffs. Preserve per-subprocess environments and fixture commit identities, no signing, source boundaries, all Git/UI assertions, the 1 MiB cap and the huge fixture. A Linux smoke pass does not prove the repaired Windows fixture; require fresh native Windows validation on the final head.
+
+## CI failure evidence and typewriter setup
+
+Keep these risks and evidence boundaries for #628:
+
+- An enforcing benchmark can fail without preserving the values that crossed a budget. `scripts/benchmark-local.mjs` now prints one bounded line for each failed metric: metric name, count, min, max, p50, p95 and at most 64 numeric samples in run order. It does not print paths, notes, capabilities or the complete report. An ok budget emits no failure-sample line. The failure message, tolerance, budget and nonzero exit remain unchanged. A negative control uses the existing `--budgets` option with a stricter private budget file outside Git; retain its failed exit separately from a healthy run.
+- The image input probe retains the product duration events `imageMarkdownScopedStage`, `imageMarkdownFullStage`, `restoreMarkdown`, `filterTransaction` and `sourceFidelityScopeAttempt`. It clears events with the samples and long tasks before each position. Its local attachment has raw samples, overall and per-position stage summaries, and the count of samples at or above 100 ms. The console has the overall stage summary and gated sample metrics. These stage values are not gated p50 or p95. They have no timestamp or sample index, so they cannot identify the stage behind one named slow sample. The extra event listener and array push have unmeasured observer cost.
+- Work already queued before a typewriter burst can enter the burst observation. The probe `ready()` waits for two quiet frames with no queued object measure request and no new centre dispatch. It uses the frame function captured at installation, outside the pending-frame counter. It reads `view.measureRequests` from the pinned CodeMirror 6.43.15 and rejects a detached view, unavailable queue or two-second deadline. This is a pre-burst barrier, not a change to product scheduling.
+- A first burst at the clamped top can record no centre, which makes the same-head assertion vacuous. The retained first case requires at least one centre in addition to the existing upper bound, same-head check and `maxPending <= 2`. Before capture, PageDown moves the caret off the top, `ready()` drains the caret measure, a 40 px scroll offset queues the scroll measure, one frame lets it enter the queue, and a second `ready()` drains it. The original 30-key burst and 20-frame settle stay unchanged. A later centered collapse can legitimately need no centre. The zero-centre RED and external zero/duplicate controls are coverage and assertion controls, not product regressions.
+- The inactive-editor history selection poll can fail without retaining its DOM boundary. On failure only, `editor-state.spec.ts` prints `[selection-boundary]` and attaches the same JSON: focus, active element, range endpoints/text, mounted content count, active file, cached position and available EditorView selection/viewport/measure state. Missing fields stay null. Capture is bounded to two seconds and rethrows the original error. The 35-file sequence, selection assertion and timeout stay unchanged.
+- A TOC visibility failure can lack evidence of headings, mode and resource loading. On failure only, `editor-width.spec.ts` prints `[toc-boundary]` and attaches heading presence, bounded text, aside connectivity/inert/display/visibility, nav/items, active/stored mode and at most 20 same-origin script timings. It retains the exact 5000 ms visibility assertion, adds no pre-assertion wait and rethrows the original error after bounded capture.
+
+### Navigation test import boundary
+
+The 35-file navigation test starts an asynchronous import. `setInputFiles` returns
+before `importFiles` completes, and every `createNew` call activates its file. The
+first open and selection can therefore target a later file. Two local attempts with
+a 120 ms read delay lost the intended association at the first selection assertion.
+A stable control delayed each file after `cache-00` by 2 s. It kept `cache-01` active
+for the key presses, selected `ation` in `cache-01`, left `cache-00` without a source
+entry, and the final reopen of `cache-00` failed with an empty selection. The control
+shows one setup path. It does not name the file that received the selection in a
+hosted attempt.
+
+`e2e/editor-state.spec.ts` now waits for the existing `aria-setsize` list attribute to
+equal the file count before the first open. The attribute follows
+`filteredFiles.length`. The last `createNew` pushes and activates its file before the
+next render, so the observed value means the final activation is complete. This is a
+state precondition, not a sleep. The selection, scroll, saved bytes assertions, the
+120 s timeout and the fail-only `[selection-boundary]` capture stay unchanged.
+
+Run the two cases with one worker, no retries and the production build:
+
+```sh
+E2E_PORT=4228 npx playwright test e2e/editor-state.spec.ts \
+  --project=chromium --workers=1 --retries=0 --grep 'history pressure'
+```
+
+Keep the JSON report, the direct exit and the source revision. The delayed-import
+control is an external setup check. It does not prove an application regression.
+
+Run the focused positive coalescing case with one worker and no retries:
+
+```sh
+E2E_PORT=4216 npx playwright test e2e/navigation-stats-scroll.spec.ts \
+  --project=chromium --project=webkit --workers=1 --retries=0 \
+  --grep 'typewriter coalesces'
+```
+
+Retain the direct exit, source and working diff identity, command, environment, list log and per-project burst/centered attachments locally. Do not mistake a separate control `results.json` for the GREEN reporter object. Do not upload reports. These local controls do not establish the cause or recovery of the hosted Firefox scroll, WebKit input tail, history selection, TOC or typewriter failures. Record fresh exact-head CI evidence separately.
+
+## Modal drawer and disclosure evidence
+
+Keep these browser evidence limits for #614 and #615:
+
+- A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
+- After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
+- The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
 

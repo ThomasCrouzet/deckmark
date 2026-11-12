@@ -1,6 +1,10 @@
-// Svelte action: confines keyboard focus inside a container (typically a
-// dialog/modal). On destroy, restores focus to the element that had it before
-// opening. Compliant with WCAG 2.4.3 (Focus Order).
+// Svelte actions for dialogs.
+// `focusTrap` confines keyboard focus inside a container (typically a
+// dialog/modal) and moves initial focus to its first tabbable control when the
+// container mounts. On destroy, it restores focus to the element that had it
+// before opening. Compliant with WCAG 2.4.3 (Focus Order).
+// `visualViewportPanel` keeps a fixed dialog inside the visible viewport when a
+// software keyboard or browser chrome changes the visual viewport.
 //
 // Modal usage (always active):
 //   <div role="dialog" use:focusTrap>…</div>
@@ -10,18 +14,31 @@
 // When `active` becomes false (desktop resize, closing), the trap is lifted
 // without unmounting the DOM and focus returns to the triggering element.
 
+import type { Action } from 'svelte/action';
+
 const FOCUSABLE_SELECTOR = [
 	'a[href]',
 	'button:not([disabled])',
+	'summary',
 	'input:not([disabled])',
 	'select:not([disabled])',
 	'textarea:not([disabled])',
 	'[tabindex]:not([tabindex="-1"])'
 ].join(',');
 
+// A closed <details> hides its content. Only the summary that controls the
+// closed element stays tabbable. Checking this explicitly keeps the order
+// stable where getClientRects() still reports a box for hidden descendants.
+function isHiddenByClosedDetails(el: HTMLElement): boolean {
+	const closed = el.closest('details:not([open])');
+	if (!closed) return false;
+	return !(el.tagName === 'SUMMARY' && el.parentElement === closed);
+}
+
 function isTabbable(el: HTMLElement): boolean {
 	if (el.tabIndex < 0 || el.closest('[inert]')) return false;
 	if (el.getAttribute('aria-hidden') === 'true') return false;
+	if (isHiddenByClosedDetails(el)) return false;
 	const style = getComputedStyle(el);
 	return (
 		style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0
@@ -33,12 +50,40 @@ export interface FocusTrapParams {
 	restoreOnDeactivate?: boolean;
 }
 
+// The newest active trap owns the initial focus and the restore. A lower trap
+// must not take focus from a nested dialog.
+const trapStack: HTMLElement[] = [];
+
+function topTrap(): HTMLElement | undefined {
+	return trapStack[trapStack.length - 1];
+}
+
 export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 	let active = params?.active ?? true;
 	let previouslyFocused: HTMLElement | null = null;
+	let frame = 0;
 
 	function focusables(): HTMLElement[] {
 		return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(isTabbable);
+	}
+
+	function focusInitial() {
+		frame = 0;
+		if (!active || !node.isConnected || node.closest('[inert]')) return;
+		if (topTrap() !== node) return;
+		const current = document.activeElement as HTMLElement | null;
+		// An explicit descendant focus, an open IME composition, or a panel-level
+		// focus call wins. A different dialog owns the foreground.
+		if (current && current !== node && node.contains(current)) return;
+		if (current && !node.contains(current) && current.closest('[role="dialog"]')) return;
+		const target = focusables()[0] ?? node;
+		target.focus({ preventScroll: true });
+	}
+
+	function cancelInitial() {
+		if (!frame) return;
+		cancelAnimationFrame(frame);
+		frame = 0;
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -68,14 +113,25 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 		}
 	}
 
-	function attach() {
+	function attach(initial: boolean) {
 		previouslyFocused = (document.activeElement as HTMLElement | null) ?? null;
+		trapStack.push(node);
 		node.addEventListener('keydown', onKeydown);
+		// Only a mount moves focus. A trap that activates later keeps the current
+		// focus, so the mobile drawer and the presentation mode do not change.
+		if (initial) {
+			cancelInitial();
+			frame = requestAnimationFrame(focusInitial);
+		}
 	}
 
 	function detach(restoreFocus: boolean) {
 		node.removeEventListener('keydown', onKeydown);
-		if (restoreFocus) {
+		cancelInitial();
+		const wasTop = topTrap() === node;
+		const index = trapStack.lastIndexOf(node);
+		if (index !== -1) trapStack.splice(index, 1);
+		if (restoreFocus && wasTop) {
 			// Restores focus to the triggering element. Try/catch because the
 			// element may have disappeared from the DOM in the meantime.
 			try {
@@ -92,14 +148,14 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 		previouslyFocused = null;
 	}
 
-	if (active) attach();
+	if (active) attach(true);
 
 	return {
 		update(next?: FocusTrapParams) {
 			const wantActive = next?.active ?? true;
 			if (wantActive === active) return;
 			active = wantActive;
-			if (active) attach();
+			if (active) attach(false);
 			// Lifting the trap (mobile->desktop resize on sidebar): we do NOT
 			// restore focus. The node stays visible/usable, and the previous
 			// element may have disappeared (e.g. mobile menu button hidden via
@@ -112,3 +168,55 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 		}
 	};
 }
+
+/**
+ * Keep a fixed dialog inside the visible viewport when an on-screen keyboard,
+ * browser chrome or pinch zoom changes the visual viewport. A fixed overlay
+ * follows the layout viewport, so the focused field and the close control can
+ * stay under the keyboard without this correction.
+ */
+export const visualViewportPanel: Action<HTMLElement> = (node) => {
+	let frame = 0;
+	const viewport = window.visualViewport;
+	const panel = () => node.querySelector<HTMLElement>('.mdsh-dialog-panel');
+	const clear = () => {
+		node.style.removeProperty('top');
+		node.style.removeProperty('height');
+		panel()?.style.removeProperty('max-height');
+	};
+	const apply = () => {
+		frame = 0;
+		if (!viewport) return;
+		if (viewport.height >= window.innerHeight - 1 && viewport.offsetTop <= 0) {
+			clear();
+			return;
+		}
+		const top = Math.max(0, Math.round(viewport.offsetTop));
+		const height = Math.max(120, Math.round(viewport.height));
+		node.style.top = `${top}px`;
+		node.style.height = `${height}px`;
+		const target = panel();
+		if (target) {
+			const style = getComputedStyle(node);
+			const padding =
+				(Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+			target.style.maxHeight = `${Math.max(120, height - padding)}px`;
+		}
+	};
+	const schedule = () => {
+		if (!frame) frame = requestAnimationFrame(apply);
+	};
+	viewport?.addEventListener('resize', schedule);
+	viewport?.addEventListener('scroll', schedule);
+	window.addEventListener('resize', schedule);
+	schedule();
+	return {
+		destroy() {
+			if (frame) cancelAnimationFrame(frame);
+			viewport?.removeEventListener('resize', schedule);
+			viewport?.removeEventListener('scroll', schedule);
+			window.removeEventListener('resize', schedule);
+			clear();
+		}
+	};
+};

@@ -265,6 +265,32 @@ function keyRanges(yaml: string): LineRange[] {
 	return ranges;
 }
 
+/**
+ * The decimal forms js-yaml reads as numbers. A sign applies only to the
+ * digit-led branch, a leading dot is unsigned, and a finite result is required.
+ * Hex, octal, binary, .inf and .nan stay strings here, as they did before.
+ */
+const SOURCE_DECIMAL_LITERAL = /^(?:[-+]?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?|\.\d+(?:[eE][-+]?\d+)?)$/;
+
+/**
+ * Parses a complete typed number. This accepts a signed leading dot and an
+ * exponent. Returns null for blank text, an intermediate sign or dot and every
+ * non-finite result.
+ */
+const TYPED_DECIMAL_LITERAL = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/;
+
+export function parseNumericInput(text: string): number | null {
+	const trimmed = text.trim();
+	if (!TYPED_DECIMAL_LITERAL.test(trimmed)) return null;
+	const value = Number(trimmed);
+	return Number.isFinite(value) ? value : null;
+}
+
+function isSourceNumber(text: string): boolean {
+	if (!SOURCE_DECIMAL_LITERAL.test(text)) return false;
+	return Number.isFinite(Number(text));
+}
+
 function classify(key: string, raw: string): FrontmatterProperty['kind'] {
 	if (key === 'tags' || key === 'aliases') return 'tags';
 	const trimmed = raw.trim();
@@ -272,7 +298,7 @@ function classify(key: string, raw: string): FrontmatterProperty['kind'] {
 	if (trimmed === '') return 'other';
 	if (/^['"]/.test(trimmed)) return 'string';
 	if (/^(true|false)$/i.test(trimmed)) return 'boolean';
-	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return 'number';
+	if (isSourceNumber(trimmed)) return 'number';
 	if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return 'date';
 	return 'string';
 }

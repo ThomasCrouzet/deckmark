@@ -43,6 +43,8 @@
 	let viewName = $state('');
 	let views = $state<CollectionView[]>([]);
 	let selectedView = $state('');
+	let viewsError = $state('');
+	let viewsReadFailed = $state(false);
 	let tableScroll = $state<HTMLElement | null>(null);
 	let scrollTop = $state(0);
 	let scrollLeft = $state(0);
@@ -210,7 +212,13 @@
 	}
 
 	onMount(() => {
-		views = readCollectionViews();
+		const stored = readCollectionViews();
+		if (stored.ok) {
+			views = stored.views;
+		} else {
+			viewsReadFailed = true;
+			viewsError = t('collection.viewsStorageUnavailable');
+		}
 		void load();
 		window.addEventListener('focus', refreshOnFocus);
 		return () => {
@@ -234,21 +242,41 @@
 		return Array.isArray(value) ? value.join(', ') : String(value);
 	}
 
+	function ensureViewsReadable(): boolean {
+		if (!viewsReadFailed) return true;
+		const stored = readCollectionViews();
+		if (!stored.ok) {
+			viewsError = t('collection.viewsStorageUnavailable');
+			return false;
+		}
+		views = stored.views;
+		viewsReadFailed = false;
+		viewsError = '';
+		return true;
+	}
+
 	function saveView() {
-		if (!viewName.trim()) return;
+		const name = viewName.trim();
+		if (!name) return;
+		if (!ensureViewsReadable()) return;
 		const view: CollectionView = {
 			id: crypto.randomUUID(),
-			name: viewName.trim(),
+			name,
 			filter: query,
 			sortKey,
 			sortDirection,
 			groupKey,
 			mode
 		};
-		views = [...views, view];
-		saveCollectionViews(views);
+		const next = [...views, view];
+		if (!saveCollectionViews(next)) {
+			viewsError = t('collection.viewsStorageUnavailable');
+			return;
+		}
+		views = next;
 		selectedView = view.id;
 		viewName = '';
+		viewsError = '';
 	}
 
 	function applyView(id: string) {
@@ -262,9 +290,16 @@
 	}
 
 	function deleteView(id: string) {
-		views = views.filter((entry) => entry.id !== id);
-		saveCollectionViews(views);
+		if (!ensureViewsReadable()) return;
+		const next = views.filter((entry) => entry.id !== id);
+		if (next.length === views.length) return;
+		if (!saveCollectionViews(next)) {
+			viewsError = t('collection.viewsStorageUnavailable');
+			return;
+		}
+		views = next;
 		if (selectedView === id) selectedView = '';
+		viewsError = '';
 	}
 </script>
 
@@ -337,7 +372,13 @@
 					<option value="">{t('collection.savedViews')}</option>
 					{#each views as view (view.id)}<option value={view.id}>{view.name}</option>{/each}
 				</select>
-				<input type="text" bind:value={viewName} placeholder={t('collection.viewName')} />
+				<label for="collection-view-name">{t('collection.viewName')}</label>
+				<input
+					id="collection-view-name"
+					type="text"
+					bind:value={viewName}
+					data-testid="collection-view-name"
+				/>
 				<button type="button" onclick={saveView} data-testid="collection-save-view">
 					{t('collection.saveView')}
 				</button>
@@ -347,6 +388,11 @@
 					</button>
 				{/if}
 			</div>
+			{#if viewsError}
+				<p class="collection-views-error" role="alert" data-testid="collection-views-error">
+					{viewsError}
+				</p>
+			{/if}
 			<div class="collection-body" bind:this={tableScroll}>
 				{#if loadState === 'ready' && missingCount > 0}
 					<p class="collection-warning" role="status" data-testid="collection-missing">
@@ -374,15 +420,21 @@
 							aria-colcount={columns.length + 1}
 						>
 							<thead>
-								<tr>
-									<th scope="col" style={`width:${TITLE_WIDTH}px`}>{t('collection.titleColumn')}</th
+								<tr aria-rowindex="1">
+									<th scope="col" aria-colindex="1" style={`width:${TITLE_WIDTH}px`}
+										>{t('collection.titleColumn')}</th
 									>
 									{#if columnWindow.left > 0}
 										<th class="spacer" style={`width:${columnWindow.left}px`} aria-hidden="true"
 										></th>
 									{/if}
-									{#each columnWindow.columns as column (column)}
-										<th scope="col" style={`width:${COLUMN_WIDTH}px`} title={column}>{column}</th>
+									{#each columnWindow.columns as column, columnOffset (column)}
+										<th
+											scope="col"
+											aria-colindex={2 + columnWindow.first + columnOffset}
+											style={`width:${COLUMN_WIDTH}px`}
+											title={column}>{column}</th
+										>
 									{/each}
 									{#if columnWindow.right > 0}
 										<th class="spacer" style={`width:${columnWindow.right}px`} aria-hidden="true"
@@ -401,16 +453,18 @@
 								{/if}
 								{#each rowWindow.rows as row, index (row.id)}
 									<tr style={`height:${ROW_HEIGHT}px`} aria-rowindex={rowWindow.first + index + 2}>
-										<th scope="row" style={`width:${TITLE_WIDTH}px`}>
+										<th scope="row" aria-colindex="1" style={`width:${TITLE_WIDTH}px`}>
 											<button type="button" onclick={() => openRow(row)}>{row.title}</button>
 										</th>
 										{#if columnWindow.left > 0}
 											<td class="spacer" style={`width:${columnWindow.left}px`} aria-hidden="true"
 											></td>
 										{/if}
-										{#each columnWindow.columns as column (column)}
-											<td style={`width:${COLUMN_WIDTH}px`} title={cell(row, column)}
-												>{cell(row, column)}</td
+										{#each columnWindow.columns as column, columnOffset (column)}
+											<td
+												aria-colindex={2 + columnWindow.first + columnOffset}
+												style={`width:${COLUMN_WIDTH}px`}
+												title={cell(row, column)}>{cell(row, column)}</td
 											>
 										{/each}
 										{#if columnWindow.right > 0}
@@ -565,6 +619,13 @@
 	.collection-controls button[aria-pressed='true'] {
 		border-color: var(--color-accent);
 		color: var(--color-accent);
+	}
+	.collection-views-error {
+		margin: 0;
+		padding: 6px 16px;
+		border-bottom: 1px solid var(--color-border);
+		font-size: 11px;
+		color: var(--color-danger);
 	}
 	.collection-body {
 		min-height: 0;

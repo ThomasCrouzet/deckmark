@@ -14,7 +14,7 @@
 	import type { FileItem, Hit } from '#lib/types.js';
 	import type { SearchRequest, SearchResponse } from '#lib/workers/search.worker.js';
 	import { corpusFingerprint, SEARCH_MAX_HITS } from '#lib/search-core.js';
-	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import {
 		Search,
 		X,
@@ -547,6 +547,7 @@
 		aria-hidden={promptStore.open ? 'true' : undefined}
 		tabindex="-1"
 		use:focusTrap
+		use:visualViewportPanel
 	>
 		<div
 			class="mdsh-dialog-panel flex w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border
@@ -796,14 +797,19 @@
 								role="option"
 								id={`search-hit-${hit.fileId}-${hit.line}-${i}`}
 								aria-selected={i === selected}
+								aria-label={`${stripExt(hit.name)}:${hit.line} ${typeLabel}. ${hit.snippet}`}
+								class="cursor-pointer transition"
+								class:bg-bg-2={i === selected}
+								onclick={() => openHit(hit)}
+								onkeydown={(event) => {
+									if (event.key === 'Enter' || event.key === ' ') {
+										event.preventDefault();
+										openHit(hit);
+									}
+								}}
+								onmouseenter={() => (selected = i)}
 							>
-								<button
-									class="flex w-full flex-col gap-1 px-3 py-2 text-left transition"
-									class:bg-bg-2={i === selected}
-									onclick={() => openHit(hit)}
-									onmouseenter={() => (selected = i)}
-									tabindex="-1"
-								>
+								<div class="flex w-full flex-col gap-1 px-3 py-2 text-left">
 									<div class="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
 										<TypeIcon size={14} class="shrink-0" aria-hidden="true" />
 										<span class="truncate font-medium">{stripExt(hit.name)}</span>
@@ -816,7 +822,7 @@
 											>{hit.snippet.slice(hit.matchStart, hit.matchEnd)}</mark
 										>{hit.snippet.slice(hit.matchEnd)}
 									</div>
-								</button>
+								</div>
 							</li>
 						{/each}
 					{/if}

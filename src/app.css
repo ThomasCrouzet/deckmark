@@ -15,7 +15,7 @@
 	grid-column: 3;
 	grid-row: 1;
 }
-@media (max-width: 639px), (pointer: coarse) {
+@media (max-width: 639px), (any-pointer: coarse) {
 	.mdsh-embedded-notice button {
 		min-width: 44px;
 		min-height: 44px;
@@ -242,6 +242,23 @@ body.typewriter-mode .mdsh-editor {
 }
 
 /* ==========================================================================
+   Safe-area policy
+   The viewport uses `viewport-fit=cover`, so installed iOS/iPadOS web apps can
+   extend below the status bar and above the home indicator. Resolve the
+   platform insets once here. The shared shell applies them to the persistent
+   toolbar, editor and status bar. Fixed mobile navigation applies the same
+   variables at its own viewport boundary. Tests can override the variables to
+   simulate a device that reports non-zero insets; do not add a second inset in
+   an individual chrome component.
+   ========================================================================== */
+:root {
+	--mdsh-safe-top: env(safe-area-inset-top, 0px);
+	--mdsh-safe-right: env(safe-area-inset-right, 0px);
+	--mdsh-safe-bottom: env(safe-area-inset-bottom, 0px);
+	--mdsh-safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* ==========================================================================
    mdsh interface
    A faint grid structures the app surfaces. It does not cover the document,
    and it is hidden in the light theme.
@@ -250,6 +267,10 @@ body.typewriter-mode .mdsh-editor {
 	position: relative;
 	isolation: isolate;
 	background-color: var(--color-bg);
+	padding-top: var(--mdsh-safe-top);
+	padding-right: var(--mdsh-safe-right);
+	padding-bottom: var(--mdsh-safe-bottom);
+	padding-left: var(--mdsh-safe-left);
 }
 
 :root:not([data-theme='light']) .mdsh-shell::before {
@@ -438,26 +459,27 @@ body.typewriter-mode .mdsh-editor {
 	--syntax-title: #215580;
 	--syntax-built-in: #5f4917;
 }
-@media (pointer: coarse) {
-	#app-toolbar button,
-	#app-statusbar button,
-	[data-document-navigation] button,
-	#files-panel button,
-	[role='dialog'] button,
-	[role='dialog'] summary,
-	#files-panel summary,
-	body > button {
-		min-height: 44px;
-		min-width: 44px;
-	}
-	.mdsh-file-row button {
-		opacity: 1;
-	}
-	input,
-	select,
-	textarea {
-		font-size: max(1rem, 16px);
-	}
+/* `data-touch-capable` mirrors `(any-pointer: coarse)`. A hybrid device with a
+   fine primary pointer and an available touch screen keeps the touch targets. */
+:root[data-touch-capable='true'] #app-toolbar button,
+:root[data-touch-capable='true'] #app-statusbar button,
+:root[data-touch-capable='true'] [data-document-navigation] button,
+:root[data-touch-capable='true'] #files-panel button,
+:root[data-touch-capable='true'] [role='dialog'] button,
+:root[data-touch-capable='true'] [role='dialog'] summary,
+:root[data-touch-capable='true'] #files-panel summary,
+:root[data-touch-capable='true'] body > button {
+	min-height: 44px;
+	min-width: 44px;
+}
+:root[data-touch-capable='true'] .mdsh-file-row button,
+:root[data-touch-capable='true'] .mdsh-project-document-actions {
+	opacity: 1;
+}
+:root[data-touch-capable='true'] input,
+:root[data-touch-capable='true'] select,
+:root[data-touch-capable='true'] textarea {
+	font-size: max(1rem, 16px);
 }
 @media (max-height: 500px) {
 	[role='dialog'] {
@@ -500,8 +522,6 @@ body.typewriter-mode .mdsh-editor {
 	min-height: 28px;
 }
 
-@media (pointer: coarse) {
-	.mdsh-toc-col button {
-		min-height: 44px;
-	}
+:root[data-touch-capable='true'] .mdsh-toc-col button {
+	min-height: 44px;
 }

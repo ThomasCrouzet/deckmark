@@ -97,6 +97,8 @@ export const en = {
 		'The property "{key}" already exists in the source and may use a complex YAML style. Edit or remove it in Source mode.',
 	'properties.saveFailed':
 		'The properties were not saved. Your edits are kept. Check the source, then try again.',
+	'properties.invalidNumber':
+		'Enter a complete number, or remove the property. The typed text is kept.',
 	'properties.note':
 		'Only the edited values change. Comments, ordering and unrelated YAML stay intact.',
 	'properties.save': 'Save properties',
@@ -384,6 +386,7 @@ export const en = {
 	'settings.passphraseMismatch': 'The passphrases do not match. No backup was created.',
 	'page.exitFocusMode': 'Exit focus mode',
 	'palette.showMore': 'Show {n} more commands',
+	'palette.moreShown': 'Showing {shown} of {total} commands.',
 	'palette.commandIndex': 'Commands',
 	'palette.availableCount': '{n} available',
 	'palette.requiresDocument': 'Open a document to use this command.',
@@ -578,6 +581,12 @@ export const en = {
 	'semantic.rebuild': 'The index was built with another model. Build the index again.',
 	'semantic.stale': 'Some indexed documents changed. Build the index again to include them.',
 	'semantic.clearError': 'The selected index could not be cleared. Try again.',
+	'semantic.countError': 'The index count could not be read. Existing rows are unchanged.',
+	'semantic.countRetry': 'Retry count',
+	'semantic.indexError':
+		'The index could not be rebuilt. Existing index data is unchanged. Try again.',
+	'semantic.searchError':
+		'The local index could not be read. The previous results are unchanged. Try again.',
 	'semantic.scope': 'Index scope',
 	'semantic.library': 'Library documents',
 	'semantic.project': 'Current project',
@@ -657,6 +666,8 @@ export const en = {
 	'collection.viewName': 'View name',
 	'collection.saveView': 'Save view',
 	'collection.deleteView': 'Delete view',
+	'collection.viewsStorageUnavailable':
+		'Saved views cannot be read or stored. Check browser storage access and try again.',
 	'collection.loading': 'Reading front matter...',
 	'collection.empty': 'No notes with front matter.',
 	'collection.missingBodies':
@@ -1053,6 +1064,9 @@ export const en = {
 	'sidebar.selectedCount': '{n} selected',
 	'sidebar.selectedSuffix': ' (selected)',
 	'sidebar.selectionActions': 'Actions on the selection',
+	'sidebar.selectionMode': 'File selection',
+	'sidebar.selectionModeStart': 'Select multiple files',
+	'sidebar.selectionModeDone': 'Finish selection',
 	'sidebar.tagFilters': 'Filters by tag',
 	'sidebar.unexportedChangesHint': ' - unexported changes',
 
@@ -1195,6 +1209,8 @@ export const en = {
 		'No version saved for this file. The history builds up as you make changes (a snapshot every few minutes).',
 	'versionHistory.kept': '{n} version(s) kept',
 	'versionHistory.loadError': 'Could not load the version history.',
+	'versionHistory.missing': 'This version is no longer in local storage.',
+	'versionHistory.refresh': 'Refresh versions',
 	'versionHistory.staleDocument':
 		'The active document changed. Reopen the history panel before restoring.',
 	'versionHistory.loading': 'Loading...',

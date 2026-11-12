@@ -69,13 +69,17 @@ export default defineConfig({
 			testMatch: [
 				'**/mobile.spec.ts',
 				'**/presentation-mobile.spec.ts',
-				'**/presentation-responsive-tasks.spec.ts'
+				'**/presentation-responsive-tasks.spec.ts',
+				'**/presentation-visual-viewport.spec.ts',
+				'**/safe-area.spec.ts'
 			]
 		},
 		{
 			name: 'firefox',
 			use: { ...devices['Desktop Firefox'] },
 			testMatch: [
+				'**/backup-reminder.spec.ts',
+				'**/navigation-stats-scroll.spec.ts',
 				'**/json-tools.spec.ts',
 				'**/code-editor.spec.ts',
 				'**/editor-state.spec.ts',
@@ -103,14 +107,18 @@ export default defineConfig({
 				'**/read-preview-isolation.spec.ts',
 				'**/read-annotations.spec.ts',
 				'**/modal-isolation-review.spec.ts',
+				'**/modal-initial-focus.spec.ts',
 				'**/palette-load-review.spec.ts',
+				'**/palette-pagination.spec.ts',
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
 				'**/docs-site-export-svg.spec.ts',
 				'**/docs-site-export-html.spec.ts',
 				'**/docs-site-search-paths.spec.ts',
-				'**/export-download-lifetime.spec.ts'
+				'**/export-download-lifetime.spec.ts',
+				'**/frontmatter-properties.spec.ts',
+				'**/export-profiles.spec.ts'
 			]
 		},
 		{
@@ -119,6 +127,7 @@ export default defineConfig({
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
 			testMatch: [
+				'**/backup-reminder.spec.ts',
 				'**/json-tools.spec.ts',
 				'**/code-editor.spec.ts',
 				'**/split-view.spec.ts',
@@ -152,7 +161,9 @@ export default defineConfig({
 				'**/read-preview-isolation.spec.ts',
 				'**/read-annotations.spec.ts',
 				'**/modal-isolation-review.spec.ts',
+				'**/modal-initial-focus.spec.ts',
 				'**/palette-load-review.spec.ts',
+				'**/palette-pagination.spec.ts',
 				'**/toolbar-density.spec.ts',
 				'**/presentation-toolbar-density.spec.ts',
 				'**/presentation-format.spec.ts',
@@ -161,7 +172,9 @@ export default defineConfig({
 				'**/docs-site-search-paths.spec.ts',
 				'**/image-source-incremental.spec.ts',
 				'**/docs-site-fragments.spec.ts',
-				'**/export-download-lifetime.spec.ts'
+				'**/export-download-lifetime.spec.ts',
+				'**/frontmatter-properties.spec.ts',
+				'**/export-profiles.spec.ts'
 			]
 		},
 		{

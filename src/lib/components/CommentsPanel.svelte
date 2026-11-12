@@ -392,6 +392,12 @@
 		padding: 4px 6px;
 		font: inherit;
 	}
+	/* Safari zooms a focused field below 16 px. The compact label keeps its
+	   density and the field restores the touch field size. */
+	:global(:root[data-touch-capable='true']) .comment-form textarea,
+	:global(:root[data-touch-capable='true']) .comment-form input {
+		font-size: max(1rem, 16px);
+	}
 	.comment-form button,
 	.comment footer button,
 	.comments-actions button {
