@@ -83,7 +83,8 @@ export async function nativeGit({
 	const readDiff = (first = worktreeFirst, last = worktreeLast) =>
 		execute(
 			`const panel = document.querySelector('[data-testid=git-panel]');
-			const list = panel?.querySelector('ol');
+			const diffSection = [...(panel?.querySelectorAll('section') ?? [])].find((section) => section.getAttribute('aria-labelledby') === 'git-diff-title');
+			const list = diffSection?.querySelector('ol');
 			const range = panel?.querySelector('[data-testid=git-diff-range]');
 			const text = range?.textContent?.trim() ?? '';
 			const total = /(?:sur|of)\\s+(\\d+)/.exec(text);
