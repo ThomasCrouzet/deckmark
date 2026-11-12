@@ -36,6 +36,9 @@
 	let articleEl: HTMLElement | null = $state(null);
 	let readScroller: HTMLDivElement | null = $state(null);
 	let positionFileId: string | null = null;
+	// Last scroll offset observed while this file was rendered. It keeps a
+	// same-file rerender from restoring an older cached position.
+	let livePosition: { fileId: string; scrollTop: number } | null = null;
 
 	let annotate = $state(false);
 	let hasInk = $state(false);
@@ -208,12 +211,27 @@
 		scheduleInk();
 	}
 
+	function handleReadScroll() {
+		// A scroll event during a deferred render can report a clamped zero.
+		// Record the offset only after the current file has rendered.
+		if (readScroller && renderedFileId === fileId) {
+			livePosition = { fileId, scrollTop: readScroller.scrollTop };
+		}
+		scheduleInk();
+	}
+
 	onMount(() => {
 		const resize = new ResizeObserver(scheduleInk);
 		if (readScroller) resize.observe(readScroller);
 		const scroller = readScroller;
-		scroller?.addEventListener('scroll', scheduleInk, { passive: true });
+		scroller?.addEventListener('scroll', handleReadScroll, { passive: true });
 		window.addEventListener('resize', scheduleInk);
+		const saveWhenHidden = () => {
+			if (document.visibilityState === 'hidden' && positionFileId) {
+				saveReadPosition(positionFileId);
+			}
+		};
+		document.addEventListener('visibilitychange', saveWhenHidden);
 		let density: MediaQueryList;
 		function watchDensity() {
 			density?.removeEventListener('change', densityChanged);
@@ -227,8 +245,9 @@
 		watchDensity();
 		return () => {
 			resize.disconnect();
-			scroller?.removeEventListener('scroll', scheduleInk);
+			scroller?.removeEventListener('scroll', handleReadScroll);
 			window.removeEventListener('resize', scheduleInk);
+			document.removeEventListener('visibilitychange', saveWhenHidden);
 			density.removeEventListener('change', densityChanged);
 			if (inkFrame) cancelAnimationFrame(inkFrame);
 			inkFrame = 0;
@@ -246,19 +265,30 @@
 
 	function saveReadPosition(id: string): void {
 		if (!readScroller) return;
+		// Prefer the live offset of the rendered file. A file switch can already
+		// have replaced the `fileId` prop, so the scroller offset is authoritative
+		// only for the file that is still rendered.
+		let scrollTop: number | null = null;
+		if (id === fileId && renderedFileId === id) scrollTop = readScroller.scrollTop;
+		else if (livePosition?.fileId === id) scrollTop = livePosition.scrollTop;
+		if (scrollTop === null) return;
 		editorStateCache.setPosition(id, 'read', {
 			anchor: 0,
 			head: 0,
-			scrollTop: readScroller.scrollTop
+			scrollTop
 		});
 	}
 
 	function restoreReadPosition(id: string): void {
-		const position = editorStateCache.getPosition(id, 'read');
-		if (!position) return;
+		// A same-file rerender must keep the live offset. The cache can hold an
+		// older position from the last file switch or lifecycle event.
+		const liveTop = livePosition?.fileId === id ? livePosition.scrollTop : null;
+		const position = liveTop === null ? editorStateCache.getPosition(id, 'read') : undefined;
+		const scrollTop = liveTop ?? position?.scrollTop;
+		if (scrollTop === undefined) return;
 		void tick().then(() => {
 			requestAnimationFrame(() => {
-				if (readScroller && fileId === id) readScroller.scrollTop = position.scrollTop;
+				if (readScroller && fileId === id) readScroller.scrollTop = scrollTop;
 			});
 		});
 	}
