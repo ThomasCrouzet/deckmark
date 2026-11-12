@@ -462,27 +462,46 @@ test('stats reject superseded large-note edits after a file switch', async ({ pa
 type StatsWorkerPost = {
 	url: string;
 	mode: string;
+	token: number | null;
 	text: number | null;
 	hasImage: boolean;
 	patch: number | null;
 	at: number;
 };
 
-// Record statistics Worker messages. A test can hold a document message, so the
-// pending state and the Worker round trip are observable without a timing budget.
+// Record statistics Worker messages. A test can hold a document or a selection
+// message, so the pending state and the Worker round trip are observable
+// without a timing budget.
 async function installStatsWorkerProbe(page: Page) {
 	await page.addInitScript(() => {
 		const posts: StatsWorkerPost[] = [];
-		const held: Array<() => void> = [];
-		const probe = { posts, hold: false, release: () => {} };
+		const heldDocuments: Array<() => void> = [];
+		const heldSelections: Array<() => void> = [];
+		const probe = {
+			posts,
+			hold: false,
+			holdSelection: false,
+			release: () => {},
+			releaseSelection: () => {}
+		};
 		(
 			window as unknown as {
-				__statsWorkerProbe: { posts: StatsWorkerPost[]; hold: boolean; release: () => void };
+				__statsWorkerProbe: {
+					posts: StatsWorkerPost[];
+					hold: boolean;
+					holdSelection: boolean;
+					release: () => void;
+					releaseSelection: () => void;
+				};
 			}
 		).__statsWorkerProbe = probe;
 		probe.release = () => {
 			probe.hold = false;
-			for (const send of held.splice(0)) send();
+			for (const send of heldDocuments.splice(0)) send();
+		};
+		probe.releaseSelection = () => {
+			probe.holdSelection = false;
+			for (const send of heldSelections.splice(0)) send();
 		};
 		const NativeWorker = window.Worker;
 		class ProbedWorker extends NativeWorker {
@@ -500,6 +519,10 @@ async function installStatsWorkerProbe(page: Page) {
 					posts.push({
 						url: this.workerUrl,
 						mode: isDocument ? 'document' : (data.mode as string),
+						token:
+							typeof (data as { token?: unknown }).token === 'number'
+								? (data as { token: number }).token
+								: null,
 						text: typeof data.text === 'string' ? data.text.length : null,
 						hasImage: typeof data.text === 'string' && data.text.includes('data:image'),
 						patch:
@@ -517,7 +540,10 @@ async function installStatsWorkerProbe(page: Page) {
 						// A terminated Worker rejects a late message.
 					}
 				};
-				if (probe.hold && isDocument && this.workerUrl.includes('stats.worker')) held.push(send);
+				const isStatsWorker = this.workerUrl.includes('stats.worker');
+				if (probe.hold && isDocument && isStatsWorker) heldDocuments.push(send);
+				else if (probe.holdSelection && data?.mode === 'selection' && isStatsWorker)
+					heldSelections.push(send);
 				else send();
 			}
 		}
@@ -535,6 +561,59 @@ async function holdStatsWorkerMessages(page: Page, hold: boolean) {
 		if (hold) probe.hold = true;
 		else probe.release();
 	}, hold);
+}
+
+async function holdSelectionWorkerMessages(page: Page, hold: boolean) {
+	await page.evaluate((hold) => {
+		const probe = (
+			window as unknown as {
+				__statsWorkerProbe: { holdSelection: boolean; releaseSelection: () => void };
+			}
+		).__statsWorkerProbe;
+		if (hold) probe.holdSelection = true;
+		else probe.releaseSelection();
+	}, hold);
+}
+
+// The StatusBar reads a long selection after a short quiet delay. Record each
+// Selection.toString length so a test can wait for that publication instead of
+// sleeping for the delay.
+async function installSelectionTextProbe(page: Page) {
+	await page.addInitScript(() => {
+		const probe = { lengths: [] as number[] };
+		(window as unknown as { __selectionTextProbe: typeof probe }).__selectionTextProbe = probe;
+		const original = Selection.prototype.toString;
+		Selection.prototype.toString = function () {
+			const text = original.call(this);
+			probe.lengths.push(text.length);
+			return text;
+		};
+	});
+}
+
+async function selectPreviewText(page: Page, length: number): Promise<void> {
+	await page
+		.locator('.mdsh-preview p')
+		.first()
+		.evaluate((element, limit) => {
+			const node = element.firstChild;
+			if (!node || node.nodeType !== Node.TEXT_NODE) throw new Error('No preview text node');
+			const range = document.createRange();
+			range.setStart(node, 0);
+			range.setEnd(node, Math.min(limit, node.textContent?.length ?? 0));
+			const selection = window.getSelection();
+			if (!selection) throw new Error('No selection');
+			selection.removeAllRanges();
+			selection.addRange(range);
+			document.dispatchEvent(new Event('selectionchange'));
+		}, length);
+}
+
+async function clearSelection(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		window.getSelection()?.removeAllRanges();
+		document.dispatchEvent(new Event('selectionchange'));
+	});
 }
 
 async function statsWorkerPosts(page: Page): Promise<StatsWorkerPost[]> {
@@ -792,6 +871,237 @@ test.describe('stats module lifecycle', () => {
 				contentType: 'application/json'
 			});
 		} finally {
+			release();
+		}
+	});
+
+	test('a selection cleared while the cold runtime count is pending shows no counters', async ({
+		page
+	}, info) => {
+		test.setTimeout(120_000);
+		await installStatsWorkerProbe(page);
+		await installSelectionTextProbe(page);
+		const asset = runtimeRoute();
+		let requested = false;
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route(asset, async (route) => {
+			requested = true;
+			await held;
+			await route.continue();
+		});
+		try {
+			await resetAppState(page);
+			const content = statsFixture(400_000, 'single-line');
+			await seedStatsFiles(page, [{ name: 'Stats cold clear', content }]);
+			expect(requested, 'the cold runtime load is held').toBe(true);
+			await page.locator('button[data-mode="read"]').click();
+			await page
+				.getByRole('button', { name: 'Afficher le document' })
+				.click({ timeout: 5000 })
+				.catch(() => {});
+			await expect(page.locator('.mdsh-preview p').first()).toBeVisible({ timeout: 30_000 });
+			await selectPreviewText(page, 80_000);
+			await expect
+				.poll(
+					() =>
+						page.evaluate(() =>
+							(
+								window as unknown as { __selectionTextProbe?: { lengths: number[] } }
+							).__selectionTextProbe?.lengths.includes(80_000)
+						),
+					{ timeout: 10_000 }
+				)
+				.toBe(true);
+			// The StatusBar schedules selection work through an idle callback with a
+			// 200 ms bound. Let that pass while the runtime module is still held, so
+			// the cold-load path owns the request and not a later reactive effect.
+			await page.waitForTimeout(250);
+			await holdSelectionWorkerMessages(page, true);
+			release();
+			const status = page.getByTestId('document-stats');
+			const expected = baselineStats(content);
+			await expect(status).toContainText(`${expected.words} mots`, { timeout: 30_000 });
+			const posted = (await statsWorkerPosts(page)).filter((post) => post.mode === 'selection');
+			expect(posted.length, 'the cold load starts one selection count').toBeGreaterThan(0);
+			await clearSelection(page);
+			await expect(page.getByTestId('selection-stats')).toHaveCount(0);
+			await holdSelectionWorkerMessages(page, false);
+			await expect(page.getByTestId('selection-stats')).toHaveCount(0);
+			await selectPreviewText(page, 40);
+			const smallText = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+			const small = baselineSelection(smallText);
+			await expect(page.getByTestId('selection-stats')).toBeVisible();
+			await expect(status).toContainText(`${small.words} mots`);
+			await expect(status).toContainText(`${small.chars} car.`);
+			await info.attach('stats-cold-selection-clear.json', {
+				body: JSON.stringify(
+					{
+						requested,
+						clearedSelectionLength: 80_000,
+						selectionPosts: posted,
+						selectionTokens: posted.map((post) => post.token),
+						smallSelection: { text: smallText, ...small },
+						status: await status.innerText()
+					},
+					null,
+					2
+				),
+				contentType: 'application/json'
+			});
+		} finally {
+			await holdSelectionWorkerMessages(page, false).catch(() => {});
+			release();
+		}
+	});
+
+	test('a selection cleared before the cold runtime is ready starts no count', async ({
+		page
+	}, info) => {
+		test.setTimeout(120_000);
+		await installStatsWorkerProbe(page);
+		await installSelectionTextProbe(page);
+		const asset = runtimeRoute();
+		let requested = false;
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route(asset, async (route) => {
+			requested = true;
+			await held;
+			await route.continue();
+		});
+		try {
+			await resetAppState(page);
+			const content = statsFixture(400_000, 'single-line');
+			await seedStatsFiles(page, [{ name: 'Stats cold empty', content }]);
+			expect(requested).toBe(true);
+			await page.locator('button[data-mode="read"]').click();
+			await page
+				.getByRole('button', { name: 'Afficher le document' })
+				.click({ timeout: 5000 })
+				.catch(() => {});
+			await expect(page.locator('.mdsh-preview p').first()).toBeVisible({ timeout: 30_000 });
+			await selectPreviewText(page, 80_000);
+			await expect
+				.poll(
+					() =>
+						page.evaluate(() =>
+							(
+								window as unknown as { __selectionTextProbe?: { lengths: number[] } }
+							).__selectionTextProbe?.lengths.includes(80_000)
+						),
+					{ timeout: 10_000 }
+				)
+				.toBe(true);
+			await page.waitForTimeout(250);
+			await clearSelection(page);
+			await holdSelectionWorkerMessages(page, true);
+			release();
+			const status = page.getByTestId('document-stats');
+			const expected = baselineStats(content);
+			await expect(status).toContainText(`${expected.words} mots`, { timeout: 30_000 });
+			await holdSelectionWorkerMessages(page, false);
+			await expect(page.getByTestId('selection-stats')).toHaveCount(0);
+			const posts = (await statsWorkerPosts(page)).filter((post) => post.mode === 'selection');
+			expect(posts, 'a cleared selection starts no cold selection count').toHaveLength(0);
+			await info.attach('stats-cold-selection-empty.json', {
+				body: JSON.stringify(
+					{ requested, selectionPosts: posts, status: await status.innerText() },
+					null,
+					2
+				),
+				contentType: 'application/json'
+			});
+		} finally {
+			await holdSelectionWorkerMessages(page, false).catch(() => {});
+			release();
+		}
+	});
+
+	test('a file switch rejects the initial selection Worker result', async ({ page }, info) => {
+		test.setTimeout(120_000);
+		await installStatsWorkerProbe(page);
+		await installSelectionTextProbe(page);
+		const asset = runtimeRoute();
+		let requested = false;
+		let release: () => void = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route(asset, async (route) => {
+			requested = true;
+			await held;
+			await route.continue();
+		});
+		try {
+			await resetAppState(page);
+			const content = statsFixture(400_000, 'single-line');
+			await seedStatsFiles(page, [
+				{ name: 'Stats switch small', content: 'Second has three.' },
+				{ name: 'Stats switch large', content }
+			]);
+			expect(requested).toBe(true);
+			await page.locator('button[data-mode="read"]').click();
+			await page
+				.getByRole('button', { name: 'Afficher le document' })
+				.click({ timeout: 5000 })
+				.catch(() => {});
+			await expect(page.locator('.mdsh-preview p').first()).toBeVisible({ timeout: 30_000 });
+			await selectPreviewText(page, 80_000);
+			await expect
+				.poll(
+					() =>
+						page.evaluate(() =>
+							(
+								window as unknown as { __selectionTextProbe?: { lengths: number[] } }
+							).__selectionTextProbe?.lengths.includes(80_000)
+						),
+					{ timeout: 10_000 }
+				)
+				.toBe(true);
+			await page.waitForTimeout(250);
+			await holdSelectionWorkerMessages(page, true);
+			release();
+			await expect
+				.poll(
+					async () =>
+						(await statsWorkerPosts(page)).filter((post) => post.mode === 'selection').length,
+					{ timeout: 10_000 }
+				)
+				.toBeGreaterThan(0);
+			await page
+				.locator('aside')
+				.getByRole('button', { name: /^Stats switch small/ })
+				.first()
+				.click();
+			const status = page.getByTestId('document-stats');
+			await expect(status).toContainText('3 mots', { timeout: 30_000 });
+			await expect(status).toContainText('17 car.');
+			await holdSelectionWorkerMessages(page, false);
+			await expect(page.getByTestId('selection-stats')).toHaveCount(0);
+			await expect(status).toContainText('3 mots');
+			await expect(status).toContainText('17 car.');
+			const posts = (await statsWorkerPosts(page)).filter((post) => post.mode === 'selection');
+			await info.attach('stats-cold-selection-switch.json', {
+				body: JSON.stringify(
+					{
+						requested,
+						activeId: await page.evaluate(() => localStorage.getItem('mdsh:activeId')),
+						selectionPosts: posts,
+						selectionTokens: posts.map((post) => post.token),
+						status: await status.innerText()
+					},
+					null,
+					2
+				),
+				contentType: 'application/json'
+			});
+		} finally {
+			await holdSelectionWorkerMessages(page, false).catch(() => {});
 			release();
 		}
 	});
