@@ -1,6 +1,7 @@
 // Svelte actions for dialogs.
 // `focusTrap` confines keyboard focus inside a container (typically a
-// dialog/modal). On destroy, it restores focus to the element that had it
+// dialog/modal) and moves initial focus to its first tabbable control when the
+// container mounts. On destroy, it restores focus to the element that had it
 // before opening. Compliant with WCAG 2.4.3 (Focus Order).
 // `visualViewportPanel` keeps a fixed dialog inside the visible viewport when a
 // software keyboard or browser chrome changes the visual viewport.
@@ -49,12 +50,40 @@ export interface FocusTrapParams {
 	restoreOnDeactivate?: boolean;
 }
 
+// The newest active trap owns the initial focus and the restore. A lower trap
+// must not take focus from a nested dialog.
+const trapStack: HTMLElement[] = [];
+
+function topTrap(): HTMLElement | undefined {
+	return trapStack[trapStack.length - 1];
+}
+
 export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 	let active = params?.active ?? true;
 	let previouslyFocused: HTMLElement | null = null;
+	let frame = 0;
 
 	function focusables(): HTMLElement[] {
 		return Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(isTabbable);
+	}
+
+	function focusInitial() {
+		frame = 0;
+		if (!active || !node.isConnected || node.closest('[inert]')) return;
+		if (topTrap() !== node) return;
+		const current = document.activeElement as HTMLElement | null;
+		// An explicit descendant focus, an open IME composition, or a panel-level
+		// focus call wins. A different dialog owns the foreground.
+		if (current && current !== node && node.contains(current)) return;
+		if (current && !node.contains(current) && current.closest('[role="dialog"]')) return;
+		const target = focusables()[0] ?? node;
+		target.focus({ preventScroll: true });
+	}
+
+	function cancelInitial() {
+		if (!frame) return;
+		cancelAnimationFrame(frame);
+		frame = 0;
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -84,14 +113,25 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 		}
 	}
 
-	function attach() {
+	function attach(initial: boolean) {
 		previouslyFocused = (document.activeElement as HTMLElement | null) ?? null;
+		trapStack.push(node);
 		node.addEventListener('keydown', onKeydown);
+		// Only a mount moves focus. A trap that activates later keeps the current
+		// focus, so the mobile drawer and the presentation mode do not change.
+		if (initial) {
+			cancelInitial();
+			frame = requestAnimationFrame(focusInitial);
+		}
 	}
 
 	function detach(restoreFocus: boolean) {
 		node.removeEventListener('keydown', onKeydown);
-		if (restoreFocus) {
+		cancelInitial();
+		const wasTop = topTrap() === node;
+		const index = trapStack.lastIndexOf(node);
+		if (index !== -1) trapStack.splice(index, 1);
+		if (restoreFocus && wasTop) {
 			// Restores focus to the triggering element. Try/catch because the
 			// element may have disappeared from the DOM in the meantime.
 			try {
@@ -108,14 +148,14 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 		previouslyFocused = null;
 	}
 
-	if (active) attach();
+	if (active) attach(true);
 
 	return {
 		update(next?: FocusTrapParams) {
 			const wantActive = next?.active ?? true;
 			if (wantActive === active) return;
 			active = wantActive;
-			if (active) attach();
+			if (active) attach(false);
 			// Lifting the trap (mobile->desktop resize on sidebar): we do NOT
 			// restore focus. The node stays visible/usable, and the previous
 			// element may have disappeared (e.g. mobile menu button hidden via
