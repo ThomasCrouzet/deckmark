@@ -8,8 +8,9 @@
 	import {
 		formatSaveAge,
 		reportPersistenceError,
-		getStorageHealth,
-		recordBackupReminderShown
+		isBackupReminderDueNow,
+		recordBackupReminderShown,
+		subscribeBackupReminder
 	} from '#lib/storage.js';
 	import type { DocumentKind } from '#lib/document-kind.js';
 	let { kind = 'note', onOpenSettings }: { kind?: DocumentKind; onOpenSettings?: () => void } =
@@ -42,7 +43,11 @@
 	});
 
 	onMount(() => {
-		void getStorageHealth().then((health) => (backupDue = health.backupReminderDue));
+		// The reminder depends only on two local timestamps. A full health read
+		// would add an asset-index cursor and a storage estimate for no benefit.
+		const syncBackupReminder = () => (backupDue = isBackupReminderDueNow());
+		syncBackupReminder();
+		const stopBackupReminder = subscribeBackupReminder(syncBackupReminder);
 		const id = setInterval(() => (now = Date.now()), 10_000);
 		// Edit, Source and Read use different DOM roots. One listener covers
 		// them and rejects selections that start in application chrome.
@@ -116,6 +121,7 @@
 		};
 		document.addEventListener('selectionchange', onSelectionChange);
 		return () => {
+			stopBackupReminder();
 			clearInterval(id);
 			if (timer) clearTimeout(timer);
 			document.removeEventListener('selectionchange', onSelectionChange);
@@ -129,6 +135,10 @@
 	let loadFailed = $state(false);
 	let runtime: StatsRuntime | null = null;
 	let runtimeLoad: Promise<StatsRuntime | null> | null = null;
+	// A reactive readiness marker. The deferred runtime must not publish a
+	// selection count itself, because only the selection effect owns the
+	// generation and file guards.
+	let runtimeReady = $state(0);
 	let requestedId: string | null = null;
 	let disposed = false;
 
@@ -144,11 +154,8 @@
 				// One pending load reads current state, not one retained text closure per edit.
 				const active = filesStore.active;
 				if (kind === 'note' && active) runtime.setDocument(active.id, active.content);
-				if (kind === 'note' && selectedText)
-					void runtime.selection(selectedText).then((value) => {
-						if (!disposed && value) selectionStats = value;
-					});
-				else selectionStats = null;
+				// Let the selection effect start its own guarded request.
+				runtimeReady += 1;
 				return runtime;
 			})
 			.catch((error) => {
@@ -178,9 +185,13 @@
 
 	let selectionJob = 0;
 	$effect(() => {
+		// Re-run when the deferred runtime becomes ready, so this effect also owns
+		// the first selection count.
+		void runtimeReady;
 		const text = selectedText;
 		const job = ++selectionJob;
 		if (!text || kind !== 'note') {
+			runtime?.cancelSelection();
 			selectionStats = null;
 			return;
 		}

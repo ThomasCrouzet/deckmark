@@ -266,6 +266,10 @@ export function createStatsRuntime(
 			}, 200);
 		},
 		selection,
+		/** Drops a pending selection result without publishing it. */
+		cancelSelection(): void {
+			dropSelection();
+		},
 		dispose(): void {
 			disposed = true;
 			cancelPending();
