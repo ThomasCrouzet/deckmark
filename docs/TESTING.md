@@ -2653,6 +2653,155 @@ requires `npm run check`, `npm run lint`, `npm run test`, `npm run build`, and t
 full E2E suite because document types affect navigation, storage, export, and PWA
 paths. A focused run does not replace that gate.
 
+## Native Git diff review and quick-capture template race
+
+Two Desktop Complete workflows do not have a Web Light surface. Keep one
+isolation choice for each workflow, not a duplicate unit set beside the stronger
+browser or native check.
+
+### Git diff review beyond the 2000-line preview
+
+The retained risks are a late diff response for another file, an unreachable
+final hunk, a lost selected path or worktree/staged mode, a whole-diff DOM mount,
+an exact last-page range, lost keyboard focus at a page bound, a stale scroll
+offset that hides the start of a section, an aria-disabled control that moves
+the list, a native 1 MiB rejection shown as a generic error or an empty diff, a
+partial preview confused with a full review, and a stale page after a refresh.
+The panel keeps a 2000-line page, shows the current range and section count, and
+offers first, previous, next, and last section controls. The last section states
+that all lines are reviewable. A native output rejection shows a separate
+size-limit state. A section change resets the list scroll to the section start.
+The Last control moves the list to its end so the final hunk is visible without
+another scroll. A control at its page bound returns before it changes the page,
+scroll, or focus.
+
+`e2e/git-diff.spec.ts` is the retained Git review check. It is a real Chromium
+workflow against a Desktop Complete build with a Git and project command
+fixture. It checks the bounded first page, scrolls it to its end, activates the
+last section by pointer, requires the final marker inside the list viewport,
+keeps the path and mode, returns to the first page by keyboard, requires
+scrollTop 0 and line 0001 inside the list viewport, checks the First and Next
+boundary controls do not move the list or focus, checks the separate 1 MiB
+state, and checks a generic Git error. A separate GitPanel component set was
+removed because it duplicated this stronger browser case and could not measure
+layout, scroll, or viewport reach. The 1 MiB state in this Chromium workflow is a
+fixture; the real backend rejection is proved by the native case below.
+
+The Desktop workflow is opt-in because the default Playwright server builds Web
+Light, where the Git panel cannot mount. Use a concrete configuration file at
+the repository root as `playwright.desktop.config.ts`. Keep this local test file
+untracked and remove it after the run. For an external config, replace the import
+and test directory with the actual absolute repository paths:
+
+```ts
+import base from './playwright.config';
+
+export default {
+	...base,
+	testDir: './e2e',
+	webServer: undefined,
+	use: { ...base.use, baseURL: 'http://127.0.0.1:4206' },
+	projects: (base.projects ?? []).filter((project) => project.name === 'chromium')
+};
+```
+
+In one terminal at the repository root, build and serve the artifact:
+
+```sh
+npm run build:desktop
+node scripts/preview-build.mjs --host 127.0.0.1 --port 4206
+```
+
+In a second terminal at the same repository root, run the file with one worker
+and no retries:
+
+```sh
+GIT_REVIEW_DESKTOP=1 npx playwright test e2e/git-diff.spec.ts \
+  --config=playwright.desktop.config.ts --project=chromium --workers=1 --retries=0
+```
+
+The default suite skips this file because the standard server is Web Light. A
+Chromium result is not native WebView proof.
+
+`scripts/native-git.mjs` prepares a real repository with a 2600-line worktree
+change in `long.md` and a distinct 2600-line staged change in `staged.md`. It
+opens the native project, checks the worktree page and final hunk, checks the
+staged page and final hunk, checks the staged file has no worktree diff, returns
+to the staged diff, then returns to the worktree diff. The script focuses the
+Last control, sends a real X Return key with `xdotool` when `DISPLAY` is
+available, tries WebDriver key actions, and falls back to a pointer click. It
+records the focus result, the activation method, and the fallback. A Linux
+WebKitGTK run with `xdotool` activated the control; a run without it records the
+focus path and the pointer fallback. `scripts/native-smoke.mjs` calls it after
+the native capture scenario.
+
+The same native case adds `huge.md`, a real worktree change whose measured
+`git diff` output is 1,176,171 bytes against the backend cap of 1,048,576 bytes.
+It selects the file in the real Git panel and requires the distinct size-limit
+message, with no empty diff, generic error, or partial preview. A direct
+`git_diff` command for the same file rejects with exactly
+`Git output exceeds the 1 MiB limit`. The staged and
+worktree paging, final hunks, boundary controls, selected path, and row bounds
+stay unchanged. `native-git.json` records the diff byte count, cap, UI state,
+and message; it does not retain the large fixture content. The retained
+native-smoke binary was built at 25f6388 and reused after its SHA-256 and app
+source equivalence were checked. The retained copy has SHA-256
+20dc0c6774ecb7c1bf97d528a8e3478fd998c7df8f02478ff39b95c12109f42b. The final
+head differs only in `scripts/native-git.mjs`; no rebuild was needed. Keep `native-git.json`, the
+repository head, the fixture SHA-256 values, the row counts, the range state,
+the staged and worktree markers, the output-cap result, the keyboard result,
+and the browser and native runtime identity with the report.
+
+A Linux WebKitGTK result does not prove Windows WebView2 or macOS WKWebView.
+High-DPI and keyboard-zoom checks remain separate. Linux high-DPI at a
+non-default scale may also require the separately owned PR625 window geometry
+fix; this stream does not edit its Rust files and does not treat simulated scale
+as physical hardware. The Chromium workflow still mocks the 1 MiB rejection; the
+real backend rejection is proved on Linux WebKitGTK.
+
+### Quick-capture late template resolution
+
+The retained risks are a late template result that replaces typed text or typed
+whitespace, an older A result that overwrites a newer B choice, a reset, cancel,
+or save that receives a late write, a note template that fills a snippet, a
+note-to-snippet-to-note round trip that revives the old request, a cleared
+selection that still applies, a body or title that is typed then cleared, a
+typed title that is replaced, a missing or rejected template without a useful
+error, a late rejection after a superseding edit, an unhandled rejection, a
+settlement after unmount, and lost focus after a superseded result.
+
+The component stores a capture generation and a template request counter. It
+rechecks the body, title, selected id, kind, and generation after each await. A
+body input, a title input, a paste, a kind change, a template selection, reset,
+save, cancel, and component teardown invalidate pending work. A kind change
+clears the template selection. Only the current request may set the title, body,
+and focus. The textarea and title stay editable and the publication path does
+not take focus from a superseded edit.
+
+Keep the QuickCapture component cases. Issue 638 explicitly requires deferred
+component cases for lifecycle races that a browser workflow cannot force, and
+the default Web Light server cannot mount the capture window. The file uses
+deferred `resolve()` promises, input actions, a reset listener, and capture-kind
+changes. It keeps the PR 613 composition cases and covers the body and title
+typed-text races, whitespace, typed-then-cleared, A/B out-of-order, reset,
+cancel, kind switch, note-to-snippet-to-note, cleared selection, unmount, the
+normal empty-form application with focus, a missing template, a superseded
+rejection, and a current empty-form rejection. Run
+`npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
+
+PR 613 also adds IME cases to this file and a composition guard to
+`handleKeydown`. The merged file keeps both test groups. This stream does not
+change the IME guard.
+
+`scripts/native-capture.mjs` adds a native race case. It uses a programmatic
+value assignment and input event, not physical typing. It selects a template and
+writes the body before the dynamic import and IndexedDB read can resume, waits,
+and checks that the programmatic body and the empty title remain. Keep
+`native-capture.json` with the other capture evidence. A native Linux WebKitGTK
+run does not prove Windows WebView2 or macOS WKWebView focus and lifecycle, and
+it does not prove a physical keyboard or IME.
+
+
 ## Version 2 accessibility
 
 The project tree, split view, history comparison, and disk comparison must support keyboard operation.
@@ -2925,6 +3074,10 @@ B may publish. `src/lib/semantic-search.test.ts` checks the trained-revision
 boundary, the A to B to A corpus transition, a fresh-index oracle, and scoped row
 reads at 300, 900 and 3,000 rows. The 3,000-row timing budget stays with #327.
 Keep the Playwright JSON and HTML reports with the command and source revision.
+
+## Native Git fixture config isolation
+
+Use an ordinary empty file for `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` in the owned fixture area, outside the repository under test. Git for Windows rejects the Windows null-device path returned by Node `os.devNull` with `Invalid argument` before `git init` completes. Keep the config file out of Git status and diffs. Preserve per-subprocess environments and fixture commit identities, no signing, source boundaries, all Git/UI assertions, the 1 MiB cap and the huge fixture. A Linux smoke pass does not prove the repaired Windows fixture; require fresh native Windows validation on the final head.
 
 ## CI failure evidence and typewriter setup
 
