@@ -1,5 +1,9 @@
 name: Security
 
+# Security checks stay read-only. The workflow runs no upload step and keeps
+# CodeQL analysis local. A successful analysis step shows that the scan ran; it
+# does not accept or reject a finding set.
+
 on:
   push:
     branches: [main]
@@ -35,55 +39,13 @@ jobs:
         with:
           fail-on-severity: high
 
-  dependency-audit:
-    needs: rust-changes
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Audit npm dependency tree
-        run: npm audit --audit-level=high
-
-      - name: Verify GLib source and security backport
-        if: needs.rust-changes.outputs.required == 'true'
-        run: node scripts/vendor-glib.mjs --check
-
-      - name: Setup Rust
-        if: needs.rust-changes.outputs.required == 'true'
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
-        with:
-          toolchain: 1.97.1
-
-      - name: Cache cargo-audit
-        if: needs.rust-changes.outputs.required == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/cargo-audit
-          key: cargo-audit-ubuntu24.04-${{ runner.arch }}-rust1.97.1-v0.22.2
-
-      - name: Verify pinned cargo-audit installation
-        if: needs.rust-changes.outputs.required == 'true'
-        run: cargo install cargo-audit --locked --version 0.22.2 --root "$HOME/.cache/cargo-audit"
-
-      - name: Audit Cargo.lock
-        if: needs.rust-changes.outputs.required == 'true'
-        run: '"$HOME/.cache/cargo-audit/bin/cargo-audit" audit --file src-tauri/Cargo.lock --deny unsound'
-
-  rust-changes:
+  security-scope:
+    name: Security scope
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      required: ${{ steps.filter.outputs.required }}
+      rust: ${{ steps.scope.outputs.rust }}
+      npm: ${{ steps.scope.outputs.npm }}
     steps:
       - name: Checkout change range
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,33 +53,95 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Detect Rust security inputs
-        id: filter
+      - name: Detect security inputs
+        id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          if [ "$EVENT_NAME" = 'schedule' ] || [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
-            echo 'required=true' >> "$GITHUB_OUTPUT"
-            exit 0
+          set -euo pipefail
+          changed="$RUNNER_TEMP/security-changed-files"
+          : > "$changed"
+          if [ "$EVENT_NAME" = 'push' ] || [ "$EVENT_NAME" = 'pull_request' ]; then
+            if [ "$EVENT_NAME" = 'pull_request' ]; then
+              base="$BASE_SHA"
+            else
+              base="$BEFORE_SHA"
+            fi
+            # A missing, malformed, or unreachable range leaves the file list
+            # empty. The classifier then requests the full scheduled checks.
+            if [[ "$base" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] \
+              && git cat-file -e "$base^{commit}" 2>/dev/null \
+              && git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null \
+              && git merge-base --is-ancestor "$base" "$HEAD_SHA"; then
+              git diff --name-only "$base" "$HEAD_SHA" > "$changed"
+            fi
           fi
-          if [ "$EVENT_NAME" = 'pull_request' ]; then
-            base_sha="$BASE_SHA"
-          else
-            base_sha="$BEFORE_SHA"
-          fi
-          if [ -z "$base_sha" ] || [[ "$base_sha" =~ ^0+$ ]]; then
-            echo 'required=true' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git diff --name-only "$base_sha" "$HEAD_SHA" > "$RUNNER_TEMP/changed-files"
-          if grep -Eq '^(src-tauri/|patches/glib/|scripts/(annotate-cargo-sbom|vendor-glib)\.mjs$|\.github/workflows/(desktop|security)\.yml$)' "$RUNNER_TEMP/changed-files"; then
-            echo 'required=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'required=false' >> "$GITHUB_OUTPUT"
-          fi
+          node scripts/ci-security-scope.mjs \
+            --event-name "$EVENT_NAME" \
+            --files "$changed" \
+            --github-output "$GITHUB_OUTPUT"
+
+  dependency-audit:
+    needs: security-scope
+    # Run even when the classifier fails. The first step fails this required
+    # job, so a skipped classifier cannot satisfy branch protection.
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CARGO_AUDIT_VERSION: '0.22.2'
+    steps:
+      - name: Require a valid security scope
+        env:
+          SCOPE_RESULT: ${{ needs.security-scope.result }}
+        run: |
+          set -euo pipefail
+          test "$SCOPE_RESULT" = 'success'
+
+      - name: Checkout
+        if: needs.security-scope.result == 'success'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        if: needs.security-scope.result == 'success' && needs.security-scope.outputs.npm == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Audit npm dependency tree
+        if: needs.security-scope.result == 'success' && needs.security-scope.outputs.npm == 'true'
+        run: npm audit --audit-level=high
+
+      - name: Verify GLib source and security backport
+        if: needs.security-scope.result == 'success' && needs.security-scope.outputs.rust == 'true'
+        run: node scripts/vendor-glib.mjs --check
+
+      - name: Setup Rust
+        if: needs.security-scope.result == 'success' && needs.security-scope.outputs.rust == 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
+
+      - name: Restore pinned cargo-audit
+        if: needs.security-scope.result == 'success' && needs.security-scope.outputs.rust == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/cargo-audit
+          key: cargo-audit-ubuntu24.04-${{ runner.arch }}-rust1.97.1-v${{ env.CARGO_AUDIT_VERSION }}
+
+      - name: Ensure the pinned cargo-audit
+        if: needs.security-scope.result == 'success' && needs.security-scope.outputs.rust == 'true'
+        run: bash scripts/ci-security-cargo-audit.sh ensure
+
+      - name: Audit Cargo.lock
+        if: needs.security-scope.result == 'success' && needs.security-scope.outputs.rust == 'true'
+        run: bash scripts/ci-security-cargo-audit.sh audit src-tauri/Cargo.lock
 
   codeql-javascript:
     name: codeql (javascript-typescript, none)
@@ -145,8 +169,8 @@ jobs:
 
   codeql-rust-scan:
     name: Rust CodeQL scan
-    needs: rust-changes
-    if: needs.rust-changes.outputs.required == 'true'
+    needs: security-scope
+    if: needs.security-scope.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -163,6 +187,10 @@ jobs:
           languages: rust
           build-mode: none
 
+      # Upstream CodeQL documents build mode none for Rust. CodeQL runs
+      # build scripts and macro code with rust-analyzer, but it does not
+      # invoke a full build. Keep the toolchain and the system libraries that
+      # those build scripts may inspect. Do not add a cargo build step.
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
@@ -177,9 +205,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 
-      - name: Build Rust
-        run: cargo build --manifest-path src-tauri/Cargo.toml --locked
-
       - name: Analyze
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
@@ -188,15 +213,15 @@ jobs:
 
   codeql-rust:
     name: codeql (rust, none)
-    needs: [rust-changes, codeql-rust-scan]
+    needs: [security-scope, codeql-rust-scan]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require Rust analysis when Rust inputs change
         env:
-          CHANGES_RESULT: ${{ needs.rust-changes.result }}
-          ANALYSIS_REQUIRED: ${{ needs.rust-changes.outputs.required }}
+          CHANGES_RESULT: ${{ needs.security-scope.result }}
+          ANALYSIS_REQUIRED: ${{ needs.security-scope.outputs.rust }}
           ANALYSIS_RESULT: ${{ needs.codeql-rust-scan.result }}
         run: |
           test "$CHANGES_RESULT" = 'success'
