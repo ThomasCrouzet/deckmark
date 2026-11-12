@@ -964,6 +964,48 @@ async function runWebBenchmark(options, fixtures) {
 	}
 }
 
+const failureSampleLimit = 64;
+
+/**
+ * Print bounded numeric evidence for every failed budget metric.
+ *
+ * The gate exit code and the failure message keep their current behavior. These
+ * lines appear only after a failure. Each line uses fixed labels, a metric name
+ * from the budget file, numbers and a short sample list in run order. It does
+ * not print notes, paths, capabilities or the complete report.
+ * @param {Record<string, any>} result
+ */
+function printBudgetFailureDiagnostics(result) {
+	const failures = result?.budget?.failures;
+	if (!Array.isArray(failures) || failures.length === 0) return;
+	/** @type {Set<string>} */
+	const failedMetrics = new Set();
+	for (const failure of failures) {
+		if (typeof failure !== 'string') continue;
+		const separator = failure.lastIndexOf(':');
+		if (separator > 0) failedMetrics.add(failure.slice(0, separator));
+	}
+	for (const metric of failedMetrics) {
+		const summary = result.summary?.[metric];
+		const raw = result.samples?.[metric];
+		const values = Array.isArray(raw)
+			? raw.filter((value) => typeof value === 'number' && Number.isFinite(value))
+			: [];
+		if (!Array.isArray(raw) && !summary) continue;
+		const shown = values.slice(0, failureSampleLimit);
+		const measured = summary?.measured === true;
+		console.log(
+			`Budget failure samples: metric=${metric} count=${
+				measured ? summary.runs : values.length
+			} min=${measured ? summary.min : 'na'} max=${measured ? summary.max : 'na'} p50=${
+				measured ? summary.p50 : 'na'
+			} p95=${measured ? summary.p95 : 'na'} printed=${shown.length} samples=${
+				shown.length > 0 ? shown.join(',') : 'none'
+			}`
+		);
+	}
+}
+
 async function main() {
 	if (process.argv[2] === '--suite' && process.argv[3] === 'stress') {
 		const { stressMain } = await import('./benchmark-stress.mjs');
@@ -1003,6 +1045,7 @@ async function main() {
 		)
 	);
 	console.log(`Budget status for ${result.budget.platformKey}: ${result.budget.status}`);
+	printBudgetFailureDiagnostics(result);
 	if (options.output) {
 		await writeFile(options.output, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
 		console.log(`Wrote benchmark data to ${options.output}.`);

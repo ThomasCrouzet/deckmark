@@ -2888,3 +2888,24 @@ boundary, the A to B to A corpus transition, a fresh-index oracle, and scoped ro
 reads at 300, 900 and 3,000 rows. The 3,000-row timing budget stays with #327.
 Keep the Playwright JSON and HTML reports with the command and source revision.
 
+## CI failure evidence and typewriter setup
+
+Keep these risks and evidence boundaries for #628:
+
+- An enforcing benchmark can fail without preserving the values that crossed a budget. `scripts/benchmark-local.mjs` now prints one bounded line for each failed metric: metric name, count, min, max, p50, p95 and at most 64 numeric samples in run order. It does not print paths, notes, capabilities or the complete report. An ok budget emits no failure-sample line. The failure message, tolerance, budget and nonzero exit remain unchanged. A negative control uses the existing `--budgets` option with a stricter private budget file outside Git; retain its failed exit separately from a healthy run.
+- The image input probe retains the product duration events `imageMarkdownScopedStage`, `imageMarkdownFullStage`, `restoreMarkdown`, `filterTransaction` and `sourceFidelityScopeAttempt`. It clears events with the samples and long tasks before each position. Its local attachment has raw samples, overall and per-position stage summaries, and the count of samples at or above 100 ms. The console has the overall stage summary and gated sample metrics. These stage values are not gated p50 or p95. They have no timestamp or sample index, so they cannot identify the stage behind one named slow sample. The extra event listener and array push have unmeasured observer cost.
+- Work already queued before a typewriter burst can enter the burst observation. The probe `ready()` waits for two quiet frames with no queued object measure request and no new centre dispatch. It uses the frame function captured at installation, outside the pending-frame counter. It reads `view.measureRequests` from the pinned CodeMirror 6.43.15 and rejects a detached view, unavailable queue or two-second deadline. This is a pre-burst barrier, not a change to product scheduling.
+- A first burst at the clamped top can record no centre, which makes the same-head assertion vacuous. The retained first case requires at least one centre in addition to the existing upper bound, same-head check and `maxPending <= 2`. Before capture, PageDown moves the caret off the top, `ready()` drains the caret measure, a 40 px scroll offset queues the scroll measure, one frame lets it enter the queue, and a second `ready()` drains it. The original 30-key burst and 20-frame settle stay unchanged. A later centered collapse can legitimately need no centre. The zero-centre RED and external zero/duplicate controls are coverage and assertion controls, not product regressions.
+- The inactive-editor history selection poll can fail without retaining its DOM boundary. On failure only, `editor-state.spec.ts` prints `[selection-boundary]` and attaches the same JSON: focus, active element, range endpoints/text, mounted content count, active file, cached position and available EditorView selection/viewport/measure state. Missing fields stay null. Capture is bounded to two seconds and rethrows the original error. The 35-file sequence, selection assertion and timeout stay unchanged.
+- A TOC visibility failure can lack evidence of headings, mode and resource loading. On failure only, `editor-width.spec.ts` prints `[toc-boundary]` and attaches heading presence, bounded text, aside connectivity/inert/display/visibility, nav/items, active/stored mode and at most 20 same-origin script timings. It retains the exact 5000 ms visibility assertion, adds no pre-assertion wait and rethrows the original error after bounded capture.
+
+Run the focused positive coalescing case with one worker and no retries:
+
+```sh
+E2E_PORT=4216 npx playwright test e2e/navigation-stats-scroll.spec.ts \
+  --project=chromium --project=webkit --workers=1 --retries=0 \
+  --grep 'typewriter coalesces'
+```
+
+Retain the direct exit, source and working diff identity, command, environment, list log and per-project burst/centered attachments locally. Do not mistake a separate control `results.json` for the GREEN reporter object. Do not upload reports. These local controls do not establish the cause or recovery of the hosted Firefox scroll, WebKit input tail, history selection, TOC or typewriter failures. Record fresh exact-head CI evidence separately.
+
