@@ -157,6 +157,18 @@ test('returns focus to Create Code after the Cancel button closes the code form'
 	const codeButton = page.getByTestId('create-code');
 
 	await codeButton.click();
+	const enterName = page.getByTestId('create-code-name');
+	await expect(enterName).toBeVisible();
+	await enterName.fill('enter.py');
+	await page.getByTestId('create-code-cancel').focus();
+	await page.keyboard.press('Enter');
+	await expect(page.getByTestId('create-code-name')).toHaveCount(0);
+	await expect(page.getByTestId('create-code-submit')).toHaveCount(0);
+	await expect(codeButton).toHaveAttribute('aria-expanded', 'false');
+	await expect(codeButton).toBeFocused();
+	expect(await page.getByTestId('code-editor').count()).toBe(0);
+
+	await codeButton.click();
 	const name = page.getByTestId('create-code-name');
 	await expect(name).toBeVisible();
 	await name.fill('draft.py');
@@ -177,7 +189,7 @@ test('returns focus to Create Code after the Cancel button closes the code form'
 	expect(await page.getByTestId('code-editor').count()).toBe(0);
 	await info.attach('code-form-cancel-focus.json', {
 		body: JSON.stringify({
-			keyboardActivation: 'Space',
+			keyboardActivation: ['Enter', 'Space'],
 			pointerActivation: 'click',
 			activeTestId: 'create-code',
 			codeEditors: 0
