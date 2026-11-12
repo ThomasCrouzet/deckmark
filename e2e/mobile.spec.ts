@@ -90,6 +90,14 @@ test.describe('Mobile UI - sidebar drawer', () => {
 		await expect(drawer(page)).toBeVisible();
 		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
 		await expect(page.getByTestId('sidebar-new-project')).toBeFocused();
+
+		// Tab and Shift+Tab stay inside the drawer after the prompt closes.
+		const projectSummary = drawer(page).locator('summary').first();
+		await page.keyboard.press('Tab');
+		await expect(projectSummary).toBeFocused();
+		await page.keyboard.press('Shift+Tab');
+		await expect(page.getByTestId('sidebar-new-project')).toBeFocused();
+
 		expect(
 			await page.evaluate(
 				() =>
@@ -113,6 +121,11 @@ test.describe('Mobile UI - sidebar drawer', () => {
 			{ defaultPrevented: true, composing: false },
 			{ defaultPrevented: false, composing: false }
 		]);
+
+		// The closed drawer returns focus to the visible toolbar trigger.
+		const menuTrigger = page.getByRole('button', { name: 'Menu' });
+		await expect(menuTrigger).toBeFocused();
+		await expect(menuTrigger).toBeVisible();
 	});
 
 	test('Escape cancels a deletion confirmation opened from the drawer', async ({ page }) => {
@@ -123,10 +136,11 @@ test.describe('Mobile UI - sidebar drawer', () => {
 		await expect(drawer(page)).toBeVisible();
 		const actions = drawer(page).locator('details').filter({ hasText: 'Actions du document' });
 		const confirm = page.getByRole('dialog', { name: 'Déplacer ce document dans la corbeille ?' });
+		const deleteButton = actions.getByRole('button', { name: /corbeille/ });
 
 		async function openDeleteConfirm() {
 			if ((await actions.getAttribute('open')) === null) await actions.locator('summary').click();
-			await actions.getByRole('button', { name: /corbeille/ }).click();
+			await deleteButton.click();
 			await expect(confirm).toBeVisible();
 		}
 
@@ -135,6 +149,7 @@ test.describe('Mobile UI - sidebar drawer', () => {
 		await expect(confirm).toBeHidden();
 		await expect(drawer(page)).toBeVisible();
 		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
+		await expect(deleteButton).toBeFocused();
 
 		// The explicit Cancel button leaves the same state as Escape.
 		await openDeleteConfirm();
@@ -142,6 +157,7 @@ test.describe('Mobile UI - sidebar drawer', () => {
 		await expect(confirm).toBeHidden();
 		await expect(drawer(page)).toBeVisible();
 		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
+		await expect(deleteButton).toBeFocused();
 	});
 
 	test('an IME composition Escape does not cancel the prompt or close the drawer', async ({
