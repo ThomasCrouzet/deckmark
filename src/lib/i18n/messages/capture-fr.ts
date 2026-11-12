@@ -31,6 +31,9 @@ export const captureFr: Record<keyof typeof captureEn, string> = {
 	'capture.clipboardFailed': 'Impossible de lire le presse-papiers. Collez avec le clavier.',
 	'capture.saveFailed': "Impossible d'enregistrer la note : {message}",
 	'capture.loadFailed': "La fenêtre de capture rapide n'a pas pu se charger.",
+	'capture.templateMissing':
+		"Ce modèle n'est plus disponible. Le texte de la note n'a pas été modifié.",
+	'capture.templateFailed': 'Impossible de charger le modèle : {message}',
 	'settings.capture': 'Capture rapide (facultatif)',
 	'settings.captureHelp':
 		'Ouvrez une petite fenêtre de capture depuis toute application avec un raccourci global. Le raccourci est désactivé par défaut.',

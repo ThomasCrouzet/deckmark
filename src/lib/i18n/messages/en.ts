@@ -659,6 +659,8 @@ export const en = {
 	'collection.viewName': 'View name',
 	'collection.saveView': 'Save view',
 	'collection.deleteView': 'Delete view',
+	'collection.viewsStorageUnavailable':
+		'Saved views cannot be read or stored. Check browser storage access and try again.',
 	'collection.loading': 'Reading front matter...',
 	'collection.empty': 'No notes with front matter.',
 	'collection.missingBodies':

@@ -673,6 +673,8 @@ export const fr: Record<MessageKey, string> = {
 	'collection.viewName': 'Nom de la vue',
 	'collection.saveView': 'Enregistrer la vue',
 	'collection.deleteView': 'Supprimer la vue',
+	'collection.viewsStorageUnavailable':
+		'Impossible de lire ou d’enregistrer les vues. Vérifiez l’accès au stockage du navigateur et réessayez.',
 	'collection.loading': 'Lecture du front matter…',
 	'collection.empty': 'Aucune note avec front matter.',
 	'collection.missingBodies':

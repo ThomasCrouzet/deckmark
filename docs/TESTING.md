@@ -538,6 +538,63 @@ checks the native browser viewer under the production CSP. Retain fixture PDFs,
 downloads, ZIP files, screenshots, and JSON reports. Run both specs with
 `npx playwright test e2e/binary-review.spec.ts e2e/pdf-viewer.spec.ts --project=chromium --workers=1`.
 
+### Library ZIP download boundary
+
+Retain these failure risks for the library export: a saved download can be a
+different non-ZIP file, empty, or truncated before JSZip parses it. The first
+hosted failures in PR641, PR642, PR643 and PR645 were JSZip end-of-central-
+directory errors with no retained payload. On a JSZip parse failure only, the
+spec emits one compact `[library-zip-boundary]` JSON line and attaches
+`binary-library-zip-boundary.json`. The record contains the intended command,
+the actual suggested filename, the expected filename classification, the byte
+length, the first 8 and last 32 hex bytes, the local header, and the EOCD offset
+and end completeness. It does not include the complete binary. Missing values
+stay null.
+
+The diagnostic does not preempt JSZip, change a wait, timeout, retry, fixture or
+assertion, or replace the original exception. A failure to attach or format the
+diagnostic is reported on the console and the original JSZip exception is
+rethrown. A wrong filename indicates a wrong command or download. The expected
+filename with no local header indicates wrong or empty bytes. The expected
+filename with a missing or incomplete EOCD indicates truncation. A complete
+boundary with a JSZip failure points to central-directory or parser
+investigation. A retry recovery is flaky, not a clean pass.
+
+`downloadBytes` now rejects one download only: the live download whose URL equals
+the current `pdf-frame` `src` at event time. Headless Chromium can auto-download
+the preview iframe blob as a UUID-named PDF before the intended export. The
+predicate keeps the native wait deadline and event order. It does not filter by
+MIME, filename suffix, byte length or the PDF type. A different PDF, including
+the intended `review.pdf` save-as export, remains visible to the original
+assertions.
+
+The controls use real browser events. A preview-only case makes one UUID PDF
+download and the predicate rejects it; no export succeeds. A non-preview PDF
+save-as produces `review.pdf`, the predicate accepts it, and JSZip still rejects
+its bytes, so the original ZIP and filename assertions remain effective. These
+are helper-contract controls, not product regression claims.
+
+Run the real library and PDF save-as cases with one worker and no retries:
+
+```sh
+E2E_PORT=4227 npx playwright test e2e/binary-review.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 \
+  --grep 'library ZIP preserves|save-as preserves review.pdf bytes'
+```
+
+PDF save-to-disk is a Chromium-only control in this file. Firefox and WebKit
+have no routed save-to-disk control, so a broad grep that includes it fails at
+`getByTestId('save-to-disk')` before any download. That is an unrelated routed-
+control limit, not an export or predicate regression.
+
+The zero, truncated and non-ZIP boundary checks are test-only evidence controls.
+They prove the boundary fields and the preserved JSZip error. They are not product
+RED, a hosted reproduction, or proof that the export is corrupt. The hosted
+failure artifact remains unavailable, so the old hosted incident is not
+retroactively clean. The local pre-repair run produced a 39-byte UUID PDF; the
+repair ignores only that exact preview URL. Native and physical-device checks
+remain separate.
+
 The native Git tests use real repositories. They check executable filters,
 included configuration, parent-repository confinement, literal diff paths, and
 unstage before the first commit. Check unchanged index and working-tree bytes.
@@ -622,6 +679,18 @@ the operating-system shortcut or native window lifecycle. Native smoke covers
 those paths. Each browser case retains source metadata, fixtures, and screenshots.
 The PDF viewer case uses full Chromium headless mode because the headless shell
 does not include the PDF viewer.
+
+The Quick Capture key handler must not cancel or save during IME composition.
+The retained risks are an Escape that closes the window while it dismisses a
+candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
+key code 229 event, a lost draft and a lost focus. The Web edition does not mount
+this component, so a browser workflow cannot reach it. `QuickCapture.component.test.ts`
+replaces the native window bridge and the stores. It dispatches composition and
+legacy key code sequences, then checks the normal Escape and Ctrl+Enter paths,
+the draft text, the focus and the call counts. Run
+`npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
+Synthetic composition events do not prove a physical IME, Windows WebView2,
+macOS WKWebView or Linux WebKitGTK behavior.
 
 The PDF case checks the native viewer, page count, rendered thumbnail pixels, and
 exact fixture text before and after reload. It also compares the downloaded bytes.
@@ -794,6 +863,104 @@ serve the expected source and pass the startup, edit, and offline checks.
 See [EDITIONS.md](EDITIONS.md#hosting-and-downloads) for the hosting contract and
 [DEVELOPMENT.md](DEVELOPMENT.md#web-publishing) for the maintainer steps.
 
+## Dialog visual viewport risks
+
+The search, command, settings and library dialogs use a fixed overlay. A fixed
+overlay follows the layout viewport, so an on-screen keyboard, browser chrome or
+pinch zoom can hide the focused field or the close control. The retained risks
+are a lost query or selection after a viewport change, a dialog that leaves the
+visible region, a close control that is not reachable, and a changed desktop
+layout when no keyboard is present.
+
+`src/lib/a11y/focusTrap.ts` exports the `visualViewportPanel` action that keeps
+the overlay inside the visual viewport.
+It applies only when the visual viewport is smaller than the layout viewport or
+moves from the top. It restores the CSS defaults when the viewport is unchanged.
+The action sets the overlay top and height and a panel maximum height from the
+visible height and the overlay padding.
+
+`e2e/dialog-visual-viewport.spec.ts` replaces `window.visualViewport` before the
+application starts and moves or shrinks it for all four dialogs. It checks the
+dialog panel, the focused field, the close control, the query, the input
+selection and the dialog scroll. It also checks that a normal viewport keeps the
+CSS defaults. This is a simulation and does not prove a physical iOS keyboard,
+Safari viewport panning, VoiceOver output or a native WebView.
+
+Run `npx playwright test e2e/dialog-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0`.
+Keep `visual-viewport-dialogs.json` with the source revision, browser version,
+command and the viewport cases. Physical iPhone Safari in tab and PWA mode, and
+iPad Safari in portrait and landscape, remain required evidence.
+
+## Presentation inspector width risks
+
+The presentation Properties inspector uses a 252 px side panel above an 800 px
+container width and an absolute overlay below it. The retained risks are:
+
+- A default open state read from the outer window width while the files sidebar
+  holds part of that width.
+- A stale open state after an orientation or window change.
+- A reopen after the user closed the panel.
+- A lost focus when the panel closes.
+- An overlay without a reachable dismiss control.
+- A changed selected object.
+- An essential toolbar control hidden by the overlay.
+- A viewport change that turns the desktop sidebar into a drawer.
+
+`SlideEditor.svelte` reads the actual presentation container width with a
+`ResizeObserver`. The automatic state follows the 800 px breakpoint. A manual
+toggle sets an explicit open or closed preference that later resizes keep. An
+automatic close moves focus to the Properties toggle when the panel held focus.
+An explicit dismiss also returns focus to the toggle.
+
+`e2e/presentation-inspector-width.spec.ts` keeps the original live resize case.
+It adds two cases:
+
+1. A deck starts at a 960 px viewport with the files sidebar closed. The editor
+   is wider than 800 px and the inspector opens. Opening the sidebar narrows the
+   editor below 800 px and closes the inspector. Closing the sidebar reopens it.
+2. A narrow editor opens the inspector as an overlay. The case adds and selects
+   a text object. It checks the Close control and the add text, export, notes,
+   present and properties controls as real hit targets. It checks that the
+   overlay stays inside the editor. It resizes to a 1500 px viewport, then to a
+   720 px viewport where the sidebar collapses to a closed drawer. It checks
+   that the selected object, the selection status and the focus stay stable. An
+   explicit Close returns focus to the toggle, keeps the object selected and
+   makes the canvas a hit target again.
+
+Both cases resize without a reload. They attach JSON and screenshots. The JSON
+records the source revision and tree, the working diff hash, the environment,
+the viewport, the editor and inspector boxes, the sidebar state, the toggle
+state, the selected object and the focused element.
+
+The cases use desktop Chromium viewport simulation. They do not prove physical
+iPad portrait or landscape, iPad Stage Manager windows, the native 720 px
+minimum window, browser or platform zoom, Tauri WebView layout, touch input or
+presentation playback.
+
+Run `npx playwright test e2e/presentation-inspector-width.spec.ts --project=chromium --workers=1 --retries=0`.
+
+## Note scroll shortcut scope
+
+The Alt+Home and Alt+End note shortcuts listen on `window`. The retained risks
+are a scroll of an inert note while a dialog is open, a consumed key that
+belongs to a foreground control, a scroll of a short note with no scroll target,
+a stale scroller after a mode or file switch, and a scroll during IME
+composition.
+
+`ScrollNav.svelte` resolves the live scroller on each keydown. It ignores an
+event that is already prevented, a composition event, a repeat, a target in an
+inert subtree, an open modal dialog, and an editable field outside the active
+note. It also ignores a note without a scroll range. The pointer and touch
+buttons stay available when the note is scrollable.
+
+`e2e/scroll-nav-scope.spec.ts` checks both boundaries in a long note, then the
+same keys with Settings open, with an outside field focused, during a synthetic
+composition, and in a short note. It records `defaultPrevented` and the scroller
+position. Synthetic events and desktop emulation do not prove a physical iPad
+keyboard, a screen reader or a native WebView.
+
+Run `npx playwright test e2e/scroll-nav-scope.spec.ts --project=chromium --workers=1 --retries=0`.
+
 ## Version 2.0 project risks
 
 At native 200% browser zoom in a 320 by 844 viewport, save-status text can wrap
@@ -887,6 +1054,49 @@ and a restart keep the review retryable. A path restored on disk closes it.
 a second refresh, a restart, an injected metadata failure, recreate, keep local
 and a later save. That workflow requires the native smoke binary on a desktop
 session. The browser suite cannot run these Tauri commands.
+
+## Collections saved views and ARIA indices
+
+`e2e/collection-views.spec.ts` and `e2e/collection-accessibility.spec.ts` retain
+these failure risks:
+
+- A saved-view write can fail after the live list changes. A rejected Save must
+  keep the list, stored value and entered name unchanged, and show one translated
+  alert. A rejected Delete must keep the view and its selection.
+- A failed `getItem` must not become an empty trusted list. A later save must
+  retry the read before it appends. It must not overwrite unread views. A
+  present value that parses as a non-array is unreadable. Keep its exact bytes
+  until a later read can parse a proper list. Absence of the key stays an empty
+  trusted list. The table must stay usable when preference storage is
+  unavailable.
+- A retry must append each view once and preserve filter, sort, direction, group
+  and mode after reload.
+- Empty names must not add a view. Duplicate stored IDs must not crash the keyed
+  list. Quota and security exceptions must not escape as `pageerror` or
+  `unhandledrejection`.
+- The view-name field needs an explicit label. Do not use a placeholder as its
+  only accessible name. Check `getByLabel`, `element.labels` and the accessible
+  name in English and French.
+- The virtualized table must expose `aria-rowcount`, `aria-colcount`, header
+  `aria-rowindex=1`, absolute body `aria-rowindex` and absolute `aria-colindex`
+  for the title and each rendered YAML column. Check sort, both scroll axes,
+  filter and resize. Spacers stay `aria-hidden` and carry no index. Keep an
+  accessibility tree snapshot.
+
+Run the focused cases with one worker and no retries:
+
+```sh
+npx playwright test e2e/collection-views.spec.ts e2e/collection-accessibility.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The storage cases inject failures only for `mdsh:collection-views`. Keep
+`collection-view-storage-failure.json`, `collection-view-read-failure.json`,
+`collection-view-non-array.json`, `collection-view-duplicate-ids.json`,
+`collection-view-name-label.json` and `collection-aria-indices.json` with the
+local browser report.
+
+Browser emulation does not prove physical iPad, VoiceOver, NVDA or native WebView
+behavior. Record those checks separately.
 
 ## Code snippets
 
@@ -1548,6 +1758,32 @@ frame. It excludes driver round trip. The sample includes any product work that
 the input triggers, such as save scheduling and index updates. WebDriver text
 insertion is recorded separately because it includes driver IPC. Do not compare
 an engine that handles one insert with an engine that processes each key.
+
+### Scroll sample timeline diagnostics
+
+A `scrollFrame` budget failure keeps the existing summary line and adds one
+bounded numeric line for each scroll sample. The CI gate uses five samples. The
+line records the run, the scroll ratio, the measured duration, the start time,
+the two animation frame times, the requested and applied `scrollTop`, the scroll
+room and the number of reported long-task entries that overlap the sample. A
+final line records the long-task support and a bounded entry list.
+
+The two-frame timer does not wait for paint or compositing. The timeline can show
+a delayed frame or a deferred charge to a later sample. It does not prove the
+cause.
+
+The long-task observer is installed once for the scroll samples, only when the
+engine lists the `longtask` entry type. It keeps at most 32 entries, performs no
+DOM read, and is disconnected in a `finally` block. The observer adds one
+callback per reported long task. The first-frame timestamp adds one monotonic
+clock read. The second frame keeps the existing end read. If the engine does not
+support the entry type, the output says `unavailable`. A zero entry count is not
+proof that no stall occurred.
+
+These diagnostics never enter the numeric samples, the summary, the budget, the
+exit code or the thrown error. Use them only on a dedicated regression run with a
+local report outside the repository. Do not upload the report or print paths,
+document text or private data.
 
 ### Fixture corpus and budgets
 
@@ -2613,6 +2849,153 @@ The spec attaches `export-profile-listbox-navigation.json`,
 `export-profile-viewport.json`. CSS zoom is a simulation. It does not prove the browser
 zoom control, a physical iPad keyboard, VoiceOver, NVDA, Windows WebView2, Linux
 WebKitGTK or macOS WKWebView.
+## Native Git diff review and quick-capture template race
+
+Two Desktop Complete workflows do not have a Web Light surface. Keep one
+isolation choice for each workflow, not a duplicate unit set beside the stronger
+browser or native check.
+
+### Git diff review beyond the 2000-line preview
+
+The retained risks are a late diff response for another file, an unreachable
+final hunk, a lost selected path or worktree/staged mode, a whole-diff DOM mount,
+an exact last-page range, lost keyboard focus at a page bound, a stale scroll
+offset that hides the start of a section, an aria-disabled control that moves
+the list, a native 1 MiB rejection shown as a generic error or an empty diff, a
+partial preview confused with a full review, and a stale page after a refresh.
+The panel keeps a 2000-line page, shows the current range and section count, and
+offers first, previous, next, and last section controls. The last section states
+that all lines are reviewable. A native output rejection shows a separate
+size-limit state. A section change resets the list scroll to the section start.
+The Last control moves the list to its end so the final hunk is visible without
+another scroll. A control at its page bound returns before it changes the page,
+scroll, or focus.
+
+`e2e/git-diff.spec.ts` is the retained Git review check. It is a real Chromium
+workflow against a Desktop Complete build with a Git and project command
+fixture. It checks the bounded first page, scrolls it to its end, activates the
+last section by pointer, requires the final marker inside the list viewport,
+keeps the path and mode, returns to the first page by keyboard, requires
+scrollTop 0 and line 0001 inside the list viewport, checks the First and Next
+boundary controls do not move the list or focus, checks the separate 1 MiB
+state, and checks a generic Git error. A separate GitPanel component set was
+removed because it duplicated this stronger browser case and could not measure
+layout, scroll, or viewport reach. The 1 MiB state in this Chromium workflow is a
+fixture; the real backend rejection is proved by the native case below.
+
+The Desktop workflow is opt-in because the default Playwright server builds Web
+Light, where the Git panel cannot mount. Use a concrete configuration file at
+the repository root as `playwright.desktop.config.ts`. Keep this local test file
+untracked and remove it after the run. For an external config, replace the import
+and test directory with the actual absolute repository paths:
+
+```ts
+import base from './playwright.config';
+
+export default {
+	...base,
+	testDir: './e2e',
+	webServer: undefined,
+	use: { ...base.use, baseURL: 'http://127.0.0.1:4206' },
+	projects: (base.projects ?? []).filter((project) => project.name === 'chromium')
+};
+```
+
+In one terminal at the repository root, build and serve the artifact:
+
+```sh
+npm run build:desktop
+node scripts/preview-build.mjs --host 127.0.0.1 --port 4206
+```
+
+In a second terminal at the same repository root, run the file with one worker
+and no retries:
+
+```sh
+GIT_REVIEW_DESKTOP=1 npx playwright test e2e/git-diff.spec.ts \
+  --config=playwright.desktop.config.ts --project=chromium --workers=1 --retries=0
+```
+
+The default suite skips this file because the standard server is Web Light. A
+Chromium result is not native WebView proof.
+
+`scripts/native-git.mjs` prepares a real repository with a 2600-line worktree
+change in `long.md` and a distinct 2600-line staged change in `staged.md`. It
+opens the native project, checks the worktree page and final hunk, checks the
+staged page and final hunk, checks the staged file has no worktree diff, returns
+to the staged diff, then returns to the worktree diff. The script focuses the
+Last control, sends a real X Return key with `xdotool` when `DISPLAY` is
+available, tries WebDriver key actions, and falls back to a pointer click. It
+records the focus result, the activation method, and the fallback. A Linux
+WebKitGTK run with `xdotool` activated the control; a run without it records the
+focus path and the pointer fallback. `scripts/native-smoke.mjs` calls it after
+the native capture scenario.
+
+The same native case adds `huge.md`, a real worktree change whose measured
+`git diff` output is 1,176,171 bytes against the backend cap of 1,048,576 bytes.
+It selects the file in the real Git panel and requires the distinct size-limit
+message, with no empty diff, generic error, or partial preview. A direct
+`git_diff` command for the same file rejects with exactly
+`Git output exceeds the 1 MiB limit`. The staged and
+worktree paging, final hunks, boundary controls, selected path, and row bounds
+stay unchanged. `native-git.json` records the diff byte count, cap, UI state,
+and message; it does not retain the large fixture content. The retained
+native-smoke binary was built at 25f6388 and reused after its SHA-256 and app
+source equivalence were checked. The retained copy has SHA-256
+20dc0c6774ecb7c1bf97d528a8e3478fd998c7df8f02478ff39b95c12109f42b. The final
+head differs only in `scripts/native-git.mjs`; no rebuild was needed. Keep `native-git.json`, the
+repository head, the fixture SHA-256 values, the row counts, the range state,
+the staged and worktree markers, the output-cap result, the keyboard result,
+and the browser and native runtime identity with the report.
+
+A Linux WebKitGTK result does not prove Windows WebView2 or macOS WKWebView.
+High-DPI and keyboard-zoom checks remain separate. Linux high-DPI at a
+non-default scale may also require the separately owned PR625 window geometry
+fix; this stream does not edit its Rust files and does not treat simulated scale
+as physical hardware. The Chromium workflow still mocks the 1 MiB rejection; the
+real backend rejection is proved on Linux WebKitGTK.
+
+### Quick-capture late template resolution
+
+The retained risks are a late template result that replaces typed text or typed
+whitespace, an older A result that overwrites a newer B choice, a reset, cancel,
+or save that receives a late write, a note template that fills a snippet, a
+note-to-snippet-to-note round trip that revives the old request, a cleared
+selection that still applies, a body or title that is typed then cleared, a
+typed title that is replaced, a missing or rejected template without a useful
+error, a late rejection after a superseding edit, an unhandled rejection, a
+settlement after unmount, and lost focus after a superseded result.
+
+The component stores a capture generation and a template request counter. It
+rechecks the body, title, selected id, kind, and generation after each await. A
+body input, a title input, a paste, a kind change, a template selection, reset,
+save, cancel, and component teardown invalidate pending work. A kind change
+clears the template selection. Only the current request may set the title, body,
+and focus. The textarea and title stay editable and the publication path does
+not take focus from a superseded edit.
+
+Keep the QuickCapture component cases. Issue 638 explicitly requires deferred
+component cases for lifecycle races that a browser workflow cannot force, and
+the default Web Light server cannot mount the capture window. The file uses
+deferred `resolve()` promises, input actions, a reset listener, and capture-kind
+changes. It keeps the PR 613 composition cases and covers the body and title
+typed-text races, whitespace, typed-then-cleared, A/B out-of-order, reset,
+cancel, kind switch, note-to-snippet-to-note, cleared selection, unmount, the
+normal empty-form application with focus, a missing template, a superseded
+rejection, and a current empty-form rejection. Run
+`npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
+
+PR 613 also adds IME cases to this file and a composition guard to
+`handleKeydown`. The merged file keeps both test groups. This stream does not
+change the IME guard.
+
+`scripts/native-capture.mjs` adds a native race case. It uses a programmatic
+value assignment and input event, not physical typing. It selects a template and
+writes the body before the dynamic import and IndexedDB read can resume, waits,
+and checks that the programmatic body and the empty title remain. Keep
+`native-capture.json` with the other capture evidence. A native Linux WebKitGTK
+run does not prove Windows WebView2 or macOS WKWebView focus and lifecycle, and
+it does not prove a physical keyboard or IME.
 
 
 ## Version 2 accessibility
@@ -2888,6 +3271,10 @@ boundary, the A to B to A corpus transition, a fresh-index oracle, and scoped ro
 reads at 300, 900 and 3,000 rows. The 3,000-row timing budget stays with #327.
 Keep the Playwright JSON and HTML reports with the command and source revision.
 
+## Native Git fixture config isolation
+
+Use an ordinary empty file for `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` in the owned fixture area, outside the repository under test. Git for Windows rejects the Windows null-device path returned by Node `os.devNull` with `Invalid argument` before `git init` completes. Keep the config file out of Git status and diffs. Preserve per-subprocess environments and fixture commit identities, no signing, source boundaries, all Git/UI assertions, the 1 MiB cap and the huge fixture. A Linux smoke pass does not prove the repaired Windows fixture; require fresh native Windows validation on the final head.
+
 ## CI failure evidence and typewriter setup
 
 Keep these risks and evidence boundaries for #628:
@@ -2908,4 +3295,12 @@ E2E_PORT=4216 npx playwright test e2e/navigation-stats-scroll.spec.ts \
 ```
 
 Retain the direct exit, source and working diff identity, command, environment, list log and per-project burst/centered attachments locally. Do not mistake a separate control `results.json` for the GREEN reporter object. Do not upload reports. These local controls do not establish the cause or recovery of the hosted Firefox scroll, WebKit input tail, history selection, TOC or typewriter failures. Record fresh exact-head CI evidence separately.
+
+## Modal drawer and disclosure evidence
+
+Keep these browser evidence limits for #614 and #615:
+
+- A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
+- After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
+- The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
 

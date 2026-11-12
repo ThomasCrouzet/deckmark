@@ -54,6 +54,10 @@ class KeyboardStore {
 			: undefined;
 	}
 	match(event: KeyboardEvent) {
+		// A command uses Command on macOS and Control elsewhere. Do not treat
+		// the alternate modifier as an app modifier.
+		const primary = isMac() ? event.metaKey : event.ctrlKey;
+		if (!primary || (event.metaKey && event.ctrlKey)) return undefined;
 		return coreCommands.find((command) => {
 			const binding = this.binding(command.id);
 

@@ -116,3 +116,73 @@ test('uses the reported keyboard platform before a Safari-compatible user agent'
 		contentType: 'application/json'
 	});
 });
+
+test('rejects Control-only app shortcuts on a Mac-reported web platform', async ({
+	page
+}, testInfo) => {
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
+	});
+	await resetAppState(page);
+	await createFirstFile(page);
+	const title = page.locator('input[aria-label^="Nom du fichier"]');
+	const name = await title.inputValue();
+	await page.locator('button[data-mode="source"]').click();
+	await expect(page.locator('.cm-content')).toBeVisible();
+
+	const expectNoAppCommand = async (mode: string) => {
+		await expect(page.getByTestId('create-presentation')).toHaveCount(0);
+		await expect(page.getByRole('dialog')).toHaveCount(0);
+		await expect(title).toHaveValue(name);
+		await expect(page.locator(`button[data-mode="${mode}"]`)).toHaveAttribute(
+			'aria-checked',
+			'true'
+		);
+	};
+
+	// Source mode keeps native Control navigation and must not run app commands.
+	await page.locator('.cm-content').click();
+	for (const key of ['Control+n', 'Control+o', 'Control+e', 'Control+f'])
+		await page.keyboard.press(key);
+	await expectNoAppCommand('source');
+
+	// Edit mode keeps the same boundary.
+	await page.locator('button[data-mode="wysiwyg"]').click();
+	await expect(page.locator('.milkdown')).toBeVisible({ timeout: 15_000 });
+	await page.locator('.milkdown').click();
+	for (const key of ['Control+n', 'Control+o', 'Control+e', 'Control+f'])
+		await page.keyboard.press(key);
+	await expectNoAppCommand('wysiwyg');
+
+	// The Command versions remain application commands.
+	await page.keyboard.press('Meta+n');
+	await expect(page.getByTestId('create-presentation')).toBeVisible();
+	await testInfo.attach('mac-control-shortcuts.json', {
+		body: JSON.stringify(
+			{
+				platform: await page.evaluate(() => navigator.platform),
+				rejected: ['Control+n', 'Control+o', 'Control+e', 'Control+f'],
+				accepted: ['Meta+n'],
+				modes: ['source', 'wysiwyg']
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
+test('rejects Command-only app shortcuts on Linux and keeps Control', async ({ page }) => {
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' });
+	});
+	await resetAppState(page);
+	await createFirstFile(page);
+	await page.locator('button[data-mode="source"]').click();
+	await expect(page.locator('.cm-content')).toBeVisible();
+	await page.locator('.cm-content').click();
+	await page.keyboard.press('Meta+n');
+	await expect(page.getByTestId('create-presentation')).toHaveCount(0);
+	await page.keyboard.press('Control+n');
+	await expect(page.getByTestId('create-presentation')).toBeVisible();
+});
