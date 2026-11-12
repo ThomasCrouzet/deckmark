@@ -33,7 +33,7 @@
 	import { filterCommands } from '#lib/palette-rank.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { aiStore } from '#lib/ai/store.svelte.js';
-	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import { formatKbd } from '#lib/platform.js';
 	import {
 		FilePlus,
@@ -1048,6 +1048,7 @@
 		aria-label={t(view === 'actions' ? 'actions.title' : 'palette.dialogLabel')}
 		tabindex="-1"
 		use:focusTrap
+		use:visualViewportPanel
 	>
 		<div
 			class="mdsh-dialog-panel flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-border

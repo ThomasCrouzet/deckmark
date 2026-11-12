@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildKeydownHandler, type ShortcutCallbacks } from './shortcuts.svelte';
 
+// The default shortcut tests use the Command modifier.
+beforeEach(() => {
+	Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+});
+
 function makeCallbacks(overrides: Partial<ShortcutCallbacks> = {}) {
 	const cb = {
 		onNew: vi.fn(),
