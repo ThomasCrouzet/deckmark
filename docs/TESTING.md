@@ -2900,3 +2900,49 @@ boundary, the A to B to A corpus transition, a fresh-index oracle, and scoped ro
 reads at 300, 900 and 3,000 rows. The 3,000-row timing budget stays with #327.
 Keep the Playwright JSON and HTML reports with the command and source revision.
 
+## Dialog keyboard and IME risks
+
+Retain these failure risks for the shared dialog fixes:
+
+- A prompt Enter shortcut that runs from the dialog ancestor can confirm when
+  Cancel or Close owns the key. The browser default action and the shortcut must
+  not both run. Keep one browser case with a durable side effect.
+- A conditional Code File form can unmount while it owns focus. Restore focus to
+  its disclosure after the DOM update. A delayed language focus from an earlier
+  open must not run against a closed or reopened form. Keep Enter, Space and
+  pointer activation of that form's Cancel button. Record a full-dialog-close
+  RED timeout as a harness limit, not as a stale-focus behavior proof.
+- A scrollable snippet listbox can move `aria-activedescendant` beyond the
+  visible rows. The application scrolls the active option; native focus does not.
+  Keep the rectangle comparison inside the results scroller.
+- A composing Enter in the Library filter can open and activate a document
+  instead of committing an IME candidate. The query, focus, result list and
+  active document must stay unchanged. A normal Enter still opens the first
+  match once. Keep the composing and legacy key code cases separate.
+- A composing Escape can bubble from a field to the dialog overlay. The overlay
+  must ignore `isComposing`, legacy key code 229 and an event a child already
+  handled. A normal Escape must still close only the top layer.
+
+Run the focused Chromium cases:
+
+```sh
+E2E_PORT=4202 npx playwright test e2e/prompt-keyboard.spec.ts \
+  e2e/code-creation.spec.ts e2e/snippets.spec.ts e2e/ime-dialogs.spec.ts \
+  --project=chromium --workers=1 --retries=0 --trace=off
+```
+
+Keep `test-results/results.json`, the HTML report and the attached JSON files.
+The component cases use synthetic `KeyboardEvent` values. The browser cases use
+synthetic composing events and CSS zoom. These checks do not prove a physical
+IME, iPhone or iPad keyboard, VoiceOver, native Tauri webviews, or real browser
+zoom. Record those separately as remaining verification.
+
+Keep the recorded source and working diff hash with each artifact. A run made
+before its commit can name the parent SHA plus a working diff hash. Prove the
+tested content equals the commit with `git diff PARENT COMMIT | sha256sum`.
+Do not relabel the old artifact or repeat a large suite only to clean the label.
+
+The Library composing Enter case is in the same browser file and is part of
+the required #624 policy. It still needs a physical IME check with a hardware
+keyboard. Do not treat the synthetic event as that check.
+
