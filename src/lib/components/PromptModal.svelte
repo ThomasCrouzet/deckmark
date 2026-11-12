@@ -94,7 +94,9 @@
 	}
 
 	function handleKey(e: KeyboardEvent) {
-		if (e.isComposing || e.defaultPrevented) return;
+		// An active IME owns Escape and Enter. Key code 229 covers the engines
+		// that end a composition with `isComposing` false.
+		if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			handleCancel();

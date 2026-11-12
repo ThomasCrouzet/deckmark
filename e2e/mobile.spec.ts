@@ -1,5 +1,26 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { resetAppState } from './helpers';
+
+// Seed one project so the sidebar explorer and its New Project control exist.
+async function importProjectForDrawer(page: Page): Promise<void> {
+	const zip = new (await import('jszip')).default();
+	zip.file('README.md', '# Projet\n');
+	await page.getByRole('button', { name: 'Menu' }).click();
+	await page.getByTestId('projects-open').click();
+	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await panel.locator('input[type=file][accept=".zip"]').setInputFiles({
+		name: 'projet-drawer.zip',
+		mimeType: 'application/zip',
+		buffer: await zip.generateAsync({ type: 'nodebuffer' })
+	});
+	await expect(panel.locator('select option')).toHaveCount(1);
+	await panel.getByRole('button', { name: 'Fermer les projets' }).click();
+	await expect(panel).toBeHidden();
+	await page.getByRole('button', { name: 'Menu' }).click();
+	await expect(page.locator('#files-panel')).toBeVisible();
+}
+
+const drawer = (page: Page) => page.locator('#files-panel');
 
 // Run this spec only in the `mobile-chromium` project. The desktop viewport does
 // not use the drawer.
@@ -45,6 +66,141 @@ test.describe('Mobile UI - sidebar drawer', () => {
 		// Palette control is always present; open via FR aria-label (locale pinned).
 		await page.getByRole('button', { name: 'Palette de commandes' }).click();
 		await expect(page.getByRole('dialog', { name: 'Palette de commandes' })).toBeVisible();
+	});
+
+	test('Escape cancels a nested project prompt and keeps the drawer open', async ({ page }) => {
+		await importProjectForDrawer(page);
+		await page.getByTestId('sidebar-new-project').click();
+		const prompt = page.getByRole('dialog', { name: 'Nom du projet' });
+		await expect(prompt).toBeVisible();
+		await expect(prompt.locator('input')).toBeFocused();
+
+		await page.evaluate(() => {
+			const records: Array<{ defaultPrevented: boolean; composing: boolean }> = [];
+			(window as unknown as { __mdshEscapeRecords: typeof records }).__mdshEscapeRecords = records;
+			window.addEventListener('keydown', (event) => {
+				if (event.key === 'Escape')
+					records.push({ defaultPrevented: event.defaultPrevented, composing: event.isComposing });
+			});
+		});
+
+		// One Escape belongs to the foreground prompt only.
+		await page.keyboard.press('Escape');
+		await expect(prompt).toBeHidden();
+		await expect(drawer(page)).toBeVisible();
+		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
+		await expect(page.getByTestId('sidebar-new-project')).toBeFocused();
+		expect(
+			await page.evaluate(
+				() =>
+					(window as unknown as { __mdshEscapeRecords: Array<{ defaultPrevented: boolean }> })
+						.__mdshEscapeRecords
+			)
+		).toEqual([{ defaultPrevented: true, composing: false }]);
+
+		// With no foreground dialog, Escape closes the drawer and only the drawer.
+		await page.keyboard.press('Escape');
+		await expect(drawer(page)).toHaveAttribute('aria-hidden', 'true');
+		await expect(drawer(page)).toHaveAttribute('inert', '');
+		await expect(drawer(page)).toHaveClass(/-translate-x-full/);
+		expect(
+			await page.evaluate(
+				() =>
+					(window as unknown as { __mdshEscapeRecords: Array<{ defaultPrevented: boolean }> })
+						.__mdshEscapeRecords
+			)
+		).toEqual([
+			{ defaultPrevented: true, composing: false },
+			{ defaultPrevented: false, composing: false }
+		]);
+	});
+
+	test('Escape cancels a deletion confirmation opened from the drawer', async ({ page }) => {
+		await page.getByTestId('welcome-new').click();
+		await page.getByTestId('create-note').click();
+		await expect(page.locator('input[aria-label^="Nom du fichier"]')).toBeVisible();
+		await page.getByRole('button', { name: 'Menu' }).click();
+		await expect(drawer(page)).toBeVisible();
+		const actions = drawer(page).locator('details').filter({ hasText: 'Actions du document' });
+		const confirm = page.getByRole('dialog', { name: 'Déplacer ce document dans la corbeille ?' });
+
+		async function openDeleteConfirm() {
+			if ((await actions.getAttribute('open')) === null) await actions.locator('summary').click();
+			await actions.getByRole('button', { name: /corbeille/ }).click();
+			await expect(confirm).toBeVisible();
+		}
+
+		await openDeleteConfirm();
+		await page.keyboard.press('Escape');
+		await expect(confirm).toBeHidden();
+		await expect(drawer(page)).toBeVisible();
+		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
+
+		// The explicit Cancel button leaves the same state as Escape.
+		await openDeleteConfirm();
+		await confirm.getByRole('button', { name: 'Annuler' }).click();
+		await expect(confirm).toBeHidden();
+		await expect(drawer(page)).toBeVisible();
+		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
+	});
+
+	test('an IME composition Escape does not cancel the prompt or close the drawer', async ({
+		page
+	}) => {
+		await importProjectForDrawer(page);
+		await page.getByTestId('sidebar-new-project').click();
+		const prompt = page.getByRole('dialog', { name: 'Nom du projet' });
+		const input = prompt.locator('input');
+		await expect(input).toBeFocused();
+
+		await input.evaluate((element) => {
+			element.dispatchEvent(
+				new KeyboardEvent('keydown', {
+					key: 'Escape',
+					isComposing: true,
+					bubbles: true,
+					cancelable: true
+				})
+			);
+		});
+
+		await expect(prompt).toBeVisible();
+		await expect(drawer(page)).toBeVisible();
+		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
+	});
+
+	test('an IME composition end Escape with keyCode 229 keeps the prompt and drawer', async ({
+		page
+	}) => {
+		await importProjectForDrawer(page);
+		await page.getByTestId('sidebar-new-project').click();
+		const prompt = page.getByRole('dialog', { name: 'Nom du projet' });
+		const input = prompt.locator('input');
+		await expect(input).toBeFocused();
+
+		// Some engines end a composition with `isComposing` false and key code 229.
+		const records = await input.evaluate((element) => {
+			const seen: Array<{ keyCode: number; composing: boolean; defaultPrevented: boolean }> = [];
+			const event = new KeyboardEvent('keydown', {
+				key: 'Escape',
+				isComposing: false,
+				keyCode: 229,
+				bubbles: true,
+				cancelable: true
+			});
+			element.dispatchEvent(event);
+			seen.push({
+				keyCode: event.keyCode,
+				composing: event.isComposing,
+				defaultPrevented: event.defaultPrevented
+			});
+			return seen;
+		});
+
+		expect(records).toEqual([{ keyCode: 229, composing: false, defaultPrevented: false }]);
+		await expect(prompt).toBeVisible();
+		await expect(drawer(page)).toBeVisible();
+		await expect(drawer(page)).not.toHaveAttribute('aria-hidden', 'true');
 	});
 });
 
