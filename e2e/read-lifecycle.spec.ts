@@ -394,18 +394,21 @@ test('keeps the deep cached position when the page hides before the restore fram
 		});
 	});
 	await expect.poll(() => readScroll(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(deep - 2);
+	const visibleTop = await readScroll(page);
 
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
 	await openReadMode(page);
 	await expect.poll(() => readScroll(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(deep - 2);
+	const reloadTop = await readScroll(page);
 
 	await info.attach('read-pending-restore.json', {
 		body: JSON.stringify({
 			deepOffset: deep,
 			samples: record?.samples,
 			zeroStoredSamples: record?.samples.filter((sample) => sample.stored === 0).length ?? null,
-			restoredAfterVisible: await readScroll(page),
+			restoredAfterVisible: visibleTop,
+			restoredAfterReload: reloadTop,
 			fixture: {
 				shortBytes: Buffer.byteLength(short),
 				targetBytes: Buffer.byteLength(target),
