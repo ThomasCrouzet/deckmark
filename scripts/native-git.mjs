@@ -1,14 +1,16 @@
 // Native verification for the Git diff review path.
 //
 // The fixture is a real Git repository inside the approved native project root.
-// It commits one small file, then writes a 2600-line change. The workflow opens
-// the Projects panel, selects the linked native project, opens Git changes, and
-// checks the first and last diff sections. The caller runs a native-smoke binary
-// with a linked native project, as scripts/native-projects.mjs does.
+// It commits one small version of two files. It then writes a 2600-line
+// worktree change to long.md and a distinct 2600-line staged change to
+// staged.md. The workflow opens the Projects panel, selects the linked native
+// project, opens Git changes, checks the worktree and staged sections, and
+// returns to the worktree view. The caller runs a native-smoke binary with a
+// linked native project, as scripts/native-projects.mjs does.
 //
-// This module is not wired into scripts/native-smoke.mjs yet. The parent stream
-// owns that integration. Pass `request` and `session` to use real WebDriver key
-// events; without them the workflow records a pointer-only result.
+// scripts/native-smoke.mjs calls this module after the native capture scenario.
+// The capture scenario uses programmatic value and input events; this module
+// uses real Git processes and, when available, a real X Return key.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -18,13 +20,17 @@ import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-const firstLine = 'line 0001';
-const lastLine = 'line 2600 END';
+const worktreePath = 'long.md';
+const stagedPath = 'staged.md';
+const worktreeFirst = 'worktree line 0001';
+const worktreeLast = 'worktree line 2600 WORKTREE-END';
+const stagedFirst = 'staged line 0001';
+const stagedLast = 'staged line 2600 STAGED-END';
 
-function buildDiff() {
+function buildLines(prefix, endSuffix) {
 	return Array.from({ length: 2600 }, (_, index) => {
-		const line = `line ${String(index + 1).padStart(4, '0')}`;
-		return index === 2599 ? `${line} END` : line;
+		const line = `${prefix} line ${String(index + 1).padStart(4, '0')}`;
+		return index === 2599 ? `${line} ${endSuffix}` : line;
 	}).join('\n');
 }
 
@@ -74,22 +80,32 @@ export async function nativeGit({
 			`click ${selector}`,
 			45_000
 		);
-	const readDiff = () =>
+	const readDiff = (first = worktreeFirst, last = worktreeLast) =>
 		execute(
 			`const panel = document.querySelector('[data-testid=git-panel]');
 			const list = panel?.querySelector('ol');
 			const range = panel?.querySelector('[data-testid=git-diff-range]');
 			const text = range?.textContent?.trim() ?? '';
 			const total = /(?:sur|of)\\s+(\\d+)/.exec(text);
+			const inView = (marker) => {
+				const line = [...(list?.querySelectorAll('li') ?? [])].find((node) => node.textContent.includes(marker));
+				if (!line || !list) return false;
+				const listRect = list.getBoundingClientRect();
+				const lineRect = line.getBoundingClientRect();
+				return lineRect.top >= listRect.top - 1 && lineRect.bottom <= listRect.bottom + 1;
+			};
 			return {
 				rows: list ? list.querySelectorAll('li').length : 0,
 				state: range?.getAttribute('data-review-state') ?? null,
 				text,
 				total: total ? Number(total[1]) : null,
 				first: !!list && list.textContent.includes(arguments[0]),
-				last: !!list && list.textContent.includes(arguments[1])
+				last: !!list && list.textContent.includes(arguments[1]),
+				visibleFirst: inView(arguments[0]),
+				visibleLast: inView(arguments[1]),
+				empty: /Aucune diff|No diff/.test(panel?.textContent ?? '')
 			};`,
-			[firstLine, lastLine]
+			[first, last]
 		);
 	const clickGitFile = (name) =>
 		until(
@@ -102,6 +118,20 @@ export async function nativeGit({
 					[name]
 				),
 			`click Git file ${name}`,
+			45_000
+		);
+	const clickGitButton = (pattern) =>
+		until(
+			() =>
+				execute(
+					`const panel = document.querySelector('[data-testid=git-panel]');
+					const matcher = new RegExp(arguments[0], 'i');
+					const element = [...(panel?.querySelectorAll('button') ?? [])].find(node => matcher.test(node.textContent.trim()));
+					if (!element || element.disabled || !element.getClientRects().length) return false;
+					element.click(); return true;`,
+					[pattern]
+				),
+			`click Git button ${pattern}`,
 			45_000
 		);
 	const readProjects = () =>
@@ -119,9 +149,10 @@ export async function nativeGit({
 		};`);
 
 	const base = `# Native Git review\n\nBase body.\n`;
-	writeFileSync(join(fixtureRoot, 'long.md'), base);
+	writeFileSync(join(fixtureRoot, worktreePath), base);
+	writeFileSync(join(fixtureRoot, stagedPath), base);
 	git(fixtureRoot, ['init', '-q']);
-	git(fixtureRoot, ['add', '--', 'long.md']);
+	git(fixtureRoot, ['add', '--', worktreePath, stagedPath]);
 	git(fixtureRoot, [
 		'-c',
 		'user.name=DeckMark native smoke',
@@ -132,14 +163,29 @@ export async function nativeGit({
 		'-m',
 		'fixture base'
 	]);
-	const content = `# Native Git review\n\n${buildDiff()}\n`;
-	writeFileSync(join(fixtureRoot, 'long.md'), content);
+	const worktreeContent = `# Native Git review\n\n${buildLines('worktree', 'WORKTREE-END')}\n`;
+	const stagedContent = `# Native Git staged review\n\n${buildLines('staged', 'STAGED-END')}\n`;
+	writeFileSync(join(fixtureRoot, worktreePath), worktreeContent);
+	writeFileSync(join(fixtureRoot, stagedPath), stagedContent);
+	git(fixtureRoot, ['add', '--', stagedPath]);
 	record('fixture repository', {
 		fixtureRoot,
-		path: 'long.md',
-		lines: 2600,
-		sha256: createHash('sha256').update(content).digest('hex'),
-		head: git(fixtureRoot, ['rev-parse', 'HEAD']).trim()
+		head: git(fixtureRoot, ['rev-parse', 'HEAD']).trim(),
+		worktree: {
+			path: worktreePath,
+			lines: 2600,
+			first: worktreeFirst,
+			last: worktreeLast,
+			sha256: createHash('sha256').update(worktreeContent).digest('hex')
+		},
+		staged: {
+			path: stagedPath,
+			lines: 2600,
+			first: stagedFirst,
+			last: stagedLast,
+			sha256: createHash('sha256').update(stagedContent).digest('hex')
+		},
+		indexStatus: git(fixtureRoot, ['status', '--porcelain']).trim()
 	});
 
 	await click('[data-testid=projects-open]');
@@ -191,126 +237,227 @@ export async function nativeGit({
 		'Git panel opens',
 		45_000
 	);
-	await clickGitFile('long.md');
-	await until(
-		async () => {
-			const state = await readDiff();
-			return state.rows === 2000 && state.state === 'partial';
-		},
-		'initial diff page is bounded',
-		45_000
-	);
-	const initial = record('initial page', await readDiff());
-	assert.equal(initial.rows, 2000);
-	assert.equal(initial.first, true);
-	assert.equal(initial.last, false);
-	assert.ok(initial.total && initial.total > 2000, JSON.stringify(initial));
-	const expectedLastRows = initial.total - 2000;
 
-	let keyboardFocused = false;
-	let keyboardActivated = false;
-	let pointerFallback = false;
-	let nativeKey = null;
-	if (request && session) {
-		keyboardFocused = await execute(
-			`const element = document.querySelector('[data-testid=git-diff-last]');
-			element?.focus();
-			return document.activeElement === element;`
-		);
-		const element = await request(
-			`/session/${session}/element`,
-			{ using: 'css selector', value: '[data-testid=git-diff-last]' },
-			'POST'
-		);
-		const elementId = element?.['element-6066-11e4-a52e-4f735466cecf'];
-		assert.ok(elementId, JSON.stringify(element));
-		if (process.platform === 'linux' && process.env.DISPLAY) {
-			try {
-				const windows = execFileSync('xdotool', ['search', '--onlyvisible', '--name', 'DeckMark'], {
-					encoding: 'utf8'
-				})
-					.trim()
-					.split('\n')
-					.filter(Boolean);
-				if (windows.length > 0) {
-					execFileSync('xdotool', ['windowfocus', '--sync', windows[0]], { stdio: 'ignore' });
-					execFileSync('xdotool', ['key', '--clearmodifiers', 'Return'], { stdio: 'ignore' });
-					await delay(500);
-					const afterNative = await readDiff();
-					keyboardActivated =
-						afterNative.state === 'complete' && afterNative.rows === expectedLastRows;
-					nativeKey = keyboardActivated ? 'xdotool' : 'xdotool-no-activation';
+	const activateLast = async (expectedRows, first, last, label) => {
+		let keyboardFocused = false;
+		let keyboardActivated = false;
+		let pointerFallback = false;
+		let nativeKey = null;
+		if (request && session) {
+			keyboardFocused = await execute(
+				`const element = document.querySelector('[data-testid=git-diff-last]');
+				element?.focus();
+				return document.activeElement === element;`
+			);
+			const element = await request(
+				`/session/${session}/element`,
+				{ using: 'css selector', value: '[data-testid=git-diff-last]' },
+				'POST'
+			);
+			const elementId = element?.['element-6066-11e4-a52e-4f735466cecf'];
+			assert.ok(elementId, JSON.stringify(element));
+			if (process.platform === 'linux' && process.env.DISPLAY) {
+				try {
+					const windows = execFileSync(
+						'xdotool',
+						['search', '--onlyvisible', '--name', 'DeckMark'],
+						{ encoding: 'utf8' }
+					)
+						.trim()
+						.split('\n')
+						.filter(Boolean);
+					if (windows.length > 0) {
+						execFileSync('xdotool', ['windowfocus', '--sync', windows[0]], {
+							stdio: 'ignore'
+						});
+						execFileSync('xdotool', ['key', '--clearmodifiers', 'Return'], {
+							stdio: 'ignore'
+						});
+						await delay(500);
+						const afterNative = await readDiff(first, last);
+						keyboardActivated =
+							afterNative.state === 'complete' && afterNative.rows === expectedRows;
+						nativeKey = keyboardActivated ? 'xdotool' : 'xdotool-no-activation';
+					}
+				} catch (error) {
+					record('native key action error', String(error));
 				}
-			} catch (error) {
-				record('native key action error', String(error));
 			}
-		}
-		if (!keyboardActivated) {
-			try {
-				await request(
-					`/session/${session}/actions`,
-					{
-						actions: [
-							{
-								type: 'key',
-								id: 'keyboard',
-								actions: [
-									{ type: 'keyDown', value: '\uE007' },
-									{ type: 'keyUp', value: '\uE007' }
-								]
-							}
-						]
-					},
-					'POST'
-				);
-				await delay(500);
-				const afterKey = await readDiff();
-				keyboardActivated = afterKey.state === 'complete' && afterKey.rows === expectedLastRows;
-			} catch (error) {
-				record('keyboard action error', String(error));
+			if (!keyboardActivated) {
+				try {
+					await request(
+						`/session/${session}/actions`,
+						{
+							actions: [
+								{
+									type: 'key',
+									id: 'keyboard',
+									actions: [
+										{ type: 'keyDown', value: '\uE007' },
+										{ type: 'keyUp', value: '\uE007' }
+									]
+								}
+							]
+						},
+						'POST'
+					);
+					await delay(500);
+					const afterKey = await readDiff(first, last);
+					keyboardActivated = afterKey.state === 'complete' && afterKey.rows === expectedRows;
+				} catch (error) {
+					record('keyboard action error', String(error));
+				}
 			}
-		}
-		if (!keyboardActivated) {
-			await request(`/session/${session}/element/${elementId}/click`, {}, 'POST');
+			if (!keyboardActivated) {
+				await request(`/session/${session}/element/${elementId}/click`, {}, 'POST');
+				pointerFallback = true;
+			}
+		} else {
+			await click('[data-testid=git-diff-last]');
 			pointerFallback = true;
 		}
-	} else {
-		await click('[data-testid=git-diff-last]');
-		pointerFallback = true;
-	}
+		await until(
+			async () => {
+				const state = await readDiff(first, last);
+				return state.rows === expectedRows && state.state === 'complete' && state.last;
+			},
+			`${label} last diff section is reachable`,
+			45_000
+		);
+		return { keyboardFocused, keyboardActivated, pointerFallback, nativeKey };
+	};
+
+	await clickGitFile(worktreePath);
 	await until(
 		async () => {
 			const state = await readDiff();
-			return state.rows === expectedLastRows && state.state === 'complete' && state.last;
+			return state.rows === 2000 && state.state === 'partial' && state.first && !state.last;
 		},
-		'last diff section is reachable',
+		'worktree initial diff page is bounded',
 		45_000
 	);
-	const last = record('last page', {
-		...(await readDiff()),
-		keyboardFocused,
-		keyboardActivated,
-		pointerFallback,
-		nativeKey
+	const worktreeInitial = record('worktree initial page', await readDiff());
+	assert.equal(worktreeInitial.rows, 2000);
+	assert.equal(worktreeInitial.first, true);
+	assert.equal(worktreeInitial.visibleFirst, true);
+	assert.equal(worktreeInitial.last, false);
+	assert.equal(worktreeInitial.empty, false);
+	assert.ok(worktreeInitial.total && worktreeInitial.total > 2000, JSON.stringify(worktreeInitial));
+	const worktreeLastRows = worktreeInitial.total - 2000;
+	const worktreeKeyboard = await activateLast(
+		worktreeLastRows,
+		worktreeFirst,
+		worktreeLast,
+		'worktree'
+	);
+	const worktreeLastPage = record('worktree last page', {
+		...(await readDiff(worktreeFirst, worktreeLast)),
+		...worktreeKeyboard
 	});
-	assert.equal(last.rows, expectedLastRows);
-	assert.equal(last.last, true);
-	assert.equal(last.first, false);
-	if (request && session) assert.equal(last.keyboardFocused, true);
-
+	assert.equal(worktreeLastPage.rows, worktreeLastRows);
+	assert.equal(worktreeLastPage.last, true);
+	assert.equal(worktreeLastPage.first, false);
+	assert.equal(worktreeLastPage.visibleLast, true);
+	assert.equal(worktreeLastPage.visibleFirst, false);
+	assert.equal(worktreeLastPage.nativeKey === 'xdotool' || worktreeLastPage.pointerFallback, true);
 	await click('[data-testid=git-diff-first]');
 	await until(
 		async () => {
 			const state = await readDiff();
-			return state.rows === 2000 && state.state === 'partial' && state.first;
+			return state.rows === 2000 && state.state === 'partial' && state.first && state.visibleFirst;
 		},
-		'first diff section returns',
+		'worktree first diff section returns',
 		45_000
 	);
-	const returned = record('returned to first page', await readDiff());
-	assert.equal(returned.first, true);
-	assert.equal(returned.last, false);
-	assert.equal(returned.total, initial.total);
+	const worktreeReturned = record('worktree returned to first page', await readDiff());
+	assert.equal(worktreeReturned.first, true);
+	assert.equal(worktreeReturned.visibleFirst, true);
+	assert.equal(worktreeReturned.total, worktreeInitial.total);
+
+	await clickGitFile(stagedPath);
+	await until(
+		async () => {
+			const state = await readDiff(stagedFirst, stagedLast);
+			return state.rows === 2000 && state.state === 'partial' && state.first && !state.last;
+		},
+		'staged initial diff page is bounded',
+		45_000
+	);
+	const stagedInitial = record('staged initial page', await readDiff(stagedFirst, stagedLast));
+	assert.equal(stagedInitial.rows, 2000);
+	assert.equal(stagedInitial.first, true);
+	assert.equal(stagedInitial.visibleFirst, true);
+	assert.equal(stagedInitial.last, false);
+	assert.equal(stagedInitial.empty, false);
+	assert.ok(stagedInitial.total && stagedInitial.total > 2000, JSON.stringify(stagedInitial));
+	const stagedLastRows = stagedInitial.total - 2000;
+	const stagedKeyboard = await activateLast(stagedLastRows, stagedFirst, stagedLast, 'staged');
+	const stagedLastPage = record('staged last page', {
+		...(await readDiff(stagedFirst, stagedLast)),
+		...stagedKeyboard
+	});
+	assert.equal(stagedLastPage.rows, stagedLastRows);
+	assert.equal(stagedLastPage.last, true);
+	assert.equal(stagedLastPage.first, false);
+	assert.equal(stagedLastPage.visibleLast, true);
+	assert.equal(stagedLastPage.visibleFirst, false);
+	assert.equal(stagedLastPage.nativeKey === 'xdotool' || stagedLastPage.pointerFallback, true);
+	await click('[data-testid=git-diff-first]');
+	await until(
+		async () => {
+			const state = await readDiff(stagedFirst, stagedLast);
+			return state.rows === 2000 && state.state === 'partial' && state.first && state.visibleFirst;
+		},
+		'staged first diff section returns',
+		45_000
+	);
+	const stagedReturned = record(
+		'staged returned to first page',
+		await readDiff(stagedFirst, stagedLast)
+	);
+	assert.equal(stagedReturned.first, true);
+	assert.equal(stagedReturned.total, stagedInitial.total);
+
+	await clickGitButton('Espace de travail|Working tree');
+	await until(
+		async () => {
+			const state = await readDiff(stagedFirst, stagedLast);
+			return state.empty && state.rows === 0;
+		},
+		'staged file worktree view is empty and does not show the staged diff',
+		45_000
+	);
+	const stagedWorktree = record(
+		'staged file worktree view',
+		await readDiff(stagedFirst, stagedLast)
+	);
+	assert.equal(stagedWorktree.empty, true);
+	assert.equal(stagedWorktree.first, false);
+
+	await clickGitButton('^Index$|^Staged$');
+	await until(
+		async () => {
+			const state = await readDiff(stagedFirst, stagedLast);
+			return state.rows === 2000 && state.state === 'partial' && state.first;
+		},
+		'staged view returns to its own diff',
+		45_000
+	);
+	const stagedAgain = record('staged view restored', await readDiff(stagedFirst, stagedLast));
+	assert.equal(stagedAgain.first, true);
+
+	await clickGitFile(worktreePath);
+	await until(
+		async () => {
+			const state = await readDiff();
+			return state.rows === 2000 && state.state === 'partial' && state.first && !state.last;
+		},
+		'worktree view returns after the staged review',
+		45_000
+	);
+	const worktreeAgain = record('worktree view restored', await readDiff());
+	assert.equal(worktreeAgain.first, true);
+	assert.equal(worktreeAgain.total, worktreeInitial.total);
 
 	writeFileSync(
 		join(output, 'native-git.json'),
@@ -320,15 +467,24 @@ export async function nativeGit({
 				platform: process.platform,
 				project,
 				fixture: {
-					path: 'long.md',
-					lines: 2600,
-					diffLines: initial.total,
-					firstLine,
-					lastLine
+					worktree: {
+						path: worktreePath,
+						lines: 2600,
+						diffLines: worktreeInitial.total,
+						first: worktreeFirst,
+						last: worktreeLast
+					},
+					staged: {
+						path: stagedPath,
+						lines: 2600,
+						diffLines: stagedInitial.total,
+						first: stagedFirst,
+						last: stagedLast
+					}
 				},
-				keyboardFocused,
-				keyboardActivated,
-				pointerFallback,
+				worktreeKeyboard,
+				stagedKeyboard,
+				modeDistinct: true,
 				evidence
 			},
 			null,

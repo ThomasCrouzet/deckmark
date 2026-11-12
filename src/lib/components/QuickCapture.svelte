@@ -257,6 +257,9 @@
 			<input
 				bind:this={titleInput}
 				bind:value={title}
+				oninput={() => {
+					templateRequest += 1;
+				}}
 				type="text"
 				class="mt-1 w-full rounded border border-border bg-bg-2 px-2 py-1.5 text-sm text-fg"
 				placeholder={t('capture.titlePlaceholder')}

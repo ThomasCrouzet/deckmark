@@ -165,7 +165,9 @@
 
 	function goToDiffPage(page: number, align: 'start' | 'end' = 'start'): void {
 		const next = Math.min(Math.max(page, 0), diffPageCount - 1);
-		if (next !== diffPage) diffPage = next;
+		// An aria-disabled control at its bound must not move the list or focus.
+		if (next === diffPage) return;
+		diffPage = next;
 		void tick().then(() => {
 			if (!diffList) return;
 			// The list keeps its old scroll offset when only the rows change.

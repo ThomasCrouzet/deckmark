@@ -12,6 +12,7 @@ const projectId = 'native-git-review-project';
 const rootId = 'native-git-review-root';
 const longPath = 'long.md';
 const hugePath = 'huge.md';
+const errorPath = 'error.md';
 const longDiff = Array.from({ length: 2600 }, (_, index) => {
 	const line = `line ${String(index + 1).padStart(4, '0')}`;
 	return index === 2599 ? `${line} END` : line;
@@ -48,6 +49,14 @@ const status = {
 			worktree: 'M',
 			untracked: false,
 			conflicted: false
+		},
+		{
+			path: errorPath,
+			originalPath: null,
+			index: '.',
+			worktree: 'M',
+			untracked: false,
+			conflicted: false
 		}
 	]
 };
@@ -70,6 +79,7 @@ test('reviews the final hunk of a 2600-line diff and reports the native size lim
 						return [];
 					case 'git_diff':
 						if (args.path === 'huge.md') throw 'Git output exceeds the 1 MiB limit';
+						if (args.path === 'error.md') throw 'Git permission denied';
 						return diff;
 					case 'project_open_root':
 						return {
@@ -184,6 +194,16 @@ test('reviews the final hunk of a 2600-line diff and reports the native size lim
 	).toBeVisible();
 	await expect(gitPanel.getByRole('button', { name: 'Espace de travail' })).toBeVisible();
 
+	const next = gitPanel.getByTestId('git-diff-next');
+	await expect(next).toHaveAttribute('aria-disabled', 'true');
+	await diffList.evaluate((list) => {
+		list.scrollTop = 200;
+	});
+	await next.focus();
+	await next.evaluate((element) => (element as HTMLButtonElement).click());
+	await expect.poll(() => diffList.evaluate((list) => list.scrollTop)).toBe(200);
+	await expect(next).toBeFocused();
+
 	const first = gitPanel.getByTestId('git-diff-first');
 	await first.focus();
 	await page.keyboard.press('Enter');
@@ -196,11 +216,25 @@ test('reviews the final hunk of a 2600-line diff and reports the native size lim
 	expect(await lineInListViewport('line 0001')).toBe(true);
 	await expect(gitPanel.getByText('line 2600 END')).toHaveCount(0);
 
+	await expect(first).toHaveAttribute('aria-disabled', 'true');
+	await diffList.evaluate((list) => {
+		list.scrollTop = 500;
+	});
+	await first.evaluate((element) => (element as HTMLButtonElement).click());
+	await expect.poll(() => diffList.evaluate((list) => list.scrollTop)).toBe(500);
+	await expect(first).toBeFocused();
+
 	await gitPanel.getByRole('button', { name: new RegExp(hugePath.replace('.', '\\.')) }).click();
 	const tooLarge = gitPanel.getByTestId('git-diff-too-large');
 	await expect(tooLarge).toBeVisible();
 	await expect(tooLarge).toContainText(/1 MiB|1 Mio/);
 	await expect(gitPanel.getByTestId('git-operation-error')).toHaveCount(0);
+
+	await gitPanel.getByRole('button', { name: new RegExp(errorPath.replace('.', '\\.')) }).click();
+	const genericError = gitPanel.getByTestId('git-operation-error');
+	await expect(genericError).toBeVisible();
+	await expect(genericError).toContainText('Git permission denied');
+	await expect(gitPanel.getByTestId('git-diff-too-large')).toHaveCount(0);
 
 	await gitPanel.getByRole('button', { name: new RegExp(longPath.replace('.', '\\.')) }).click();
 	await expect(gitPanel.getByTestId('git-diff-range')).toHaveAttribute(
@@ -247,8 +281,12 @@ test('reviews the final hunk of a 2600-line diff and reports the native size lim
 					firstLineInListViewport: true,
 					lastSectionScrollAtEnd: true,
 					firstSectionScrollTop: 0,
+					lastBoundaryScrollRetained: true,
+					firstBoundaryScrollRetained: true,
+					boundaryFocusRetained: true,
 					keyboardFocusRetained: true,
-					nativeSizeLimitState: true
+					nativeSizeLimitState: true,
+					genericGitErrorState: true
 				},
 				test: info.title,
 				status: info.status

@@ -271,6 +271,55 @@ describe('Quick Capture template resolution race', () => {
 		expect(title.value).toBe('');
 	});
 
+	it('keeps a non-empty title, the body, and title focus on a late template', async () => {
+		const pending = deferred<{ name: string; content: string } | null>();
+		bridge.resolve.mockReturnValueOnce(pending.promise);
+		const { content, title, select } = await renderCapture();
+
+		await startTemplate(select, templateA.id);
+		title.focus();
+		await fireEvent.input(title, { target: { value: 'My title' } });
+		pending.resolve({ name: 'Late template', content: 'Template body' });
+		await settle();
+
+		expect(title.value).toBe('My title');
+		expect(content.value).toBe('');
+		expect(document.activeElement).toBe(title);
+	});
+
+	it('keeps a whitespace title, the body, and title focus on a late template', async () => {
+		const pending = deferred<{ name: string; content: string } | null>();
+		bridge.resolve.mockReturnValueOnce(pending.promise);
+		const { content, title, select } = await renderCapture();
+
+		await startTemplate(select, templateA.id);
+		title.focus();
+		await fireEvent.input(title, { target: { value: '   ' } });
+		pending.resolve({ name: 'Late template', content: 'Template body' });
+		await settle();
+
+		expect(title.value).toBe('   ');
+		expect(content.value).toBe('');
+		expect(document.activeElement).toBe(title);
+	});
+
+	it('keeps an empty title after the user types and clears it', async () => {
+		const pending = deferred<{ name: string; content: string } | null>();
+		bridge.resolve.mockReturnValueOnce(pending.promise);
+		const { content, title, select } = await renderCapture();
+
+		await startTemplate(select, templateA.id);
+		title.focus();
+		await fireEvent.input(title, { target: { value: 'My title' } });
+		await fireEvent.input(title, { target: { value: '' } });
+		pending.resolve({ name: 'Late template', content: 'Template body' });
+		await settle();
+
+		expect(title.value).toBe('');
+		expect(content.value).toBe('');
+		expect(document.activeElement).toBe(title);
+	});
+
 	it('does not apply after a note to snippet to note round trip', async () => {
 		const pending = deferred<{ name: string; content: string } | null>();
 		bridge.resolve.mockReturnValueOnce(pending.promise);

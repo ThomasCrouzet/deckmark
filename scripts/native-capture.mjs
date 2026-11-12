@@ -439,10 +439,11 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 	await switchWindow('main');
 	record('hide command after template cancel', await invoke('desktop_capture_hide'));
 
-	// A synchronous input after the template change runs before the dynamic
-	// import and the IndexedDB read can resume. A late template result must not
-	// replace this text or set the title.
-	record('show command for a typed template race', await invoke('desktop_capture_show'));
+	// A programmatic value assignment and input event after the template change
+	// run before the dynamic import and the IndexedDB read can resume. This is
+	// not physical typing. A late template result must not replace this value or
+	// set the title.
+	record('show command for a programmatic template race', await invoke('desktop_capture_show'));
 	await openCapture();
 	await until(
 		() =>
@@ -450,7 +451,7 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 				`const select = document.querySelector('[data-testid=capture-template]');
 				return !!select && select.options.length > 1;`
 			),
-		'quick capture template selector is available for the race',
+		'quick capture template selector is available for the programmatic race',
 		15_000
 	);
 	const raceTyped = await executeIn(
@@ -468,18 +469,21 @@ export async function nativeCapture({ request, executeAsync, until, output, sess
 	);
 	assert.deepEqual(raceTyped, { body: 'Typed while the template loaded', title: '' });
 	await delay(1500);
-	const raceAfter = record(
-		'typed text survives a late template resolution',
-		await executeIn(
+	const raceAfter = record('programmatic input survives a late template resolution', {
+		...(await executeIn(
 			`const titleInput = document.querySelector('[data-testid=capture-title]');
-			const bodyInput = document.querySelector('[data-testid=capture-content]');
-			return { body: bodyInput?.value ?? null, title: titleInput?.value ?? null };`
-		)
+				const bodyInput = document.querySelector('[data-testid=capture-content]');
+				return { body: bodyInput?.value ?? null, title: titleInput?.value ?? null };`
+		)),
+		inputMethod: 'programmatic value and input event; not physical typing'
+	});
+	assert.deepEqual(
+		{ body: raceAfter.body, title: raceAfter.title },
+		{ body: 'Typed while the template loaded', title: '' }
 	);
-	assert.deepEqual(raceAfter, { body: 'Typed while the template loaded', title: '' });
 	await executeIn(`document.querySelector('[data-testid=capture-cancel]').click(); return true;`);
 	await switchWindow('main');
-	record('hide command after typed template race', await invoke('desktop_capture_hide'));
+	record('hide command after programmatic template race', await invoke('desktop_capture_hide'));
 
 	writeFileSync(
 		join(output, 'native-capture.json'),
