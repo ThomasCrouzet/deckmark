@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { Braces, Code, FileText, Presentation, Search } from '@lucide/svelte';
 	import { focusTrap } from '#lib/a11y/focusTrap.js';
 	import { t } from '#lib/i18n/index.js';
@@ -20,10 +20,12 @@
 		onClose: () => void;
 	} = $props();
 	let note = $state<HTMLButtonElement | null>(null);
+	let codeButton = $state<HTMLButtonElement | null>(null);
 	let busy = $state(false);
 	let ready = $state(false);
 	let query = $state('');
 	let codeOpen = $state(false);
+	let codeFormGeneration = 0;
 	let languageId = $state<CodeLanguageId>('plain');
 	let codeName = $state('');
 	let nameEdited = $state(false);
@@ -69,13 +71,26 @@
 	}
 
 	async function openCodeForm() {
+		const generation = ++codeFormGeneration;
 		codeOpen = true;
 		const catalog = await loadLanguages();
+		if (!codeOpen || generation !== codeFormGeneration) return;
 		const plain = catalog[0]!;
 		languageId = plain.id;
 		codeName = suggestedCodeName(plain);
 		nameEdited = false;
-		requestAnimationFrame(() => languageSelect?.focus());
+		requestAnimationFrame(() => {
+			if (codeOpen && generation === codeFormGeneration) languageSelect?.focus();
+		});
+	}
+
+	async function closeCodeForm() {
+		if (!codeOpen) return;
+		const generation = ++codeFormGeneration;
+		codeOpen = false;
+		await tick();
+		if (codeOpen || generation !== codeFormGeneration) return;
+		codeButton?.focus({ preventScroll: true });
 	}
 
 	function chooseLanguage(id: CodeLanguageId) {
@@ -113,6 +128,9 @@
 			.finally(() => (ready = true));
 		note?.focus();
 	});
+	onDestroy(() => {
+		codeFormGeneration += 1;
+	});
 
 	const matches = (template: TemplateChoice, search: string) => {
 		const value = search.trim().toLocaleLowerCase();
@@ -147,11 +165,12 @@
 		tabindex="-1"
 		use:focusTrap
 		onkeydown={(event) => {
+			if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
 			if (event.key === 'Escape') {
 				event.preventDefault();
 				event.stopPropagation();
 				if (busy) return;
-				if (codeOpen) codeOpen = false;
+				if (codeOpen) void closeCodeForm();
 				else onClose();
 			}
 		}}
@@ -179,6 +198,7 @@
 					>
 				</button>
 				<button
+					bind:this={codeButton}
 					data-testid="create-code"
 					disabled={busy}
 					aria-expanded={codeOpen}
@@ -244,7 +264,7 @@
 							type="button"
 							data-testid="create-code-cancel"
 							disabled={busy}
-							onclick={() => (codeOpen = false)}>{t('slides.cancel')}</button
+							onclick={() => void closeCodeForm()}>{t('slides.cancel')}</button
 						>
 					</div>
 				</form>
