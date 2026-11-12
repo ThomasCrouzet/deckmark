@@ -80,6 +80,76 @@ async function openReadMode(page: Page): Promise<void> {
 	await frame(page);
 }
 
+async function openProjects(page: Page) {
+	const dialog = page.getByRole('dialog', { name: 'Projets Markdown' });
+	if (await dialog.isVisible().catch(() => false)) return dialog;
+	await page.getByTestId('projects-open').click();
+	return dialog;
+}
+
+async function importProject(page: Page, data: Buffer) {
+	const panel = await openProjects(page);
+	await panel.locator('input[type=file][accept=".zip"]').setInputFiles({
+		name: 'Anchor.zip',
+		mimeType: 'application/zip',
+		buffer: data
+	});
+	return panel;
+}
+
+async function anchorProjectFixture(): Promise<Buffer> {
+	const zip = new (await import('jszip')).default();
+	zip.file('README.md', '# Handbook\n\n[Open target](target.md#target-heading)\n');
+	const body = Array.from(
+		{ length: 260 },
+		(_, index) => `Target paragraph ${index}. ${'Anchor target text. '.repeat(5)}`
+	).join('\n\n');
+	zip.file('target.md', `# Target heading\n\n${body}\n\n## Deep section\n\n${body}\n`);
+	return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+test('an explicit project fragment anchor wins over a stale cached read offset', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await resetAppState(page);
+	const fixture = await anchorProjectFixture();
+	const panel = await importProject(page, fixture);
+	await panel.getByRole('button', { name: 'Ouvrir target.md', exact: true }).click();
+	await openReadMode(page);
+	await expect(page.locator('#target-heading')).toBeVisible();
+	const deep = await setReadScroll(page, 2400);
+	expect(deep).toBeGreaterThan(1000);
+
+	const reopened = await openProjects(page);
+	await reopened.getByRole('button', { name: 'Ouvrir README.md', exact: true }).click();
+	await expect(page.locator('.mdsh-preview')).toContainText('Handbook', { timeout: 30_000 });
+	await page.locator('.mdsh-preview a').filter({ hasText: 'Open target' }).click();
+	await expect(page.locator('.mdsh-preview')).toContainText('Target heading', { timeout: 30_000 });
+	await expect(page.locator('#target-heading')).toBeVisible();
+	await frame(page);
+	const headingTop = await page
+		.locator('#target-heading')
+		.evaluate((element) => element.getBoundingClientRect().top);
+	const settled = await readScroll(page);
+	expect(headingTop).toBeGreaterThanOrEqual(0);
+	expect(headingTop).toBeLessThan(120);
+	expect(settled).toBeLessThan(deep - 500);
+
+	await info.attach('read-project-anchor.json', {
+		body: JSON.stringify({
+			cachedDeepOffset: deep,
+			settledOffset: settled,
+			headingTop,
+			fixture: {
+				bytes: fixture.length,
+				sha256: createHash('sha256').update(fixture).digest('hex')
+			}
+		}),
+		contentType: 'application/json'
+	});
+});
+
 test('saves a changed read position when the document becomes hidden without pagehide', async ({
 	page
 }, info) => {
