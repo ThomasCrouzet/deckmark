@@ -3506,6 +3506,35 @@ Keep these risks and evidence boundaries for #628:
 - The inactive-editor history selection poll can fail without retaining its DOM boundary. On failure only, `editor-state.spec.ts` prints `[selection-boundary]` and attaches the same JSON: focus, active element, range endpoints/text, mounted content count, active file, cached position and available EditorView selection/viewport/measure state. Missing fields stay null. Capture is bounded to two seconds and rethrows the original error. The 35-file sequence, selection assertion and timeout stay unchanged.
 - A TOC visibility failure can lack evidence of headings, mode and resource loading. On failure only, `editor-width.spec.ts` prints `[toc-boundary]` and attaches heading presence, bounded text, aside connectivity/inert/display/visibility, nav/items, active/stored mode and at most 20 same-origin script timings. It retains the exact 5000 ms visibility assertion, adds no pre-assertion wait and rethrows the original error after bounded capture.
 
+### Navigation test import boundary
+
+The 35-file navigation test starts an asynchronous import. `setInputFiles` returns
+before `importFiles` completes, and every `createNew` call activates its file. The
+first open and selection can therefore target a later file. Two local attempts with
+a 120 ms read delay lost the intended association at the first selection assertion.
+A stable control delayed each file after `cache-00` by 2 s. It kept `cache-01` active
+for the key presses, selected `ation` in `cache-01`, left `cache-00` without a source
+entry, and the final reopen of `cache-00` failed with an empty selection. The control
+shows one setup path. It does not name the file that received the selection in a
+hosted attempt.
+
+`e2e/editor-state.spec.ts` now waits for the existing `aria-setsize` list attribute to
+equal the file count before the first open. The attribute follows
+`filteredFiles.length`. The last `createNew` pushes and activates its file before the
+next render, so the observed value means the final activation is complete. This is a
+state precondition, not a sleep. The selection, scroll, saved bytes assertions, the
+120 s timeout and the fail-only `[selection-boundary]` capture stay unchanged.
+
+Run the two cases with one worker, no retries and the production build:
+
+```sh
+E2E_PORT=4228 npx playwright test e2e/editor-state.spec.ts \
+  --project=chromium --workers=1 --retries=0 --grep 'history pressure'
+```
+
+Keep the JSON report, the direct exit and the source revision. The delayed-import
+control is an external setup check. It does not prove an application regression.
+
 Run the focused positive coalescing case with one worker and no retries:
 
 ```sh
