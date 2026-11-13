@@ -2384,13 +2384,16 @@ serialized report that gains a non-deterministic field.
 Project A, changes the selector to Project B, and checks that the report and
 Export action are unavailable. It then runs Project B and compares the export
 name and bytes, and repeats the same rule on the way back to Project A.
+The worker case observes the real worker message and errors while the user runs
+the five-document fixture. It fails if a main-thread fallback hides a worker
+startup error. The fixture includes invalid YAML and checks the returned report.
 
 ```sh
 npx playwright test e2e/docs-check.spec.ts --project=chromium --workers=1 --retries=0
 ```
 
 Keep the local JSON and HTML reports, downloaded JSON files, and the
-`docs-check-provenance.json` attachment with the command, revision, environment
+`docs-check-provenance.json` and `docs-worker-report.json` attachments with the command, revision, environment
 and fixtures. The case proves panel state and export bytes in Chromium. It does
 not prove another browser engine, a physical device or a native WebView.
 
@@ -3732,4 +3735,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-

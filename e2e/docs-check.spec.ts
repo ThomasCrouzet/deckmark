@@ -291,6 +291,46 @@ test('documentation check reports issues, opens locations, and exports stable JS
 	});
 });
 
+test('documentation check returns its report from the worker', async ({ page }, testInfo) => {
+	await page.addInitScript(() => {
+		const scope = window as Window & {
+			__docsWorkerEvidence?: { messages: unknown[]; errors: string[] };
+		};
+		const evidence = { messages: [] as unknown[], errors: [] as string[] };
+		scope.__docsWorkerEvidence = evidence;
+		const OriginalWorker = window.Worker;
+		window.Worker = class extends OriginalWorker {
+			constructor(url: string | URL, options?: WorkerOptions) {
+				super(url, options);
+				if (!String(url).includes('docs-check.worker')) return;
+				this.addEventListener('message', (event) => evidence.messages.push(event.data));
+				this.addEventListener('error', (event) => evidence.errors.push(event.message));
+			}
+		};
+	});
+	await resetAppState(page);
+	await importProject(page, await projectFixture());
+	await page.getByRole('button', { name: 'Vérifier la documentation', exact: true }).click();
+	const panel = page.getByRole('dialog', { name: 'Vérifier la documentation' });
+	await expect(panel).toBeVisible();
+	await panel.getByRole('button', { name: 'Lancer la vérification' }).click();
+	await expect(panel.locator('[data-docs-check-issue]')).toHaveCount(8, { timeout: 20_000 });
+	const evidence = await page.evaluate(
+		() =>
+			(window as Window & { __docsWorkerEvidence?: { messages: unknown[]; errors: string[] } })
+				.__docsWorkerEvidence
+	);
+	await testInfo.attach('docs-worker-report.json', {
+		body: JSON.stringify(evidence),
+		contentType: 'application/json'
+	});
+	expect(evidence?.errors).toEqual([]);
+	expect(evidence?.messages).toHaveLength(1);
+	expect(evidence?.messages[0]).toMatchObject({
+		report: { schema: 'mdsh-docs-check/1', documents: 5, summary: { errors: 4, warnings: 4 } }
+	});
+});
+
 test('documentation check report stays bound to the audited project', async ({
 	page
 }, testInfo) => {

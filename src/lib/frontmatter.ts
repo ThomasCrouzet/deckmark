@@ -10,8 +10,6 @@
 // (gray-matter depends on Node's `Buffer` - incompatible with the browser
 // without a polyfill.)
 
-import { reportWarning } from './report';
-
 export { getTags, getTitle, stripFrontmatter } from './frontmatter-fields';
 
 export interface ParsedFrontmatter {
@@ -81,7 +79,15 @@ export async function parseFrontmatter(md: string): Promise<ParsedFrontmatter> {
 		// Broken YAML: discreet log + fallback to intact markdown (no UI crash).
 		// We log just the message (not the stack) so as not to pollute the console.
 		const msg = err instanceof Error ? err.message : String(err);
-		reportWarning('invalid YAML front-matter, ignored', msg);
+		if (typeof window !== 'undefined') {
+			try {
+				const { reportWarning } = await import('./report');
+				reportWarning('invalid YAML front-matter, ignored', msg);
+			} catch {
+				// eslint-disable-next-line no-console -- Keep parsing available if the warning module fails.
+				console.warn('[mdsh] invalid YAML front-matter, ignored :', msg);
+			}
+		}
 		return { data: {}, content: md, raw: '', error: msg };
 	}
 }
