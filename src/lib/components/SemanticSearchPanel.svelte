@@ -55,6 +55,7 @@
 	/** Latest query and latest count read. An older read cannot publish. */
 	const searchJob = new LatestOnly();
 	const countJob = new LatestOnly();
+	const indexJob = new LatestOnly();
 	let trainedEmbedder: { key: string; embedder: Embedder } | null = null;
 	// Wide source revisions keyed by content identity, so repeated queries do
 	// not rescan every loaded body.
@@ -74,6 +75,7 @@
 		if (!open) {
 			searchJob.invalidate();
 			countJob.invalidate();
+			indexJob.invalidate();
 			countError = false;
 			indexError = false;
 			searchError = false;
@@ -167,6 +169,7 @@
 		preferenceWarning = !writePreference(KEY, value ? '1' : '0');
 		searchJob.invalidate();
 		countJob.invalidate();
+		indexJob.invalidate();
 		clearFailed = false;
 		countError = false;
 		indexError = false;
@@ -184,6 +187,7 @@
 	function changeScope() {
 		searchJob.invalidate();
 		countJob.invalidate();
+		indexJob.invalidate();
 		results = [];
 		staleRows = 0;
 		incompatibleRows = 0;
@@ -199,17 +203,27 @@
 	function changeModel() {
 		preferenceWarning = !writePreference('mdsh:semantic-model', modelId);
 		searchJob.invalidate();
+		indexJob.invalidate();
 		staleRows = 0;
 		incompatibleRows = 0;
+		indexError = false;
 		searchError = false;
 		void runSearch();
 	}
 
 	async function buildIndex() {
 		if (!enabled || indexing) return;
+		const token = indexJob.begin();
 		const scope = projectId;
 		const model = modelId;
 		const signature = scopeSignature(scope);
+		const current = () =>
+			indexJob.isCurrent(token) &&
+			enabled &&
+			open &&
+			scope === projectId &&
+			model === modelId &&
+			signature === scopeSignature(scope);
 		indexing = true;
 		indexError = false;
 		// A search that started before the rebuild must not republish.
@@ -218,13 +232,20 @@
 		try {
 			const files = scopeFiles(scope);
 			await hydrate(files);
+			if (!current()) return;
 			const embedder = await resolveEmbedder(scope, signature, model);
+			if (!current()) return;
 			const existing = await scopedRows(db.semanticIndex, scope);
+			if (!current()) return;
 			const rows = indexFiles(files, existing, scope, embedder);
 			await db.transaction('rw', db.semanticIndex, async () => {
+				if (!current()) throw new Error('Semantic index build superseded');
 				await clearScope(db.semanticIndex, scope);
+				if (!current()) throw new Error('Semantic index build superseded');
 				if (rows.length) await db.semanticIndex.bulkPut($state.snapshot(rows));
+				if (!current()) throw new Error('Semantic index build superseded');
 			});
+			if (!current()) return;
 			searchJob.invalidate();
 			countJob.invalidate();
 			if (scope === projectId) {
@@ -236,8 +257,10 @@
 			}
 		} catch (failure) {
 			// The transaction rolls back the clear, so committed rows survive.
-			if (scope === projectId) indexError = true;
-			reportError('semantic index build', failure);
+			if (current()) {
+				indexError = true;
+				reportError('semantic index build', failure);
+			}
 		} finally {
 			indexing = false;
 		}
