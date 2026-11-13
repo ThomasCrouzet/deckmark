@@ -169,12 +169,25 @@ pub fn run() {
             Ok(())
         });
 
-    #[cfg(feature = "native-smoke")]
+    let main_fitted_after_load = std::sync::atomic::AtomicBool::new(false);
     let builder = builder.on_page_load(move |webview, payload| {
+        #[cfg(feature = "native-smoke")]
         smoke_startup_phase(
             started,
             &format!("page-load:{:?} window={}", payload.event(), webview.label()),
         );
+        if webview.label() == "main"
+            && payload.event() == tauri::webview::PageLoadEvent::Finished
+            && !main_fitted_after_load.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            if let Some(window) = webview.app_handle().get_webview_window("main") {
+                if let Err(error) =
+                    window_geometry::constrain_window(&window, window_geometry::MAIN_MINIMUM)
+                {
+                    eprintln!("[mdsh-window] could not fit the main window after load: {error}");
+                }
+            }
+        }
     });
 
     #[cfg(feature = "native-smoke")]
