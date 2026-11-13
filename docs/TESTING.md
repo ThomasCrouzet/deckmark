@@ -704,6 +704,20 @@ those paths. Each browser case retains source metadata, fixtures, and screenshot
 The PDF viewer case uses full Chromium headless mode because the headless shell
 does not include the PDF viewer.
 
+`e2e/capture-template-race.spec.ts` holds delivery of a real IndexedDB template
+read while the user types. The draft and focus must stay in the content field
+after delivery. Run the Desktop build and the Chromium case with:
+
+```sh
+CAPTURE_REVIEW_DESKTOP=1 npx playwright test --config=playwright.capture.config.ts e2e/capture-template-race.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the JSON and HTML reports, `capture-template-race.json`, source revision,
+working diff, browser version and command. The native bridge is simulated. This
+case does not prove native window lifecycle or physical WebView behavior. A
+negative control that removes the post-read guards must replace the draft and
+fail the content assertion. The regular Web build skips this Desktop-only case.
+
 The Quick Capture key handler must not cancel or save during IME composition.
 The retained risks are an Escape that closes the window while it dismisses a
 candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
@@ -3732,4 +3746,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-
