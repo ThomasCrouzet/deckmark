@@ -72,6 +72,7 @@
 
 	async function openCodeForm() {
 		const generation = ++codeFormGeneration;
+		const previousFocus = document.activeElement;
 		codeOpen = true;
 		const catalog = await loadLanguages();
 		if (!codeOpen || generation !== codeFormGeneration) return;
@@ -80,7 +81,8 @@
 		codeName = suggestedCodeName(plain);
 		nameEdited = false;
 		requestAnimationFrame(() => {
-			if (codeOpen && generation === codeFormGeneration) languageSelect?.focus();
+			if (codeOpen && generation === codeFormGeneration && document.activeElement === previousFocus)
+				languageSelect?.focus();
 		});
 	}
 

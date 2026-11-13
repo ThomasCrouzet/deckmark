@@ -149,6 +149,42 @@ test('returns focus to Create Code at a narrow viewport', async ({ page }, info)
 	});
 });
 
+test('keeps user focus when the code language catalog loads late', async ({ page }, info) => {
+	await resetAppState(page);
+	await openNewDocument(page);
+	let releaseCatalog!: () => void;
+	const catalogGate = new Promise<void>((resolve) => (releaseCatalog = resolve));
+	let catalogRequested!: () => void;
+	const requestSeen = new Promise<void>((resolve) => (catalogRequested = resolve));
+	await page.route('**/_app/immutable/chunks/*.js', async (route) => {
+		const response = await route.fetch();
+		const body = await response.text();
+		if (body.includes('Plain text') && body.includes('extensions:') && body.includes('Python')) {
+			catalogRequested();
+			await catalogGate;
+		}
+		await route.fulfill({ response, body });
+	});
+	await page.getByTestId('create-code').click();
+	await requestSeen;
+	const cancel = page.getByTestId('create-code-cancel');
+	await cancel.focus();
+	await expect(cancel).toBeFocused();
+	releaseCatalog();
+	await expect(page.getByTestId('create-code-language').locator('option')).not.toHaveCount(0);
+	await page.evaluate(
+		() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+	);
+	await expect(cancel).toBeFocused();
+	await page.keyboard.press('Enter');
+	await expect(page.getByTestId('create-code-name')).toHaveCount(0);
+	await expect(page.getByTestId('create-code')).toBeFocused();
+	await info.attach('late-code-catalog.json', {
+		body: JSON.stringify({ focusDuringLoad: 'create-code-cancel', afterEnter: 'create-code' }),
+		contentType: 'application/json'
+	});
+});
+
 test('returns focus to Create Code after the Cancel button closes the code form', async ({
 	page
 }, info) => {

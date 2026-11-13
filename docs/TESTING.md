@@ -3544,7 +3544,8 @@ Retain these failure risks for the shared dialog fixes:
   not both run. Keep one browser case with a durable side effect.
 - A conditional Code File form can unmount while it owns focus. Restore focus to
   its disclosure after the DOM update. A delayed language focus from an earlier
-  open must not run against a closed or reopened form. Keep Enter, Space and
+  open must not run against a closed or reopened form, or move focus away from
+  a control the user selected while the language catalog loads. Keep Enter, Space and
   pointer activation of that form's Cancel button. Record a full-dialog-close
   RED timeout as a harness limit, not as a stale-focus behavior proof.
 - A scrollable snippet listbox can move `aria-activedescendant` beyond the
@@ -3712,4 +3713,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-
