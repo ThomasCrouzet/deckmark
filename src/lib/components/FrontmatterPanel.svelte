@@ -150,6 +150,13 @@
 		try {
 			const next = updateFrontmatter(content, changes);
 			filesStore.updateContent(target.id, next);
+			if (target.content === next) {
+				window.dispatchEvent(
+					new CustomEvent('mdsh:properties-saved', {
+						detail: { fileId: target.id, before: content, after: next }
+					})
+				);
+			}
 			onClose();
 		} catch (reason) {
 			saveError =

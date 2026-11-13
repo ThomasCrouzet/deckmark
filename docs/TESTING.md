@@ -3104,6 +3104,11 @@ parser string tokens `-.5` and `1e999`. The invalid cases must keep the typed te
 focus the field and leave the source unchanged. A removal case must delete an overflow
 token without a silent no-op.
 
+Saving a property must make that local change undoable in the mounted Source
+editor without removing unrelated note content. Redo must restore the saved
+value. A change received from another tab must not become a local undo step.
+The browser cases check both paths and reload the redone value from storage.
+
 Run:
 
 ```sh
@@ -3732,4 +3737,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-
