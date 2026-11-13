@@ -331,10 +331,12 @@ async function installSemanticFaults(page: Page): Promise<void> {
 			__mdshSemanticFault?: SemanticFaultScope;
 			__mdshSemanticFaultInstalled?: boolean;
 			__mdshSemanticRelease?: () => void;
+			__mdshSemanticReads?: number;
 		};
 		if (scope.__mdshSemanticFaultInstalled) return;
 		scope.__mdshSemanticFaultInstalled = true;
 		scope.__mdshSemanticFault = {};
+		scope.__mdshSemanticReads = 0;
 
 		const storeOf = (source: IDBObjectStore | IDBIndex): string =>
 			source instanceof IDBIndex ? source.objectStore.name : source.name;
@@ -345,6 +347,11 @@ async function installSemanticFaults(page: Page): Promise<void> {
 			const original = proto.getAll;
 			proto.getAll = function (this: IDBObjectStore | IDBIndex, ...args: never[]) {
 				const request = original.apply(this, args);
+				if (storeOf(this) === 'semanticIndex') {
+					request.addEventListener('success', () => {
+						scope.__mdshSemanticReads = (scope.__mdshSemanticReads ?? 0) + 1;
+					});
+				}
 				const fault = scope.__mdshSemanticFault?.read;
 				if (storeOf(this) !== 'semanticIndex' || !fault) return request;
 				// One shot so a retry reads normally.
@@ -436,6 +443,69 @@ async function setWriteFault(page: Page, fail: boolean): Promise<void> {
 		scope.__mdshSemanticFault = { ...(scope.__mdshSemanticFault ?? {}), writeFail: value };
 	}, fail);
 }
+
+test('ignores an index failure after the model changes', async ({ page, browser }, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await expect(page.getByTestId('semantic-panel')).toContainText('0 document');
+	await page.waitForFunction(
+		() => ((window as unknown as { __mdshSemanticReads?: number }).__mdshSemanticReads ?? 0) > 0
+	);
+	await armReadFault(page, 'delay-error');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.read === undefined
+	);
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await releaseReadFault(page);
+	await expect(indexButton).toBeEnabled();
+	const errorVisible = await page.getByTestId('semantic-index-error').isVisible();
+	await info.attach('stale-index-error.json', {
+		body: JSON.stringify({ browser: browser.version(), model: 'cooccurrence-v1', errorVisible }),
+		contentType: 'application/json'
+	});
+	expect(errorVisible).toBe(false);
+});
+
+test('does not publish an obsolete index after the model changes', async ({
+	page,
+	browser
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await expect(page.getByTestId('semantic-panel')).toContainText('0 document');
+	await page.waitForFunction(
+		() => ((window as unknown as { __mdshSemanticReads?: number }).__mdshSemanticReads ?? 0) > 0
+	);
+	await armReadFault(page, 'delay-success');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.read === undefined
+	);
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await releaseReadFault(page);
+	await expect(indexButton).toBeEnabled();
+	const rows = await semanticRows(page);
+	await info.attach('stale-index-success.json', {
+		body: JSON.stringify({ browser: browser.version(), model: 'cooccurrence-v1', rows }),
+		contentType: 'application/json'
+	});
+	expect(rows).toHaveLength(0);
+});
 
 test('shows recoverable errors for rejected index, count and query operations', async ({
 	page

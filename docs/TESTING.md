@@ -2424,6 +2424,8 @@ A local IndexedDB failure must not stay silent. The retained risks are an
 unhandled rejection from a count, build or query operation, a missing error
 state, a failed index write that removes committed rows, a failure that clears a
 usable result, and an obsolete failure that publishes after a newer success.
+Changing the model during a held index read must invalidate that build. Its late
+failure must not show an alert, and its late success must not replace stored rows.
 
 `e2e/semantic-search.spec.ts` patches `semanticIndex` store and index requests in
 the page. It delays and rejects a scoped read, rejects an index write, and
@@ -2435,7 +2437,8 @@ retained result, and the `unhandledrejection` count.
 npx playwright test e2e/semantic-search.spec.ts --project=chromium --workers=1 --retries=0
 ```
 
-Keep the local reports and the `semantic-rejection-recovery.json` attachment.
+Keep the local reports and the `semantic-rejection-recovery.json`,
+`stale-index-error.json` and `stale-index-success.json` attachments.
 Injected faults are browser evidence. They do not reproduce a real quota limit,
 a native IndexedDB implementation or a physical device.
 
@@ -3732,4 +3735,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-
