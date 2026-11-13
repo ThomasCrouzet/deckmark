@@ -1,5 +1,18 @@
 # Test policy and evidence
 
+## Touch project action geometry
+
+The mobile project action case measures the three action buttons after the
+drawer transition ends. A bounding box during translation can have a fractional
+width even when the layout width is 44 CSS px. The case keeps the 44 px width
+and height assertions and the rename, move, delete and open actions.
+
+Run `npx playwright test e2e/mobile.spec.ts --project=mobile-webkit --workers=1
+--retries=0 --grep 'shows rename, move and delete without hover'`. Retain the
+JSON and HTML reports, source identity, command and browser environment. A
+test-only style that sets an action width to 43 px must fail the width assertion.
+This case does not prove touch behavior on a physical device.
+
 ## Large rendered input risks
 
 Retain local input latency at both ends of a 5 MB note. Keep each raw
@@ -3732,4 +3745,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-
