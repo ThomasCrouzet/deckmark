@@ -2429,6 +2429,8 @@ failure must not show an alert, and its late success must not replace stored row
 During a held write, a model change must abort the transaction and preserve the
 previous model's committed row. The browser case keeps the actual transaction
 active with count requests. Its negative control removes the post-write guard.
+If the model changes and then changes back during the write, the transaction
+must still abort. Its negative control removes model-change invalidation.
 
 `e2e/semantic-search.spec.ts` patches `semanticIndex` store and index requests in
 the page. It delays and rejects a scoped read, rejects an index write, and
@@ -2442,7 +2444,8 @@ npx playwright test e2e/semantic-search.spec.ts --project=chromium --workers=1 -
 
 Keep the local reports and the `semantic-rejection-recovery.json`,
 `stale-index-error.json` and `stale-index-success.json` attachments.
-Also keep `stale-index-transaction.json` and the negative-control report.
+Also keep `stale-index-transaction.json`,
+`stale-index-transaction-model-return.json` and the negative-control reports.
 Injected faults are browser evidence. They do not reproduce a real quota limit,
 a native IndexedDB implementation or a physical device.
 
