@@ -182,6 +182,9 @@ test('documentation check reports issues, opens locations, and exports stable JS
 	await page.getByRole('button', { name: 'Vérifier la documentation', exact: true }).click();
 	const panel = page.getByRole('dialog', { name: 'Vérifier la documentation' });
 	await expect(panel).toBeVisible();
+	await expect(panel).toHaveAttribute('aria-labelledby', 'docs-check-title');
+	const reportPanel = page.locator('[role="dialog"][aria-labelledby="docs-check-title"]');
+	await expect(reportPanel).toHaveCount(1);
 	await panel.getByRole('button', { name: 'Lancer la vérification' }).click();
 
 	const issues = panel.locator('[data-docs-check-issue]');
@@ -202,7 +205,7 @@ test('documentation check reports issues, opens locations, and exports stable JS
 	await page.keyboard.press('Tab');
 	await expect(closeCheck).toBeFocused();
 
-	const listed = await issues.evaluateAll((elements) =>
+	const listed = await reportPanel.locator('[data-docs-check-issue]').evaluateAll((elements) =>
 		elements.map((element) => ({
 			code: element.getAttribute('data-code'),
 			path: element.getAttribute('data-path'),

@@ -2387,6 +2387,12 @@ name and bytes, and repeats the same rule on the way back to Project A.
 The worker case observes the real worker message and errors while the user runs
 the five-document fixture. It fails if a main-thread fallback hides a worker
 startup error. The fixture includes invalid YAML and checks the returned report.
+The full report case checks the named dialog and its `aria-labelledby` value.
+It counts the issues through that dialog, then extracts their attributes through
+the unique dialog with the same label reference. This avoids a local Firefox
+crash in the named-role locator's `evaluateAll` after a count assertion. The
+count, issue values, keyboard checks and export assertions stay in place. The
+cause of the Firefox crash is not established.
 
 ```sh
 npx playwright test e2e/docs-check.spec.ts --project=chromium --workers=1 --retries=0
