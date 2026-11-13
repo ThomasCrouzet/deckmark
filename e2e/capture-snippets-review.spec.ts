@@ -45,6 +45,8 @@ async function storedSnippetCount(page: Page) {
 
 async function openCapture(page: Page, title: string) {
 	await page.addInitScript(() => {
+		const scope = window as unknown as { __captureHideCount: number };
+		scope.__captureHideCount = 0;
 		Object.defineProperty(window, '__TAURI_EVENT_PLUGIN_INTERNALS__', {
 			value: { unregisterListener: () => {} }
 		});
@@ -52,7 +54,10 @@ async function openCapture(page: Page, title: string) {
 			value: {
 				transformCallback: () => 1,
 				invoke: async (command: string) => {
-					if (command === 'desktop_capture_hide') return;
+					if (command === 'desktop_capture_hide') {
+						scope.__captureHideCount += 1;
+						return;
+					}
 					if (command === 'plugin:event|listen') return 1;
 					if (command === 'plugin:event|unlisten') return;
 					throw new Error(`Unexpected native command: ${command}`);
@@ -130,6 +135,59 @@ test('an open snippet panel receives another window save', async ({ page, contex
 
 test.describe('Desktop capture browser workflow', () => {
 	test.skip(process.env.CAPTURE_REVIEW_DESKTOP !== '1', 'Requires the Desktop edition server.');
+
+	test('keeps the capture draft during composing shortcuts', async ({ page, context }, info) => {
+		await resetAppState(page);
+		const capture = await context.newPage();
+		await openCapture(capture, 'IME capture');
+		const content = capture.getByTestId('capture-content');
+		await content.focus();
+		await content.evaluate((element) => {
+			element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+			for (const options of [
+				{ key: 'Escape', isComposing: true },
+				{ key: 'Enter', ctrlKey: true, isComposing: true },
+				{ key: 'Enter', metaKey: true, isComposing: true },
+				{ key: 'Escape', keyCode: 229 },
+				{ key: 'Enter', ctrlKey: true, keyCode: 229 }
+			]) {
+				element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...options }));
+			}
+			element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+		});
+		await expect(content).toHaveValue(code);
+		await expect(content).toBeFocused();
+		expect(await storedSnippetCount(page)).toBe(0);
+		expect(
+			await capture.evaluate(
+				() => (window as unknown as { __captureHideCount: number }).__captureHideCount
+			)
+		).toBe(0);
+		await capture.keyboard.press('Control+Enter');
+		await expect.poll(() => storedSnippetCount(page)).toBe(1);
+		await expect
+			.poll(() =>
+				capture.evaluate(
+					() => (window as unknown as { __captureHideCount: number }).__captureHideCount
+				)
+			)
+			.toBe(1);
+		const cancelled = await context.newPage();
+		await openCapture(cancelled, 'Cancel capture');
+		await cancelled.keyboard.press('Escape');
+		await expect
+			.poll(() =>
+				cancelled.evaluate(
+					() => (window as unknown as { __captureHideCount: number }).__captureHideCount
+				)
+			)
+			.toBe(1);
+		expect(await storedSnippetCount(page)).toBe(1);
+		await info.attach('capture-ime.json', {
+			body: JSON.stringify({ composing: 'synthetic', savedSnippets: 1, nativeBridge: 'fixture' }),
+			contentType: 'application/json'
+		});
+	});
 
 	test('loads saved note templates on the first mount', async ({ page, context }) => {
 		await resetAppState(page);
