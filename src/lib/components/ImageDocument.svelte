@@ -49,7 +49,7 @@
 	let strokes = $state<Stroke[]>([]);
 	let redoStack = $state<Stroke[]>([]);
 	let current: Stroke | null = null;
-	let drawing = false;
+	let activePointer: number | null = null;
 	let image: HTMLImageElement | null = null;
 	let width = $state(0);
 	let height = $state(0);
@@ -112,10 +112,10 @@
 	}
 
 	function start(event: PointerEvent) {
-		if (!canvas || !image || replacing) return;
+		if (!canvas || !image || replacing || activePointer !== null) return;
 		event.preventDefault();
 		canvas.setPointerCapture(event.pointerId);
-		drawing = true;
+		activePointer = event.pointerId;
 		pointerRect = canvas.getBoundingClientRect();
 		current = { tool, color, size, points: [pointFrom(event)] };
 		const context = canvas.getContext('2d');
@@ -123,7 +123,7 @@
 	}
 
 	function move(event: PointerEvent) {
-		if (!drawing || !current || !canvas) return;
+		if (activePointer !== event.pointerId || !current || !canvas) return;
 		event.preventDefault();
 		const context = canvas.getContext('2d');
 		if (!context) return;
@@ -157,16 +157,33 @@
 		context.restore();
 	}
 
+	function releasePointer(event: PointerEvent) {
+		if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+	}
+
 	function end(event: PointerEvent) {
-		if (!drawing) return;
-		drawing = false;
-		if (current) {
-			strokes = [...strokes, current];
-			redoStack = [];
-		}
+		if (activePointer !== event.pointerId) return;
+		const stroke = current;
+		activePointer = null;
 		current = null;
 		pointerRect = null;
-		canvas?.releasePointerCapture(event.pointerId);
+		if (stroke) {
+			strokes = [...strokes, stroke];
+			redoStack = [];
+		}
+		releasePointer(event);
+	}
+
+	function cancel(event: PointerEvent) {
+		if (activePointer !== event.pointerId) return;
+		const hadStroke = current !== null;
+		activePointer = null;
+		current = null;
+		pointerRect = null;
+		releasePointer(event);
+		// Interim samples are painted directly. Repaint the committed strokes
+		// after a cancel or an interrupted capture.
+		if (hadStroke) redraw();
 	}
 
 	function undo() {
@@ -423,7 +440,8 @@
 				onpointerdown={start}
 				onpointermove={move}
 				onpointerup={end}
-				onpointercancel={end}
+				onpointercancel={cancel}
+				onlostpointercapture={cancel}
 			></canvas>
 		{/if}
 	</div>

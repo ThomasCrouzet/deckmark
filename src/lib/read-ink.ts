@@ -60,6 +60,24 @@ export class ReadInkIndex {
 		stroke.lastBand = last;
 	}
 
+	remove(stroke: InkStroke): void {
+		if (stroke.wide) {
+			this.wide.delete(stroke);
+			return;
+		}
+		for (let band = stroke.firstBand; band <= stroke.lastBand; band++) {
+			const entries = this.bands.get(band);
+			entries?.delete(stroke);
+			if (entries?.size === 0) this.bands.delete(band);
+		}
+		stroke.firstBand = Infinity;
+		stroke.lastBand = -Infinity;
+	}
+
+	get isEmpty(): boolean {
+		return this.wide.size === 0 && this.bands.size === 0;
+	}
+
 	visible(top: number, height: number): InkStroke[] {
 		const visible = new Set(this.wide);
 		for (
