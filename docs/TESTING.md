@@ -1,5 +1,18 @@
 # Test policy and evidence
 
+## Interrupted ink gestures
+
+A cancelled Read stroke must not remain in the ink index or on the canvas.
+Unexpected capture loss must discard only the active stroke. Completed strokes
+must remain in their original order. A later gesture must still work. A cancelled
+image stroke must not enter the export or clear the redo history. The checks use
+real mouse input and a synthetic cancellation event with the observed pointer ID.
+They do not prove physical touch or stylus cancellation.
+
+Run `npx playwright test e2e/read-annotations.spec.ts e2e/image-annotations.spec.ts
+--project=chromium --workers=1 --retries=0`. Keep the JSON and HTML reports, source
+revision, working diff, command, browser version and attached pixel evidence.
+
 ## Large rendered input risks
 
 Retain local input latency at both ends of a 5 MB note. Keep each raw
@@ -3650,4 +3663,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-

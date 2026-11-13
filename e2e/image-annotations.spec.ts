@@ -66,6 +66,46 @@ async function draftData(page: Page): Promise<string> {
 	);
 }
 
+test('discards a cancelled image stroke without losing redo', async ({ page, browser }, info) => {
+	await resetAppState(page);
+	await importImage(page);
+	await page.getByTestId('image-pen').click();
+	await page.getByTestId('image-document').getByRole('button', { name: '#ff6b6b' }).click();
+	await draw(page);
+	await page.getByTitle('Annuler le trait').click();
+	const redo = page.getByTitle('Rétablir le trait');
+	await expect(redo).toBeEnabled();
+	const canvas = page.getByTestId('image-canvas');
+	const box = await canvas.boundingBox();
+	if (!box) throw new Error('Image canvas has no box');
+	await canvas.evaluate((element) => {
+		element.addEventListener(
+			'pointerdown',
+			(event) =>
+				element.setAttribute('data-test-pointer', String((event as PointerEvent).pointerId)),
+			{ once: true }
+		);
+	});
+	await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.5);
+	await page.mouse.down();
+	await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.55, { steps: 10 });
+	const pointerId = Number(await canvas.getAttribute('data-test-pointer'));
+	expect(pointerId).toBeGreaterThan(0);
+	await canvas.dispatchEvent('pointercancel', { pointerId, pointerType: 'mouse', bubbles: true });
+	await page.mouse.up();
+	const redoEnabled = await redo.isEnabled();
+	const download = page.waitForEvent('download');
+	await page.getByTestId('image-export').click();
+	const exported = await readFile((await (await download).path())!);
+	const red = await redPixels(page, exported);
+	await info.attach('image-ink-cancellation.json', {
+		body: JSON.stringify({ browser: browser.version(), pointerId, redoEnabled, redPixels: red }),
+		contentType: 'application/json'
+	});
+	expect(redoEnabled).toBe(true);
+	expect(red).toBe(0);
+});
+
 test('annotates an image, exports a flattened copy and keeps the original', async ({
 	page
 }, info: TestInfo) => {

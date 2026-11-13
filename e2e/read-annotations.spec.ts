@@ -155,6 +155,47 @@ test('discards an interrupted Read ink stroke', async ({ page, browser }, info) 
 	expect(after).toBe(0);
 });
 
+test('keeps committed Read ink after capture is lost', async ({ page, browser }, info) => {
+	await readMode(page);
+	await page.getByTestId('annotation-toggle').click();
+	await drawOnCanvas(page);
+	await inkFrame(page);
+	const canvas = page.getByTestId('annotation-canvas');
+	const before = await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL());
+	const box = await canvas.boundingBox();
+	if (!box) throw new Error('Canvas has no box');
+	await canvas.evaluate((element) => {
+		element.addEventListener(
+			'pointerdown',
+			(event) =>
+				element.setAttribute('data-test-pointer', String((event as PointerEvent).pointerId)),
+			{ once: true }
+		);
+	});
+	await page.mouse.move(box.x + 80, box.y + 220);
+	await page.mouse.down();
+	await page.mouse.move(box.x + 220, box.y + 240, { steps: 8 });
+	const pointerId = Number(await canvas.getAttribute('data-test-pointer'));
+	expect(pointerId).toBeGreaterThan(0);
+	await canvas.dispatchEvent('lostpointercapture', {
+		pointerId,
+		pointerType: 'mouse',
+		bubbles: true
+	});
+	await page.mouse.up();
+	await inkFrame(page);
+	const after = await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL());
+	await info.attach('read-ink-lost-capture.json', {
+		body: JSON.stringify({
+			browser: browser.version(),
+			pointerId,
+			matchesCommittedInk: before === after
+		}),
+		contentType: 'application/json'
+	});
+	expect(after).toBe(before);
+});
+
 test('draws ephemeral ink without changing the document and clears on reload', async ({
 	page
 }, info: TestInfo) => {
