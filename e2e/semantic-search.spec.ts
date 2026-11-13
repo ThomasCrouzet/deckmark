@@ -319,6 +319,7 @@ test('rebuilds two sources that share one 32-bit digest', async ({ page }, info:
 interface SemanticFaultScope {
 	read?: { mode: 'delay-success' | 'delay-error'; gate: Promise<void> };
 	writeFail?: boolean;
+	writeHold?: { armed: boolean; active: boolean; held: boolean; aborted: boolean; cycles: number };
 }
 
 /**
@@ -406,7 +407,40 @@ async function installSemanticFaults(page: Page): Promise<void> {
 			if (this.name === 'semanticIndex' && scope.__mdshSemanticFault?.writeFail) {
 				throw new DOMException('Injected semantic write', 'QuotaExceededError');
 			}
-			return originalPut.call(this, value, key);
+			const request = originalPut.call(this, value, key);
+			const hold = scope.__mdshSemanticFault?.writeHold;
+			if (this.name !== 'semanticIndex' || !hold?.armed) return request;
+			hold.armed = false;
+			this.transaction.addEventListener('abort', () => (hold.aborted = true));
+			let successHandler: ((event: Event) => void) | null = null;
+			const store = request.transaction!.objectStore('semanticIndex');
+			request.onsuccess = (event) => {
+				hold.held = true;
+				const keepAlive = () => {
+					if (!hold.active) {
+						successHandler?.(event);
+						return;
+					}
+					hold.cycles += 1;
+					const next = store.count();
+					next.onsuccess = keepAlive;
+				};
+				keepAlive();
+			};
+			return new Proxy(request, {
+				get(target, property) {
+					if (property === 'onsuccess') return successHandler;
+					const result = Reflect.get(target, property, target);
+					return typeof result === 'function' ? result.bind(target) : result;
+				},
+				set(target, property, next) {
+					if (property === 'onsuccess') {
+						successHandler = next as (event: Event) => void;
+						return true;
+					}
+					return Reflect.set(target, property, next, target);
+				}
+			});
 		};
 	});
 }
@@ -505,6 +539,63 @@ test('does not publish an obsolete index after the model changes', async ({
 		contentType: 'application/json'
 	});
 	expect(rows).toHaveLength(0);
+});
+
+test('rolls back an index write if the model changes in the transaction', async ({
+	page,
+	browser
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await expect(indexButton).toBeEnabled();
+	const before = await semanticRows(page);
+	expect(before).toHaveLength(1);
+	expect(before[0]?.modelId).toBe('cooccurrence-v1');
+	await page.getByTestId('semantic-model').selectOption('feature-hash-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold = {
+			armed: true,
+			active: true,
+			held: false,
+			aborted: false,
+			cycles: 0
+		};
+	});
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.writeHold?.held === true
+	);
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold!.active = false;
+	});
+	await expect(indexButton).toBeEnabled();
+	const after = await semanticRows(page);
+	const held = await page.evaluate(
+		() =>
+			(window as unknown as { __mdshSemanticFault: SemanticFaultScope }).__mdshSemanticFault
+				.writeHold
+	);
+	await info.attach('stale-index-transaction.json', {
+		body: JSON.stringify({ browser: browser.version(), held, before, after }),
+		contentType: 'application/json'
+	});
+	expect(held?.cycles).toBeGreaterThan(0);
+	expect(after).toEqual(before);
+	expect(held?.aborted).toBe(true);
+	await expect(page.getByTestId('semantic-index-error')).toHaveCount(0);
 });
 
 test('shows recoverable errors for rejected index, count and query operations', async ({
