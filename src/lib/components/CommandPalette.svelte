@@ -1024,7 +1024,7 @@
 	}
 
 	function handleKey(e: KeyboardEvent) {
-		if (e.isComposing || e.defaultPrevented) return;
+		if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			onClose();
@@ -1052,6 +1052,7 @@
 			if (e.target === e.currentTarget) onClose();
 		}}
 		onkeydown={(e) => {
+			if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
 			if (e.key === 'Escape') onClose();
 		}}
 		role="dialog"
