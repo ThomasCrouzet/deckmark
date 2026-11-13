@@ -205,6 +205,33 @@ test('settles the preview when the selected version disappears before its read',
 	});
 });
 
+test('refreshes a missing version that returns with the same ID', async ({ page }, info) => {
+	test.setTimeout(120_000);
+	const draft = await seedHistory(page);
+	const history = await openHistory(page);
+	const versions = history.getByRole('list', { name: 'Versions disponibles' });
+	await expect(history.locator('[data-diff-kind="add"]')).toContainText('new line');
+	await holdVersionRead(page, 'e2e-v-old');
+	await versions.getByRole('button').last().click();
+	await expect(history.getByText('Chargement…')).toBeVisible();
+	await deleteVersion(page, 'e2e-v-old');
+	await releaseVersionRead(page);
+	await expect(history.getByTestId('history-missing')).toBeVisible();
+	await seedVersions(page, draft, [
+		{ id: 'e2e-v-old', content: 'returned line\n', createdAt: Date.now() - 300_000 }
+	]);
+	await history.getByTestId('history-refresh').click();
+	await expect(versions.getByRole('button')).toHaveCount(1);
+	await expect(history.getByTestId('history-missing')).toHaveCount(0);
+	await expect(history.locator('[data-diff-kind="add"]')).toContainText('returned line');
+	await expect(history.getByRole('button', { name: 'Restaurer cette version' })).toBeEnabled();
+	expect((await activeDraft(page)).content).toBe(CURRENT);
+	await info.attach('returned-version.json', {
+		body: JSON.stringify({ id: 'e2e-v-old', restoredPreview: 'returned line' }),
+		contentType: 'application/json'
+	});
+});
+
 test('keeps the newer preview when an older body read resolves late', async ({ page }, info) => {
 	test.setTimeout(120_000);
 	await seedHistory(page);
