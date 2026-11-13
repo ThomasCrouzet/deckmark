@@ -2081,12 +2081,28 @@ Keep the command, source revision, platform and WebView version with them.
 Keep the tested binary and its SHA-256 before another build replaces it.
 
 The 30 px decoration is a pure geometry fixture, not a measured native title bar.
-The decorated Linux run used a maximized window with a 24 px title bar. It proves
-that the maximized state stays fitted. It does not exercise a non-maximized
-decorated shrink. For that path, record a nonzero decoration and `isMaximized`
-false. Keep Windows, macOS, monitor moves and DPI transitions separate. A geometry
-query error can still abort capture creation; the success runs do not prove that
-failure path.
+On Linux, `src-tauri/tauri.geometry-fixture.conf.json` sets an initial content
+size of 650 by 370 logical px. At scale 2, the content fits in the 683 by 384
+logical px work area, but its decoration can make the outer window too tall.
+The fixture must be non-maximized, have a nonzero vertical decoration, shrink
+the content, and keep the outer rectangle inside the work area. The normal
+maximized run remains a separate check. Keep Windows, macOS, monitor moves and
+DPI transitions separate. A geometry query error can still abort capture
+creation; the success runs do not prove that failure path.
+
+Build the fixture and run it with Xvfb and xfwm4:
+
+```sh
+npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.geometry-fixture.conf.json
+GDK_SCALE=2 NATIVE_EXPECT_NONMAX_DECORATED=1 NATIVE_TEST_OUTPUT="$PWD/native-window-geometry-fixture" \
+  dbus-run-session -- xvfb-run -a -s "-screen 0 1366x768x24" \
+  node scripts/native-window-geometry-xfwm.mjs
+```
+
+The JSON records the fixture, binary hash, environment and actual bounds. Keep
+the binary, build log, run log, JSON and screenshots. The fixture changes only
+the initial main-window size and the smoke identity. It is not a physical display
+or a production packaging result.
 
 `scripts/native-capture.mjs` also records the main and capture geometry in the
 regular native smoke run on Ubuntu, Windows and macOS. It checks the outer
@@ -3732,4 +3748,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-
