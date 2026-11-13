@@ -2406,13 +2406,14 @@ build exposes a one-shot read gate for a version id. The case holds the read,
 deletes the row in a separate transaction, releases the read, and checks the
 missing status, disabled Restore action and refresh path. A second case holds
 an older read, selects another version, releases the read, and checks that the
-newer preview stays.
+newer preview stays. A third case restores the missing row with the same id
+before refresh. The refresh must read its body again and enable Restore.
 
 ```sh
 npx playwright test e2e/version-history.spec.ts --project=chromium --workers=1 --retries=0
 ```
 
-Keep the local reports and the `missing-version.json` and
+Keep the local reports and the `missing-version.json`, `returned-version.json` and
 `out-of-order-version.json` attachments. The read gate is conditional on
 `VITE_SOURCE_FIDELITY_METRICS=1`, which the E2E build sets. Production builds
 must expose no read gate. This case does not prove an operating-system removal,
@@ -3732,4 +3733,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-
