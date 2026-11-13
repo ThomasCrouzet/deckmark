@@ -718,6 +718,18 @@ case does not prove native window lifecycle or physical WebView behavior. A
 negative control that removes the post-read guards must replace the draft and
 fail the content assertion. The regular Web build skips this Desktop-only case.
 
+`e2e/capture-template-aba.spec.ts` holds three real template reads during an A,
+B, A selection sequence. The first A and B results must not fill the form. The
+last A result must fill it. Run:
+
+```sh
+CAPTURE_REVIEW_DESKTOP=1 npx playwright test --config=playwright.capture.config.ts e2e/capture-template-aba.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep `capture-template-aba.json` with the standard reports and source identity.
+Removing the request check after the template read must make the first A result
+fill the form and fail the empty-body assertion. The native bridge is simulated.
+
 The Quick Capture key handler must not cancel or save during IME composition.
 The retained risks are an Escape that closes the window while it dismisses a
 candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
