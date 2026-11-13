@@ -2435,6 +2435,8 @@ The same rule applies when the scope changes and then changes back. Its negative
 control removes scope-change invalidation.
 Disabling and enabling the index during the write must also abort it. Its
 negative control removes opt-in invalidation.
+Closing and reopening the panel during the write must abort it even if the
+panel component is destroyed before it observes the closed state.
 
 `e2e/semantic-search.spec.ts` patches `semanticIndex` store and index requests in
 the page. It delays and rejects a scoped read, rejects an index write, and
@@ -2452,6 +2454,7 @@ Also keep `stale-index-transaction.json`,
 `stale-index-transaction-model-return.json` and the negative-control reports.
 Keep `stale-index-transaction-scope-return.json` as well.
 Keep `stale-index-transaction-opt-in-return.json` as well.
+Keep `stale-index-transaction-panel-return.json` and its failing report.
 Injected faults are browser evidence. They do not reproduce a real quota limit,
 a native IndexedDB implementation or a physical device.
 

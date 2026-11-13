@@ -780,6 +780,63 @@ test('rolls back an index write after opt-in is disabled and enabled again', asy
 	await expect(page.getByTestId('semantic-index-error')).toHaveCount(0);
 });
 
+test('rolls back an index write after the panel closes and reopens', async ({
+	page,
+	browser
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await expect(indexButton).toBeEnabled();
+	const before = await semanticRows(page);
+	expect(before).toHaveLength(1);
+	expect(before[0]?.modelId).toBe('cooccurrence-v1');
+	await page.getByTestId('semantic-model').selectOption('feature-hash-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold = {
+			armed: true,
+			active: true,
+			held: false,
+			aborted: false,
+			cycles: 0
+		};
+	});
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.writeHold?.held === true
+	);
+	await closeSemantic(page);
+	await openSemantic(page);
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold!.active = false;
+	});
+	const after = await semanticRows(page);
+	const held = await page.evaluate(
+		() =>
+			(window as unknown as { __mdshSemanticFault: SemanticFaultScope }).__mdshSemanticFault
+				.writeHold
+	);
+	await info.attach('stale-index-transaction-panel-return.json', {
+		body: JSON.stringify({ browser: browser.version(), held, before, after }),
+		contentType: 'application/json'
+	});
+	expect(held?.cycles).toBeGreaterThan(0);
+	expect(after).toEqual(before);
+	expect(held?.aborted).toBe(true);
+	await expect(page.getByTestId('semantic-index-error')).toHaveCount(0);
+});
+
 test('shows recoverable errors for rejected index, count and query operations', async ({
 	page
 }, info: TestInfo) => {

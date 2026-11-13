@@ -68,6 +68,11 @@
 		modelId = savedModel === 'cooccurrence-v1' ? 'cooccurrence-v1' : 'feature-hash-v1';
 		projectId = filesStore.active?.projectId ?? null;
 		if (enabled) void loadCount();
+		return () => {
+			searchJob.invalidate();
+			countJob.invalidate();
+			indexJob.invalidate();
+		};
 	});
 
 	$effect(() => {
