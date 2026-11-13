@@ -241,6 +241,50 @@ test('rapid close and reopen leaves no stale focus or page error', async ({ page
 	expect(errors).toEqual([]);
 });
 
+test('Escape closes Collections before its initial focus frame', async ({ page }, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await openPalette(page);
+	await page.evaluate(() => {
+		const scope = window as unknown as { __releaseFocusFrames?: () => void };
+		const request = window.requestAnimationFrame.bind(window);
+		const cancel = window.cancelAnimationFrame.bind(window);
+		const pending = new Map<number, FrameRequestCallback>();
+		let next = 1_000_000;
+		window.requestAnimationFrame = (callback) => {
+			const id = next++;
+			pending.set(id, callback);
+			return id;
+		};
+		window.cancelAnimationFrame = (id) => {
+			if (!pending.delete(id)) cancel(id);
+		};
+		scope.__releaseFocusFrames = () => {
+			window.requestAnimationFrame = request;
+			window.cancelAnimationFrame = cancel;
+			for (const callback of pending.values()) request(callback);
+			pending.clear();
+		};
+	});
+	await page
+		.getByRole('dialog', { name: 'Palette de commandes' })
+		.getByRole('option', { name: /vues tableau/i })
+		.click();
+	await expect(page.getByTestId('collection-panel')).toBeVisible();
+	const before = await focusSnapshot(page);
+	await page.keyboard.press('Escape');
+	const after = await focusSnapshot(page);
+	const stillOpen = await page.getByTestId('collection-panel').isVisible();
+	await page.evaluate(() =>
+		(window as unknown as { __releaseFocusFrames?: () => void }).__releaseFocusFrames?.()
+	);
+	await info.attach('early-escape.json', {
+		body: JSON.stringify({ before, after, stillOpen }),
+		contentType: 'application/json'
+	});
+	expect(stillOpen).toBe(false);
+});
+
 test('a nested prompt keeps the lower dialog open and restores its control', async ({ page }) => {
 	await resetAppState(page);
 	await page.getByTestId('projects-open').click();
