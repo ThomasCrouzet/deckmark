@@ -333,11 +333,13 @@ async function installSemanticFaults(page: Page): Promise<void> {
 			__mdshSemanticFaultInstalled?: boolean;
 			__mdshSemanticRelease?: () => void;
 			__mdshSemanticReads?: number;
+			__mdshSemanticDeliveries?: number;
 		};
 		if (scope.__mdshSemanticFaultInstalled) return;
 		scope.__mdshSemanticFaultInstalled = true;
 		scope.__mdshSemanticFault = {};
 		scope.__mdshSemanticReads = 0;
+		scope.__mdshSemanticDeliveries = 0;
 
 		const storeOf = (source: IDBObjectStore | IDBIndex): string =>
 			source instanceof IDBIndex ? source.objectStore.name : source.name;
@@ -383,6 +385,7 @@ async function installSemanticFaults(page: Page): Promise<void> {
 					void fault.gate.then(() => {
 						if (mode === 'delay-success') {
 							successHandler?.(event);
+							scope.__mdshSemanticDeliveries = (scope.__mdshSemanticDeliveries ?? 0) + 1;
 							return;
 						}
 						errorHandler?.({
@@ -392,6 +395,7 @@ async function installSemanticFaults(page: Page): Promise<void> {
 							stopPropagation() {},
 							preventDefault() {}
 						} as unknown as Event);
+						scope.__mdshSemanticDeliveries = (scope.__mdshSemanticDeliveries ?? 0) + 1;
 					});
 				};
 				request.onerror = () => {};
@@ -913,12 +917,27 @@ test('shows recoverable errors for rejected index, count and query operations', 
 	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
 
 	// An obsolete failure must not replace a newer successful result.
-	await armReadFault(page, 'delay-error');
 	await page.getByTestId('semantic-query').fill('document');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Guide');
+	const deliveries = await page.evaluate(
+		() => (window as unknown as { __mdshSemanticDeliveries?: number }).__mdshSemanticDeliveries ?? 0
+	);
+	await armReadFault(page, 'delay-error');
+	await page.getByTestId('semantic-query').fill('recipe');
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.read === undefined
+	);
 	await page.getByTestId('semantic-query').fill('cooking');
 	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
 	await releaseReadFault(page);
-	await page.waitForTimeout(150);
+	await page.waitForFunction(
+		(previous) =>
+			((window as unknown as { __mdshSemanticDeliveries?: number }).__mdshSemanticDeliveries ?? 0) >
+			previous,
+		deliveries
+	);
 	await expect(searchError).toHaveCount(0);
 	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
 

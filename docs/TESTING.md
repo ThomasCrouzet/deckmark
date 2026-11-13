@@ -2440,7 +2440,9 @@ panel component is destroyed before it observes the closed state.
 
 `e2e/semantic-search.spec.ts` patches `semanticIndex` store and index requests in
 the page. It delays and rejects a scoped read, rejects an index write, and
-releases an older read after a newer query succeeds. The case checks alert
+waits for an older query read before it starts a newer query. It releases the
+older rejection after a different result appears, then waits for its delivery.
+The negative control removes the stale-query failure guard. The case checks alert
 text, committed rows before and after the failed write, the retry path, the
 retained result, and the `unhandledrejection` count.
 
