@@ -72,6 +72,18 @@ export class ReadInkIndex {
 		return [...visible].sort((a, b) => a.order - b.order);
 	}
 
+	remove(stroke: InkStroke): void {
+		if (stroke.wide) {
+			this.wide.delete(stroke);
+			return;
+		}
+		for (let band = stroke.firstBand; band <= stroke.lastBand; band++) {
+			const entries = this.bands.get(band);
+			entries?.delete(stroke);
+			if (entries?.size === 0) this.bands.delete(band);
+		}
+	}
+
 	clear(): void {
 		this.bands.clear();
 		this.wide.clear();

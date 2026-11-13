@@ -46,6 +46,7 @@
 	let current: InkStroke | null = null;
 	let activePointer: number | null = null;
 	let nextStroke = 0;
+	let committedStrokes = 0;
 	let inkFrame = 0;
 	const inkIndex = new ReadInkIndex();
 	const MAX_INK_SIDE = 4096;
@@ -178,9 +179,20 @@
 
 	function endInk(event: PointerEvent) {
 		if (activePointer !== event.pointerId) return;
+		committedStrokes += 1;
 		activePointer = null;
 		current = null;
 		if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+	}
+
+	function cancelInk(event: PointerEvent) {
+		if (activePointer !== event.pointerId || !current) return;
+		inkIndex.remove(current);
+		activePointer = null;
+		current = null;
+		hasInk = committedStrokes > 0;
+		if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+		scheduleInk();
 	}
 
 	function clearInk() {
@@ -191,6 +203,7 @@
 			canvas.releasePointerCapture(pointer);
 		inkIndex.clear();
 		nextStroke = 0;
+		committedStrokes = 0;
 		hasInk = false;
 		scheduleInk();
 	}
@@ -551,8 +564,8 @@
 					onpointerdown={startInk}
 					onpointermove={moveInk}
 					onpointerup={endInk}
-					onpointercancel={endInk}
-					onlostpointercapture={endInk}
+					onpointercancel={cancelInk}
+					onlostpointercapture={cancelInk}
 				></canvas>
 			</div>
 		{/if}

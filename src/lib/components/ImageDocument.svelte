@@ -49,7 +49,7 @@
 	let strokes = $state<Stroke[]>([]);
 	let redoStack = $state<Stroke[]>([]);
 	let current: Stroke | null = null;
-	let drawing = false;
+	let activePointer: number | null = null;
 	let image: HTMLImageElement | null = null;
 	let width = $state(0);
 	let height = $state(0);
@@ -112,10 +112,10 @@
 	}
 
 	function start(event: PointerEvent) {
-		if (!canvas || !image || replacing) return;
+		if (!canvas || !image || replacing || activePointer !== null || event.button !== 0) return;
 		event.preventDefault();
 		canvas.setPointerCapture(event.pointerId);
-		drawing = true;
+		activePointer = event.pointerId;
 		pointerRect = canvas.getBoundingClientRect();
 		current = { tool, color, size, points: [pointFrom(event)] };
 		const context = canvas.getContext('2d');
@@ -123,7 +123,7 @@
 	}
 
 	function move(event: PointerEvent) {
-		if (!drawing || !current || !canvas) return;
+		if (activePointer !== event.pointerId || !current || !canvas) return;
 		event.preventDefault();
 		const context = canvas.getContext('2d');
 		if (!context) return;
@@ -158,15 +158,24 @@
 	}
 
 	function end(event: PointerEvent) {
-		if (!drawing) return;
-		drawing = false;
+		if (activePointer !== event.pointerId) return;
+		activePointer = null;
 		if (current) {
 			strokes = [...strokes, current];
 			redoStack = [];
 		}
 		current = null;
 		pointerRect = null;
-		canvas?.releasePointerCapture(event.pointerId);
+		if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+	}
+
+	function cancel(event: PointerEvent) {
+		if (activePointer !== event.pointerId) return;
+		activePointer = null;
+		current = null;
+		pointerRect = null;
+		if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+		redraw();
 	}
 
 	function undo() {
@@ -423,7 +432,8 @@
 				onpointerdown={start}
 				onpointermove={move}
 				onpointerup={end}
-				onpointercancel={end}
+				onpointercancel={cancel}
+				onlostpointercapture={cancel}
 			></canvas>
 		{/if}
 	</div>
