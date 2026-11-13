@@ -207,6 +207,52 @@ test('reconciles the properties inspector with the editor width on live resize',
 	});
 });
 
+test('returns focus to Properties when an automatic resize closes the inspector', async ({
+	page
+}, info) => {
+	await page.setViewportSize({ width: 1500, height: 800 });
+	await resetEnglishApp(page, 'open');
+	const editor = await createPresentation(page);
+	const inspector = editor.getByTestId('slide-inspector');
+	const toggle = editor.getByTestId('slide-properties');
+	await expect.poll(() => editorWidth(editor)).toBeGreaterThan(800);
+	await expect(inspector).toBeVisible();
+	await editor.getByTestId('slide-add-text').click();
+	const object = editor.getByTestId('slide-object').first();
+	await expect(object).toHaveAttribute('aria-pressed', 'true');
+	const objectId = await object.getAttribute('data-object-id');
+	expect(objectId).toBeTruthy();
+	const close = inspector.getByRole('button', { name: 'Close', exact: true });
+	await close.focus();
+	await expect(close).toBeFocused();
+	const before = await snapshot(editor, page, 'wide-inspector-focused');
+
+	await page.setViewportSize({ width: 900, height: 800 });
+	await expect.poll(() => editorWidth(editor)).toBeLessThan(800);
+	await expect(inspector).toHaveCount(0);
+	await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+	await expect(toggle).toBeFocused();
+	await expect(object).toHaveAttribute('data-object-id', objectId!);
+	await expect(object).toHaveAttribute('aria-pressed', 'true');
+	const after = await snapshot(editor, page, 'compact-inspector-closed');
+
+	await attachEvidence(
+		info,
+		'presentation-inspector-auto-focus',
+		{
+			command:
+				'npx playwright test e2e/presentation-inspector-width.spec.ts --project=chromium --workers=1 --retries=0',
+			source: info.config.metadata.source,
+			sourceTree: info.config.metadata.sourceTree,
+			workingDiffSha256: info.config.metadata.workingDiffSha256,
+			environment: info.config.metadata.environment,
+			browser: `${info.project.name} ${page.context().browser()?.version() ?? ''}`.trim(),
+			cases: [before, after]
+		},
+		page
+	);
+});
+
 test('chooses the inspector default from the usable editor width with the sidebar open or closed', async ({
 	page
 }, info) => {

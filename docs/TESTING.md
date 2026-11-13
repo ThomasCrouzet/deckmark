@@ -980,7 +980,7 @@ automatic close moves focus to the Properties toggle when the panel held focus.
 An explicit dismiss also returns focus to the toggle.
 
 `e2e/presentation-inspector-width.spec.ts` keeps the original live resize case.
-It adds two cases:
+It also checks these cases:
 
 1. A deck starts at a 960 px viewport with the files sidebar closed. The editor
    is wider than 800 px and the inspector opens. Opening the sidebar narrows the
@@ -993,8 +993,12 @@ It adds two cases:
    that the selected object, the selection status and the focus stay stable. An
    explicit Close returns focus to the toggle, keeps the object selected and
    makes the canvas a hit target again.
+3. A wide editor has a selected text object and focus on the inspector Close
+   button. A resize closes the automatic inspector. Focus moves to Properties
+   and the same object stays selected. The case sets focus directly; it does not
+   prove keyboard traversal into the inspector.
 
-Both cases resize without a reload. They attach JSON and screenshots. The JSON
+These cases resize without a reload. They attach JSON and screenshots. The JSON
 records the source revision and tree, the working diff hash, the environment,
 the viewport, the editor and inspector boxes, the sidebar state, the toggle
 state, the selected object and the focused element.
@@ -3732,4 +3736,3 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
-
