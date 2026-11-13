@@ -122,6 +122,39 @@ async function drawOnCanvas(page: Page) {
 	await page.mouse.up();
 }
 
+test('discards an interrupted Read ink stroke', async ({ page, browser }, info) => {
+	await readMode(page);
+	await page.getByTestId('annotation-toggle').click();
+	const canvas = page.getByTestId('annotation-canvas');
+	const box = await canvas.boundingBox();
+	if (!box) throw new Error('Canvas has no box');
+	await canvas.evaluate((element) => {
+		element.addEventListener(
+			'pointerdown',
+			(event) =>
+				element.setAttribute('data-test-pointer', String((event as PointerEvent).pointerId)),
+			{ once: true }
+		);
+	});
+	await page.mouse.move(box.x + 80, box.y + 80);
+	await page.mouse.down();
+	await page.mouse.move(box.x + 220, box.y + 120, { steps: 8 });
+	await inkFrame(page);
+	const during = await inkPixels(page);
+	const pointerId = Number(await canvas.getAttribute('data-test-pointer'));
+	expect(pointerId).toBeGreaterThan(0);
+	expect(during).toBeGreaterThan(100);
+	await canvas.dispatchEvent('pointercancel', { pointerId, pointerType: 'mouse', bubbles: true });
+	await page.mouse.up();
+	await inkFrame(page);
+	const after = await inkPixels(page);
+	await info.attach('read-ink-cancellation.json', {
+		body: JSON.stringify({ browser: browser.version(), pointerId, during, after }),
+		contentType: 'application/json'
+	});
+	expect(after).toBe(0);
+});
+
 test('draws ephemeral ink without changing the document and clears on reload', async ({
 	page
 }, info: TestInfo) => {
