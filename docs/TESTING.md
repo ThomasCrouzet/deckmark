@@ -2433,6 +2433,8 @@ If the model changes and then changes back during the write, the transaction
 must still abort. Its negative control removes model-change invalidation.
 The same rule applies when the scope changes and then changes back. Its negative
 control removes scope-change invalidation.
+Disabling and enabling the index during the write must also abort it. Its
+negative control removes opt-in invalidation.
 
 `e2e/semantic-search.spec.ts` patches `semanticIndex` store and index requests in
 the page. It delays and rejects a scoped read, rejects an index write, and
@@ -2449,6 +2451,7 @@ Keep the local reports and the `semantic-rejection-recovery.json`,
 Also keep `stale-index-transaction.json`,
 `stale-index-transaction-model-return.json` and the negative-control reports.
 Keep `stale-index-transaction-scope-return.json` as well.
+Keep `stale-index-transaction-opt-in-return.json` as well.
 Injected faults are browser evidence. They do not reproduce a real quota limit,
 a native IndexedDB implementation or a physical device.
 
