@@ -5,6 +5,55 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.5.4](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.3...v2.5.4) (2026-11-13)
+
+
+### Bug Fixes
+
+* **a11y,desktop:** listbox activation and native work-area bounds ([#610](https://github.com/ThomasCrouzet/deckmark/issues/610), [#611](https://github.com/ThomasCrouzet/deckmark/issues/611), [#612](https://github.com/ThomasCrouzet/deckmark/issues/612)) ([6f3a677](https://github.com/ThomasCrouzet/deckmark/commit/6f3a677ed5d0f6baead6ae876d8de0811322673a))
+* **a11y,focus:** include native details summaries in the shared Tab trap ([#615](https://github.com/ThomasCrouzet/deckmark/issues/615)) ([4e70f6f](https://github.com/ThomasCrouzet/deckmark/commit/4e70f6ff34b2b5b2617312e6b782eea4a98ab3c0))
+* **a11y:** activate the search result option directly ([#611](https://github.com/ThomasCrouzet/deckmark/issues/611)) ([84bc248](https://github.com/ThomasCrouzet/deckmark/commit/84bc248a43f4bfab804691694f360191b777e761))
+* **a11y:** focus foreground dialogs and preserve visible restoration targets ([1db4dc0](https://github.com/ThomasCrouzet/deckmark/commit/1db4dc0e05aafceb5cff8a6d1c052ba913dbf0e5))
+* **a11y:** move command palette pagination outside the listbox ([#610](https://github.com/ThomasCrouzet/deckmark/issues/610)) ([10539cb](https://github.com/ThomasCrouzet/deckmark/commit/10539cb5a7eb0cc0d3033269f2b4c954d67294ea))
+* **a11y:** move initial focus into modal dialogs on open ([aa420f8](https://github.com/ThomasCrouzet/deckmark/commit/aa420f88c15fe309e733a1dc81330392b878cb72))
+* **backup:** acknowledge the reminder only on explicit action or success ([#620](https://github.com/ThomasCrouzet/deckmark/issues/620)) ([2a27a42](https://github.com/ThomasCrouzet/deckmark/commit/2a27a4264a6288fd7a64abca861f93502587f7f8))
+* **capture:** fence pending template work on edits and teardown ([269d226](https://github.com/ThomasCrouzet/deckmark/commit/269d226147b42d2e99f9b6e9b695fcf7744c1caa))
+* **capture:** reject late template results after input, reset, or switch ([d81139b](https://github.com/ThomasCrouzet/deckmark/commit/d81139b9520de277f3eada5c81be31a0fc93543f))
+* **collections:** expose logical ARIA indices in virtualized tables ([#621](https://github.com/ThomasCrouzet/deckmark/issues/621)) ([1fb0690](https://github.com/ThomasCrouzet/deckmark/commit/1fb0690aa6056c82c67161f5549830cf950afdf8))
+* **collections:** label the saved-view name field ([#627](https://github.com/ThomasCrouzet/deckmark/issues/627)) ([0cff6ef](https://github.com/ThomasCrouzet/deckmark/commit/0cff6ef7bc183186a65dd22509e52ca1135b6afa))
+* **collections:** persist saved views before publishing and expose logical ARIA indices ([aeadc4c](https://github.com/ThomasCrouzet/deckmark/commit/aeadc4c5b6616c9bd1d45eebbec17970e3685136))
+* **collections:** publish saved views only after a confirmed write ([#637](https://github.com/ThomasCrouzet/deckmark/issues/637)) ([ccda993](https://github.com/ThomasCrouzet/deckmark/commit/ccda9931408075cdb993ab2d39e885fdbbe7948f))
+* **collections:** reject unreadable saved-view storage shapes ([#637](https://github.com/ThomasCrouzet/deckmark/issues/637)) ([02fafac](https://github.com/ThomasCrouzet/deckmark/commit/02fafacdc4fdda55a09be668abec819c76ac5a4f))
+* **comments,ios:** keep touch form controls at 16px ([#600](https://github.com/ThomasCrouzet/deckmark/issues/600)) ([9c0ad39](https://github.com/ThomasCrouzet/deckmark/commit/9c0ad3965c909b588ccc9588195c66f2dbe8b3dc))
+* **data-panels:** bind audit reports and recover from local operation failures ([c33216a](https://github.com/ThomasCrouzet/deckmark/commit/c33216a2ff86d293528ff417648062bfaae510e8))
+* **desktop,capture:** ignore quick capture keys during IME composition ([#608](https://github.com/ThomasCrouzet/deckmark/issues/608)) ([9a13f7e](https://github.com/ThomasCrouzet/deckmark/commit/9a13f7e250423b5c47b301fd6d3572a7d30fc159))
+* **desktop:** count decorations in the native work-area fit ([e01ee31](https://github.com/ThomasCrouzet/deckmark/commit/e01ee31aac5a5f889ccccbf8cfd499435a274e87))
+* **desktop:** keep native windows inside the monitor work area ([#612](https://github.com/ThomasCrouzet/deckmark/issues/612)) ([a8a96dc](https://github.com/ThomasCrouzet/deckmark/commit/a8a96dce8d2089aba343c36db6f9c3f035297622))
+* **dialogs,ios:** keep dialog controls inside the visual viewport ([#604](https://github.com/ThomasCrouzet/deckmark/issues/604)) ([95b141f](https://github.com/ThomasCrouzet/deckmark/commit/95b141f1e075f0afeeb2edba7cb861cc45f8f4c3))
+* **dialogs:** keep the viewport action in the shared dialog module ([#604](https://github.com/ThomasCrouzet/deckmark/issues/604)) ([7308a7c](https://github.com/ThomasCrouzet/deckmark/commit/7308a7c4a3745a14a85fa784ca89b0135057f3e3))
+* **docs-check:** bind each report to the audited project ([#636](https://github.com/ThomasCrouzet/deckmark/issues/636)) ([d283e1d](https://github.com/ThomasCrouzet/deckmark/commit/d283e1d36842c58cff2c8fcd7be4862499d1b6a1))
+* **export-profiles:** add listbox arrow navigation and one tab stop ([#631](https://github.com/ThomasCrouzet/deckmark/issues/631)) ([88b9991](https://github.com/ThomasCrouzet/deckmark/commit/88b9991884f3b2ab23b5097e631385e51a55401a))
+* **export-profiles:** keep the selected option visible and skip the scroll container tab stop ([#631](https://github.com/ThomasCrouzet/deckmark/issues/631)) ([4c9c93a](https://github.com/ThomasCrouzet/deckmark/commit/4c9c93a066a7a39f308259835cf2241b10256d57))
+* **frontmatter:** keep parser string tokens out of the numeric editor ([#630](https://github.com/ThomasCrouzet/deckmark/issues/630)) ([9957cfd](https://github.com/ThomasCrouzet/deckmark/commit/9957cfd9ef7ace3ea71cb6145594a9887b97d6fc))
+* **frontmatter:** preserve intermediate numeric input states ([#630](https://github.com/ThomasCrouzet/deckmark/issues/630)) ([06ee618](https://github.com/ThomasCrouzet/deckmark/commit/06ee618eff10e82fa1146fcc47d3a9e59ef45404))
+* **git:** page long diffs and separate the native size limit ([66996bd](https://github.com/ThomasCrouzet/deckmark/commit/66996bd810bbbd217eb58af0524c824460ddb81e))
+* **git:** reset the long-diff scroll and prove viewport reach ([f8a1271](https://github.com/ThomasCrouzet/deckmark/commit/f8a1271d3096ea0b5f535c1fec2bc65303b43434))
+* **history:** settle a missing version body and keep the newest preview ([#633](https://github.com/ThomasCrouzet/deckmark/issues/633)) ([563607f](https://github.com/ThomasCrouzet/deckmark/commit/563607f8ab12786551dcbbb6bd1f5035b02ae031))
+* **modals,focus:** honor the top-most Escape layer and trap native summaries ([b4f9c08](https://github.com/ThomasCrouzet/deckmark/commit/b4f9c08341d31883f9e4eaa50d0fc04585b45aca))
+* **modals,mobile:** ignore the composition end key code 229 (623-F1) ([bbacd76](https://github.com/ThomasCrouzet/deckmark/commit/bbacd76cbd096f41109074f1fb2b3affb8ffb79d))
+* **modals,mobile:** keep the Files drawer open when Escape cancels a nested prompt ([#614](https://github.com/ThomasCrouzet/deckmark/issues/614)) ([7961b4a](https://github.com/ThomasCrouzet/deckmark/commit/7961b4adbf44c6672c899928b35fcdc0b89f1e97))
+* **native:** close title-edit and review evidence gaps ([25f6388](https://github.com/ThomasCrouzet/deckmark/commit/25f63881c1d97715eaef2faff0abde1195ea6c00))
+* **navigation,keyboard:** scope note scroll shortcuts to the active note ([#607](https://github.com/ThomasCrouzet/deckmark/issues/607)) ([0cc5658](https://github.com/ThomasCrouzet/deckmark/commit/0cc56584af4ede31279364b299ad7cd7473bb0c3))
+* **presentation,filmstrip:** clear cancelled reorder gestures ([#603](https://github.com/ThomasCrouzet/deckmark/issues/603)) ([ce88511](https://github.com/ThomasCrouzet/deckmark/commit/ce88511cc7d75ddb60dd1afd34f89ef23784f3c5))
+* **presentation,responsive:** follow the editor width for the properties inspector ([#606](https://github.com/ThomasCrouzet/deckmark/issues/606)) ([2ceea94](https://github.com/ThomasCrouzet/deckmark/commit/2ceea9497207b16c853dee10a252ada96da2c518))
+* **presentation:** keep source actions visible in short viewports ([f50b1cc](https://github.com/ThomasCrouzet/deckmark/commit/f50b1cc9520f766498e9a1a386efc04dff4162c9))
+* **properties:** preserve numeric drafts and profile listbox focus ([d18dd79](https://github.com/ThomasCrouzet/deckmark/commit/d18dd79cee7f487d3d69308ca886a242d03b0474))
+* **pwa,presentation:** iOS chrome, visual-viewport scroll and project manifest identity ([bcbe926](https://github.com/ThomasCrouzet/deckmark/commit/bcbe9268cd1918e4d9c0e5075c2a8547d250f833))
+* **semantic-search:** show recoverable errors for rejected operations ([#632](https://github.com/ThomasCrouzet/deckmark/issues/632)) ([3065df4](https://github.com/ThomasCrouzet/deckmark/commit/3065df4cbc82bc52c573ba068f9026b1fad32189))
+* **shortcuts,mac-web:** use the platform primary modifier for app commands ([#605](https://github.com/ThomasCrouzet/deckmark/issues/605)) ([e6cf6be](https://github.com/ThomasCrouzet/deckmark/commit/e6cf6be4ecc9c31780a128e685480fa2d28e84e0))
+* **status:** keep selection counts and backup reminders current ([#619](https://github.com/ThomasCrouzet/deckmark/issues/619), [#620](https://github.com/ThomasCrouzet/deckmark/issues/620)) ([a097c28](https://github.com/ThomasCrouzet/deckmark/commit/a097c28ef7c3f1b10f2523b1329d230cbe344f10))
+* **status:** reject stale selection counts and refresh backup reminders ([6181ba8](https://github.com/ThomasCrouzet/deckmark/commit/6181ba80d4df9f443bb7548bfd7036c26168f682))
+
 ## [2.5.3](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.2...v2.5.3) (2026-11-11)
 
 
