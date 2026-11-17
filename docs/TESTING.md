@@ -704,6 +704,20 @@ those paths. Each browser case retains source metadata, fixtures, and screenshot
 The PDF viewer case uses full Chromium headless mode because the headless shell
 does not include the PDF viewer.
 
+`e2e/capture-template-race.spec.ts` holds delivery of a real IndexedDB template
+read while the user types. The draft and focus must stay in the content field
+after delivery. Run the Desktop build and the Chromium case with:
+
+```sh
+CAPTURE_REVIEW_DESKTOP=1 npx playwright test --config=playwright.capture.config.ts e2e/capture-template-race.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the JSON and HTML reports, `capture-template-race.json`, source revision,
+working diff, browser version and command. The native bridge is simulated. This
+case does not prove native window lifecycle or physical WebView behavior. A
+negative control that removes the post-read guards must replace the draft and
+fail the content assertion. The regular Web build skips this Desktop-only case.
+
 The Quick Capture key handler must not cancel or save during IME composition.
 The retained risks are an Escape that closes the window while it dismisses a
 candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
