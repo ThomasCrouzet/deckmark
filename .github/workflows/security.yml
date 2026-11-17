@@ -114,9 +114,14 @@ jobs:
           node-version-file: .node-version
           cache: npm
 
+      # The audit covers the production dependency tree only. Development-only
+      # transitive packages are not installed with --omit=dev, so the required
+      # job reports runtime risk and stays fail-closed at the high level.
       - name: Audit npm dependency tree
         if: needs.security-scope.result == 'success' && needs.security-scope.outputs.npm == 'true'
-        run: npm audit --audit-level=high
+        run: |
+          set -euo pipefail
+          npm audit --audit-level=high --omit=dev
 
       - name: Verify GLib source and security backport
         if: needs.security-scope.result == 'success' && needs.security-scope.outputs.rust == 'true'
