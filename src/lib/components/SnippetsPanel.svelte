@@ -55,6 +55,7 @@
 	let loadError = $state(false);
 	let projects = $state<ProjectRow[]>([]);
 	let inputEl = $state<HTMLInputElement>();
+	let listEl = $state<HTMLDivElement>();
 	let titleEl = $state<HTMLInputElement>();
 	let importInput = $state<HTMLInputElement>();
 	let initialized = false;
@@ -116,6 +117,22 @@
 
 	$effect(() => {
 		if (selected && selectedId !== selected.id) selectedId = selected.id;
+	});
+
+	$effect(() => {
+		const active = selected;
+		if (!active) return;
+		const frame = requestAnimationFrame(() => {
+			const scroller = listEl;
+			const row = document.getElementById(`snippet-opt-${active.id}`);
+			if (!scroller || !row || !scroller.contains(row)) return;
+			const rowRect = row.getBoundingClientRect();
+			const boxRect = scroller.getBoundingClientRect();
+			if (rowRect.top < boxRect.top) scroller.scrollTop += rowRect.top - boxRect.top;
+			else if (rowRect.bottom > boxRect.bottom)
+				scroller.scrollTop += rowRect.bottom - boxRect.bottom;
+		});
+		return () => cancelAnimationFrame(frame);
 	});
 
 	async function initialize() {
@@ -283,7 +300,7 @@
 	}
 
 	function handleSearchKey(event: KeyboardEvent) {
-		if (event.isComposing || event.defaultPrevented) return;
+		if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
 		if (event.key === 'ArrowDown') {
 			event.preventDefault();
 			moveSelection(1);
@@ -361,10 +378,11 @@
 			if (event.target === event.currentTarget && !promptStore.open) onClose();
 		}}
 		onkeydown={(event) => {
+			if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
 			if (event.key === 'Escape' && !promptStore.open && mode === 'detail') {
 				event.stopPropagation();
 				onClose();
-			} else if (event.key === 'Escape' && mode === 'create') {
+			} else if (event.key === 'Escape' && !promptStore.open && mode === 'create') {
 				event.preventDefault();
 				void cancelEdit();
 			}
@@ -506,7 +524,7 @@
 					</select>
 				</div>
 
-				<div class="min-h-0 flex-1 overflow-y-auto">
+				<div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto">
 					{#if snippetsStore.rows.length === 0 && !loading}
 						<p class="p-6 text-center text-sm text-fg-muted" data-testid="snippet-empty">
 							{t('snippets.empty')}

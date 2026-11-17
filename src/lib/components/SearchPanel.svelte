@@ -502,7 +502,7 @@
 	}
 
 	function handleKey(e: KeyboardEvent) {
-		if (e.isComposing || e.defaultPrevented || promptStore.open) return;
+		if (e.isComposing || e.keyCode === 229 || e.defaultPrevented || promptStore.open) return;
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			e.stopPropagation();
@@ -533,6 +533,7 @@
 			if (e.target === e.currentTarget) onClose();
 		}}
 		onkeydown={(e) => {
+			if (e.isComposing || e.keyCode === 229 || e.defaultPrevented || promptStore.open) return;
 			if (e.key === 'Escape') {
 				if (replacementPreview) {
 					e.preventDefault();

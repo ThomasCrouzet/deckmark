@@ -93,6 +93,7 @@
 
 <svelte:window
 	onkeydown={(event) => {
+		if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
 		if (event.key !== 'Escape' || filesStore.trashBusy) return;
 		if (root?.contains(event.target as Node)) return;
 		if (event.target instanceof Element && event.target.closest('[role="dialog"]')) return;
@@ -114,6 +115,7 @@
 		if (event.target === event.currentTarget && !filesStore.trashBusy) onClose();
 	}}
 	onkeydown={(event) => {
+		if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
 		if (event.key === 'Escape' && !filesStore.trashBusy) onClose();
 	}}
 >
@@ -143,7 +145,11 @@
 				aria-label={t('library.filter')}
 				placeholder={t('library.filter')}
 				onkeydown={(event) => {
-					if (event.key === 'Enter' && matches[0]) open(matches[0].id);
+					if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+					if (event.key === 'Enter' && matches[0]) {
+						event.preventDefault();
+						open(matches[0].id);
+					}
 				}}
 			/></label
 		>

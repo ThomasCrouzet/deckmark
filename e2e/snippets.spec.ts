@@ -64,15 +64,20 @@ async function snippetRows(page: Page): Promise<SnippetFixture[]> {
 }
 
 async function seedSnippet(page: Page, row: SnippetFixture) {
+	await seedSnippets(page, [row]);
+}
+
+async function seedSnippets(page: Page, rows: SnippetFixture[]) {
 	await page.evaluate(
-		(value) =>
+		(values) =>
 			new Promise<void>((resolve, reject) => {
 				const request = indexedDB.open('mdsh');
 				request.onerror = () => reject(request.error);
 				request.onsuccess = () => {
 					const database = request.result;
 					const tx = database.transaction('snippets', 'readwrite');
-					tx.objectStore('snippets').put(value);
+					const store = tx.objectStore('snippets');
+					for (const value of values) store.put(value);
 					tx.oncomplete = () => {
 						database.close();
 						resolve();
@@ -83,7 +88,7 @@ async function seedSnippet(page: Page, row: SnippetFixture) {
 					};
 				};
 			}),
-		row
+		rows
 	);
 }
 
