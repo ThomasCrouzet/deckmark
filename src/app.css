@@ -501,6 +501,14 @@ body.typewriter-mode .mdsh-editor {
 :root[data-touch-capable='true'] textarea {
 	font-size: max(1rem, 16px);
 }
+/* These controls keep a fixed desktop height in their component styles. The
+   attribute selector wins the specificity tie so a hybrid device gets the
+   same 44 px target as a coarse-only device. */
+html[data-touch-capable='true'] #app-toolbar .document-title input,
+html[data-touch-capable='true'] .mdsh-scroll-nav button {
+	min-height: 44px;
+	min-width: 44px;
+}
 @media (max-height: 500px) {
 	[role='dialog'] {
 		padding-top: 1rem;
