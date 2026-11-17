@@ -708,11 +708,42 @@ The Quick Capture key handler must not cancel or save during IME composition.
 The retained risks are an Escape that closes the window while it dismisses a
 candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
 key code 229 event, a lost draft and a lost focus. The Web edition does not mount
-this component, so a browser workflow cannot reach it. `QuickCapture.component.test.ts`
-replaces the native window bridge and the stores. It dispatches composition and
+this component. A Desktop-edition browser build can mount it with a native bridge
+fixture. `QuickCapture.component.test.ts` replaces the native window bridge and
+the stores. It dispatches composition and
 legacy key code sequences, then checks the normal Escape and Ctrl+Enter paths,
 the draft text, the focus and the call counts. Run
 `npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
+The Desktop browser case in `e2e/capture-snippets-review.spec.ts` also checks the
+draft, focus, saved snippet count and hide requests before and after synthetic
+composing shortcuts. It uses a fixture for the native window bridge. The default
+Web suite skips this Desktop case. To repeat it, create the ignored configuration
+below and run the command. Keep the JSON report and its attachments.
+
+```sh
+mkdir -p review-reports
+cat > review-reports/capture-ime.config.ts <<'EOF'
+import { defineConfig } from '@playwright/test';
+import base from '../playwright.config';
+
+const { webServer: _webServer, ...rest } = base;
+
+export default defineConfig(rest, {
+  testDir: '../e2e',
+  webServer: {
+    command: 'npm run build:desktop && npm run preview -- --host 127.0.0.1 --port 4405 --strictPort',
+    env: { VITE_SOURCE_FIDELITY_METRICS: '1' },
+    url: 'http://127.0.0.1:4405',
+    reuseExistingServer: false,
+    timeout: 120000
+  },
+  use: { baseURL: 'http://127.0.0.1:4405' }
+});
+EOF
+CAPTURE_REVIEW_DESKTOP=1 CI=1 xvfb-run -a npx playwright test \
+  --config=review-reports/capture-ime.config.ts --project=chromium \
+  --workers=1 --retries=0 --grep 'keeps the capture draft during composing shortcuts'
+```
 Synthetic composition events do not prove a physical IME, Windows WebView2,
 macOS WKWebView or Linux WebKitGTK behavior.
 
