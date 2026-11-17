@@ -258,7 +258,12 @@ The build writes the manifest identity for its base path. The canonical host
 keeps `/`. The GitHub Pages build writes `/deckmark/`, so an unrelated project
 application on the same `thomascrouzet.github.io` origin cannot share its install
 identity. `start_url` and `scope` stay relative and resolve under the same
-project path. After a change to the manifest identity, check both hosts:
+project path. The build stops if the emitted identity leaves the app root.
+`e2e/pwa.spec.ts` checks the emitted artifact for both base paths, and
+`e2e-production/deployment.spec.ts` checks the served identity and service worker
+scope at both public origins. See
+[TESTING.md](TESTING.md#local-hosting-checks) for the commands. After a change to
+the manifest identity, check both hosts:
 
 1. In the browser application panel, read the effective manifest `id`,
    `start_url` and `scope` at the served URL.
