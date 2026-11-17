@@ -1,35 +1,7 @@
-/** Local stage duration. The editor performance module owns the full contract. */
-function measureImageStage<T>(name: string, run: () => T): T {
-	if (typeof window === 'undefined') return run();
-	if (
-		import.meta.env?.VITE_SOURCE_FIDELITY_METRICS !== '1' &&
-		!(window as { __MDSH_EDITOR_PERF__?: boolean }).__MDSH_EDITOR_PERF__
-	)
-		return run();
-	const startedAt = performance.now();
-	try {
-		return run();
-	} finally {
-		window.dispatchEvent(
-			new CustomEvent('deckmark:editor-perf', {
-				detail: { kind: 'duration', name, value: performance.now() - startedAt }
-			})
-		);
-	}
-}
-
-/** Local stage counter. The editor performance module owns the full contract. */
-function recordImageCounter(name: string): void {
-	if (typeof window === 'undefined') return;
-	if (
-		import.meta.env?.VITE_SOURCE_FIDELITY_METRICS !== '1' &&
-		!(window as { __MDSH_EDITOR_PERF__?: boolean }).__MDSH_EDITOR_PERF__
-	)
-		return;
-	window.dispatchEvent(
-		new CustomEvent('deckmark:editor-perf', { detail: { kind: 'counter', name } })
-	);
-}
+import {
+	measureEditorStage as measureImageStage,
+	recordEditorCounter as recordImageCounter
+} from '../editor-perf';
 
 // Match the backslash only in the escape branch. Separate branches prevent
 // exponential backtracking in alternatives and captions.

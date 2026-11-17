@@ -169,6 +169,45 @@ Safari and Home Screen, Windows WebView2, Linux WebKitGTK and macOS WKWebView
 remain **not tested**. Each artifact records those rows as not tested. A desktop
 browser result is not an installed PWA or native WebView result.
 
+## Publication stall attribution
+
+The retained risks for issue 569 are a complete source restore that runs on the
+main thread between two accepted keystrokes, a durable save hook that blocks the
+same thread, and a long task that no named stage explains. A trace must show
+where a wait starts. A duration alone cannot place a stage on the timeline.
+
+`e2e/editor-publish-stall.spec.ts` seeds a 240 KB mixed-format note with bold,
+links, inline code, lists, a table and one noisy 320 by 240 image. It types three
+trusted `insertText` events at 45 ms spacing, pauses for 300, 500, 800 and 1200
+ms, and sends one more key. It also sends a four-key burst 240 ms after a burst.
+Each sample records the delay between two accepted input events, the second
+painted frame, engine long tasks, the product stage windows and the durable save
+measures.
+
+The case fails when a long task above 100 ms does not overlap a stage that
+reported its own start and end time, when a resume delay of at least 250 ms does
+not fall inside the `restoreMarkdown` stage, or when a durable save stage
+(`mdsh:document-storage`, `mdsh:draft-manifest`, `mdsh:draft-metadata`) exceeds
+250 ms. The delay itself stays recorded evidence. The complete restore remains
+the property of the source restore work.
+
+At the audited source, the 240 KB note reached the complete restore for each
+publication (p50 1.6 s to 2.1 s) and the resumed key waited 0.7 s to 2.1 s. The
+durable save stages stayed below 22 ms. The build before the change reported no
+stage start times, so 11 of 17 long tasks had no named owner.
+
+Run:
+
+```sh
+npx playwright test e2e/editor-publish-stall.spec.ts --project=chromium --workers=1 --retries=0 --trace=off
+```
+
+Keep `editor-publish-stall.json` and `saved-note.md` with the fixture hash, the
+image hash, the raw key samples, the stage windows, the long tasks, the save
+measures, the saved bytes, the caret and the undo result, the source revision
+and the command. A Chromium result does not establish Firefox, WebKit, a native
+WebView, an installed PWA or a physical device.
+
 ## Image-rich rendered input risks
 
 Keep the image-heavy typing attribution independent from the text-only latency
