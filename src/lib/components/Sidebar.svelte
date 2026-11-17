@@ -474,6 +474,24 @@
 		if (trapActive) tick().then(() => closeButton?.focus());
 	});
 
+	// Closing the last open file removes the batch controls. Leave the explicit
+	// touch mode, which would otherwise return unseen with the next file, and
+	// keep focus inside the open drawer instead of the page behind it.
+	let lastFilteredCount = 0;
+	$effect(() => {
+		const count = filteredFiles.length;
+		const hadFiles = lastFilteredCount > 0;
+		lastFilteredCount = count;
+		if (!hadFiles || count > 0) return;
+		if (selectionMode) exitSelectionMode();
+		void tick().then(() => {
+			if (!isMobile || !open) return;
+			const panel = document.getElementById('files-panel');
+			if (panel?.contains(document.activeElement)) return;
+			closeButton?.focus();
+		});
+	});
+
 	function handleNewFromSidebar(): void {
 		onNew();
 		if (isMobile) onClose();
