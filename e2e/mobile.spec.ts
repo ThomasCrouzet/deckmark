@@ -382,6 +382,40 @@ test.describe('Touch-only multi-file selection', () => {
 		await expect(page.getByTestId('selection-count')).toHaveCount(0);
 		await expect(rows.nth(1)).toHaveAttribute('aria-pressed', 'false');
 	});
+
+	test('keeps focus in the drawer when the last file closes', async ({ page }) => {
+		const panel = page.locator('#files-panel');
+		const rows = page.locator('aside ul[aria-label*="Fichiers ouverts"] button[data-file-id]');
+		const toggle = page.getByTestId('selection-mode-toggle');
+
+		await toggle.click();
+		for (let index = 0; index < 3; index += 1) await rows.nth(index).click();
+		await expect(page.getByTestId('selection-count')).toHaveText('3 sélectionnés');
+		await page
+			.locator('aside [aria-label="Sélection de fichiers"]')
+			.getByRole('button', { name: 'Fermer la sélection' })
+			.click();
+
+		// Closing the last file removes the batch bar. Focus must stay inside the
+		// open drawer, and the explicit mode must not wait unseen behind the list.
+		await expect(rows).toHaveCount(0);
+		await expect(panel).not.toHaveAttribute('aria-hidden', 'true');
+		await expect(toggle).toHaveCount(0);
+		expect(await panel.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+
+		// A saved document reopens with normal navigation, not a hidden selection.
+		const saved = page.locator('aside details').filter({ hasText: 'Documents conservés' });
+		await saved.locator('summary').click();
+		await saved.locator('button').first().click();
+		await expect(panel).toHaveAttribute('aria-hidden', 'true');
+
+		await page.getByRole('button', { name: 'Menu' }).click();
+		await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+		await expect(rows).toHaveCount(1);
+		await rows.first().click();
+		await expect(panel).toHaveAttribute('aria-hidden', 'true');
+		await expect(page.locator('.cm-content')).toContainText('Touch');
+	});
 });
 
 test.describe('Touch-only project document actions', () => {
