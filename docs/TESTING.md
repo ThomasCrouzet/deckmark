@@ -3291,11 +3291,13 @@ browser or native check.
 ### Git diff review beyond the 2000-line preview
 
 The retained risks are a late diff response for another file, an unreachable
-final hunk, a lost selected path or worktree/staged mode, a whole-diff DOM mount,
-an exact last-page range, lost keyboard focus at a page bound, a stale scroll
-offset that hides the start of a section, an aria-disabled control that moves
-the list, a native 1 MiB rejection shown as a generic error or an empty diff, a
-partial preview confused with a full review, and a stale page after a refresh.
+final hunk, a lost selected path or worktree/staged mode, a staged view that
+shows worktree lines, a whole-diff DOM mount, an exact last-page range, lost
+keyboard focus at a page bound, a section control that Tab cannot reach, a stale
+scroll offset that hides the start of a section, an aria-disabled control that
+moves the list, a native 1 MiB rejection shown as a generic error or an empty
+diff, a partial preview confused with a full review, a stale page after a
+refresh, and a stale Git error that remains after a valid diff loads.
 The panel keeps a 2000-line page, shows the current range and section count, and
 offers first, previous, next, and last section controls. The last section states
 that all lines are reviewable. A native output rejection shows a separate
@@ -3315,6 +3317,17 @@ state, and checks a generic Git error. A separate GitPanel component set was
 removed because it duplicated this stronger browser case and could not measure
 layout, scroll, or viewport reach. The 1 MiB state in this Chromium workflow is a
 fixture; the real backend rejection is proved by the native case below.
+
+The workflow now moves between the four section controls with real Tab and
+Shift+Tab presses. It requires focus on each control in DOM order, activates the
+last section and the first section with Enter, and keeps focus on the activated
+control after the row count changes. It uses a second distinct 2600-line staged
+fixture. A mode change must return to the first section, show the staged marker,
+and show no worktree line, then the reverse for the worktree view. The selected
+path heading stays visible through both modes. The 1 MiB state must have no diff
+rows. A generic error from one file must disappear when a valid diff loads.
+These checks prove Chromium keyboard traversal, not native Tab traversal,
+screen-reader output, or a physical keyboard.
 
 The Desktop workflow is opt-in because the default Playwright server builds Web
 Light, where the Git panel cannot mount. Use a concrete configuration file at
