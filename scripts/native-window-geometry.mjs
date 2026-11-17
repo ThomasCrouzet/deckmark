@@ -22,6 +22,7 @@ const binary = resolve(
 const port = Number(process.env.TAURI_WEBDRIVER_PORT ?? 4458);
 const endpoint = `http://127.0.0.1:${port}`;
 const output = resolve(process.env.NATIVE_TEST_OUTPUT ?? 'native-window-geometry');
+const nonMaximizedFixture = process.env.NATIVE_EXPECT_NONMAX_DECORATED === '1';
 mkdirSync(output, { recursive: true });
 const temp = mkdtempSync(join(tmpdir(), 'mdsh-window-geometry-'));
 const nativeHome = join(temp, 'home');
@@ -46,6 +47,8 @@ const evidence = {
 	osRelease: osRelease(),
 	osVersion: osVersion(),
 	node: process.version,
+	fixture: nonMaximizedFixture ? '650x370-decorated-main' : 'default-main',
+	gdkScale: process.env.GDK_SCALE ?? null,
 	binary,
 	binarySha256: createHash('sha256').update(readFileSync(binary)).digest('hex')
 };
@@ -420,6 +423,15 @@ async function run() {
 	);
 
 	const main = readGeometry('main', await invoke('desktop_window_geometry'));
+	if (nonMaximizedFixture) {
+		assert.equal(main.isMaximized, false, 'main fixture must not be maximized');
+		assert.ok(
+			main.outerSize.height > main.innerSize.height,
+			'main fixture must have a vertical decoration'
+		);
+		assert.ok(main.innerSizeLogical.height < 370, 'main fixture must shrink its content');
+		passed('non-maximized decorated main window shrinks');
+	}
 	assertFits('main launch', main);
 	evidence.mainScreenshot = await screenshot('main-window.png');
 	passed('main window fits the monitor work area at launch');
