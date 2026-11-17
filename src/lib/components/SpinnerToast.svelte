@@ -8,7 +8,8 @@
 
 {#if spinnerStore.visible}
 	<div
-		class="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2"
+		class="mdsh-safe-fixed-bottom pointer-events-none fixed left-1/2 z-50 -translate-x-1/2"
+		style:--mdsh-safe-gap-bottom="1rem"
 		role="status"
 		aria-live="polite"
 	>

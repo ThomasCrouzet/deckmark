@@ -259,6 +259,26 @@ body.typewriter-mode .mdsh-editor {
 }
 
 /* ==========================================================================
+   Fixed surface policy
+   A fixed surface renders against the viewport, not the padded shell. Apply
+   the same resolved box at each anchored edge. The gap keeps the earlier
+   spacing when the inset is zero, so an ordinary desktop or Android window
+   gains no gap. Do not apply these utilities to content inside the shell.
+   ========================================================================== */
+.mdsh-safe-fixed-top {
+	top: calc(var(--mdsh-safe-top, 0px) + var(--mdsh-safe-gap-top, 0px));
+}
+.mdsh-safe-fixed-right {
+	right: calc(var(--mdsh-safe-right, 0px) + var(--mdsh-safe-gap-right, 0px));
+}
+.mdsh-safe-fixed-bottom {
+	bottom: calc(var(--mdsh-safe-bottom, 0px) + var(--mdsh-safe-gap-bottom, 0px));
+}
+.mdsh-safe-fixed-left {
+	left: calc(var(--mdsh-safe-left, 0px) + var(--mdsh-safe-gap-left, 0px));
+}
+
+/* ==========================================================================
    mdsh interface
    A faint grid structures the app surfaces. It does not cover the document,
    and it is hidden in the light theme.

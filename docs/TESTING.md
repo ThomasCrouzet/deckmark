@@ -822,16 +822,21 @@ and repeat with `--project=firefox` and `--project=webkit`.
 The viewport uses `viewport-fit=cover`. The shared shell resolves the platform
 `env(safe-area-inset-*)` values once and applies them to the persistent toolbar,
 editor and status bar. The fixed mobile drawer applies the same values at the
-viewport boundary. WebKit deprecated the `black-translucent` status-bar mode;
-the document must not request `apple-mobile-web-app-status-bar-style`.
+viewport boundary. Other fixed surfaces that render outside the padded shell
+apply the same values at their own anchored edge, with the earlier gap added to
+the inset. WebKit deprecated the `black-translucent` status-bar mode; the
+document must not request `apple-mobile-web-app-status-bar-style`.
 
 `e2e/safe-area.spec.ts` overrides the resolved custom properties to simulate a
 notched device and checks the toolbar, drawer and status bar against the
-simulated box. It also checks that zero insets add no gap. A custom-property
-override does not reproduce WebKit installation geometry: some iOS releases
-inset the web content before `env()` is resolved, and a fresh install can report
-different values than an older install. The browser suite cannot replace the
-device checks below.
+simulated box. It also checks fixed surfaces that render against the
+viewport, not the padded shell: the storage recovery banner, the focus-mode exit
+control and the undo toast. The export spinner and the import report use the same
+utilities. Each surface keeps its earlier gap when an inset is zero. A
+custom-property override does not reproduce WebKit installation geometry: some
+iOS releases inset the web content before `env()` is resolved, and a fresh
+install can report different values than an older install. The browser suite
+cannot replace the device checks below.
 
 Run:
 
