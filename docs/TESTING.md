@@ -1025,7 +1025,7 @@ automatic close moves focus to the Properties toggle when the panel held focus.
 An explicit dismiss also returns focus to the toggle.
 
 `e2e/presentation-inspector-width.spec.ts` keeps the original live resize case.
-It adds two cases:
+It also checks these cases:
 
 1. A deck starts at a 960 px viewport with the files sidebar closed. The editor
    is wider than 800 px and the inspector opens. Opening the sidebar narrows the
@@ -1038,8 +1038,12 @@ It adds two cases:
    that the selected object, the selection status and the focus stay stable. An
    explicit Close returns focus to the toggle, keeps the object selected and
    makes the canvas a hit target again.
+3. A wide editor has a selected text object and focus on the inspector Close
+   button. A resize closes the automatic inspector. Focus moves to Properties
+   and the same object stays selected. The case sets focus directly; it does not
+   prove keyboard traversal into the inspector.
 
-Both cases resize without a reload. They attach JSON and screenshots. The JSON
+These cases resize without a reload. They attach JSON and screenshots. The JSON
 records the source revision and tree, the working diff hash, the environment,
 the viewport, the editor and inspector boxes, the sidebar state, the toggle
 state, the selected object and the focused element.
