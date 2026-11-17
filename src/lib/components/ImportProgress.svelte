@@ -29,7 +29,9 @@
 
 {#if report}
 	<section
-		class="fixed bottom-8 right-3 z-40 max-h-[50dvh] w-80 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded border border-border bg-bg-1 p-3 text-xs text-fg shadow-lg"
+		class="mdsh-safe-fixed-bottom mdsh-safe-fixed-right fixed z-40 max-h-[50dvh] w-80 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded border border-border bg-bg-1 p-3 text-xs text-fg shadow-lg"
+		style:--mdsh-safe-gap-bottom="2rem"
+		style:--mdsh-safe-gap-right="0.75rem"
 		aria-label={t('import.title')}
 		inert={blocked}
 		aria-hidden={blocked ? 'true' : undefined}

@@ -857,7 +857,9 @@
 	 screen, suggesting data loss. -->
 	{#if filesStore.loadError}
 		<div
-			class="fixed inset-x-0 top-0 z-[70] flex items-center justify-center border-b border-danger bg-bg-1 px-4 py-2 text-center text-sm text-danger"
+			class="mdsh-safe-fixed-top fixed inset-x-0 z-[70] flex items-center justify-center border-b border-danger bg-bg-1 px-4 py-2 text-center text-sm text-danger"
+			style:padding-left="max(1rem, var(--mdsh-safe-left, 0px))"
+			style:padding-right="max(1rem, var(--mdsh-safe-right, 0px))"
 			role="alert"
 		>
 			<span>{filesStore.loadError}</span>
@@ -966,7 +968,9 @@
 		<button
 			inert={modals.anyOpen || promptStore.open || projectsOpen || !!diskConflictStore.pending}
 			type="button"
-			class="fixed top-2 right-2 z-[75] min-h-10 rounded border border-accent bg-bg-1 px-3 text-xs font-medium text-accent shadow-lg"
+			class="mdsh-safe-fixed-top mdsh-safe-fixed-right fixed z-[75] min-h-10 rounded border border-accent bg-bg-1 px-3 text-xs font-medium text-accent shadow-lg"
+			style:--mdsh-safe-gap-top="0.5rem"
+			style:--mdsh-safe-gap-right="0.5rem"
 			onclick={prefs.toggleFocusMode}
 		>
 			{t('page.exitFocusMode')}
