@@ -214,7 +214,12 @@
 	 * Applies an accepted external snapshot as one bounded native change.
 	 * CodeMirror maps selection, viewport, search and history through it.
 	 */
-	function applyExternalSource(text: string, cm: CMModule, current: EditorView): void {
+	function applyExternalSource(
+		text: string,
+		cm: CMModule,
+		current: EditorView,
+		undoable = false
+	): void {
 		cancelPublish();
 		lastEmitted = text;
 		sourceHasPresentationMarker = text.includes(PRESENTATION_MARKER);
@@ -225,7 +230,7 @@
 			if (change) {
 				current.dispatch({
 					changes: change,
-					annotations: cm.Transaction.addToHistory.of(false)
+					annotations: cm.Transaction.addToHistory.of(undoable)
 				});
 			}
 		} finally {
@@ -759,7 +764,20 @@
 			flushPublish();
 		};
 		window.addEventListener('mdsh:flush-editor', flushListener);
-		removeFlushListener = () => window.removeEventListener('mdsh:flush-editor', flushListener);
+		const propertiesListener = (event: Event) => {
+			const detail = (event as CustomEvent<{ fileId: string; before: string; after: string }>)
+				.detail;
+			if (!detail || detail.fileId !== fileId || !view || !activeCM || readonly || nativeBlocked)
+				return;
+			if (view.state.doc.toString() !== detail.before.replace(/\r\n?/g, '\n')) return;
+			applyExternalSource(detail.after, activeCM, view, true);
+			if (nativeCapable()) acceptedBase = getRevision?.(fileId) ?? null;
+		};
+		window.addEventListener('mdsh:properties-saved', propertiesListener);
+		removeFlushListener = () => {
+			window.removeEventListener('mdsh:flush-editor', flushListener);
+			window.removeEventListener('mdsh:properties-saved', propertiesListener);
+		};
 		if (savedPosition?.scrollTop) {
 			const mountedView = view;
 			mountedView.requestMeasure({

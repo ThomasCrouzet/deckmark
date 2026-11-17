@@ -63,6 +63,79 @@ test('edits typed front matter and preserves unrelated bytes', async ({ page }, 
 	});
 });
 
+test('undoes and redoes a saved numeric property without losing the note', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	const initial = '---\ncount: 12\n---\n\n# Body\n\nKeep this note.\n';
+	await writeSourceContent(page, initial);
+	await openProperties(page);
+	const field = page.getByTestId('frontmatter-count').locator('input');
+	await field.focus();
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.type('-12.75');
+	await page.getByTestId('frontmatter-save').click();
+	await expect(page.getByTestId('frontmatter-panel')).toHaveCount(0);
+	const editor = page.locator('.cm-content').first();
+	await expect(editor).toContainText('count: -12.75');
+	await expect(editor).toContainText('Keep this note.');
+	await editor.click();
+	await page.keyboard.press('ControlOrMeta+z');
+	await expect(editor).toContainText('count: 12');
+	await expect(editor).toContainText('Keep this note.');
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+y');
+	await expect(editor).toContainText('count: -12.75');
+	await expect(editor).toContainText('Keep this note.');
+	await expect
+		.poll(async () => (await databaseState(page)).drafts.map((row) => row.content).join('\n'), {
+			timeout: 20_000
+		})
+		.toContain('count: -12.75');
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await expect(page.locator('.cm-content').first()).toContainText('count: -12.75');
+	await expect(page.locator('.cm-content').first()).toContainText('Keep this note.');
+	await info.attach('frontmatter-undo.json', {
+		body: JSON.stringify({ initial, restored: 'count: 12', redone: 'count: -12.75' }),
+		contentType: 'application/json'
+	});
+});
+
+test('does not make another tab edit undoable in this source editor', async ({
+	page,
+	context
+}, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, '---\ncount: 12\n---\n\n# Body\n');
+	await expect
+		.poll(async () => (await databaseState(page)).drafts.map((row) => row.content).join('\n'))
+		.toContain('count: 12');
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	const editor = page.locator('.cm-content').first();
+	await expect(editor).toContainText('count: 12');
+	const other = await context.newPage();
+	await other.goto('/');
+	await other.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	const otherEditor = other.locator('.cm-content').first();
+	await expect(otherEditor).toContainText('count: 12');
+	await otherEditor.click();
+	await other.keyboard.press('ControlOrMeta+End');
+	await other.keyboard.insertText(' Remote marker.');
+	await expect(editor).toContainText('Remote marker.', { timeout: 20_000 });
+	await editor.click();
+	await page.keyboard.press('ControlOrMeta+z');
+	await expect(editor).toContainText('Remote marker.');
+	await expect(editor).toContainText('count: 12');
+	await other.close();
+	await info.attach('frontmatter-external-undo.json', {
+		body: JSON.stringify({ remoteMarkerPreserved: true }),
+		contentType: 'application/json'
+	});
+});
+
 test('keeps a comment-only value separate from the new property text', async ({
 	page
 }, info: TestInfo) => {

@@ -3119,6 +3119,11 @@ parser string tokens `-.5` and `1e999`. The invalid cases must keep the typed te
 focus the field and leave the source unchanged. A removal case must delete an overflow
 token without a silent no-op.
 
+Saving a property must make that local change undoable in the mounted Source
+editor without removing unrelated note content. Redo must restore the saved
+value. A change received from another tab must not become a local undo step.
+The browser cases check both paths and reload the redone value from storage.
+
 Run:
 
 ```sh
