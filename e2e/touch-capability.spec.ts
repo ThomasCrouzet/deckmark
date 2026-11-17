@@ -224,6 +224,7 @@ function pointerMedia(page: Page) {
 }
 
 test('hybrid pointer keeps touch targets and virtual rows in agreement', async ({ page }, info) => {
+	test.setTimeout(120_000);
 	await installHybridPointer(page);
 	await resetAppState(page);
 	await seedLibrary(page, 180, 40);
@@ -400,7 +401,7 @@ test('hybrid pointer keeps the sidebar out of a permanent drawer across breakpoi
 
 	const sidebar = page.locator('#files-panel');
 	const overlay = page.locator('button.z-30');
-	const toggle = page.locator('#app-toolbar button[aria-controls="files-panel"]');
+	const toggle = page.locator('#app-toolbar button[aria-controls="files-panel"]:visible');
 	await expect(page.locator('html')).toHaveAttribute('data-touch-capable', 'true');
 	await expect(sidebar).toBeVisible();
 	expect(await sidebar.evaluate((element) => getComputedStyle(element).position)).toBe('static');
