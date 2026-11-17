@@ -251,6 +251,10 @@
 	async function selectFile(file: GitFileStatus): Promise<void> {
 		selectedPath = file.path;
 		diffStaged = file.index !== '.' && !file.untracked && !file.conflicted;
+		// A failure from the previous selection no longer describes this diff.
+		// Do not clear it in loadDiff: a commit review message must survive the
+		// refresh that follows it.
+		errorMessage = '';
 		diff = '';
 		diffPage = 0;
 		diffTooLarge = false;
@@ -260,6 +264,7 @@
 	async function setDiffMode(staged: boolean): Promise<void> {
 		if (diffStaged === staged) return;
 		diffStaged = staged;
+		errorMessage = '';
 		diffPage = 0;
 		diffTooLarge = false;
 		await loadDiff();
