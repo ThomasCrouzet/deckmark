@@ -3096,10 +3096,13 @@ render that can report a clamped zero. The restoration still assumes that
 `sessionStorage` survives the reload. It does not claim survival after an
 operating-system process discard.
 
-`e2e/read-lifecycle.spec.ts` runs five Chromium workflows:
+`e2e/read-lifecycle.spec.ts` runs five workflows in each desktop browser
+project. The Chromium, Firefox and WebKit projects select the file, so a normal
+full run checks all fifteen cases:
 
 - A changed position is saved on `visibilitychange` without `pagehide`. A repeat
-  hidden event keeps the deep position, and a wake does not move the document.
+  hidden event keeps the deep position, the active file does not change, and a
+  wake does not move the document.
 - A reload that keeps `sessionStorage` restores the saved position.
 - A same-file theme rerender keeps the live position instead of the older cached
   position.
@@ -3117,9 +3120,22 @@ the initial scroller offset as authoritative in that window. The live user
 offset still wins. A newer restore token supersedes an older restore, and an
 older callback cannot clear the newer guard.
 
+The WebKit run gives the pending restore case a 240 s budget. Two long notes,
+one reload and the restore poll can exceed the 120 s budget while the machine is
+busy. The extra budget does not change an assertion or a wait condition.
+
+Run the file in all three desktop projects:
+
+```sh
+E2E_PORT=4203 npx playwright test e2e/read-lifecycle.spec.ts \
+  --project=chromium --project=firefox --project=webkit \
+  --workers=1 --retries=0
+```
+
 Keep the JSON attachments with the fixture hashes and the screenshot. The suite
 does not simulate a physical iPhone or iPad background cycle, an installed PWA
-relaunch, or a native Tauri WebView.
+relaunch, or a native Tauri WebView. It does not prove that an operating-system
+process discard keeps `sessionStorage`.
 
 ## Cancelled read ink
 

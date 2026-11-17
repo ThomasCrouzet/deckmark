@@ -166,6 +166,7 @@ test('saves a changed read position when the document becomes hidden without pag
 	const saved = await savedReadTop(page, id);
 	expect(saved).not.toBeNull();
 	expect(Math.abs(saved! - top)).toBeLessThanOrEqual(1);
+	expect(await activeFileId(page)).toBe(id);
 
 	// A repeat hidden event must keep the deep position.
 	await setVisibility(page, 'hidden');
@@ -173,6 +174,7 @@ test('saves a changed read position when the document becomes hidden without pag
 
 	// A wake without user input must not move the document.
 	await setVisibility(page, 'visible');
+	expect(await activeFileId(page)).toBe(id);
 	expect(Math.abs((await readScroll(page)) - top)).toBeLessThanOrEqual(1);
 
 	await info.attach('read-hidden.json', {
@@ -274,7 +276,9 @@ test('keeps the live read position through a same-file theme rerender', async ({
 test('keeps the deep cached position when the page hides before the restore frame', async ({
 	page
 }, info) => {
-	test.setTimeout(120_000);
+	// WebKit renders both long notes and the reload slower than Chromium and
+	// Firefox. The default 120 s budget interrupts the final restore poll.
+	test.setTimeout(240_000);
 	const short = '# Short\n\nShort source note.';
 	const target = longNote('R1 target marker');
 	await resetAppState(page);
