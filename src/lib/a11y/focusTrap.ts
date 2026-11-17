@@ -122,6 +122,11 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
 		if (initial) {
 			cancelInitial();
 			frame = requestAnimationFrame(focusInitial);
+			queueMicrotask(() => {
+				if (!frame) return;
+				cancelInitial();
+				focusInitial();
+			});
 		}
 	}
 

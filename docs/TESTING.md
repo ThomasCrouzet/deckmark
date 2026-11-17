@@ -3082,7 +3082,8 @@ when a dialog mounts. The retained risks are a double focus bounce with a panel
 that focuses its own control, focus in an inert or closed lower dialog, a nested
 prompt that loses focus, a pending frame that runs after close, a restore to the
 body or to a removed palette option, and a changed mobile drawer activation
-behavior.
+behavior. A delayed first animation frame must not leave Escape outside the
+newly opened dialog.
 
 `e2e/modal-initial-focus.spec.ts` opens Collections, Export Profiles, Document
 properties, Linked content blocks and AI. It checks `document.activeElement`
@@ -3094,6 +3095,9 @@ project prompt, and a delayed lazy chunk. It attaches `initial-focus.json`,
 Each named dialog restores focus to the visible Palette de commandes button.
 The keyboard route restores the sidebar file control. The unsaved editor route
 keeps the text and restores the editor.
+The early-Escape case holds animation frames while Collections opens. It records
+focus and verifies that Escape closes the dialog before the frames are released.
+Keep `early-escape.json` and the failing pre-fix report.
 ## Front matter numeric input risks
 
 Keep the raw text of a numeric front matter field until the value is complete. The
