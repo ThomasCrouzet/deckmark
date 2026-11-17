@@ -96,6 +96,26 @@ profiles, missing identities and failed byte/history/reload checks. At least
 samples per position. Read the raw samples; do not claim a stable per-position
 tail. There is no minimum-of-three stress statistic.
 
+## Save contention evidence
+
+The stress runner measures one character to its durable completion. It does not
+measure a burst that resumes during an active save. `e2e/save-contention.spec.ts`
+adds that workload for Chromium, Firefox and WebKit desktop. It types bursts with
+real browser input, switches to Read and switches files before the 400 ms save
+delay ends, and checks the exact editor and durable bytes. It records the base
+revision, accepted span, result revision and durable revision for each sample.
+The report keeps raw frame opportunities, dispatch and queue proxies, p50, p95,
+max and the denominator, long tasks, publication and metadata measures, save
+transactions and a separate row for each environment.
+
+A one-shot 600 ms stall inside the observed drafts put guarantees that the second
+burst arrives during a save. It is a control and not a product timing claim. A
+120 ms input-stage busy wait detects a deliberate CPU regression, and a corrupted
+drafts write detects a persistence regression. The corrected source is tested by
+the E2E case, not by a past build or a CI configuration alone. Latency stays
+report-only until a reviewed 20-run baseline exists. Installed PWA, physical
+iPhone and iPad, and all three optimized native clients remain **not tested**.
+
 #
 ## Read and slide mode benchmarks
 

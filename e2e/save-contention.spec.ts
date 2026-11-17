@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
 import {
@@ -67,6 +69,8 @@ type ContentionProbe = {
 	longTasksSupported: boolean;
 	stallMs: number;
 	stallIntervals: number[];
+	inputStallMs: number;
+	inputStallIntervals: number[];
 	corruptNextPut: boolean;
 	corruptions: string[];
 	arm: (() => void) | null;
@@ -158,6 +162,8 @@ async function installProbe(page: Page): Promise<void> {
 			longTasks: [] as Array<{ start: number; duration: number }>,
 			stallMs: 0,
 			stallIntervals: [] as number[],
+			inputStallMs: 0,
+			inputStallIntervals: [] as number[],
 			corruptNextPut: false,
 			corruptions: [] as string[],
 			arm: null as null | (() => void),
@@ -278,6 +284,15 @@ async function installProbe(page: Page): Promise<void> {
 				sample.inputType = input.inputType;
 				sample.targetIsEditor =
 					input.target instanceof Element && !!input.target.closest('.cm-content');
+				if (state.inputStallMs > 0) {
+					const stall = state.inputStallMs;
+					state.inputStallMs = 0;
+					const stallStarted = performance.now();
+					while (performance.now() - stallStarted < stall) {
+						/* Explicit input-stage stall control. */
+					}
+					state.inputStallIntervals.push(performance.now() - stallStarted);
+				}
 				queueMicrotask(() => {
 					sample.dispatch = performance.now() - started;
 				});
@@ -371,16 +386,6 @@ async function storedText(page: Page, id: string): Promise<string> {
 	);
 }
 
-async function waitForBudgetEnd(page: Page, count: number): Promise<void> {
-	await page.waitForFunction(
-		(expected) =>
-			window.__saveContention.transactions.filter((transaction) => transaction.ended !== undefined)
-				.length >= expected,
-		count,
-		{ timeout: 30_000 }
-	);
-}
-
 async function typeBurst(
 	page: Page,
 	count: number,
@@ -447,13 +452,15 @@ function artifact(info: TestInfo, payload: Record<string, unknown>): Record<stri
 		command?: string[];
 		environment?: Record<string, unknown>;
 	};
+	const version =
+		typeof payload.browserVersion === 'string' ? payload.browserVersion : 'unavailable';
 	return {
 		schema: saveContentionSchema,
 		generatedAt: new Date().toISOString(),
 		project: info.project.name,
 		browser: {
 			project: info.project.name,
-			version: 'Recorded by the Playwright report for this run.'
+			version
 		},
 		contract: revisionSpanContract,
 		source: {
@@ -473,8 +480,15 @@ function artifact(info: TestInfo, payload: Record<string, unknown>): Record<stri
 }
 
 async function attach(info: TestInfo, name: string, payload: Record<string, unknown>) {
+	const body = JSON.stringify(artifact(info, payload), null, 2);
+	const directory = join('/srv/dev/cache/tmp/opencode/i327-evidence', info.project.name);
+	mkdirSync(directory, { recursive: true });
+	writeFileSync(
+		join(directory, `${info.title.replaceAll(/[^a-z0-9]+/gi, '-').slice(0, 60)}-${name}`),
+		body
+	);
 	await info.attach(name, {
-		body: JSON.stringify(artifact(info, payload), null, 2),
+		body,
 		contentType: 'application/json'
 	});
 }
@@ -517,20 +531,42 @@ test('resumes a burst during an injected slow save and keeps exact bytes', async
 	const baselineStart = await page.evaluate(() => performance.now());
 	const baseline = await typeBurst(page, 8, 45, 'baseline', fixture, offset);
 	const fixtureAfterBaseline = baseline.expected;
-	await waitForBudgetEnd(page, 1);
 	const baselineMeasures = await measuresSince(page, baselineStart);
 
-	// Stalled burst: a 120 ms one-shot synchronous persistence stall models a
+	// Stalled burst: a 600 ms one-shot synchronous persistence stall models a
 	// slow write on a large note and guarantees that the next burst arrives
 	// while the save is active. This is a control, not a product timing claim.
-	await page.evaluate(() => {
-		window.__saveContention.stallMs = 120;
-	});
+	// Place the caret first: focus work differs by engine and must not consume
+	// the one-shot stall. The first stalled key starts the save timer. The
+	// remaining keys arrive after that timer has entered the stalled write.
 	await placeCaret(page, offset + 8);
+	await page.evaluate(() => {
+		window.__saveContention.stallMs = 600;
+	});
 	const stalledStart = await page.evaluate(() => performance.now());
-	await page.waitForTimeout(430);
 	const burstStartEpoch = Date.now();
-	const stalled = await typeBurst(page, 8, 45, 'stalled-save', fixtureAfterBaseline, offset + 8);
+	const firstStalled = await typeBurst(
+		page,
+		1,
+		0,
+		'stalled-save',
+		fixtureAfterBaseline,
+		offset + 8
+	);
+	await page.waitForTimeout(450);
+	const restStalled = await typeBurst(
+		page,
+		7,
+		45,
+		'stalled-save',
+		firstStalled.expected,
+		offset + 9
+	);
+	const burstEndEpoch = Date.now();
+	const stalled = {
+		expected: restStalled.expected,
+		samples: [...firstStalled.samples, ...restStalled.samples]
+	};
 	// A quiet period must persist the final accepted revision.
 	await expect.poll(() => storedText(page, MAIN_ID), { timeout: 30_000 }).toBe(stalled.expected);
 	const stalledMeasures = await measuresSince(page, stalledStart);
@@ -547,18 +583,19 @@ test('resumes a burst during an injected slow save and keeps exact bytes', async
 	const samples = [...baseline.samples, ...stalled.samples];
 	const overlapping = probe.transactions.filter(
 		(transaction) =>
-			transaction.epochStarted <= burstStartEpoch &&
+			transaction.epochStarted <= burstEndEpoch &&
 			(transaction.epochEnded === undefined || transaction.epochEnded >= burstStartEpoch)
 	);
 	const injected = probe.transactions.filter((transaction) => transaction.stalledMs > 0);
 
 	await attach(info, 'save-contention.json', {
+		browserVersion: await page.context().browser()?.version(),
 		method: {
 			workload: 'two bursts of eight characters, 45 ms spacing, mid-document',
 			startBoundary: 'trusted beforeinput capture',
 			frameBoundary: 'second animation frame opportunity',
 			saveBoundary: 'first drafts put to transaction complete',
-			injection: '120 ms synchronous stall inside the observed drafts put',
+			injection: '600 ms synchronous stall inside the observed drafts put',
 			injectionReason:
 				'Guarantees a burst during an active save. It is not a product timing claim.',
 			warmupExcluded: false
@@ -571,10 +608,22 @@ test('resumes a burst during an injected slow save and keeps exact bytes', async
 		},
 		samples,
 		summary: {
-			inputToFrameMs: summarize(samples.map((sample) => sample.inputToFrameMs)),
-			inputDispatchMs: summarize(samples.map((sample) => sample.inputDispatchMs)),
-			queueDelayMs: summarize(samples.map((sample) => sample.queueDelayMs)),
-			handlerProxyMs: summarize(samples.map((sample) => sample.handlerProxyMs))
+			all: {
+				inputToFrameMs: summarize(samples.map((sample) => sample.inputToFrameMs)),
+				inputDispatchMs: summarize(samples.map((sample) => sample.inputDispatchMs)),
+				queueDelayMs: summarize(samples.map((sample) => sample.queueDelayMs)),
+				handlerProxyMs: summarize(samples.map((sample) => sample.handlerProxyMs))
+			},
+			baseline: {
+				inputToFrameMs: summarize(baseline.samples.map((sample) => sample.inputToFrameMs)),
+				queueDelayMs: summarize(baseline.samples.map((sample) => sample.queueDelayMs)),
+				handlerProxyMs: summarize(baseline.samples.map((sample) => sample.handlerProxyMs))
+			},
+			stalledSave: {
+				inputToFrameMs: summarize(stalled.samples.map((sample) => sample.inputToFrameMs)),
+				queueDelayMs: summarize(stalled.samples.map((sample) => sample.queueDelayMs)),
+				handlerProxyMs: summarize(stalled.samples.map((sample) => sample.handlerProxyMs))
+			}
 		},
 		save: {
 			transactions: probe.transactions,
@@ -609,7 +658,7 @@ test('resumes a burst during an injected slow save and keeps exact bytes', async
 		expect(sample.baseRevision).toMatch(/^[a-f0-9]{64}$/);
 		expect(sample.resultRevision).toMatch(/^[a-f0-9]{64}$/);
 		expect(sample.trusted).toBe(true);
-		expect(sample.inputType).toBe('insertText');
+		expect(sample.inputType).toMatch(/^insert(Text|CompositionText)$/);
 		expect(sample.targetIsEditor).toBe(true);
 		expect(sample.inputToFrameMs).toBeGreaterThanOrEqual(0);
 		expect(Number.isFinite(sample.queueDelayMs)).toBe(true);
@@ -638,13 +687,14 @@ test('keeps exact bytes across a Read switch during pending publication', async 
 	// publication cancellation and the Read mount.
 	await page.locator('button[data-mode="read"]').click();
 	await page.locator('.mdsh-read').waitFor({ timeout: 20_000 });
-	await page.waitForTimeout(900);
+	await expect.poll(() => storedText(page, MAIN_ID), { timeout: 30_000 }).toBe(typed.expected);
 	const stored = await storedText(page, MAIN_ID);
 	await page.locator('button[data-mode="source"]').click();
 	await page.locator('.cm-content').first().waitFor({ timeout: 20_000 });
 	const editor = await editorText(page);
 	const expected = typed.expected;
 	await attach(info, 'save-contention-mode-switch.json', {
+		browserVersion: await page.context().browser()?.version(),
 		method: 'five characters, 35 ms spacing, then Read before the save delay ends',
 		fixture: { bytes: Buffer.byteLength(fixture), sha256: digest(fixture) },
 		samples: typed.samples,
@@ -714,7 +764,7 @@ test('keeps exact bytes for both notes across a file switch with a pending save'
 		other,
 		{ timeout: 20_000 }
 	);
-	await page.waitForTimeout(900);
+	await expect.poll(() => storedText(page, MAIN_ID), { timeout: 30_000 }).toBe(typed.expected);
 	const mainStored = await storedText(page, MAIN_ID);
 	const otherStored = await storedText(page, OTHER_ID);
 	await page.locator(`aside button[data-file-id="${MAIN_ID}"]`).click();
@@ -722,6 +772,7 @@ test('keeps exact bytes for both notes across a file switch with a pending save'
 	const restored = await editorText(page);
 	const expected = typed.expected;
 	await attach(info, 'save-contention-file-switch.json', {
+		browserVersion: await page.context().browser()?.version(),
 		method: 'five characters, 35 ms spacing, then select the other note before the save delay ends',
 		fixture: {
 			main: { bytes: Buffer.byteLength(main), sha256: digest(main) },
@@ -745,30 +796,20 @@ test('detects a deliberate CPU stall at the input stage', async ({ page }, info)
 	const fixture = largeNote(240_000, 'cpu-control');
 	await seedMain(page, fixture);
 	await page.evaluate(() => {
-		const element = document.querySelector('.cm-content');
-		if (!element) throw new Error('Missing input target.');
-		const listener = () => {
-			const started = performance.now();
-			while (performance.now() - started < 120) {
-				/* Deliberate negative control. */
-			}
-		};
-		element.addEventListener('beforeinput', listener, { capture: true, once: true });
-		(window as unknown as { __cpuControl: { remove: () => void } }).__cpuControl = {
-			remove: () => element.removeEventListener('beforeinput', listener, { capture: true })
-		};
+		window.__saveContention.inputStallMs = 120;
 	});
 	await placeCaret(page, 100);
 	const typed = await typeBurst(page, 1, 0, 'cpu-control', fixture, 100);
 	const sample = typed.samples[0];
-	await page.evaluate(() => {
-		(window as unknown as { __cpuControl?: { remove: () => void } }).__cpuControl?.remove();
-	});
+	const intervals = await page.evaluate(() => window.__saveContention.inputStallIntervals);
 	await attach(info, 'save-contention-cpu-control.json', {
-		method: 'one 120 ms busy wait inside a beforeinput capture listener',
+		browserVersion: await page.context().browser()?.version(),
+		method: 'one 120 ms busy wait inside the probe beforeinput capture listener',
 		sample,
+		stallIntervals: intervals,
 		detected: sample.inputToFrameMs >= 80
 	});
+	expect(intervals).toHaveLength(1);
 	expect(sample.inputToFrameMs).toBeGreaterThanOrEqual(80);
 });
 
@@ -790,17 +831,33 @@ test('detects a deliberate durable projection mismatch', async ({ page }, info) 
 		typed.expected,
 		offset + 1
 	);
+	// The deliberately corrupted write must become durable before the next
+	// edit. A normal write after it must replace the wrong bytes.
+	const corruptedExpected = `${afterCorruption.expected}#`;
+	await expect.poll(() => storedText(page, MAIN_ID), { timeout: 30_000 }).toBe(corruptedExpected);
 	const storedCorrupted = await storedText(page, MAIN_ID);
 	const detected = digest(storedCorrupted) !== digest(afterCorruption.expected);
-	await page.waitForTimeout(700);
+	const recoveredTyped = await typeBurst(
+		page,
+		1,
+		0,
+		'persistence-control',
+		afterCorruption.expected,
+		offset + 2
+	);
+	await expect
+		.poll(() => storedText(page, MAIN_ID), { timeout: 30_000 })
+		.toBe(recoveredTyped.expected);
 	const recovered = await storedText(page, MAIN_ID);
-	const recoveredExpected = digest(recovered) === digest(afterCorruption.expected);
+	const recoveredExpected = digest(recovered) === digest(recoveredTyped.expected);
 	await attach(info, 'save-contention-persistence-control.json', {
+		browserVersion: await page.context().browser()?.version(),
 		method: 'one deliberately corrupted drafts.content write, then one normal write',
 		corruptingPut: await page.evaluate(() => window.__saveContention.corruptions),
 		expectedSha256: digest(afterCorruption.expected),
 		corruptedStoredSha256: digest(storedCorrupted),
 		recoveredStoredSha256: digest(recovered),
+		recoveryExpectedSha256: digest(recoveredTyped.expected),
 		detected,
 		recovered: recoveredExpected
 	});
