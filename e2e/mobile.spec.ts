@@ -410,6 +410,9 @@ test.describe('Touch-only project document actions', () => {
 			name: 'Déplacer ou copier vers un autre projet ou dossier'
 		});
 		const remove = actions.getByRole('button', { name: 'Déplacer guide.md dans la corbeille' });
+		await page.locator('#files-panel').evaluate(async (drawer) => {
+			await Promise.all(drawer.getAnimations().map((animation) => animation.finished));
+		});
 		for (const action of [rename, move, remove]) {
 			await expect(action).toBeVisible();
 			const box = await action.boundingBox();

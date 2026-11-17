@@ -1,5 +1,18 @@
 # Test policy and evidence
 
+## Touch project action geometry
+
+The mobile project action case measures the three action buttons after the
+drawer transition ends. A bounding box during translation can have a fractional
+width even when the layout width is 44 CSS px. The case keeps the 44 px width
+and height assertions and the rename, move, delete and open actions.
+
+Run `npx playwright test e2e/mobile.spec.ts --project=mobile-webkit --workers=1
+--retries=0 --grep 'shows rename, move and delete without hover'`. Retain the
+JSON and HTML reports, source identity, command and browser environment. A
+test-only style that sets an action width to 43 px must fail the width assertion.
+This case does not prove touch behavior on a physical device.
+
 ## Large rendered input risks
 
 Retain local input latency at both ends of a 5 MB note. Keep each raw
