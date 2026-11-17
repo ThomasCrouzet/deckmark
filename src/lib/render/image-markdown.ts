@@ -1,7 +1,7 @@
 import {
 	measureEditorStage as measureImageStage,
 	recordEditorCounter as recordImageCounter
-} from '../editor-perf';
+} from '../editor-perf.ts';
 
 // Match the backslash only in the escape branch. Separate branches prevent
 // exponential backtracking in alternatives and captions.
