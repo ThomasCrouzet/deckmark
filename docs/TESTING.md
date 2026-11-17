@@ -250,12 +250,19 @@ again, and closing or changing the presentation must remove both listeners.
 `e2e/presentation-visual-viewport.spec.ts` installs a test-only VisualViewport
 target before the application starts. It changes `offsetTop` at a constant
 `height`, dispatches only `scroll`, and checks the editor height, the focused
-field bounds, a stable second event and listener teardown. Run:
+field bounds, a stable second event and listener teardown. The Chromium, Firefox
+and WebKit project lists select the case. Run:
 
 ```sh
 npx playwright test e2e/presentation-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0
 npx playwright test e2e/presentation-visual-viewport.spec.ts --project=mobile-chromium --workers=1 --retries=0
+npx playwright test e2e/presentation-visual-viewport.spec.ts --project=firefox --workers=1 --retries=0
+npx playwright test e2e/presentation-visual-viewport.spec.ts --project=webkit --workers=1 --retries=0
 ```
+
+The Firefox and WebKit runs pass the two cases on the test-only target. The
+mobile WebKit project does not select the case: its emulated device needs a
+separate review. A mobile Chromium run is not a WebKit mobile result.
 
 This simulates the event and the geometry. It does not reproduce an operating
 system keyboard, a WebKit visual viewport or a physical display. A device check
