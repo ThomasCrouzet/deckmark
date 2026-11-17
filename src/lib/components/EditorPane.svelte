@@ -27,6 +27,7 @@
 		DocumentRevision,
 		DocumentSnapshot
 	} from '#lib/document-revisions.js';
+	import type { SourceEdit } from '#lib/source-edit.js';
 
 	interface Props {
 		kind: DocumentKind;
@@ -49,7 +50,7 @@
 		onArticleRef: (el: HTMLElement | null) => void;
 		onTocEmpty: (empty: boolean) => void;
 		// Action callbacks
-		onEditorChange: (fileId: string, markdown: string) => void;
+		onEditorChange: (fileId: string, markdown: string, edit?: SourceEdit) => void;
 		// §C1 - Flush of the last WYSIWYG keystroke to a specific file
 		// (the old tab) before the editor remounts.
 		onEditorFlush: (fileId: string, markdown: string) => void;
@@ -242,7 +243,7 @@
 					<module.default
 						fileId={activeFile.id}
 						content={activeFile.content}
-						onChange={(markdown, id) => onEditorChange(id, markdown)}
+						onChange={(markdown, id, edit) => onEditorChange(id, markdown, edit)}
 						onFlush={onEditorFlush}
 					/>
 				{:catch}<p role="alert" class="p-4 text-danger">{t('editor.loadErrorTitle')}</p>{/await}

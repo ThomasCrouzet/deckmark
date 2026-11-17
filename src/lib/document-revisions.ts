@@ -1,5 +1,6 @@
 import type { ChangeSet, EditorState } from '@codemirror/state';
 import type { Transaction } from '@milkdown/kit/prose/state';
+import type { SourceEdit } from './source-edit';
 
 export interface DocumentRevision {
 	readonly fileId: string;
@@ -15,7 +16,9 @@ export type DocumentEdits =
 	| { readonly kind: 'text' }
 	| { readonly kind: 'codemirror'; readonly changes: ChangeSet; readonly state: EditorState }
 	| { readonly kind: 'prosemirror'; readonly transaction: Transaction }
-	| { readonly kind: 'structured'; readonly operations: readonly unknown[] };
+	| { readonly kind: 'structured'; readonly operations: readonly unknown[] }
+	/** A rendered publication that carries its accepted span and revision. */
+	| { readonly kind: 'source-edit'; readonly edit: SourceEdit };
 
 export interface DocumentChange {
 	readonly base: DocumentRevision;
@@ -28,6 +31,8 @@ interface Entry {
 	revision: DocumentRevision;
 	read: () => string;
 	snapshot: DocumentSnapshot | null;
+	/** Latest accepted producer span for this revision. */
+	edit: SourceEdit | null;
 	pending: boolean;
 	timer: ReturnType<typeof setTimeout> | null;
 }
@@ -53,6 +58,7 @@ export class DocumentRevisions {
 			revision,
 			read: () => text,
 			snapshot: { revision, text },
+			edit: null,
 			pending: false,
 			timer: null
 		});
@@ -63,12 +69,18 @@ export class DocumentRevisions {
 		return this.entries.get(revision.fileId)?.revision.generation === revision.generation;
 	}
 
+	/** Latest accepted producer span, or null after a plain text change. */
+	edit(fileId: string): SourceEdit | null {
+		return this.entries.get(fileId)?.edit ?? null;
+	}
+
 	apply(change: DocumentChange): DocumentRevision | null {
 		if (!this.isCurrent(change.base)) return null;
 		const entry = this.entries.get(change.base.fileId)!;
 		entry.revision = { fileId: change.base.fileId, generation: ++generation };
 		entry.read = change.readText;
 		entry.snapshot = null;
+		entry.edit = change.edits.kind === 'source-edit' ? change.edits.edit : null;
 		entry.pending = true;
 		if (METRICS) performance.mark('mdsh:document-edit');
 		entry.timer ??= setTimeout(() => {

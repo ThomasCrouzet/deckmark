@@ -6,11 +6,21 @@ import { editSentence, exportSource, importSource } from './source-fidelity-harn
 // marks must keep the bounded source restoration. A whole-source parse or
 // normalization for that edit is the failure this case keeps.
 
+interface ObservedEdit {
+	documentId: string;
+	revision: number;
+	space: string;
+	kind: string;
+	previous: { from: number; to: number };
+	next: { from: number; to: number };
+}
+
 interface EditorPerfProbe {
 	scoped: number;
 	full: number;
 	paths: Record<string, number>;
 	stages: Array<{ kind: string; name: string; value?: number }>;
+	edits: ObservedEdit[];
 }
 
 declare global {
@@ -21,15 +31,24 @@ declare global {
 
 async function installProbe(page: Page) {
 	await page.addInitScript(() => {
-		const probe: EditorPerfProbe = { scoped: 0, full: 0, paths: {}, stages: [] };
+		const probe: EditorPerfProbe = { scoped: 0, full: 0, paths: {}, stages: [], edits: [] };
 		window.__i572Perf = probe;
 		window.addEventListener('deckmark:editor-perf', (event) => {
-			const detail = (event as CustomEvent<{ kind: string; name: string; value?: number }>).detail;
+			const detail = (
+				event as CustomEvent<{
+					kind: string;
+					name?: string;
+					value?: number;
+					edit?: ObservedEdit;
+				}>
+			).detail;
 			if (detail.kind === 'counter') {
 				if (detail.name === 'sourceFidelityScoped') probe.scoped += 1;
 				if (detail.name === 'sourceFidelityFull') probe.full += 1;
+			} else if (detail.kind === 'edit') {
+				if (detail.edit) probe.edits.push(detail.edit);
 			} else if (probe.stages.length < 2_000) {
-				probe.stages.push(detail);
+				probe.stages.push({ kind: detail.kind, name: detail.name ?? '', value: detail.value });
 			}
 		});
 		window.addEventListener('deckmark:source-fidelity', (event) => {
@@ -88,7 +107,13 @@ async function readProbe(page: Page): Promise<EditorPerfProbe> {
 
 async function resetProbe(page: Page) {
 	await page.evaluate(() => {
-		window.__i572Perf = { scoped: 0, full: 0, paths: {}, stages: [] };
+		const probe = window.__i572Perf;
+		if (!probe) return;
+		probe.scoped = 0;
+		probe.full = 0;
+		probe.paths = {};
+		probe.stages = [];
+		probe.edits = [];
 	});
 }
 
@@ -117,6 +142,7 @@ async function attachEvidence(
 				scoped: probe.scoped,
 				full: probe.full,
 				paths: probe.paths,
+				edits: probe.edits,
 				stages: mediaStages,
 				allStageCount: stages.length
 			},
@@ -138,6 +164,18 @@ async function editMixed(page: Page, before: string, after: string, id: string):
 			timeout: 30_000
 		})
 		.toBeGreaterThan(0);
+	const probe = await readProbe(page);
+	const edit = probe.edits.at(-1);
+	expect(edit, `${id}: the publication must carry one accepted edit`).toBeDefined();
+	expect(edit!.space).toBe('editor-markdown');
+	expect(edit!.kind).toBe('replace');
+	expect(edit!.documentId).toBeTruthy();
+	expect(edit!.previous.to).toBeGreaterThanOrEqual(edit!.previous.from);
+	expect(edit!.next.to).toBeGreaterThanOrEqual(edit!.next.from);
+	expect(
+		edit!.next.to - edit!.next.from - (edit!.previous.to - edit!.previous.from),
+		`${id}: the appended letter must be the only span size change`
+	).toBe(1);
 }
 
 for (const size of [1, 5]) {

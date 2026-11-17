@@ -33,7 +33,8 @@
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { editorDocumentPolicy } from '#lib/editor-document-policy.js';
-	import { measureEditorStage, recordEditorCounter } from '#lib/editor-perf.js';
+	import { measureEditorStage, recordEditorCounter, recordEditorEdit } from '#lib/editor-perf.js';
+	import { createSourceEdit, type SourceEdit } from '#lib/source-edit.js';
 	import {
 		localVisualPreview,
 		releaseVisualPreviews,
@@ -44,7 +45,7 @@
 		fileId: string;
 		content: string;
 		readonly?: boolean;
-		onChange: (markdown: string, fileId: string) => void;
+		onChange: (markdown: string, fileId: string, edit?: SourceEdit) => void;
 		// A switch can precede the asynchronous Markdown callback. Flush to the
 		// captured outgoing file before the view is replaced.
 		onFlush?: (fileId: string, markdown: string) => void;
@@ -487,11 +488,25 @@
 				}
 				if (token !== mountToken || revision !== markdownRevision) return;
 				recordEditorCounter('markdownUpdated');
+				// Capture the serializer hint before restore consumes it. The edit
+				// stays in editor Markdown coordinates until a consumer maps the
+				// portable source boundary.
+				const hint = pendingHint ? { ...pendingHint } : null;
 				const portableMarkdown = restoreMarkdown(markdown);
 				if (token !== mountToken || revision !== markdownRevision) return;
+				const edit = createSourceEdit(
+					idForMount,
+					revision,
+					'editor-markdown',
+					hint,
+					editorMarkdownSnapshot.length,
+					markdown.length
+				);
+				editorMarkdownSnapshot = markdown;
+				recordEditorEdit(edit);
 				lastEditorMarkdown = portableMarkdown;
 				queueMicrotask(applyImageAlternatives);
-				if (token === mountToken) onChange(portableMarkdown, idForMount);
+				if (token === mountToken) onChange(portableMarkdown, idForMount, edit);
 				else onFlush?.(idForMount, portableMarkdown);
 			};
 			if (typeof window.requestIdleCallback === 'function') {
@@ -794,6 +809,7 @@
 			});
 		};
 		editorBaseline = resetIncrementalMarkdown();
+		let editorMarkdownSnapshot = editorBaseline;
 		serializeMountedMarkdown = serializeIncrementalMarkdown;
 		const resetFidelity = () => {
 			instance.editor.action((ctx) => {

@@ -1,5 +1,6 @@
 import { recordSourceFidelityPath, type SourceFidelityPath } from './source-fidelity-diagnostics';
 import { measureEditorStage, recordEditorCounter } from './editor-perf';
+import type { SourceEditHint } from './source-edit';
 
 interface MarkdownNode {
 	type: string;
@@ -38,7 +39,7 @@ interface ScopedRestore {
  * locates the block. A span that does not align with the accepted baseline is
  * stale, so the caller must ignore it.
  */
-export interface SourceFidelityHint {
+export interface SourceFidelityHint extends SourceEditHint {
 	previousFrom: number;
 	previousTo: number;
 	nextFrom: number;

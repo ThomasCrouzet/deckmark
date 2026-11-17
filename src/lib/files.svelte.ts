@@ -1,4 +1,5 @@
 import { ImportSession, readDataUrl, type ImportOptions, type ImportReport } from './import-limits';
+import type { SourceEdit } from './source-edit';
 import { readPreference, writePreference } from './preferences';
 import { IMPORT_LIMITS } from './config';
 import { browser } from '$app/env';
@@ -1555,10 +1556,14 @@ class FilesStore {
 		return revision;
 	}
 
-	queueEditorContent(id: string, content: string): void {
+	queueEditorContent(id: string, content: string, edit?: SourceEdit): void {
 		const base = this.documentRevision(id);
 		if (!base || this.documents.snapshot(id)?.text === content) return;
-		this.applyDocumentChange({ base, edits: { kind: 'text' }, readText: () => content });
+		this.applyDocumentChange({
+			base,
+			edits: edit ? { kind: 'source-edit', edit } : { kind: 'text' },
+			readText: () => content
+		});
 	}
 
 	updateContent(id: string, content: string): void {
