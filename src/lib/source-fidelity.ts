@@ -321,6 +321,27 @@ export class SourceFidelity {
 		);
 	}
 
+	/** True when a bracket label in `text` names a document definition. */
+	private bracketResolvesDefinition(text: string): boolean {
+		const labels = new Set(
+			(this.original.children ?? [])
+				.filter((node) => node.type === 'definition')
+				.map((node) =>
+					((node as { identifier?: string }).identifier ?? '')
+						.trim()
+						.replace(/\s+/g, ' ')
+						.toLowerCase()
+				)
+				.filter(Boolean)
+		);
+		if (!labels.size) return false;
+		for (const match of text.matchAll(/\[([^[\]]*)\]/g)) {
+			const label = match[1]!.trim().replace(/\s+/g, ' ').toLowerCase();
+			if (label && labels.has(label)) return true;
+		}
+		return false;
+	}
+
 	/** First baseline block whose start offset is not before `offset`. */
 	private findBlockStart(before: MarkdownNode[], offset: number): number {
 		let low = 0;
@@ -558,39 +579,39 @@ export class SourceFidelity {
 		if (
 			!block?.position ||
 			(block.type !== 'paragraph' && block.type !== 'heading') ||
-			(range !== null && (range.from < start(block) || range.oldTo > end(block))) ||
-			block.children?.length !== 1 ||
-			block.children[0]?.type !== 'text'
+			(range !== null && (range.from < start(block) || range.oldTo > end(block)))
 		)
 			return null;
 		const original = originals[from]!;
-		if (
-			!original.position ||
-			original.type !== block.type ||
-			original.children?.length !== 1 ||
-			original.children[0]?.type !== 'text' ||
-			!original.children[0].position ||
-			original.children[0].value?.replaceAll('\r\n', '\n') !==
-				block.children[0].value?.replaceAll('\r\n', '\n')
-		)
+		if (!original.position || original.type !== block.type || original.children?.length === 0)
 			return null;
 		const raw = this.source.slice(start(original), end(original));
 		const next = hintBlock
 			? markdown.slice(hintBlock.from, hintBlock.to)
 			: markdown.slice(start(block), end(block) + markdown.length - this.markdown.length);
-		// References can resolve against definitions outside this paragraph.
-		if (raw.length > 32_768 || next.length > 32_768 || /[[\]]/.test(raw + next)) return null;
+		// A bounded block keeps the semantic check. References can resolve
+		// against definitions outside this paragraph, so a block with brackets
+		// must parse to the same tree on its own. Newly inserted brackets could
+		// create such a reference, so they keep the whole-document route.
+		if (raw.length > 32_768 || next.length > 32_768) return null;
+		if (/[[\]]/.test(raw)) {
+			const rawTree = this.parse(raw);
+			const rawNode = rawTree.children?.[0];
+			if (rawTree.children?.length !== 1 || !rawNode || !equal(rawNode, original)) return null;
+		}
 		const tree = this.parse(next);
 		const after = tree.children?.[0];
 		if (
 			tree.children?.length !== 1 ||
 			after?.type !== block.type ||
-			after.children?.length !== 1 ||
-			after.children[0]?.type !== 'text' ||
 			start(after) !== 0 ||
 			end(after) !== next.length
 		)
 			return null;
+		// A bracket label that matches a definition in this document resolves
+		// outside the block. An edit can turn literal brackets into such a
+		// reference, so that text keeps the whole-document semantic check.
+		if (/[[\]]/.test(next) && this.bracketResolvesDefinition(next)) return null;
 		const patches: Patch[] = [];
 		this.patchNode(original, block, after, next, patches);
 		const candidate = apply(
