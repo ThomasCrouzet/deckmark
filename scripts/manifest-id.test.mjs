@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
-import { applyManifestId, manifestIdForBase } from './manifest-id.mjs';
+import { applyManifestId, manifestIdForBase, verifyManifestIdentity } from './manifest-id.mjs';
 
 const sourceManifest = JSON.parse(readFileSync('static/manifest.webmanifest', 'utf8'));
 const directories = [];
@@ -61,5 +61,43 @@ test('the two Web Light origins receive different identities', () => {
 test('an invalid base path fails before it can write an ambiguous identity', () => {
 	for (const value of ['deckmark', '/deckmark/', '/deck mark', '/deckmark//nested']) {
 		assert.throws(() => manifestIdForBase(value), /BASE_PATH/, value);
+	}
+});
+
+test('verifies the emitted identity for both Web Light base paths', () => {
+	for (const [basePath, id] of [
+		['', '/'],
+		['/deckmark', '/deckmark/']
+	]) {
+		const directory = artifact();
+		applyManifestId(directory, basePath);
+		const manifest = verifyManifestIdentity(directory, basePath);
+		assert.equal(manifest.id, id, basePath);
+	}
+});
+
+test('rejects a root identity on the project path', () => {
+	const directory = artifact();
+	applyManifestId(directory, '/deckmark');
+	const manifestPath = join(directory, 'manifest.webmanifest');
+	const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+	writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, id: '/' }, null, '\t')}\n`);
+
+	assert.throws(
+		() => verifyManifestIdentity(directory, '/deckmark'),
+		/identity/i,
+		'the origin root is not the DeckMark project identity'
+	);
+});
+
+test('rejects a start_url or scope outside the project app root', () => {
+	for (const key of ['start_url', 'scope']) {
+		const directory = artifact();
+		applyManifestId(directory, '/deckmark');
+		const manifestPath = join(directory, 'manifest.webmanifest');
+		const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+		writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, [key]: '/' }, null, '\t')}\n`);
+
+		assert.throws(() => verifyManifestIdentity(directory, '/deckmark'), /deckmark/i, key);
 	}
 });

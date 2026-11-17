@@ -1,7 +1,19 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { createFirstFile, openPalette, writeSourceContent } from './helpers';
-import { expect, test } from '@playwright/test';
+import { expect, test, type TestInfo } from '@playwright/test';
+
+// The same suite runs for the root build and the GitHub Pages project build.
+// The config records the active base path, so a worker with a filtered
+// environment cannot check the wrong artifact.
+function activeBasePath(testInfo: TestInfo): string {
+	const configured = testInfo.config.metadata.basePath;
+	return typeof configured === 'string' ? configured : (process.env.BASE_PATH ?? '');
+}
+
+function activeAppPath(testInfo: TestInfo): string {
+	return `${activeBasePath(testInfo)}/`;
+}
 
 /**
  * §1.2 - PWA installation regression test.
@@ -12,8 +24,8 @@ import { expect, test } from '@playwright/test';
  * Run this test against the build, where the server emits the actual manifest.
  */
 test.describe('PWA - manifest', () => {
-	test('links the document to the manifest', async ({ page }) => {
-		await page.goto('/');
+	test('links the document to the manifest', async ({ page }, testInfo) => {
+		await page.goto(activeAppPath(testInfo));
 
 		const manifestLink = page.locator('head link[rel="manifest"]');
 		await expect(manifestLink).toHaveCount(1);
@@ -23,20 +35,26 @@ test.describe('PWA - manifest', () => {
 		expect(href).toContain('manifest.webmanifest');
 	});
 
-	test('does not request the deprecated translucent status bar', async ({ page }) => {
-		await page.goto('/');
+	test('does not request the deprecated translucent status bar', async ({ page }, testInfo) => {
+		await page.goto(activeAppPath(testInfo));
 		await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveCount(0);
 	});
 
-	test('serves a valid manifest with a name and icons', async ({ page, request }) => {
-		await page.goto('/');
+	test('serves a stable manifest identity for the active base path', async ({
+		page,
+		request
+	}, testInfo) => {
+		const basePath = activeBasePath(testInfo);
+		const appPath = activeAppPath(testInfo);
+		await page.goto(appPath);
 		const href = await page.locator('head link[rel="manifest"]').getAttribute('href');
 		expect(href).toBeTruthy();
 
-		const res = await request.get(new URL(href as string, page.url()).toString());
-		expect(res.ok(), `manifest non servi (HTTP ${res.status()})`).toBeTruthy();
+		const manifestUrl = new URL(href as string, page.url()).toString();
+		const response = await request.get(manifestUrl);
+		expect(response.ok(), `manifest non servi (HTTP ${response.status()})`).toBeTruthy();
 
-		const manifest = (await res.json()) as {
+		const manifest = (await response.json()) as {
 			name?: string;
 			id?: string;
 			start_url?: string;
@@ -46,13 +64,67 @@ test.describe('PWA - manifest', () => {
 		expect(manifest.name).toBeTruthy();
 		expect(Array.isArray(manifest.icons) && manifest.icons.length).toBeGreaterThan(0);
 
-		const manifestUrl = new URL(href as string, page.url()).toString();
 		const appRoot = new URL('.', page.url()).toString();
-		expect(manifest.id).toBe('/');
+		expect(manifest.id, 'The identity must follow the active build base path.').toBe(appPath);
 		for (const key of ['id', 'start_url', 'scope'] as const) {
 			expect(manifest[key], `manifest ${key} absent`).toBeTruthy();
 			expect(new URL(manifest[key] as string, manifestUrl).toString()).toBe(appRoot);
 		}
+
+		// The service worker scope is the navigation boundary, not the install
+		// identity. It must still cover the same app root.
+		const workerScope = await page.evaluate(async () => {
+			const registration = await navigator.serviceWorker.ready;
+			return registration.scope;
+		});
+		expect(new URL(workerScope).toString()).toBe(appRoot);
+
+		// A second read must return the same identity. A request-dependent value
+		// would give an unstable installed-app identity.
+		const second = (await (await request.get(manifestUrl)).json()) as { id?: string };
+		expect(second.id).toBe(manifest.id);
+
+		if (basePath !== '') {
+			expect(manifest.id, 'The project path must not use the origin root identity.').not.toBe('/');
+			expect(new URL(manifest.id as string, manifestUrl).toString()).not.toBe(
+				new URL('/', manifestUrl).toString()
+			);
+		}
+
+		// The HTTP response is the emitted artifact. Compare it with the file that
+		// the build wrote, so a stale source manifest cannot satisfy the case.
+		const emitted = JSON.parse(await readFile('build/manifest.webmanifest', 'utf8')) as {
+			id?: string;
+		};
+		expect(
+			emitted.id,
+			'Serve build/ directly with E2E_STATIC_PREVIEW=1 to check the emitted manifest.'
+		).toBe(manifest.id);
+
+		await testInfo.attach('manifest-identity.json', {
+			body: JSON.stringify(
+				{
+					basePath,
+					appPath,
+					manifestUrl,
+					manifest: {
+						id: manifest.id,
+						start_url: manifest.start_url,
+						scope: manifest.scope
+					},
+					resolved: {
+						id: new URL(manifest.id as string, manifestUrl).toString(),
+						start_url: new URL(manifest.start_url as string, manifestUrl).toString(),
+						scope: new URL(manifest.scope as string, manifestUrl).toString()
+					},
+					appRoot,
+					workerScope
+				},
+				null,
+				2
+			),
+			contentType: 'application/json'
+		});
 	});
 });
 
@@ -74,7 +146,7 @@ test.describe('PWA - offline startup from the precache', () => {
 		browser
 	}, testInfo) => {
 		// 1. Load online to register the service worker and fill the precache.
-		await page.goto('/');
+		await page.goto(activeAppPath(testInfo));
 
 		// Wait for an active service worker. Its install step fills the precache before
 		// `ready` resolves.
@@ -147,9 +219,10 @@ test.describe('PWA - offline startup from the precache', () => {
 test('recovers two dirty clients after a real update and persistence failure', async ({
 	browser
 }, testInfo) => {
+	const basePath = activeBasePath(testInfo);
 	const { resolve } = await import('node:path');
 	const { createPwaUpdateServer } = await import('./pwa-update-server');
-	const server = await createPwaUpdateServer(resolve('build'));
+	const server = await createPwaUpdateServer(resolve('build'), basePath);
 	const context = await browser.newContext({ locale: 'fr-FR' });
 	await context.addInitScript(() => {
 		localStorage.setItem('mdsh:locale', 'fr');
@@ -157,14 +230,14 @@ test('recovers two dirty clients after a real update and persistence failure', a
 	});
 	try {
 		const first = await context.newPage();
-		await first.goto(server.origin);
+		await first.goto(`${server.origin}${basePath}/`);
 		await first.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 		await first.reload();
 		await expect.poll(() => first.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 		await createFirstFile(first);
 		await writeSourceContent(first, '# Premier, état durable');
 		const second = await context.newPage();
-		await second.goto(server.origin);
+		await second.goto(`${server.origin}${basePath}/`);
 		await second.locator('aside button[aria-label^="Nouveau fichier"]').click();
 		await second.getByTestId('create-note').click();
 		await writeSourceContent(second, '# Second, état durable');

@@ -111,6 +111,58 @@ test('serves the expected Web release and keeps a draft offline', async ({
 		await testInfo.attach('page.html', { body: html, contentType: 'text/html' });
 		expect.soft(htmlSha256, 'The page HTML must match the expected release.').toBe(expectedHtmlSha);
 		await expect(page.locator('.mdsh-shell[aria-busy="false"]:not([inert])')).toBeVisible();
+		const appRoot = new URL('.', baseURL).href;
+		await test.step('Verify the served manifest identity', async () => {
+			const href = await page.locator('head link[rel="manifest"]').getAttribute('href');
+			expect(href, 'The served document must link the manifest.').toBeTruthy();
+			const manifestUrl = new URL(href as string, page.url()).href;
+			const manifestResponse = await request.get(manifestUrl, { timeout: 30_000 });
+			expect(manifestResponse.ok(), `manifest HTTP ${manifestResponse.status()}`).toBe(true);
+			const manifest = (await manifestResponse.json()) as {
+				id?: string;
+				start_url?: string;
+				scope?: string;
+			};
+			const identity = {
+				id: manifest.id,
+				start_url: manifest.start_url,
+				scope: manifest.scope
+			};
+			const resolved = {
+				id: new URL(manifest.id as string, manifestUrl).href,
+				start_url: new URL(manifest.start_url as string, manifestUrl).href,
+				scope: new URL(manifest.scope as string, manifestUrl).href
+			};
+			const expectedId = `${expectedBasePath}/`;
+			expect.soft(manifest.id, 'The manifest identity must follow the base path.').toBe(expectedId);
+			for (const key of ['id', 'start_url', 'scope'] as const) {
+				expect
+					.soft(resolved[key], `The manifest ${key} must resolve to the app root.`)
+					.toBe(appRoot);
+			}
+			if (expectedBasePath !== '') {
+				expect
+					.soft(manifest.id, 'The project path must not use the origin root identity.')
+					.not.toBe('/');
+				expect
+					.soft(resolved.id, 'The project identity must not resolve to the origin root.')
+					.not.toBe(new URL('/', manifestUrl).href);
+			}
+			const second = (await (await request.get(manifestUrl, { timeout: 30_000 })).json()) as {
+				id?: string;
+			};
+			expect
+				.soft(second.id, 'The manifest identity must be stable between reads.')
+				.toBe(manifest.id);
+			await testInfo.attach('manifest-identity.json', {
+				body: JSON.stringify(
+					{ manifestUrl, expectedId, identity, resolved, appRoot, secondId: second.id },
+					null,
+					2
+				),
+				contentType: 'application/json'
+			});
+		});
 		await page.getByTestId('welcome-new').click();
 		await page.getByTestId('create-note').click();
 		await expect(page.locator('input[aria-label^="File name"]')).toBeVisible();
@@ -131,6 +183,13 @@ test('serves the expected Web release and keeps a draft offline', async ({
 			timeout: 90_000
 		});
 		await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+		const workerScope = await page.evaluate(
+			async () => (await navigator.serviceWorker.ready).scope
+		);
+		const appRoot = new URL('.', baseURL).href;
+		expect
+			.soft(new URL(workerScope).href, 'The service worker must cover the app root.')
+			.toBe(appRoot);
 		await page.reload();
 		await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 		await expect(page.locator('.mdsh-shell[aria-busy="false"]:not([inert])')).toBeVisible();
@@ -149,6 +208,18 @@ test('serves the expected Web release and keeps a draft offline', async ({
 			)
 			.toBe(fixture);
 		await expect(page.locator('#app-statusbar')).toContainText('Local drafts: saved');
+
+		// A manifest shortcut is a query deep link. It must still reach the cached
+		// app shell without a server route.
+		const shortcutUrl = new URL('?action=new', baseURL).href;
+		await page.goto(shortcutUrl);
+		await expect(page.locator('.mdsh-shell[aria-busy="false"]:not([inert])')).toBeVisible();
+		// The app consumes the shortcut action and removes the transient query.
+		expect(new URL(page.url()).pathname).toBe(new URL(baseURL).pathname);
+		await testInfo.attach('offline-shortcut.json', {
+			body: JSON.stringify({ shortcutUrl, reachedUrl: page.url(), workerScope, appRoot }),
+			contentType: 'application/json'
+		});
 		await testInfo.attach('offline-draft.png', {
 			body: await page.screenshot(),
 			contentType: 'image/png'

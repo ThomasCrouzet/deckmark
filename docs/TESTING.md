@@ -863,6 +863,9 @@ Record these risks before changes to the deployment workflow or production check
 - Missing Cloudflare credentials can silently skip the mirror deployment unless
   the deployment fails explicitly.
 - A wrong base path can produce a blank offline shell or an empty precache.
+- A manifest identity that resolves to the shared origin root can collide with
+  another installed project application. Check the emitted `id` at each base
+  path, not only the source manifest.
 - A service worker with the wrong scope can lose deep-link refresh and offline
   first use. An old worker can also keep stale application assets.
 - An absolute asset URL can work on one host and fail on the other.
@@ -916,11 +919,25 @@ Run these checks in a fresh browser profile for each base path:
    and `/deckmark/` for the project build. Its effective `start_url` and `scope`
    must match the same app root. The two IDs must differ.
 
-`scripts/manifest-id.test.mjs` applies the build emitter to both base paths and
-resolves the three URLs against the public manifest URL. The manifest case in
-`e2e/pwa.spec.ts` checks the root artifact. After a real project-path build, run
-`BASE_PATH=/deckmark npm run build` and read `build/manifest.webmanifest`. A
-published identity change also needs the reinstall check in
+`e2e/pwa.spec.ts` checks the emitted artifact for one build at a time. Set
+`E2E_STATIC_PREVIEW=1` so the server reads `build/` directly. Vite preview
+resolves `manifest.webmanifest` from `static/`, so it cannot prove the emitted
+identity. Run the two base paths separately:
+
+```sh
+E2E_STATIC_PREVIEW=1 BASE_PATH='' npx playwright test e2e/pwa.spec.ts --project=chromium --workers=1 --retries=0
+E2E_STATIC_PREVIEW=1 BASE_PATH=/deckmark npx playwright test e2e/pwa.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The case reads the served manifest and `build/manifest.webmanifest`, resolves
+`id`, `start_url` and `scope` through the manifest URL, reads the identity twice,
+and checks the service worker scope. The offline case writes and exports a note
+from the active base path. The update case rewrites the real service worker for
+that base path. `scripts/manifest-id.test.mjs` keeps the build emitter contract
+for both bases. The production suite repeats the manifest and worker scope
+checks on both public origins.
+
+A published identity change also needs the reinstall check in
 [EDITIONS.md](EDITIONS.md#hosting-and-downloads). An installed copy with the
 earlier identity can remain separate; browser storage is origin-local and must
 keep the drafts.

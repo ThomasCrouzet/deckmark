@@ -3,11 +3,18 @@ import { defineConfig, devices } from '@playwright/test';
 import { testSource } from './scripts/test-source.mjs';
 
 const e2ePort = process.env.E2E_PORT ?? '4173';
-const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
+// A project-site run selects the GitHub Pages base path. The build, preview
+// server and Playwright base URL must use the same value so a manifest identity
+// test cannot pass against the wrong artifact.
+const basePath = process.env.BASE_PATH ?? '';
+const e2eBaseUrl = `http://127.0.0.1:${e2ePort}${basePath}/`;
 // A prebuilt run reuses one verified instrumented build across shards.
 // The provenance check fails before the preview server starts when the
 // artifact, its inputs or its source do not match this checkout.
 const prebuilt = process.env.E2E_PREBUILT === '1';
+// Vite preview resolves `manifest.webmanifest` from `static/`, not from the
+// emitted `build/` file. A built-artifact case must serve `build/` directly.
+const staticPreview = process.env.E2E_STATIC_PREVIEW === '1';
 // A balanced shard records the partition identity in its reports. The
 // manifest check compares this identity with the planned shard list, so a
 // stale selection cannot pass as the current partition.
@@ -33,6 +40,8 @@ export default defineConfig({
 		...testSource(),
 		nodeVersion: process.version,
 		prebuilt,
+		staticPreview,
+		basePath,
 		partition,
 		repeatCommand: 'npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels"'
 	},
@@ -194,9 +203,13 @@ export default defineConfig({
 	webServer: {
 		env: { VITE_SOURCE_FIDELITY_METRICS: '1' },
 		command: prebuilt
-			? `node scripts/build-provenance.mjs verify --kind e2e --instrumentation source-fidelity && node scripts/preview-build.mjs --host 127.0.0.1 --port ${e2ePort}`
-			: `npm run build && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
-		url: e2eBaseUrl,
+			? `node scripts/build-provenance.mjs verify --kind e2e --instrumentation source-fidelity && node scripts/preview-build.mjs --host 127.0.0.1 --port ${e2ePort} --base-path ${basePath}`
+			: staticPreview
+				? `npm run build && node scripts/preview-build.mjs --host 127.0.0.1 --port ${e2ePort} --base-path ${basePath}`
+				: `npm run build && npm run preview -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
+		// The SvelteKit preview server answers HEAD with 404 for the HTML route but
+		// with 200 for a static file. Use the emitted manifest as the readiness URL.
+		url: `${e2eBaseUrl}manifest.webmanifest`,
 		// Do not reuse an unknown server.
 		// Another project on this port would make the tests check the wrong application.
 		reuseExistingServer: false,
