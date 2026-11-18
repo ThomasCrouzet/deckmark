@@ -193,6 +193,72 @@ test('saves a changed read position when the document becomes hidden without pag
 	await info.attach('read-hidden.png', { body: await page.screenshot() });
 });
 
+test('keeps the pagehide, unmount and file-switch saves for the read position', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	const alpha = longNote('Alpha lifecycle');
+	const beta = longNote('Beta lifecycle');
+	await resetAppState(page);
+	await seedFiles(page, [
+		{ name: 'Alpha.md', content: alpha },
+		{ name: 'Beta.md', content: beta }
+	]);
+	await openReadMode(page);
+	await expect(page.locator('.mdsh-preview')).toContainText('Beta lifecycle');
+	const betaId = await activeFileId(page);
+
+	// `pagehide` remains a fallback after the hidden handler. It must write the
+	// live offset and must not move the document.
+	const pagehideTop = await setReadScroll(page, 1800);
+	expect(await savedReadTop(page, betaId)).toBeNull();
+	await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+	await expect.poll(() => savedReadTop(page, betaId)).not.toBeNull();
+	expect(Math.abs((await savedReadTop(page, betaId))! - pagehideTop)).toBeLessThanOrEqual(1);
+	expect(Math.abs((await readScroll(page)) - pagehideTop)).toBeLessThanOrEqual(1);
+
+	// A file switch saves the position of the file that leaves the viewport.
+	const switchTop = await setReadScroll(page, 2400);
+	await page.locator('aside button[data-file-id]').filter({ hasText: 'Alpha' }).click();
+	await expect(page.locator('.mdsh-preview')).toContainText('Alpha lifecycle', { timeout: 30_000 });
+	const alphaId = await activeFileId(page);
+	expect(Math.abs((await savedReadTop(page, betaId))! - switchTop)).toBeLessThanOrEqual(1);
+
+	// Destroying the view saves the active file before the scroller disappears.
+	const unmountTop = await setReadScroll(page, 2000);
+	await page.locator('button[data-mode="source"]').click();
+	await expect(page.locator('.cm-content')).toBeVisible({ timeout: 30_000 });
+	await expect.poll(() => savedReadTop(page, alphaId)).not.toBeNull();
+	expect(Math.abs((await savedReadTop(page, alphaId))! - unmountTop)).toBeLessThanOrEqual(1);
+
+	// Reopening the view restores that saved offset for the same file.
+	await page.locator('button[data-mode="read"]').click();
+	await expect(page.locator('.mdsh-preview')).toContainText('Alpha lifecycle', { timeout: 30_000 });
+	await expect
+		.poll(() => readScroll(page), { timeout: 15_000 })
+		.toBeGreaterThanOrEqual(unmountTop - 2);
+	const restored = await readScroll(page);
+	expect(Math.abs(restored - unmountTop)).toBeLessThanOrEqual(2);
+	expect(await activeFileId(page)).toBe(alphaId);
+
+	await info.attach('read-lifecycle-saves.json', {
+		body: JSON.stringify({
+			activeFileId: alphaId,
+			previousFileId: betaId,
+			pagehideTop,
+			fileSwitchTop: switchTop,
+			unmountTop,
+			restoredTop: restored,
+			storageKey: STORAGE_KEY,
+			fixture: {
+				alphaSha256: createHash('sha256').update(alpha).digest('hex'),
+				betaSha256: createHash('sha256').update(beta).digest('hex')
+			}
+		}),
+		contentType: 'application/json'
+	});
+});
+
 test('restores the saved read position after a reload that keeps sessionStorage', async ({
 	page
 }, info) => {
