@@ -1493,8 +1493,12 @@ buttons stay available when the note is scrollable.
 `e2e/scroll-nav-scope.spec.ts` checks both boundaries in a long note, then the
 same keys with Settings open, with an outside field focused, during a synthetic
 composition, and in a short note. It records `defaultPrevented` and the scroller
-position. Synthetic events and desktop emulation do not prove a physical iPad
-keyboard, a screen reader or a native WebView.
+position. A second case checks the keyboard in Edit and Read and the pointer
+buttons in Read. A third case checks a long note after a mode switch, a short
+second note after a file switch, an orientation change and a presentation
+workspace switch, then the same note again. Synthetic events and desktop
+emulation do not prove a physical iPad keyboard, a screen reader or a native
+WebView.
 
 Run `npx playwright test e2e/scroll-nav-scope.spec.ts --project=chromium --workers=1 --retries=0`.
 
@@ -3354,7 +3358,11 @@ failures through the operating system.
 - Reading mode must restore list markers removed by the global CSS reset. Check nested
   bullets, ordered-list start values, and task lists without duplicate markers.
 - A Safari-compatible user agent can report a Linux keyboard platform. Prefer the platform
-  for shortcut labels and keep native Control-only handling inside Desktop.
+  for shortcut labels. App commands use one primary modifier: Command on a Mac-reported
+  platform and Control on Windows and Linux. `keyboard-platform.spec.ts` holds a Mac-reported
+  web case that rejects Control-only N/O/E/F in Source and Edit, keeps the editor Control
+  bindings, and checks the Command mode, find and new commands, the Control+Tab file
+  exception, a custom binding, dialog focus and composition.
 - The offline status label can change between pointer movement and a click.
   Keep the mode buttons at the same position through service worker activation.
   `toolbar-stability.spec.ts` holds real registration, then checks geometry and
