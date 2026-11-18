@@ -126,6 +126,14 @@ test('the required dependency-audit job is not skipped by a failed classifier', 
 	assert.doesNotMatch(job, /node-version: 22/);
 });
 
+test('the npm audit covers the production tree and keeps the high level', () => {
+	const audit = stepRun(jobBlock(SECURITY, 'dependency-audit'), 'Audit npm dependency tree');
+	assert.match(audit, /npm audit --audit-level=high --omit=dev/);
+	// A lower level or a full-tree audit changes the required check result.
+	assert.doesNotMatch(audit, /--audit-level=(low|moderate|critical)/);
+	assert.doesNotMatch(audit, /npm audit --audit-level=high\s*$/m);
+});
+
 test('the security scope job uses the classified change set', () => {
 	const job = jobBlock(SECURITY, 'security-scope');
 	assert.match(job, /fetch-depth: 0/);

@@ -453,11 +453,15 @@ protection.
 The exact audit commands are:
 
 ```sh
-npm audit --audit-level=high
+npm audit --audit-level=high --omit=dev
 node scripts/vendor-glib.mjs --check
 bash scripts/ci-security-cargo-audit.sh ensure
 bash scripts/ci-security-cargo-audit.sh audit src-tauri/Cargo.lock
 ```
+
+The npm audit covers the production dependency tree. Development-only
+transitive packages are out of scope, because the shipped application does not
+install them. The audit keeps the high level and fails the required job.
 
 The JavaScript CodeQL job always runs for JavaScript and TypeScript. The Rust
 CodeQL job runs only when the scope requests it and uses build mode `none` with
