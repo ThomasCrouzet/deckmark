@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { X } from '@lucide/svelte';
-	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { db, newId, type CommentRow } from '#lib/db.js';
 	import {
@@ -215,7 +215,7 @@
 />
 
 {#if open}
-	<div class="comments-backdrop">
+	<div class="comments-backdrop" use:visualViewportPanel={'.comments-panel'}>
 		<div
 			class="comments-panel"
 			role="dialog"

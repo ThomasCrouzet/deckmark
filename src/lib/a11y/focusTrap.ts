@@ -178,12 +178,14 @@ export function focusTrap(node: HTMLElement, params?: FocusTrapParams) {
  * Keep a fixed dialog inside the visible viewport when an on-screen keyboard,
  * browser chrome or pinch zoom changes the visual viewport. A fixed overlay
  * follows the layout viewport, so the focused field and the close control can
- * stay under the keyboard without this correction.
+ * stay under the keyboard without this correction. The optional parameter
+ * selects the panel element inside the overlay; the shared class is the
+ * default.
  */
-export const visualViewportPanel: Action<HTMLElement> = (node) => {
+export const visualViewportPanel: Action<HTMLElement, string | undefined> = (node, selector) => {
 	let frame = 0;
 	const viewport = window.visualViewport;
-	const panel = () => node.querySelector<HTMLElement>('.mdsh-dialog-panel');
+	const panel = () => node.querySelector<HTMLElement>(selector ?? '.mdsh-dialog-panel');
 	const clear = () => {
 		node.style.removeProperty('top');
 		node.style.removeProperty('height');
