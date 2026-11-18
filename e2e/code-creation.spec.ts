@@ -91,6 +91,9 @@ test('returns focus to Create Code after Escape closes the code form', async ({ 
 	await expect(codeButton).toHaveAttribute('aria-expanded', 'false');
 	await expect(codeButton).toBeFocused();
 
+	// The surviving dialog order is Note, Presentation, Code, JSON. Forward Tab
+	// from the Create Code disclosure reaches the next sibling card, and reverse
+	// Tab reaches the previous card.
 	await page.keyboard.press('Tab');
 	const nextFocus = await page.evaluate(() => {
 		const active = document.activeElement;
@@ -101,19 +104,20 @@ test('returns focus to Create Code after Escape closes the code form', async ({ 
 		};
 	});
 	expect(nextFocus.insideDialog).toBe(true);
-	expect(nextFocus.tag).not.toBe('BODY');
+	expect(nextFocus.testId).toBe('create-json');
 
 	await codeButton.focus();
 	await page.keyboard.press('Shift+Tab');
 	const reverseFocus = await page.evaluate(() => {
 		const active = document.activeElement;
 		return {
+			testId: active instanceof HTMLElement ? (active.dataset.testid ?? null) : null,
 			tag: active?.tagName ?? null,
 			insideDialog: !!active?.closest('[role="dialog"]')
 		};
 	});
 	expect(reverseFocus.insideDialog).toBe(true);
-	expect(reverseFocus.tag).not.toBe('BODY');
+	expect(reverseFocus.testId).toBe('create-presentation');
 
 	await codeButton.focus();
 	await page.keyboard.press('Enter');
@@ -140,6 +144,11 @@ test('returns focus to Create Code at a narrow viewport', async ({ page }, info)
 	await page.keyboard.press('Escape');
 	await expect(codeButton).toBeFocused();
 	await expect(codeButton).toHaveAttribute('aria-expanded', 'false');
+	await page.keyboard.press('Tab');
+	await expect(page.getByTestId('create-json')).toBeFocused();
+	await codeButton.focus();
+	await page.keyboard.press('Shift+Tab');
+	await expect(page.getByTestId('create-presentation')).toBeFocused();
 	const dialogBox = await page.getByRole('dialog').boundingBox();
 	expect(dialogBox).not.toBeNull();
 	expect(dialogBox!.width).toBeLessThanOrEqual(375);
@@ -247,6 +256,102 @@ test('does not refocus a removed code form after an early close', async ({ page 
 	await info.attach('code-form-early-close.json', {
 		body: JSON.stringify({ activeTestId: 'create-code', delayMs: 250 }),
 		contentType: 'application/json'
+	});
+});
+
+test('resets the code draft and validation warning on reopen', async ({ page }, info) => {
+	await resetAppState(page);
+	await openNewDocument(page);
+	const codeButton = page.getByTestId('create-code');
+	await codeButton.click();
+	await page.getByTestId('create-code-language').selectOption('python');
+	await page.getByTestId('create-code-name').fill('wrong.rs');
+	const error = page.getByTestId('create-code-error');
+	await expect(error).toBeVisible();
+	await expect(page.getByTestId('create-code-submit')).toBeDisabled();
+
+	await page.getByTestId('create-code-cancel').click();
+	await expect(codeButton).toBeFocused();
+	await expect(error).toHaveCount(0);
+
+	// A new open starts from the suggested plain-text draft. The earlier typed
+	// name and the extension warning do not persist.
+	await codeButton.click();
+	await expect(page.getByTestId('create-code-language')).toHaveValue('plain');
+	await expect(page.getByTestId('create-code-name')).toHaveValue(/\.txt$/);
+	await expect(page.getByTestId('create-code-error')).toHaveCount(0);
+	await expect(page.getByTestId('create-code-submit')).toBeEnabled();
+	expect(await page.getByTestId('code-editor').count()).toBe(0);
+
+	await info.attach('code-form-reset.json', {
+		body: JSON.stringify({
+			previousDraft: 'wrong.rs',
+			reopenedLanguage: 'plain',
+			reopenedName: await page.getByTestId('create-code-name').inputValue(),
+			validationErrorCount: 0,
+			codeEditors: 0
+		}),
+		contentType: 'application/json'
+	});
+});
+
+test('keeps focus in the code file name field after switching inputs', async ({ page }, info) => {
+	await resetAppState(page);
+	await openNewDocument(page);
+	await page.getByTestId('create-code').click();
+	await expect(page.getByTestId('create-code-language')).toBeFocused();
+
+	// Switch from the language select to the file name input before the
+	// scheduled language focus can run.
+	const name = page.getByTestId('create-code-name');
+	await page.keyboard.press('Tab');
+	await expect(name).toBeFocused();
+	await page.evaluate(
+		() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+	);
+	await expect(name).toBeFocused();
+	await page.keyboard.insertText('focus.txt');
+	await expect(name).toHaveValue('focus.txt');
+	await expect(page.getByTestId('create-code-error')).toHaveCount(0);
+
+	await info.attach('code-form-input-switch.json', {
+		body: JSON.stringify({
+			focusedAfterFrames: 'create-code-name',
+			name: await name.inputValue(),
+			validationErrorCount: 0
+		}),
+		contentType: 'application/json'
+	});
+});
+
+test.describe('touch activation', () => {
+	test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+	test('returns focus to Create Code after a tap on Cancel', async ({ page }, info) => {
+		await resetAppState(page);
+		await page.getByTestId('welcome-new').tap();
+		await expect(page.getByTestId('create-note')).toBeVisible();
+		const codeButton = page.getByTestId('create-code');
+		await codeButton.tap();
+		await expect(page.getByTestId('create-code-language')).toBeFocused();
+		await page.getByTestId('create-code-name').fill('tap.py');
+
+		await page.getByTestId('create-code-cancel').tap();
+		await expect(page.getByTestId('create-code-submit')).toHaveCount(0);
+		await expect(codeButton).toBeFocused();
+		await expect(codeButton).toHaveAttribute('aria-expanded', 'false');
+		expect(await page.getByTestId('code-editor').count()).toBe(0);
+
+		await info.attach('code-form-touch-cancel.json', {
+			body: JSON.stringify({
+				viewport: '390x844',
+				hasTouch: true,
+				activation: 'tap',
+				activeTestId: 'create-code',
+				codeEditors: 0
+			}),
+			contentType: 'application/json'
+		});
 	});
 });
 
