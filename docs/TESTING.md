@@ -852,20 +852,40 @@ metadata Worker baseline. The retained risks are one owner that survives the
 close, a body that returns with different bytes, a metadata source that is
 re-parsed from the empty placeholder and replaces the tags, an eviction that
 drops a pending or failed write, and a pin that does not stop an eviction during
-an export.
+an export. Two more risks apply to the derived metadata: a main-thread projection
+cache that counts entries instead of bytes, and an older durable projection that
+returns after a hydrated note changes its title.
 
 `e2e/document-memory.spec.ts` reads the local `window.__MDSH_DOCUMENT_MEMORY__`
 probe. The probe reports logical characters and UTF-16 bytes per owner, the
-lifecycle state, the pin owners, the eviction and rehydration counters and the
-Chromium heap values when the browser exposes them. The spec checks that a
-durable close releases every owner and that the reopened export keeps exact
-bytes. It seeds 12 closed notes of 512 KiB, reloads, and requires the closed
-body budget to hold with evicted owners at zero. It also checks a disk-dirty but
-durable note: the dirty flag stays and the body is released. A failed local
-write keeps its body and its failure until a durable retry succeeds. A full
-library export pins every body and releases the pins when the archive is
-complete. These sizes are logical counts. They are not heap or RSS
+lifecycle state, the pending flag, the pin owners, the eviction and rehydration
+counters and the Chromium heap values when the browser exposes them. The spec
+checks that a durable close releases every owner and that the reopened export
+keeps exact bytes. It seeds 12 closed notes of 512 KiB, reloads, and requires
+the closed body budget to hold with evicted owners at zero. It also checks a
+disk-dirty but durable note: the dirty flag stays and the body is released. A
+failed local write keeps its body and its failure until a durable retry
+succeeds. A full library export pins every body and releases the pins when the
+archive is complete. These sizes are logical counts. They are not heap or RSS
 measurements.
+
+The metadata case imports two notes above the closed body budget. It records a
+selection and a scroll offset, closes and evicts both notes, then checks that:
+
+- the library filter finds the closed note by its YAML tag and by its title;
+- the reopened note shows its own title and the backlink from the other
+  evicted note;
+- the selection and the scroll offset return after the deferred body hydrates;
+- undo in the reopened note changes only that note, and the other note keeps
+  its exact bytes; redo restores the accepted bytes;
+- after a title edit and a second eviction, the filter finds the new title and
+  not the old one.
+
+The projection state cache in `src/lib/draft-metadata.ts` now keeps a measured
+UTF-16 byte budget, `DOCUMENT_MEMORY.projectionBytes`. One source larger than the
+budget stays so the active note keeps its incremental chain. A rehydrated body
+drops the older durable projection, so the next eviction derives it from the
+current row.
 
 Run:
 
@@ -873,12 +893,46 @@ Run:
 npx playwright test e2e/document-memory.spec.ts --project=chromium --workers=1 --retries=0
 ```
 
-Keep the attached `document-memory-owners.json`, `document-memory-budget.json`
-and `document-memory-disk-dirty.json` with the source revision, the browser
-version, the command and the fixture sizes. The spec does not cover a physical
-device, a native WebView, concurrent export pressure or a measured heap plateau.
-The full 100 note by 5 MiB profile belongs to the benchmark and native lanes in
-issue 327.
+Keep the attached `document-memory-owners.json`, `document-memory-budget.json`,
+`document-memory-disk-dirty.json` and `document-memory-eviction-metadata.json`
+with the source revision, the browser version, the command and the fixture
+sizes.
+
+### Retained heap plateau over 100 large notes
+
+`e2e/document-memory-plateau.spec.ts` covers the measured heap criterion of
+issue 373. It seeds 100 distinct closed notes of 5 MiB of ASCII text through the
+application draft hooks. Each iteration opens one note, inserts a marker at the
+end, waits for the durable local save, closes the note and waits for the body
+eviction. After each close it calls the Chromium DevTools protocol
+`HeapProfiler.collectGarbage` and `Runtime.getHeapUsage` and records the used V8
+heap. The case attaches every raw sample and the logical owners.
+
+The bounds are explicit: the mean of the last 20 samples may exceed the mean of
+samples 10 to 29 by at most 32 MiB, and the least-squares slope after the first
+10 samples may be at most 256 KiB per iteration. A leak of one 5 MiB source per
+visit adds about 10 MiB of UTF-16 text and crosses both bounds. The case also
+requires all 100 notes to be deferred with zero logical owners and at least 100
+evictions and 100 rehydrations. A local Chromium run measured a 0.84 MiB window
+growth and a 0.01 MiB slope. The result depends on the device, the browser
+version and the V8 heap layout. It is a page main-heap result, not Worker heap
+or process RSS.
+
+Run:
+
+```sh
+npx playwright test e2e/document-memory-plateau.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep `document-memory-plateau.json` with the source revision, the browser
+version, the command, the seeding method, the bounds, the per-iteration samples
+and the final owner counters.
+
+The specs do not cover a physical device, a native WebView, concurrent export
+pressure, a Firefox or WebKit heap counter, or process RSS. Physical iPhone and
+iPad, Windows WebView2, macOS WKWebView and Linux WebKitGTK memory checks remain
+DEVICE_ONLY manual procedures.
+
 
 `cli/mcp.test.ts` starts the real Node server with temporary filesystem roots.
 It checks sensitive symlink targets, ambiguous paths across roots, malformed

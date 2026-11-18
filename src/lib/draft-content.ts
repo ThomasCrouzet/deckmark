@@ -29,6 +29,9 @@ export function applyDraftContent(file: FileItem, row: DraftRow): void {
 	else delete file.relativePath;
 	file.updatedAt = row.updatedAt;
 	file.contentDeferred = false;
+	// The exact body is resident again. A later eviction derives a fresh
+	// projection from the current row instead of a stale older one.
+	delete file.derivedMetadata;
 }
 
 /** Reads the exact bodies that the search worker needs and keeps them out of the store. */

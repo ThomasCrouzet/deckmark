@@ -31,7 +31,9 @@ export type PinOwner = 'export' | 'history' | 'backup' | 'search' | 'ai' | 'proj
 export const DOCUMENT_MEMORY = {
 	closedBodyBytes: 2 * 1024 * 1024,
 	metadataBaselineBytes: 16 * 1024 * 1024,
-	metadataBaselineEntries: 64
+	metadataBaselineEntries: 64,
+	/** Main-thread projection states. One source above this budget stays. */
+	projectionBytes: 8 * 1024 * 1024
 } as const;
 
 /** JavaScript strings are UTF-16 code unit sequences. */
