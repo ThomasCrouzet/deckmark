@@ -80,6 +80,19 @@ export async function editSentence(page: Page, before: string, after: string, pa
 	await expect(editor).toContainText(after);
 }
 
+/**
+ * Put the caret exactly before the first character of `text` so a key press
+ * splits the block at that point. A range selection collapses to its start.
+ */
+export async function placeCaretBefore(page: Page, text: string) {
+	const editor = page.locator('.ProseMirror');
+	await selectText(page, editor, text);
+	await page.keyboard.press('ArrowLeft');
+	await expect
+		.poll(() => page.evaluate(() => window.getSelection()?.isCollapsed ?? false))
+		.toBe(true);
+}
+
 export async function exportSource(page: Page, name?: string): Promise<string> {
 	await openPalette(page);
 	await page.getByRole('dialog').getByRole('combobox').fill('Exporter tous les fichiers (ZIP)');

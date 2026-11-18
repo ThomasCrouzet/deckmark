@@ -426,13 +426,20 @@ export class SourceFidelity {
 		if (after.length === 0) return null;
 		const trimmed = nextText.replace(/\s+$/, '');
 		if (start(after[0]!) !== 0 || end(after[after.length - 1]!) !== trimmed.length) return null;
+		let plain = true;
 		for (let index = from; index < oldEnd; index += 1) {
 			const block = before[index]!;
 			const original = originals[index]!;
 			const value = this.plainText(block);
 			const sourceValue = original ? this.plainText(original) : null;
-			if (value === null || sourceValue === null || sourceValue !== value) return null;
-			if (this.source.slice(start(original!), end(original!)) !== sourceValue) return null;
+			if (value === null || sourceValue === null || sourceValue !== value) {
+				plain = false;
+				break;
+			}
+			if (this.source.slice(start(original!), end(original!)) !== sourceValue) {
+				plain = false;
+				break;
+			}
 		}
 		const sourceIndex = this.originalIndex(originals[from]!);
 		if (sourceIndex < 0) return null;
@@ -446,6 +453,25 @@ export class SourceFidelity {
 		if (/\n\s*$/.test(nextText)) {
 			const gapEnd = oldEnd < originals.length ? start(originals[oldEnd]!) : this.source.length;
 			if (this.definitionBetween(sourceTo, gapEnd)) return null;
+		}
+		if (!plain) {
+			// A paragraph with inline marks can split into two blocks. Keep the
+			// original syntax of both halves and insert only the paragraph break.
+			const mixed = this.restoreMixedSplit(
+				markdown,
+				nextText,
+				trimmed,
+				after,
+				from,
+				oldEnd,
+				before,
+				originals,
+				hint,
+				sourceIndex,
+				sourceFrom,
+				sourceTo
+			);
+			return mixed;
 		}
 		const inserted = this.lineEndings(nextText);
 		const result = this.source.slice(0, sourceFrom) + inserted + this.source.slice(sourceTo);
@@ -470,6 +496,186 @@ export class SourceFidelity {
 			previousTo: sourceTo,
 			nextFrom: sourceFrom,
 			nextTo: sourceFrom + inserted.length
+		};
+	}
+
+	/** Decoded inline text length of one source or baseline node. */
+	private textLength(node: MarkdownNode): number {
+		if (node.type === 'text' || node.type === 'inlineCode')
+			return (node.value ?? '').replaceAll('\r\n', '\n').length;
+		let length = 0;
+		for (const child of node.children ?? []) length += this.textLength(child);
+		return length;
+	}
+
+	/**
+	 * Decoded length of a Markdown prefix. The prefix can hold escapes, entities
+	 * and line endings, so its byte count is not its text count.
+	 */
+	private decodedLength(raw: string, code: boolean): number {
+		const pattern = code
+			? /\r\n|[\s\S]/g
+			: /\\[!-/:-@[-`{-~]|&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);|\r\n|[\s\S]/gi;
+		let length = 0;
+		let decoder: HTMLTextAreaElement | undefined;
+		for (const unit of raw.matchAll(pattern)) {
+			let text = unit[0];
+			if (!code && text.startsWith('\\') && text.length === 2) text = text.slice(1);
+			else if (text === '\r\n') text = '\n';
+			else if (
+				!code &&
+				text.startsWith('&') &&
+				text.endsWith(';') &&
+				typeof document !== 'undefined'
+			) {
+				decoder ??= document.createElement('textarea');
+				decoder.innerHTML = text;
+				text = decoder.value;
+			}
+			length += text.length;
+		}
+		return length;
+	}
+
+	/** Decoded text offset for a Markdown offset inside one block. */
+	private decodedOffsetForMarkdown(node: MarkdownNode, offset: number): number | null {
+		const base = start(node);
+		let cumulative = 0;
+		for (const child of node.children ?? []) {
+			const childStart = start(child) - base;
+			const childEnd = end(child) - base;
+			if (offset <= childStart) return cumulative;
+			if (offset >= childEnd) {
+				cumulative += this.textLength(child);
+				continue;
+			}
+			if (child.type === 'text' || child.type === 'inlineCode') {
+				const raw = this.markdown.slice(start(child), start(child) + (offset - childStart));
+				return cumulative + this.decodedLength(raw, child.type === 'inlineCode');
+			}
+			const nested = this.decodedOffsetForMarkdown(child, offset - childStart);
+			return nested === null ? null : cumulative + nested;
+		}
+		return offset === end(node) - base ? cumulative : null;
+	}
+
+	/**
+	 * Raw source offset for one decoded text offset inside a source node. The
+	 * mapping walks the inline children in order. Escapes, entities and code
+	 * markers stay inside the mapped child, so the offset never assumes that
+	 * raw bytes equal decoded bytes.
+	 */
+	private sourceOffsetForText(node: MarkdownNode, offset: number): number | null {
+		let remaining = offset;
+		for (const child of node.children ?? []) {
+			if (remaining === 0) return start(child);
+			const length = this.textLength(child);
+			if (remaining <= length) {
+				if (child.type === 'text' || child.type === 'inlineCode') {
+					const value = (child.value ?? '').replaceAll('\r\n', '\n');
+					const raw = this.source.slice(start(child), end(child));
+					const mapped = textRange(raw, value, remaining, remaining, child.type === 'inlineCode');
+					return mapped ? start(child) + mapped.from : null;
+				}
+				return this.sourceOffsetForText(child, remaining);
+			}
+			remaining -= length;
+		}
+		return remaining === 0 ? end(node) : null;
+	}
+
+	/**
+	 * Split one block with inline marks into several blocks. The serializer
+	 * inserts a paragraph break and leaves the inline text unchanged, so the
+	 * accepted bytes are the original block with that break at the matching
+	 * source offset. The bounded semantic check stays in place, and any other
+	 * change keeps the whole-document route.
+	 */
+	private restoreMixedSplit(
+		markdown: string,
+		nextText: string,
+		trimmed: string,
+		after: MarkdownNode[],
+		from: number,
+		oldEnd: number,
+		before: MarkdownNode[],
+		originals: MarkdownNode[],
+		hint: SourceFidelityHint,
+		sourceIndex: number,
+		sourceFrom: number,
+		sourceTo: number
+	): ScopedRestore | null {
+		if (oldEnd - from !== 1 || after.length < 2) return null;
+		const block = before[from]!;
+		const original = originals[from]!;
+		if (!block.position || !original.position) return null;
+		if (block.type !== 'paragraph' && block.type !== 'heading') return null;
+		if (original.type !== block.type || !equal(block, original)) return null;
+		const oldText = this.markdown.slice(start(block), end(block));
+		const range = changeRange(oldText, nextText);
+		// Only one insertion at one point is a local split. A replaced selection
+		// or changed spelling keeps the whole-document semantic route.
+		if (range.oldTo !== range.from || range.newTo === range.from) return null;
+		const inserted = nextText.slice(range.from, range.newTo);
+		const oldRaw = this.source.slice(sourceFrom, sourceTo);
+		// Stay inside one bounded block. A large insert or a large container
+		// keeps the whole-document route as the documented fallback.
+		if (oldRaw.length > 32_768 || inserted.length > 32_768) return null;
+		// Reference brackets can resolve against definitions outside this block.
+		if (/[[\]]/.test(oldRaw)) {
+			const tree = this.parse(oldRaw);
+			const node = tree.children?.[0];
+			if (tree.children?.length !== 1 || !node || !equal(node, original)) return null;
+		}
+		if (/[[\]]/.test(trimmed) && this.bracketResolvesDefinition(trimmed)) return null;
+		// The break offset is in baseline Markdown coordinates. Map it to a
+		// decoded offset in the same block, then to the original source bytes.
+		const decodedOffset = this.decodedOffsetForMarkdown(block, range.from);
+		if (decodedOffset === null) return null;
+		const rawOffset = this.sourceOffsetForText(original, decodedOffset);
+		if (rawOffset === null || rawOffset < sourceFrom || rawOffset > sourceTo) return null;
+		const candidate =
+			this.source.slice(sourceFrom, rawOffset) +
+			this.lineEndings(inserted) +
+			this.source.slice(rawOffset, sourceTo);
+		let target: MarkdownNode;
+		let actual: MarkdownNode;
+		try {
+			target = this.parse(this.normalize(trimmed));
+			actual = this.parse(this.normalize(candidate));
+		} catch {
+			return null;
+		}
+		if (!equal(actual, target)) return null;
+		const sourceNodes = (this.parse(candidate).children ?? []).filter(
+			(node) => node.type !== 'definition'
+		);
+		if (sourceNodes.length !== after.length) return null;
+		for (let index = 0; index < after.length; index += 1)
+			if (sourceNodes[index]!.type !== after[index]!.type) return null;
+		if (
+			start(sourceNodes[0]!) !== 0 ||
+			end(sourceNodes[sourceNodes.length - 1]!) !== candidate.length
+		)
+			return null;
+		const result = this.source.slice(0, sourceFrom) + candidate + this.source.slice(sourceTo);
+		recordEditorCounter('sourceFidelityScopedHint');
+		return {
+			result,
+			blockIndex: from,
+			blockCount: 1,
+			sourceIndex,
+			sourceCount: 1,
+			markdownStart: hint.nextFrom,
+			sourceStart: sourceFrom,
+			markdownDelta: markdown.length - this.markdown.length,
+			sourceDelta: result.length - this.source.length,
+			markdownNodes: after,
+			sourceNodes,
+			previousFrom: sourceFrom,
+			previousTo: sourceTo,
+			nextFrom: sourceFrom,
+			nextTo: sourceFrom + candidate.length
 		};
 	}
 
