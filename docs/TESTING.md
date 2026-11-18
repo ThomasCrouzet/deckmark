@@ -95,6 +95,52 @@ the fixture hash, browser version, source identity and command. The screenshot
 proves compositor output for the test viewport. It does not prove a physical
 display, a native WKWebView paint, or a different engine.
 
+## Save contention across browsers
+
+The stress runner waits for durable completion after each character. It does not
+show a burst that resumes while a save is active, or a mode switch during
+publication. `e2e/save-contention.spec.ts` keeps these failure risks:
+
+- A second burst queued behind a slow drafts write loses bytes or duplicates input.
+- A Read switch during the 400 ms save delay drops the last source revision.
+- A file switch with a pending save writes the wrong note or loses the active text.
+- The measurement misses a deliberate input stall or a deliberately wrong durable row.
+
+The spec seeds 1 MiB and 240 KiB notes through IndexedDB, places the caret through
+the CodeMirror view, types with the browser text-input channel, and observes the
+exact drafts put and transaction completion. A one-shot 600 ms stall inside that
+put is an explicit contention control, not a product timing claim. A one-shot
+120 ms busy wait in the `beforeinput` probe proves that the frame measurement
+detects a CPU regression. A deliberately corrupted `drafts.content` write proves
+that the byte check detects a persistence regression; a later normal edit must
+replace the wrong bytes.
+
+Each sample records the base revision, the accepted span, the result revision and
+the durable revision. The result and durable revisions must match. The attached
+JSON keeps the raw input-to-frame, dispatch, queue and handler-proxy samples,
+p50, p95 and max with the denominator, long tasks, publication and metadata
+measures, save transactions and one row for each environment. A second animation
+frame is a frame opportunity, not compositor paint. The queue and handler values
+are proxies.
+
+Run:
+
+```sh
+npx playwright test e2e/save-contention.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/save-contention.spec.ts --project=firefox --workers=1 --retries=0
+npx playwright test e2e/save-contention.spec.ts --project=webkit --workers=1 --retries=0
+```
+
+Keep the JSON files, source revision, working diff, browser versions, command and
+exit code locally. The latency values are report-only. The gate enforces exact
+bytes, the sample count and the two negative controls. A reviewed 20-run baseline
+must exist before a latency budget becomes blocking.
+
+This run is desktop Playwright only. Installed PWA, physical iPhone and iPad
+Safari and Home Screen, Windows WebView2, Linux WebKitGTK and macOS WKWebView
+remain **not tested**. Each artifact records those rows as not tested. A desktop
+browser result is not an installed PWA or native WebView result.
+
 ## Image-rich rendered input risks
 
 Keep the image-heavy typing attribution independent from the text-only latency
