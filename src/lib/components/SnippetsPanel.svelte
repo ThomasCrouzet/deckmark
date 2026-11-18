@@ -122,6 +122,10 @@
 	$effect(() => {
 		const active = selected;
 		if (!active) return;
+		// A filter or sort change can move the active row without a new row
+		// object. Read its position so this effect also runs on that change.
+		const position = result.rows.findIndex((row) => row.id === active.id);
+		if (position < 0) return;
 		const frame = requestAnimationFrame(() => {
 			const scroller = listEl;
 			const row = document.getElementById(`snippet-opt-${active.id}`);
