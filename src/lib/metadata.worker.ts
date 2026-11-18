@@ -1,6 +1,7 @@
 import { type MetadataSnapshot, type MetadataSource, type MetadataValues } from './metadata-derive';
 import { updateMetadata } from './metadata-update';
 import type { MetadataEdit } from './metadata-delta';
+import { applySourceTextSpans } from './source-edit';
 
 export type { MetadataEdit } from './metadata-delta';
 
@@ -56,23 +57,8 @@ function remember(id: string, revision: number, snapshot: MetadataSnapshot): voi
 
 /** Applies spans against the baseline text, or returns null for a bad range. */
 function applyEdits(base: string, edits: readonly MetadataEdit[], length: number): string | null {
-	let content = base;
-	let delta = 0;
-	for (const edit of edits) {
-		const from = edit.from + delta;
-		const to = edit.to + delta;
-		if (
-			!Number.isInteger(from) ||
-			!Number.isInteger(to) ||
-			from < 0 ||
-			to < from ||
-			to > content.length
-		)
-			return null;
-		content = content.slice(0, from) + edit.insert + content.slice(to);
-		delta += edit.insert.length - (edit.to - edit.from);
-	}
-	return content.length === length ? content : null;
+	const content = applySourceTextSpans(base, edits);
+	return content !== null && content.length === length ? content : null;
 }
 
 self.addEventListener('message', (event: MessageEvent<MetadataRequest>) => {
