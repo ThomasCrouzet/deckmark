@@ -11,7 +11,6 @@ import { TIMERS } from './config';
 import { uniqueName } from './file-utils';
 import type { DocumentRevision } from './document-revisions';
 import { sameDraftIdentity } from './draft-identity';
-import { recordEditorSpan } from './editor-perf';
 
 const SAVE_SUPERSEDED = Symbol('save-superseded');
 
@@ -338,7 +337,7 @@ export class SaveQueue {
 			// Superseded by a newer enqueue, invalidate, or discard - skip write.
 			if (this.generations.get(id) !== gen) return;
 
-			const started = performance.now();
+			const started = METRICS ? performance.now() : 0;
 			try {
 				const written = await this.putPreservingConflict(row, gen);
 				if (!written) return;
@@ -355,11 +354,8 @@ export class SaveQueue {
 				}
 				return;
 			} finally {
-				const ended = performance.now();
-				if (METRICS) performance.measure('mdsh:document-storage', { start: started, end: ended });
-				// The durable write spans an await, so the interval is recorded
-				// directly. A long task inside the put then has a named stage.
-				recordEditorSpan('durableWrite', started, ended);
+				if (METRICS)
+					performance.measure('mdsh:document-storage', { start: started, end: performance.now() });
 			}
 			// Put finished: trash discard must reverse a resurrection. Compare the
 			// durable row with the stale write before deleting. Another tab can

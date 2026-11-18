@@ -191,9 +191,12 @@ delay of at least 250 ms does not fall inside a named stage, or when a durable
 projection hook exceeds 250 ms. Tasks between 100 and 250 ms stay in the
 evidence as near misses because their consumers do not publish a span yet.
 
-The durable write reports its own `durableWrite` stage because the IndexedDB put
-spans an await. A long task inside the put then has a named owner instead of
-appearing as unexplained latency.
+The durable save already emits the `mdsh:document-storage`, `mdsh:draft-manifest`
+and `mdsh:draft-metadata` measures with their own start and duration. The case
+reads those entries into the attribution, so a long task inside the put has a
+named owner instead of appearing as unexplained latency. The save queue does not
+import the editor performance module: that import moves a shared chunk into the
+boot graph and exceeds the boot budget.
 
 The second case covers a paste and a structural split. A trusted paste of plain
 text in the mixed paragraph keeps the bounded route (about 36 ms at 240 KB). A

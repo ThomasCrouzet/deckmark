@@ -247,9 +247,18 @@ async function readProbe(page: Page): Promise<Probe> {
 	});
 }
 
-async function measureMeasures(
-	page: Page
-): Promise<Record<string, { count: number; max: number }>> {
+type MeasureSummary = {
+	count: number;
+	max: number;
+	spans: StageSample[];
+};
+
+/**
+ * Read the product `performance.measure` entries. These entries carry their own
+ * start and duration in the same clock as the long tasks, so the durable save
+ * stages join the attribution without a second event channel.
+ */
+async function measureMeasures(page: Page): Promise<Record<string, MeasureSummary>> {
 	return page.evaluate(() => {
 		const names = [
 			'mdsh:document-serialization',
@@ -258,16 +267,23 @@ async function measureMeasures(
 			'mdsh:draft-manifest',
 			'mdsh:draft-metadata'
 		];
-		const result: Record<string, { count: number; max: number }> = {};
+		const result: Record<string, { count: number; max: number; spans: unknown[] }> = {};
 		for (const name of names) {
 			const entries = performance.getEntriesByName(name, 'measure');
 			result[name] = {
 				count: entries.length,
-				max: entries.reduce((longest, entry) => Math.max(longest, entry.duration), 0)
+				max: entries.reduce((longest, entry) => Math.max(longest, entry.duration), 0),
+				spans: entries.map((entry) => ({
+					name,
+					start: entry.startTime,
+					end: entry.startTime + entry.duration,
+					value: entry.duration,
+					span: true
+				}))
 			};
 		}
 		return result;
-	});
+	}) as Promise<Record<string, MeasureSummary>>;
 }
 
 function percentile(values: readonly number[], ratio: number): number {
@@ -457,13 +473,16 @@ test('attributes a resumed keystroke to the publication stage', async ({ page },
 	const measures = await measureMeasures(page);
 	const scoped = probe.counters.sourceFidelityScoped ?? 0;
 	const fullRestores = probe.stages.filter((stage) => stage.name === 'sourceFidelityFull');
-	const uncovered = unattributed(probe.longTasks, probe.stages);
+	const measureSpans = Object.values(measures).flatMap((entry) => entry.spans);
+	const attributionStages = [...probe.stages, ...measureSpans];
+	const uncovered = unattributed(probe.longTasks, attributionStages);
 	const resumeDelays = allDelays.map((delay) => Math.round(delay * 100) / 100);
 	const maxResumeDelay = resumeDelays.length ? Math.max(...resumeDelays) : 0;
 	// A resume that waits at least the long-task budget must wait inside a named
 	// stage. A new cause must fail this check, not pass as noise.
-	const waitSpans = probe.stages.filter(
-		(stage) => (stage.name === 'restoreMarkdown' || stage.name === 'durableWrite') && stage.span
+	const waitSpans = attributionStages.filter(
+		(stage) =>
+			(stage.name === 'restoreMarkdown' || stage.name === 'mdsh:document-storage') && stage.span
 	);
 	const longWaits = perSession.filter((session) => session.resumeDelay >= 250);
 	const unexplained = longWaits.filter((session) => {
@@ -476,7 +495,7 @@ test('attributes a resumed keystroke to the publication stage', async ({ page },
 		publications.map((stage) => stage.value),
 		0.95
 	);
-	const durableWrites = probe.stages.filter((stage) => stage.name === 'durableWrite');
+	const durableWrites = measures['mdsh:document-storage']?.spans ?? [];
 	const projectionStages = [measures['mdsh:draft-manifest'], measures['mdsh:draft-metadata']];
 	const longestProjection = Math.max(...projectionStages.map((stage) => stage?.max ?? 0));
 	const projectionCount = projectionStages.reduce((total, stage) => total + (stage?.count ?? 0), 0);
@@ -658,8 +677,13 @@ test('attributes a paste and a structural split', async ({ page, context }, info
 	await page.keyboard.insertText('split line');
 	await expect.poll(() => storedContent(page), { timeout: 60_000 }).toContain('split line');
 	const split = await readProbe(page);
+	const structuralMeasures = await measureMeasures(page);
 
-	const stages = [...paste.stages, ...split.stages];
+	const stages = [
+		...paste.stages,
+		...split.stages,
+		...Object.values(structuralMeasures).flatMap((entry) => entry.spans)
+	];
 	const longTasks = [...paste.longTasks, ...split.longTasks];
 	const uncovered = unattributed(longTasks, stages);
 	const publications = stages.filter((stage) => stage.name === 'markdownPublish');
