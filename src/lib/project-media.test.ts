@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from './db';
+import { installDraftMetadataHooks } from './draft-metadata';
 import {
 	invalidateProjectMediaCache,
 	projectContextFor,
@@ -77,6 +78,7 @@ beforeEach(async () => {
 		vi.fn(async () => ({ width: 1, height: 1, close: () => undefined }))
 	);
 	await db.delete();
+	installDraftMetadataHooks();
 	await db.open();
 	invalidateProjectMediaCache();
 	resetProjectMediaStats();

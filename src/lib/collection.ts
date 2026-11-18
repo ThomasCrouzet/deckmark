@@ -1,5 +1,6 @@
 import { parseFrontmatter } from './frontmatter';
 import { documentKindForFile } from './document-kind';
+import { contentFingerprint } from './draft-metadata';
 import type { FileItem } from './types';
 
 export type CollectionValue = string | number | boolean | string[];
@@ -144,16 +145,12 @@ function fallbackTitle(file: FileItem): string {
 }
 
 /**
- * FNV-1a base36, with the same result as the durable draft metadata encoder.
- * It is an indexing hint only. A resident body is compared by exact source.
+ * Source fingerprint with the same result as the durable draft metadata
+ * encoder. It is an indexing hint only. A resident body is compared by exact
+ * source.
  */
 function contentHash(content: string): string {
-	let hash = 0x811c9dc5;
-	for (let index = 0; index < content.length; index++) {
-		hash ^= content.charCodeAt(index);
-		hash = Math.imul(hash, 0x01000193);
-	}
-	return (hash >>> 0).toString(36);
+	return contentFingerprint(content);
 }
 
 /** Identity of one source revision: name, durable time, length and hash. */

@@ -77,7 +77,8 @@ export async function recordVersion(draft: SnapshotInput, now = Date.now()): Pro
 	// rw transaction: the sequence read (last snapshot) → throttle/dedup decision
 	// → write → purge is atomic. Without it, two concurrent flushes of the same
 	// file read the same "last" and wrote two near-identical snapshots.
-	return db.transaction('rw', db.versions, async () => {
+	const startedAt = HISTORY_METRICS ? performance.now() : 0;
+	const recorded = await db.transaction('rw', db.versions, async () => {
 		// The newest compound-index key decides the throttle before any content
 		// body loads. The full row is read only for a candidate checkpoint.
 		const latestKey = await versionRange(draft.id).lastKey();
@@ -93,6 +94,9 @@ export async function recordVersion(draft: SnapshotInput, now = Date.now()): Pro
 		await pruneVersions(draft.id, now);
 		return true;
 	});
+	if (HISTORY_METRICS)
+		performance.measure('mdsh:history', { start: startedAt, end: performance.now() });
+	return recorded;
 }
 
 /**

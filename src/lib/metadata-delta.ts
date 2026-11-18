@@ -51,6 +51,31 @@ function isSpan(value: DocumentEditSpan): boolean {
 	);
 }
 
+interface InsertJoin {
+	span: DocumentEditSpan;
+	/** True when the new text starts after the inserted text of `span`. */
+	after: boolean;
+}
+
+/**
+ * Finds an inserted region whose boundary is the given edited offset. Two
+ * adjacent insertions share one base position, so the base position alone
+ * cannot say which text comes first.
+ */
+function insertionAt(spans: readonly DocumentEditSpan[], offset: number): InsertJoin | null {
+	let delta = 0;
+	for (const span of spans) {
+		if (span.from === span.to && span.insert.length > 0) {
+			const editedFrom = span.from + delta;
+			const editedTo = editedFrom + span.insert.length;
+			if (offset === editedTo) return { span, after: true };
+			if (offset === editedFrom) return { span, after: false };
+		}
+		delta += span.insert.length - (span.to - span.from);
+	}
+	return null;
+}
+
 /**
  * Maps an offset in the edited text back to the base text. Returns undefined
  * when the offset falls inside inserted text, where no base position exists.
@@ -81,6 +106,16 @@ function appendSpans(
 	let result = [...composed];
 	for (const span of next) {
 		if (!isSpan(span)) return null;
+		if (span.from === span.to && span.insert.length > 0) {
+			const join = insertionAt(result, span.from);
+			if (join) {
+				const insert = join.after ? join.span.insert + span.insert : span.insert + join.span.insert;
+				result = result.map((existing) =>
+					existing === join.span ? { from: join.span.from, to: join.span.to, insert } : existing
+				);
+				continue;
+			}
+		}
 		const from = mapToBase(result, span.from);
 		const to = mapToBase(result, span.to);
 		if (from === undefined || to === undefined || to < from) return null;

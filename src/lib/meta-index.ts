@@ -27,6 +27,13 @@ import { reportWarning } from './report';
 
 const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 
+/**
+ * Accepted edit records for the durable draft projection. The projection
+ * module installs its recorder with the durable draft library. Without it the
+ * projection keeps the complete fallback.
+ */
+export const draftProjection: { record?: (id: string, edits: DocumentEdits) => void } = {};
+
 /** One accepted edit chain entry, from `base` to `next` document revision. */
 interface EditRecord {
 	base: number;
@@ -176,6 +183,8 @@ export class MetaIndex {
 	 */
 	recordEdit(id: string, base: number, next: number, edits: DocumentEdits): void {
 		if (this.disposed) return;
+		// The durable projection follows the same accepted chain as the index.
+		draftProjection.record?.(id, edits);
 		const current = this.editChains.get(id) ?? [];
 		current.push({ base, next, edits });
 		this.editChains.set(id, current);

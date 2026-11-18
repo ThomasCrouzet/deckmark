@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SaveQueue, SaveQueueFlushError, type SaveQueueCallbacks } from './save-queue';
 import { db } from './db';
 import type { DraftRow } from './db';
+import { installDraftMetadataHooks } from './draft-metadata';
 
 function row(id: string): DraftRow {
 	return { id, name: `${id}.md`, content: 'x', createdAt: 0, updatedAt: 0, order: 0 };
@@ -315,6 +316,7 @@ describe('SaveQueue', () => {
 describe('SaveQueue with IndexedDB and actual conflicts', () => {
 	beforeEach(async () => {
 		vi.useRealTimers();
+		installDraftMetadataHooks();
 		await Promise.all([db.drafts.clear(), db.versions.clear()]);
 	});
 	afterEach(async () => {

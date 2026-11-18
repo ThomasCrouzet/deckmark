@@ -169,6 +169,51 @@ Safari and Home Screen, Windows WebView2, Linux WebKitGTK and macOS WKWebView
 remain **not tested**. Each artifact records those rows as not tested. A desktop
 browser result is not an installed PWA or native WebView result.
 
+## Draft projection trace matrix
+
+The retained risks for issue 574 are an adjacent-insert chain that loses its
+composition and therefore runs a complete projection, a save stage that no
+measure separates, a lost or duplicated accepted byte, and a next key that waits
+for a save. `e2e/draft-projection-trace-matrix.spec.ts` keeps each one.
+
+The spec seeds a 1 MiB note and measures one changed save per scenario. It uses
+zero, one and four embedded images and four equivalent project assets. It types
+a burst and spaced edits at 250, 500 and 1100 ms. The 500 ms case starts the next
+key during the 400 ms save, and the 1100 ms case lets the save complete first.
+The trace separates these stages on the `performance` clock:
+
+- `mdsh:document-serialization` for the source snapshot.
+- `mdsh:draft-manifest` and `mdsh:draft-metadata` for the hook CPU, with the
+  decision mode and reason.
+- `mdsh:draft-read`, `mdsh:draft-put`, `mdsh:draft-write` and `mdsh:draft-commit`
+  for the IndexedDB read, the Dexie put call, the put request and the transaction
+  commit. The test probe times the synchronous `IDBObjectStore.put` call and
+  records it as the clone stage.
+- `mdsh:history` for the version history transaction.
+- The trusted `beforeinput` start and the second animation frame for the input
+  and the next key delay.
+
+`src/lib/metadata-delta.ts` composes adjacent insertions into one span. The base
+position cannot tell the order of two insertions at the same point, so
+`insertionAt` uses the edited offset and joins the text on the correct side. A
+different path that keeps a complete projection reports `mode=full`, and the
+control case checks that result.
+
+Run:
+
+```sh
+npx playwright test e2e/draft-projection-trace-matrix.spec.ts \
+  --project=chromium --workers=1 --retries=0
+```
+
+Keep `draft-projection-trace-<variant>.json` and
+`draft-projection-trace-control.json` with the source revision, working diff,
+command and browser version. Each save row holds the stage spans, the hook reason
+and the next key delay. The values are report-only; the gate enforces the stage
+set, the incremental mode for a plain edit and the exact durable bytes. This case
+is Chromium only. A function duration is not compositor paint, an installed PWA
+or a native WebView result.
+
 ## Publication stall attribution
 
 The retained risks for issue 569 are a complete source restore that runs on the
@@ -1082,6 +1127,56 @@ Keep `sync-evidence.json`, the screenshot, trace, and source metadata with the r
 Both cases failed before the correction and passed in the development check.
 The reports are in `/tmp/opencode/cross-window-review-red/` and
 `/tmp/opencode/cross-window-review-green/`. The production suite checks them again.
+
+## Durable draft projection risks
+
+The durable `manifest` and `metadata` index keys are a pure function of the
+source, the name, the kind, the project location and the binary payload. A save
+can reuse the previous projection only when the accepted edit chain composes to
+one range that ends at the published source and touches plain body lines. The
+retained risks are a wrong change range, a frontmatter or heading change inside
+a line that looks plain, a wiki target change, a project byte count that
+drifts, a value kept after a rename or a location change, and a reuse decision
+based on the 32-bit fingerprint alone.
+
+The metadata index records the accepted editor spans. The shared updating hook,
+installed with the durable draft library, composes the chain prefix that ends at
+the source of the write and checks it against that exact source. It reuses the
+previous projection only when the source, name, kind, project location and
+binary payload match. The metadata key carries the fingerprint state, so the
+first save after a boot seeds the path from the durable row without a second
+scan. A single-range edit replaces the line contributions and the UTF-8 byte
+delta. A portable source span is usable only for the last record of a chain,
+because its inserted text comes from the published source. Every other case
+keeps the complete path: several ranges, an import or a restore, a worker
+fallback, a name or kind change and a damaged key. The metadata key version
+moved to 3 and the backfill rewrites older rows. The manifest and metadata
+hooks stay out of the boot bundle. The library installs the creating and
+updating hooks before it opens the database, so every application write sees
+them.
+
+`e2e/draft-projection-performance.spec.ts` seeds 1 MiB and 4 MiB notes with 0
+and 4 images. It applies one-character plain edits, a structural control edit,
+undo and redo, and an immediate close. The instrumented build reports
+`mdsh:draft-metadata` and `mdsh:draft-manifest` with a `mode` and the scanned
+byte count. The test-build seam `__MDSH_PROJECTION_PROBE__` recomputes the
+complete key from the durable row, and each case compares that key with the
+durable key. The control case proves that a structural edit still reads the
+whole source.
+
+Run:
+
+```sh
+npx playwright test e2e/draft-projection-performance.spec.ts \
+  --project=chromium --workers=1 --retries=0
+```
+
+Keep the JSON attachments, the raw measures, the fixture sizes, the recomputed
+equality result, the browser version, the source revision and the command. The
+plain edit must report a small scan and the control edit must report the full
+source. The measures are local Chromium function timings. They do not measure
+browser typing, IndexedDB latency, a native WebView, an installed PWA or a
+physical display.
 
 ## Browser download object URL risks
 

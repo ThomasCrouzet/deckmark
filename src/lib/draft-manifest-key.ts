@@ -14,6 +14,16 @@ import { binaryDataBytes } from './project-limits';
 export const DRAFT_MANIFEST_VERSION = 2;
 const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 
+/** Content-derived values that a later write can reuse. */
+export interface DraftManifestDerived {
+	kind: NonNullable<DraftRow['kind']>;
+	contentLength: number;
+	contentBytes: number;
+	/** Decoded bytes of a typed binary document payload. */
+	binaryBytes: number;
+	hasData: boolean;
+}
+
 /** Local evidence for the projection hooks. Inert in a normal build. */
 export function recordDraftProjection(
 	projection: 'manifest' | 'metadata',
@@ -94,20 +104,9 @@ export function encodeDraftManifest(
 	>
 ): string {
 	const startedAt = METRICS ? performance.now() : 0;
-	const derived = draftManifestDerived(row);
-	const key = encodeDraftManifestFrom(row, derived);
+	const key = encodeDraftManifestFrom(row, draftManifestDerived(row));
 	recordDraftProjection('manifest', false, row.content.length, startedAt);
 	return key;
-}
-
-/** Content-derived values that a later write can reuse. */
-export interface DraftManifestDerived {
-	kind: NonNullable<DraftRow['kind']>;
-	contentLength: number;
-	contentBytes: number;
-	/** Decoded bytes of a typed binary document payload. */
-	binaryBytes: number;
-	hasData: boolean;
 }
 
 type ManifestSource = Parameters<typeof encodeDraftManifest>[0];
@@ -123,7 +122,10 @@ export function draftManifestDerived(row: ManifestSource): DraftManifestDerived 
 	};
 }
 
-function encodeDraftManifestFrom(row: ManifestSource, derived: DraftManifestDerived): string {
+export function encodeDraftManifestFrom(
+	row: ManifestSource,
+	derived: DraftManifestDerived
+): string {
 	const encoded: EncodedManifest = [
 		DRAFT_MANIFEST_VERSION,
 		row.id,
@@ -146,34 +148,8 @@ function encodeDraftManifestFrom(row: ManifestSource, derived: DraftManifestDeri
 	return JSON.stringify(encoded);
 }
 
-/** Updates the key. The caller passes the Dexie modifications. */
-export function encodeDraftManifestUpdate(
-	row: ManifestSource,
-	modifications: Partial<DraftRow>
-): string {
-	const startedAt = METRICS ? performance.now() : 0;
-	const merged = { ...row, ...modifications } as ManifestSource;
-	// Dexie lists a field only when its value changed. The durable manifest key
-	// then still describes the same content, kind, location and data, so its
-	// content-derived slots stay valid. Rebuild only the small scalar slots.
-	const unchanged = contentDerivedUnchanged(modifications);
-	const decoded = unchanged ? decodeDraftManifestDerived(row.manifest) : null;
-	const derived = decoded ?? draftManifestDerived(merged);
-	const key = encodeDraftManifestFrom(merged, derived);
-	recordDraftProjection('manifest', Boolean(decoded), merged.content.length, startedAt);
-	return key;
-}
-
-const CONTENT_DERIVED_FIELDS = ['content', 'name', 'kind', 'projectId', 'data'] as const;
-
-function contentDerivedUnchanged(modifications: Partial<DraftRow>): boolean {
-	return CONTENT_DERIVED_FIELDS.every(
-		(field) => !Object.prototype.hasOwnProperty.call(modifications, field)
-	);
-}
-
 /** Reads the content-derived slots of an existing key without the document body. */
-function decodeDraftManifestDerived(key: unknown): DraftManifestDerived | null {
+export function decodeDraftManifestDerived(key: unknown): DraftManifestDerived | null {
 	if (typeof key !== 'string') return null;
 	let value: unknown;
 	try {
