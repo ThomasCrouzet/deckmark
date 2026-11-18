@@ -4133,6 +4133,11 @@ Cases retained in `e2e/backup-reminder.spec.ts`:
 - Failed export with a controlled overdue state and no re-aging after the
   failure: no download, no reminder timestamp, no success timestamp advance, an
   error timestamp, and a visible reminder after close and reload.
+- Cancelled export with a controlled overdue state: six large notes force
+  several bounded serialized chunks, the test clicks the export cancel action
+  during a real chunk yield, and the case requires no download, no success
+  toast, no timestamp change of any kind, and a visible reminder after close
+  and reload.
 - Settings open, Settings close, a second note creation and a return to the
   first note: no timestamp changes and the reminder stays due.
 - Unavailable timestamps: the three `mdsh:storage` keys throw after setup. A
@@ -4157,7 +4162,7 @@ still requires at least 64 KiB and records the actual selected length.
 Commands:
 
 ```sh
-E2E_PORT=4204 npx playwright test e2e/navigation-stats-scroll.spec.ts e2e/backup-reminder.spec.ts --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 --grep "cold runtime count is pending|cleared before the cold runtime|file switch rejects the initial selection|successful Settings export|failed export preserves|opening, closing Settings|unavailable reminder timestamps|dismissing the reminder|backup age and reminder windows"
+E2E_PORT=4204 npx playwright test e2e/navigation-stats-scroll.spec.ts e2e/backup-reminder.spec.ts --project=chromium --project=firefox --project=webkit --workers=1 --retries=0 --grep "cold runtime count is pending|cleared before the cold runtime|file switch rejects the initial selection|successful Settings export|failed export preserves|cancelled Settings export|opening, closing Settings|unavailable reminder timestamps|dismissing the reminder|backup age and reminder windows"
 ```
 
 Do not include the 5 MB multiline case in a status run. It times out at the
@@ -4166,7 +4171,7 @@ routing. Never describe the remaining targeted run as full-suite success.
 
 The repository routes backup reminders to Firefox and WebKit and cold-selection cases to Firefox through additive file entries. Every previous route stays. The local grep above is targeted; it does not remove the large-note cases from repository routing or prove full-suite success.
 
-Keep the direct process exit, source revision, working diff, command, environment and actual result objects with the attachments. Decode JSON attachment bodies from the reporter when needed. Count executed projects from their results, not from the configuration list. The browser cases do not prove physical iPhone/iPad, WebKitGTK, WKWebView, native Desktop save-dialog cancellation or screen-reader output. Web export has no cancellation path: the native dialog must separately prove the same non-success rule, with no success/reminder timestamp and an overdue reminder preserved.
+Keep the direct process exit, source revision, working diff, command, environment and actual result objects with the attachments. Decode JSON attachment bodies from the reporter when needed. Count executed projects from their results, not from the configuration list. The browser cases do not prove physical iPhone/iPad, WebKitGTK, WKWebView, native Desktop save-dialog cancellation or screen-reader output. The Web export cancel action stops the bounded pipeline before the download. The native save dialog must separately prove the same non-success rule, with no success/reminder timestamp and an overdue reminder preserved.
 ## Native Git fixture config isolation
 
 Use an ordinary empty file for `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` in the owned fixture area, outside the repository under test. Git for Windows rejects the Windows null-device path returned by Node `os.devNull` with `Invalid argument` before `git init` completes. Keep the config file out of Git status and diffs. Preserve per-subprocess environments and fixture commit identities, no signing, source boundaries, all Git/UI assertions, the 1 MiB cap and the huge fixture. A Linux smoke pass does not prove the repaired Windows fixture; require fresh native Windows validation on the final head.
