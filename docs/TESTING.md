@@ -981,6 +981,33 @@ CAPTURE_REVIEW_DESKTOP=1 CI=1 xvfb-run -a npx playwright test \
 Synthetic composition events do not prove a physical IME, Windows WebView2,
 macOS WKWebView or Linux WebKitGTK behavior.
 
+### Dialog Enter and composition closeout evidence
+
+The shared prompt must not confirm when a user activates Cancel or Close with
+Enter. The retained risks are an ancestor Enter handler that suppresses the
+focused button, a second confirmation from bubbling, a Space activation that no
+longer cancels, and a cancellation that still writes a durable row. The snippets
+and search overlays must also keep their form and focus when an IME owns Escape,
+and a nested confirmation must close alone.
+
+`e2e/prompt-keyboard.spec.ts` checks the input, Cancel, Close and Confirm paths
+with a real project row as the durable result. It also cancels a rename prompt
+and checks the unchanged active name. `e2e/ime-dialogs.spec.ts` checks the five
+listed overlays, the legacy key code 229 path, the retained snippet text and
+focus, the restored Search focus, Enter activation after composition, Arrow
+navigation and the nested confirmation order. Run:
+
+```sh
+E2E_PORT=4616 npx playwright test e2e/prompt-keyboard.spec.ts e2e/ime-dialogs.spec.ts \
+  --project=chromium --workers=1 --retries=0
+```
+
+Keep the JSON and HTML reports, the attached JSON files, the screenshots and the
+source identity locally. These cases send synthetic keyboard events. They do not
+prove a physical IME, an external iPad keyboard, VoiceOver output, Windows
+WebView2, macOS WKWebView or Linux WebKitGTK behavior. Those rows need the
+manual procedure in the issue record.
+
 The PDF case checks the native viewer, page count, rendered thumbnail pixels, and
 exact fixture text before and after reload. It also compares the downloaded bytes.
 Keep `frame-src blob:` and `object-src 'none'` in the production CSP.
