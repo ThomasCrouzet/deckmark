@@ -13,6 +13,34 @@ JSON and HTML reports, source identity, command and browser environment. A
 test-only style that sets an action width to 43 px must fail the width assertion.
 This case does not prove touch behavior on a physical device.
 
+## Hybrid pointer touch targets
+
+DeckMark reads `(any-pointer: coarse)` and publishes `data-touch-capable` on the
+root element. A hybrid device with a fine primary pointer and an available touch
+screen therefore keeps the 44 px targets and the 52 px sidebar rows. The shared
+CSS and the sidebar row-height model must use the same capability, or the
+virtual window can disagree with the rendered rows.
+
+`e2e/touch-capability.spec.ts` seeds 180 plain files and 40 files with a project
+path. It checks the toolbar, the document title input, the scroll navigation,
+the dialog and the sidebar targets. It walks the full virtual list, changes the
+pointer capability without a reload, and keeps the active file, the selection
+and the scroll anchor. It also checks that a narrow window opens a drawer and
+that a wide window restores a static column.
+
+Playwright cannot report `pointer: fine` with `any-pointer: coarse`. The case
+replaces only the pointer media queries through an init script and records the
+simulated values in the attached JSON. Run
+
+```sh
+npx playwright test e2e/touch-capability.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Retain the JSON and HTML reports, source identity, command and browser
+environment in `test-results/`. This case does not establish the media values or
+the target sizes on a physical iPad. It also does not replace the Safari tab and
+installed PWA checks.
+
 ## Large rendered input risks
 
 Retain local input latency at both ends of a 5 MB note. Keep each raw

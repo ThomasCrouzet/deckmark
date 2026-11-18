@@ -90,7 +90,13 @@ async function seedLibrary(page: Page, plain: number, withPath: number): Promise
 						store.put({
 							id: `plain-${index}`,
 							name: `plain-${index}.md`,
-							content: `# Plain ${index}\n`,
+							content:
+								index === 0
+									? `# Plain 0\n\n${Array.from(
+											{ length: 240 },
+											(_, line) => `Paragraph ${line} has enough text to scroll the note.`
+										).join('\n\n')}\n`
+									: `# Plain ${index}\n`,
 							createdAt: now + order,
 							updatedAt: now + order,
 							order,
@@ -185,23 +191,65 @@ function expectAligned(rows: RenderedRow[], coarse: boolean): void {
 	}
 }
 
+async function scrollAndCollect(page: Page, scrollTop: number): Promise<RenderedRow[]> {
+	await page.evaluate(async (top) => {
+		const container = document.querySelector<HTMLElement>('#files-panel .overflow-y-auto');
+		if (!container) throw new Error('sidebar scroll container is missing');
+		container.scrollTop = top;
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+		);
+	}, scrollTop);
+	return renderedRows(page);
+}
+
+async function expectTouchTarget(
+	page: Page,
+	selector: string
+): Promise<{ width: number; height: number }> {
+	const box = await page.locator(selector).first().boundingBox();
+	expect(box, `${selector} has no box`).not.toBeNull();
+	expect(box!.width, `${selector} width`).toBeGreaterThanOrEqual(44);
+	expect(box!.height, `${selector} height`).toBeGreaterThanOrEqual(44);
+	return { width: box!.width, height: box!.height };
+}
+
+function pointerMedia(page: Page) {
+	return page.evaluate(() => ({
+		pointerCoarse: window.matchMedia('(pointer: coarse)').matches,
+		anyPointerCoarse: window.matchMedia('(any-pointer: coarse)').matches,
+		pointerFine: window.matchMedia('(pointer: fine)').matches,
+		anyPointerFine: window.matchMedia('(any-pointer: fine)').matches
+	}));
+}
+
 test('hybrid pointer keeps touch targets and virtual rows in agreement', async ({ page }, info) => {
+	test.setTimeout(120_000);
 	await installHybridPointer(page);
 	await resetAppState(page);
-	await seedLibrary(page, 120, 40);
+	await seedLibrary(page, 180, 40);
 
+	const hybridMedia = await pointerMedia(page);
+	// The audit needs the exact emulated media values next to the results.
+	expect(hybridMedia).toEqual({
+		pointerCoarse: false,
+		anyPointerCoarse: true,
+		pointerFine: true,
+		anyPointerFine: true
+	});
 	await expect(page.locator('html')).toHaveAttribute('data-touch-capable', 'true');
 
-	// Toolbar and dialog targets follow the available touch capability.
-	const toolbarBox = await page.locator('#app-toolbar button:visible').first().boundingBox();
-	expect(toolbarBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+	// Toolbar, scroll navigation and dialog targets follow the available touch
+	// capability, not the fine primary pointer.
+	await expectTouchTarget(page, '#app-toolbar button:visible');
+	const titleTarget = await expectTouchTarget(page, '#app-toolbar .document-title input');
+	const scrollNavTarget = await expectTouchTarget(page, '.mdsh-scroll-nav button');
 	await page.getByRole('button', { name: 'Palette de commandes' }).click();
 	const palette = page.getByRole('dialog', { name: 'Palette de commandes' });
 	await expect(palette).toBeVisible();
-	const dialogBox = await palette.locator('button').first().boundingBox();
-	expect(dialogBox?.width ?? 0).toBeGreaterThanOrEqual(44);
-	expect(dialogBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+	const dialogTarget = await expectTouchTarget(page, '[role="dialog"] button');
 	await page.keyboard.press('Escape');
+	const sidebarTarget = await expectTouchTarget(page, '#files-panel ul button[data-file-id]');
 
 	const scroll = page.locator('#files-panel .overflow-y-auto').first();
 	await scroll.evaluate((element) => {
@@ -213,6 +261,34 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 
 	const coarseRows = await renderedRows(page);
 	expectAligned(coarseRows, true);
+
+	// Walk the whole virtual list. Every index must appear, each rendered row
+	// must match the modeled 52 px height, and adjacent rows must not overlap.
+	const seen = new Set<number>();
+	const total = 180 + 40;
+	for (let top = 0; ; top += 480) {
+		const rows = await scrollAndCollect(page, top);
+		expectAligned(rows, true);
+		for (const row of rows) seen.add(row.posinset);
+		const reachedBottom = await scroll.evaluate(
+			(element) => element.scrollTop + element.clientHeight >= element.scrollHeight - 1
+		);
+		if (reachedBottom) break;
+	}
+	expect(seen.size).toBe(total);
+	for (let index = 1; index <= total; index += 1) expect(seen.has(index)).toBe(true);
+	const lastRow = (await renderedRows(page)).at(-1)!;
+	expect(lastRow.posinset).toBe(total);
+	const bottomGap = await scroll.evaluate(async (element) => {
+		element.scrollTop = element.scrollHeight;
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+		);
+		const rows = document.querySelectorAll<HTMLElement>('#files-panel ul > li');
+		const last = rows[rows.length - 1];
+		return last ? element.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom : -1;
+	});
+	expect(Math.abs(bottomGap)).toBeLessThanOrEqual(10);
 
 	// Build a selection through the touch mode, then keep it across the change.
 	await scroll.evaluate((element) => {
@@ -241,6 +317,12 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 
 	await setPointerCapability(page, { coarseAny: false });
 	await expect(page.locator('html')).not.toHaveAttribute('data-touch-capable', 'true');
+	expect(await pointerMedia(page)).toEqual({
+		pointerCoarse: false,
+		anyPointerCoarse: false,
+		pointerFine: true,
+		anyPointerFine: true
+	});
 	await expect
 		.poll(async () => {
 			const rows = await renderedRows(page);
@@ -252,6 +334,13 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 
 	const fineRows = await renderedRows(page);
 	expectAligned(fineRows, false);
+	// A fine-only pointer restores the desktop density of the same controls.
+	expect(
+		(await page.locator('#app-toolbar .document-title input').boundingBox())!.height
+	).toBeLessThan(44);
+	expect(
+		(await page.locator('.mdsh-scroll-nav button').first().boundingBox())!.height
+	).toBeLessThan(44);
 	const scrollAfter = await scroll.evaluate((element) => element.scrollTop);
 	// Row heights change, so the numeric offset moves. The file at the top of
 	// the viewport must stay the same and the list must not reset to the top.
@@ -276,7 +365,17 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 	await info.attach('hybrid-pointer.json', {
 		body: JSON.stringify(
 			{
-				pointer: { primary: 'fine', anyCoarse: true },
+				media: hybridMedia,
+				fixtures: { plainFiles: 180, pathFiles: 40, activeNoteLines: 240 },
+				targets: {
+					title: titleTarget,
+					scrollNav: scrollNavTarget,
+					dialog: dialogTarget,
+					sidebar: sidebarTarget
+				},
+				indexesCovered: seen.size,
+				total,
+				bottomGap,
 				coarseRows: coarseRows.length,
 				fineRows: fineRows.length,
 				scrollBefore,
@@ -290,4 +389,39 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 		),
 		contentType: 'application/json'
 	});
+});
+
+test('hybrid pointer keeps the sidebar out of a permanent drawer across breakpoints', async ({
+	page
+}) => {
+	await installHybridPointer(page);
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await resetAppState(page);
+	await seedLibrary(page, 3, 2);
+
+	const sidebar = page.locator('#files-panel');
+	const overlay = page.locator('button.z-30');
+	const toggle = page.locator('#app-toolbar button[aria-controls="files-panel"]:visible');
+	await expect(page.locator('html')).toHaveAttribute('data-touch-capable', 'true');
+	await expect(sidebar).toBeVisible();
+	expect(await sidebar.evaluate((element) => getComputedStyle(element).position)).toBe('static');
+	await expect(overlay).toBeHidden();
+	const activeBefore = await page.locator('#app-toolbar .document-title input').inputValue();
+
+	await page.setViewportSize({ width: 640, height: 800 });
+	await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+	expect(await sidebar.evaluate((element) => getComputedStyle(element).position)).toBe('fixed');
+	await toggle.click();
+	await expect(overlay).toBeVisible();
+	await expect(sidebar).not.toHaveAttribute('aria-hidden', 'true');
+	expect(await sidebar.evaluate((element) => getComputedStyle(element).transform)).not.toContain(
+		'-256'
+	);
+
+	// Returning to a wide window restores the static column, not an open drawer.
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await expect(overlay).toBeHidden();
+	await expect(sidebar).not.toHaveAttribute('aria-hidden', 'true');
+	expect(await sidebar.evaluate((element) => getComputedStyle(element).position)).toBe('static');
+	await expect(page.locator('#app-toolbar .document-title input')).toHaveValue(activeBefore);
 });
