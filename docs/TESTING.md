@@ -782,11 +782,11 @@ are nearest-rank p95 input-to-frame milliseconds:
 | `mixed-enter-split` | 32.5 | 31 | 51 |
 | `slow-key-repeat` | 32.9 | 34 | 41 |
 
-A second 20-run confirmation on the next source passed every reviewed budget
-on all three browsers. The highest accepted p95 was 41 ms. The negative
-control measured 130 ms to 158 ms, so the 80 ms detection threshold held. The
-list and table budgets stay above the earlier whole-document route. They are
-upper bounds, not targets, and the bounded route now records its lower values.
+A final-head 20-run confirmation passed every reviewed budget on all three
+browsers. The highest p95 was 37 ms. The negative control measured 130 ms to
+158 ms, so the 80 ms detection threshold held. The list and table budgets stay
+above the earlier whole-document route. They are upper bounds, not targets, and
+the bounded route now records its lower values.
 
 The budgets are regression guards, not performance targets. The Chromium,
 Firefox and WebKit projects select this case. A frame opportunity is not
