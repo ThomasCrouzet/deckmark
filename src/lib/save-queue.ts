@@ -185,6 +185,31 @@ export class SaveQueue {
 		return this.timers.has(id) || (this.writingIds.get(id) ?? 0) > 0;
 	}
 
+	/**
+	 * Drops the durable content baseline of a closed draft whose exact source is
+	 * already durable. The next hydration reads the row again and calls
+	 * `trackPersisted`, so conflict detection keeps its authority without a
+	 * second in-memory copy. A pending write or a failed write keeps the
+	 * baseline. Returns the released logical characters.
+	 */
+	releaseBaseline(id: string): number {
+		if (this.has(id)) return 0;
+		const baseline = this.persistedRows.get(id);
+		if (!baseline) return 0;
+		this.persistedRows.delete(id);
+		return baseline.content.length + (baseline.data?.length ?? 0);
+	}
+
+	/** Logical characters retained by durable baselines, in total or for one id. */
+	retainedChars(id?: string): number {
+		const measure = (row: { content: string; data?: string } | undefined) =>
+			row ? row.content.length + (row.data?.length ?? 0) : 0;
+		if (id !== undefined) return measure(this.persistedRows.get(id));
+		let total = 0;
+		for (const row of this.persistedRows.values()) total += measure(row);
+		return total;
+	}
+
 	private async putPreservingConflict(row: DraftRow, generation: number): Promise<DraftRow | null> {
 		const superseded = () =>
 			this.generations.get(row.id) !== generation ||

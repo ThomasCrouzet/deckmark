@@ -726,6 +726,39 @@ Run `npx playwright test e2e/review-regressions.spec.ts --project=chromium --wor
 The standard report records the source revision, working diff, environment, and
 command. The cases attach exports and screenshots as repeatable evidence.
 
+### Retained closed-document source risks
+
+A closed durable document keeps five source owners: the item body, the document
+revision snapshot, the save-queue baseline, the metadata index source and the
+metadata Worker baseline. The retained risks are one owner that survives the
+close, a body that returns with different bytes, a metadata source that is
+re-parsed from the empty placeholder and replaces the tags, an eviction that
+drops a pending or failed write, and a pin that does not stop an eviction during
+an export.
+
+`e2e/document-memory.spec.ts` reads the local `window.__MDSH_DOCUMENT_MEMORY__`
+probe. The probe reports logical characters and UTF-16 bytes per owner, the
+lifecycle state, the pin owners, the eviction and rehydration counters and the
+Chromium heap values when the browser exposes them. The spec checks that a
+durable close releases every owner and that the reopened export keeps exact
+bytes. It seeds 12 closed notes of 512 KiB, reloads, and requires the closed
+body budget to hold with evicted owners at zero. It also checks a disk-dirty but
+durable note: the dirty flag stays and the body is released. These sizes are
+logical counts. They are not heap or RSS measurements.
+
+Run:
+
+```sh
+npx playwright test e2e/document-memory.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep the attached `document-memory-owners.json`, `document-memory-budget.json`
+and `document-memory-disk-dirty.json` with the source revision, the browser
+version, the command and the fixture sizes. The spec does not cover a physical
+device, a native WebView, concurrent export pressure or a measured heap plateau.
+The full 100 note by 5 MiB profile belongs to the benchmark and native lanes in
+issue 327.
+
 `cli/mcp.test.ts` starts the real Node server with temporary filesystem roots.
 It checks sensitive symlink targets, ambiguous paths across roots, malformed
 JSON-RPC recovery, and notifications. A browser cannot exercise this process or

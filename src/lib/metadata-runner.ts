@@ -1,5 +1,5 @@
 import { deriveMetadata } from './metadata-derive';
-import type { MetadataRequest, MetadataResponse } from './metadata.worker';
+import type { MetadataJobRequest, MetadataResponse } from './metadata.worker';
 import { reportWarning } from './report';
 
 const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
@@ -10,13 +10,39 @@ export class MetadataRunner {
 	private retryAt = 0;
 	private deadline: ReturnType<typeof setTimeout> | undefined;
 	private recovery: ReturnType<typeof setTimeout> | undefined;
+	/** Logical source characters the Worker holds as a baseline per document. */
+	private posted = new Map<string, number>();
 	private current: {
-		request: MetadataRequest;
+		request: MetadataJobRequest;
 		startedAt: number;
 		resolve: (response: MetadataResponse | null) => void;
 	} | null = null;
 
-	run(request: MetadataRequest): Promise<MetadataResponse | null> {
+	/**
+	 * Releases the Worker baseline of a closed durable document. The next delta
+	 * for that id is rejected, so the index sends one full snapshot.
+	 */
+	release(id: string): boolean {
+		const held = this.posted.delete(id);
+		if (this.worker) {
+			try {
+				this.worker.postMessage({ kind: 'forget', id });
+			} catch {
+				// A terminated Worker holds no baseline.
+			}
+		}
+		return held;
+	}
+
+	/** Logical characters held by Worker baselines, in total or for one id. */
+	baselineChars(id?: string): number {
+		if (id !== undefined) return this.posted.get(id) ?? 0;
+		let total = 0;
+		for (const chars of this.posted.values()) total += chars;
+		return total;
+	}
+
+	run(request: MetadataJobRequest): Promise<MetadataResponse | null> {
 		return new Promise((resolve) => {
 			this.current = { request, startedAt: META_METRICS ? performance.now() : 0, resolve };
 			if (!this.worker && typeof Worker !== 'undefined' && Date.now() >= this.retryAt) {
@@ -41,6 +67,8 @@ export class MetadataRunner {
 					this.deadline = setTimeout(() => this.failWorker(), 10_000);
 					const started = META_METRICS ? performance.now() : 0;
 					this.worker.postMessage(request);
+					if (request.kind === 'full') this.posted.set(request.id, request.source.content.length);
+					else if (request.kind === 'delta') this.posted.set(request.id, request.length);
 					if (META_METRICS) {
 						try {
 							performance.measure('mdsh:metadata-transfer', {
@@ -89,6 +117,8 @@ export class MetadataRunner {
 			this.failures = 0;
 			this.retryAt = 0;
 		}
+		if (response.mode === 'rejected' || response.mode === 'fallback')
+			this.posted.delete(response.id);
 		current.resolve(response);
 		if (META_METRICS) {
 			try {
@@ -113,6 +143,7 @@ export class MetadataRunner {
 		reportWarning('metadata worker unavailable');
 		this.worker?.terminate();
 		this.worker = null;
+		this.posted.clear();
 		this.failures += 1;
 		// A transient Worker failure must not disable the Worker for the whole
 		// session. The next request retries after a bounded backoff.
@@ -157,6 +188,7 @@ export class MetadataRunner {
 		clearTimeout(this.recovery);
 		this.worker?.terminate();
 		this.worker = null;
+		this.posted.clear();
 		this.current?.resolve(null);
 		this.current = null;
 	}

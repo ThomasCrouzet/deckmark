@@ -59,6 +59,18 @@ import {
 } from './document-revisions';
 import { reportPersistenceError, resolveDraftSaveError } from './storage';
 import { reportError } from './report';
+import {
+	DOCUMENT_MEMORY,
+	DocumentMemory,
+	MEMORY_SUBSYSTEMS,
+	installDocumentMemoryProbe,
+	utf16Bytes,
+	type DocumentMemoryEntry,
+	type DocumentMemoryStats,
+	type DocumentMemorySubsystem,
+	type DocumentState,
+	type PinOwner
+} from './document-memory';
 import { recordVersion, createCheckpoint, createCheckpoints } from './version-history';
 import type { ReplaceOptions } from './replace';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
@@ -215,6 +227,10 @@ class FilesStore {
 		value: FileItem[];
 	} | null = null;
 	private savedRevisions = new Map<string, DocumentRevision>();
+	/** Ids whose in-memory source is not yet proven durable. */
+	private locallyDirty = new Set<string>();
+	/** Retained source ownership: pins, lifecycle counters and the local probe. */
+	private memory = new DocumentMemory();
 	readonly documents: DocumentRevisions = new DocumentRevisions(
 		(snapshot) => {
 			const file = this.library.find((entry) => entry.id === snapshot.revision.fileId);
@@ -259,6 +275,9 @@ class FilesStore {
 		// resynchronize this draft (and do not overwrite our write).
 		onDraftSaved: (id, updatedAt, revision) => {
 			if (revision) this.savedRevisions.set(id, revision);
+			// A superseded write never reaches this callback, so the newest
+			// content of this id is now in IndexedDB.
+			this.locallyDirty.delete(id);
 			resolveDraftSaveError(id);
 			this.crossTab.post({ type: 'draft-written', id, updatedAt });
 		},
@@ -280,6 +299,88 @@ class FilesStore {
 
 	get active(): FileItem | null {
 		return this.files.find((f) => f.id === this.activeId) ?? null;
+	}
+
+	constructor() {
+		// The probe is a local diagnostic surface. It reads the current store
+		// state and never touches storage.
+		installDocumentMemoryProbe(() => this.documentMemoryReport());
+	}
+
+	/** True when the current source is durable and no write is pending or failed. */
+	private isLocallyDurable(file: FileItem): boolean {
+		return !this.locallyDirty.has(file.id) && !this.saveQueue.has(file.id);
+	}
+
+	private documentState(file: FileItem): DocumentState {
+		if (file.contentDeferred) return 'deferred';
+		if (this.files.includes(file)) return 'active';
+		if (this.memory.pins.isPinned(file.id)) return 'pinned';
+		if (this.locallyDirty.has(file.id) || this.saveQueue.has(file.id)) return 'pending';
+		return 'durable';
+	}
+
+	private documentMemoryEntry(file: FileItem): DocumentMemoryEntry {
+		const chars: Record<DocumentMemorySubsystem, number> = {
+			fileItem: file.content.length + (file.data?.length ?? 0),
+			revisions: this.documents.retainedChars(file.id),
+			saveQueue: this.saveQueue.retainedChars(file.id),
+			metaIndex: this.metaIndex.retainedContentChars(file.id),
+			metadataWorker: this.metaIndex.retainedWorkerChars(file.id)
+		};
+		const bytes = Object.fromEntries(
+			MEMORY_SUBSYSTEMS.map((subsystem) => [subsystem, utf16Bytes(chars[subsystem])])
+		) as Record<DocumentMemorySubsystem, number>;
+		return {
+			id: file.id,
+			name: file.name,
+			state: this.documentState(file),
+			contentDeferred: !!file.contentDeferred,
+			dirty: file.dirty,
+			evictable:
+				!this.files.includes(file) &&
+				!file.contentDeferred &&
+				!this.memory.pins.isPinned(file.id) &&
+				this.isLocallyDurable(file),
+			logicalChars: chars.fileItem,
+			owners: MEMORY_SUBSYSTEMS.filter((subsystem) => chars[subsystem] > 0),
+			chars,
+			bytes
+		};
+	}
+
+	/** Logical retained source per owner. These numbers are not a heap measurement. */
+	private documentMemoryReport(): Omit<DocumentMemoryStats, 'heap'> {
+		const retained = Object.fromEntries(
+			MEMORY_SUBSYSTEMS.map((subsystem) => [subsystem, { chars: 0, bytes: 0, documents: 0 }])
+		) as DocumentMemoryStats['retained'];
+		const documents = this.library.map((file) => this.documentMemoryEntry(file));
+		for (const document of documents) {
+			for (const subsystem of MEMORY_SUBSYSTEMS) {
+				if (document.chars[subsystem] > 0) retained[subsystem].documents += 1;
+				retained[subsystem].chars += document.chars[subsystem];
+				retained[subsystem].bytes += document.bytes[subsystem];
+			}
+		}
+		const total = { chars: 0, bytes: 0 };
+		for (const subsystem of MEMORY_SUBSYSTEMS) {
+			total.chars += retained[subsystem].chars;
+			total.bytes += retained[subsystem].bytes;
+		}
+		return {
+			budgetBytes: DOCUMENT_MEMORY.closedBodyBytes,
+			retained,
+			total,
+			counters: { ...this.memory.counters },
+			documents
+		};
+	}
+
+	private pinDocuments(owner: PinOwner, ids: readonly string[]): () => void {
+		return this.memory.pin(
+			owner,
+			ids.filter((id) => this.library.some((file) => file.id === id))
+		);
 	}
 
 	get library(): FileItem[] {
@@ -345,6 +446,7 @@ class FilesStore {
 
 	private async readContentRow(id: string): Promise<FileItem | null> {
 		const generation = this.loadGeneration;
+		const started = performance.now();
 		const row = await db.drafts.get(id);
 		if (this.loadGeneration !== generation) return null;
 		const file = this.library.find((entry) => entry.id === id);
@@ -358,11 +460,15 @@ class FilesStore {
 			this.loadGeneration !== generation ||
 			this.library.find((entry) => entry.id === id) !== file ||
 			!file.contentDeferred ||
-			file.dirty ||
+			// A disk-dirty note can still hydrate: the durable row is the newest
+			// source. Only an unproven local revision must block the read.
+			this.locallyDirty.has(id) ||
 			this.saveQueue.has(id)
 		)
 			return file;
 		applyDraftContent(file, row);
+		this.locallyDirty.delete(id);
+		this.memory.recordHydration(performance.now() - started);
 		this.saveQueue.trackPersisted(row);
 		this.metaIndex.invalidateMeta(id);
 		this.metaRev += 1;
@@ -370,14 +476,22 @@ class FilesStore {
 	}
 
 	/** Hydrates the requested bodies before an operation that needs exact text. */
-	async ensureContent(ids: readonly string[]): Promise<void> {
+	async ensureContent(ids: readonly string[], owner: PinOwner = 'operation'): Promise<void> {
 		const queue = [...new Set(ids)];
-		const workers = Math.min(FilesStore.HYDRATION_CONCURRENCY, queue.length);
-		await Promise.all(
-			Array.from({ length: workers }, async () => {
-				while (queue.length > 0) await this.hydrateContent(queue.shift()!);
-			})
-		);
+		if (queue.length === 0) return;
+		// The operation holds the source while it reads it, so a concurrent close
+		// cannot evict a body between the read and its use.
+		const release = this.pinDocuments(owner, queue);
+		try {
+			const workers = Math.min(FilesStore.HYDRATION_CONCURRENCY, queue.length);
+			await Promise.all(
+				Array.from({ length: workers }, async () => {
+					while (queue.length > 0) await this.hydrateContent(queue.shift()!);
+				})
+			);
+		} finally {
+			release();
+		}
 	}
 
 	async ensureLibraryContent(): Promise<void> {
@@ -390,7 +504,8 @@ class FilesStore {
 		await this.ensureContent(
 			this.library
 				.filter((file) => file.projectId === projectId && file.contentDeferred)
-				.map((file) => file.id)
+				.map((file) => file.id),
+			'project'
 		);
 	}
 
@@ -405,7 +520,15 @@ class FilesStore {
 		if (!files.some((file) => file.contentDeferred))
 			return files.map((file) => ({ id: file.id, name: file.name, content: file.content }));
 		const { buildSearchCorpus } = await import('./draft-access');
-		return buildSearchCorpus(files);
+		const release = this.pinDocuments(
+			'search',
+			files.map((file) => file.id)
+		);
+		try {
+			return await buildSearchCorpus(files);
+		} finally {
+			release();
+		}
 	}
 
 	hasSaveError(id: string): boolean {
@@ -535,6 +658,7 @@ class FilesStore {
 			file.updatedAt = row.updatedAt;
 			file.dirty = false;
 			file.contentDeferred = false;
+			this.locallyDirty.delete(id);
 			this.saveQueue.trackPersisted(row);
 			this.metaIndex.invalidateMeta(id);
 			if (row.open === false) {
@@ -604,6 +728,9 @@ class FilesStore {
 		this.trash = trash.map(({ entry }) => entry);
 		this.loadError = null;
 		this.loaded = true;
+		// Metadata-first startup can keep closed bodies from the full-row
+		// fallback. Release the ones above the budget before the first render.
+		void this.reclaimClosedBodies().catch(() => undefined);
 		// Background FSA check - no await (must not block the display).
 		void this.refreshBrokenLinks();
 		return true;
@@ -630,6 +757,8 @@ class FilesStore {
 		this.saveQueue.invalidateAll([...this.files, ...this.closedFiles].map((file) => file.id));
 		this.documents.clear();
 		this.savedRevisions.clear();
+		this.locallyDirty.clear();
+		this.memory.clear();
 		this.files = [];
 		this.closedFiles = [];
 		// An empty scan invalidates pending checks from the old library.
@@ -676,10 +805,20 @@ class FilesStore {
 	 * Flushes armed debounce timers and awaits in-flight IDB puts.
 	 * Used before backup export so the JSON snapshot includes the latest edits.
 	 */
-	async flushPendingAwait(): Promise<void> {
-		await this.pendingTrashBatch;
-		await this.flushDraftsAwait();
-		await this.pendingTrashBatch;
+	async flushPendingAwait(owner: PinOwner = 'operation'): Promise<void> {
+		// The durability barrier reads every body to build its rows. A concurrent
+		// close must not release one of them during the flush.
+		const release = this.pinDocuments(
+			owner,
+			this.library.map((file) => file.id)
+		);
+		try {
+			await this.pendingTrashBatch;
+			await this.flushDraftsAwait();
+			await this.pendingTrashBatch;
+		} finally {
+			release();
+		}
 	}
 
 	private async flushDraftsAwait(): Promise<void> {
@@ -707,6 +846,9 @@ class FilesStore {
 	}
 
 	private capturedDraftRow(file: FileItem, order: number, open = true): DraftRow {
+		// A deferred item holds no source. Writing the empty placeholder would
+		// replace the durable body, so refuse instead of losing the note.
+		if (file.contentDeferred) throw new Error('document-body-deferred');
 		this.documents.open(file.id, file.content);
 		const snapshot = this.documents.flush(file.id);
 		if (!snapshot) throw new Error('document-snapshot-superseded');
@@ -984,14 +1126,31 @@ class FilesStore {
 	}
 
 	/** Reclaims closed bodies after their durable row is flushed. */
-	private async reclaimClosedBodies(): Promise<void> {
+	private async reclaimClosedBodies(): Promise<number> {
 		const { reclaimClosedBodies } = await import('./draft-content');
-		await reclaimClosedBodies({
+		return reclaimClosedBodies({
 			files: this.files,
 			closedFiles: this.closedFiles,
-			isPending: (id) => this.saveQueue.has(id) || this.pendingContentLoads.has(id),
-			rowFor: (file) => this.capturedDraftRow(file, 0, false)
+			isPending: (id) =>
+				this.saveQueue.has(id) || this.pendingContentLoads.has(id) || this.documents.hasPending(id),
+			isPinned: (id) => this.memory.pins.isPinned(id),
+			isDurable: (file) => this.isLocallyDurable(file),
+			rowFor: (file) => toDraftRow(file, 0, false),
+			onEvict: (file, chars) => this.releaseDocumentSource(file, chars)
 		});
+	}
+
+	/**
+	 * Releases every retained source owner of one closed, durable document. The
+	 * saved revision token and the derived metadata stay, so conflict detection
+	 * and the library list keep their authority without the source.
+	 */
+	private releaseDocumentSource(file: FileItem, chars: number): void {
+		this.memory.recordEviction(chars);
+		if (this.documents.forget(file.id)) this.memory.recordRelease('revisions');
+		if (this.saveQueue.releaseBaseline(file.id) > 0) this.memory.recordRelease('saveQueue');
+		if (this.metaIndex.releaseContent(file.id) > 0) this.memory.recordRelease('metaIndex');
+		if (this.metaIndex.releaseWorkerBaseline(file.id)) this.memory.recordRelease('metadataWorker');
 	}
 
 	/** Moves a document to the durable trash. This is distinct from closing a tab. */
@@ -1549,6 +1708,8 @@ class FilesStore {
 		if (!revision) return null;
 		file.updatedAt = Date.now();
 		file.dirty = true;
+		// The accepted source is not durable until the next successful write.
+		this.locallyDirty.add(file.id);
 		// The document publish path invalidates metadata with the exact content
 		// revision. Recording the accepted change here lets the next job send one
 		// coalesced delta instead of the complete source.
@@ -1636,6 +1797,10 @@ class FilesStore {
 			return Promise.resolve(true);
 		}
 		const previousRename = this.renameTail;
+		const releasePin = this.pinDocuments(
+			'project',
+			this.library.map((entry) => entry.id)
+		);
 		const operation = this.queueDiskOperation(id, async () => {
 			await previousRename;
 			if (
@@ -1685,6 +1850,7 @@ class FilesStore {
 		);
 		this.renameTail = settled;
 		void settled.then(() => {
+			releasePin();
 			if (this.renameTail === settled) this.renameTail = null;
 		});
 		return operation;
@@ -1740,8 +1906,13 @@ class FilesStore {
 			else this.files.push({ ...row, dirty: false });
 			this.saveQueue.invalidate(row.id);
 			this.saveQueue.trackPersisted(row);
-			if (changed) this.scheduleSave(row.id);
-			else applied.push(row.id);
+			if (changed) {
+				this.locallyDirty.add(row.id);
+				this.scheduleSave(row.id);
+			} else {
+				this.locallyDirty.delete(row.id);
+				applied.push(row.id);
+			}
 		}
 		for (const row of rows) this.metaIndex.invalidateMeta(row.id);
 		this.crossTab.post({ type: 'reorder' });
@@ -1783,50 +1954,87 @@ class FilesStore {
 	}
 	async export(id: string): Promise<ExportResult> {
 		this.dispatchEditorFlush();
-		await this.ensureContent([id]);
-		const { exportMarkdown } = await import('./draft-access');
-		return exportMarkdown(id, this.exportDeps);
+		const release = this.pinDocuments('export', [id]);
+		try {
+			await this.ensureContent([id], 'export');
+			const { exportMarkdown } = await import('./draft-access');
+			return await exportMarkdown(id, this.exportDeps);
+		} finally {
+			release();
+		}
 	}
 	async exportAll(): Promise<void> {
 		this.dispatchEditorFlush();
-		await this.ensureLibraryContent();
-		return exportAllZipOp(this.exportDeps);
+		const release = this.pinDocuments(
+			'export',
+			this.library.map((file) => file.id)
+		);
+		try {
+			await this.ensureLibraryContent();
+			await exportAllZipOp(this.exportDeps);
+		} finally {
+			release();
+		}
 	}
 	async exportOpen(): Promise<void> {
 		this.dispatchEditorFlush();
 		// Capture the open-tab membership before the asynchronous hydration. A
 		// tab closed during the export must not change the archive set.
-		const { openExportSnapshot } = await import('./draft-access');
-		const snapshot = await openExportSnapshot(this.files, (ids) => this.ensureContent(ids));
-		// A missing or unreadable row leaves the placeholder deferred. Refuse to
-		// build an incomplete archive instead of writing an empty entry.
-		if (!snapshot) {
-			notify.error(t('export.zipFailed'));
-			return;
+		const openIds = this.files.map((file) => file.id);
+		const release = this.pinDocuments('export', openIds);
+		try {
+			const { openExportSnapshot } = await import('./draft-access');
+			const snapshot = await openExportSnapshot(this.files, (ids) =>
+				this.ensureContent(ids, 'export')
+			);
+			// A missing or unreadable row leaves the placeholder deferred. Refuse to
+			// build an incomplete archive instead of writing an empty entry.
+			if (!snapshot) {
+				notify.error(t('export.zipFailed'));
+				return;
+			}
+			if (snapshot.length === 0) return;
+			await exportAllZipOp({ ...this.exportDeps, getFiles: () => snapshot });
+		} finally {
+			release();
 		}
-		if (snapshot.length === 0) return;
-		return exportAllZipOp({ ...this.exportDeps, getFiles: () => snapshot });
 	}
 	async exportHTML(id: string): Promise<void> {
 		this.dispatchEditorFlush();
-		await this.ensureContent([id]);
-		return exportHTMLOp(id, this.exportDeps);
+		const release = this.pinDocuments('export', [id]);
+		try {
+			await this.ensureContent([id], 'export');
+			await exportHTMLOp(id, this.exportDeps);
+		} finally {
+			release();
+		}
 	}
 	async exportActiveHTML(): Promise<void> {
 		if (this.active) await this.exportHTML(this.active.id);
 	}
 	async exportPDF(id: string): Promise<void> {
 		this.dispatchEditorFlush();
-		await this.ensureContent([id]);
-		return exportPDFOp(id, this.exportDeps);
+		const release = this.pinDocuments('export', [id]);
+		try {
+			await this.ensureContent([id], 'export');
+			await exportPDFOp(id, this.exportDeps);
+		} finally {
+			release();
+		}
 	}
 	async exportActivePDF(): Promise<void> {
 		if (this.active) await this.exportPDF(this.active.id);
 	}
 	async exportSelectedZip(): Promise<void> {
 		this.dispatchEditorFlush();
-		await this.ensureContent([...this.selectedIds]);
-		return exportSelectionZipOp(this.selectedIds, this.exportDeps);
+		const ids = [...this.selectedIds];
+		const release = this.pinDocuments('export', ids);
+		try {
+			await this.ensureContent(ids, 'export');
+			await exportSelectionZipOp(this.selectedIds, this.exportDeps);
+		} finally {
+			release();
+		}
 	}
 
 	// §4.5 / §M1 - Drag-reorder.
@@ -2043,7 +2251,12 @@ class FilesStore {
 		if (!file || file.content === content) return false;
 		const before = { id: file.id, name: file.name, content: file.content };
 		const revision = this.documentRevision(id)!;
-		await createCheckpoint(before);
+		const releasePin = this.pinDocuments('history', [id]);
+		try {
+			await createCheckpoint(before);
+		} finally {
+			releasePin();
+		}
 		this.dispatchEditorFlush();
 		const current = this.files.find((entry) => entry.id === id);
 		if (

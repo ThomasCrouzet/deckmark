@@ -241,10 +241,27 @@ export class DocumentRevisions {
 		}
 	}
 
-	forget(fileId: string): void {
+	/** True while a published revision or an armed publication timer remains. */
+	hasPending(fileId: string): boolean {
+		const entry = this.entries.get(fileId);
+		return entry?.pending === true || entry?.timer != null;
+	}
+
+	/**
+	 * Logical characters held by materialized snapshots. A closed document can
+	 * still retain the source through this entry after its item body is cleared.
+	 */
+	retainedChars(fileId?: string): number {
+		if (fileId !== undefined) return this.entries.get(fileId)?.snapshot?.text.length ?? 0;
+		let total = 0;
+		for (const entry of this.entries.values()) total += entry.snapshot?.text.length ?? 0;
+		return total;
+	}
+
+	forget(fileId: string): boolean {
 		const entry = this.entries.get(fileId);
 		if (entry?.timer != null) clearTimeout(entry.timer);
-		this.entries.delete(fileId);
+		return this.entries.delete(fileId);
 	}
 
 	clear(): void {

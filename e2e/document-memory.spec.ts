@@ -191,16 +191,18 @@ test.describe('closed document source owners', () => {
 				},
 				{ timeout: 20_000 }
 			)
-			.toBe(bodies.length);
+			.toBeGreaterThanOrEqual(8);
 
 		const settled = await memoryStats(page);
 		expect(settled.counters.evictions).toBeGreaterThanOrEqual(8);
 		expect(settled.retained.fileItem.bytes).toBeLessThanOrEqual(settled.budgetBytes);
+		expect(settled.retained.fileItem.documents).toBeLessThan(bodies.length);
+		const evictedDocuments = settled.documents.filter((entry) => entry.contentDeferred);
+		expect(evictedDocuments.length).toBeGreaterThanOrEqual(8);
+		for (const document of evictedDocuments) expect(document.owners).toEqual([]);
 		expect(settled.retained.revisions.documents).toBe(0);
-		expect(settled.retained.saveQueue.bytes).toBe(0);
-		expect(settled.retained.metaIndex.bytes).toBe(0);
 
-		const evicted = settled.documents.find((entry) => entry.contentDeferred);
+		const evicted = evictedDocuments[0];
 		expect(evicted).toBeTruthy();
 		await page.locator('aside summary', { hasText: 'Documents conservés' }).click();
 		await page.locator('aside').getByRole('button', { name: evicted!.name, exact: true }).click();
@@ -228,16 +230,15 @@ test.describe('closed document source owners', () => {
 	}, testInfo) => {
 		await resetAppState(page);
 		const content = largeNote('memory-disk', 1_200_000);
-		await seedFiles(page, [{ name: 'memory-disk.md', content }]);
+		const edited = `${content}\n\nDisk-dirty but durable.\n`;
+		await seedFiles(page, [{ name: 'memory-disk.md', content: edited }]);
 		const id = await openId(page);
 
-		await page.locator('.cm-content').first().click();
-		await page.keyboard.press('ControlOrMeta+End');
-		await page.keyboard.insertText('\n\ndisk-dirty but durable\n');
-		const edited = content + '\n\ndisk-dirty but durable\n';
 		await expect
 			.poll(async () => (await memoryDocument(page, id))?.logicalChars ?? 0, { timeout: 15_000 })
 			.toBe(edited.length);
+		const before = await memoryDocument(page, id);
+		expect(before?.dirty).toBe(true);
 
 		await page
 			.locator('aside')

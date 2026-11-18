@@ -349,7 +349,7 @@ export async function transferProjectSelection(
 		if (options.mode === 'move')
 			sourceDocumentRows = await db.drafts.where('projectId').equals(sourceProjectId).toArray();
 	} else {
-		await filesStore.ensureContent(selection.documentIds ?? []);
+		await filesStore.ensureContent(selection.documentIds ?? [], 'project');
 	}
 	const documents = sourceDocumentRows.map(sourceFileFromRow);
 	const assets = sourceAssetRows;

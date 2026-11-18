@@ -50,7 +50,7 @@
 						!file.derivedMetadata)
 			)
 			.map((file) => file.id);
-		await filesStore.ensureContent(needed);
+		await filesStore.ensureContent(needed, 'project');
 		blocks = active ? sourceBlocksFor(filesStore.library, active) : [];
 		reports = buildLinkReport(filesStore.library);
 		if (!blocks.some((block) => block.key === sourceKey))
