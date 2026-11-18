@@ -22,7 +22,6 @@ import { IMPORT_LIMITS, MAX_IMAGE_BYTES } from '../config';
 import { isPresentation } from '../presentation/detect';
 import { documentKindForFile, isBinaryDocument } from '../document-kind';
 import { activeProfile, applyExportProfile } from '../export-profiles';
-import type { ExportProgressReporter } from '../export-pipeline';
 
 export interface MediaExportOptions {
 	allowNetworkImages?: boolean;
@@ -400,55 +399,64 @@ export async function exportPDF(
  * would otherwise collide (JSZip silently overwrites the first entry). We
  * suffix `-2`, `-3`, … while preserving the extension.
  */
-export interface ExportArchiveOptions {
-	signal?: AbortSignal | undefined;
-	onProgress?: ExportProgressReporter | undefined;
-}
-
 /** @returns `false` if the desktop save dialog was cancelled. */
 export async function exportZip(
 	files: FileItem[],
-	filename = 'deckmark-export.zip',
-	options: ExportArchiveOptions = {}
+	filename = 'deckmark-export.zip'
 ): Promise<boolean> {
 	if (typeof window === 'undefined' || typeof document === 'undefined' || files.length === 0)
 		return false;
 	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');
 	const encoder = new TextEncoder();
-	const [{ EXPORT_BATCH_POLICY, yieldToMainThread }, { generateZipBytes }] = await Promise.all([
-		import('../export-pipeline'),
-		import('../zip-archive')
-	]);
+	const encoded = new Map<string, Uint8Array>();
+	const binaryBytes = new Map<string, Uint8Array>();
 	let inputBytes = 0;
 	let entries = files.length;
-	let processed = 0;
-	let sinceYield = 0;
-	let sinceFileYield = 0;
-	const account = (bytes: number) => {
-		inputBytes += bytes;
-		if (bytes > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+	for (const file of files) {
+		if (isBinaryDocument(file)) {
+			// Decode once. The ZIP entry reuses these exact bytes instead of
+			// decoding the same data URL a second time after the size preflight.
+			const { bytes } = await binaryPayload(file);
+			binaryBytes.set(file.id, bytes);
+			inputBytes += bytes.byteLength;
+			if (bytes.byteLength > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+				throw new Error('Library export size limit');
+			continue;
+		}
+		const data = encoder.encode(file.content);
+		encoded.set(file.id, data);
+		inputBytes += data.byteLength;
+		if (data.byteLength > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
 			throw new Error('Library export size limit');
-	};
-	const reportCollect = () => {
-		processed++;
-		options.onProgress?.({
-			phase: 'collect',
-			completed: processed,
-			total: files.length,
-			percent: Math.round((processed / files.length) * 20)
-		});
-	};
-	const maybeYield = async () => {
-		sinceFileYield++;
-		const due = sinceYield >= EXPORT_BATCH_POLICY.maxTextChars || sinceFileYield >= 4;
-		if (!due) return;
-		sinceYield = 0;
-		sinceFileYield = 0;
-		checkAborted(options.signal);
-		await yieldToMainThread();
-	};
+	}
+	const projectIds = new Set(files.flatMap((file) => (file.projectId ? [file.projectId] : [])));
+	const projectAssets = new Map<string, ProjectAssetRow[]>();
+	if (projectIds.size) {
+		const [{ db }, { PROJECT_LIMITS }] = await Promise.all([
+			import('../db'),
+			import('../project-io.js')
+		]);
+		for (const projectId of projectIds) {
+			const snapshot: ProjectAssetRow[] = [];
+			projectAssets.set(projectId, snapshot);
+			await db.projectAssets
+				.where('projectId')
+				.equals(projectId)
+				.each((asset) => {
+					inputBytes += asset.data.byteLength;
+					entries++;
+					if (entries > PROJECT_LIMITS.maxEntries - 3 || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+						throw new Error('Library export size limit');
+					snapshot.push(asset);
+				});
+		}
+	}
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
+	let archiveBytes = 0;
+	// Nested project ZIPs exist as a Blob and as its transferred buffer while
+	// the outer archive is assembled. Keep that transient peak bounded.
+	let transientArchiveBytes = 0;
 	const used = new Set<string>();
 	function archiveName(requested: string): string {
 		let name = sanitizeFilename(requested);
@@ -462,61 +470,23 @@ export async function exportZip(
 		used.add(name.toLowerCase());
 		return name;
 	}
-	// Entries are added as soon as their exact bytes exist. The previous form
-	// held a second map of every encoded document next to the archive data.
-	for (const file of files.filter((row) => !row.projectId)) {
-		checkAborted(options.signal);
+	for (const file of files.filter((file) => !file.projectId)) {
 		if (isBinaryDocument(file)) {
-			const { bytes } = await binaryPayload(file);
-			account(bytes.byteLength);
-			zip.file(archiveName(file.name), bytes);
-			sinceYield += bytes.byteLength;
+			const buffer = binaryBytes.get(file.id)!;
+			archiveBytes += buffer.byteLength;
+			zip.file(archiveName(file.name), buffer);
 		} else {
-			const data = encoder.encode(file.content);
-			account(data.byteLength);
+			const data = encoded.get(file.id) ?? encoder.encode(file.content);
+			archiveBytes += data.byteLength;
 			zip.file(archiveName(file.name), data);
-			sinceYield += data.byteLength;
-		}
-		reportCollect();
-		await maybeYield();
-	}
-
-	const projectIds = new Set(files.flatMap((file) => (file.projectId ? [file.projectId] : [])));
-	const projectAssets = new Map<string, ProjectAssetRow[]>();
-	if (projectIds.size) {
-		const [{ db }, { PROJECT_LIMITS }] = await Promise.all([
-			import('../db'),
-			import('../project-io.js')
-		]);
-		for (const projectId of projectIds) {
-			const snapshot: ProjectAssetRow[] = [];
-			projectAssets.set(projectId, snapshot);
-			// A project asset page stays in one read transaction. The per-row
-			// exact bytes are counted before the archive is built.
-			await db.projectAssets
-				.where('projectId')
-				.equals(projectId)
-				.each((asset) => {
-					account(asset.data.byteLength);
-					entries++;
-					if (entries > PROJECT_LIMITS.maxEntries - 3) throw new Error('Library export size limit');
-					snapshot.push(asset);
-				});
-			checkAborted(options.signal);
-			await yieldToMainThread();
 		}
 	}
-	let archiveBytes = 0;
-	// Nested project ZIPs exist as a Blob and as its transferred bytes while
-	// the outer archive is assembled. Keep that transient peak bounded.
-	let transientArchiveBytes = 0;
 	if (projectIds.size) {
 		const [{ db }, { buildProjectZip }] = await Promise.all([
 			import('../db'),
 			import('../project-io.js')
 		]);
 		for (const projectId of projectIds) {
-			checkAborted(options.signal);
 			const project = await db.projects.get(projectId);
 			if (!project) throw new Error('Export project no longer exists');
 			const assets = projectAssets.get(projectId) ?? [];
@@ -530,10 +500,7 @@ export async function exportZip(
 					...(file.mime ? { mime: file.mime } : {}),
 					...(file.data ? { data: file.data } : {})
 				}));
-			const archive = await buildProjectZip(project.name, documents, assets, {
-				signal: options.signal,
-				onProgress: options.onProgress
-			});
+			const archive = await buildProjectZip(project.name, documents, assets);
 			archiveBytes += archive.size;
 			transientArchiveBytes += archive.size * 2;
 			if (
@@ -541,20 +508,10 @@ export async function exportZip(
 				transientArchiveBytes > IMPORT_LIMITS.maxBatchBytes * 2
 			)
 				throw new Error('Library export size limit');
-			zip.file(archiveName(`${project.name}.zip`), archive);
-			for (let index = 0; index < documents.length; index++) reportCollect();
-			await yieldToMainThread();
+			zip.file(archiveName(`${project.name}.zip`), await archive.arrayBuffer());
 		}
 	}
-	const bytes = await generateZipBytes(zip, {
-		signal: options.signal,
-		onProgress: (progress) =>
-			options.onProgress?.({
-				...progress,
-				percent: 30 + Math.round(progress.percent * 0.7)
-			})
-	});
-	checkAborted(options.signal);
-	if (bytes.byteLength > IMPORT_LIMITS.maxBatchBytes) throw new Error('Library export size limit');
-	return triggerDownload(new Blob([bytes], { type: 'application/zip' }), filename);
+	const blob = await zip.generateAsync({ type: 'blob' });
+	if (blob.size > IMPORT_LIMITS.maxBatchBytes) throw new Error('Library export size limit');
+	return triggerDownload(blob, filename);
 }

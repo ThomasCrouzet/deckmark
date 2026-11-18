@@ -994,7 +994,6 @@ export const fr: Record<MessageKey, string> = {
 	'settings.appearance': 'Apparence',
 	'settings.backupExportFailed': "L'export de la sauvegarde a échoué.",
 	'settings.exportingBackup': 'Préparation de la sauvegarde…',
-	'settings.exportingBackupProgress': 'Préparation de la sauvegarde… {percent} %',
 	'settings.backupExported': 'Sauvegarde exportée.',
 	'settings.backupReadFailed': 'Impossible de lire le fichier de sauvegarde.',
 	'settings.backupRestored':

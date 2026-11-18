@@ -3,7 +3,6 @@
 // hosting. It never changes the source Markdown.
 
 import { abortable, checkAborted } from '../abort';
-import type { ExportProgressReporter } from '../export-pipeline';
 import {
 	docsSiteIssue,
 	mergeIssues,
@@ -50,8 +49,7 @@ export interface DocsSiteResult {
 }
 
 export interface BuildDocsSiteOptions {
-	signal?: AbortSignal | undefined;
-	onProgress?: ExportProgressReporter | undefined;
+	signal?: AbortSignal;
 }
 
 export class DocsSiteExportError extends Error {
@@ -95,15 +93,8 @@ export function serializeDocsSiteReport(report: DocsSiteReport): string {
 	return `${JSON.stringify(report, null, 2)}\n`;
 }
 
-async function buildZip(
-	files: readonly DocsSiteFile[],
-	signal?: AbortSignal,
-	onProgress?: ExportProgressReporter
-): Promise<Blob> {
-	const [{ default: JSZip }, { generateZipBytes }] = await Promise.all([
-		import('jszip'),
-		import('../zip-archive')
-	]);
+async function buildZip(files: readonly DocsSiteFile[], signal?: AbortSignal): Promise<Blob> {
+	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const ordered = files.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	for (const file of ordered) {
@@ -114,15 +105,13 @@ async function buildZip(
 		});
 	}
 	checkAborted(signal);
-	// The stream pauses on abort. Rejecting the outer promise alone would let
-	// DEFLATE continue on the complete archive.
-	const bytes = await generateZipBytes(zip, {
-		signal,
-		...(onProgress ? { onProgress } : {}),
+	return zip.generateAsync({
+		type: 'blob',
+		compression: 'DEFLATE',
+		compressionOptions: { level: 6 },
 		platform: 'DOS',
 		mimeType: 'application/zip'
 	});
-	return new Blob([bytes], { type: 'application/zip' });
 }
 
 /**
@@ -222,7 +211,7 @@ export async function buildDocsSite(
 	if (report.summary.errors > 0) throw new DocsSiteExportError(report);
 	const files = renderer.buildDocsSiteFiles(plan, { pages: rendered.pages, issues });
 	checkAborted(options.signal);
-	const blob = await abortable(buildZip(files, options.signal, options.onProgress), options.signal);
+	const blob = await abortable(buildZip(files, options.signal), options.signal);
 	checkAborted(options.signal);
 	return { blob, report, files };
 }

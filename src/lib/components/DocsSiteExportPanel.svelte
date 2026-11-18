@@ -34,7 +34,6 @@
 	let busy = $state(false);
 	let error = $state(false);
 	let cancelled = $state(false);
-	let progress = $state(0);
 	let closeButton = $state<HTMLButtonElement | null>(null);
 	let activeController: AbortController | null = null;
 	let runToken = 0;
@@ -108,7 +107,6 @@
 		busy = true;
 		error = false;
 		cancelled = false;
-		progress = 0;
 		reportBinding = null;
 		const originSearchIndex = includeSearchIndex;
 		let originName = projects.find((project) => project.id === projectId)?.name ?? 'project';
@@ -129,7 +127,7 @@
 					locale: i18n.locale,
 					includeSearchIndex
 				},
-				{ signal: controller.signal, onProgress: (event) => (progress = event.percent) }
+				{ signal: controller.signal }
 			);
 			if (token !== runToken) return;
 			reportBinding = {
@@ -295,9 +293,7 @@
 				<p class="py-6 text-sm text-fg-muted">{td('docsSite.empty')}</p>
 			{:else if busy}
 				<p role="status" data-testid="docs-site-busy" class="py-6 text-sm text-fg-muted">
-					{progress > 0
-						? td('docsSite.exportingProgress', { percent: progress })
-						: td('docsSite.exporting')}
+					{td('docsSite.exporting')}
 				</p>
 			{:else if report}
 				<p data-testid="docs-site-report-origin" class="text-xs text-fg-muted">

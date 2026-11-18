@@ -8,6 +8,11 @@
 // The store keeps only one-liner delegations.
 
 import { browser } from '$app/env';
+import {
+	exportHTML as exportHTMLService,
+	exportPDF as exportPDFService,
+	exportZip as exportZipService
+} from './services/export';
 import { spinnerStore } from './spinner.svelte';
 import { t } from '#lib/i18n/index.js';
 import { notify } from './notify.svelte';
@@ -86,20 +91,13 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	if (!browser) return;
 	const snapshot = deps.getFiles().map((file) => ({ ...file }));
 	if (snapshot.length === 0) return;
-	const { exportZip: exportZipService } = await import('./services/export');
-	const controller = new AbortController();
-	const dismiss = spinnerStore.show(t('export.creatingZip'), () => controller.abort());
+	const dismiss = spinnerStore.show(t('export.creatingZip'));
 	try {
 		const stamp = new Date().toISOString().slice(0, 10);
-		const ok = await exportZipService(snapshot, `deckmark-export-${stamp}.zip`, {
-			signal: controller.signal
-		});
+		const ok = await exportZipService(snapshot, `deckmark-export-${stamp}.zip`);
 		if (!ok) return; // desktop dialog cancelled - keep dirty, no success toast
 		notify.success(t('export.zipCreated', { n: snapshot.length }));
 	} catch (err) {
-		// A cancelled archive stops at the next bounded chunk and publishes no
-		// output. It is not a failure and it does not clear the dirty state.
-		if (controller.signal.aborted) return;
 		reportError('export ZIP', err, { notifyUser: t('export.zipFailed') });
 		return; // does not clear `dirty` if the export failed
 	} finally {
@@ -131,7 +129,6 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 export async function exportHTML(id: string, deps: ExportDeps): Promise<void> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return;
-	const { exportHTML: exportHTMLService } = await import('./services/export');
 	const controller = new AbortController();
 	const dismiss = spinnerStore.show(t('export.preparingHtml'), () => controller.abort());
 	try {
@@ -156,7 +153,6 @@ export async function exportHTML(id: string, deps: ExportDeps): Promise<void> {
 export async function exportPDF(id: string, deps: ExportDeps): Promise<void> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return;
-	const { exportPDF: exportPDFService } = await import('./services/export');
 	const controller = new AbortController();
 	const dismiss = spinnerStore.show(t('export.preparingPdf'), () => controller.abort());
 	try {
@@ -187,18 +183,13 @@ export async function exportSelectionZip(
 		.filter((f) => selectedIds.has(f.id))
 		.map((file) => ({ ...file }));
 	if (files.length === 0) return;
-	const { exportZip: exportZipService } = await import('./services/export');
-	const controller = new AbortController();
-	const dismiss = spinnerStore.show(t('export.creatingZip'), () => controller.abort());
+	const dismiss = spinnerStore.show(t('export.creatingZip'));
 	try {
 		const stamp = new Date().toISOString().slice(0, 10);
-		const ok = await exportZipService(files, `deckmark-selection-${stamp}.zip`, {
-			signal: controller.signal
-		});
+		const ok = await exportZipService(files, `deckmark-selection-${stamp}.zip`);
 		if (!ok) return; // desktop dialog cancelled
 		notify.success(t('export.zipCreated', { n: files.length }));
 	} catch (err) {
-		if (controller.signal.aborted) return;
 		reportError('ZIP export (selection)', err, { notifyUser: t('export.zipFailed') });
 	} finally {
 		dismiss();

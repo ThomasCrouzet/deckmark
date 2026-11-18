@@ -28,6 +28,13 @@
 	import { workspaceStore } from '#lib/workspaces.svelte.js';
 	import { templatesStore } from '#lib/templates.svelte.js';
 	import { snippetsStore } from '#lib/snippets.svelte.js';
+	import {
+		downloadBackup,
+		restoreFromText,
+		isEncryptedBackup,
+		inspectBackupText,
+		serializeBackup
+	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
 	import { publicHostInfo } from '#lib/host.js';
 	import { editionManifest } from '#lib/edition.js';
@@ -433,12 +440,28 @@
 	]);
 
 	async function handleExportBackup(): Promise<void> {
-		await exportBackup(
-			undefined,
-			'backup export',
-			t('settings.backupExported'),
-			t('settings.backupExportFailed')
-		);
+		const controller = new AbortController();
+		const dismiss = spinnerStore.show(t('settings.exportingBackup'), () => controller.abort());
+		try {
+			// Flush unflushed keystrokes before reading Dexie - backup is
+			// IDB-sourced and would otherwise omit the last debounce window.
+			await filesStore.flushPendingAwait();
+			const ok = await downloadBackup(undefined, undefined, { signal: controller.signal });
+			// Desktop dialog cancel returns false - do not claim success.
+			if (ok) {
+				recordExternalBackupSuccess();
+				await refreshStorageHealth();
+				notify.success(t('settings.backupExported'));
+			}
+		} catch (err) {
+			// A cancelled export stops at the next page and writes no file.
+			if (controller.signal.aborted) return;
+			recordExternalBackupFailure();
+			await refreshStorageHealth();
+			reportError('backup export', err, { notifyUser: t('settings.backupExportFailed') });
+		} finally {
+			dismiss();
+		}
 	}
 
 	// §2.8 - Encrypted export: asks for a passphrase, the file is unreadable
@@ -465,53 +488,23 @@
 			notify.error(t('settings.passphraseMismatch'));
 			return;
 		}
-		await exportBackup(
-			passphrase,
-			'encrypted backup export',
-			t('settings.encryptedBackupExported'),
-			t('settings.encryptedExportFailed')
-		);
-	}
-
-	/**
-	 * Runs one manual backup with visible progress and a real cancellation.
-	 * Cancelling aborts the read and the encode between bounded pages. It must
-	 * not write an output, record a failure or clear the edit state.
-	 */
-	async function exportBackup(
-		passphrase: string | undefined,
-		context: string,
-		successMessage: string,
-		failureMessage: string
-	): Promise<void> {
-		const { downloadBackup } = await import('#lib/services/backup.js');
 		const controller = new AbortController();
 		const dismiss = spinnerStore.show(t('settings.exportingBackup'), () => controller.abort());
-		let percent = -1;
 		try {
-			// Flush unflushed keystrokes before reading Dexie - backup is
-			// IDB-sourced and would otherwise omit the last debounce window.
 			await filesStore.flushPendingAwait();
-			const ok = await downloadBackup(passphrase, undefined, {
-				signal: controller.signal,
-				onProgress: (progress) => {
-					const next = Math.round(progress.percent);
-					if (next === percent) return;
-					percent = next;
-					spinnerStore.update(t('settings.exportingBackupProgress', { percent: next }));
-				}
-			});
-			// Desktop dialog cancel returns false - do not claim success.
+			const ok = await downloadBackup(passphrase, undefined, { signal: controller.signal });
 			if (ok) {
 				recordExternalBackupSuccess();
 				await refreshStorageHealth();
-				notify.success(successMessage);
+				notify.success(t('settings.encryptedBackupExported'));
 			}
 		} catch (err) {
 			if (controller.signal.aborted) return;
 			recordExternalBackupFailure();
 			await refreshStorageHealth();
-			reportError(context, err, { notifyUser: failureMessage });
+			reportError('encrypted backup export', err, {
+				notifyUser: t('settings.encryptedExportFailed')
+			});
 		} finally {
 			dismiss();
 		}
@@ -544,10 +537,6 @@
 	}
 
 	async function restoreBackupText(text: string, verifyOnly = false): Promise<void> {
-		// The backup service stays out of the boot bundle. A restore is a user
-		// action, so the module is loaded on demand.
-		const { isEncryptedBackup, inspectBackupText, serializeBackup, restoreFromText } =
-			await import('#lib/services/backup.js');
 		// §2.8 - Encrypted backup: ask for the passphrase first.
 		let passphrase: string | undefined;
 		if (isEncryptedBackup(text)) {

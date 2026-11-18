@@ -10,7 +10,6 @@ export const docsSiteEn = {
 	'docsSite.export': 'Export site',
 	'docsSite.cancel': 'Cancel',
 	'docsSite.exporting': 'Rendering pages and assets...',
-	'docsSite.exportingProgress': 'Building the archive... {percent}%',
 	'docsSite.empty': 'Create a project before you export a documentation site.',
 	'docsSite.failed': 'The site export failed. Check the reported resources and try again.',
 	'docsSite.cancelled': 'Site export cancelled.',

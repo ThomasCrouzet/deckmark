@@ -974,7 +974,6 @@ export const en = {
 	'settings.appearance': 'Appearance',
 	'settings.backupExportFailed': 'Backup export failed.',
 	'settings.exportingBackup': 'Preparing the backup...',
-	'settings.exportingBackupProgress': 'Preparing the backup... {percent}%',
 	'settings.backupExported': 'Backup exported.',
 	'settings.backupReadFailed': 'Unable to read the backup file.',
 	'settings.backupRestored': 'Backup restored: {drafts} file(s), {workspaces} workspace(s).',
