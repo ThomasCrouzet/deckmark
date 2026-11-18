@@ -104,9 +104,11 @@ export async function createFirstFile(page: Page) {
 }
 
 /** Open the command palette from the toolbar button. */
-export async function openPalette(page: Page) {
+export async function openPalette(page: Page, timeout = 5_000) {
 	await page.getByRole('button', { name: 'Palette de commandes' }).click();
-	await expect(page.getByRole('dialog', { name: 'Palette de commandes' })).toBeVisible();
+	await expect(page.getByRole('dialog', { name: 'Palette de commandes' })).toBeVisible({
+		timeout
+	});
 }
 
 /** Select source mode from the toolbar for deterministic CodeMirror behavior. */

@@ -63,6 +63,31 @@ export interface SourceFidelityHint extends SourceEditHint {
 
 type Parse = (markdown: string) => MarkdownNode;
 
+interface ContainerTarget {
+	from: number;
+	block: MarkdownNode;
+	original: MarkdownNode;
+	blockStart: number;
+	sourceFrom: number;
+	sourceTo: number;
+	blockRaw: string;
+	trimmed: string;
+	delta: number;
+}
+
+interface ContainerLeaf {
+	leafPath: number[];
+	parentPath: number[];
+	oldValue: string;
+	newValue: string;
+	nextLeafRaw: string;
+	nextParentText: string;
+	markdownBlock: MarkdownNode;
+}
+
+/** Container blocks that can hold an unchanged text leaf at any depth. */
+const CONTAINER_TYPES = new Set(['list', 'table', 'blockquote']);
+
 function start(node: MarkdownNode): number {
 	return node.position?.start.offset ?? 0;
 }
@@ -80,6 +105,16 @@ function shift(node: MarkdownNode, delta: number): MarkdownNode {
 	if (endOffset !== undefined) node.position!.end.offset = endOffset + delta;
 	for (const child of node.children ?? []) shift(child, delta);
 	return node;
+}
+
+/** Follow a child-index path from one parsed node. */
+function nodeAtPath(root: MarkdownNode, path: number[]): MarkdownNode | null {
+	let node: MarkdownNode | undefined = root;
+	for (const index of path) {
+		node = node?.children?.[index];
+		if (!node) return null;
+	}
+	return node ?? null;
 }
 
 function properties(node: MarkdownNode): string {
@@ -418,7 +453,424 @@ export class SourceFidelity {
 				if (inserted) return inserted;
 			}
 		}
+		const container = this.restoreContainerBlock(markdown, hint, before, originals);
+		if (container) return container;
 		return this.restoreSingleBlock(markdown, hint?.insert ? undefined : hint, before, originals);
+	}
+
+	/**
+	 * Patch one ordinary text edit inside a large list, table or block quote.
+	 * The first strategy diffs the changed Markdown bytes. It covers a list
+	 * whose serializer output is local. A table serializer can re-pad every
+	 * cell of a changed row, so the second strategy parses only the changed
+	 * container and diffs its tree. Both strategies parse one paragraph or one
+	 * cell for the semantic check. The complete note is never parsed.
+	 */
+	private restoreContainerBlock(
+		markdown: string,
+		hint: SourceFidelityHint | undefined,
+		before: MarkdownNode[],
+		originals: MarkdownNode[]
+	): ScopedRestore | null {
+		const target = this.containerTarget(markdown, hint, before, originals);
+		if (!target) return null;
+		const local = this.restoreContainerBytes(target);
+		if (local) return this.commitContainer(target, local);
+		const tree = this.restoreContainerTree(target);
+		if (tree) return this.commitContainer(target, tree);
+		return null;
+	}
+
+	/** Locate and validate the one changed container block. */
+	private containerTarget(
+		markdown: string,
+		hint: SourceFidelityHint | undefined,
+		before: MarkdownNode[],
+		originals: MarkdownNode[]
+	): ContainerTarget | null {
+		const delta = markdown.length - this.markdown.length;
+		let from: number;
+		if (hint) {
+			if (hint.nextFrom !== hint.previousFrom) return null;
+			if (hint.nextTo - hint.nextFrom !== hint.previousTo - hint.previousFrom + delta) return null;
+			from = this.findBlockStart(before, hint.previousFrom);
+		} else {
+			const range = changeRange(this.markdown, markdown);
+			from = this.findChangedBlock(markdown);
+			const candidate = before[from];
+			if (!candidate || range.from < start(candidate) || range.oldTo > end(candidate)) return null;
+		}
+		const block = before[from];
+		const original = originals[from];
+		if (!block || !original || !block.position || !original.position) return null;
+		if (!CONTAINER_TYPES.has(block.type)) return null;
+		// A source block with different semantics or with reference syntax keeps
+		// the whole-document route.
+		if (original.type !== block.type || !equal(block, original)) return null;
+		const blockStart = start(block);
+		const blockEnd = end(block);
+		const sourceFrom = start(original);
+		const sourceTo = end(original);
+		const blockRaw = this.markdown.slice(blockStart, blockEnd);
+		let nextText: string;
+		if (hint) {
+			if (blockStart !== hint.previousFrom || blockEnd !== hint.previousTo) return null;
+			if (markdown.slice(0, hint.nextFrom) !== this.markdown.slice(0, hint.previousFrom))
+				return null;
+			if (markdown.slice(hint.nextTo) !== this.markdown.slice(hint.previousTo)) return null;
+			nextText = markdown.slice(hint.nextFrom, hint.nextTo);
+		} else {
+			nextText = markdown.slice(blockStart, blockEnd + delta);
+			if (markdown.slice(0, blockStart) !== this.markdown.slice(0, blockStart)) return null;
+			if (markdown.slice(blockEnd + delta) !== this.markdown.slice(blockEnd)) return null;
+		}
+		const trimmed = nextText.replace(/\s+$/, '');
+		if (trimmed.length - blockRaw.length !== delta) return null;
+		return {
+			from,
+			block,
+			original,
+			blockStart,
+			sourceFrom,
+			sourceTo,
+			blockRaw,
+			trimmed,
+			delta
+		};
+	}
+
+	/** Diff the changed Markdown bytes of one container. */
+	private restoreContainerBytes(target: ContainerTarget): ContainerLeaf | null {
+		const range = changeRange(target.blockRaw, target.trimmed);
+		if (range.oldTo > target.blockRaw.length || range.newTo > target.trimmed.length) return null;
+		const leaves: Array<{
+			leaf: MarkdownNode;
+			parentPath: number[];
+			path: number[];
+			from: number;
+			to: number;
+		}> = [];
+		const walk = (
+			node: MarkdownNode,
+			path: number[],
+			ancestors: Array<{ node: MarkdownNode; path: number[] }>
+		): void => {
+			if (node.type === 'text' || node.type === 'inlineCode') {
+				const frame = ancestors.findLast((entry) =>
+					['paragraph', 'heading', 'tableCell'].includes(entry.node.type)
+				);
+				if (frame)
+					leaves.push({
+						leaf: node,
+						parentPath: frame.path,
+						path,
+						from: start(node) - target.blockStart,
+						to: end(node) - target.blockStart
+					});
+				return;
+			}
+			(node.children ?? []).forEach((child, index) =>
+				walk(child, [...path, index], [...ancestors, { node, path }])
+			);
+		};
+		walk(target.block, [], []);
+		const matches = leaves.filter((entry) => range.from >= entry.from && range.oldTo <= entry.to);
+		if (matches.length !== 1) return null;
+		const match = matches[0]!;
+		if (match.leaf.type !== 'text') return null;
+		const parentStart = start(nodeAtPath(target.block, match.parentPath)!) - target.blockStart;
+		const parentEnd = end(nodeAtPath(target.block, match.parentPath)!) - target.blockStart;
+		if (range.from < parentStart || range.oldTo > parentEnd) return null;
+		const nextParentText = target.trimmed.slice(parentStart, parentEnd + target.delta);
+		const oldValue = (match.leaf.value ?? '').replaceAll('\r\n', '\n');
+		const nextLeafRaw = target.trimmed.slice(match.from, match.to + target.delta);
+		const newValue = this.decodeText(nextLeafRaw);
+		if (oldValue === newValue) return null;
+		const markdownBlock = this.cloneChangedBlock(
+			target.block,
+			match.leaf,
+			newValue,
+			target.blockStart + match.from + nextLeafRaw.length,
+			target.delta,
+			target.blockStart
+		);
+		return {
+			leafPath: match.path,
+			parentPath: match.parentPath,
+			oldValue,
+			newValue,
+			nextLeafRaw,
+			nextParentText,
+			markdownBlock
+		};
+	}
+
+	/**
+	 * Parse one changed container and diff its tree. A table serializer can
+	 * re-pad unchanged cells, so the byte diff can cover the complete table
+	 * while the tree differs in one text leaf.
+	 */
+	private restoreContainerTree(target: ContainerTarget): ContainerLeaf | null {
+		if (target.blockRaw.length > 262_144 || target.trimmed.length > 262_144) return null;
+		let tree: MarkdownNode;
+		try {
+			tree = this.parse(target.trimmed);
+		} catch {
+			return null;
+		}
+		const blocks = (tree.children ?? []).filter((node) => node.type !== 'definition');
+		if (blocks.length !== 1) return null;
+		const afterBlock = blocks[0]!;
+		if (afterBlock.type !== target.block.type) return null;
+		if (start(afterBlock) !== 0 || end(afterBlock) !== target.trimmed.length) return null;
+		const change = this.changedTextLeaf(target.block, afterBlock);
+		if (!change || change.before.type !== 'text' || change.after.type !== 'text') return null;
+		const parent = nodeAtPath(target.block, change.parentPath);
+		const afterParent = nodeAtPath(afterBlock, change.parentPath);
+		if (!parent || !afterParent) return null;
+		const parentRaw = this.markdown.slice(start(parent), end(parent));
+		const nextParentText = target.trimmed.slice(start(afterParent), end(afterParent));
+		if (parentRaw.length > 65_536 || nextParentText.length > 65_536) return null;
+		const oldValue = (change.before.value ?? '').replaceAll('\r\n', '\n');
+		const newValue = (change.after.value ?? '').replaceAll('\r\n', '\n');
+		if (oldValue === newValue) return null;
+		const nextLeafRaw = target.trimmed.slice(start(change.after), end(change.after));
+		return {
+			leafPath: change.path,
+			parentPath: change.parentPath,
+			oldValue,
+			newValue,
+			nextLeafRaw,
+			nextParentText,
+			markdownBlock: afterBlock
+		};
+	}
+
+	/**
+	 * Find the one changed text leaf in two trees. Any other structural or
+	 * property change rejects the local route.
+	 */
+	private changedTextLeaf(
+		before: MarkdownNode,
+		after: MarkdownNode
+	): {
+		before: MarkdownNode;
+		after: MarkdownNode;
+		path: number[];
+		parentPath: number[];
+	} | null {
+		let found: {
+			before: MarkdownNode;
+			after: MarkdownNode;
+			path: number[];
+			parentPath: number[];
+		} | null = null;
+		let invalid = false;
+		const visit = (
+			left: MarkdownNode,
+			right: MarkdownNode,
+			path: number[],
+			ancestors: Array<{ node: MarkdownNode; path: number[] }>
+		): void => {
+			if (invalid) return;
+			if (left.type !== right.type) {
+				invalid = true;
+				return;
+			}
+			const leftChildren = left.children ?? [];
+			const rightChildren = right.children ?? [];
+			if (leftChildren.length === 0 || rightChildren.length === 0) {
+				if (leftChildren.length !== rightChildren.length) {
+					invalid = true;
+					return;
+				}
+				if (left.type !== 'text') {
+					if (properties(left) !== properties(right)) invalid = true;
+					return;
+				}
+				if ((left.value ?? '') === (right.value ?? '')) return;
+				if (found) {
+					invalid = true;
+					return;
+				}
+				const frame = ancestors.findLast((entry) =>
+					['paragraph', 'heading', 'tableCell'].includes(entry.node.type)
+				);
+				if (!frame) {
+					invalid = true;
+					return;
+				}
+				found = { before: left, after: right, path, parentPath: frame.path };
+				return;
+			}
+			if (properties(left) !== properties(right) || leftChildren.length !== rightChildren.length) {
+				invalid = true;
+				return;
+			}
+			leftChildren.forEach((child, index) =>
+				visit(child, rightChildren[index]!, [...path, index], [...ancestors, { node: left, path }])
+			);
+		};
+		visit(before, after, [], []);
+		return invalid ? null : found;
+	}
+
+	/** Build the exact source result for one validated container leaf edit. */
+	private commitContainer(target: ContainerTarget, edit: ContainerLeaf): ScopedRestore | null {
+		const sourceLeaf = nodeAtPath(target.original, edit.leafPath);
+		const sourceParent = nodeAtPath(target.original, edit.parentPath);
+		if (!sourceLeaf || !sourceParent || sourceLeaf.type !== 'text') return null;
+		// A new bracket label can resolve against a definition outside this
+		// container. Keep the whole-document semantic check for that case.
+		if (/[[\]]/.test(edit.oldValue) || /[[\]]/.test(edit.newValue)) {
+			if (this.bracketResolvesDefinition(edit.nextParentText)) return null;
+		}
+		const rawLeaf = this.source.slice(start(sourceLeaf), end(sourceLeaf));
+		const patches: Patch[] = [];
+		for (const change of textChanges(edit.oldValue, edit.newValue)) {
+			const oldOffsets = textRange(rawLeaf, edit.oldValue, change.from, change.oldTo);
+			const newOffsets = textRange(edit.nextLeafRaw, edit.newValue, change.newFrom, change.newTo);
+			if (!oldOffsets || !newOffsets) return null;
+			patches.push({
+				start: start(sourceLeaf) + oldOffsets.from,
+				end: start(sourceLeaf) + oldOffsets.to,
+				value: this.lineEndings(edit.nextLeafRaw.slice(newOffsets.from, newOffsets.to))
+			});
+		}
+		if (!patches.length) return null;
+		if (
+			patches.some(
+				(patch) =>
+					patch.start < start(sourceLeaf) || patch.end > end(sourceLeaf) || patch.start > patch.end
+			)
+		)
+			return null;
+		const sourceParentRaw = this.source.slice(start(sourceParent), end(sourceParent));
+		const candidateParent = apply(
+			sourceParentRaw,
+			patches.map((patch) => ({
+				...patch,
+				start: patch.start - start(sourceParent),
+				end: patch.end - start(sourceParent)
+			}))
+		);
+		try {
+			if (
+				!equal(
+					this.parse(this.normalize(candidateParent)),
+					this.parse(this.normalize(edit.nextParentText))
+				)
+			)
+				return null;
+		} catch {
+			return null;
+		}
+		const sourceDelta = patches.reduce(
+			(total, patch) => total + patch.value.length - (patch.end - patch.start),
+			0
+		);
+		const candidateBlock = apply(
+			this.source.slice(target.sourceFrom, target.sourceTo),
+			patches.map((patch) => ({
+				...patch,
+				start: patch.start - target.sourceFrom,
+				end: patch.end - target.sourceFrom
+			}))
+		);
+		const sourceBlock = this.cloneChangedBlock(
+			target.original,
+			sourceLeaf,
+			edit.newValue,
+			start(sourceLeaf) + rawLeaf.length + sourceDelta,
+			sourceDelta,
+			target.sourceFrom
+		);
+		const sourceIndex = this.originalIndex(target.original);
+		if (sourceIndex < 0) return null;
+		const result =
+			this.source.slice(0, target.sourceFrom) + candidateBlock + this.source.slice(target.sourceTo);
+		recordEditorCounter('sourceFidelityScopedHint');
+		recordEditorCounter('sourceFidelityScopedContainer');
+		return {
+			result,
+			blockIndex: target.from,
+			blockCount: 1,
+			sourceIndex,
+			sourceCount: 1,
+			markdownStart: target.blockStart,
+			sourceStart: target.sourceFrom,
+			markdownDelta: target.delta,
+			sourceDelta: result.length - this.source.length,
+			markdownNodes: [edit.markdownBlock],
+			sourceNodes: [sourceBlock],
+			previousFrom: target.sourceFrom,
+			previousTo: target.sourceTo,
+			nextFrom: target.sourceFrom,
+			nextTo: target.sourceFrom + candidateBlock.length
+		};
+	}
+
+	/** Decode the escapes and entities of one plain text leaf. */
+	private decodeText(raw: string): string {
+		let value = '';
+		let decoder: HTMLTextAreaElement | undefined;
+		for (const unit of raw.matchAll(
+			/\\[!-/:-@[-`{-~]|&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);|\r\n|[\s\S]/gi
+		)) {
+			let text = unit[0];
+			if (text.startsWith('\\') && text.length === 2) text = text.slice(1);
+			else if (text === '\r\n') text = '\n';
+			else if (text.startsWith('&') && text.endsWith(';') && typeof document !== 'undefined') {
+				decoder ??= document.createElement('textarea');
+				decoder.innerHTML = text;
+				text = decoder.value;
+			}
+			value += text;
+		}
+		return value;
+	}
+
+	/**
+	 * Copy one changed container with its new leaf value and positions. Nodes
+	 * after the changed leaf move by `totalDelta`; an ancestor keeps its start
+	 * and moves its end. The result is relative to `base`.
+	 */
+	private cloneChangedBlock(
+		block: MarkdownNode,
+		leaf: MarkdownNode,
+		value: string,
+		newLeafEnd: number,
+		totalDelta: number,
+		base: number
+	): MarkdownNode {
+		const leafStart = start(leaf);
+		const leafEnd = end(leaf);
+		const clone = (node: MarkdownNode): MarkdownNode => {
+			const nodeStart = node.position?.start.offset;
+			const nodeEnd = node.position?.end.offset;
+			const position =
+				node.position && nodeStart !== undefined && nodeEnd !== undefined
+					? { start: { offset: nodeStart - base }, end: { offset: nodeEnd - base } }
+					: undefined;
+			const copy: MarkdownNode = {
+				...node,
+				...(position ? { position } : {}),
+				...(node.children ? { children: node.children.map(clone) } : {})
+			};
+			if (!position || nodeStart === undefined || nodeEnd === undefined) return copy;
+			if (node === leaf) {
+				copy.value = value;
+				position.start.offset = leafStart - base;
+				position.end.offset = newLeafEnd - base;
+			} else if (nodeStart >= leafEnd) {
+				position.start.offset = nodeStart - base + totalDelta;
+				position.end.offset = nodeEnd - base + totalDelta;
+			} else if (nodeEnd >= leafEnd) {
+				position.end.offset = nodeEnd - base + totalDelta;
+			}
+			return copy;
+		};
+		return clone(block);
 	}
 
 	/**

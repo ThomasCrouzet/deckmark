@@ -960,3 +960,65 @@ This snapshot does not measure provider queueing, token generation, TLS, DNS,
 billing, long replies or behavior on other hosts and browsers. The command,
 fixture, raw samples and source identity remain in local diagnostic storage,
 not in a GitHub report artifact.
+
+## Rich-text container publication
+
+This record covers issues #569 and #572. A text edit inside one list item or one
+table cell of a large note now keeps a bounded source restoration. Before this
+change the same edit parsed and normalized the complete source. The saved and
+exported bytes, the image identity, the caret, undo, redo and the large-document
+confirmation stay identical.
+
+The representative note is 36 KB. It holds plain and mixed inline paragraphs, a
+320 item list, a 140 row table, one embedded image and a tail paragraph. The
+before run uses source `0a82d52` in a detached worktree. The after run uses this
+branch. Both runs use one Chromium worker, a French locale and a blocked service
+worker. Each value is the p95 of the accepted publication stage for that row.
+The values are single-run observations, not budgets or a distribution.
+
+| Row | Before route | Before stage p95, ms | After route | After stage p95, ms |
+| --- | --- | ---: | --- | ---: |
+| List item edit | whole document, `sourceFidelityFull` | 479.5 | scoped, `sourceFidelityScopeAttempt` | 33.8 |
+| Table cell edit | whole document, `sourceFidelityFull` | 373.9 | scoped, `sourceFidelityScopeAttempt` | 45.1 |
+| Mixed Enter split | scoped, full counter at zero | 4.2 | scoped, full counter at zero | 4.8 |
+
+The exact exported Markdown and the durable row match the expected bytes in both
+runs. The Enter split was already local at source `0a82d52`, so its row is a
+control and not a before-and-after defect.
+
+The container note is 345 KB. It holds a 3,000 item list, a 1,400 row table, one
+embedded image and filler prose. It is above the 256 Ki character confirmation
+threshold. One list edit took 4.0 to 5.6 seconds through the whole-document route
+before the change. One table edit took 4.7 to 5.1 seconds. After the change the
+full counter stays at zero. The edit restores in about 276 ms on Chromium, 568 ms
+on Firefox and 314 ms on WebKit for the list row. The table row is about 274,
+564 and 345 ms. The table and list probe totals include a redo publication, so
+these values are approximate. The exported bytes and the image hash match the
+seed in all three browsers. Undo and redo return the exact seed and the exact
+edit. The caret stays after the inserted character. No extra confirmation
+appears during the edits.
+
+Commands:
+
+```sh
+npx vitest run src/lib/source-fidelity.test.ts --maxWorkers=1
+npx playwright test e2e/container-source-publication.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/container-source-publication.spec.ts --project=firefox --workers=1 --retries=0
+npx playwright test e2e/container-source-publication.spec.ts --project=webkit --workers=1 --retries=0
+npx playwright test e2e/representative-editor-report.spec.ts --project=chromium --workers=1 --retries=0 --trace=off
+```
+
+Environment classes:
+
+| Class | Result in this record |
+| --- | --- |
+| Source only | The changed branch in `src/lib/source-fidelity.ts` is reviewed. This is not a runtime result. |
+| Node isolated | `src/lib/source-fidelity.test.ts` records a parser input below 64 KiB for one list and one table edit. This is not a browser result. |
+| Desktop browser | Chromium, Firefox and WebKit executed the container workflow. The representative report executed on Chromium only. |
+| Emulated mobile | Not tested. No mobile project selects these cases. |
+| Installed PWA | Not tested. Playwright does not install a PWA or reproduce its lifecycle. |
+| Physical and native | Not tested. No physical iOS device and no optimized native WebView are attached. |
+
+A desktop browser second frame is a frame opportunity, not compositor paint.
+The values do not prove a physical iPhone or iPad, an installed PWA, a Windows
+WebView2, a Linux WebKitGTK or a macOS WKWebView result.
