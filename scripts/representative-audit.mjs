@@ -39,6 +39,15 @@ export function auditReport(report, budgets, options = {}) {
 	}
 	if (report.schema !== SCHEMA) failures.push('invalid-schema');
 	if (report.exactBytes !== true) failures.push('exported-bytes-not-exact');
+	if (!/^[a-f0-9]{40}$/.test(report.identity?.source ?? '')) {
+		failures.push('missing-source-identity');
+	}
+	if (!/^[a-f0-9]{64}$/.test(report.identity?.workingDiffSha256 ?? '')) {
+		failures.push('missing-working-diff-identity');
+	}
+	if (report.build?.mode !== 'source-fidelity-instrumented') {
+		failures.push('missing-build-identity');
+	}
 	if (!report.sampling || typeof report.sampling !== 'object') {
 		failures.push('missing-sampling');
 	}

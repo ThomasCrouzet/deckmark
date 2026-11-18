@@ -31,6 +31,11 @@ function makeReport({ measuredRuns = MINIMUM, exactBytes = true } = {}) {
 	const stats = stable(values);
 	return {
 		schema: 'deckmark-representative-editor/2',
+		identity: {
+			source: '0'.repeat(40),
+			workingDiffSha256: '0'.repeat(64)
+		},
+		build: { mode: 'source-fidelity-instrumented' },
 		exactBytes,
 		sampling: { warmupRuns: 1, measuredRuns },
 		rawRuns,
@@ -111,6 +116,16 @@ test('rejects a budget for a metric that the engine does not support', () => {
 	const result = auditReport(report, makeBudgets());
 	assert.equal(result.status, 'failed');
 	assert.ok(result.failures.includes('plain-start.inputToFrameMs:unsupported'));
+});
+
+test('rejects a report without a source and build identity', () => {
+	const report = makeReport();
+	report.identity = {};
+	report.build = {};
+	const result = auditReport(report, makeBudgets());
+	assert.equal(result.status, 'failed');
+	assert.ok(result.failures.includes('missing-source-identity'));
+	assert.ok(result.failures.includes('missing-build-identity'));
 });
 
 test('rejects a report without a reviewed platform baseline', () => {

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { resetAppState } from './helpers';
 import { exportSource } from './source-fidelity-harness';
+import { testSource } from '../scripts/test-source.mjs';
 
 // Representative editor report for issues #327 and #572.
 //
@@ -1484,6 +1485,11 @@ test('records a representative editor report and the mixed-format route matrix',
 	const payload = {
 		schema: 'deckmark-representative-editor/2',
 		command: `REPRESENTATIVE_SAMPLES=${sampleRuns} npx playwright test e2e/representative-editor-report.spec.ts --project=${info.project.name} --workers=1 --retries=0 --trace=off`,
+		identity: testSource(),
+		build: {
+			mode: 'source-fidelity-instrumented',
+			prebuilt: process.env.E2E_PREBUILT === '1'
+		},
 		fixture: {
 			name: NOTE_NAME,
 			bytes: Buffer.byteLength(source),
