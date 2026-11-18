@@ -13,23 +13,51 @@ This file records settings that a maintainer must apply manually. Repository aut
 
 ## Main branch protection
 
-This checklist is the intended policy, not proof of the live settings. A read on
-2026-11-11 found the Web and security checks below configured, but not
-`desktop-validation`. The live checks did not require an up-to-date branch. Legacy
-branch protection required conversation resolution. Inspect both legacy protection
-and repository rulesets before making a merge decision. Inspect Desktop results
-explicitly until the maintainer applies and verifies that policy.
+This checklist is the intended policy, not proof of the live settings.
 
-The CI scheduling changes do not modify these repository settings. Keep the current
-required check names until a replacement has real workflow evidence and a separately
-reviewed settings change. A documentation-only path must prove that validation is
-not applicable; a missing, failed or deferred result must not become a passing gate.
+### Review record (2026-11-18)
+
+The legacy branch protection and the active repository ruleset `Require pull
+request checks` (ID 25495229) list the same ten required contexts. Every context
+maps to a job in this repository:
+
+| Required context | Job |
+| --- | --- |
+| `check` | `deploy.yml`, `check` |
+| `build (false)` | `deploy.yml`, `build` matrix row |
+| `build (/deckmark, true)` | `deploy.yml`, `build` matrix row |
+| `e2e` | `deploy.yml`, `e2e` |
+| `lighthouse` | `deploy.yml`, `lighthouse` |
+| `dependency-review` | `security.yml`, `dependency-review` |
+| `dependency-audit` | `security.yml`, `dependency-audit` |
+| `codeql (javascript-typescript, none)` | `security.yml`, CodeQL matrix row |
+| `codeql (rust, none)` | `security.yml`, CodeQL matrix row |
+| `secrets` | `gitleaks.yml`, `secrets` |
+
+Both settings set strict branch checking to false. They do not require an
+up-to-date branch. The legacy protection requires conversation resolution and
+blocks force pushes and branch deletion.
+
+`desktop-validation` (`desktop.yml`) is not a required context in the legacy
+protection or in the ruleset. Decision: keep it non-required. Issue #628 does
+not change branch protection. Maintainers inspect the Desktop results before a
+merge. A separate settings change can require the aggregate after it has a
+recorded failure and success history.
+
+The CI scheduling changes do not modify these repository settings. A
+documentation-only path must prove that validation is not applicable; a missing,
+failed or deferred result must not become a passing gate.
+
+### Intended settings
 
 - Require a pull request before merging.
-- Require the branch to be up to date before merging.
 - Require conversation resolution.
 - Block force pushes and branch deletion.
-- Require these checks: `check`, `e2e`, `build (false)`, `build (/deckmark, true)`, `lighthouse`, `desktop-validation`, `dependency-review`, `dependency-audit`, `codeql (javascript-typescript, none)`, `codeql (rust, none)`, and `secrets`.
+- Require these checks: `check`, `e2e`, `build (false)`,
+  `build (/deckmark, true)`, `lighthouse`, `dependency-review`,
+  `dependency-audit`, `codeql (javascript-typescript, none)`,
+  `codeql (rust, none)`, and `secrets`.
+- Do not add `desktop-validation` to the required set in issue #628.
 - Review the exact check names after the first workflow run because GitHub displays matrix suffixes.
 - Merge Dependabot pull requests manually after required checks pass. The removed token-based workflow bypassed the normal post-merge `push` workflows.
 

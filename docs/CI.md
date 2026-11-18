@@ -569,8 +569,8 @@ Two earlier Web samples are historical source examples only:
 - The four-shard sample of the same date took about 13 to 25 minutes per shard.
 
 These are single executions, not p50 or p95 statistics. They are not a
-distribution and not a promise for another runner or cache state. Issue #628
-records the current measurements; use that evidence for a current comparison.
+distribution and not a promise for another runner or cache state. The next
+subsection records the issue #628 comparison.
 
 | Boundary | What it includes |
 | --- | --- |
@@ -585,6 +585,67 @@ The shard figures above are whole job durations, including checkout and setup,
 not the test step alone. A retry adds to that time and the shard report prints
 the retry count. Cache state changes setup time. The native jobs are in the
 separate `Desktop` workflow and are not part of the Web E2E figure.
+
+### Issue #628 measurement record (2026-11-18)
+
+This record reads the REST job API on 2026-11-18. It uses executed jobs only.
+A job-minute is the sum of one job duration; parallel jobs are added, so it
+measures total work and not developer waiting time. The Web validation figures
+exclude `deploy`, `deploy-cloudflare` and `verify-public`. Elapsed time starts at
+the run start and ends at the last executed validation job. The Web pair has no
+product source change; one collector test moved from `src/lib` to `scripts`. The
+Desktop pair also changes the native bundle configuration, which the measured
+jobs do not run. The event type differs in each pair.
+
+Web validation, source `47d9ed9` before and `848b597` after:
+
+| Measure | Before, run `43024132421` | After, run `43091695890` |
+| --- | ---: | ---: |
+| Executed validation jobs | 21 | 20 |
+| Validation job-minutes | 123.38 | 115.12 |
+| Validation elapsed seconds | 1124 | 1121 |
+| E2E build job seconds | 47 | 33 |
+| E2E build dependency setup step seconds | 15, npm ci | 5, cache hit |
+| E2E build instrumented build step seconds | 21 | 17 |
+| Shard 1 setup before the test step seconds | 71 | 38 |
+| Shard 1 test step seconds | 972 | 1010 |
+| Shard 1 build artifact download seconds | 1 | 2 |
+| Eight shard job-minutes | 115.06 | 108.24 |
+
+`Desktop`, source `47d9ed9` before and `848b597` after:
+
+| Measure | Before, run `43024132569` | After, run `43091695630` |
+| --- | ---: | ---: |
+| Executed jobs | 16 | 13 |
+| Native debug build steps | 6 | 3 |
+| Job-minutes | 73.03 | 57.08 |
+| Workflow elapsed seconds | 683 | 640 |
+| Linux native jobs seconds | 888 | 563 |
+| Linux debug build steps seconds | 155 | 57 |
+| Linux benchmark step seconds | 451 | 301 |
+
+The before Web shard restored a browser cache and then installed browsers and
+system packages with APT. The after shard starts the pinned container and runs
+the environment check. The browser download and APT steps no longer exist
+(deploy.yml, `e2e-shard`). The 20 minute timeouts belonged to those APT steps
+and were removed with them; the shard job keeps its 40 minute limit. No timeout
+was extended.
+
+The shard has one dependency path. The `e2e-build` job installs and saves
+`node_modules` first; the shards then restore that cache. At `848b597` all eight
+shards reported a cache hit and skipped the install step. A cold dependency
+install runs in `e2e-build` with `npm ci`. A cold-cache run and a warm-cache run
+at the final lane head both passed; the lane report records their run
+identifiers. A cold shard cache is not a separate path.
+
+These are single uncontrolled pairs. They differ in event type, base revision,
+runner allocation and test duration. The test step and the benchmark step vary
+between the two sides; shard 1 grew by 38 seconds. The values support three
+statements only: fewer jobs run, the duplicate native compile is gone, and the
+APT failure path is removed. They do not support a global speedup, a percentage,
+a p50 or p95 value, or the 10 minute target. Shard count, weights, samples,
+fixtures, budgets and failure propagation are unchanged in this pair. Repeated
+same-event trials are still necessary before a shard or worker change.
 
 ## Rules for later stages
 
