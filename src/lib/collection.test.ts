@@ -9,7 +9,7 @@ import {
 	sortRows,
 	type CollectionBuildStats
 } from './collection';
-import { contentFingerprint } from './content-fingerprint';
+import { contentFingerprint } from './draft-metadata';
 import type { FileItem } from './types';
 
 // The collection cache must not treat the 32-bit fingerprint as exact source

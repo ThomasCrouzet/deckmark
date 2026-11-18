@@ -1,6 +1,6 @@
 import { parseFrontmatter } from './frontmatter';
 import { documentKindForFile } from './document-kind';
-import { contentFingerprint } from './content-fingerprint';
+import { contentFingerprint } from './draft-metadata';
 import type { FileItem } from './types';
 
 export type CollectionValue = string | number | boolean | string[];
