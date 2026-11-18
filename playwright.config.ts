@@ -66,7 +66,11 @@ export default defineConfig({
 			name: 'chromium',
 			use: { ...devices['Desktop Chrome'] },
 			// Mobile tests expect the Sidebar drawer. Exclude them from the desktop suite.
-			testIgnore: ['**/mobile.spec.ts', '**/presentation-mobile.spec.ts']
+			testIgnore: [
+				'**/mobile.spec.ts',
+				'**/presentation-mobile.spec.ts',
+				'**/frontmatter-number-touch.spec.ts'
+			]
 		},
 		{
 			// Test the Sidebar drawer and presentation touch paths in mobile specs only.
@@ -80,7 +84,8 @@ export default defineConfig({
 				'**/presentation-mobile.spec.ts',
 				'**/presentation-responsive-tasks.spec.ts',
 				'**/presentation-visual-viewport.spec.ts',
-				'**/safe-area.spec.ts'
+				'**/safe-area.spec.ts',
+				'**/frontmatter-number-touch.spec.ts'
 			]
 		},
 		{
@@ -203,7 +208,11 @@ export default defineConfig({
 		{
 			name: 'mobile-webkit',
 			use: { ...devices['iPhone 13'] },
-			testMatch: ['**/mobile.spec.ts', '**/presentation-mobile.spec.ts']
+			testMatch: [
+				'**/mobile.spec.ts',
+				'**/presentation-mobile.spec.ts',
+				'**/frontmatter-number-touch.spec.ts'
+			]
 		}
 	],
 	webServer: {

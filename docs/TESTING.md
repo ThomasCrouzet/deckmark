@@ -3770,6 +3770,26 @@ Chromium, Firefox and WebKit key events do not prove a physical iPhone or iPad s
 keyboard, a hardware keyboard, a native IME session or a Tauri WebView. Those checks
 stay separate.
 
+`e2e/frontmatter-number-touch.spec.ts` repeats the two numeric retypes and the blocked
+incomplete value in the mobile Chromium and mobile WebKit projects. The desktop
+projects ignore this file because it needs a touch pointer. A touch project
+hides the desktop welcome and rename controls, so the case seeds one draft through
+IndexedDB and reloads. It taps the field, presses End and Backspace with real key
+events, then types each character. Every step records the DOM value and the caret.
+The case checks the `inputmode="decimal"` hint that a numeric soft keyboard reads, the
+saved Markdown and the reopened `nombre` kind. Run:
+
+```sh
+E2E_PORT=4205 npx playwright test e2e/frontmatter-number-touch.spec.ts \
+  --project=mobile-chromium --project=mobile-webkit --workers=1 --retries=0
+```
+
+Keep `frontmatter-number-touch.json` and `frontmatter-number-touch-invalid.json` with
+the viewport, touch capability and user agent. The viewport, the tap and the key
+events are emulated. A physical iPhone or iPad software keyboard, an iPad hardware
+keyboard, a Windows WebView2 window and a Linux WebKitGTK window remain manual
+checks. A desktop or emulated pass is not a native result.
+
 ## Command palette pagination and search result activation
 
 Keep the pagination action outside the command listbox. The retained risks are a
