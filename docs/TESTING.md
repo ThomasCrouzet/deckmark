@@ -257,11 +257,17 @@ boot graph and exceeds the boot budget.
 
 The second case covers a paste and a structural split. A trusted paste of plain
 text in the mixed paragraph keeps the bounded route (about 36 ms at 240 KB). A
-following Enter split takes the conservative whole-document route: about 2.4 s
-to 2.6 s at 240 KB, inside the named `markdownPublish` and `restoreMarkdown`
-windows. That cost stays a measured incident for the source restoration owner.
-The case checks the exact bytes after the paste, the image identity after the
-split, and exact undo back to the seed.
+following Enter split in a plain paragraph also keeps the bounded route. The
+case checks the exact bytes after the paste, the image identity after the split,
+and exact undo back to the seed.
+
+An Enter split inside a mixed-format paragraph keeps the local route too. The
+restore inserts only the paragraph break at the matching source offset. It
+keeps the original inline markers and never parses the complete source.
+`e2e/rich-text-publication.spec.ts` checks this case at 240 KB with an embedded
+image. It fails when the split counter stays at zero, when a complete source
+restore runs, when the full serializer fallback runs, or when an unchanged byte
+changes.
 
 Before the bounded source path, the same fixture parsed the complete source for
 each publication (p50 1.6 s to 1.8 s) and the resumed key waited 0.7 s to 2.1 s.
@@ -614,7 +620,8 @@ local span.
 `e2e/rich-text-publication.spec.ts` seeds 1 MB and 5 MB notes with an embedded
 image and four mixed paragraphs. It appends one letter at the start, middle and
 end, then checks the exact exported bytes, the scoped counter, a full counter at
-zero and the accepted edit span. Run:
+zero and the accepted edit span. It also splits a mixed paragraph with Enter at
+240 KB and checks the same bounded route and exact bytes. Run:
 
 ```sh
 npx playwright test e2e/rich-text-publication.spec.ts --project=chromium --workers=1 --retries=0
@@ -1026,11 +1033,14 @@ complete hostile-input validation in `validateBackupValue`.
 IndexedDB and runs the real Settings export. It records the pipeline counters,
 every long-task duration, typing during the export, the exact downloaded bytes,
 and a cancellation that must publish no file. The default corpus is 16 MiB;
-set `MDSH_BACKUP_CORPUS_MIB` for a larger supported local corpus. Two more cases
-cancel a library ZIP and a documentation site ZIP. A throwing JSZip update
-callback stops the stream and rejects the promise, so compression does not
-continue after the cancel. `buildProjectZip` takes the same signal and progress
-options and keeps the exact entry bytes.
+set `MDSH_BACKUP_CORPUS_MIB` for a larger supported local corpus. A 64 MiB text
+corpus exceeds the 64 MiB backup text limit after JSON and line-ending escaping.
+A separate case seeds that corpus, starts the export, and checks the failure
+notice, no download and no completed pipeline run. Two more cases cancel a
+library ZIP and a documentation site ZIP. A throwing JSZip update callback stops
+the stream and rejects the promise, so compression does not continue after the
+cancel. `buildProjectZip` takes the same signal and progress options and keeps
+the exact entry bytes.
 
 ```sh
 E2E_PORT=4411 npx playwright test e2e/backup-export-bounds.spec.ts \

@@ -369,6 +369,57 @@ test('bounds backup collection and encoding while typing stays usable', async ({
 	await info.attach('corpus-backup.json', { path, contentType: 'application/json' });
 });
 
+test('a corpus over the backup limit publishes no file and reports failure', async ({
+	page
+}, info) => {
+	test.setTimeout(300_000);
+	await resetAppState(page);
+	// 64 MiB of text exceeds the 64 MiB backup text limit after the JSON and
+	// line-ending escaping. The operation must fail before any output.
+	const corpus = await seedCorpus(page, {
+		textMiB: 64,
+		rows: 120,
+		assets: 0,
+		assetBytes: 0,
+		projectDocuments: 0,
+		openFiles: 1
+	});
+	await page.reload();
+	await waitForReady(page);
+	await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 20_000 });
+
+	let downloads = 0;
+	page.on('download', () => downloads++);
+	await startPlainBackup(page);
+	await expect(
+		page.getByRole('alert').filter({ hasText: "L'export de la sauvegarde a échoué." }).last()
+	).toBeVisible({ timeout: 240_000 });
+	await expect(page.getByText('Sauvegarde exportée.')).toHaveCount(0);
+	await page.waitForTimeout(1_000);
+	expect(downloads, 'a backup over the limit must publish no file').toBe(0);
+
+	const runs = await pipelineRuns(page);
+	const completed = runs.filter((candidate) => candidate.kind === 'backup' && candidate.completed);
+	expect(completed, 'a rejected corpus must not report a completed backup run').toHaveLength(0);
+
+	const limitPath = info.outputPath('backup-limit.json');
+	await writeFile(
+		limitPath,
+		JSON.stringify(
+			{
+				corpusMiB: 64,
+				corpus,
+				downloads,
+				completedRuns: completed.length,
+				runs: runs.filter((candidate) => candidate.kind === 'backup')
+			},
+			null,
+			2
+		)
+	);
+	await info.attach('backup-limit.json', { path: limitPath, contentType: 'application/json' });
+});
+
 test('cancellation publishes no backup and preserves the corpus', async ({ page }, info) => {
 	test.setTimeout(180_000);
 	await resetAppState(page);

@@ -1,6 +1,11 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
-import { editSentence, exportSource, importSource } from './source-fidelity-harness';
+import {
+	editSentence,
+	exportSource,
+	importSource,
+	placeCaretBefore
+} from './source-fidelity-harness';
 
 // Issue #572: an ordinary text edit inside a paragraph with unchanged inline
 // marks must keep the bounded source restoration. A whole-source parse or
@@ -177,6 +182,68 @@ async function editMixed(page: Page, before: string, after: string, id: string):
 		`${id}: the appended letter must be the only span size change`
 	).toBe(1);
 }
+
+// The Enter split inside a mixed-format paragraph is a structural change: one
+// paragraph becomes two. The editor must keep that change local and must not
+// parse the complete source because the paragraph has inline marks (#572).
+test('an Enter split in a mixed inline paragraph keeps the source work local', async ({
+	page
+}, info) => {
+	test.slow();
+	test.setTimeout(240_000);
+	await installProbe(page);
+	await resetAppState(page);
+	const { source } = mixedNote(240 * 1024);
+	await importSource(page, source, 'mixed-split');
+	await page.locator('[data-mode=wysiwyg]').click();
+	await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 60_000 });
+	await resetProbe(page);
+	await placeCaretBefore(page, 'with bold words kept.');
+	await page.keyboard.press('Enter');
+	await expect
+		.poll(async () => (await readProbe(page)).scoped, {
+			message: 'the split must publish through the scoped restoration',
+			timeout: 30_000
+		})
+		.toBeGreaterThan(0);
+	const probe = await readProbe(page);
+	const expected = source.replace('A. with **bold words**', 'A. \n\nwith **bold words**');
+	const actual = await exportSource(page, 'mixed-split.md');
+	await attachEvidence(info, page, 'mixed-split', 240 * 1024, expected, actual);
+	expect(probe.full, 'the split must not parse the complete source').toBe(0);
+	expect(
+		probe.paths.fullSerializer ?? 0,
+		'the split must not use the full serializer fallback'
+	).toBe(0);
+	expect(actual, 'the split must keep every unchanged byte').toBe(expected);
+});
+
+test('an Enter split keeps BOM, front matter and CRLF bytes', async ({ page }, info) => {
+	test.setTimeout(120_000);
+	await installProbe(page);
+	await resetAppState(page);
+	const source =
+		'\uFEFF---\r\ntitle: Split bytes\r\n---\r\n\r\nIntro **bold words** kept.\r\n\r\nTail paragraph.\r\n';
+	await importSource(page, source, 'mixed-crlf');
+	await page.locator('[data-mode=wysiwyg]').click();
+	await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 60_000 });
+	await resetProbe(page);
+	await placeCaretBefore(page, 'bold words kept.');
+	await page.keyboard.press('Enter');
+	await expect
+		.poll(async () => (await readProbe(page)).scoped, {
+			message: 'the CRLF split must publish through the scoped restoration',
+			timeout: 30_000
+		})
+		.toBeGreaterThan(0);
+	const probe = await readProbe(page);
+	const expected = source.replace('Intro **bold words**', 'Intro \r\n\r\n**bold words**');
+	const actual = await exportSource(page, 'mixed-crlf.md');
+	await attachEvidence(info, page, 'mixed-crlf', Buffer.byteLength(source), expected, actual);
+	expect(probe.full, 'the CRLF split must not parse the complete source').toBe(0);
+	expect(probe.paths.fullSerializer ?? 0, 'the CRLF split must stay scoped').toBe(0);
+	expect(actual, 'the split must keep the BOM, front matter and CRLF bytes').toBe(expected);
+});
 
 for (const size of [1, 5]) {
 	test(`mixed inline edits keep exact bytes and bounded source work at ${size} MB`, async ({
