@@ -10,7 +10,25 @@ import { rewriteWikiLinkTargets } from './wiki-links';
 import { documentKindForFile, isBinaryDocument } from './document-kind';
 import { decodeBinaryDataBytes } from './data-url';
 import type { ProjectAssetRow } from './db';
+import { checkAborted } from './abort';
 type JSZipObject = import('jszip').JSZipObject;
+
+/** Compression progress for a bounded archive. */
+export interface ZipProgress {
+	phase: 'compress';
+	completed: number;
+	total: number;
+	percent: number;
+}
+export type ZipProgressReporter = (progress: ZipProgress) => void;
+
+/** Test-only pause that makes the archive yield points observable. */
+async function profilePause(): Promise<void> {
+	const value = (globalThis as { __MDSH_EXPORT_PIPELINE_DELAY_MS__?: unknown })
+		.__MDSH_EXPORT_PIPELINE_DELAY_MS__;
+	if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return;
+	await new Promise<void>((resolve) => setTimeout(resolve, Math.min(500, Math.round(value))));
+}
 
 import { PROJECT_SCALE_LIMITS, projectDocumentLimit } from './project-limits';
 
@@ -426,6 +444,9 @@ export async function readProjectFolder(files: readonly File[]): Promise<Project
 export interface ProjectZipOptions {
 	/** Fixed entry date for a reproducible archive. */
 	date?: Date;
+	/** Stops the build at the next entry or archive chunk. */
+	signal?: AbortSignal | undefined;
+	onProgress?: ZipProgressReporter | undefined;
 }
 
 export async function buildProjectZip(
@@ -434,6 +455,7 @@ export async function buildProjectZip(
 	assets: readonly Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>[],
 	options: ProjectZipOptions = {}
 ): Promise<Blob> {
+	checkAborted(options.signal);
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const entryOptions = options.date ? { date: options.date } : undefined;
@@ -479,6 +501,8 @@ export async function buildProjectZip(
 	// hash it once per export, then reuse the generated asset path.
 	const inlineImageCache = new Map<string, { path: string }>();
 	for (const document of documents) {
+		checkAborted(options.signal);
+		await profilePause();
 		const documentPath = projectPath(document.relativePath);
 		const documentKey = pathKey(documentPath);
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
@@ -619,11 +643,21 @@ export async function buildProjectZip(
 		// every entry keeps the archive reproducible.
 		for (const entry of Object.values(zip.files)) entry.date = options.date;
 	}
-	const output = await zip.generateAsync({
-		type: 'arraybuffer',
-		compression: 'DEFLATE',
-		compressionOptions: { level: 6 }
-	});
+	// A throwing update callback stops the JSZip stream and rejects this
+	// promise. The archive never reaches the caller after a cancel.
+	const output = await zip.generateAsync(
+		{
+			type: 'arraybuffer',
+			compression: 'DEFLATE',
+			compressionOptions: { level: 6 }
+		},
+		(metadata) => {
+			if (options.signal?.aborted) throw new DOMException('Operation cancelled', 'AbortError');
+			const percent = Math.round(metadata.percent);
+			options.onProgress?.({ phase: 'compress', completed: percent, total: 100, percent });
+		}
+	);
+	checkAborted(options.signal);
 	const bytes = new Uint8Array(output);
 	checkZipDirectory(bytes);
 	return new Blob([bytes], { type: 'application/zip' });

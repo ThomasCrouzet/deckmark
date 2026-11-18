@@ -14,7 +14,8 @@ vi.mock('../disk-tauri', () => ({
 	tauriSaveExportBlob: (blob: Blob, name: string) => desktopMocks.tauriSaveExportBlob(blob, name)
 }));
 
-import { exportMarkdown, exportZip, sanitizeFilename } from './export';
+import { exportMarkdown, sanitizeFilename } from './export';
+import { exportZip } from '../export-zip';
 
 function makeFile(overrides: Partial<FileItem> = {}): FileItem {
 	return {

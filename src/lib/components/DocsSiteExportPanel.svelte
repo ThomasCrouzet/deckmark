@@ -11,6 +11,8 @@
 	import { reportError } from '#lib/report.js';
 	import { projectSiteSnapshot } from '#lib/projects.js';
 	import type { DocsSiteIssue, DocsSiteReport } from '#lib/services/docs-site-export.js';
+	import { buildDocsSite, serializeDocsSiteReport } from '#lib/services/docs-site-export.js';
+	import { sanitizeFilename, triggerDownload } from '#lib/services/export.js';
 
 	interface Props {
 		onClose: () => void;
@@ -34,6 +36,7 @@
 	let busy = $state(false);
 	let error = $state(false);
 	let cancelled = $state(false);
+	let progress = $state(0);
 	let closeButton = $state<HTMLButtonElement | null>(null);
 	let activeController: AbortController | null = null;
 	let runToken = 0;
@@ -107,6 +110,7 @@
 		busy = true;
 		error = false;
 		cancelled = false;
+		progress = 0;
 		reportBinding = null;
 		const originSearchIndex = includeSearchIndex;
 		let originName = projects.find((project) => project.id === projectId)?.name ?? 'project';
@@ -114,10 +118,6 @@
 			const snapshot = await projectSiteSnapshot(projectId);
 			if (token !== runToken) return;
 			originName = snapshot.project.name;
-			const [{ buildDocsSite }, { sanitizeFilename, triggerDownload }] = await Promise.all([
-				import('#lib/services/docs-site-export.js'),
-				import('#lib/services/export.js')
-			]);
 			if (token !== runToken) return;
 			const result = await buildDocsSite(
 				{
@@ -127,7 +127,10 @@
 					locale: i18n.locale,
 					includeSearchIndex
 				},
-				{ signal: controller.signal }
+				{
+					signal: controller.signal,
+					onProgress: (event) => (progress = event.percent)
+				}
 			);
 			if (token !== runToken) return;
 			reportBinding = {
@@ -189,11 +192,7 @@
 		const binding = reportBinding;
 		if (!binding) return;
 		try {
-			const [{ serializeDocsSiteReport }, { sanitizeFilename, triggerDownload }] =
-				await Promise.all([
-					import('#lib/services/docs-site-export.js'),
-					import('#lib/services/export.js')
-				]);
+			const { sanitizeFilename, triggerDownload } = await import('#lib/services/export.js');
 			const saved = await triggerDownload(
 				new Blob([serializeDocsSiteReport(binding.report)], { type: 'application/json' }),
 				sanitizeFilename(`${binding.projectName || 'project'}-site-report.json`)
@@ -293,7 +292,9 @@
 				<p class="py-6 text-sm text-fg-muted">{td('docsSite.empty')}</p>
 			{:else if busy}
 				<p role="status" data-testid="docs-site-busy" class="py-6 text-sm text-fg-muted">
-					{td('docsSite.exporting')}
+					{progress > 0
+						? td('docsSite.exportingProgress', { percent: progress })
+						: td('docsSite.exporting')}
 				</p>
 			{:else if report}
 				<p data-testid="docs-site-report-origin" class="text-xs text-fg-muted">

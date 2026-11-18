@@ -8,7 +8,9 @@ import { MediaPreparationError } from './render/image-media';
 vi.mock('./services/export', () => ({
 	exportMarkdown: vi.fn(),
 	exportHTML: vi.fn(),
-	exportPDF: vi.fn(),
+	exportPDF: vi.fn()
+}));
+vi.mock('./export-zip', () => ({
 	exportZip: vi.fn()
 }));
 vi.mock('./spinner.svelte', () => ({
@@ -16,6 +18,7 @@ vi.mock('./spinner.svelte', () => ({
 }));
 
 import * as services from './services/export';
+import * as zipServices from './export-zip';
 import {
 	exportHTML,
 	exportPDF,
@@ -60,7 +63,7 @@ describe('export-ops - notification feedback (§J3)', () => {
 	});
 
 	it('shows an error toast when exportAllZip fails', async () => {
-		vi.mocked(services.exportZip).mockRejectedValue(new Error('boom'));
+		vi.mocked(zipServices.exportZip).mockRejectedValue(new Error('boom'));
 		await exportAllZip(deps);
 		expect(notify.toasts.some((t) => t.level === 'error')).toBe(true);
 	});
@@ -131,7 +134,7 @@ describe('export-ops - notification feedback (§J3)', () => {
 			getFiles: () => files as readonly FileItem[],
 			scheduleSave
 		};
-		vi.mocked(services.exportZip).mockResolvedValue(false);
+		vi.mocked(zipServices.exportZip).mockResolvedValue(false);
 		await exportAllZip(localDeps);
 		expect(notify.toasts.some((t) => t.level === 'success')).toBe(false);
 		expect(files.every((f) => f.dirty)).toBe(true);
@@ -158,7 +161,7 @@ describe('exports during errors and concurrent changes', () => {
 
 	it('reports Markdown and selection ZIP errors without success', async () => {
 		vi.mocked(services.exportMarkdown).mockRejectedValue(new Error('write failed'));
-		vi.mocked(services.exportZip).mockRejectedValue(new Error('zip failed'));
+		vi.mocked(zipServices.exportZip).mockRejectedValue(new Error('zip failed'));
 		await exportMarkdown('a', deps);
 		await exportSelectionZip(new Set(['a']), deps);
 		expect(notify.toasts.filter((toast) => toast.level === 'error')).toHaveLength(2);
@@ -180,7 +183,7 @@ describe('exports during errors and concurrent changes', () => {
 	it('confirms only unchanged snapshots after a ZIP export', async () => {
 		const files = [file('a'), file('b'), file('c'), file('d')];
 		const scheduleSave = vi.fn();
-		vi.mocked(services.exportZip).mockImplementation(async (snapshot) => {
+		vi.mocked(zipServices.exportZip).mockImplementation(async (snapshot) => {
 			files[0]!.content = 'new';
 			files[1]!.name = 'new.md';
 			files.splice(2, 1);
@@ -225,7 +228,7 @@ describe('exports during errors and concurrent changes', () => {
 			}
 		];
 		const scheduleSave = vi.fn();
-		vi.mocked(services.exportZip).mockImplementation(async () => {
+		vi.mocked(zipServices.exportZip).mockImplementation(async () => {
 			files[0]!.kind = 'pdf';
 			return true;
 		});
@@ -235,7 +238,7 @@ describe('exports during errors and concurrent changes', () => {
 	});
 
 	it('does not report success after selection ZIP cancellation', async () => {
-		vi.mocked(services.exportZip).mockResolvedValue(false);
+		vi.mocked(zipServices.exportZip).mockResolvedValue(false);
 		await exportSelectionZip(new Set(['a']), deps);
 		expect(notify.toasts).toHaveLength(0);
 	});

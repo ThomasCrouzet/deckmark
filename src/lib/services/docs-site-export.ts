@@ -2,7 +2,9 @@
 // lazy-loads the HTML renderer, and creates a deterministic ZIP for offline
 // hosting. It never changes the source Markdown.
 
-import { abortable, checkAborted } from '../abort';
+import { checkAborted } from '../abort';
+import type { ZipProgressReporter } from '../project-archive';
+import { buildDocsSiteFiles, renderDocsSite } from './docs-site-render';
 import {
 	docsSiteIssue,
 	mergeIssues,
@@ -50,6 +52,15 @@ export interface DocsSiteResult {
 
 export interface BuildDocsSiteOptions {
 	signal?: AbortSignal;
+	onProgress?: ZipProgressReporter | undefined;
+}
+
+/** Test-only pause that makes the archive entry yield points observable. */
+async function profilePause(): Promise<void> {
+	const value = (globalThis as { __MDSH_EXPORT_PIPELINE_DELAY_MS__?: unknown })
+		.__MDSH_EXPORT_PIPELINE_DELAY_MS__;
+	if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return;
+	await new Promise<void>((resolve) => setTimeout(resolve, Math.min(500, Math.round(value))));
 }
 
 export class DocsSiteExportError extends Error {
@@ -93,25 +104,39 @@ export function serializeDocsSiteReport(report: DocsSiteReport): string {
 	return `${JSON.stringify(report, null, 2)}\n`;
 }
 
-async function buildZip(files: readonly DocsSiteFile[], signal?: AbortSignal): Promise<Blob> {
+async function buildZip(
+	files: readonly DocsSiteFile[],
+	signal?: AbortSignal,
+	onProgress?: ZipProgressReporter
+): Promise<Blob> {
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const ordered = files.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	for (const file of ordered) {
 		checkAborted(signal);
+		await profilePause();
 		zip.file(file.path, file.data, {
 			date: ZIP_DATE,
 			createFolders: false
 		});
 	}
 	checkAborted(signal);
-	return zip.generateAsync({
-		type: 'blob',
-		compression: 'DEFLATE',
-		compressionOptions: { level: 6 },
-		platform: 'DOS',
-		mimeType: 'application/zip'
-	});
+	// A throwing update callback stops the JSZip stream and rejects this
+	// promise. No archive reaches the caller after a cancel.
+	return zip.generateAsync(
+		{
+			type: 'blob',
+			compression: 'DEFLATE',
+			compressionOptions: { level: 6 },
+			platform: 'DOS',
+			mimeType: 'application/zip'
+		},
+		(metadata) => {
+			if (signal?.aborted) throw new DOMException('Operation cancelled', 'AbortError');
+			const percent = Math.round(metadata.percent);
+			onProgress?.({ phase: 'compress', completed: percent, total: 100, percent });
+		}
+	);
 }
 
 /**
@@ -193,8 +218,7 @@ export async function buildDocsSite(
 	if (!plan.pages.length) throw new Error('The project contains no Markdown documents');
 	const sanitized = await sanitizePublishedSvgAssets(plan);
 	checkAborted(options.signal);
-	const renderer = await abortable(import('./docs-site-render'), options.signal);
-	const rendered = await renderer.renderDocsSite(plan, {
+	const rendered = await renderDocsSite(plan, {
 		...(options.signal ? { signal: options.signal } : {})
 	});
 	checkAborted(options.signal);
@@ -209,9 +233,9 @@ export async function buildDocsSite(
 		issues
 	);
 	if (report.summary.errors > 0) throw new DocsSiteExportError(report);
-	const files = renderer.buildDocsSiteFiles(plan, { pages: rendered.pages, issues });
+	const files = buildDocsSiteFiles(plan, { pages: rendered.pages, issues });
 	checkAborted(options.signal);
-	const blob = await abortable(buildZip(files, options.signal), options.signal);
+	const blob = await buildZip(files, options.signal, options.onProgress);
 	checkAborted(options.signal);
 	return { blob, report, files };
 }
