@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { resetAppState } from './helpers';
@@ -1494,6 +1495,7 @@ test('records a representative editor report and the mixed-format route matrix',
 			name: NOTE_NAME,
 			bytes: Buffer.byteLength(source),
 			chars: source.length,
+			sha256: createHash('sha256').update(source).digest('hex'),
 			generator: 'representativeNote()',
 			listItems: 320,
 			tableRows: 140,

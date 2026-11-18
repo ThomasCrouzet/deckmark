@@ -752,8 +752,8 @@ REPRESENTATIVE_SAMPLES=20 npx playwright test e2e/representative-editor-report.s
 Repeat for `firefox` and `webkit`. Keep each
 `representative-editor-report.json`, the expected and actual Markdown, the
 source revision, command and browser version locally. The report records the
-source commit, working diff hash, build mode, prebuilt flag and browser
-version. Audit a retained report independently:
+source commit, working diff hash, build mode, prebuilt flag, fixture hash and
+browser version. Audit a retained report independently:
 
 ```sh
 node scripts/representative-audit.mjs \
