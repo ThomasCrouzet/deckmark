@@ -1,5 +1,5 @@
 import { computeSelectionStats, computeStats, createStatsCache } from './stats';
-import { applyEditSpans, validEditSpans, type DocumentEditSpan } from './edit-spans';
+import type { DocumentEditSpan } from './document-revisions';
 import type { ChangeSet } from '@codemirror/state';
 import type { SourceEdit } from './source-edit';
 import type {
@@ -24,6 +24,20 @@ const WORKER_TIMEOUT = 5000;
 const MAX_PATCH = 256 * 1024;
 
 type PatchSpan = StatsPatchSpan;
+
+/** Applies ordered spans, or returns null for an invalid range. */
+function applySpans(base: string, spans: readonly DocumentEditSpan[]): string | null {
+	let content = base;
+	let delta = 0;
+	for (const span of spans) {
+		const from = span.from + delta;
+		const to = span.to + delta;
+		if (from < 0 || to < from || to > content.length) return null;
+		content = content.slice(0, from) + span.insert + content.slice(to);
+		delta += span.insert.length - (span.to - span.from);
+	}
+	return content;
+}
 
 function diffPatch(base: string, next: string): PatchSpan | null {
 	const limit = Math.min(base.length, next.length);
@@ -240,12 +254,7 @@ export function createStatsRuntime(
 			// Accept the ledger record only when it reproduces the published
 			// text from the Worker baseline. A stale record keeps the diff.
 			const accepted =
-				spans &&
-				workerBase !== null &&
-				validEditSpans(workerBase.length, spans) &&
-				applyEditSpans(workerBase, spans) === content
-					? spans
-					: null;
+				spans && workerBase !== null && applySpans(workerBase, spans) === content ? spans : null;
 			let patch: StatsPatch | null = null;
 			let transport: 'span' | 'diff' | 'text' = 'text';
 			let reason: string;

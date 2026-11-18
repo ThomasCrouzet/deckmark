@@ -24,7 +24,7 @@
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { stripFrontmatter } from '#lib/frontmatter.js';
 	import { SourceFidelity, type SourceFidelityHint } from '#lib/source-fidelity.js';
-	import { applyEditSpans, type DocumentEditSpan } from '#lib/edit-spans.js';
+	import type { DocumentEditSpan } from '#lib/document-revisions.js';
 	import {
 		createIncrementalMarkdown,
 		updateIncrementalMarkdown,
@@ -499,7 +499,8 @@
 				recordEditorCounter('derivedSpanMissing');
 				return null;
 			}
-			if (applyEditSpans(previous, [span]) !== next) {
+			const spliced = previous.slice(0, span.from) + span.insert + previous.slice(span.to);
+			if (spliced !== next) {
 				recordEditorCounter('derivedSpanRejected');
 				return null;
 			}

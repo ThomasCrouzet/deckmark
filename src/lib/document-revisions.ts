@@ -2,6 +2,13 @@ import type { ChangeSet, EditorState } from '@codemirror/state';
 import type { Transaction } from '@milkdown/kit/prose/state';
 import type { SourceEdit } from './source-edit';
 
+/** One changed range in an accepted source, with its replacement text. */
+export interface DocumentEditSpan {
+	readonly from: number;
+	readonly to: number;
+	readonly insert: string;
+}
+
 export interface DocumentRevision {
 	readonly fileId: string;
 	readonly generation: number;
