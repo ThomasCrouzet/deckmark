@@ -45,20 +45,39 @@ async function storedSnippetCount(page: Page) {
 
 async function openCapture(page: Page, title: string) {
 	await page.addInitScript(() => {
-		const scope = window as unknown as { __captureHideCount: number };
+		const scope = window as unknown as {
+			__captureHideCount: number;
+			__captureEmitReset: () => number;
+		};
 		scope.__captureHideCount = 0;
+		let nextCallback = 0;
+		const callbacks = new Map<number, (event: unknown) => void>();
+		let resetHandler: ((event: unknown) => void) | undefined;
+		scope.__captureEmitReset = () => {
+			resetHandler?.({ event: 'mdsh://capture-reset', id: 0, payload: null });
+			return resetHandler ? 1 : 0;
+		};
 		Object.defineProperty(window, '__TAURI_EVENT_PLUGIN_INTERNALS__', {
 			value: { unregisterListener: () => {} }
 		});
 		Object.defineProperty(window, '__TAURI_INTERNALS__', {
 			value: {
-				transformCallback: () => 1,
-				invoke: async (command: string) => {
+				transformCallback: (callback: (event: unknown) => void) => {
+					nextCallback += 1;
+					callbacks.set(nextCallback, callback);
+					return nextCallback;
+				},
+				invoke: async (command: string, args?: { event?: string; handler?: number }) => {
 					if (command === 'desktop_capture_hide') {
 						scope.__captureHideCount += 1;
 						return;
 					}
-					if (command === 'plugin:event|listen') return 1;
+					if (command === 'plugin:event|listen') {
+						if (args?.event === 'mdsh://capture-reset' && typeof args.handler === 'number') {
+							resetHandler = callbacks.get(args.handler);
+						}
+						return args?.handler ?? 1;
+					}
 					if (command === 'plugin:event|unlisten') return;
 					throw new Error(`Unexpected native command: ${command}`);
 				}
@@ -141,19 +160,57 @@ test.describe('Desktop capture browser workflow', () => {
 		const capture = await context.newPage();
 		await openCapture(capture, 'IME capture');
 		const content = capture.getByTestId('capture-content');
+		const title = capture.getByTestId('capture-title');
 		await content.focus();
-		await content.evaluate((element) => {
-			element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-			for (const options of [
+		const caret = code.indexOf('capture');
+		const during = await content.evaluate((element, caretOffset) => {
+			const textarea = element as HTMLTextAreaElement;
+			const scope = window as unknown as {
+				__composingInputs: number;
+				__compositionStarts: number;
+				__compositionEnds: number;
+			};
+			scope.__composingInputs = 0;
+			scope.__compositionStarts = 0;
+			scope.__compositionEnds = 0;
+			textarea.addEventListener('input', () => (scope.__composingInputs += 1));
+			textarea.addEventListener('compositionstart', () => (scope.__compositionStarts += 1));
+			textarea.addEventListener('compositionend', () => (scope.__compositionEnds += 1));
+			textarea.setSelectionRange(caretOffset, caretOffset);
+			textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+			const prevented = [
 				{ key: 'Escape', isComposing: true },
 				{ key: 'Enter', ctrlKey: true, isComposing: true },
 				{ key: 'Enter', metaKey: true, isComposing: true },
 				{ key: 'Escape', keyCode: 229 },
 				{ key: 'Enter', ctrlKey: true, keyCode: 229 }
-			]) {
-				element.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...options }));
-			}
-			element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+			].map((options) => {
+				const event = new KeyboardEvent('keydown', {
+					bubbles: true,
+					cancelable: true,
+					...options
+				});
+				textarea.dispatchEvent(event);
+				return event.defaultPrevented;
+			});
+			return {
+				value: textarea.value,
+				selectionStart: textarea.selectionStart,
+				selectionEnd: textarea.selectionEnd,
+				prevented,
+				inputs: scope.__composingInputs,
+				starts: scope.__compositionStarts,
+				ends: scope.__compositionEnds
+			};
+		}, caret);
+		expect(during).toEqual({
+			value: code,
+			selectionStart: caret,
+			selectionEnd: caret,
+			prevented: [false, false, false, false, false],
+			inputs: 0,
+			starts: 1,
+			ends: 0
 		});
 		await expect(content).toHaveValue(code);
 		await expect(content).toBeFocused();
@@ -163,6 +220,16 @@ test.describe('Desktop capture browser workflow', () => {
 				() => (window as unknown as { __captureHideCount: number }).__captureHideCount
 			)
 		).toBe(0);
+		expect(
+			await content.evaluate((element) => {
+				element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+				const scope = window as unknown as {
+					__composingInputs: number;
+					__compositionEnds: number;
+				};
+				return { inputs: scope.__composingInputs, ends: scope.__compositionEnds };
+			})
+		).toEqual({ inputs: 0, ends: 1 });
 		await capture.keyboard.press('Control+Enter');
 		await expect.poll(() => storedSnippetCount(page)).toBe(1);
 		await expect
@@ -172,8 +239,19 @@ test.describe('Desktop capture browser workflow', () => {
 				)
 			)
 			.toBe(1);
+		await expect
+			.poll(() =>
+				capture.evaluate(() =>
+					(window as unknown as { __captureEmitReset: () => number }).__captureEmitReset()
+				)
+			)
+			.toBe(1);
+		await expect(title).toHaveValue('');
+		await expect(content).toHaveValue('');
+		expect(await storedSnippetCount(page)).toBe(1);
 		const cancelled = await context.newPage();
 		await openCapture(cancelled, 'Cancel capture');
+		const cancelledContent = cancelled.getByTestId('capture-content');
 		await cancelled.keyboard.press('Escape');
 		await expect
 			.poll(() =>
@@ -182,9 +260,29 @@ test.describe('Desktop capture browser workflow', () => {
 				)
 			)
 			.toBe(1);
+		await expect(cancelledContent).toHaveValue(code);
+		await expect
+			.poll(() =>
+				cancelled.evaluate(() =>
+					(window as unknown as { __captureEmitReset: () => number }).__captureEmitReset()
+				)
+			)
+			.toBe(1);
+		await expect(cancelled.getByTestId('capture-title')).toHaveValue('');
+		await expect(cancelledContent).toHaveValue('');
 		expect(await storedSnippetCount(page)).toBe(1);
 		await info.attach('capture-ime.json', {
-			body: JSON.stringify({ composing: 'synthetic', savedSnippets: 1, nativeBridge: 'fixture' }),
+			body: JSON.stringify({
+				composing: 'synthetic',
+				caret: { start: caret, end: caret },
+				inputsDuringComposition: 0,
+				compositionStarts: 1,
+				compositionEnds: 0,
+				defaultPrevented: [false, false, false, false, false],
+				savedSnippets: 1,
+				resets: 2,
+				nativeBridge: 'fixture'
+			}),
 			contentType: 'application/json'
 		});
 	});
