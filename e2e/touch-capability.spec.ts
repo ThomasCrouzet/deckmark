@@ -5,14 +5,18 @@ import { resetAppState } from './helpers';
 // fine primary pointer and an available coarse pointer. The application reads
 // `(any-pointer: coarse)`, so this init script replaces only the pointer media
 // queries and keeps every other media query native.
-const POINTER_STATE = { coarsePrimary: false, coarseAny: true } as const;
+type PointerState = { coarsePrimary: boolean; coarseAny: boolean };
 
-async function installHybridPointer(page: Page): Promise<void> {
+const HYBRID_POINTER: PointerState = { coarsePrimary: false, coarseAny: true };
+const COARSE_POINTER: PointerState = { coarsePrimary: true, coarseAny: true };
+const FINE_POINTER: PointerState = { coarsePrimary: false, coarseAny: false };
+
+async function installPointerState(page: Page, initial: PointerState): Promise<void> {
 	await page.addInitScript((initial) => {
-		type PointerState = { coarsePrimary: boolean; coarseAny: boolean };
+		type MockPointerState = { coarsePrimary: boolean; coarseAny: boolean };
 		type PointerListener = (event: MediaQueryListEvent) => void;
 		const native = window.matchMedia.bind(window);
-		const state: PointerState = { ...initial };
+		const state: MockPointerState = { ...initial };
 		const registrations: Array<{
 			mql: MediaQueryList;
 			listeners: Set<PointerListener>;
@@ -20,7 +24,7 @@ async function installHybridPointer(page: Page): Promise<void> {
 		const matchesFor = (query: string): boolean => {
 			if (/any-pointer:\s*coarse/.test(query)) return state.coarseAny;
 			if (/pointer:\s*coarse/.test(query)) return state.coarsePrimary;
-			if (/any-pointer:\s*fine/.test(query)) return true;
+			if (/any-pointer:\s*fine/.test(query)) return !state.coarsePrimary;
 			if (/pointer:\s*fine/.test(query)) return !state.coarsePrimary;
 			return native(query).matches;
 		};
@@ -61,16 +65,22 @@ async function installHybridPointer(page: Page): Promise<void> {
 				for (const listener of listeners) listener(event);
 			}
 		};
-	}, POINTER_STATE);
+	}, initial);
 }
 
-async function setPointerCapability(page: Page, next: { coarseAny: boolean }): Promise<void> {
+async function installHybridPointer(page: Page): Promise<void> {
+	await installPointerState(page, HYBRID_POINTER);
+}
+
+async function setPointerCapability(page: Page, next: PointerState): Promise<void> {
 	await page.evaluate(
 		(state) =>
 			(
-				window as unknown as { __setPointerCapability: (value: typeof state) => void }
+				window as unknown as {
+					__setPointerCapability: (value: PointerState) => void;
+				}
 			).__setPointerCapability(state),
-		{ coarsePrimary: false, coarseAny: next.coarseAny }
+		next
 	);
 }
 
@@ -214,6 +224,35 @@ async function expectTouchTarget(
 	return { width: box!.width, height: box!.height };
 }
 
+interface TouchTargetBox {
+	label: string;
+	width: number;
+	height: number;
+}
+
+// The criterion names every applicable target, not one representative. Collect
+// each rendered button and summary in a region and apply the same 44 px rule.
+async function expectTouchTargets(page: Page, scope: string): Promise<TouchTargetBox[]> {
+	const boxes = await page
+		.locator(`${scope} button:visible, ${scope} summary:visible`)
+		.evaluateAll((elements) =>
+			elements.map((element) => {
+				const rect = element.getBoundingClientRect();
+				const label =
+					element.getAttribute('aria-label') ??
+					element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 40) ??
+					element.tagName;
+				return { label, width: rect.width, height: rect.height };
+			})
+		);
+	expect(boxes.length, `${scope} has no touch target`).toBeGreaterThan(0);
+	for (const box of boxes) {
+		expect(box.width, `${scope} ${box.label} width`).toBeGreaterThanOrEqual(44);
+		expect(box.height, `${scope} ${box.label} height`).toBeGreaterThanOrEqual(44);
+	}
+	return boxes;
+}
+
 function pointerMedia(page: Page) {
 	return page.evaluate(() => ({
 		pointerCoarse: window.matchMedia('(pointer: coarse)').matches,
@@ -242,14 +281,17 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 	// Toolbar, scroll navigation and dialog targets follow the available touch
 	// capability, not the fine primary pointer.
 	await expectTouchTarget(page, '#app-toolbar button:visible');
+	const toolbarTargets = await expectTouchTargets(page, '#app-toolbar');
 	const titleTarget = await expectTouchTarget(page, '#app-toolbar .document-title input');
 	const scrollNavTarget = await expectTouchTarget(page, '.mdsh-scroll-nav button');
 	await page.getByRole('button', { name: 'Palette de commandes' }).click();
 	const palette = page.getByRole('dialog', { name: 'Palette de commandes' });
 	await expect(palette).toBeVisible();
 	const dialogTarget = await expectTouchTarget(page, '[role="dialog"] button');
+	const dialogTargets = await expectTouchTargets(page, '[role="dialog"]');
 	await page.keyboard.press('Escape');
 	const sidebarTarget = await expectTouchTarget(page, '#files-panel ul button[data-file-id]');
+	const sidebarTargets = await expectTouchTargets(page, '#files-panel');
 
 	const scroll = page.locator('#files-panel .overflow-y-auto').first();
 	await scroll.evaluate((element) => {
@@ -315,7 +357,7 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 	const scrollBefore = await scroll.evaluate((element) => element.scrollTop);
 	const anchorBefore = await rowAtTop(page);
 
-	await setPointerCapability(page, { coarseAny: false });
+	await setPointerCapability(page, FINE_POINTER);
 	await expect(page.locator('html')).not.toHaveAttribute('data-touch-capable', 'true');
 	expect(await pointerMedia(page)).toEqual({
 		pointerCoarse: false,
@@ -353,7 +395,7 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 		'2 sélectionnés'
 	);
 
-	await setPointerCapability(page, { coarseAny: true });
+	await setPointerCapability(page, HYBRID_POINTER);
 	await expect(page.locator('html')).toHaveAttribute('data-touch-capable', 'true');
 	await expect
 		.poll(async () => (await renderedRows(page)).every((row) => row.height >= 51))
@@ -372,6 +414,11 @@ test('hybrid pointer keeps touch targets and virtual rows in agreement', async (
 					scrollNav: scrollNavTarget,
 					dialog: dialogTarget,
 					sidebar: sidebarTarget
+				},
+				targetSweep: {
+					toolbar: toolbarTargets,
+					dialog: dialogTargets,
+					sidebar: sidebarTargets
 				},
 				indexesCovered: seen.size,
 				total,
@@ -424,4 +471,197 @@ test('hybrid pointer keeps the sidebar out of a permanent drawer across breakpoi
 	await expect(sidebar).not.toHaveAttribute('aria-hidden', 'true');
 	expect(await sidebar.evaluate((element) => getComputedStyle(element).position)).toBe('static');
 	await expect(page.locator('#app-toolbar .document-title input')).toHaveValue(activeBefore);
+});
+
+test('coarse-only pointer switches to hybrid and fine without losing state', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await installPointerState(page, COARSE_POINTER);
+	await resetAppState(page);
+	await seedLibrary(page, 180, 40);
+
+	// Start on a touch-only layout: the primary pointer is coarse.
+	expect(await pointerMedia(page)).toEqual({
+		pointerCoarse: true,
+		anyPointerCoarse: true,
+		pointerFine: false,
+		anyPointerFine: false
+	});
+	await expect(page.locator('html')).toHaveAttribute('data-touch-capable', 'true');
+	await expectTouchTargets(page, '#app-toolbar');
+	await expectTouchTargets(page, '#files-panel');
+
+	const scroll = page.locator('#files-panel .overflow-y-auto').first();
+	await scroll.evaluate((element) => {
+		element.scrollTop = 600;
+	});
+	await expect
+		.poll(() => page.locator('aside [aria-posinset]').first().getAttribute('aria-posinset'))
+		.not.toBe('1');
+
+	const toggle = page.getByTestId('selection-mode-toggle');
+	await toggle.click();
+	const rowButtons = page.locator(
+		'#files-panel ul[aria-label^="Fichiers ouverts"] button[data-file-id]'
+	);
+	const firstId = (await rowButtons.nth(0).getAttribute('data-file-id'))!;
+	const secondId = (await rowButtons.nth(1).getAttribute('data-file-id'))!;
+	await page.locator(`button[data-file-id="${firstId}"]`).click();
+	await page.locator(`button[data-file-id="${secondId}"]`).click();
+	await expect(page.getByTestId('selection-count')).toHaveText('2 sélectionnés');
+	const activeBefore = await page.locator('#app-toolbar .document-title input').inputValue();
+	await scroll.evaluate((element) => {
+		element.scrollTop = 600;
+	});
+	await expect
+		.poll(() => page.locator('aside [aria-posinset]').first().getAttribute('aria-posinset'))
+		.not.toBe('1');
+	const anchorBefore = await rowAtTop(page);
+
+	// A trackpad becomes the primary pointer while the touch screen stays
+	// available. The 44 px policy and the 52 px row model must not change.
+	await setPointerCapability(page, HYBRID_POINTER);
+	expect(await pointerMedia(page)).toEqual({
+		pointerCoarse: false,
+		anyPointerCoarse: true,
+		pointerFine: true,
+		anyPointerFine: true
+	});
+	await expect(page.locator('html')).toHaveAttribute('data-touch-capable', 'true');
+	await expectTouchTargets(page, '#app-toolbar');
+	await expectTouchTargets(page, '#files-panel');
+	await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.locator('#app-toolbar .document-title input')).toHaveValue(activeBefore);
+	expectAligned(await renderedRows(page), true);
+	const anchorHybrid = await rowAtTop(page);
+	expect(anchorHybrid.id).toBe(anchorBefore.id);
+	expect(Math.abs(anchorHybrid.offset - anchorBefore.offset)).toBeLessThanOrEqual(1);
+
+	// The touch screen detaches. Desktop density returns while the selection
+	// and the viewed file stay.
+	await setPointerCapability(page, FINE_POINTER);
+	await expect(page.locator('html')).not.toHaveAttribute('data-touch-capable', 'true');
+	expect(await pointerMedia(page)).toEqual({
+		pointerCoarse: false,
+		anyPointerCoarse: false,
+		pointerFine: true,
+		anyPointerFine: true
+	});
+	await expect
+		.poll(async () => {
+			const rows = await renderedRows(page);
+			return (
+				rows.length > 0 && rows.every((row) => Math.abs(row.height - (row.hasPath ? 52 : 36)) <= 1)
+			);
+		})
+		.toBe(true);
+	expectAligned(await renderedRows(page), false);
+	await expect(page.locator('#app-toolbar .document-title input')).toHaveValue(activeBefore);
+	await expect(page.locator('aside [aria-label="Actions sur la sélection"]')).toContainText(
+		'2 sélectionnés'
+	);
+	const anchorFine = await rowAtTop(page);
+	expect(anchorFine.id).toBe(anchorBefore.id);
+	expect(Math.abs(anchorFine.offset - anchorBefore.offset)).toBeLessThanOrEqual(24);
+
+	// Reattaching the touch screen restores the touch toolbar without a reload.
+	await setPointerCapability(page, COARSE_POINTER);
+	await expect(page.locator('html')).toHaveAttribute('data-touch-capable', 'true');
+	await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+	await expect(page.getByTestId('selection-count')).toHaveText('2 sélectionnés');
+	await expect(page.locator('#app-toolbar .document-title input')).toHaveValue(activeBefore);
+
+	await info.attach('pointer-transition.json', {
+		body: JSON.stringify(
+			{
+				transitions: ['coarse-only', 'hybrid', 'fine-only', 'coarse-only'],
+				fixtures: { plainFiles: 180, pathFiles: 40 },
+				activeFile: activeBefore,
+				anchorBefore,
+				anchorHybrid,
+				anchorFine,
+				selectionRetained: true
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});
+
+test('fine-only desktop pointer keeps density, focus and click navigation', async ({
+	page
+}, info) => {
+	test.setTimeout(120_000);
+	await installPointerState(page, FINE_POINTER);
+	await resetAppState(page);
+	await seedLibrary(page, 180, 40);
+
+	expect(await pointerMedia(page)).toEqual({
+		pointerCoarse: false,
+		anyPointerCoarse: false,
+		pointerFine: true,
+		anyPointerFine: true
+	});
+	await expect(page.locator('html')).not.toHaveAttribute('data-touch-capable', 'true');
+
+	const scroll = page.locator('#files-panel .overflow-y-auto').first();
+	await scroll.evaluate((element) => {
+		element.scrollTop = 600;
+	});
+	await expect
+		.poll(() => page.locator('aside [aria-posinset]').first().getAttribute('aria-posinset'))
+		.not.toBe('1');
+	expectAligned(await renderedRows(page), false);
+
+	// A desktop pointer keeps the compact density of the same controls.
+	expect(
+		(await page.locator('#app-toolbar button:visible').first().boundingBox())!.height
+	).toBeLessThan(44);
+	expect(
+		(await page.locator('#app-toolbar .document-title input').boundingBox())!.height
+	).toBeLessThan(44);
+	expect(
+		(await page.locator('.mdsh-scroll-nav button').first().boundingBox())!.height
+	).toBeLessThan(44);
+	await expect(page.getByTestId('selection-mode-toggle')).toHaveCount(0);
+
+	// A plain click still opens the file, moves focus to the row and starts no
+	// touch selection.
+	const row = page
+		.locator('#files-panel ul[aria-label^="Fichiers ouverts"] button[data-file-id]')
+		.nth(2);
+	const targetId = (await row.getAttribute('data-file-id'))!;
+	const openedRow = page.locator(`button[data-file-id="${targetId}"]`);
+	// The row is keyboard reachable before the click.
+	await openedRow.focus();
+	await expect(openedRow).toBeFocused();
+	await openedRow.click();
+	await expect(openedRow).toHaveAttribute('aria-current', 'true');
+	await expect(openedRow).toBeFocused();
+	await expect(page.locator('#app-toolbar .document-title input')).toHaveValue(
+		targetId.replace(/\.md$/, '')
+	);
+	await expect(page.getByTestId('selection-count')).toHaveCount(0);
+	await expect(page.locator('aside [aria-label="Actions sur la sélection"]')).toHaveCount(0);
+
+	await info.attach('fine-pointer-desktop.json', {
+		body: JSON.stringify(
+			{
+				media: await pointerMedia(page),
+				rows: (await renderedRows(page)).map((row) => ({
+					posinset: row.posinset,
+					height: row.height,
+					hasPath: row.hasPath
+				})),
+				openedFile: targetId,
+				keyboardFocusBeforeClick: true,
+				activeElementAfterClick: await page.evaluate(() => document.activeElement?.tagName ?? null)
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
 });

@@ -509,6 +509,13 @@ html[data-touch-capable='true'] .mdsh-scroll-nav button {
 	min-height: 44px;
 	min-width: 44px;
 }
+/* The mode switch buttons keep a 32 px component height. The component rule
+   carries an extra scoping class, so this selector must also name the group
+   and the root attribute to win the specificity tie. */
+:root[data-touch-capable='true'] #app-toolbar .mdsh-mode-switch button {
+	min-height: 44px;
+	min-width: 44px;
+}
 @media (max-height: 500px) {
 	[role='dialog'] {
 		padding-top: 1rem;
