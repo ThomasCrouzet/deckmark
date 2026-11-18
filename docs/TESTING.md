@@ -1079,9 +1079,9 @@ because its inserted text comes from the published source. Every other case
 keeps the complete path: several ranges, an import or a restore, a worker
 fallback, a name or kind change and a damaged key. The metadata key version
 moved to 3 and the backfill rewrites older rows. The manifest and metadata
-updating hooks stay out of the boot bundle. The library installs them before it
-opens the database, so every application write sees them. A new row still
-receives both keys from the boot creating hooks.
+hooks stay out of the boot bundle. The library installs the creating and
+updating hooks before it opens the database, so every application write sees
+them.
 
 `e2e/draft-projection-performance.spec.ts` seeds 1 MiB and 4 MiB notes with 0
 and 4 images. It applies one-character plain edits, a structural control edit,

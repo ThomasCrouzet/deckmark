@@ -395,9 +395,6 @@ class MdshDB extends Dexie {
 					})
 			);
 
-		this.drafts.hook('creating', (_primaryKey, row) => {
-			row.manifest = encodeDraftManifest(row);
-		});
 		this.projectAssets.hook('creating', (_primaryKey, row) => {
 			row.bytes = row.data.byteLength;
 		});

@@ -8,7 +8,6 @@
 // the part that keeps a large library out of the startup JS heap.
 
 import type { DraftRow } from './db';
-import type { DocumentEdits } from './document-revisions';
 import { documentKindForFile } from './document-kind';
 import { binaryDataBytes } from './project-limits';
 
@@ -25,26 +24,18 @@ export interface DraftManifestDerived {
 	hasData: boolean;
 }
 
-/**
- * Accepted edit records, installed with the durable draft library. The index
- * calls this slot on every accepted edit. Without it the projection keeps the
- * complete fallback: a missing chain only costs a scan, never a wrong key.
- */
-export const draftProjection: { record?: (id: string, edits: DocumentEdits) => void } = {};
-
 /** Local evidence for the projection hooks. Inert in a normal build. */
 export function recordDraftProjection(
 	projection: 'manifest' | 'metadata',
 	reused: boolean,
 	bytes: number,
-	startedAt: number,
-	mode: 'full' | 'incremental' | 'reused' = reused ? 'reused' : 'full'
+	startedAt: number
 ): void {
 	if (!METRICS || typeof performance === 'undefined') return;
 	performance.measure(`mdsh:draft-${projection}`, {
 		start: startedAt,
 		end: performance.now(),
-		detail: { reused, bytes: reused ? 0 : bytes, mode }
+		detail: { reused, bytes: reused ? 0 : bytes }
 	});
 }
 

@@ -23,10 +23,16 @@ import type { MetadataRequest, MetadataResponse } from './metadata.worker';
 import type { WikiLinkIndex } from './wiki-link-index';
 import type { MetadataRunner } from './metadata-runner';
 import type { DocumentEdits } from './document-revisions';
-import { draftProjection } from './draft-manifest-key';
 import { reportWarning } from './report';
 
 const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
+
+/**
+ * Accepted edit records for the durable draft projection. The projection
+ * module installs its recorder with the durable draft library. Without it the
+ * projection keeps the complete fallback.
+ */
+export const draftProjection: { record?: (id: string, edits: DocumentEdits) => void } = {};
 
 /** One accepted edit chain entry, from `base` to `next` document revision. */
 interface EditRecord {

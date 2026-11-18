@@ -25,13 +25,13 @@ import {
 	type ContentFingerprint
 } from './content-fingerprint';
 import {
-	draftProjection,
 	decodeDraftManifestDerived,
 	draftManifestDerived,
+	encodeDraftManifest,
 	encodeDraftManifestFrom,
-	recordDraftProjection,
 	type DraftManifestDerived
 } from './draft-manifest-key';
+import { draftProjection } from './meta-index';
 
 export const DRAFT_METADATA_VERSION = 3;
 
@@ -540,6 +540,23 @@ function resolveDraftProjection(
 	};
 }
 
+const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
+
+/** Local evidence for the projection hooks. Inert in a normal build. */
+function recordMeasure(
+	projection: 'manifest' | 'metadata',
+	mode: ProjectionMode,
+	scanned: number,
+	startedAt: number
+): void {
+	if (!METRICS || typeof performance === 'undefined') return;
+	performance.measure(`mdsh:draft-${projection}`, {
+		start: startedAt,
+		end: performance.now(),
+		detail: { reused: mode === 'reused', bytes: mode === 'reused' ? 0 : scanned, mode }
+	});
+}
+
 const MANIFEST_SOURCE_FIELDS = ['content', 'name', 'kind', 'projectId', 'data'] as const;
 
 /** Content-derived manifest values for one write, with the durable fallback. */
@@ -568,10 +585,18 @@ export function installDraftMetadataHooks(): void {
 	draftProjection.record = recordDraftEdit;
 	const metrics = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 	db.drafts.hook('creating', (_primaryKey, row) => {
+		const manifestStartedAt = metrics ? performance.now() : 0;
+		row.manifest = encodeDraftManifest(row);
+		if (metrics)
+			performance.measure('mdsh:draft-manifest', {
+				start: manifestStartedAt,
+				end: performance.now(),
+				detail: { reused: false, bytes: row.content.length, mode: 'full' }
+			});
 		const startedAt = metrics ? performance.now() : 0;
 		const projection = projectionFor(row);
 		row.metadata = encodeDraftMetadataKey(projection.metadata, projection.fingerprint);
-		recordDraftProjection('metadata', false, row.content.length, startedAt, 'full');
+		recordMeasure('metadata', 'full', row.content.length, startedAt);
 	});
 	db.drafts.hook('updating', (modifications, _primaryKey, row) => {
 		const startedAt = metrics ? performance.now() : 0;
@@ -583,12 +608,11 @@ export function installDraftMetadataHooks(): void {
 			{ ...row, ...changes } as DraftRow,
 			manifestDerivedFor(row as DraftRow, changes, decision)
 		);
-		recordDraftProjection(
+		recordMeasure(
 			'manifest',
-			decision ? decision.mode === 'reused' : true,
+			decision?.mode ?? 'reused',
 			decision?.scanned ?? 0,
-			manifestStartedAt,
-			decision?.mode
+			manifestStartedAt
 		);
 		const touchesMetadata = ['content', 'name', 'kind'].some((key) =>
 			Object.prototype.hasOwnProperty.call(changes, key)
@@ -596,23 +620,11 @@ export function installDraftMetadataHooks(): void {
 		if (!touchesMetadata) {
 			// Dexie omits fields whose value did not change. Reusing the durable
 			// key keeps an unchanged save free of a hash and a link scan.
-			recordDraftProjection(
-				'metadata',
-				decision ? decision.mode === 'reused' : true,
-				decision?.scanned ?? 0,
-				startedAt,
-				decision?.mode
-			);
+			recordMeasure('metadata', decision?.mode ?? 'reused', decision?.scanned ?? 0, startedAt);
 			return { manifest };
 		}
 		const mode = decision?.mode ?? 'full';
-		recordDraftProjection(
-			'metadata',
-			mode === 'reused',
-			mode === 'reused' ? 0 : (decision?.scanned ?? row.content.length),
-			startedAt,
-			mode
-		);
+		recordMeasure('metadata', mode, decision?.scanned ?? row.content.length, startedAt);
 		const state = states.get(row.id);
 		return state ? { manifest, metadata: state.metadataKey } : { manifest };
 	});
