@@ -4,8 +4,12 @@
 // the existing source-fidelity instrumentation flag. A benchmark can also set
 // `window.__MDSH_EDITOR_PERF__ = true` before the application starts.
 
+import type { SourceEdit } from './source-edit';
+
 export type EditorPerfEvent =
-	{ kind: 'counter'; name: string } | { kind: 'duration'; name: string; value: number };
+	| { kind: 'counter'; name: string }
+	| { kind: 'duration'; name: string; value: number }
+	| { kind: 'edit'; edit: SourceEdit };
 
 function enabled(): boolean {
 	if (typeof window === 'undefined') return false;
@@ -26,6 +30,11 @@ export function recordEditorCounter(name: string): void {
 /** Record one completed duration in milliseconds. */
 export function recordEditorDuration(name: string, value: number): void {
 	emit({ kind: 'duration', name, value });
+}
+
+/** Record one accepted publication revision and its changed span. */
+export function recordEditorEdit(edit: SourceEdit): void {
+	emit({ kind: 'edit', edit });
 }
 
 /** Measure one synchronous stage. The callback result is unchanged. */

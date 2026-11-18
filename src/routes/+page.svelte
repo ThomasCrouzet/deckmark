@@ -565,7 +565,11 @@
 		input.value = '';
 	}
 
-	function handleEditorChange(id: string, text: string) {
+	function handleEditorChange(
+		id: string,
+		text: string,
+		edit?: import('#lib/source-edit.js').SourceEdit
+	) {
 		const file = filesStore.library.find((entry) => entry.id === id);
 		if (!file) return;
 		const fileKind = documentKindForFile(file);
@@ -573,7 +577,7 @@
 			notify.error(t('documents.noConversion'));
 			return;
 		}
-		if (fileKind === 'note' || fileKind === 'code') filesStore.queueEditorContent(id, text);
+		if (fileKind === 'note' || fileKind === 'code') filesStore.queueEditorContent(id, text, edit);
 	}
 
 	// §C1 - WYSIWYG flush: explicitly writes to the file `id` provided by the

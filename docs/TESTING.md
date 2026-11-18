@@ -406,6 +406,38 @@ Keep source, expected and exported files, hashes, path decisions, command, sourc
 identity and raw timings with each report. Core parser timings do not establish
 browser edit, save, switch or native performance.
 
+### Mixed-format visual source restoration
+
+Retain these failure risks for issue 572: a paragraph or heading with unchanged
+bold, emphasis, link or inline code returns to complete source parsing after an
+ordinary letter insertion; a new bracket label resolves to a definition outside
+the block; a stale hint accepts bytes from a rejected transaction; and a large
+embedded image forces one complete snapshot for each publication.
+
+`src/lib/source-fidelity.ts` patches the changed inline leaf in a mixed paragraph
+or heading and keeps the block semantic check. Text whose brackets name a
+document definition keeps the whole-document route. `src/lib/source-edit.ts`
+defines the shared revision and changed-span contract for the metadata and
+persistence lanes. The span stays in editor Markdown coordinates. A consumer
+that works on the portable source must map the frontmatter and restoration
+boundary, or use a full fallback. A full revision is explicit, not a silent
+local span.
+
+`e2e/rich-text-publication.spec.ts` seeds 1 MB and 5 MB notes with an embedded
+image and four mixed paragraphs. It appends one letter at the start, middle and
+end, then checks the exact exported bytes, the scoped counter, a full counter at
+zero and the accepted edit span. Run:
+
+```sh
+npx playwright test e2e/rich-text-publication.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+The case attaches `mixed-<size>mb-publication.json` with the path counters,
+stage durations, accepted edits, source sizes and exact-byte result, plus the
+expected and actual Markdown. The Chromium, Firefox and WebKit projects run it.
+A desktop browser result does not prove physical iPhone or iPad input latency,
+installed PWA behavior or a native WebView.
+
 ### Versioned JSON worker risks
 
 The JSON browser workflows retain these risks: a full parse on the input thread,
