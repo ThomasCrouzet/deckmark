@@ -1522,8 +1522,16 @@ these failure risks:
 - The virtualized table must expose `aria-rowcount`, `aria-colcount`, header
   `aria-rowindex=1`, absolute body `aria-rowindex` and absolute `aria-colindex`
   for the title and each rendered YAML column. Check sort, both scroll axes,
-  filter and resize. Spacers stay `aria-hidden` and carry no index. Keep an
-  accessibility tree snapshot.
+  filter and resize. A resize or a sort after an off-screen column window must
+  keep the same absolute indices. Spacers stay `aria-hidden`, carry no index
+  and carry no text. The accessibility tree must not list a spacer as a column
+  header. Keep a snapshot of the first window and of a later window.
+- Keyboard activation of a visible row opens the note with that logical row
+  index. The view-name focus order stays selector, name, Save and Delete at
+  520 px, 400 px, 375 px and at 200 percent CSS zoom.
+- A rejected Delete keeps the view and its selection. Clear the failure and
+  click Delete again. Check one removal, an empty selection and the stored
+  list. A successful retry adds each view once.
 
 Run the focused cases with one worker and no retries:
 
@@ -1538,7 +1546,19 @@ The storage cases inject failures only for `mdsh:collection-views`. Keep
 local browser report.
 
 Browser emulation does not prove physical iPad, VoiceOver, NVDA or native WebView
-behavior. Record those checks separately.
+behavior. Record these checks separately:
+
+- On an iPad in Safari with VoiceOver and a hardware keyboard, open Collections
+  with at least 250 notes and 50 properties. Scroll in both axes. Record the
+  spoken row and column numbers and the header association for logical column
+  25. Repeat after a sort, a filter and a window resize.
+- On macOS with VoiceOver and on Windows with NVDA, repeat the table pass and
+  one saved-view pass. Tab from the saved-view selector through the name field
+  and the Save and Delete buttons. Record the spoken label with an empty name
+  and with a saved name.
+- In Desktop Complete on Windows WebView2, Linux WebKitGTK and macOS WKWebView,
+  reject the `mdsh:collection-views` write. Retry Save and Delete. Check the
+  note draft, the sorting and the focus.
 
 ## Code snippets
 
