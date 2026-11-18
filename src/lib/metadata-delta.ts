@@ -1,23 +1,120 @@
-import type { ChangeSet } from '@codemirror/state';
 import { stripFrontmatter } from './frontmatter-fields';
 import type { MetadataSnapshot, MetadataSource } from './metadata-derive';
 import type { MetadataRequest } from './metadata.worker';
+import type { DocumentEditSpan, DocumentEdits } from './document-revisions';
 
 /** One changed range in the previous content, with its replacement text. */
-export interface MetadataEdit {
-	/** Start offset in the previous content. */
-	from: number;
-	/** End offset in the previous content. */
-	to: number;
-	/** Text inserted at the range. */
-	insert: string;
-}
+export type MetadataEdit = DocumentEditSpan;
 
 /** One changed range against the original text, with its replacement. */
-export interface TextEditSpan {
-	readonly from: number;
-	readonly to: number;
-	readonly insert: string;
+export type TextEditSpan = DocumentEditSpan;
+
+export type SpanComposition =
+	| { readonly spans: readonly DocumentEditSpan[] }
+	| { readonly rejected: 'invalid-range' | 'overlap' | 'too-many' };
+
+/**
+ * The exact changed spans of an accepted edit, or null when the producer did
+ * not know them. The consumers reuse this record instead of comparing the
+ * complete strings.
+ */
+export function spansOfEdits(
+	edits: DocumentEdits,
+	nextText?: string
+): readonly DocumentEditSpan[] | null {
+	if (edits.kind === 'codemirror') {
+		const spans: DocumentEditSpan[] = [];
+		edits.changes.iterChanges((from, to, _fromB, _toB, inserted) =>
+			spans.push({ from, to, insert: inserted.toString() })
+		);
+		return spans;
+	}
+	if (edits.kind !== 'source-edit' || nextText === undefined) return null;
+	const edit = edits.edit;
+	if (edit.space !== 'portable-source' || edit.kind === 'full') return null;
+	if (edit.next.to > nextText.length || edit.previous.to < edit.previous.from) return null;
+	return [
+		{
+			from: edit.previous.from,
+			to: edit.previous.to,
+			insert: nextText.slice(edit.next.from, edit.next.to)
+		}
+	];
+}
+
+function isSpan(value: DocumentEditSpan): boolean {
+	return (
+		Number.isInteger(value.from) &&
+		Number.isInteger(value.to) &&
+		value.from >= 0 &&
+		value.to >= value.from
+	);
+}
+
+/**
+ * Maps an offset in the edited text back to the base text. Returns undefined
+ * when the offset falls inside inserted text, where no base position exists.
+ */
+function mapToBase(spans: readonly DocumentEditSpan[], offset: number): number | undefined {
+	let delta = 0;
+	for (const span of spans) {
+		const editedFrom = span.from + delta;
+		const editedTo = editedFrom + span.insert.length;
+		if (offset < editedFrom) return offset - delta;
+		if (offset === editedFrom) return span.from;
+		if (offset === editedTo) return span.to;
+		if (offset < editedTo) return undefined;
+		delta += span.insert.length - (span.to - span.from);
+	}
+	return offset - delta;
+}
+
+/**
+ * Appends one accepted span list to the composed change. The new list is
+ * expressed in the edited text of the composed change.
+ */
+function appendSpans(
+	composed: readonly DocumentEditSpan[],
+	next: readonly DocumentEditSpan[]
+): DocumentEditSpan[] | null {
+	if (!next.length) return [...composed];
+	let result = [...composed];
+	for (const span of next) {
+		if (!isSpan(span)) return null;
+		const from = mapToBase(result, span.from);
+		const to = mapToBase(result, span.to);
+		if (from === undefined || to === undefined || to < from) return null;
+		const kept: DocumentEditSpan[] = [];
+		for (const existing of result) {
+			const inside = existing.from >= from && existing.to <= to;
+			if (inside) continue;
+			const overlaps = existing.from < to && existing.to > from;
+			if (overlaps) return null;
+			kept.push(existing);
+		}
+		kept.push({ from, to, insert: span.insert });
+		kept.sort((a, b) => a.from - b.from || a.to - b.to);
+		result = kept;
+	}
+	return result;
+}
+
+/**
+ * Composes accepted changes into one span list against the oldest source.
+ * Every record is a list of spans in the text that the previous record
+ * produced.
+ */
+export function composeEditSpans(chain: readonly (readonly DocumentEditSpan[])[]): SpanComposition {
+	if (!chain.length) return { rejected: 'invalid-range' };
+	if (chain.some((record) => !record.length)) return { rejected: 'invalid-range' };
+	let composed: DocumentEditSpan[] = [...chain[0]!];
+	for (let index = 1; index < chain.length; index += 1) {
+		const merged = appendSpans(composed, chain[index]!);
+		if (!merged) return { rejected: 'overlap' };
+		composed = merged;
+		if (composed.length > 64) return { rejected: 'too-many' };
+	}
+	return { spans: composed };
 }
 
 /**
@@ -25,28 +122,6 @@ export interface TextEditSpan {
  * add a heading, front-matter key, wiki link, HTML marker or escape.
  */
 const PLAIN_LINE = /^[\p{L}\p{N}][\p{L}\p{N} ,.!?'’\-_*#]*$/u;
-
-/**
- * Combines accepted CodeMirror change sets into spans against the original
- * text. Returns null when the sets do not compose, so the caller falls back to
- * one full snapshot.
- */
-export function composeTextEdits(changes: readonly ChangeSet[]): TextEditSpan[] | null {
-	let composed: ChangeSet | null = null;
-	for (const change of changes) {
-		try {
-			composed = composed ? composed.compose(change) : change;
-		} catch {
-			return null;
-		}
-	}
-	if (!composed) return null;
-	const spans: TextEditSpan[] = [];
-	composed.iterChanges((from, to, _fromB, _toB, inserted) => {
-		spans.push({ from, to, insert: inserted.toString() });
-	});
-	return spans;
-}
 
 /**
  * Returns true when every changed line can only hold plain body text. Such a
@@ -117,7 +192,7 @@ export interface DeltaInput {
 	revision: number;
 	full: Extract<MetadataRequest, { kind: 'full' }>;
 	documentRevision: number | undefined;
-	chain: readonly { base: number; next: number; changes: ChangeSet }[] | undefined;
+	chain: readonly { base: number; next: number; edits: DocumentEdits }[] | undefined;
 	previous: Pick<MetadataSnapshot, 'content'> | undefined;
 	source: MetadataSource;
 }
@@ -137,8 +212,13 @@ export function buildRequest(input: DeltaInput): MetadataRequest {
 	}
 	if (!previous) return input.full;
 	const base = chain[0]!.base;
-	const spans = composeTextEdits(chain.map((record) => record.changes));
-	if (!spans) return input.full;
+	const lists = chain.map((record, index) =>
+		spansOfEdits(record.edits, index === chain.length - 1 ? input.source.content : undefined)
+	);
+	if (lists.some((record) => !record)) return input.full;
+	const composed = composeEditSpans(lists as readonly (readonly DocumentEditSpan[])[]);
+	if ('rejected' in composed) return input.full;
+	const spans = composed.spans;
 	const frontmatterEnd = stripFrontmatter(previous.content).raw.length;
 	if (!metadataEditReuse(previous.content, input.source.content, frontmatterEnd, spans))
 		return input.full;

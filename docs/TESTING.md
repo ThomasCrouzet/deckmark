@@ -512,6 +512,47 @@ expected and actual Markdown. The Chromium, Firefox and WebKit projects run it.
 A desktop browser result does not prove physical iPhone or iPad input latency,
 installed PWA behavior or a native WebView.
 
+### Shared derived-state edit spans
+
+One accepted edit record feeds the metadata index and the statistics runtime.
+The producer publishes the exact changed span of the source that it accepted.
+A consumer must not compare the complete previous and next strings to find the
+change again.
+
+Retain these failure risks for issue 369:
+
+- A scoped restore can report a span that omits bytes that the image round trip
+  or the source-fidelity restore also changed. The producer must validate the
+  span with one splice and one string equality before it publishes the record.
+  A rejected span keeps the full request.
+- A note with inline code, link brackets or image syntax can hide a construct
+  that crosses a plain line range. Such a note keeps the complete count. The
+  same rule applies to several spans in one job.
+- A consumer must accept a span only when its baseline document revision
+  matches the base of the record. Any other case keeps the previous diff
+  request. A replaced Worker or an evicted metadata baseline needs one
+  validated full snapshot.
+- A stale result must not replace newer counters or metadata. The existing
+  token and revision checks still decide acceptance.
+- The producer-side validation is a splice and a string equality, not a search
+  for the common prefix and suffix. A complete comparison in a consumer is the
+  regression that this workflow detects.
+
+`e2e/derived-state-spans.spec.ts` checks a rendered prose edit, a Source edit at
+the start, middle and end, and a structural edit with undo. It records the
+source bytes, the delta bytes, every Worker post, the count route and the full
+fallback reason. Run:
+
+```sh
+E2E_PORT=4319 npx playwright test e2e/derived-state-spans.spec.ts \
+  --project=chromium --workers=1 --retries=0 --trace=off
+```
+
+Keep `review-reports/i369/*.json` and the screenshot with the command, source
+identity, browser version and the exact fixture hash. This Chromium workflow
+does not establish native WebView, physical device or 10 MiB evidence. The
+5 MiB and 10 MiB rendered cases and the per-Worker byte budget remain open.
+
 ### Versioned JSON worker risks
 
 The JSON browser workflows retain these risks: a full parse on the input thread,

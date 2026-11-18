@@ -14,14 +14,20 @@ export interface SelectionStats {
 }
 
 /**
- * A document change for a Worker that already holds the previous source.
- * The Worker rebuilds the exact text from its baseline before it counts.
+ * One changed range for a Worker that already holds the previous source.
+ * The offsets are in that baseline, in order. The Worker rebuilds the exact
+ * text from its baseline before it counts.
  */
-export interface StatsPatch {
-	baseRevision: number;
+export interface StatsPatchSpan {
 	start: number;
 	remove: number;
 	insert: string;
+}
+
+/** A document change that carries the accepted edit spans. */
+export interface StatsPatch {
+	baseRevision: number;
+	spans: readonly StatsPatchSpan[];
 }
 
 export interface StatsRequest {
@@ -37,6 +43,10 @@ export interface StatsResponse {
 	selection?: SelectionStats;
 	revision?: number;
 	needFull?: boolean;
+	/** Counting route of a document response. */
+	count?: 'incremental' | 'full';
+	/** Why a full recount was necessary. */
+	reason?: string;
 }
 
 function isWhitespace(code: number): boolean {
@@ -219,5 +229,85 @@ export function computeStats(markdown: string): DocStats {
 		words,
 		lines,
 		readMinutes: words === 0 ? 0 : Math.max(1, Math.round(words / READING.wpm))
+	};
+}
+
+/**
+ * A note without inline code or link brackets has no construct that can span
+ * a changed plain region. Only then is a local recount provably exact.
+ */
+export function plainStatisticsSource(text: string): boolean {
+	return text.indexOf('`') < 0 && text.indexOf('[') < 0;
+}
+
+/** A changed line range that can hold plain prose only. */
+const PLAIN_REGION = /^[\p{L}\p{N}\s.,!?'’\-:;()]*$/u;
+
+function plainWords(text: string): number {
+	let words = 0;
+	let inWord = false;
+	for (let index = 0; index < text.length; index += 1) {
+		const whitespace = isWhitespace(text.charCodeAt(index));
+		if (!whitespace && !inWord) words += 1;
+		inWord = !whitespace;
+	}
+	return words;
+}
+
+function newlines(text: string): number {
+	let count = 0;
+	for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) count += 1;
+	return count;
+}
+
+/** Line bounds of `offset`, extended to the end of `length`. */
+function lineBounds(text: string, from: number, to: number): { start: number; end: number } | null {
+	if (from < 0 || to < from || to > text.length) return null;
+	const start = text.lastIndexOf('\n', from - 1) + 1;
+	const found = text.indexOf('\n', to);
+	return { start, end: found === -1 ? text.length : found };
+}
+
+export interface IncrementalStats {
+	stats?: DocStats;
+	reason?: string;
+}
+
+/**
+ * Counts one accepted plain span against the complete previous counts. The
+ * unchanged ranges keep their previous contribution. Every ambiguous structure
+ * returns a reason, so the caller runs the exact full count instead.
+ */
+export function incrementalStats(
+	baseline: string,
+	next: string,
+	previous: DocStats,
+	span: StatsPatchSpan
+): IncrementalStats {
+	const { start, remove, insert } = span;
+	if (
+		!Number.isInteger(start) ||
+		!Number.isInteger(remove) ||
+		start < 0 ||
+		remove < 0 ||
+		start + remove > baseline.length
+	)
+		return { reason: 'invalid-span' };
+	if (next.length !== baseline.length + insert.length - remove) return { reason: 'invalid-span' };
+	const before = lineBounds(baseline, start, start + remove);
+	const after = lineBounds(next, start, start + insert.length);
+	if (!before || !after) return { reason: 'invalid-span' };
+	const oldRegion = baseline.slice(before.start, before.end);
+	const newRegion = next.slice(after.start, after.end);
+	if (!PLAIN_REGION.test(oldRegion) || !PLAIN_REGION.test(newRegion))
+		return { reason: 'ambiguous-syntax' };
+	const words = previous.words - plainWords(oldRegion) + plainWords(newRegion);
+	return {
+		stats: {
+			chars: previous.chars + insert.length - remove,
+			words,
+			lines: previous.lines + newlines(insert) - newlines(baseline.slice(start, start + remove)),
+			readMinutes: words === 0 ? 0 : Math.max(1, Math.round(words / READING.wpm))
+		}
 	};
 }

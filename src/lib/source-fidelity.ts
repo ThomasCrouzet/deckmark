@@ -30,6 +30,11 @@ interface ScopedRestore {
 	sourceDelta: number;
 	markdownNodes: MarkdownNode[];
 	sourceNodes: MarkdownNode[];
+	/** Output range that the accepted change replaced, in source bytes. */
+	previousFrom: number;
+	previousTo: number;
+	nextFrom: number;
+	nextTo: number;
 }
 
 /**
@@ -39,6 +44,14 @@ interface ScopedRestore {
  * locates the block. A span that does not align with the accepted baseline is
  * stale, so the caller must ignore it.
  */
+/** Exact changed span that the restore accepted, in accepted source bytes. */
+export interface SourceFidelitySpan {
+	previousFrom: number;
+	previousTo: number;
+	nextFrom: number;
+	nextTo: number;
+}
+
 export interface SourceFidelityHint extends SourceEditHint {
 	previousFrom: number;
 	previousTo: number;
@@ -242,6 +255,11 @@ export class SourceFidelity {
 	private cachedMarkdown: string;
 	private cachedSource: string;
 	private mappedOriginals: MarkdownNode[] | null = null;
+	/**
+	 * Output span of the latest accepted scoped restore. It is the shared
+	 * changed-span record that the metadata and statistics consumers reuse.
+	 */
+	lastScopedSpan: SourceFidelitySpan | null = null;
 
 	constructor(
 		private source: string,
@@ -263,6 +281,7 @@ export class SourceFidelity {
 	 * serve source text for a document that was never applied.
 	 */
 	restore(markdown: string, commit = true, hint?: SourceFidelityHint): string {
+		this.lastScopedSpan = null;
 		if (markdown === this.cachedMarkdown) return this.cachedSource;
 		if (markdown === this.markdown) return this.source;
 		const scoped = measureEditorStage('sourceFidelityScopeAttempt', () =>
@@ -273,6 +292,12 @@ export class SourceFidelity {
 				this.cachedMarkdown = markdown;
 				this.cachedSource = scoped.result;
 				this.acceptScoped(markdown, scoped);
+				this.lastScopedSpan = {
+					previousFrom: scoped.previousFrom,
+					previousTo: scoped.previousTo,
+					nextFrom: scoped.nextFrom,
+					nextTo: scoped.nextTo
+				};
 			}
 			recordEditorCounter('sourceFidelityScoped');
 			recordSourceFidelityPath('fastPath');
@@ -422,8 +447,8 @@ export class SourceFidelity {
 			const gapEnd = oldEnd < originals.length ? start(originals[oldEnd]!) : this.source.length;
 			if (this.definitionBetween(sourceTo, gapEnd)) return null;
 		}
-		const result =
-			this.source.slice(0, sourceFrom) + this.lineEndings(nextText) + this.source.slice(sourceTo);
+		const inserted = this.lineEndings(nextText);
+		const result = this.source.slice(0, sourceFrom) + inserted + this.source.slice(sourceTo);
 		const sourceNodes = (this.parse(nextText).children ?? []).filter(
 			(node) => node.type !== 'definition'
 		);
@@ -440,7 +465,11 @@ export class SourceFidelity {
 			markdownDelta: delta,
 			sourceDelta: result.length - this.source.length,
 			markdownNodes: after,
-			sourceNodes
+			sourceNodes,
+			previousFrom: sourceFrom,
+			previousTo: sourceTo,
+			nextFrom: sourceFrom,
+			nextTo: sourceFrom + inserted.length
 		};
 	}
 
@@ -510,10 +539,8 @@ export class SourceFidelity {
 			return null;
 		}
 		if (after < before.length && start(before[after]!) < point) return null;
-		const result =
-			this.source.slice(0, sourcePoint) +
-			this.lineEndings(nextText) +
-			this.source.slice(sourcePoint);
+		const inserted = this.lineEndings(nextText);
+		const result = this.source.slice(0, sourcePoint) + inserted + this.source.slice(sourcePoint);
 		const sourceNodes = whitespaceOnly
 			? []
 			: (this.parse(nextText).children ?? []).filter((node) => node.type !== 'definition');
@@ -535,7 +562,11 @@ export class SourceFidelity {
 			markdownDelta: markdown.length - this.markdown.length,
 			sourceDelta: result.length - this.source.length,
 			markdownNodes: nodes,
-			sourceNodes
+			sourceNodes,
+			previousFrom: sourcePoint,
+			previousTo: sourcePoint,
+			nextFrom: sourcePoint,
+			nextTo: sourcePoint + inserted.length
 		};
 	}
 
@@ -652,7 +683,11 @@ export class SourceFidelity {
 			markdownDelta: markdown.length - this.markdown.length,
 			sourceDelta: result.length - this.source.length,
 			markdownNodes: [after],
-			sourceNodes: [sourceNode]
+			sourceNodes: [sourceNode],
+			previousFrom: start(original),
+			previousTo: end(original),
+			nextFrom: start(original),
+			nextTo: start(original) + candidate.length
 		};
 	}
 

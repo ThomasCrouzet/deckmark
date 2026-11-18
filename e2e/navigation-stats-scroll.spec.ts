@@ -537,10 +537,22 @@ async function installStatsWorkerProbe(page: Page) {
 								: null,
 						text: typeof data.text === 'string' ? data.text.length : null,
 						hasImage: typeof data.text === 'string' && data.text.includes('data:image'),
-						patch:
-							data.patch && typeof (data.patch as { insert?: unknown }).insert === 'string'
-								? (data.patch as { insert: string }).insert.length
-								: null,
+						patch: (() => {
+							// The Worker accepts ordered spans. Keep the single-span
+							// shape readable for an older recorded probe.
+							const patch = data.patch as {
+								insert?: unknown;
+								spans?: Array<{ insert?: unknown }>;
+							} | null;
+							if (!patch) return null;
+							if (Array.isArray(patch.spans))
+								return patch.spans.reduce(
+									(total, span) =>
+										total + (typeof span.insert === 'string' ? span.insert.length : 0),
+									0
+								);
+							return typeof patch.insert === 'string' ? patch.insert.length : null;
+						})(),
 						at: performance.now()
 					});
 				}

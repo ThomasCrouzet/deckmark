@@ -153,7 +153,13 @@
 				});
 				// One pending load reads current state, not one retained text closure per edit.
 				const active = filesStore.active;
-				if (kind === 'note' && active) runtime.setDocument(active.id, active.content);
+				if (kind === 'note' && active)
+					runtime.setDocument(
+						active.id,
+						active.content,
+						filesStore.documents.edit(active.id),
+						filesStore.documents.editChanges(active.id)
+					);
 				// Let the selection effect start its own guarded request.
 				runtimeReady += 1;
 				return runtime;
@@ -179,7 +185,13 @@
 		}
 		if (id !== requestedId || !runtime) stats = content.length === 0 ? emptyStats : null;
 		requestedId = id;
-		if (runtime) runtime.setDocument(id, content);
+		if (runtime)
+			runtime.setDocument(
+				id,
+				content,
+				filesStore.documents.edit(id),
+				filesStore.documents.editChanges(id)
+			);
 		else void getRuntime();
 	});
 
