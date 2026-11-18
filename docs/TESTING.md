@@ -2733,13 +2733,14 @@ build exposes a one-shot read gate for a version id. The case holds the read,
 deletes the row in a separate transaction, releases the read, and checks the
 missing status, disabled Restore action and refresh path. A second case holds
 an older read, selects another version, releases the read, and checks that the
-newer preview stays.
+newer preview stays. A third case restores the missing row with the same id
+before refresh. The refresh must read its body again and enable Restore.
 
 ```sh
 npx playwright test e2e/version-history.spec.ts --project=chromium --workers=1 --retries=0
 ```
 
-Keep the local reports and the `missing-version.json` and
+Keep the local reports and the `missing-version.json`, `returned-version.json` and
 `out-of-order-version.json` attachments. The read gate is conditional on
 `VITE_SOURCE_FIDELITY_METRICS=1`, which the E2E build sets. Production builds
 must expose no read gate. This case does not prove an operating-system removal,

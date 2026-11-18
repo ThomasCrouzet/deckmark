@@ -30,6 +30,7 @@
 	let contentLoading = $state(false);
 	let loading = $state(true);
 	let selectedId = $state<string | null>(null);
+	let refreshRevision = $state(0);
 	let loadedId = $state<string | null>(null);
 	let missingVersion = $state(false);
 	let closeButton: HTMLButtonElement | null = $state(null);
@@ -80,6 +81,7 @@
 
 	$effect(() => {
 		const requestedId = selectedId;
+		void refreshRevision;
 		if (!open || !browser || !requestedId) {
 			selectedContent = '';
 			contentLoading = false;
@@ -131,6 +133,8 @@
 					contentLoading = false;
 					missingVersion = false;
 				}
+			} else if (missingVersion) {
+				refreshRevision += 1;
 			}
 		} catch (err) {
 			reportError('load version history', err, {
