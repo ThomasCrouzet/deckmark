@@ -3599,13 +3599,15 @@ render that can report a clamped zero. The restoration still assumes that
 `sessionStorage` survives the reload. It does not claim survival after an
 operating-system process discard.
 
-`e2e/read-lifecycle.spec.ts` runs five workflows in each desktop browser
+`e2e/read-lifecycle.spec.ts` runs six workflows in each desktop browser
 project. The Chromium, Firefox and WebKit projects select the file, so a normal
-full run checks all fifteen cases:
+full run checks all eighteen cases:
 
 - A changed position is saved on `visibilitychange` without `pagehide`. A repeat
   hidden event keeps the deep position, the active file does not change, and a
   wake does not move the document.
+- A `pagehide` event, a file switch and a mode switch that destroys the view
+  each save the active file offset. Reopening the view restores that offset.
 - A reload that keeps `sessionStorage` restores the saved position.
 - A same-file theme rerender keeps the live position instead of the older cached
   position.
