@@ -440,22 +440,12 @@
 	]);
 
 	async function handleExportBackup(): Promise<void> {
-		try {
-			// Flush unflushed keystrokes before reading Dexie - backup is
-			// IDB-sourced and would otherwise omit the last debounce window.
-			await filesStore.flushPendingAwait();
-			const ok = await downloadBackup();
-			// Desktop dialog cancel returns false - do not claim success.
-			if (ok) {
-				recordExternalBackupSuccess();
-				await refreshStorageHealth();
-				notify.success(t('settings.backupExported'));
-			}
-		} catch (err) {
-			recordExternalBackupFailure();
-			await refreshStorageHealth();
-			reportError('backup export', err, { notifyUser: t('settings.backupExportFailed') });
-		}
+		await exportBackup(
+			undefined,
+			'backup export',
+			t('settings.backupExported'),
+			t('settings.backupExportFailed')
+		);
 	}
 
 	// §2.8 - Encrypted export: asks for a passphrase, the file is unreadable
@@ -482,20 +472,54 @@
 			notify.error(t('settings.passphraseMismatch'));
 			return;
 		}
+		await exportBackup(
+			passphrase,
+			'encrypted backup export',
+			t('settings.encryptedBackupExported'),
+			t('settings.encryptedExportFailed')
+		);
+	}
+
+	/**
+	 * Runs one manual backup with visible progress and a real cancellation.
+	 * Cancelling aborts the read and the encode between bounded pages. It must
+	 * not write an output, record a failure or clear the edit state.
+	 */
+	async function exportBackup(
+		passphrase: string | undefined,
+		context: string,
+		successMessage: string,
+		failureMessage: string
+	): Promise<void> {
+		const controller = new AbortController();
+		const dismiss = spinnerStore.show(t('settings.exportingBackup'), () => controller.abort());
+		let percent = -1;
 		try {
+			// Flush unflushed keystrokes before reading Dexie - backup is
+			// IDB-sourced and would otherwise omit the last debounce window.
 			await filesStore.flushPendingAwait();
-			const ok = await downloadBackup(passphrase);
+			const ok = await downloadBackup(passphrase, undefined, {
+				signal: controller.signal,
+				onProgress: (progress) => {
+					const next = Math.round(progress.percent);
+					if (next === percent) return;
+					percent = next;
+					spinnerStore.update(t('settings.exportingBackupProgress', { percent: next }));
+				}
+			});
+			// Desktop dialog cancel returns false - do not claim success.
 			if (ok) {
 				recordExternalBackupSuccess();
 				await refreshStorageHealth();
-				notify.success(t('settings.encryptedBackupExported'));
+				notify.success(successMessage);
 			}
 		} catch (err) {
+			if (controller.signal.aborted) return;
 			recordExternalBackupFailure();
 			await refreshStorageHealth();
-			reportError('encrypted backup export', err, {
-				notifyUser: t('settings.encryptedExportFailed')
-			});
+			reportError(context, err, { notifyUser: failureMessage });
+		} finally {
+			dismiss();
 		}
 	}
 

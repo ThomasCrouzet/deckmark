@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 import { resetAppState } from './helpers';
 
 // Bounded backup and export evidence.
@@ -24,6 +25,8 @@ interface CorpusPlan {
 	assets: number;
 	assetBytes: number;
 	projectDocuments: number;
+	/** Flat open-file rows, outside the project tree. */
+	openFiles: number;
 }
 
 interface SeededCorpus {
@@ -81,7 +84,10 @@ async function seedCorpus(page: Page, plan: CorpusPlan): Promise<SeededCorpus> {
 				createdAt: now,
 				updatedAt: now,
 				order: index,
-				open: index === 0
+				// The last two non-project rows stay open. Project documents appear
+				// in the project tree, so the flat open-file list must not contain
+				// them for the selection workflow.
+				open: index >= spec.rows - spec.openFiles && index >= spec.projectDocuments
 			});
 		}
 		store('projects').put({
@@ -256,7 +262,8 @@ test('bounds backup collection and encoding while typing stays usable', async ({
 		rows: 120,
 		assets: 4,
 		assetBytes: 384 * 1024,
-		projectDocuments: 3
+		projectDocuments: 3,
+		openFiles: 2
 	};
 	const corpus = await seedCorpus(page, plan);
 	await page.reload();
@@ -334,8 +341,10 @@ test('bounds backup collection and encoding while typing stays usable', async ({
 	expect(Math.max(0, ...tasks)).toBeLessThanOrEqual(250);
 	expect(typingElapsedMs).toBeLessThan(5000);
 
-	await info.attach('backup-export-bounds.json', {
-		body: JSON.stringify(
+	const metricsPath = info.outputPath('backup-export-bounds.json');
+	await writeFile(
+		metricsPath,
+		JSON.stringify(
 			{
 				command:
 					'npx playwright test e2e/backup-export-bounds.spec.ts --project=chromium --workers=1 --retries=0',
@@ -348,7 +357,10 @@ test('bounds backup collection and encoding while typing stays usable', async ({
 			},
 			null,
 			2
-		),
+		)
+	);
+	await info.attach('backup-export-bounds.json', {
+		path: metricsPath,
 		contentType: 'application/json'
 	});
 	const path = info.outputPath('corpus-backup.json');
@@ -364,7 +376,8 @@ test('cancellation publishes no backup and preserves the corpus', async ({ page 
 		rows: 60,
 		assets: 3,
 		assetBytes: 256 * 1024,
-		projectDocuments: 2
+		projectDocuments: 2,
+		openFiles: 2
 	});
 	await page.reload();
 	await waitForReady(page);
@@ -402,8 +415,10 @@ test('cancellation publishes no backup and preserves the corpus', async ({ page 
 	expect(parsed.projectAssets).toHaveLength(corpus.assets);
 	expect(downloads).toBe(1);
 
-	await info.attach('backup-cancellation.json', {
-		body: JSON.stringify(
+	const cancellationPath = info.outputPath('backup-cancellation.json');
+	await writeFile(
+		cancellationPath,
+		JSON.stringify(
 			{
 				corpusMiB: Math.min(CORPUS_MIB, 8),
 				corpus,
@@ -413,7 +428,10 @@ test('cancellation publishes no backup and preserves the corpus', async ({ page 
 			},
 			null,
 			2
-		),
+		)
+	);
+	await info.attach('backup-cancellation.json', {
+		path: cancellationPath,
 		contentType: 'application/json'
 	});
 });
@@ -426,22 +444,21 @@ test('library ZIP cancellation publishes no archive', async ({ page }, info) => 
 		rows: 40,
 		assets: 2,
 		assetBytes: 256 * 1024,
-		projectDocuments: 2
+		projectDocuments: 2,
+		openFiles: 8
 	});
 	await page.reload();
 	await waitForReady(page);
-	await setPipelineDelay(page, 60);
+	await setPipelineDelay(page, 200);
 	let downloads = 0;
 	page.on('download', () => downloads++);
 
-	await page
-		.locator('aside button[data-file-id]')
-		.first()
-		.click({ modifiers: ['ControlOrMeta'] });
-	await page
-		.locator('aside button[data-file-id]')
-		.nth(1)
-		.click({ modifiers: ['ControlOrMeta'] });
+	const openRows = page.locator('aside .mdsh-file-row button[data-file-id]');
+	await expect(openRows).toHaveCount(8);
+	for (let index = 0; index < 8; index++) {
+		await openRows.nth(index).click({ modifiers: ['Control'] });
+	}
+	await expect(page.locator('aside [aria-label="Actions sur la sélection"]')).toBeVisible();
 	await page
 		.locator('aside [aria-label="Actions sur la sélection"]')
 		.getByRole('button', { name: /ZIP/ })
@@ -465,8 +482,13 @@ test('library ZIP cancellation publishes no archive', async ({ page }, info) => 
 	const buffer = await readDownload(download);
 	expect(buffer.subarray(0, 2).toString('latin1')).toBe('PK');
 
+	const zipMetricsPath = info.outputPath('library-zip-cancellation.json');
+	await writeFile(
+		zipMetricsPath,
+		JSON.stringify({ corpus, downloads, bytes: buffer.byteLength }, null, 2)
+	);
 	await info.attach('library-zip-cancellation.json', {
-		body: JSON.stringify({ corpus, downloads, bytes: buffer.byteLength }, null, 2),
+		path: zipMetricsPath,
 		contentType: 'application/json'
 	});
 	await info.attach('selection.zip', { path: zipPath, contentType: 'application/zip' });

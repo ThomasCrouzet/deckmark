@@ -10,6 +10,9 @@ import { rewriteWikiLinkTargets } from './wiki-links';
 import { documentKindForFile, isBinaryDocument } from './document-kind';
 import { decodeBinaryDataBytes } from './data-url';
 import type { ProjectAssetRow } from './db';
+import { checkAborted } from './abort';
+import type { ExportProgressReporter } from './export-pipeline';
+import { generateZipBytes } from './zip-archive';
 type JSZipObject = import('jszip').JSZipObject;
 
 import { PROJECT_SCALE_LIMITS, projectDocumentLimit } from './project-limits';
@@ -426,6 +429,9 @@ export async function readProjectFolder(files: readonly File[]): Promise<Project
 export interface ProjectZipOptions {
 	/** Fixed entry date for a reproducible archive. */
 	date?: Date;
+	/** Stops the build at the next document or archive chunk. */
+	signal?: AbortSignal | undefined;
+	onProgress?: ExportProgressReporter | undefined;
 }
 
 export async function buildProjectZip(
@@ -434,6 +440,7 @@ export async function buildProjectZip(
 	assets: readonly Pick<ProjectAssetRow, 'path' | 'data' | 'mime'>[],
 	options: ProjectZipOptions = {}
 ): Promise<Blob> {
+	checkAborted(options.signal);
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const entryOptions = options.date ? { date: options.date } : undefined;
@@ -479,6 +486,7 @@ export async function buildProjectZip(
 	// hash it once per export, then reuse the generated asset path.
 	const inlineImageCache = new Map<string, { path: string }>();
 	for (const document of documents) {
+		checkAborted(options.signal);
 		const documentPath = projectPath(document.relativePath);
 		const documentKey = pathKey(documentPath);
 		if (documentKey.startsWith('.mdsh/')) throw new Error('Reserved project path');
@@ -619,12 +627,10 @@ export async function buildProjectZip(
 		// every entry keeps the archive reproducible.
 		for (const entry of Object.values(zip.files)) entry.date = options.date;
 	}
-	const output = await zip.generateAsync({
-		type: 'arraybuffer',
-		compression: 'DEFLATE',
-		compressionOptions: { level: 6 }
+	const bytes = await generateZipBytes(zip, {
+		signal: options.signal,
+		...(options.onProgress ? { onProgress: options.onProgress } : {})
 	});
-	const bytes = new Uint8Array(output);
 	checkZipDirectory(bytes);
 	return new Blob([bytes], { type: 'application/zip' });
 }

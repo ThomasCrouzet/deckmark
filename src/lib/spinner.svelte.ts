@@ -61,6 +61,22 @@ class SpinnerStore {
 		this.cancel = latest.cancel;
 		this.visible = true;
 	}
+
+	/**
+	 * Replaces the message of the most recently displayed operation. A caller
+	 * uses this for a bounded progress value. A hidden operation keeps its new
+	 * text for the moment it becomes visible.
+	 */
+	update(message: string): void {
+		const entries = [...this.displayed.entries()];
+		const latest = entries[entries.length - 1];
+		if (!latest) return;
+		const [token, entry] = latest;
+		if (entry.message === message) return;
+		entry.message = message;
+		this.displayed.set(token, entry);
+		this.refresh();
+	}
 }
 
 export const spinnerStore = new SpinnerStore();

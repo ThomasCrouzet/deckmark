@@ -91,13 +91,19 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	if (!browser) return;
 	const snapshot = deps.getFiles().map((file) => ({ ...file }));
 	if (snapshot.length === 0) return;
-	const dismiss = spinnerStore.show(t('export.creatingZip'));
+	const controller = new AbortController();
+	const dismiss = spinnerStore.show(t('export.creatingZip'), () => controller.abort());
 	try {
 		const stamp = new Date().toISOString().slice(0, 10);
-		const ok = await exportZipService(snapshot, `deckmark-export-${stamp}.zip`);
+		const ok = await exportZipService(snapshot, `deckmark-export-${stamp}.zip`, {
+			signal: controller.signal
+		});
 		if (!ok) return; // desktop dialog cancelled - keep dirty, no success toast
 		notify.success(t('export.zipCreated', { n: snapshot.length }));
 	} catch (err) {
+		// A cancelled archive stops at the next bounded chunk and publishes no
+		// output. It is not a failure and it does not clear the dirty state.
+		if (controller.signal.aborted) return;
 		reportError('export ZIP', err, { notifyUser: t('export.zipFailed') });
 		return; // does not clear `dirty` if the export failed
 	} finally {
@@ -183,13 +189,17 @@ export async function exportSelectionZip(
 		.filter((f) => selectedIds.has(f.id))
 		.map((file) => ({ ...file }));
 	if (files.length === 0) return;
-	const dismiss = spinnerStore.show(t('export.creatingZip'));
+	const controller = new AbortController();
+	const dismiss = spinnerStore.show(t('export.creatingZip'), () => controller.abort());
 	try {
 		const stamp = new Date().toISOString().slice(0, 10);
-		const ok = await exportZipService(files, `deckmark-selection-${stamp}.zip`);
+		const ok = await exportZipService(files, `deckmark-selection-${stamp}.zip`, {
+			signal: controller.signal
+		});
 		if (!ok) return; // desktop dialog cancelled
 		notify.success(t('export.zipCreated', { n: files.length }));
 	} catch (err) {
+		if (controller.signal.aborted) return;
 		reportError('ZIP export (selection)', err, { notifyUser: t('export.zipFailed') });
 	} finally {
 		dismiss();

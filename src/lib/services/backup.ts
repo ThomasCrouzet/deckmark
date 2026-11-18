@@ -36,6 +36,14 @@ import { rewriteWikiLinkTargets } from '../wiki-links';
 import { documentKind } from '../document-kind';
 import { imageMime, pathKey, projectPath } from '../project-paths';
 import { MAX_SNIPPETS, normalizeSnippetRow, validSnippetRow } from '../snippets';
+import { checkAborted, isAbortError } from '../abort';
+import {
+	EXPORT_BATCH_POLICY,
+	ExportPipelineRun,
+	readKeyBatches,
+	yieldToMainThread,
+	type ExportProgressReporter
+} from '../export-pipeline';
 
 export const BACKUP_FORMAT = 'mdsh-backup';
 export const BACKUP_SCHEMA_VERSION = 2;
@@ -228,29 +236,248 @@ export class BackupParseError extends Error {
 
 // ─── Collection ──────────────────────────────────────────────────────────────
 
-/** Reads the persisted state and builds the backup object (draft order preserved). */
-export async function collectBackup(now = Date.now()): Promise<BackupFile> {
-	const [draftRows, workspaces, templates, snippetRows, projectRows, assetRows, comments] =
-		await Promise.all([
-			db.drafts.orderBy('order').toArray(),
-			db.workspaces.orderBy('updatedAt').toArray(),
-			db.templates.orderBy('updatedAt').toArray(),
-			db.snippets.orderBy('updatedAt').toArray(),
-			db.projects.orderBy('updatedAt').toArray(),
-			db.projectAssets.toArray(),
-			db.comments.orderBy('createdAt').toArray()
-		]);
-	const drafts = draftRows.map(normalizeDraft);
-	const snippets = snippetRows.map(normalizeSnippetRow);
-	const projects = projectRows.map(normalizeProject);
-	const projectAssets = assetRows.map((asset) => ({
-		id: asset.id,
-		projectId: asset.projectId,
-		path: asset.path,
-		mime: asset.mime,
-		data: bytesToBase64(asset.data)
-	}));
+export interface BackupCollectOptions {
+	signal?: AbortSignal | undefined;
+	onProgress?: ExportProgressReporter | undefined;
+	/** Shared run when the caller measures the complete operation. */
+	run?: ExportPipelineRun;
+}
+
+/** Exact source byte length of each generated project asset. */
+type GeneratedAssetBytes = Map<string, number>;
+
+/**
+ * Identity of a generated snapshot.
+ *
+ * The backup path does not consume editor revisions or changed spans. It reads
+ * the durable rows after the save queue flush, in bounded pages. The identity
+ * states the exact durable state that the snapshot captured, so the revision
+ * lanes (#569, #572, #574) can compare a snapshot without a second full read.
+ * A snapshot never mixes an editor revision with durable bytes: the flush
+ * completes before the first page read.
+ */
+export interface BackupSnapshotIdentity {
+	exportedAt: number;
+	drafts: number;
+	workspaces: number;
+	templates: number;
+	snippets: number;
+	projects: number;
+	projectAssets: number;
+	comments: number;
+}
+
+export function backupSnapshotIdentity(backup: BackupFile): BackupSnapshotIdentity {
 	return {
+		exportedAt: backup.exportedAt,
+		drafts: backup.drafts.length,
+		workspaces: backup.workspaces.length,
+		templates: backup.templates.length,
+		snippets: backup.snippets?.length ?? 0,
+		projects: backup.projects?.length ?? 0,
+		projectAssets: backup.projectAssets?.length ?? 0,
+		comments: backup.comments?.length ?? 0
+	};
+}
+
+/**
+ * Reads the persisted state and builds the backup object (draft order preserved).
+ *
+ * The read is bounded: each collection is read in pages of at most
+ * `EXPORT_BATCH_POLICY.maxRows` rows, and one raw project asset is converted
+ * and released at a time. Rows are validated as they arrive, so an invalid or
+ * oversized row fails before the complete corpus is resident. A signal stops
+ * the read at a page boundary.
+ */
+export async function collectBackup(
+	now = Date.now(),
+	options: BackupCollectOptions = {}
+): Promise<BackupFile> {
+	const run = options.run ?? new ExportPipelineRun('backup-collect');
+	const signal = options.signal;
+	const encoder = new TextEncoder();
+	run.beginPhase('collect');
+	// Capture the key order once per store. Pages then read exact rows by key,
+	// so a concurrent insert or delete cannot shift a later page.
+	const [draftIds, workspaceIds, templateIds, snippetIds, projectIds, assetIds, commentIds] =
+		await Promise.all([
+			db.drafts.orderBy('order').primaryKeys(),
+			db.workspaces.orderBy('updatedAt').primaryKeys(),
+			db.templates.orderBy('updatedAt').primaryKeys(),
+			db.snippets.orderBy('updatedAt').primaryKeys(),
+			db.projects.orderBy('updatedAt').primaryKeys(),
+			db.projectAssets.toCollection().primaryKeys(),
+			db.comments.orderBy('createdAt').primaryKeys()
+		]);
+	const totalRows =
+		draftIds.length +
+		workspaceIds.length +
+		templateIds.length +
+		snippetIds.length +
+		projectIds.length +
+		assetIds.length +
+		commentIds.length;
+	let processed = 0;
+	let contentBytes = 0;
+	let assetBytesTotal = 0;
+	const assetBytes: GeneratedAssetBytes = new Map();
+	const draftLocations: Array<{ projectId: string; relativePath: string }> = [];
+
+	const report = () => {
+		const percent = totalRows > 0 ? (processed / totalRows) * 70 : 70;
+		options.onProgress?.({ phase: 'collect', completed: processed, total: totalRows, percent });
+		run.noteProgress(percent);
+	};
+	const invalid = () => new BackupParseError(t('backup.notMdshBackup'));
+	const tooLarge = () => new BackupParseError(t('backup.tooLarge'));
+	const checkText = (content: string) => {
+		try {
+			validateMarkdownContent(content);
+		} catch {
+			throw invalid();
+		}
+		const size = encoder.encode(content).byteLength;
+		contentBytes += size;
+		if (size > IMPORT_LIMITS.maxFileBytes || contentBytes > IMPORT_LIMITS.maxBatchBytes)
+			throw tooLarge();
+	};
+	const page = {
+		limit: EXPORT_BATCH_POLICY.maxRows,
+		signal,
+		run
+	};
+
+	const drafts: DraftRow[] = [];
+	await readKeyBatches(draftIds, (keys) => db.drafts.bulkGet(keys), {
+		...page,
+		onBatch: (rows, requested) => {
+			for (const row of rows) {
+				if (!validDraft(row)) throw invalid();
+				checkText(row.content);
+				const normalized = normalizeDraft(row);
+				drafts.push(normalized);
+				if (normalized.projectId && normalized.relativePath)
+					draftLocations.push({
+						projectId: normalized.projectId,
+						relativePath: normalized.relativePath
+					});
+			}
+			processed += requested;
+			report();
+		}
+	});
+
+	const workspaces: WorkspaceRow[] = [];
+	await readKeyBatches(workspaceIds, (keys) => db.workspaces.bulkGet(keys), {
+		...page,
+		onBatch: (rows, requested) => {
+			for (const row of rows) {
+				if (!validWorkspace(row)) throw invalid();
+				workspaces.push(row);
+			}
+			processed += requested;
+			report();
+		}
+	});
+
+	const templates: TemplateRow[] = [];
+	await readKeyBatches(templateIds, (keys) => db.templates.bulkGet(keys), {
+		...page,
+		onBatch: (rows, requested) => {
+			for (const row of rows) {
+				if (!validTemplate(row)) throw invalid();
+				checkText(row.content);
+				templates.push(row);
+			}
+			processed += requested;
+			report();
+		}
+	});
+
+	const snippets: SnippetRow[] = [];
+	await readKeyBatches(snippetIds, (keys) => db.snippets.bulkGet(keys), {
+		...page,
+		onBatch: (rows, requested) => {
+			for (const row of rows) {
+				if (!validSnippetRow(row)) throw invalid();
+				checkText(row.code);
+				snippets.push(normalizeSnippetRow(row));
+			}
+			processed += requested;
+			report();
+		}
+	});
+
+	const projects: BackupProject[] = [];
+	await readKeyBatches(projectIds, (keys) => db.projects.bulkGet(keys), {
+		...page,
+		onBatch: (rows, requested) => {
+			for (const row of rows) {
+				if (!validProject(row)) throw invalid();
+				projects.push(normalizeProject(row));
+			}
+			processed += requested;
+			report();
+		}
+	});
+
+	const projectAssets: BackupProjectAsset[] = [];
+	await readKeyBatches(assetIds, (keys) => db.projectAssets.bulkGet(keys), {
+		...page,
+		limit: EXPORT_BATCH_POLICY.maxAssetRows,
+		liveBytes: (rows) => rows.reduce((total, row) => total + row.data.byteLength, 0),
+		onBatch: (rows, requested) => {
+			for (const asset of rows) {
+				if (
+					typeof asset.id !== 'string' ||
+					asset.id.length === 0 ||
+					typeof asset.projectId !== 'string' ||
+					asset.projectId.length === 0 ||
+					typeof asset.path !== 'string' ||
+					asset.path.length === 0 ||
+					typeof asset.mime !== 'string' ||
+					asset.mime.length > 128 ||
+					!(asset.mime.startsWith('image/') || asset.mime === 'application/octet-stream') ||
+					!(asset.data instanceof Uint8Array)
+				)
+					throw invalid();
+				const maximum =
+					asset.mime.startsWith('image/') || imageMime(asset.path)
+						? MAX_IMAGE_BYTES
+						: IMPORT_LIMITS.maxFileBytes;
+				const size = asset.data.byteLength;
+				assetBytesTotal += size;
+				if (size > maximum || assetBytesTotal > PROJECT_BACKUP_LIMITS.maxAssetBytesTotal)
+					throw tooLarge();
+				// Converted from the exact row bytes, then the row is released.
+				assetBytes.set(asset.id, size);
+				projectAssets.push({
+					id: asset.id,
+					projectId: asset.projectId,
+					path: asset.path,
+					mime: asset.mime,
+					data: bytesToBase64(asset.data)
+				});
+			}
+			processed += requested;
+			report();
+		}
+	});
+
+	const comments: CommentRow[] = [];
+	await readKeyBatches(commentIds, (keys) => db.comments.bulkGet(keys), {
+		...page,
+		onBatch: (rows, requested) => {
+			for (const row of rows) {
+				if (!validComment(row)) throw invalid();
+				comments.push(row);
+			}
+			processed += requested;
+			report();
+		}
+	});
+
+	const backup: BackupFile = {
 		format: BACKUP_FORMAT,
 		schemaVersion: BACKUP_SCHEMA_VERSION,
 		exportedAt: now,
@@ -262,11 +489,193 @@ export async function collectBackup(now = Date.now()): Promise<BackupFile> {
 		projectAssets,
 		comments
 	};
+	validateGeneratedBackup(backup, assetBytes, draftLocations);
+	run.endPhase();
+	run.noteProgress(70);
+	return backup;
 }
 
-/** Serializes a backup into indented JSON (readable/diffable). */
+/**
+ * Cross-collection checks for locally generated data. Row shape, text limits
+ * and exact asset sizes are already checked during the bounded read. Imported
+ * files still take the complete hostile-input check in `validateBackupValue`,
+ * including a second decode of every Base64 payload.
+ */
+function validateGeneratedBackup(
+	backup: BackupFile,
+	assetBytes: GeneratedAssetBytes,
+	draftLocations: ReadonlyArray<{ projectId: string; relativePath: string }>
+): void {
+	const invalid = () => new BackupParseError(t('backup.notMdshBackup'));
+	const tooLarge = () => new BackupParseError(t('backup.tooLarge'));
+	if (
+		backup.drafts.length + backup.templates.length > BACKUP_LIMITS.maxDocuments ||
+		backup.workspaces.length > BACKUP_LIMITS.maxWorkspaces ||
+		(backup.snippets?.length ?? 0) > MAX_SNIPPETS ||
+		(backup.projects?.length ?? 0) > PROJECT_BACKUP_LIMITS.maxProjects ||
+		(backup.projectAssets?.length ?? 0) > PROJECT_BACKUP_LIMITS.maxAssets
+	)
+		throw tooLarge();
+	for (const rows of [
+		backup.drafts,
+		backup.workspaces,
+		backup.templates,
+		backup.snippets ?? [],
+		backup.comments ?? []
+	]) {
+		if (new Set(rows.map((row) => row.id)).size !== rows.length) throw invalid();
+	}
+	const projects = backup.projects ?? [];
+	const assets = backup.projectAssets ?? [];
+	if (
+		new Set(projects.map((project) => project.id)).size !== projects.length ||
+		new Set(assets.map((asset) => asset.id)).size !== assets.length
+	)
+		throw invalid();
+	if (
+		backup.workspaces.reduce((total, workspace) => total + workspace.fileIds.length, 0) >
+		BACKUP_LIMITS.maxTotalWorkspaceReferences
+	)
+		throw tooLarge();
+	const projectIds = new Set(projects.map((project) => project.id));
+	const paths = new Set<string>();
+	const addPath = (projectId: string, relativePath: string) => {
+		if (!projectIds.has(projectId)) throw invalid();
+		let normalized: string;
+		try {
+			normalized = projectPath(relativePath);
+		} catch {
+			throw invalid();
+		}
+		if (normalized !== relativePath) throw invalid();
+		const key = `${projectId}\0${pathKey(normalized)}`;
+		if (paths.has(key)) throw invalid();
+		paths.add(key);
+	};
+	for (const location of draftLocations) addPath(location.projectId, location.relativePath);
+	let total = 0;
+	for (const asset of assets) {
+		addPath(asset.projectId, asset.path);
+		const size = assetBytes.get(asset.id);
+		if (size === undefined) throw invalid();
+		total += size;
+	}
+	if (total > PROJECT_BACKUP_LIMITS.maxAssetBytesTotal) throw tooLarge();
+	// The generated object is complete. `applyBackup` may write it directly.
+	validatedBackups.add(backup);
+}
+
+/**
+ * Serializes a backup into indented JSON (readable/diffable).
+ *
+ * The text is produced in pieces. The complete collection is never converted
+ * to one second JSON string, so a caller can hand the pieces to a Blob.
+ */
 export function serializeBackup(backup: BackupFile): string {
-	return JSON.stringify(backup, null, 2);
+	return [...backupJsonChunks(backup)].join('');
+}
+
+export interface BackupEncodeOptions {
+	signal?: AbortSignal | undefined;
+	onProgress?: ExportProgressReporter | undefined;
+	run?: ExportPipelineRun;
+}
+
+/**
+ * Serializes a backup into bounded JSON chunks. Each item is serialized once.
+ * The output matches `JSON.stringify(backup, null, 2)` byte for byte.
+ */
+export async function serializeBackupBounded(
+	backup: BackupFile,
+	options: BackupEncodeOptions = {}
+): Promise<string[]> {
+	const run = options.run ?? new ExportPipelineRun('backup-encode');
+	const expected = estimateBackupChars(backup);
+	const output: string[] = [];
+	let buffer = '';
+	let encoded = 0;
+	run.beginPhase('encode');
+	const flush = async () => {
+		if (!buffer) return;
+		output.push(buffer);
+		encoded += buffer.length;
+		run.noteChunk(buffer.length);
+		buffer = '';
+		checkAborted(options.signal);
+		run.noteYield();
+		await yieldToMainThread();
+		const percent = 70 + (expected > 0 ? Math.min(20, (encoded / expected) * 20) : 20);
+		options.onProgress?.({
+			phase: 'encode',
+			completed: encoded,
+			total: expected,
+			percent
+		});
+		run.noteProgress(percent);
+	};
+	for (const piece of backupJsonChunks(backup)) {
+		buffer += piece;
+		if (buffer.length >= EXPORT_BATCH_POLICY.maxChunkChars) await flush();
+	}
+	await flush();
+	run.endPhase();
+	run.noteProgress(90);
+	return output;
+}
+
+/** Indentation-independent size estimate for progress only. */
+function estimateBackupChars(backup: BackupFile): number {
+	let total = 512;
+	for (const row of backup.drafts) total += row.content.length + row.name.length + 256;
+	for (const row of backup.workspaces) total += row.name.length + row.fileIds.length * 64 + 256;
+	for (const row of backup.templates) total += row.content.length + row.name.length + 256;
+	for (const row of backup.snippets ?? []) total += row.code.length + row.title.length + 256;
+	for (const row of backup.projects ?? []) total += row.name.length + 256;
+	for (const row of backup.projectAssets ?? []) total += row.data.length + row.path.length + 256;
+	for (const row of backup.comments ?? []) total += row.body.length + row.quote.length + 256;
+	return total;
+}
+
+/**
+ * Produces the exact `JSON.stringify(backup, null, 2)` text in small pieces.
+ * Collection arrays are serialized item by item, at the same indentation as
+ * the complete encoder.
+ */
+function* backupJsonChunks(backup: BackupFile): Generator<string> {
+	yield '{';
+	yield `\n  "format": ${JSON.stringify(backup.format)},`;
+	yield `\n  "schemaVersion": ${JSON.stringify(backup.schemaVersion)},`;
+	yield `\n  "exportedAt": ${JSON.stringify(backup.exportedAt)},`;
+	const collections: Array<[string, unknown[] | undefined]> = [
+		['drafts', backup.drafts],
+		['workspaces', backup.workspaces],
+		['templates', backup.templates],
+		['snippets', backup.snippets],
+		['projects', backup.projects],
+		['projectAssets', backup.projectAssets],
+		['comments', backup.comments]
+	];
+	const present = collections.filter((entry) => entry[1] !== undefined);
+	for (let index = 0; index < present.length; index++) {
+		const [key, rows] = present[index]!;
+		const last = index === present.length - 1;
+		yield `\n  ${JSON.stringify(key)}: `;
+		yield* jsonArrayChunks(rows!, last);
+	}
+	yield '\n}';
+}
+
+function* jsonArrayChunks(rows: readonly unknown[], lastCollection: boolean): Generator<string> {
+	if (rows.length === 0) {
+		yield lastCollection ? '[]' : '[],';
+		return;
+	}
+	yield '[';
+	for (let index = 0; index < rows.length; index++) {
+		const text = JSON.stringify(rows[index], null, 2) ?? 'null';
+		yield `\n    ${text.replace(/\n/g, '\n    ')}${index === rows.length - 1 ? '' : ','}`;
+	}
+	yield lastCollection ? '\n  ]' : '\n  ],';
 }
 
 // ─── Validation ────────────────────────────────────────────────────────────
@@ -307,12 +716,16 @@ function normalizeProject(project: ProjectRow): BackupProject {
 }
 
 function bytesToBase64(data: Uint8Array): string {
-	let binary = '';
-	const chunkSize = 0x8000;
+	if (data.byteLength === 0) return '';
+	// 24 KiB is a multiple of three, so each chunk produces a complete Base64
+	// group and the pieces concatenate exactly. The complete binary string is
+	// never held for a large asset.
+	const chunkSize = 3 * 8192;
+	const parts: string[] = [];
 	for (let offset = 0; offset < data.byteLength; offset += chunkSize) {
-		binary += String.fromCharCode(...data.subarray(offset, offset + chunkSize));
+		parts.push(btoa(String.fromCharCode(...data.subarray(offset, offset + chunkSize))));
 	}
-	return btoa(binary);
+	return parts.join('');
 }
 
 function base64ToBytes(value: string): Uint8Array {
@@ -458,7 +871,15 @@ export function parseBackupWithReport(json: string): ParsedBackup {
 }
 
 /** Validates a generated or imported backup value without a second JSON parse. */
-export function validateBackupValue(raw: unknown): ParsedBackup {
+export interface BackupValidationOptions {
+	/**
+	 * Exact byte lengths of Base64 payloads that this build produced. A value
+	 * for an asset skips the decode that hostile imported input still needs.
+	 */
+	assetBytes?: ReadonlyMap<string, number>;
+}
+
+export function validateBackupValue(raw: unknown, trusted?: BackupValidationOptions): ParsedBackup {
 	if (!isObject(raw) || raw.format !== BACKUP_FORMAT) {
 		throw new BackupParseError(t('backup.notMdshBackup'));
 	}
@@ -626,7 +1047,7 @@ export function validateBackupValue(raw: unknown): ParsedBackup {
 				: IMPORT_LIMITS.maxFileBytes;
 		if (asset.data.length > Math.ceil(maximum / 3) * 4)
 			throw new BackupParseError(t('backup.tooLarge'));
-		const size = base64ToBytes(asset.data).byteLength;
+		const size = trusted?.assetBytes?.get(asset.id) ?? base64ToBytes(asset.data).byteLength;
 		assetBytes += size;
 		if (size > maximum || assetBytes > PROJECT_BACKUP_LIMITS.maxAssetBytesTotal) {
 			throw new BackupParseError(t('backup.tooLarge'));
@@ -1243,31 +1664,62 @@ async function triggerDownload(blob: Blob, filename: string): Promise<boolean> {
  *
  * @returns `false` if the desktop save dialog was cancelled (no success toast).
  */
+export interface BackupExportOptions {
+	signal?: AbortSignal | undefined;
+	onProgress?: ExportProgressReporter | undefined;
+}
+
 export async function downloadBackup(
 	passphrase?: string,
-	ensureDurable: () => Promise<void> = ensureLiveDraftsDurable
+	ensureDurable: () => Promise<void> = ensureLiveDraftsDurable,
+	options: BackupExportOptions = {}
 ): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
-	await ensureDurable();
-	const now = Date.now();
-	const backup = await collectBackup(now);
-	// Validate the normalized snapshot before encoding it. Parsing the freshly
-	// generated JSON again would allocate a second full document tree for no
-	// additional guarantee. Imported text still goes through
-	// `parseBackupWithReport` (untrusted input).
-	validateBackupValue(backup);
-	const json = serializeBackup(backup);
-	assertBackupTextSize(json);
-	const stamp = new Date(now).toISOString().slice(0, 10);
-	if (passphrase) {
-		const envelope = await encryptString(json, passphrase);
-		const encrypted = JSON.stringify(envelope);
-		assertBackupTextSize(encrypted);
-		const blob = new Blob([encrypted], { type: 'application/json;charset=utf-8' });
-		return triggerDownload(blob, `deckmark-backup-${stamp}.encrypted.json`);
+	const run = new ExportPipelineRun('backup');
+	try {
+		await ensureDurable();
+		checkAborted(options.signal);
+		const now = Date.now();
+		// The collection validates every row, every limit and the complete
+		// generated shape. A second full validation pass would repeat that work
+		// on the same object. Imported text still goes through
+		// `parseBackupWithReport` (untrusted input).
+		const backup = await collectBackup(now, {
+			signal: options.signal,
+			onProgress: options.onProgress,
+			run
+		});
+		const chunks = await serializeBackupBounded(backup, {
+			signal: options.signal,
+			onProgress: options.onProgress,
+			run
+		});
+		assertBackupChunksSize(chunks);
+		const stamp = new Date(now).toISOString().slice(0, 10);
+		if (passphrase) {
+			// AES-GCM takes one contiguous plaintext buffer. The joined copy is
+			// measured and stays bounded by the 64 MiB backup limit.
+			const json = chunks.join('');
+			run.noteJoinedCopy(json.length);
+			assertBackupTextSize(json);
+			run.beginPhase('encrypt');
+			const envelope = await encryptString(json, passphrase);
+			const encrypted = JSON.stringify(envelope);
+			assertBackupTextSize(encrypted);
+			run.endPhase();
+			run.noteProgress(100);
+			run.finish('completed');
+			const blob = new Blob([encrypted], { type: 'application/json;charset=utf-8' });
+			return triggerDownload(blob, `deckmark-backup-${stamp}.encrypted.json`);
+		}
+		run.noteProgress(100);
+		run.finish('completed');
+		const blob = new Blob(chunks, { type: 'application/json;charset=utf-8' });
+		return triggerDownload(blob, `deckmark-backup-${stamp}.json`);
+	} catch (error) {
+		run.finish(isAbortError(error) ? 'cancelled' : 'failed');
+		throw error;
 	}
-	const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-	return triggerDownload(blob, `deckmark-backup-${stamp}.json`);
 }
 
 /** §2.8 - Detects whether a backup text is an encrypted envelope. */
@@ -1350,4 +1802,14 @@ function assertBackupTextSize(text: string): void {
 		new TextEncoder().encode(text).byteLength > IMPORT_LIMITS.maxBatchBytes
 	)
 		throw new BackupParseError(t('backup.tooLarge'));
+}
+
+/** Rejects a generated JSON text over the backup limit before any output. */
+function assertBackupChunksSize(chunks: readonly string[]): void {
+	const encoder = new TextEncoder();
+	let bytes = 0;
+	for (const chunk of chunks) {
+		bytes += encoder.encode(chunk).byteLength;
+		if (bytes > IMPORT_LIMITS.maxBatchBytes) throw new BackupParseError(t('backup.tooLarge'));
+	}
 }
