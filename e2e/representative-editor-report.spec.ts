@@ -1,7 +1,10 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { resetAppState } from './helpers';
 import { exportSource } from './source-fidelity-harness';
+import { testSource } from '../scripts/test-source.mjs';
 
 // Representative editor report for issues #327 and #572.
 //
@@ -16,7 +19,9 @@ import { exportSource } from './source-fidelity-harness';
 // - the exact durable bytes and the exported Markdown.
 // A plain and a mixed paragraph are both measured so the route difference has a
 // control. A control without a change proves that the probe does not report a
-// publication for idle time.
+// publication for idle time. Every case runs one declared warmup pass and 20
+// measured passes by default. Only measured passes enter an aggregate,
+// denominator, percentile or budget.
 //
 // A second row records the first editor mount in a fresh browser context (cold)
 // and a Source to WYSIWYG switch on the same document (warm). Service workers
@@ -66,6 +71,8 @@ declare global {
 	interface Window {
 		__representativeProbe?: Probe;
 		__representativeOpenStart?: number;
+		__representativeStall?: EventListener;
+		__representativeStallRuns?: number;
 	}
 }
 
@@ -509,6 +516,7 @@ type MeasureSample = {
 	p95: number;
 	max: number;
 	detail: Record<string, number>;
+	values: number[];
 };
 
 async function performanceMeasures(page: Page): Promise<Record<string, MeasureSample>> {
@@ -525,7 +533,14 @@ async function performanceMeasures(page: Page): Promise<Record<string, MeasureSa
 		];
 		const result: Record<
 			string,
-			{ count: number; p50: number; p95: number; max: number; detail: Record<string, number> }
+			{
+				count: number;
+				p50: number;
+				p95: number;
+				max: number;
+				detail: Record<string, number>;
+				values: number[];
+			}
 		> = {};
 		const percentile = (values: number[], ratio: number) => {
 			if (!values.length) return 0;
@@ -549,7 +564,8 @@ async function performanceMeasures(page: Page): Promise<Record<string, MeasureSa
 				p50: percentile(values, 0.5),
 				p95: percentile(values, 0.95),
 				max: values.length ? Math.max(...values) : 0,
-				detail
+				detail,
+				values
 			};
 		}
 		return result;
@@ -583,23 +599,25 @@ async function waitForSettled(page: Page, expectedKeys: number): Promise<void> {
 	await page.waitForTimeout(900);
 }
 
-async function waitForDurable(page: Page, snippet: string): Promise<void> {
+async function waitForDurableExact(page: Page, expected: string): Promise<void> {
 	await expect
-		.poll(
-			async () => {
-				const row = await storedRow(page);
-				return row.content.includes(snippet);
-			},
-			{ timeout: 45_000, message: `the durable row must contain: ${snippet}` }
-		)
-		.toBe(true);
+		.poll(async () => (await storedRow(page)).content, {
+			timeout: 45_000,
+			message: 'the durable row must equal the expected source'
+		})
+		.toBe(expected);
 }
 
 type CaseResult = {
 	id: string;
 	description: string;
+	run: number;
+	warmup: boolean;
+	undoRestored?: boolean;
 	cache: 'warm' | 'cold';
 	requestedSpacingMs: number[];
+	stageSamples: StageSample[];
+	nextInputDelayRaw: number[];
 	inputs: {
 		raw: Array<{
 			queueDelayMs: number;
@@ -660,9 +678,11 @@ async function recordCase(
 	options: {
 		id: string;
 		description: string;
+		run: number;
+		warmup: boolean;
 		expectedKeys: number;
 		requestedSpacingMs: number[];
-		expectedSnippet: string;
+		expectedContent: string;
 		cache?: 'warm' | 'cold';
 		control?: boolean;
 		action: () => Promise<void>;
@@ -702,8 +722,12 @@ async function recordCase(
 	return {
 		id: options.id,
 		description: options.description,
+		run: options.run,
+		warmup: options.warmup,
 		cache: options.cache ?? 'warm',
 		requestedSpacingMs: options.requestedSpacingMs,
+		stageSamples: probe.stages,
+		nextInputDelayRaw: nextInputDelay,
 		inputs: {
 			raw: inputs,
 			queueDelay: summary(inputs.map((input) => input.queueDelayMs)),
@@ -749,7 +773,7 @@ async function recordCase(
 		},
 		durableExact: options.control
 			? after.length === before.length
-			: after.content.includes(options.expectedSnippet)
+			: after.content === options.expectedContent
 	};
 }
 
@@ -758,18 +782,607 @@ async function editCase(
 	target: string,
 	edge: 'start' | 'end',
 	text: string,
-	expectedSnippet: string
+	expectedContent: string
 ): Promise<void> {
 	await placeCaret(page, target, edge);
 	await typeBurst(page, text);
-	await waitForDurable(page, expectedSnippet);
+	await waitForDurableExact(page, expectedContent);
+}
+const WARMUP_RUNS = 1;
+const MINIMUM_TAIL_SAMPLES = 20;
+
+type RepresentativeBudget = {
+	version: number;
+	defaults: { minimumSamples: number; toleranceRatio: number; warmupRuns: number };
+	platforms: Record<
+		string,
+		{
+			label: string;
+			metrics: Record<
+				string,
+				{ p95: number; unit: string; minimumSamples?: number; note?: string }
+			>;
+		}
+	>;
+};
+
+function loadRepresentativeBudget(): RepresentativeBudget | null {
+	try {
+		const value = JSON.parse(
+			readFileSync(new URL('../scripts/representative-budgets.json', import.meta.url), 'utf8')
+		) as RepresentativeBudget;
+		if (value.version !== 1) throw new Error('Unsupported representative budget version.');
+		return value;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+		throw error;
+	}
+}
+
+function configuredSampleRuns(): number {
+	const raw = process.env.REPRESENTATIVE_SAMPLES ?? (process.env.CI ? '20' : '1');
+	const value = Number(raw);
+	if (!Number.isInteger(value) || value < 1 || value > 50) {
+		throw new Error('REPRESENTATIVE_SAMPLES must be an integer from 1 through 50.');
+	}
+	return value;
+}
+
+type MetricRecord = ReturnType<typeof summary> & {
+	status: 'measured' | 'unsupported' | 'insufficient-samples';
+	reason?: string;
+};
+
+function metricRecord(
+	values: readonly number[],
+	supported: boolean,
+	reason?: string
+): MetricRecord {
+	const stats = summary(values);
+	const status: MetricRecord['status'] = !supported
+		? 'unsupported'
+		: stats.denominator >= MINIMUM_TAIL_SAMPLES
+			? 'measured'
+			: 'insufficient-samples';
+	return reason ? { ...stats, status, reason } : { ...stats, status };
+}
+
+function pooledMeasures(rows: readonly CaseResult[]): Record<string, MeasureSample> {
+	const names = new Set(rows.flatMap((row) => Object.keys(row.measures)));
+	return Object.fromEntries(
+		[...names].map((name) => {
+			const samples = rows
+				.map((row) => row.measures[name])
+				.filter((sample): sample is MeasureSample => Boolean(sample));
+			const values = samples.flatMap((sample) => sample.values);
+			const detail: Record<string, number> = {};
+			for (const sample of samples) {
+				for (const [field, value] of Object.entries(sample.detail)) {
+					detail[field] = (detail[field] ?? 0) + value;
+				}
+			}
+			return [
+				name,
+				{
+					count: values.length,
+					p50: percentile(values, 0.5),
+					p95: percentile(values, 0.95),
+					max: values.length ? Math.max(...values) : 0,
+					detail,
+					values
+				}
+			];
+		})
+	);
+}
+
+type AggregateCase = {
+	id: string;
+	description: string;
+	cache: 'warm' | 'cold';
+	requestedSpacingMs: number[];
+	runs: { total: number; warmup: number; measured: number; measuredIndices: number[] };
+	inputs: {
+		raw: Array<{ run: number; queueDelayMs: number; dispatchMs: number; inputToFrameMs: number }>;
+		queueDelay: ReturnType<typeof summary>;
+		dispatch: ReturnType<typeof summary>;
+		inputToFrame: ReturnType<typeof summary>;
+		nextInputDelay: ReturnType<typeof summary>;
+	};
+	longTasks: {
+		supported: boolean;
+		raw: Array<{ run: number; start: number; duration: number }>;
+		count: number;
+		p95: number;
+		max: number;
+	};
+	stages: Record<string, unknown>;
+	measures: Record<string, MeasureSample>;
+	route: {
+		scoped: number;
+		full: number;
+		reasons: Record<string, number>;
+		sourcePaths: Record<string, number>;
+		acceptedEdits: number;
+	};
+	snapshot: CaseResult['snapshot'];
+	bytes: CaseResult['bytes'];
+	heap: {
+		supported: boolean;
+		samples: Array<{ run: number; deltaBytes: number }>;
+		delta: ReturnType<typeof summary>;
+	};
+	durableExact: boolean;
+	undoRestored: boolean;
+	metrics: Record<string, MetricRecord>;
+};
+
+function aggregateCases(rows: readonly CaseResult[]): AggregateCase[] {
+	return [...new Set(rows.map((row) => row.id))].map((id) => {
+		const all = rows.filter((row) => row.id === id);
+		const measured = all.filter((row) => !row.warmup);
+		const inputs = measured.flatMap((row) =>
+			row.inputs.raw.map((sample) => ({ run: row.run, ...sample }))
+		);
+		const nextInputDelay = measured.flatMap((row) => row.nextInputDelayRaw);
+		const longTasks = measured.flatMap((row) =>
+			row.longTasks.raw.map((task) => ({ run: row.run, ...task }))
+		);
+		const longTasksSupported =
+			measured.length > 0 && measured.every((row) => row.longTasks.supported);
+		const stages = measured.flatMap((row) => row.stageSamples);
+		const reasons: Record<string, number> = {};
+		const sourcePaths: Record<string, number> = {};
+		for (const row of measured) {
+			for (const [reason, count] of Object.entries(row.route.reasons)) {
+				reasons[reason] = (reasons[reason] ?? 0) + count;
+			}
+			for (const [path, count] of Object.entries(row.route.sourcePaths)) {
+				sourcePaths[path] = (sourcePaths[path] ?? 0) + count;
+			}
+		}
+		const heapSamples = measured
+			.map((row) => ({ run: row.run, deltaBytes: row.heap.deltaBytes }))
+			.filter(
+				(sample): sample is { run: number; deltaBytes: number } => sample.deltaBytes !== null
+			);
+		const stageNames = [...new Set(stages.map((stage) => stage.name))];
+		const last = measured.at(-1) ?? all.at(-1)!;
+		return {
+			id,
+			description: all[0]!.description,
+			cache: all[0]!.cache,
+			requestedSpacingMs: all[0]!.requestedSpacingMs,
+			runs: {
+				total: all.length,
+				warmup: all.length - measured.length,
+				measured: measured.length,
+				measuredIndices: measured.map((row) => row.run)
+			},
+			inputs: {
+				raw: inputs,
+				queueDelay: summary(inputs.map((input) => input.queueDelayMs)),
+				dispatch: summary(inputs.map((input) => input.dispatchMs)),
+				inputToFrame: summary(inputs.map((input) => input.inputToFrameMs)),
+				nextInputDelay: summary(nextInputDelay)
+			},
+			longTasks: {
+				supported: longTasksSupported,
+				raw: longTasks,
+				count: longTasks.length,
+				p95: percentile(
+					longTasks.map((task) => task.duration),
+					0.95
+				),
+				max: longTasks.length ? Math.max(...longTasks.map((task) => task.duration)) : 0
+			},
+			stages: stageSummary(stages),
+			measures: pooledMeasures(measured),
+			route: {
+				scoped: measured.reduce((total, row) => total + row.route.scoped, 0),
+				full: measured.reduce((total, row) => total + row.route.full, 0),
+				reasons,
+				sourcePaths,
+				acceptedEdits: measured.reduce((total, row) => total + row.route.acceptedEdits, 0)
+			},
+			snapshot: last.snapshot,
+			bytes: {
+				postedSourceChars: measured.reduce((total, row) => total + row.bytes.postedSourceChars, 0),
+				postedEditChars: measured.reduce((total, row) => total + row.bytes.postedEditChars, 0),
+				allocatedSnapshotChars: measured.reduce(
+					(total, row) => total + row.bytes.allocatedSnapshotChars,
+					0
+				),
+				durableBytes: last.bytes.durableBytes
+			},
+			heap: {
+				supported: measured.length > 0 && measured.every((row) => row.heap.supported),
+				samples: heapSamples,
+				delta: summary(heapSamples.map((sample) => sample.deltaBytes))
+			},
+			durableExact: measured.length > 0 && measured.every((row) => row.durableExact),
+			undoRestored: all.every((row) => row.undoRestored !== false),
+			metrics: {
+				inputToFrameMs: metricRecord(
+					inputs.map((input) => input.inputToFrameMs),
+					true
+				),
+				queueDelayMs: metricRecord(
+					inputs.map((input) => input.queueDelayMs),
+					true
+				),
+				dispatchMs: metricRecord(
+					inputs.map((input) => input.dispatchMs),
+					true
+				),
+				nextInputDelayMs: metricRecord(nextInputDelay, true),
+				longTaskMs: metricRecord(
+					longTasks.map((task) => task.duration),
+					longTasksSupported,
+					'PerformanceObserver longtask is not exposed by this engine.'
+				),
+				heapDeltaBytes: metricRecord(
+					heapSamples.map((sample) => sample.deltaBytes),
+					heapSamples.length > 0,
+					'The engine does not expose a JavaScript heap estimate.'
+				),
+				...Object.fromEntries(
+					stageNames.map((name) => [
+						`${name}Ms`,
+						metricRecord(
+							stages.filter((stage) => stage.name === name).map((stage) => stage.value),
+							true
+						)
+					])
+				)
+			}
+		};
+	});
+}
+
+type BudgetResult = {
+	key: string;
+	caseId: string;
+	metric: string;
+	statistic: 'p95';
+	denominator: number;
+	minimumSamples: number;
+	measuredP95: number;
+	budgetP95: number;
+	limitWithTolerance: number;
+	unit: string;
+	status: 'ok' | 'over-budget' | 'insufficient-samples' | 'unsupported';
+	reason?: string;
+};
+
+function evaluateBudgets(
+	cases: readonly AggregateCase[],
+	platformKey: string,
+	budget: RepresentativeBudget | null,
+	sampleRuns: number
+): {
+	platformKey: string;
+	status: 'ok' | 'failed' | 'not-enforced' | 'no-budget' | 'no-platform-baseline';
+	enforced: boolean;
+	minimumSamples: number;
+	toleranceRatio: number;
+	results: BudgetResult[];
+} {
+	if (!budget) {
+		return {
+			platformKey,
+			status: 'no-budget',
+			enforced: false,
+			minimumSamples: MINIMUM_TAIL_SAMPLES,
+			toleranceRatio: 0,
+			results: []
+		};
+	}
+	const platform = budget.platforms[platformKey];
+	if (!platform) {
+		return {
+			platformKey,
+			status: 'no-platform-baseline',
+			enforced: false,
+			minimumSamples: budget.defaults.minimumSamples,
+			toleranceRatio: budget.defaults.toleranceRatio,
+			results: []
+		};
+	}
+	const results: BudgetResult[] = [];
+	let overBudget = false;
+	let insufficient = false;
+	for (const [key, limit] of Object.entries(platform.metrics)) {
+		const separator = key.indexOf('.');
+		const caseId = key.slice(0, separator);
+		const metricName = key.slice(separator + 1);
+		const row = cases.find((entry) => entry.id === caseId);
+		const metric = row?.metrics[metricName];
+		const minimumSamples = limit.minimumSamples ?? budget.defaults.minimumSamples;
+		if (!metric || metric.status === 'unsupported') {
+			results.push({
+				key,
+				caseId,
+				metric: metricName,
+				statistic: 'p95',
+				denominator: metric?.denominator ?? 0,
+				minimumSamples,
+				measuredP95: 0,
+				budgetP95: limit.p95,
+				limitWithTolerance: 0,
+				unit: limit.unit,
+				status: 'unsupported',
+				reason: metric?.reason ?? 'The case does not record this metric.'
+			});
+			continue;
+		}
+		if (metric.denominator < minimumSamples) {
+			insufficient = true;
+			results.push({
+				key,
+				caseId,
+				metric: metricName,
+				statistic: 'p95',
+				denominator: metric.denominator,
+				minimumSamples,
+				measuredP95: metric.p95,
+				budgetP95: limit.p95,
+				limitWithTolerance: 0,
+				unit: limit.unit,
+				status: 'insufficient-samples'
+			});
+			continue;
+		}
+		const limitWithTolerance = Number(
+			(limit.p95 * (1 + budget.defaults.toleranceRatio)).toFixed(3)
+		);
+		const status = metric.p95 > limitWithTolerance ? 'over-budget' : 'ok';
+		if (status === 'over-budget') overBudget = true;
+		results.push({
+			key,
+			caseId,
+			metric: metricName,
+			statistic: 'p95',
+			denominator: metric.denominator,
+			minimumSamples,
+			measuredP95: metric.p95,
+			budgetP95: limit.p95,
+			limitWithTolerance,
+			unit: limit.unit,
+			status
+		});
+	}
+	const enforced = sampleRuns >= budget.defaults.minimumSamples;
+	return {
+		platformKey,
+		status: !enforced ? 'not-enforced' : overBudget || insufficient ? 'failed' : 'ok',
+		enforced,
+		minimumSamples: budget.defaults.minimumSamples,
+		toleranceRatio: budget.defaults.toleranceRatio,
+		results
+	};
+}
+
+type PassResult = { rows: CaseResult[]; expected: string };
+
+async function runPass(
+	page: Page,
+	run: number,
+	warmup: boolean,
+	initial: string
+): Promise<PassResult> {
+	const rows: CaseResult[] = [];
+	const base = { run, warmup };
+	let expected = initial;
+
+	const plainStart = 'Plain start sentence stays stable here';
+	{
+		const next = expected.replace(plainStart, `abc${plainStart}`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'plain-start',
+				description: 'Three ordinary letters at the start of a plain paragraph.',
+				expectedKeys: 3,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
+				expectedContent: next,
+				action: () => editCase(page, plainStart, 'start', 'abc', next)
+			})
+		);
+		expected = next;
+	}
+
+	const mixedStart = 'Mixed start sentence stays stable here';
+	{
+		const next = expected.replace(mixedStart, `abc${mixedStart}`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'mixed-start',
+				description:
+					'Three ordinary letters at the start of a paragraph with bold, emphasis, a link and inline code.',
+				expectedKeys: 3,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
+				expectedContent: next,
+				action: () => editCase(page, mixedStart, 'start', 'abc', next)
+			})
+		);
+		expected = next;
+	}
+
+	const plainMiddle = 'Plain middle sentence stays stable here';
+	{
+		const next = expected.replace(plainMiddle, `${plainMiddle}abc`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'plain-middle',
+				description: 'Three ordinary letters at the middle of a plain paragraph.',
+				expectedKeys: 3,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
+				expectedContent: next,
+				action: () => editCase(page, plainMiddle, 'end', 'abc', next)
+			})
+		);
+		expected = next;
+	}
+
+	const mixedMiddle = 'Mixed middle sentence stays stable here';
+	{
+		const next = expected.replace(mixedMiddle, `${mixedMiddle}abc`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'mixed-middle',
+				description:
+					'Three ordinary letters at the middle of a paragraph with unchanged inline marks.',
+				expectedKeys: 3,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
+				expectedContent: next,
+				action: () => editCase(page, mixedMiddle, 'end', 'abc', next)
+			})
+		);
+		expected = next;
+	}
+
+	const plainEnd = 'Plain end sentence stays stable here';
+	{
+		const next = expected.replace(plainEnd, `${plainEnd}abc`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'plain-end',
+				description: 'Three ordinary letters at the end of a plain paragraph.',
+				expectedKeys: 3,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
+				expectedContent: next,
+				action: () => editCase(page, plainEnd, 'end', 'abc', next)
+			})
+		);
+		expected = next;
+	}
+
+	const mixedEnd = 'Mixed end sentence stays stable here';
+	{
+		const next = expected.replace(mixedEnd, `${mixedEnd}abc`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'mixed-end',
+				description:
+					'Three ordinary letters at the end of a paragraph with unchanged inline marks.',
+				expectedKeys: 3,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
+				expectedContent: next,
+				action: () => editCase(page, mixedEnd, 'end', 'abc', next)
+			})
+		);
+		expected = next;
+	}
+
+	const listTarget = 'List item 250 keeps stable words';
+	{
+		const next = expected.replace(listTarget, `${listTarget}abc`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'list-edit',
+				description: 'Three ordinary letters inside one item of a 320 item list.',
+				expectedKeys: 3,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
+				expectedContent: next,
+				action: () => editCase(page, listTarget, 'end', 'abc', next)
+			})
+		);
+		expected = next;
+	}
+
+	const tableTarget = 'target middle';
+	{
+		const next = expected.replace(tableTarget, `${tableTarget}abc`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'table-edit',
+				description: 'Three ordinary letters inside one cell of a 140 row table.',
+				expectedKeys: 3,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
+				expectedContent: next,
+				action: () => editCase(page, tableTarget, 'end', 'abc', next)
+			})
+		);
+		expected = next;
+	}
+
+	// Enter inside a mixed paragraph is a structural change. The local route
+	// inserts only the paragraph break and keeps the inline marks. Undo returns
+	// the document to the same state, so the next pass starts from the same
+	// source.
+	const splitExpected = expected.replace(' with **bold middle**', ' \n\nwith **bold middle**');
+	{
+		const row = await recordCase(page, {
+			...base,
+			id: 'mixed-enter-split',
+			description: 'Enter before a bold run in a mixed-format paragraph.',
+			expectedKeys: 1,
+			requestedSpacingMs: [],
+			expectedContent: splitExpected,
+			action: async () => {
+				await placeCaretInView(page, 'with bold middle', 'start');
+				await page.keyboard.press('Enter');
+				await waitForDurableExact(page, splitExpected);
+			}
+		});
+		await page.keyboard.press('ControlOrMeta+z');
+		await waitForDurableExact(page, expected);
+		row.undoRestored = true;
+		rows.push(row);
+	}
+
+	// Slow key repeat with publication and save intervals between keys.
+	const tail = 'Tail paragraph keeps the caret target';
+	const pauses = [300, 500, 800, 1_200];
+	{
+		let typed = '';
+		const next = expected.replace(tail, `${tail}abcdefg`);
+		rows.push(
+			await recordCase(page, {
+				...base,
+				id: 'slow-key-repeat',
+				description:
+					'Three keys at 45 ms, then one key after each 300, 500, 800 and 1200 ms pause.',
+				expectedKeys: 7,
+				requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS, ...pauses],
+				expectedContent: next,
+				action: async () => {
+					await placeCaret(page, tail, 'end');
+					for (const character of 'abc') {
+						if (typed) await page.waitForTimeout(BURST_SPACING_MS);
+						await page.keyboard.insertText(character);
+						typed += character;
+					}
+					for (const pause of pauses) {
+						await page.waitForTimeout(pause);
+						const character = String.fromCharCode(100 + typed.length - 3);
+						await page.keyboard.insertText(character);
+						typed += character;
+					}
+					await waitForDurableExact(page, next);
+				}
+			})
+		);
+		expected = next;
+	}
+
+	return { rows, expected };
 }
 
 test('records a representative editor report and the mixed-format route matrix', async ({
 	page
 }, info) => {
 	test.slow();
-	test.setTimeout(600_000);
+	test.setTimeout(1_800_000);
+	const sampleRuns = configuredSampleRuns();
 	await resetAppState(page, { mode: 'source' });
 	const source = representativeNote();
 	await seedNote(page, source);
@@ -782,192 +1395,79 @@ test('records a representative editor report and the mixed-format route matrix',
 	const coldOpenMs = await openVisualEditor(page);
 	await installProbe(page);
 	let expected = source;
-	const cases: CaseResult[] = [];
-
-	const plainStart = 'Plain start sentence stays stable here';
-	cases.push(
-		await recordCase(page, {
-			id: 'plain-start',
-			description: 'Three ordinary letters at the start of a plain paragraph.',
-			expectedKeys: 3,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
-			expectedSnippet: `qwe${plainStart}`,
-			action: () => editCase(page, plainStart, 'start', 'qwe', `qwe${plainStart}`)
-		})
-	);
-	expected = expected.replace(plainStart, `qwe${plainStart}`);
-
-	const mixedStart = 'Mixed start sentence stays stable here';
-	cases.push(
-		await recordCase(page, {
-			id: 'mixed-start',
-			description:
-				'Three ordinary letters at the start of a paragraph with bold, emphasis, a link and inline code.',
-			expectedKeys: 3,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
-			expectedSnippet: `qwe${mixedStart}`,
-			action: () => editCase(page, mixedStart, 'start', 'qwe', `qwe${mixedStart}`)
-		})
-	);
-	expected = expected.replace(mixedStart, `qwe${mixedStart}`);
-
-	const plainMiddle = 'Plain middle sentence stays stable here';
-	cases.push(
-		await recordCase(page, {
-			id: 'plain-middle',
-			description: 'Three ordinary letters at the middle of a plain paragraph.',
-			expectedKeys: 3,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
-			expectedSnippet: `${plainMiddle}qwe`,
-			action: () => editCase(page, plainMiddle, 'end', 'qwe', `${plainMiddle}qwe`)
-		})
-	);
-	expected = expected.replace(plainMiddle, `${plainMiddle}qwe`);
-
-	const mixedMiddle = 'Mixed middle sentence stays stable here';
-	cases.push(
-		await recordCase(page, {
-			id: 'mixed-middle',
-			description:
-				'Three ordinary letters at the middle of a paragraph with unchanged inline marks.',
-			expectedKeys: 3,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
-			expectedSnippet: `${mixedMiddle}qwe`,
-			action: () => editCase(page, mixedMiddle, 'end', 'qwe', `${mixedMiddle}qwe`)
-		})
-	);
-	expected = expected.replace(mixedMiddle, `${mixedMiddle}qwe`);
-
-	const plainEnd = 'Plain end sentence stays stable here';
-	cases.push(
-		await recordCase(page, {
-			id: 'plain-end',
-			description: 'Three ordinary letters at the end of a plain paragraph.',
-			expectedKeys: 3,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
-			expectedSnippet: `${plainEnd}qwe`,
-			action: () => editCase(page, plainEnd, 'end', 'qwe', `${plainEnd}qwe`)
-		})
-	);
-	expected = expected.replace(plainEnd, `${plainEnd}qwe`);
-
-	const mixedEnd = 'Mixed end sentence stays stable here';
-	cases.push(
-		await recordCase(page, {
-			id: 'mixed-end',
-			description: 'Three ordinary letters at the end of a paragraph with unchanged inline marks.',
-			expectedKeys: 3,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
-			expectedSnippet: `${mixedEnd}qwe`,
-			action: () => editCase(page, mixedEnd, 'end', 'qwe', `${mixedEnd}qwe`)
-		})
-	);
-	expected = expected.replace(mixedEnd, `${mixedEnd}qwe`);
-
-	const listTarget = 'List item 250 keeps stable words';
-	cases.push(
-		await recordCase(page, {
-			id: 'list-edit',
-			description: 'Three ordinary letters inside one item of a 320 item list.',
-			expectedKeys: 3,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
-			expectedSnippet: `${listTarget}qwe`,
-			action: () => editCase(page, listTarget, 'end', 'qwe', `${listTarget}qwe`)
-		})
-	);
-	expected = expected.replace(listTarget, `${listTarget}qwe`);
-
-	const tableTarget = 'target middle';
-	cases.push(
-		await recordCase(page, {
-			id: 'table-edit',
-			description: 'Three ordinary letters inside one cell of a 140 row table.',
-			expectedKeys: 3,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS],
-			expectedSnippet: `${tableTarget}qwe`,
-			action: () => editCase(page, tableTarget, 'end', 'qwe', `${tableTarget}qwe`)
-		})
-	);
-	expected = expected.replace(tableTarget, `${tableTarget}qwe`);
-
-	// Enter inside a mixed paragraph is a structural change. The local route
-	// inserts only the paragraph break and keeps the inline marks.
-	cases.push(
-		await recordCase(page, {
-			id: 'mixed-enter-split',
-			description: 'Enter before a bold run in a mixed-format paragraph.',
-			expectedKeys: 1,
-			requestedSpacingMs: [],
-			expectedSnippet: '\n\nwith **bold middle**',
-			action: async () => {
-				await placeCaretInView(page, 'with bold middle', 'start');
-				await page.keyboard.press('Enter');
-				await waitForDurable(page, '\n\nwith **bold middle**');
-			}
-		})
-	);
-	expected = expected.replace(
-		`${mixedMiddle}qwe with **bold middle**`,
-		`${mixedMiddle}qwe \n\nwith **bold middle**`
-	);
-
-	// Slow key repeat with publication and save intervals between keys.
-	const tail = 'Tail paragraph keeps the caret target';
-	const pauses = [300, 500, 800, 1_200];
-	let typed = '';
-	cases.push(
-		await recordCase(page, {
-			id: 'slow-key-repeat',
-			description: 'Three keys at 45 ms, then one key after each 300, 500, 800 and 1200 ms pause.',
-			expectedKeys: 7,
-			requestedSpacingMs: [BURST_SPACING_MS, BURST_SPACING_MS, ...pauses],
-			expectedSnippet: `${tail}abcdefg`,
-			action: async () => {
-				await placeCaret(page, tail, 'end');
-				for (const character of 'abc') {
-					if (typed) await page.waitForTimeout(BURST_SPACING_MS);
-					await page.keyboard.insertText(character);
-					typed += character;
-				}
-				for (const pause of pauses) {
-					await page.waitForTimeout(pause);
-					const character = String.fromCharCode(100 + typed.length - 3);
-					await page.keyboard.insertText(character);
-					typed += character;
-				}
-				await waitForDurable(page, `${tail}${typed}`);
-			}
-		})
-	);
-	expected = expected.replace(tail, `${tail}${typed}`);
+	const rows: CaseResult[] = [];
+	for (let run = 0; run < WARMUP_RUNS + sampleRuns; run += 1) {
+		const pass = await runPass(page, run, run < WARMUP_RUNS, expected);
+		expected = pass.expected;
+		rows.push(...pass.rows);
+	}
 
 	// Control without a change: the same idle interval must not record a key,
-	// a route decision or an accepted edit.
+	// a route decision or an accepted edit. One control row is enough; it has
+	// no tail samples by construction.
+	const tail = 'Tail paragraph keeps the caret target';
 	const controlBefore = await storedRow(page);
-	cases.push(
-		await recordCase(page, {
-			id: 'control-no-change',
-			description: 'The caret stays in the tail paragraph for 1300 ms without a key.',
-			expectedKeys: 0,
-			requestedSpacingMs: [],
-			expectedSnippet: '',
-			control: true,
-			action: async () => {
-				await placeCaret(page, `${tail}${typed}`, 'end');
-				await page.waitForTimeout(1_300);
-			}
-		})
-	);
+	const control = await recordCase(page, {
+		id: 'control-no-change',
+		description: 'The caret stays in the tail paragraph for 1300 ms without a key.',
+		run: WARMUP_RUNS + sampleRuns,
+		warmup: false,
+		expectedKeys: 0,
+		requestedSpacingMs: [],
+		expectedContent: expected,
+		control: true,
+		action: async () => {
+			await placeCaret(page, tail, 'end');
+			await page.waitForTimeout(1_300);
+		}
+	});
 	const controlAfter = await storedRow(page);
-	expect(controlAfter.length, 'the control must not change durable bytes').toBe(
-		controlBefore.length
+	expect(controlAfter.content, 'the control must not change durable bytes').toBe(
+		controlBefore.content
 	);
+	await page.evaluate(() => {
+		const element = document.querySelector('.ProseMirror');
+		if (!element) throw new Error('Missing editor element.');
+		window.__representativeStallRuns = 0;
+		window.__representativeStall = (event) => {
+			if (!(event instanceof InputEvent)) return;
+			window.__representativeStallRuns = (window.__representativeStallRuns ?? 0) + 1;
+			const end = performance.now() + 120;
+			while (performance.now() < end) {
+				// A controlled 120 ms CPU stall proves the frame metric detects it.
+			}
+		};
+		element.addEventListener('beforeinput', window.__representativeStall, true);
+	});
+	const stallExpected = expected.replace(tail, `${tail}z`);
+	const stallControl = await recordCase(page, {
+		id: 'stall-control',
+		description:
+			'One inserted letter after a test-only 120 ms busy wait in the input path. This is a negative control, not a product timing claim.',
+		run: WARMUP_RUNS + sampleRuns,
+		warmup: false,
+		expectedKeys: 1,
+		requestedSpacingMs: [],
+		expectedContent: stallExpected,
+		action: async () => {
+			await placeCaret(page, tail, 'end');
+			await page.keyboard.insertText('z');
+			await waitForDurableExact(page, stallExpected);
+		}
+	});
+	await page.evaluate(() => {
+		const element = document.querySelector('.ProseMirror');
+		if (!element || !window.__representativeStall) return;
+		element.removeEventListener('beforeinput', window.__representativeStall, true);
+		delete window.__representativeStall;
+	});
+	const stallEvents = await page.evaluate(() => window.__representativeStallRuns ?? 0);
+	expected = stallExpected;
 
 	// A Source to WYSIWYG switch on the same document measures the warm mount.
 	await page.locator('[data-mode=source]').click();
 	await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 30_000 });
 	const warmOpenMs = await openVisualEditor(page);
-	await installProbe(page);
 
 	const actual = await exportSource(page, NOTE_NAME);
 	await info.attach('representative-expected.md', {
@@ -979,18 +1479,37 @@ test('records a representative editor report and the mixed-format route matrix',
 		contentType: 'text/markdown'
 	});
 
+	const cases = aggregateCases(rows);
+	const budget = loadRepresentativeBudget();
+	const platformKey = `web-${info.project.name}`;
+	const budgetResult = evaluateBudgets(cases, platformKey, budget, sampleRuns);
 	const payload = {
-		schema: 'deckmark-representative-editor/1',
-		command:
-			'npx playwright test e2e/representative-editor-report.spec.ts --project=chromium --workers=1 --retries=0 --trace=off',
+		schema: 'deckmark-representative-editor/2',
+		command: `REPRESENTATIVE_SAMPLES=${sampleRuns} npx playwright test e2e/representative-editor-report.spec.ts --project=${info.project.name} --workers=1 --retries=0 --trace=off`,
+		identity: testSource(),
+		build: {
+			mode: 'source-fidelity-instrumented',
+			prebuilt: process.env.E2E_PREBUILT === '1'
+		},
 		fixture: {
 			name: NOTE_NAME,
 			bytes: Buffer.byteLength(source),
 			chars: source.length,
+			sha256: createHash('sha256').update(source).digest('hex'),
 			generator: 'representativeNote()',
 			listItems: 320,
 			tableRows: 140,
 			embeddedImages: 1
+		},
+		sampling: {
+			warmupRuns: WARMUP_RUNS,
+			measuredRuns: sampleRuns,
+			totalRunsPerCase: WARMUP_RUNS + sampleRuns,
+			exclusion:
+				'Pass 0 of every edit case is warmup. It stays in rawRuns and is excluded from every aggregate, denominator, percentile and budget.',
+			aggregateRule:
+				'Samples from every measured pass of one case are pooled. Each 3-key case supplies 3 input-to-frame samples and 2 next-input gaps per pass.',
+			minimumTailSamples: MINIMUM_TAIL_SAMPLES
 		},
 		method: {
 			input:
@@ -1000,11 +1519,12 @@ test('records a representative editor report and the mixed-format route matrix',
 			route:
 				'sourceFidelityScoped and sourceFidelityFull counters. The reason is a coarse changed-block class, not the exact internal predicate.',
 			durable: 'The exact drafts.content row after the save settles.',
-			heap: 'performance.memory.usedJSHeapSize where the Chromium build exposes it. It is a JavaScript heap estimate, not native RSS.'
+			heap: 'performance.memory.usedJSHeapSize where the browser exposes it. It is a JavaScript heap estimate, not native RSS.'
 		},
 		unsupported: {
 			nativeRss: 'The browser context exposes no attributable native or process RSS.',
-			compositorPaint: 'A second animation frame is a frame opportunity, not composited pixels.'
+			compositorPaint: 'A second animation frame is a frame opportunity, not composited pixels.',
+			physicalDevice: 'No physical display, thermal state or installed PWA lifecycle is measured.'
 		},
 		cache: {
 			cold: {
@@ -1017,11 +1537,20 @@ test('records a representative editor report and the mixed-format route matrix',
 			}
 		},
 		cases,
+		rawRuns: rows,
 		control: {
 			durationMs: 1_300,
 			durableCharsBefore: controlBefore.length,
-			durableCharsAfter: controlAfter.length
+			durableCharsAfter: controlAfter.length,
+			row: control
 		},
+		negativeControl: {
+			row: stallControl,
+			stallEvents,
+			expectedInputToFrameMs: 120,
+			detected: stallControl.inputs.inputToFrame.max >= 80
+		},
+		budget: budgetResult,
 		expectedChars: expected.length,
 		actualChars: actual.length,
 		exactBytes: actual === expected,
@@ -1040,18 +1569,27 @@ test('records a representative editor report and the mixed-format route matrix',
 			},
 			{
 				id: 'desktop-chromium',
-				status: 'tested',
-				reason: 'This Chromium run executed the case.'
+				status: info.project.name === 'chromium' ? 'tested' : 'not-tested',
+				reason:
+					info.project.name === 'chromium'
+						? 'This Chromium run executed the case.'
+						: 'This file selected another browser project.'
 			},
 			{
 				id: 'desktop-firefox',
-				status: 'not-tested',
-				reason: 'This file selects the Chromium project only.'
+				status: info.project.name === 'firefox' ? 'tested' : 'not-tested',
+				reason:
+					info.project.name === 'firefox'
+						? 'This Firefox run executed the case.'
+						: 'This file selected another browser project.'
 			},
 			{
 				id: 'desktop-webkit',
-				status: 'not-tested',
-				reason: 'This file selects the Chromium project only.'
+				status: info.project.name === 'webkit' ? 'tested' : 'not-tested',
+				reason:
+					info.project.name === 'webkit'
+						? 'This WebKit run executed the case.'
+						: 'This file selected another browser project.'
 			},
 			{
 				id: 'desktop-installed-pwa',
@@ -1087,14 +1625,23 @@ test('records a representative editor report and the mixed-format route matrix',
 		'mixed-end'
 	]) {
 		const row = byId.get(id)!;
+		expect(row.runs.measured, `${id}: every measured pass is retained`).toBe(sampleRuns);
 		expect(row.route.scoped, `${id}: the plain or mixed edit must stay local`).toBeGreaterThan(0);
 		expect(row.route.full, `${id}: the plain or mixed edit must not parse the whole source`).toBe(
 			0
 		);
-		expect(row.inputs.inputToFrame.denominator, `${id}: every key has a frame sample`).toBe(3);
-		expect(row.inputs.nextInputDelay.denominator, `${id}: two next-input gaps are recorded`).toBe(
-			2
-		);
+		expect(
+			row.inputs.inputToFrame.denominator,
+			`${id}: every key from every measured pass has a frame sample`
+		).toBe(3 * sampleRuns);
+		expect(
+			row.metrics.inputToFrameMs.denominator,
+			`${id}: the metric record shows the same denominator`
+		).toBe(3 * sampleRuns);
+		expect(
+			row.inputs.nextInputDelay.denominator,
+			`${id}: two next-input gaps per measured pass are recorded`
+		).toBe(2 * sampleRuns);
 		expect(
 			row.bytes.allocatedSnapshotChars,
 			`${id}: the serialized snapshot characters must be recorded`
@@ -1103,7 +1650,7 @@ test('records a representative editor report and the mixed-format route matrix',
 			row.bytes.postedSourceChars + row.bytes.postedEditChars,
 			`${id}: the posted metadata characters must be recorded`
 		).toBeGreaterThan(0);
-		expect(row.durableExact, `${id}: the durable row must hold the accepted text`).toBe(true);
+		expect(row.durableExact, `${id}: every measured save must hold the accepted text`).toBe(true);
 	}
 	for (const id of ['list-edit', 'table-edit']) {
 		const row = byId.get(id)!;
@@ -1123,10 +1670,12 @@ test('records a representative editor report and the mixed-format route matrix',
 	const enter = byId.get('mixed-enter-split')!;
 	expect(enter.route.scoped, 'the mixed Enter split must stay local').toBeGreaterThan(0);
 	expect(enter.route.full, 'the mixed Enter split must not parse the whole source').toBe(0);
+	expect(enter.undoRestored, 'undo must restore the source after every measured split').toBe(true);
 	const slow = byId.get('slow-key-repeat')!;
-	expect(slow.inputs.nextInputDelay.denominator, 'the slow repeat records six gaps').toBe(6);
+	expect(slow.inputs.nextInputDelay.denominator, 'the slow repeat records six gaps per pass').toBe(
+		6 * sampleRuns
+	);
 	expect(slow.durableExact, 'the slow repeat must keep exact bytes').toBe(true);
-	const control = byId.get('control-no-change')!;
 	expect(control.inputs.raw, 'the control must not record a key').toHaveLength(0);
 	expect(control.route.scoped + control.route.full, 'the control must not publish').toBe(0);
 	expect(control.route.acceptedEdits, 'the control must not accept an edit').toBe(0);
@@ -1137,5 +1686,29 @@ test('records a representative editor report and the mixed-format route matrix',
 		'the control must not post or allocate source bytes'
 	).toBe(0);
 	expect(control.durableExact, 'the control must not change the durable row').toBe(true);
+	expect(stallEvents, 'the negative control must run its busy wait once').toBeGreaterThanOrEqual(1);
+	expect(
+		stallControl.inputs.inputToFrame.max,
+		'the negative control must show the 120 ms stall in the frame metric'
+	).toBeGreaterThanOrEqual(80);
 	expect(actual, 'the exported source must keep every expected byte').toBe(expected);
+
+	// A metric with fewer than 20 samples is not a tail estimate. Report the
+	// status and enforce nothing until the reviewed baseline runs exist.
+	for (const row of cases) {
+		for (const [name, metric] of Object.entries(row.metrics)) {
+			if (metric.status === 'insufficient-samples') {
+				expect(metric.p95, `${row.id}.${name}: no tail claim from too few samples`).toBeDefined();
+			}
+		}
+	}
+
+	for (const result of budgetResult.results) {
+		if (result.status === 'ok' || result.status === 'unsupported') continue;
+		if (!budgetResult.enforced) continue;
+		expect(
+			result.status,
+			`${result.key}: p95 ${result.measuredP95} ${result.unit} from ${result.denominator} samples against ${result.limitWithTolerance} ${result.unit}`
+		).toBe('ok');
+	}
 });

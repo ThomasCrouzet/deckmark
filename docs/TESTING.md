@@ -696,37 +696,103 @@ The case records these rows:
 | `slow-key-repeat` | Three keys at 45 ms, then one key after 300, 500, 800 and 1200 ms pauses. |
 | `control-no-change` | The same idle interval without a key. |
 
-Each row keeps the raw input samples and the nearest-rank p50, p95, max and
-denominator for the queue delay, the dispatch proxy, the second-frame
-opportunity and the next-input delay. It also keeps every product stage with
-its own start and end, the `performance.measure` durable stages, every long
-task, the accepted edit spans, the coarse fallback reason, the editor snapshot
-length, the posted metadata and allocated snapshot character counts, the
-durable character and byte length, and the exact-byte result. The posted and
-allocated counts are UTF-16 code units. The durable byte count is UTF-8. The
-route reason names the changed top-level block for a rejected local restore,
-for example `container-list` or `container-table`. It is a coarse class, not
-the exact internal predicate.
+Each case runs one declared warmup pass and 20 measured passes. The report
+keeps every pass in `rawRuns` and pools the measured passes in `cases`. The
+warmup pass is excluded from every denominator, percentile and budget. A
+three-key case therefore reports 60 input-to-frame samples and 40 next-input
+gaps per browser. The Enter row reports 20 samples. The slow repeat reports 140
+samples and 120 gaps.
+
+Each metric record has `denominator`, `p50`, `p95`, `max` and a `status`:
+
+- `measured` when at least 20 samples exist.
+- `insufficient-samples` when fewer than 20 exist. The report keeps the value
+  and does not claim a tail.
+- `unsupported` when the engine exposes no such metric. Firefox and WebKit do
+  not expose `PerformanceObserver` long tasks or `performance.memory` in this
+  case. Chromium reports both where present.
+
+Each row also keeps the queue delay, the dispatch proxy, the second-frame
+opportunity, the next-input delay, every product stage with its own start and
+end, the `performance.measure` durable stages, every long task, the accepted
+edit spans, the coarse fallback reason, the editor snapshot length, the posted
+metadata and allocated snapshot character counts, the durable character and
+byte length, and the exact-byte result. The posted and allocated counts are
+UTF-16 code units. The durable byte count is UTF-8. The route reason names the
+changed top-level block for a rejected local restore, for example
+`container-list` or `container-table`. It is a coarse class, not the exact
+internal predicate.
 
 The report also records the first editor mount in a fresh browser context
 (`cold`) and a Source to WYSIWYG switch on the same document (`warm`). Service
 workers are blocked. This is a browser cache note, not an installed PWA cache
 update.
 
+The case records one negative control: one letter after a test-only 120 ms busy
+wait in the input path. The frame metric must show at least 80 ms. This proves
+that a deliberate CPU stall is visible. It is not a product timing claim. A
+control pass without a key must stay at zero samples, zero route decisions and
+zero accepted edits.
+
+Budgets live in `scripts/representative-budgets.json`. The reviewed p95 limits
+come from 20 measured passes per case on Linux Chromium, Firefox and WebKit.
+The gate applies a 50 percent tolerance to those limits, so ordinary
+shared-runner variance passes while a repeated stall fails. A p95 with fewer
+than 20 samples fails closed. The case enforces the budgets when the measured
+run count reaches the reviewed minimum. `REPRESENTATIVE_SAMPLES` controls the
+count and defaults to 20 in CI and 1 locally.
+
+Run one browser at a time:
+
 ```sh
-npx playwright test e2e/representative-editor-report.spec.ts \
+REPRESENTATIVE_SAMPLES=20 npx playwright test e2e/representative-editor-report.spec.ts \
   --project=chromium --workers=1 --retries=0 --trace=off
 ```
 
-Keep `representative-editor-report.json`, `representative-expected.md` and
-`representative-actual.md` with the source revision, command and browser
-version. The gate checks the scoped route for the plain, mixed, Enter, list and
-table rows, a full counter at zero for each of them, three frame samples for each
-three-key row, six next-input gaps for the slow repeat, exact durable bytes and
-exact exported Markdown. The latency values are report-only.
-A Chromium frame opportunity is not compositor paint. This file does not select
-Firefox or WebKit. It does not prove a physical iOS device, an installed PWA or
-an optimized native WebView.
+Repeat for `firefox` and `webkit`. Keep each
+`representative-editor-report.json`, the expected and actual Markdown, the
+source revision, command and browser version locally. The report records the
+source commit, working diff hash, build mode, prebuilt flag, fixture hash and
+browser version. Audit a retained report independently:
+
+```sh
+node scripts/representative-audit.mjs \
+  --report "$ARTIFACT/representative-editor-report.json"
+```
+
+The audit recomputes every aggregate from `rawRuns`. It rejects a forged p95, a
+dropped measured pass, a five-sample tail, a wrong export and an over-budget
+case. The case checks the scoped route for the plain, mixed, Enter, list and
+table rows, a full counter at zero for each of them, exact durable bytes, exact
+exported Markdown and the restored source after every Enter undo.
+
+Reviewed baseline on 2026-11-18, Linux, 20 measured passes per case. The values
+are nearest-rank p95 input-to-frame milliseconds:
+
+| Case | Chromium 158.0.8127.18 | Firefox 159.0 | WebKit 27.2 |
+| --- | ---: | ---: | ---: |
+| `plain-start` | 37.2 | 44 | 48 |
+| `mixed-start` | 33.6 | 33 | 88 |
+| `plain-middle` | 33.8 | 34 | 52 |
+| `mixed-middle` | 53.6 | 34 | 40 |
+| `plain-end` | 32.3 | 35 | 42 |
+| `mixed-end` | 33.5 | 40 | 46 |
+| `list-edit` | 32.1 | 44 | 42 |
+| `table-edit` | 32.6 | 33 | 46 |
+| `mixed-enter-split` | 32.5 | 31 | 51 |
+| `slow-key-repeat` | 32.9 | 34 | 41 |
+
+A final-head 20-run confirmation passed every reviewed budget on all three
+browsers. The highest p95 was 37 ms. The negative control measured 130 ms to
+158 ms, so the 80 ms detection threshold held. The list and table budgets stay
+above the earlier whole-document route. They are upper bounds, not targets, and
+the bounded route now records its lower values.
+
+The budgets are regression guards, not performance targets. The Chromium,
+Firefox and WebKit projects select this case. A frame opportunity is not
+compositor paint. These are desktop Playwright results. They do not prove a
+physical iOS device, an installed PWA or an optimized native WebView. Those
+rows stay **not tested**.
 
 ### Shared derived-state edit spans
 
