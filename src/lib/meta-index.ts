@@ -23,6 +23,7 @@ import type { MetadataRequest, MetadataResponse } from './metadata.worker';
 import type { WikiLinkIndex } from './wiki-link-index';
 import type { MetadataRunner } from './metadata-runner';
 import type { DocumentEdits } from './document-revisions';
+import { draftProjection } from './draft-manifest-key';
 import { reportWarning } from './report';
 
 const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
@@ -176,6 +177,8 @@ export class MetaIndex {
 	 */
 	recordEdit(id: string, base: number, next: number, edits: DocumentEdits): void {
 		if (this.disposed) return;
+		// The durable projection follows the same accepted chain as the index.
+		draftProjection.record?.(id, edits);
 		const current = this.editChains.get(id) ?? [];
 		current.push({ base, next, edits });
 		this.editChains.set(id, current);

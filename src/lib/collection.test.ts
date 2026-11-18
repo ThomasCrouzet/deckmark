@@ -9,12 +9,13 @@ import {
 	sortRows,
 	type CollectionBuildStats
 } from './collection';
+import { contentFingerprint } from './content-fingerprint';
 import type { FileItem } from './types';
 
-// The collection cache must not treat the 32-bit FNV-1a hint as exact source
+// The collection cache must not treat the 32-bit fingerprint as exact source
 // equality. A browser workflow can change a note and read the table, but it
-// cannot cheaply force two equal-length sources with the same hash. These
-// isolated cases keep the concrete collision and the projection identity.
+// cannot cheaply force two equal-length sources with the same length. These
+// isolated cases keep the equal-length change and the projection identity.
 
 function file(id: string, content: string, updatedAt = 1, name = 'doc.md'): FileItem {
 	return {
@@ -26,15 +27,6 @@ function file(id: string, content: string, updatedAt = 1, name = 'doc.md'): File
 		dirty: false,
 		kind: 'note'
 	};
-}
-
-function fnv36(content: string): string {
-	let hash = 0x811c9dc5;
-	for (let index = 0; index < content.length; index++) {
-		hash ^= content.charCodeAt(index);
-		hash = Math.imul(hash, 0x01000193);
-	}
-	return (hash >>> 0).toString(36);
 }
 
 function deferred(fileId: string, content: string, updatedAt = 1, name = 'doc.md'): FileItem {
@@ -49,7 +41,7 @@ function deferred(fileId: string, content: string, updatedAt = 1, name = 'doc.md
 		contentDeferred: true,
 		derivedMetadata: {
 			id: fileId,
-			contentHash: fnv36(content),
+			contentHash: contentFingerprint(content),
 			contentLength: content.length,
 			title: '',
 			documentTitle: '',
@@ -71,16 +63,17 @@ beforeEach(async () => {
 });
 
 describe('collection cache identity', () => {
-	it('does not reuse a parsed row across an equal-length hash collision', async () => {
+	it('does not reuse a parsed row across an equal-length source change', async () => {
 		const first = '---\ntitle: 3d63b530\n---\n';
 		const second = '---\ntitle: 5705511b\n---\n';
 		expect(first.length).toBe(second.length);
-		expect(fnv36(first)).toBe(fnv36(second));
+		expect(contentFingerprint(first)).not.toBe(contentFingerprint(second));
 
 		const target = file('same-id', first);
 		expect((await buildCollection([target], { persist: false }))[0]?.title).toBe('3d63b530');
+		// The update time stays the same, so only the exact source can tell the
+		// two revisions apart.
 		target.content = second;
-		target.updatedAt += 1;
 		expect((await buildCollection([target], { persist: false }))[0]?.title).toBe('5705511b');
 	});
 
@@ -141,7 +134,7 @@ describe('collection cache identity', () => {
 		target.updatedAt = 2;
 		target.derivedMetadata = {
 			...target.derivedMetadata!,
-			contentHash: fnv36(changed),
+			contentHash: contentFingerprint(changed),
 			contentLength: changed.length
 		};
 		const third = statsOf();
@@ -279,7 +272,7 @@ describe('collection body freshness', () => {
 		target.updatedAt = updatedAt;
 		target.derivedMetadata = {
 			...target.derivedMetadata!,
-			contentHash: fnv36(content),
+			contentHash: contentFingerprint(content),
 			contentLength: content.length
 		};
 	}
