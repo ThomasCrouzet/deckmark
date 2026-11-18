@@ -34,6 +34,15 @@ function conflictApi(): Promise<ConflictApi> {
 }
 const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 
+/**
+ * Records one durable-write stage. The read, clone, write and commit spans are
+ * disjoint and share the `performance` clock of the input probe.
+ */
+function measureStage(name: string, startedAt: number): void {
+	if (!METRICS) return;
+	performance.measure(name, { start: startedAt, end: performance.now() });
+}
+
 /** Callbacks to the store's `$state` - injected at construction. */
 export interface SaveQueueCallbacks {
 	/** Called when the "save in progress" state changes. */
@@ -203,6 +212,7 @@ export class SaveQueue {
 		const conflict = await conflictApi();
 		let preserved: DraftRow | undefined;
 		let written = row;
+		let lastWriteAt = 0;
 		try {
 			await db.transaction(
 				'rw',
@@ -211,7 +221,9 @@ export class SaveQueue {
 				db.projectAssets,
 				db.comments,
 				async () => {
+					const readStartedAt = METRICS ? performance.now() : 0;
 					const current = await db.drafts.get(row.id);
+					measureStage('mdsh:draft-read', readStartedAt);
 					if (superseded()) throw SAVE_SUPERSEDED;
 					const baseline = this.persistedRows.get(row.id);
 					const durableLocationChanged = Boolean(
@@ -284,10 +296,17 @@ export class SaveQueue {
 						}
 					}
 					if (superseded()) throw SAVE_SUPERSEDED;
-					await db.drafts.put(written);
+					const putStartedAt = METRICS ? performance.now() : 0;
+					const writeRequest = db.drafts.put(written);
+					measureStage('mdsh:draft-put', putStartedAt);
+					const writeStartedAt = METRICS ? performance.now() : 0;
+					await writeRequest;
+					measureStage('mdsh:draft-write', writeStartedAt);
+					lastWriteAt = METRICS ? performance.now() : 0;
 					if (superseded()) throw SAVE_SUPERSEDED;
 				}
 			);
+			if (METRICS && lastWriteAt > 0) measureStage('mdsh:draft-commit', lastWriteAt);
 		} catch (error) {
 			if (error === SAVE_SUPERSEDED) return null;
 			throw error;

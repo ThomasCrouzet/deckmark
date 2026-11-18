@@ -169,6 +169,51 @@ Safari and Home Screen, Windows WebView2, Linux WebKitGTK and macOS WKWebView
 remain **not tested**. Each artifact records those rows as not tested. A desktop
 browser result is not an installed PWA or native WebView result.
 
+## Draft projection trace matrix
+
+The retained risks for issue 574 are an adjacent-insert chain that loses its
+composition and therefore runs a complete projection, a save stage that no
+measure separates, a lost or duplicated accepted byte, and a next key that waits
+for a save. `e2e/draft-projection-trace-matrix.spec.ts` keeps each one.
+
+The spec seeds a 1 MiB note and measures one changed save per scenario. It uses
+zero, one and four embedded images and four equivalent project assets. It types
+a burst and spaced edits at 250, 500 and 1100 ms. The 500 ms case starts the next
+key during the 400 ms save, and the 1100 ms case lets the save complete first.
+The trace separates these stages on the `performance` clock:
+
+- `mdsh:document-serialization` for the source snapshot.
+- `mdsh:draft-manifest` and `mdsh:draft-metadata` for the hook CPU, with the
+  decision mode and reason.
+- `mdsh:draft-read`, `mdsh:draft-put`, `mdsh:draft-write` and `mdsh:draft-commit`
+  for the IndexedDB read, the Dexie put call, the put request and the transaction
+  commit. The test probe times the synchronous `IDBObjectStore.put` call and
+  records it as the clone stage.
+- `mdsh:history` for the version history transaction.
+- The trusted `beforeinput` start and the second animation frame for the input
+  and the next key delay.
+
+`src/lib/metadata-delta.ts` composes adjacent insertions into one span. The base
+position cannot tell the order of two insertions at the same point, so
+`insertionAt` uses the edited offset and joins the text on the correct side. A
+different path that keeps a complete projection reports `mode=full`, and the
+control case checks that result.
+
+Run:
+
+```sh
+npx playwright test e2e/draft-projection-trace-matrix.spec.ts \
+  --project=chromium --workers=1 --retries=0
+```
+
+Keep `draft-projection-trace-<variant>.json` and
+`draft-projection-trace-control.json` with the source revision, working diff,
+command and browser version. Each save row holds the stage spans, the hook reason
+and the next key delay. The values are report-only; the gate enforces the stage
+set, the incremental mode for a plain edit and the exact durable bytes. This case
+is Chromium only. A function duration is not compositor paint, an installed PWA
+or a native WebView result.
+
 ## Publication stall attribution
 
 The retained risks for issue 569 are a complete source restore that runs on the

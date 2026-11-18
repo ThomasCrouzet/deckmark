@@ -194,6 +194,8 @@ interface ProjectionDecision {
 	mode: ProjectionMode;
 	/** Source bytes that the decision had to read. */
 	scanned: number;
+	/** Why the decision took its path. Local evidence only. */
+	reason: string;
 }
 
 /** One immutable source revision with its complete projection. */
@@ -523,10 +525,14 @@ function recordDraftEdit(id: string, edits: DocumentEdits): void {
 }
 
 /** Checks a composed edit against the exact previous and next sources. */
-function verifySpans(previous: string, next: string, spans: readonly TextEditSpan[]): boolean {
+function verifySpans(
+	previous: string,
+	next: string,
+	spans: readonly TextEditSpan[]
+): string | null {
 	let delta = 0;
 	let length = previous.length;
-	for (const span of spans) {
+	for (const [index, span] of spans.entries()) {
 		if (
 			!Number.isInteger(span.from) ||
 			!Number.isInteger(span.to) ||
@@ -534,14 +540,15 @@ function verifySpans(previous: string, next: string, spans: readonly TextEditSpa
 			span.to < span.from ||
 			span.to > previous.length
 		)
-			return false;
+			return `${index}:range:${span.from}:${span.to}`;
 		const at = span.from + delta;
-		if (next.slice(at, at + span.insert.length) !== span.insert) return false;
+		if (next.slice(at, at + span.insert.length) !== span.insert)
+			return `${index}:text:${span.from}:${span.to}:${span.insert.length}:${delta}`;
 		const change = span.insert.length - (span.to - span.from);
 		length += change;
 		delta += change;
 	}
-	return length === next.length;
+	return length === next.length ? null : `length:${length}:${next.length}`;
 }
 
 /**
@@ -552,9 +559,9 @@ function spansForSave(
 	id: string,
 	previous: string,
 	next: string
-): { spans: TextEditSpan[]; consumed: number } | null {
+): { spans: TextEditSpan[]; consumed: number } | { rejected: string } {
 	const chain = editChains.get(id);
-	if (!chain?.length) return null;
+	if (!chain?.length) return { rejected: 'empty' };
 	const lists: TextEditSpan[][] = [];
 	const lengths: number[] = [];
 	let length = previous.length;
@@ -562,7 +569,7 @@ function spansForSave(
 		// A portable source span needs the text that its own edit produced. Only
 		// the last record can use the source of this write.
 		const spans = spansOfEdits(chain[index]!.edits, index === chain.length - 1 ? next : undefined);
-		if (!spans) return null;
+		if (!spans) return { rejected: `span-null:${index}:${chain[index]!.edits.kind}` };
 		lists.push([...spans]);
 		for (const span of spans) length += span.insert.length - (span.to - span.from);
 		lengths.push(length);
@@ -570,11 +577,14 @@ function spansForSave(
 	for (let index = 0; index < lengths.length; index++) {
 		if (lengths[index] !== next.length) continue;
 		const composed = composeEditSpans(lists.slice(0, index + 1));
-		if ('rejected' in composed) continue;
-		if (verifySpans(previous, next, composed.spans))
-			return { spans: [...composed.spans], consumed: index + 1 };
+		if ('rejected' in composed) return { rejected: `compose:${composed.rejected}` };
+		const failure = verifySpans(previous, next, composed.spans);
+		if (!failure) return { spans: [...composed.spans], consumed: index + 1 };
+		return {
+			rejected: `verify:${index}:${composed.spans.length}:${chain.length}:${previous.length}:${composed.spans[0]?.from}:${failure}`
+		};
 	}
-	return null;
+	return { rejected: `length:${lengths.length}:${next.length}` };
 }
 
 /** Seeds the incremental path from the durable row without a source scan. */
@@ -622,55 +632,67 @@ function resolveDraftProjection(
 	if (previous && sameSubject(previous, merged)) {
 		if (previous.content === merged.content) {
 			editChains.delete(merged.id);
-			return { derived: previous.manifestDerived, mode: 'reused', scanned: 0 };
+			return { derived: previous.manifestDerived, mode: 'reused', scanned: 0, reason: 'reused' };
 		}
 		const composed = spansForSave(merged.id, previous.content, merged.content);
-		if (composed?.spans.length === 1) {
-			const revised = reviseProjection(previous, merged, composed.spans[0]!);
-			if (revised) {
-				const state: DurableProjectionState = {
-					name: merged.name,
-					kind: merged.kind,
-					projectId: merged.projectId,
-					data: merged.data,
-					content: merged.content,
-					metadata: revised.projection.metadata,
-					metadataKey: encodeDraftMetadataKey(
-						revised.projection.metadata,
-						revised.projection.fingerprint
-					),
-					fingerprint: revised.projection.fingerprint,
-					manifestDerived: revised.manifestDerived
-				};
-				rememberProjection(merged.id, state);
-				const remaining = editChains.get(merged.id)?.slice(composed.consumed) ?? [];
-				if (remaining.length) editChains.set(merged.id, remaining);
-				else editChains.delete(merged.id);
-				return {
-					derived: revised.manifestDerived,
-					mode: 'incremental',
-					scanned: revised.scanned
-				};
-			}
+		if ('rejected' in composed) {
+			return fullDecision(merged, `no-chain:${composed.rejected}`);
 		}
+		if (composed.spans.length !== 1) {
+			return fullDecision(merged, `spans:${composed.spans.length}`);
+		}
+		const revised = reviseProjection(previous, merged, composed.spans[0]!);
+		if (revised) {
+			const state: DurableProjectionState = {
+				name: merged.name,
+				kind: merged.kind,
+				projectId: merged.projectId,
+				data: merged.data,
+				content: merged.content,
+				metadata: revised.projection.metadata,
+				metadataKey: encodeDraftMetadataKey(
+					revised.projection.metadata,
+					revised.projection.fingerprint
+				),
+				fingerprint: revised.projection.fingerprint,
+				manifestDerived: revised.manifestDerived
+			};
+			rememberProjection(merged.id, state);
+			const remaining = editChains.get(merged.id)?.slice(composed.consumed) ?? [];
+			if (remaining.length) editChains.set(merged.id, remaining);
+			else editChains.delete(merged.id);
+			return {
+				derived: revised.manifestDerived,
+				mode: 'incremental',
+				scanned: revised.scanned,
+				reason: 'incremental'
+			};
+		}
+		return fullDecision(merged, 'revision');
 	}
-	const projection = projectionFor(merged);
-	rememberProjection(merged.id, {
-		name: merged.name,
-		kind: merged.kind,
-		projectId: merged.projectId,
-		data: merged.data,
-		content: merged.content,
+	return fullDecision(merged, previous ? 'subject' : 'no-state');
+}
+
+/** Complete projection decision with its evidence reason. */
+function fullDecision(row: DraftRow, reason: string): ProjectionDecision {
+	const projection = projectionFor(row);
+	rememberProjection(row.id, {
+		name: row.name,
+		kind: row.kind,
+		projectId: row.projectId,
+		data: row.data,
+		content: row.content,
 		metadata: projection.metadata,
 		metadataKey: encodeDraftMetadataKey(projection.metadata, projection.fingerprint),
 		fingerprint: projection.fingerprint,
-		manifestDerived: draftManifestDerived(merged)
+		manifestDerived: draftManifestDerived(row)
 	});
-	editChains.delete(merged.id);
+	editChains.delete(row.id);
 	return {
-		derived: draftManifestDerived(merged),
+		derived: draftManifestDerived(row),
 		mode: 'full',
-		scanned: merged.content.length
+		scanned: row.content.length,
+		reason
 	};
 }
 
@@ -681,13 +703,14 @@ function recordMeasure(
 	projection: 'manifest' | 'metadata',
 	mode: ProjectionMode,
 	scanned: number,
-	startedAt: number
+	startedAt: number,
+	reason: string
 ): void {
 	if (!METRICS || typeof performance === 'undefined') return;
 	performance.measure(`mdsh:draft-${projection}`, {
 		start: startedAt,
 		end: performance.now(),
-		detail: { reused: mode === 'reused', bytes: mode === 'reused' ? 0 : scanned, mode }
+		detail: { reused: mode === 'reused', bytes: mode === 'reused' ? 0 : scanned, mode, reason }
 	});
 }
 
@@ -725,12 +748,12 @@ export function installDraftMetadataHooks(): void {
 			performance.measure('mdsh:draft-manifest', {
 				start: manifestStartedAt,
 				end: performance.now(),
-				detail: { reused: false, bytes: row.content.length, mode: 'full' }
+				detail: { reused: false, bytes: row.content.length, mode: 'full', reason: 'create' }
 			});
 		const startedAt = metrics ? performance.now() : 0;
 		const projection = projectionFor(row);
 		row.metadata = encodeDraftMetadataKey(projection.metadata, projection.fingerprint);
-		recordMeasure('metadata', 'full', row.content.length, startedAt);
+		recordMeasure('metadata', 'full', row.content.length, startedAt, 'create');
 	});
 	db.drafts.hook('updating', (modifications, _primaryKey, row) => {
 		const startedAt = metrics ? performance.now() : 0;
@@ -746,7 +769,8 @@ export function installDraftMetadataHooks(): void {
 			'manifest',
 			decision?.mode ?? 'reused',
 			decision?.scanned ?? 0,
-			manifestStartedAt
+			manifestStartedAt,
+			decision?.reason ?? 'reused'
 		);
 		const touchesMetadata = ['content', 'name', 'kind'].some((key) =>
 			Object.prototype.hasOwnProperty.call(changes, key)
@@ -754,11 +778,23 @@ export function installDraftMetadataHooks(): void {
 		if (!touchesMetadata) {
 			// Dexie omits fields whose value did not change. Reusing the durable
 			// key keeps an unchanged save free of a hash and a link scan.
-			recordMeasure('metadata', decision?.mode ?? 'reused', decision?.scanned ?? 0, startedAt);
+			recordMeasure(
+				'metadata',
+				decision?.mode ?? 'reused',
+				decision?.scanned ?? 0,
+				startedAt,
+				decision?.reason ?? 'reused'
+			);
 			return { manifest };
 		}
 		const mode = decision?.mode ?? 'full';
-		recordMeasure('metadata', mode, decision?.scanned ?? row.content.length, startedAt);
+		recordMeasure(
+			'metadata',
+			mode,
+			decision?.scanned ?? row.content.length,
+			startedAt,
+			decision?.reason ?? 'no-decision'
+		);
 		const state = states.get(row.id);
 		return state ? { manifest, metadata: state.metadataKey } : { manifest };
 	});
@@ -774,7 +810,14 @@ if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'u
 					manifest: string;
 					contentLength: number;
 				} | null>;
-				seed(row: { id: string; name: string; content: string; updatedAt: number }): Promise<void>;
+				seed(row: {
+					id: string;
+					name: string;
+					content: string;
+					updatedAt: number;
+					projectId?: string;
+					relativePath?: string;
+				}): Promise<void>;
 			};
 		}
 	).__MDSH_PROJECTION_PROBE__ = {
@@ -790,7 +833,14 @@ if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'u
 		},
 		// A large fixture goes through the real hooks once, without a slow
 		// keyboard insert. The reload then seeds the incremental path.
-		async seed(row: { id: string; name: string; content: string; updatedAt: number }) {
+		async seed(row: {
+			id: string;
+			name: string;
+			content: string;
+			updatedAt: number;
+			projectId?: string;
+			relativePath?: string;
+		}) {
 			await db.drafts.put({
 				id: row.id,
 				name: row.name,
@@ -799,7 +849,9 @@ if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'u
 				updatedAt: row.updatedAt,
 				order: 0,
 				open: true,
-				kind: 'note'
+				kind: 'note',
+				...(row.projectId ? { projectId: row.projectId } : {}),
+				...(row.relativePath ? { relativePath: row.relativePath } : {})
 			});
 		}
 	};
