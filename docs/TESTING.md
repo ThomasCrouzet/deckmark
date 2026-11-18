@@ -28,6 +28,18 @@ pointer capability without a reload, and keeps the active file, the selection
 and the scroll anchor. It also checks that a narrow window opens a drawer and
 that a wide window restores a static column.
 
+The target check covers each visible button and summary in the toolbar, the
+files panel and an open dialog. That sweep found the mode switch group: its
+component rule set 32 px and carried an extra scoping class. The shared rule now
+names `:root[data-touch-capable='true'] #app-toolbar .mdsh-mode-switch button` to
+win the specificity tie.
+
+A second case starts from a coarse-only pointer and changes to hybrid and
+fine-only. It checks the target size, the row model, the active file, the
+selection and the scroll anchor at each step, then reattaches the touch screen.
+A third case starts from a full mouse pointer and checks the compact density,
+the row model, keyboard focus and plain click navigation.
+
 Playwright cannot report `pointer: fine` with `any-pointer: coarse`. The case
 replaces only the pointer media queries through an init script and records the
 simulated values in the attached JSON. Run
