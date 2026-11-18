@@ -633,6 +633,47 @@ expected and actual Markdown. The Chromium, Firefox and WebKit projects run it.
 A desktop browser result does not prove physical iPhone or iPad input latency,
 installed PWA behavior or a native WebView.
 
+### Large container source restoration
+
+Retain these failure risks for issue #572: a text edit inside one list item or
+table cell parses the complete source; a table serializer re-pads every cell and
+the byte diff therefore covers the complete table; a stale hint accepts bytes
+from a rejected transaction; a changed list marker or table delimiter is treated
+as a text leaf; and an accepted baseline clone moves a following node to a wrong
+offset.
+
+`src/lib/source-fidelity.ts` bounds the work to the changed container. The first
+strategy diffs the changed Markdown bytes and patches one text leaf. When a table
+serializer re-pads unchanged cells, the second strategy parses only the changed
+container and diffs its tree. Both parse one paragraph or one cell for the
+semantic check. A container above 256 KiB keeps the conservative route when its
+serializer bytes are not local. An inline code leaf, a reference bracket that
+names a document definition, and a change outside one text leaf also keep the
+whole-document route.
+
+`src/lib/source-fidelity.test.ts` checks the parser input length for one list and
+one table edit. The browser cannot observe the parser input size, so this
+isolated resource check stays. Run
+`npx vitest run src/lib/source-fidelity.test.ts --maxWorkers=1`.
+
+`e2e/container-source-publication.spec.ts` seeds a 345 KB note above the
+large-document confirmation threshold. The note holds a 3,000 item list, a 1,400
+row table and one embedded image. The case edits one list item and one table
+cell. It checks the scoped counter, a full counter at zero, the exact durable and
+exported bytes, the image identity hash, the caret, undo, redo, the
+large-document confirmation and the mode switch. Run:
+
+```sh
+npx playwright test e2e/container-source-publication.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/container-source-publication.spec.ts --project=firefox --workers=1 --retries=0
+npx playwright test e2e/container-source-publication.spec.ts --project=webkit --workers=1 --retries=0
+```
+
+The case keeps `container-source-publication.json` with the route counters, the
+stage durations, the caret, the edited spans and the exact-byte result. A
+desktop browser result does not prove a physical iPhone or iPad, an installed
+PWA or a native WebView.
+
 ### Representative editor report
 
 Issue #327 asks for one representative report with raw samples, tail
@@ -679,10 +720,10 @@ npx playwright test e2e/representative-editor-report.spec.ts \
 
 Keep `representative-editor-report.json`, `representative-expected.md` and
 `representative-actual.md` with the source revision, command and browser
-version. The gate checks the scoped route for plain, mixed and Enter rows, the
-whole-document route and its reason for the list and table rows, three frame
-samples for each three-key row, six next-input gaps for the slow repeat, exact
-durable bytes and exact exported Markdown. The latency values are report-only.
+version. The gate checks the scoped route for the plain, mixed, Enter, list and
+table rows, a full counter at zero for each of them, three frame samples for each
+three-key row, six next-input gaps for the slow repeat, exact durable bytes and
+exact exported Markdown. The latency values are report-only.
 A Chromium frame opportunity is not compositor paint. This file does not select
 Firefox or WebKit. It does not prove a physical iOS device, an installed PWA or
 an optimized native WebView.

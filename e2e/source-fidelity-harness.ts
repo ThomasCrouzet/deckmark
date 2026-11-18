@@ -93,8 +93,12 @@ export async function placeCaretBefore(page: Page, text: string) {
 		.toBe(true);
 }
 
-export async function exportSource(page: Page, name?: string): Promise<string> {
-	await openPalette(page);
+export async function exportSource(
+	page: Page,
+	name?: string,
+	paletteTimeout = 5_000
+): Promise<string> {
+	await openPalette(page, paletteTimeout);
 	await page.getByRole('dialog').getByRole('combobox').fill('Exporter tous les fichiers (ZIP)');
 	const download = page.waitForEvent('download');
 	await page.keyboard.press('Enter');

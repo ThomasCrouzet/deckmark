@@ -1028,6 +1028,17 @@ test('records a representative editor report and the mixed-format route matrix',
 		browser: page.context().browser()?.version(),
 		environments: [
 			{
+				id: 'source-only',
+				status: 'not-tested',
+				reason: 'This artifact records a browser run. The module source review is separate.'
+			},
+			{
+				id: 'node-isolated',
+				status: 'not-tested',
+				reason:
+					'npx vitest run src/lib/source-fidelity.test.ts --maxWorkers=1 records the bounded parser input.'
+			},
+			{
 				id: 'desktop-chromium',
 				status: 'tested',
 				reason: 'This Chromium run executed the case.'
@@ -1097,15 +1108,16 @@ test('records a representative editor report and the mixed-format route matrix',
 	for (const id of ['list-edit', 'table-edit']) {
 		const row = byId.get(id)!;
 		expect(
-			row.route.full,
-			`${id}: the container edit takes the documented whole-document route`
+			row.route.scoped,
+			`${id}: the container edit must keep the bounded route`
 		).toBeGreaterThan(0);
+		expect(row.route.full, `${id}: the container edit must not parse the whole source`).toBe(0);
 		expect(
 			Object.keys(row.route.reasons).some((reason) =>
 				reason.startsWith(id === 'list-edit' ? 'container-list' : 'container-table')
 			),
-			`${id}: the fallback reason names its container class`
-		).toBe(true);
+			`${id}: the container fallback reason must not be reported`
+		).toBe(false);
 		expect(row.durableExact, `${id}: the container edit must keep exact bytes`).toBe(true);
 	}
 	const enter = byId.get('mixed-enter-split')!;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { remark } from 'remark';
+import remarkGfm from 'remark-gfm';
 import { stripFrontmatter } from './frontmatter';
 import { SourceFidelity } from './source-fidelity';
 import { noteContent } from '../../scripts/benchmark-fixtures/corpus.mjs';
@@ -358,6 +359,86 @@ describe('bounded paragraph reconciliation', () => {
 		expect(fidelity.restore(target)).toBe(target);
 		expect(paths).toEqual(['fullSerializer']);
 	});
+
+	it(
+		'keeps one list item or table cell edit bounded to the changed container',
+		{ timeout: 20_000 },
+		() => {
+			const filler = `${'Filler prose keeps a stable sentence. '.repeat(6_000)}\n\n`;
+			const list = Array.from(
+				{ length: 1_000 },
+				(_, index) => `- List item ${index} keeps stable container words.`
+			).join('\n');
+			const gfm = remark().use(remarkGfm);
+			const gfmParse = (value: string) => gfm.parse(value);
+			const gfmNormalize = (value: string) => String(gfm.processSync(value));
+			const table = [
+				'| key | value |',
+				'| --- | --- |',
+				...Array.from(
+					{ length: 600 },
+					(_, index) => `| row ${index} | stable cell ${index} words |`
+				)
+			].join('\n');
+			for (const variant of [
+				{ base: list, target: 'List item 700 keeps', parse, normalize, id: 'list' },
+				{
+					base: table,
+					target: 'stable cell 400 words',
+					parse: gfmParse,
+					normalize: gfmNormalize,
+					id: 'table'
+				}
+			]) {
+				const source = `${filler}${variant.base}\n`;
+				const parsed: number[] = [];
+				const normalized: number[] = [];
+				const baseline = variant.normalize(source);
+				const fidelity = new SourceFidelity(
+					source,
+					baseline,
+					(value) => {
+						parsed.push(value.length);
+						return variant.parse(value);
+					},
+					(value) => {
+						normalized.push(value.length);
+						return variant.normalize(value);
+					}
+				);
+				parsed.length = 0;
+				normalized.length = 0;
+				const tree = variant.parse(baseline);
+				const block = (tree.children ?? []).find((node) =>
+					variant.id === 'list' ? node.type === 'list' : node.type === 'table'
+				)!;
+				const from = block.position?.start.offset;
+				const to = block.position?.end.offset;
+				expect(from, `${variant.id}: the container must carry offsets`).toBeTypeOf('number');
+				const at = baseline.indexOf(variant.target) + variant.target.length;
+				const atSource = source.indexOf(variant.target) + variant.target.length;
+				const next = `${baseline.slice(0, at)}X${baseline.slice(at)}`;
+				const result = fidelity.restore(next, true, {
+					previousFrom: from!,
+					previousTo: to!,
+					nextFrom: from!,
+					nextTo: to! + 1
+				});
+				expect(result, `${variant.id}: the source bytes must stay exact`).toBe(
+					`${source.slice(0, atSource)}X${source.slice(atSource)}`
+				);
+				expect(paths.at(-1), `${variant.id}: the container route must accept`).toBe('fastPath');
+				expect(
+					Math.max(...parsed),
+					`${variant.id}: the container parse must stay below the block`
+				).toBeLessThan(64 * 1024);
+				expect(
+					Math.max(0, ...normalized),
+					`${variant.id}: the normalization must stay below the block`
+				).toBeLessThan(64 * 1024);
+			}
+		}
+	);
 
 	it('does not discard a changed paragraph gap as an unchanged text leaf', () => {
 		const source = 'First paragraph.\n\nLast paragraph.\n';
