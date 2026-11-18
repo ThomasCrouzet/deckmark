@@ -1079,18 +1079,21 @@ fill the form and fail the empty-body assertion. The native bridge is simulated.
 The Quick Capture key handler must not cancel or save during IME composition.
 The retained risks are an Escape that closes the window while it dismisses a
 candidate list, a Ctrl/Cmd+Enter save before the composition commits, a legacy
-key code 229 event, a lost draft and a lost focus. The Web edition does not mount
-this component. A Desktop-edition browser build can mount it with a native bridge
-fixture. `QuickCapture.component.test.ts` replaces the native window bridge and
-the stores. It dispatches composition and
+key code 229 event, a lost draft, a moved caret, duplicate input and a lost
+focus. The Web edition does not mount this component. A Desktop-edition browser
+build can mount it with a native bridge fixture.
+`QuickCapture.component.test.ts` replaces the native window bridge and the
+stores. It dispatches composition and
 legacy key code sequences, then checks the normal Escape and Ctrl+Enter paths,
 the draft text, the focus and the call counts. Run
 `npx vitest run src/lib/components/QuickCapture.component.test.ts --maxWorkers=1`.
 The Desktop browser case in `e2e/capture-snippets-review.spec.ts` also checks the
-draft, focus, saved snippet count and hide requests before and after synthetic
-composing shortcuts. It uses a fixture for the native window bridge. The default
-Web suite skips this Desktop case. To repeat it, create the ignored configuration
-below and run the command. Keep the JSON report and its attachments.
+draft, the caret range, the focus, the input event count, the composition
+start and end counts, the default prevention of each composing key, the saved
+snippet count, the hide requests and the reset event that a re-shown window
+sends. It uses a fixture for the native window bridge. The default Web suite
+skips this Desktop case. To repeat it, create the ignored configuration below
+and run the command. Keep the JSON report and its attachments.
 
 ```sh
 mkdir -p review-reports
@@ -1117,7 +1120,27 @@ CAPTURE_REVIEW_DESKTOP=1 CI=1 xvfb-run -a npx playwright test \
   --workers=1 --retries=0 --grep 'keeps the capture draft during composing shortcuts'
 ```
 Synthetic composition events do not prove a physical IME, Windows WebView2,
-macOS WKWebView or Linux WebKitGTK behavior.
+macOS WKWebView or Linux WebKitGTK behavior. Use this manual procedure and keep
+the recorded values:
+
+1. Build the Desktop edition. Start the Windows x64 build in WebView2, the macOS
+   Apple Silicon build in WKWebView, and the Linux x64 build in WebKitGTK when
+   that runtime is available.
+2. Enable a Japanese, Chinese or Korean IME.
+3. Open Quick Capture from its global shortcut. Type several characters, then
+   start a composition in the content field.
+4. Press Escape during the composition. Record whether the candidate list
+   closes, whether the capture window stays visible, and whether the draft
+   remains.
+5. Start a new composition and press Ctrl+Enter on Windows or Linux, or
+   Cmd+Enter on macOS. Record whether a snippet is saved before the commit.
+6. Commit the composition. Press Ctrl/Cmd+Enter outside composition. The
+   window must hide and must save exactly one snippet with the committed text.
+   Open Quick Capture again and confirm that the form is empty. Press Escape
+   outside composition. The window must hide, and the draft must not return.
+7. Record the OS version, the WebView version, the IME name, the window
+   visibility, the saved snippet count, the `isComposing` and key code values,
+   and the focus target at each step.
 
 ### Dialog Enter and composition closeout evidence
 
@@ -2649,7 +2672,27 @@ or a production packaging result.
 regular native smoke run on Ubuntu, Windows and macOS. It checks the outer
 right and bottom edges for decorated windows too. This proves the default work
 area on each runner. A Windows WebView2 or macOS high-scale desktop remains an
-on-device check, and the script does not simulate a multi-monitor move.
+on-device check, and the script does not simulate a multi-monitor move. Use this
+manual procedure and keep the recorded values:
+
+1. On Windows x64, set the display scale so the work area is below 720 by 480
+   logical pixels, for example 1366 by 768 at 200 percent with a visible
+   taskbar. Repeat at 200 to 250 percent on 1920 by 1080.
+2. Launch the Desktop build. Record the monitor work area, the scale factor, the
+   inner and outer bounds, the OS version, the WebView version and a screenshot
+   of the main window.
+3. Open Save, Export and Settings with a pointer, and through the command
+   palette. Record each result and whether each control is inside the work
+   area.
+4. Open Quick Capture. Record its bounds and a screenshot. At a work area
+   shorter than 420 logical pixels, check the title, the content field, Cancel
+   and Save.
+5. Move each window to a monitor with another scale factor. Reopen Quick
+   Capture. Record the new bounds and a screenshot.
+6. Disconnect the external display and relaunch. Record the restored bounds and
+   a screenshot.
+7. On macOS Apple Silicon, repeat the launch, reopen, display change and
+   reconnect steps with the Dock and the menu bar inside the usable area.
 
 ### CI tier and routing failure risks
 
