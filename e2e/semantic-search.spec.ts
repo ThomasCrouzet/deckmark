@@ -319,6 +319,7 @@ test('rebuilds two sources that share one 32-bit digest', async ({ page }, info:
 interface SemanticFaultScope {
 	read?: { mode: 'delay-success' | 'delay-error'; gate: Promise<void> };
 	writeFail?: boolean;
+	writeHold?: { armed: boolean; active: boolean; held: boolean; aborted: boolean; cycles: number };
 }
 
 /**
@@ -331,10 +332,14 @@ async function installSemanticFaults(page: Page): Promise<void> {
 			__mdshSemanticFault?: SemanticFaultScope;
 			__mdshSemanticFaultInstalled?: boolean;
 			__mdshSemanticRelease?: () => void;
+			__mdshSemanticReads?: number;
+			__mdshSemanticDeliveries?: number;
 		};
 		if (scope.__mdshSemanticFaultInstalled) return;
 		scope.__mdshSemanticFaultInstalled = true;
 		scope.__mdshSemanticFault = {};
+		scope.__mdshSemanticReads = 0;
+		scope.__mdshSemanticDeliveries = 0;
 
 		const storeOf = (source: IDBObjectStore | IDBIndex): string =>
 			source instanceof IDBIndex ? source.objectStore.name : source.name;
@@ -345,6 +350,11 @@ async function installSemanticFaults(page: Page): Promise<void> {
 			const original = proto.getAll;
 			proto.getAll = function (this: IDBObjectStore | IDBIndex, ...args: never[]) {
 				const request = original.apply(this, args);
+				if (storeOf(this) === 'semanticIndex') {
+					request.addEventListener('success', () => {
+						scope.__mdshSemanticReads = (scope.__mdshSemanticReads ?? 0) + 1;
+					});
+				}
 				const fault = scope.__mdshSemanticFault?.read;
 				if (storeOf(this) !== 'semanticIndex' || !fault) return request;
 				// One shot so a retry reads normally.
@@ -375,6 +385,7 @@ async function installSemanticFaults(page: Page): Promise<void> {
 					void fault.gate.then(() => {
 						if (mode === 'delay-success') {
 							successHandler?.(event);
+							scope.__mdshSemanticDeliveries = (scope.__mdshSemanticDeliveries ?? 0) + 1;
 							return;
 						}
 						errorHandler?.({
@@ -384,6 +395,7 @@ async function installSemanticFaults(page: Page): Promise<void> {
 							stopPropagation() {},
 							preventDefault() {}
 						} as unknown as Event);
+						scope.__mdshSemanticDeliveries = (scope.__mdshSemanticDeliveries ?? 0) + 1;
 					});
 				};
 				request.onerror = () => {};
@@ -399,7 +411,40 @@ async function installSemanticFaults(page: Page): Promise<void> {
 			if (this.name === 'semanticIndex' && scope.__mdshSemanticFault?.writeFail) {
 				throw new DOMException('Injected semantic write', 'QuotaExceededError');
 			}
-			return originalPut.call(this, value, key);
+			const request = originalPut.call(this, value, key);
+			const hold = scope.__mdshSemanticFault?.writeHold;
+			if (this.name !== 'semanticIndex' || !hold?.armed) return request;
+			hold.armed = false;
+			this.transaction.addEventListener('abort', () => (hold.aborted = true));
+			let successHandler: ((event: Event) => void) | null = null;
+			const store = request.transaction!.objectStore('semanticIndex');
+			request.onsuccess = (event) => {
+				hold.held = true;
+				const keepAlive = () => {
+					if (!hold.active) {
+						successHandler?.(event);
+						return;
+					}
+					hold.cycles += 1;
+					const next = store.count();
+					next.onsuccess = keepAlive;
+				};
+				keepAlive();
+			};
+			return new Proxy(request, {
+				get(target, property) {
+					if (property === 'onsuccess') return successHandler;
+					const result = Reflect.get(target, property, target);
+					return typeof result === 'function' ? result.bind(target) : result;
+				},
+				set(target, property, next) {
+					if (property === 'onsuccess') {
+						successHandler = next as (event: Event) => void;
+						return true;
+					}
+					return Reflect.set(target, property, next, target);
+				}
+			});
 		};
 	});
 }
@@ -436,6 +481,365 @@ async function setWriteFault(page: Page, fail: boolean): Promise<void> {
 		scope.__mdshSemanticFault = { ...(scope.__mdshSemanticFault ?? {}), writeFail: value };
 	}, fail);
 }
+
+test('ignores an index failure after the model changes', async ({ page, browser }, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await expect(page.getByTestId('semantic-panel')).toContainText('0 document');
+	await page.waitForFunction(
+		() => ((window as unknown as { __mdshSemanticReads?: number }).__mdshSemanticReads ?? 0) > 0
+	);
+	await armReadFault(page, 'delay-error');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.read === undefined
+	);
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await releaseReadFault(page);
+	await expect(indexButton).toBeEnabled();
+	const errorVisible = await page.getByTestId('semantic-index-error').isVisible();
+	await info.attach('stale-index-error.json', {
+		body: JSON.stringify({ browser: browser.version(), model: 'cooccurrence-v1', errorVisible }),
+		contentType: 'application/json'
+	});
+	expect(errorVisible).toBe(false);
+});
+
+test('does not publish an obsolete index after the model changes', async ({
+	page,
+	browser
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await expect(page.getByTestId('semantic-panel')).toContainText('0 document');
+	await page.waitForFunction(
+		() => ((window as unknown as { __mdshSemanticReads?: number }).__mdshSemanticReads ?? 0) > 0
+	);
+	await armReadFault(page, 'delay-success');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.read === undefined
+	);
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await releaseReadFault(page);
+	await expect(indexButton).toBeEnabled();
+	const rows = await semanticRows(page);
+	await info.attach('stale-index-success.json', {
+		body: JSON.stringify({ browser: browser.version(), model: 'cooccurrence-v1', rows }),
+		contentType: 'application/json'
+	});
+	expect(rows).toHaveLength(0);
+});
+
+test('rolls back an index write if the model changes in the transaction', async ({
+	page,
+	browser
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await expect(indexButton).toBeEnabled();
+	const before = await semanticRows(page);
+	expect(before).toHaveLength(1);
+	expect(before[0]?.modelId).toBe('cooccurrence-v1');
+	await page.getByTestId('semantic-model').selectOption('feature-hash-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold = {
+			armed: true,
+			active: true,
+			held: false,
+			aborted: false,
+			cycles: 0
+		};
+	});
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.writeHold?.held === true
+	);
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold!.active = false;
+	});
+	await expect(indexButton).toBeEnabled();
+	const after = await semanticRows(page);
+	const held = await page.evaluate(
+		() =>
+			(window as unknown as { __mdshSemanticFault: SemanticFaultScope }).__mdshSemanticFault
+				.writeHold
+	);
+	await info.attach('stale-index-transaction.json', {
+		body: JSON.stringify({ browser: browser.version(), held, before, after }),
+		contentType: 'application/json'
+	});
+	expect(held?.cycles).toBeGreaterThan(0);
+	expect(after).toEqual(before);
+	expect(held?.aborted).toBe(true);
+	await expect(page.getByTestId('semantic-index-error')).toHaveCount(0);
+});
+
+test('rolls back an index write after the model changes and changes back', async ({
+	page,
+	browser
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await expect(indexButton).toBeEnabled();
+	const before = await semanticRows(page);
+	expect(before).toHaveLength(1);
+	expect(before[0]?.modelId).toBe('cooccurrence-v1');
+	await page.getByTestId('semantic-model').selectOption('feature-hash-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold = {
+			armed: true,
+			active: true,
+			held: false,
+			aborted: false,
+			cycles: 0
+		};
+	});
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.writeHold?.held === true
+	);
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	await page.getByTestId('semantic-model').selectOption('feature-hash-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold!.active = false;
+	});
+	await expect(indexButton).toBeEnabled();
+	const after = await semanticRows(page);
+	const held = await page.evaluate(
+		() =>
+			(window as unknown as { __mdshSemanticFault: SemanticFaultScope }).__mdshSemanticFault
+				.writeHold
+	);
+	await info.attach('stale-index-transaction-model-return.json', {
+		body: JSON.stringify({ browser: browser.version(), held, before, after }),
+		contentType: 'application/json'
+	});
+	expect(held?.cycles).toBeGreaterThan(0);
+	expect(after).toEqual(before);
+	expect(held?.aborted).toBe(true);
+	await expect(page.getByTestId('semantic-index-error')).toHaveCount(0);
+});
+
+test('rolls back an index write after the scope changes and changes back', async ({
+	page,
+	browser
+}, info) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await importProject(page, 'Alpha', { 'alpha.md': '# Alpha\n\nProject documentation.\n' });
+	await openProjectDocument(page, 'Alpha', 'alpha.md');
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	const scopeSelect = page.getByTestId('semantic-scope');
+	const projectValue = await scopeSelect.inputValue();
+	expect(projectValue).not.toBe('');
+	await scopeSelect.selectOption({ label: 'Documents de la bibliothèque' });
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await expect(indexButton).toBeEnabled();
+	const before = await semanticRows(page);
+	expect(before).toHaveLength(1);
+	expect(before[0]?.modelId).toBe('cooccurrence-v1');
+	await page.getByTestId('semantic-model').selectOption('feature-hash-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold = {
+			armed: true,
+			active: true,
+			held: false,
+			aborted: false,
+			cycles: 0
+		};
+	});
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.writeHold?.held === true
+	);
+	await scopeSelect.selectOption(projectValue);
+	await scopeSelect.selectOption({ label: 'Documents de la bibliothèque' });
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold!.active = false;
+	});
+	await expect(indexButton).toBeEnabled();
+	const after = await semanticRows(page);
+	const held = await page.evaluate(
+		() =>
+			(window as unknown as { __mdshSemanticFault: SemanticFaultScope }).__mdshSemanticFault
+				.writeHold
+	);
+	await info.attach('stale-index-transaction-scope-return.json', {
+		body: JSON.stringify({ browser: browser.version(), held, before, after }),
+		contentType: 'application/json'
+	});
+	expect(held?.cycles).toBeGreaterThan(0);
+	expect(after).toEqual(before);
+	expect(held?.aborted).toBe(true);
+	await expect(page.getByTestId('semantic-index-error')).toHaveCount(0);
+});
+
+test('rolls back an index write after opt-in is disabled and enabled again', async ({
+	page,
+	browser
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	const enabled = page.getByTestId('semantic-enabled');
+	await enabled.check();
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await expect(indexButton).toBeEnabled();
+	const before = await semanticRows(page);
+	expect(before).toHaveLength(1);
+	expect(before[0]?.modelId).toBe('cooccurrence-v1');
+	await page.getByTestId('semantic-model').selectOption('feature-hash-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold = {
+			armed: true,
+			active: true,
+			held: false,
+			aborted: false,
+			cycles: 0
+		};
+	});
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.writeHold?.held === true
+	);
+	await enabled.uncheck();
+	await enabled.check();
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold!.active = false;
+	});
+	await expect(indexButton).toBeEnabled();
+	const after = await semanticRows(page);
+	const held = await page.evaluate(
+		() =>
+			(window as unknown as { __mdshSemanticFault: SemanticFaultScope }).__mdshSemanticFault
+				.writeHold
+	);
+	await info.attach('stale-index-transaction-opt-in-return.json', {
+		body: JSON.stringify({ browser: browser.version(), held, before, after }),
+		contentType: 'application/json'
+	});
+	expect(held?.cycles).toBeGreaterThan(0);
+	expect(after).toEqual(before);
+	expect(held?.aborted).toBe(true);
+	await expect(page.getByTestId('semantic-index-error')).toHaveCount(0);
+});
+
+test('rolls back an index write after the panel closes and reopens', async ({
+	page,
+	browser
+}, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'Guide', content: '# Guide\n\nDocumentation for the editor.\n' }]);
+	await installSemanticFaults(page);
+	await openSemantic(page);
+	await page.getByTestId('semantic-enabled').check();
+	await page.getByTestId('semantic-model').selectOption('cooccurrence-v1');
+	const indexButton = page.getByTestId('semantic-index');
+	await indexButton.click();
+	await expect(page.getByTestId('semantic-panel')).toContainText('1 document');
+	await expect(indexButton).toBeEnabled();
+	const before = await semanticRows(page);
+	expect(before).toHaveLength(1);
+	expect(before[0]?.modelId).toBe('cooccurrence-v1');
+	await page.getByTestId('semantic-model').selectOption('feature-hash-v1');
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold = {
+			armed: true,
+			active: true,
+			held: false,
+			aborted: false,
+			cycles: 0
+		};
+	});
+	await indexButton.click();
+	await expect(indexButton).toBeDisabled();
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.writeHold?.held === true
+	);
+	await closeSemantic(page);
+	await openSemantic(page);
+	await page.evaluate(() => {
+		const scope = window as unknown as { __mdshSemanticFault: SemanticFaultScope };
+		scope.__mdshSemanticFault.writeHold!.active = false;
+	});
+	const after = await semanticRows(page);
+	const held = await page.evaluate(
+		() =>
+			(window as unknown as { __mdshSemanticFault: SemanticFaultScope }).__mdshSemanticFault
+				.writeHold
+	);
+	await info.attach('stale-index-transaction-panel-return.json', {
+		body: JSON.stringify({ browser: browser.version(), held, before, after }),
+		contentType: 'application/json'
+	});
+	expect(held?.cycles).toBeGreaterThan(0);
+	expect(after).toEqual(before);
+	expect(held?.aborted).toBe(true);
+	await expect(page.getByTestId('semantic-index-error')).toHaveCount(0);
+});
 
 test('shows recoverable errors for rejected index, count and query operations', async ({
 	page
@@ -513,12 +917,27 @@ test('shows recoverable errors for rejected index, count and query operations', 
 	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
 
 	// An obsolete failure must not replace a newer successful result.
-	await armReadFault(page, 'delay-error');
 	await page.getByTestId('semantic-query').fill('document');
+	await expect(page.getByTestId('semantic-hit').first()).toContainText('Guide');
+	const deliveries = await page.evaluate(
+		() => (window as unknown as { __mdshSemanticDeliveries?: number }).__mdshSemanticDeliveries ?? 0
+	);
+	await armReadFault(page, 'delay-error');
+	await page.getByTestId('semantic-query').fill('recipe');
+	await page.waitForFunction(
+		() =>
+			(window as unknown as { __mdshSemanticFault?: SemanticFaultScope }).__mdshSemanticFault
+				?.read === undefined
+	);
 	await page.getByTestId('semantic-query').fill('cooking');
 	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
 	await releaseReadFault(page);
-	await page.waitForTimeout(150);
+	await page.waitForFunction(
+		(previous) =>
+			((window as unknown as { __mdshSemanticDeliveries?: number }).__mdshSemanticDeliveries ?? 0) >
+			previous,
+		deliveries
+	);
 	await expect(searchError).toHaveCount(0);
 	await expect(page.getByTestId('semantic-hit').first()).toContainText('Recipe');
 

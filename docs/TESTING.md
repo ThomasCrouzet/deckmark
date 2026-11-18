@@ -2695,10 +2695,25 @@ A local IndexedDB failure must not stay silent. The retained risks are an
 unhandled rejection from a count, build or query operation, a missing error
 state, a failed index write that removes committed rows, a failure that clears a
 usable result, and an obsolete failure that publishes after a newer success.
+Changing the model during a held index read must invalidate that build. Its late
+failure must not show an alert, and its late success must not replace stored rows.
+During a held write, a model change must abort the transaction and preserve the
+previous model's committed row. The browser case keeps the actual transaction
+active with count requests. Its negative control removes the post-write guard.
+If the model changes and then changes back during the write, the transaction
+must still abort. Its negative control removes model-change invalidation.
+The same rule applies when the scope changes and then changes back. Its negative
+control removes scope-change invalidation.
+Disabling and enabling the index during the write must also abort it. Its
+negative control removes opt-in invalidation.
+Closing and reopening the panel during the write must abort it even if the
+panel component is destroyed before it observes the closed state.
 
 `e2e/semantic-search.spec.ts` patches `semanticIndex` store and index requests in
 the page. It delays and rejects a scoped read, rejects an index write, and
-releases an older read after a newer query succeeds. The case checks alert
+waits for an older query read before it starts a newer query. It releases the
+older rejection after a different result appears, then waits for its delivery.
+The negative control removes the stale-query failure guard. The case checks alert
 text, committed rows before and after the failed write, the retry path, the
 retained result, and the `unhandledrejection` count.
 
@@ -2706,7 +2721,13 @@ retained result, and the `unhandledrejection` count.
 npx playwright test e2e/semantic-search.spec.ts --project=chromium --workers=1 --retries=0
 ```
 
-Keep the local reports and the `semantic-rejection-recovery.json` attachment.
+Keep the local reports and the `semantic-rejection-recovery.json`,
+`stale-index-error.json` and `stale-index-success.json` attachments.
+Also keep `stale-index-transaction.json`,
+`stale-index-transaction-model-return.json` and the negative-control reports.
+Keep `stale-index-transaction-scope-return.json` as well.
+Keep `stale-index-transaction-opt-in-return.json` as well.
+Keep `stale-index-transaction-panel-return.json` and its failing report.
 Injected faults are browser evidence. They do not reproduce a real quota limit,
 a native IndexedDB implementation or a physical device.
 
