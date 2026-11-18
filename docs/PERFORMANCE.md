@@ -17,11 +17,11 @@ One accepted edit produces one `SourceEdit` record. The record holds:
 
 The visual editor records the `editor-markdown` space. Source and Code edits
 record the `portable-source` space. The canonical revision layer in
-`document-revisions.ts` keeps accepted CodeMirror change sets until the next
-materialized snapshot, then composes them once. A set with one range stays
-exact. Multiple ranges, or a set that does not compose, become an explicit
-`full` revision. The metadata codec and its Worker use the same text-span type
-and the same apply helper.
+`document-revisions.ts` records each accepted CodeMirror edit as it applies.
+One changed range stays exact. Multiple ranges become an explicit `full`
+revision. The length chain links each record to the next accepted revision. The
+metadata codec (#369) keeps its own accepted-span chain, and its Worker applies
+the spans with `applySourceTextSpans`.
 
 The contract has these rules:
 
@@ -42,9 +42,10 @@ owns metadata and statistics consumers, [#373](https://github.com/ThomasCrouzet/
 owns source release, and [#327](https://github.com/ThomasCrouzet/deckmark/issues/327)
 owns the cross-platform evidence.
 
-The instrumented build exposes `window.__MDSH_REVISION_CONTRACT__` with the
-last 100 materialized records. The record holds the spans, both lengths, the
-coordinate space and an `exact` flag. It does not hold the source text. Run:
+The instrumented build emits each accepted record on the
+`deckmark:editor-perf` event. The case installs a local collector that keeps the
+last records. A record holds the spans, both lengths and the coordinate space.
+It does not hold the source text. Run:
 
 ```sh
 npx playwright test e2e/revision-contract.spec.ts --project=chromium \
@@ -56,6 +57,9 @@ edit and a rendered edit. It attaches `revision-contract.json` with the raw
 records, the fixture hash, the browser version and the source identity. This
 local Chromium run does not prove Firefox, WebKit, an installed PWA, a physical
 device or a native WebView result.
+
+The shared record adds 302 gzip bytes to the boot graph. The reviewed boot
+budget moves from 212000 to 212500 gzip bytes. No other mode budget changes.
 
 ## Cross-mode stress evidence
 

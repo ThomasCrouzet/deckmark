@@ -1,6 +1,6 @@
 import type { ChangeSet, EditorState } from '@codemirror/state';
 import type { Transaction } from '@milkdown/kit/prose/state';
-import { createSourceEditFromChanges, type SourceEdit } from './source-edit';
+import type { SourceEdit } from './source-edit';
 
 /** One changed range in an accepted source, with its replacement text. */
 export interface DocumentEditSpan {
@@ -36,8 +36,6 @@ export interface DocumentChange {
 
 interface Entry {
 	revision: DocumentRevision;
-	/** Revision of the text in `lastText` and of the first pending change. */
-	baseRevision: DocumentRevision;
 	read: () => string;
 	snapshot: DocumentSnapshot | null;
 	/** Latest accepted producer span for this revision. */
@@ -46,88 +44,63 @@ interface Entry {
 	changes?: ChangeSet | null;
 	pending: boolean;
 	timer: ReturnType<typeof setTimeout> | null;
-	/** Last materialized or opened text. It is the base for the next record. */
-	lastText: string;
-	/** Accepted CodeMirror changes since `baseRevision`. */
-	pendingChanges: ChangeSet[];
-	lastKind: DocumentEdits['kind'];
-}
-
-interface RevisionProbeRecord {
-	fileId: string;
-	baseGeneration: number;
-	generation: number;
-	kind: SourceEdit['kind'];
-	space: SourceEdit['space'];
-	previousFrom: number;
-	previousTo: number;
-	nextFrom: number;
-	nextTo: number;
-	previousLength: number | null;
-	nextLength: number | null;
-	exact: boolean | null;
+	/** Length of the last accepted editor text. */
+	appliedLength: number;
 }
 
 // A removed or replaced document must never make an old handle current again.
 let generation = 0;
 const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 const DELAY = 100;
-const PROBE_LIMIT = 100;
 
-// The instrumented build exposes one record per materialized accepted edit.
-// The probe stays inert in a normal build and does not change accepted bytes.
-const probeRecords: RevisionProbeRecord[] = [];
-if (METRICS && typeof window !== 'undefined') {
-	(
-		window as unknown as {
-			__MDSH_REVISION_CONTRACT__?: {
-				records: RevisionProbeRecord[];
-				clear: () => void;
-			};
-		}
-	).__MDSH_REVISION_CONTRACT__ = {
-		records: probeRecords,
-		clear: () => {
-			probeRecords.length = 0;
-		}
-	};
-}
-
-function exactLocalSpan(edit: SourceEdit): boolean | null {
-	if (edit.space !== 'portable-source' || edit.kind === 'full') return null;
-	const previousLength = edit.previousLength;
-	const nextLength = edit.nextLength;
-	if (previousLength === undefined || nextLength === undefined) return null;
-	const previousWidth = edit.previous.to - edit.previous.from;
-	const nextWidth = edit.next.to - edit.next.from;
-	return (
-		edit.previous.from >= 0 &&
-		edit.previous.to >= edit.previous.from &&
-		edit.previous.to <= previousLength &&
-		edit.next.from >= 0 &&
-		edit.next.to >= edit.next.from &&
-		edit.next.to <= nextLength &&
-		previousLength - previousWidth + nextWidth === nextLength
-	);
-}
-
-function recordProbe(edit: SourceEdit, baseGeneration: number): void {
-	if (!METRICS) return;
-	if (probeRecords.length >= PROBE_LIMIT) probeRecords.shift();
-	probeRecords.push({
-		fileId: edit.documentId,
-		baseGeneration: edit.baseRevision ?? baseGeneration,
-		generation: edit.revision,
-		kind: edit.kind,
-		space: edit.space,
-		previousFrom: edit.previous.from,
-		previousTo: edit.previous.to,
-		nextFrom: edit.next.from,
-		nextTo: edit.next.to,
-		previousLength: edit.previousLength ?? null,
-		nextLength: edit.nextLength ?? null,
-		exact: exactLocalSpan(edit)
+/**
+ * Builds the accepted record for one CodeMirror edit. One changed range stays
+ * exact. Multiple ranges become an explicit full revision. The length chain
+ * links each record to the next accepted revision.
+ */
+function sourceEditForChange(
+	documentId: string,
+	revision: number,
+	baseRevision: number,
+	changes: ChangeSet,
+	previousLength: number
+): SourceEdit {
+	let ranges = 0;
+	let from = 0;
+	let to = 0;
+	let inserted = 0;
+	let delta = 0;
+	changes.iterChanges((nextFrom, nextTo, _fromB, _toB, text) => {
+		ranges += 1;
+		from = nextFrom;
+		to = nextTo;
+		inserted = text.length;
+		delta += text.length - (nextTo - nextFrom);
 	});
+	if (ranges === 1 && previousLength >= 0) {
+		return {
+			documentId,
+			revision,
+			baseRevision,
+			space: 'portable-source',
+			kind: to > from ? 'replace' : 'insert',
+			previous: { from, to },
+			next: { from, to: from + inserted },
+			previousLength,
+			nextLength: previousLength + delta
+		};
+	}
+	return {
+		documentId,
+		revision,
+		baseRevision,
+		space: 'portable-source',
+		kind: 'full',
+		previous: { from: 0, to: Math.max(0, previousLength) },
+		next: { from: 0, to: Math.max(0, previousLength + delta) },
+		previousLength: Math.max(0, previousLength),
+		nextLength: Math.max(0, previousLength + delta)
+	};
 }
 
 export class DocumentRevisions {
@@ -144,15 +117,12 @@ export class DocumentRevisions {
 		const revision = { fileId, generation: ++generation };
 		this.entries.set(fileId, {
 			revision,
-			baseRevision: revision,
 			read: () => text,
 			snapshot: { revision, text },
 			edit: null,
 			pending: false,
 			timer: null,
-			lastText: text,
-			pendingChanges: [],
-			lastKind: 'text'
+			appliedLength: text.length
 		});
 		return revision;
 	}
@@ -174,15 +144,31 @@ export class DocumentRevisions {
 	apply(change: DocumentChange): DocumentRevision | null {
 		if (!this.isCurrent(change.base)) return null;
 		const entry = this.entries.get(change.base.fileId)!;
-		entry.revision = { fileId: change.base.fileId, generation: ++generation };
+		const revision = { fileId: change.base.fileId, generation: ++generation };
+		entry.revision = revision;
 		entry.read = change.readText;
 		entry.snapshot = null;
-		entry.edit = change.edits.kind === 'source-edit' ? change.edits.edit : null;
+		entry.edit = null;
 		entry.changes = change.edits.kind === 'codemirror' ? change.edits.changes : null;
 		entry.pending = true;
-		entry.lastKind = change.edits.kind;
-		if (change.edits.kind === 'codemirror') entry.pendingChanges.push(change.edits.changes);
-		else entry.pendingChanges = [];
+		if (change.edits.kind === 'source-edit') {
+			entry.edit = change.edits.edit;
+			entry.appliedLength = change.edits.edit.nextLength ?? -1;
+		} else if (change.edits.kind === 'codemirror') {
+			const edit = sourceEditForChange(
+				revision.fileId,
+				revision.generation,
+				change.base.generation,
+				change.edits.changes,
+				entry.appliedLength
+			);
+			entry.edit = edit;
+			entry.appliedLength = edit.nextLength ?? -1;
+			if (METRICS)
+				window.dispatchEvent(
+					new CustomEvent('deckmark:editor-perf', { detail: { kind: 'edit', edit } })
+				);
+		}
 		if (METRICS) performance.mark('mdsh:document-edit');
 		entry.timer ??= setTimeout(() => {
 			entry.timer = null;
@@ -192,7 +178,7 @@ export class DocumentRevisions {
 				this.fail(error);
 			}
 		}, DELAY);
-		return entry.revision;
+		return revision;
 	}
 
 	snapshot(fileId: string): DocumentSnapshot | null {
@@ -208,24 +194,10 @@ export class DocumentRevisions {
 				end: performance.now()
 			});
 		if (!this.isCurrent(revision)) return null;
-		if (entry.pendingChanges.length) {
-			const edit = createSourceEditFromChanges(
-				revision.fileId,
-				revision.generation,
-				entry.baseRevision.generation,
-				entry.pendingChanges,
-				entry.lastText.length,
-				text.length
-			);
-			if (edit) entry.edit = edit;
-		}
-		if (entry.edit) recordProbe(entry.edit, entry.baseRevision.generation);
 		const snapshot = { revision, text };
 		entry.snapshot = snapshot;
 		entry.read = () => text;
-		entry.lastText = text;
-		entry.baseRevision = revision;
-		entry.pendingChanges = [];
+		entry.appliedLength = text.length;
 		return snapshot;
 	}
 

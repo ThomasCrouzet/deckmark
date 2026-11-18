@@ -1,7 +1,7 @@
 import { type MetadataSnapshot, type MetadataSource, type MetadataValues } from './metadata-derive';
 import { updateMetadata } from './metadata-update';
 import type { MetadataEdit } from './metadata-delta';
-import { applySourceTextSpans } from './source-edit';
+import { applySourceTextSpans } from './source-text-spans';
 
 export type { MetadataEdit } from './metadata-delta';
 
