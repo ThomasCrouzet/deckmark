@@ -94,6 +94,7 @@ test('keeps an unsaved snippet form for composing Escape', async ({ page }, info
 	await resetAppState(page);
 	await openCommand(page, 'extraits');
 	const snippets = page.getByTestId('snippets-dialog');
+	const search = page.getByTestId('snippet-search');
 	await expect(snippets).toBeVisible({ timeout: 20_000 });
 	await page.getByTestId('snippet-new').click();
 	const title = page.getByTestId('snippet-title');
@@ -103,19 +104,63 @@ test('keeps an unsaved snippet form for composing Escape', async ({ page }, info
 	await dispatchEscape(title, { composing: true });
 	await expect(page.getByTestId('snippet-form')).toBeVisible();
 	await expect(title).toHaveValue('Composition draft');
+	await expect(title).toBeFocused();
 	await dispatchEscape(title, { legacyKeyCode: true });
 	await expect(title).toHaveValue('Composition draft');
+	await expect(title).toBeFocused();
 	await expect(snippets).toBeVisible();
 
 	await page.keyboard.press('Escape');
 	await expect(page.getByTestId('snippet-form')).toHaveCount(0);
 	await expect(snippets).toBeVisible();
+	await expect(search).toBeFocused();
+
+	await page.getByTestId('snippet-new').click();
+	await expect(title).toBeFocused();
+	await title.fill('Composition saved');
+	await dispatchEscape(title, { composing: true });
+	await expect(title).toHaveValue('Composition saved');
+	await title.press('Enter');
+	await expect(page.getByTestId('snippet-row')).toContainText('Composition saved');
+	await expect(search).toBeFocused();
+	await page.keyboard.press('ArrowDown');
+	await expect(search).toHaveAttribute('aria-activedescendant', /.+/);
+
 	await attach(info, 'ime-snippets.json', {
 		titleAfterComposition: 'Composition draft',
 		formAfterNormalEscape: 'closed',
-		dialog: 'open'
+		dialog: 'open',
+		focusAfterNormalEscape: 'snippet-search',
+		titleAfterCompositionSaved: 'Composition saved',
+		focusAfterCompositionSave: 'snippet-search',
+		arrowAfterComposition: 'active descendant moved'
 	});
 	await info.attach('ime-snippets.png', { body: await page.screenshot() });
+});
+
+test('closes only the nested confirmation for Escape over Snippets', async ({ page }, info) => {
+	await resetAppState(page);
+	await openCommand(page, 'extraits');
+	const snippets = page.getByTestId('snippets-dialog');
+	await expect(snippets).toBeVisible({ timeout: 20_000 });
+	await page.getByTestId('snippet-new').click();
+	await page.getByTestId('snippet-title').fill('Nested confirmation');
+	await page.getByTestId('snippet-save').click();
+	await expect(page.getByTestId('snippet-row')).toContainText('Nested confirmation');
+
+	await page.getByTestId('snippet-delete').click();
+	const confirmation = page.getByRole('dialog', { name: 'Supprimer cet extrait ?' });
+	await expect(confirmation).toBeVisible();
+	await page.keyboard.press('Escape');
+
+	await expect(confirmation).toBeHidden();
+	await expect(snippets).toBeVisible();
+	await expect(page.getByTestId('snippet-row')).toContainText('Nested confirmation');
+	await attach(info, 'ime-snippets-nested-escape.json', {
+		confirmationAfterEscape: 'closed',
+		dialogAfterEscape: 'open',
+		snippetAfterEscape: 'retained'
+	});
 });
 
 test('keeps the New Document code form for composing Escape', async ({ page }, info) => {

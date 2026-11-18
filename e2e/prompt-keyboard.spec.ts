@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { resetAppState } from './helpers';
+import { resetAppState, seedFiles } from './helpers';
 
 async function openProjectPrompt(page: Page) {
 	await page.getByTestId('projects-open').click();
@@ -84,6 +84,58 @@ test('Enter on the focused Close button cancels a project prompt', async ({ page
 	await attach(info, 'prompt-close-enter.json', {
 		closeLabel,
 		projects: await projectNames(page)
+	});
+});
+
+test('Enter on the focused Confirm button creates exactly one project', async ({ page }, info) => {
+	await resetAppState(page);
+	const { prompt } = await openProjectPrompt(page);
+	await prompt.getByRole('textbox').fill('Projet validé');
+	const confirm = prompt.getByRole('button', { name: 'Nouveau projet', exact: true });
+	const confirmLabel = await confirm.textContent();
+	await confirm.focus();
+	await expect(confirm).toBeFocused();
+	await page.keyboard.press('Enter');
+
+	await expect(prompt).toBeHidden();
+	await expect
+		.poll(async () => (await projectNames(page)).filter((name) => name === 'Projet validé'))
+		.toEqual(['Projet validé']);
+	expect((await projectNames(page)).filter((name) => name === 'Projet validé')).toHaveLength(1);
+	await attach(info, 'prompt-confirm-button-enter.json', {
+		confirmLabel,
+		createdProjects: 1
+	});
+});
+
+test('Enter on Cancel leaves a rename prompt without an effect', async ({ page }, info) => {
+	await resetAppState(page);
+	await seedFiles(page, [{ name: 'rename-source', content: '# Rename source' }]);
+	const toolbar = page.locator('#app-toolbar input');
+	await expect(toolbar).toHaveValue('rename-source');
+
+	await page.keyboard.press('ControlOrMeta+Shift+P');
+	const palette = page.getByRole('dialog', { name: 'Palette de commandes' });
+	await expect(palette).toBeVisible();
+	await palette.locator('input[type="text"]').fill('renommer');
+	await expect(palette.getByRole('option').first()).toContainText('Renommer le document');
+	await page.keyboard.press('Enter');
+
+	const prompt = page.getByRole('dialog', { name: 'Nom du document' });
+	await expect(prompt).toBeVisible();
+	const textbox = prompt.getByRole('textbox');
+	await expect(textbox).toBeFocused();
+	await textbox.fill('renamed-target');
+	await page.keyboard.press('Tab');
+	const cancel = prompt.getByRole('button', { name: 'Annuler', exact: true });
+	await expect(cancel).toBeFocused();
+	await page.keyboard.press('Enter');
+
+	await expect(prompt).toBeHidden();
+	await expect(toolbar).toHaveValue('rename-source');
+	await attach(info, 'prompt-rename-cancel-enter.json', {
+		enteredName: 'renamed-target',
+		activeNameAfterCancel: await toolbar.inputValue()
 	});
 });
 
