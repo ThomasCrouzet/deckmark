@@ -169,6 +169,63 @@ Safari and Home Screen, Windows WebView2, Linux WebKitGTK and macOS WKWebView
 remain **not tested**. Each artifact records those rows as not tested. A desktop
 browser result is not an installed PWA or native WebView result.
 
+## Publication stall attribution
+
+The retained risks for issue 569 are a complete source restore that runs on the
+main thread between two accepted keystrokes, a durable save hook that blocks the
+same thread, and a long task that no named stage explains. A trace must show
+where a wait starts. A duration alone cannot place a stage on the timeline.
+
+`e2e/editor-publish-stall.spec.ts` seeds a 240 KB mixed-format note with bold,
+links, inline code, lists, a table and one noisy 320 by 240 image. It types three
+trusted `insertText` events at 45 ms spacing, pauses for 300, 500, 800 and 1200
+ms, and sends one more key. It also sends a four-key burst 240 ms after a burst.
+Each sample records the delay between two accepted input events, the second
+painted frame, engine long tasks, the product stage windows and the durable save
+measures.
+
+The case fails when the mixed-format edit parses the complete source, when a
+publication or a resumed key exceeds 250 ms, when a long task above 250 ms does
+not overlap a stage that reported its own start and end time, when a resume
+delay of at least 250 ms does not fall inside a named stage, or when a durable
+projection hook exceeds 250 ms. Tasks between 100 and 250 ms stay in the
+evidence as near misses because their consumers do not publish a span yet.
+
+The durable save already emits the `mdsh:document-storage`, `mdsh:draft-manifest`
+and `mdsh:draft-metadata` measures with their own start and duration. The case
+reads those entries into the attribution, so a long task inside the put has a
+named owner instead of appearing as unexplained latency. The save queue does not
+import the editor performance module: that import moves a shared chunk into the
+boot graph and exceeds the boot budget.
+
+The second case covers a paste and a structural split. A trusted paste of plain
+text in the mixed paragraph keeps the bounded route (about 36 ms at 240 KB). A
+following Enter split takes the conservative whole-document route: about 2.4 s
+to 2.6 s at 240 KB, inside the named `markdownPublish` and `restoreMarkdown`
+windows. That cost stays a measured incident for the source restoration owner.
+The case checks the exact bytes after the paste, the image identity after the
+split, and exact undo back to the seed.
+
+Before the bounded source path, the same fixture parsed the complete source for
+each publication (p50 1.6 s to 1.8 s) and the resumed key waited 0.7 s to 2.1 s.
+At the current source, the publication stays under 20 ms, the resumed key stays
+under 170 ms, and no typed character parses the complete source. The build
+before the stage boundary change reported no stage start times, so 11 of 17 long
+tasks had no named owner.
+
+Run:
+
+```sh
+npx playwright test e2e/editor-publish-stall.spec.ts --project=chromium --workers=1 --retries=0 --trace=off
+```
+
+Keep `editor-publish-stall.json`, `editor-publish-structural.json` and
+`saved-note.md` with the fixture hash, the image hash, the raw key samples, the
+stage windows, the long tasks, the near misses, the save measures, the saved
+bytes, the caret and the undo result, the source revision and the command. A
+Chromium result does not establish Firefox, WebKit, a native WebView, an
+installed PWA or a physical device.
+
 ## Image-rich rendered input risks
 
 Keep the image-heavy typing attribution independent from the text-only latency

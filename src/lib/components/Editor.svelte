@@ -530,36 +530,41 @@
 			const revision = markdownRevision;
 			const emit = () => {
 				if (token !== mountToken || revision !== markdownRevision) return;
-				let markdown: string;
-				try {
-					markdown = serializeIncrementalMarkdown();
-				} catch (error) {
-					reportError('visual editor serialization', error);
-					return;
-				}
-				if (token !== mountToken || revision !== markdownRevision) return;
-				recordEditorCounter('markdownUpdated');
-				// Capture the serializer hint before restore consumes it. The edit
-				// stays in editor Markdown coordinates until a consumer maps the
-				// portable source boundary.
-				const hint = pendingHint ? { ...pendingHint } : null;
-				const portableMarkdown = restoreMarkdown(markdown);
-				if (token !== mountToken || revision !== markdownRevision) return;
-				const editorEdit = createSourceEdit(
-					idForMount,
-					revision,
-					'editor-markdown',
-					hint,
-					editorMarkdownSnapshot.length,
-					markdown.length
-				);
-				editorMarkdownSnapshot = markdown;
-				recordEditorEdit(editorEdit);
-				const portableEdit = acceptedSourceEdit(lastEditorMarkdown, portableMarkdown, revision);
-				lastEditorMarkdown = portableMarkdown;
-				queueMicrotask(applyImageAlternatives);
-				if (token === mountToken) onChange(portableMarkdown, idForMount, portableEdit ?? undefined);
-				else onFlush?.(idForMount, portableMarkdown, portableEdit ?? undefined);
+				// The publication has named stages so a trace can attribute a long
+				// task or a waiting input event to the serialization or the restore.
+				measureEditorStage('markdownPublish', () => {
+					let markdown: string;
+					try {
+						markdown = measureEditorStage('markdownSerialize', serializeIncrementalMarkdown);
+					} catch (error) {
+						reportError('visual editor serialization', error);
+						return;
+					}
+					if (token !== mountToken || revision !== markdownRevision) return;
+					recordEditorCounter('markdownUpdated');
+					// Capture the serializer hint before restore consumes it. The edit
+					// stays in editor Markdown coordinates until a consumer maps the
+					// portable source boundary.
+					const hint = pendingHint ? { ...pendingHint } : null;
+					const portableMarkdown = restoreMarkdown(markdown);
+					if (token !== mountToken || revision !== markdownRevision) return;
+					const editorEdit = createSourceEdit(
+						idForMount,
+						revision,
+						'editor-markdown',
+						hint,
+						editorMarkdownSnapshot.length,
+						markdown.length
+					);
+					editorMarkdownSnapshot = markdown;
+					recordEditorEdit(editorEdit);
+					const portableEdit = acceptedSourceEdit(lastEditorMarkdown, portableMarkdown, revision);
+					lastEditorMarkdown = portableMarkdown;
+					queueMicrotask(applyImageAlternatives);
+					if (token === mountToken)
+						onChange(portableMarkdown, idForMount, portableEdit ?? undefined);
+					else onFlush?.(idForMount, portableMarkdown, portableEdit ?? undefined);
+				});
 			};
 			if (typeof window.requestIdleCallback === 'function') {
 				idleKind = 'idle';

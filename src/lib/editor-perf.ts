@@ -3,12 +3,16 @@
 // The counters and duration events stay inert in a normal build. E2E runs use
 // the existing source-fidelity instrumentation flag. A benchmark can also set
 // `window.__MDSH_EDITOR_PERF__ = true` before the application starts.
+//
+// A duration event carries its start and end time. An observer can then map a
+// long task or a gap between two input events to the named stage that caused
+// it. The duration alone cannot show where the stage started.
 
 import type { SourceEdit } from './source-edit';
 
 export type EditorPerfEvent =
 	| { kind: 'counter'; name: string }
-	| { kind: 'duration'; name: string; value: number }
+	| { kind: 'duration'; name: string; value: number; start: number; end: number }
 	| { kind: 'edit'; edit: SourceEdit };
 
 function enabled(): boolean {
@@ -29,7 +33,8 @@ export function recordEditorCounter(name: string): void {
 
 /** Record one completed duration in milliseconds. */
 export function recordEditorDuration(name: string, value: number): void {
-	emit({ kind: 'duration', name, value });
+	const endedAt = performance.now();
+	emit({ kind: 'duration', name, value, start: endedAt - value, end: endedAt });
 }
 
 /** Record one accepted publication revision and its changed span. */
@@ -44,6 +49,7 @@ export function measureEditorStage<T>(name: string, run: () => T): T {
 	try {
 		return run();
 	} finally {
-		recordEditorDuration(name, performance.now() - startedAt);
+		const endedAt = performance.now();
+		emit({ kind: 'duration', name, value: endedAt - startedAt, start: startedAt, end: endedAt });
 	}
 }
