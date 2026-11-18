@@ -95,6 +95,33 @@ test('the Desktop workflow builds and collects exactly the policy formats', () =
 	);
 });
 
+test('the native test application stays debug-only and out of packaging', () => {
+	const workflow = load(read('.github/workflows/desktop.yml'));
+	const native = workflow.jobs['native-validation'];
+	assert.deepEqual(native.strategy.matrix.platform, ['ubuntu-24.04', 'windows-2022', 'macos-15']);
+	const builds = native.steps.filter((step) => /tauri -- build/.test(step.run ?? ''));
+	assert.equal(builds.length, 1, 'one debug build step per operating system');
+	assert.match(builds[0].run, /--debug/);
+	assert.match(builds[0].run, /--features native-smoke/);
+	assert.match(builds[0].run, /--no-bundle/);
+	assert.equal(
+		native.steps.some((step) => step.uses?.includes('upload-artifact')),
+		false,
+		'the debug test application is never uploaded'
+	);
+	const smoke = native.steps.findIndex((step) =>
+		/node scripts\/native-smoke\.mjs/.test(step.run ?? '')
+	);
+	const benchmark = native.steps.findIndex((step) =>
+		/scripts\/benchmark-local\.mjs/.test(step.run ?? '')
+	);
+	assert.ok(smoke > 0 && benchmark > smoke, 'smoke runs before the measurement');
+	const release = JSON.stringify(workflow.jobs['build-desktop']);
+	assert.doesNotMatch(release, /native-smoke/);
+	assert.doesNotMatch(release, /tauri\.smoke\.conf\.json/);
+	assert.equal(policy.isInstallerName('deckmark'), false);
+});
+
 test('the collector delegates its format list to the shared policy', () => {
 	const collector = read('scripts/collect-desktop-assets.mjs');
 	assert.match(collector, /from '\.\/desktop-release-policy\.mjs'/);
