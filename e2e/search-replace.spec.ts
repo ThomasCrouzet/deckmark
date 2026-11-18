@@ -195,12 +195,28 @@ test('the announced search result option is the single activation target', async
 	await combobox.press('Enter');
 	await expect(page.locator('#app-toolbar input')).toHaveValue('beta');
 
+	// A real mouse click on the option opens the same result once. The option
+	// has no nested activation target, so one click cannot run two handlers.
+	await openPalette(page);
+	await page.getByRole('combobox').fill('Recherche cross-fichiers');
+	await page.keyboard.press('Enter');
+	const pointerDialog = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+	const pointerCombobox = pointerDialog.getByRole('combobox');
+	await pointerCombobox.fill('search-option-marker');
+	const pointerOptions = page.locator('#search-listbox [role="option"]');
+	await expect(pointerOptions).toHaveCount(2);
+	await pointerOptions.filter({ hasText: 'alpha' }).click();
+	await expect(page.locator('#app-toolbar input')).toHaveValue('alpha');
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+
 	await info.attach('search-option-activation.json', {
 		body: JSON.stringify({
 			options: 2,
 			nestedButtons: 0,
 			pointerActivationTarget: 'role=option',
-			keyboardActivationTarget: 'role=option'
+			keyboardActivationTarget: 'role=option',
+			pointerOpens: 'alpha',
+			dialogClosesAfterOneClick: true
 		}),
 		contentType: 'application/json'
 	});

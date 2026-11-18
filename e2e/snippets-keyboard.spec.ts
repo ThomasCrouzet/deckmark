@@ -148,6 +148,87 @@ async function attach(info: TestInfo, name: string, value: unknown) {
 	});
 }
 
+async function seedFilteredSnippets(page: Page) {
+	const rows: SnippetFixture[] = Array.from({ length: 120 }, (_, index) => ({
+		id: `filter-${String(index).padStart(3, '0')}`,
+		title: `Navigation ${String(index).padStart(3, '0')}`,
+		code: `const filtered${index} = ${index};\n`,
+		language: 'javascript',
+		tags: ['navigation'],
+		folder: index % 2 === 0 ? 'alpha' : 'beta',
+		favorite: index % 4 === 0,
+		createdAt: 1_700_000_000_000 + index,
+		updatedAt: 1_700_000_000_000 + index
+	}));
+	await seedSnippets(page, rows);
+}
+
+test('keeps a valid active option through query, sort and folder changes', async ({
+	page
+}, info) => {
+	await resetAppState(page);
+	await seedFilteredSnippets(page);
+	await openSnippets(page);
+	const search = page.getByTestId('snippet-search');
+	await search.fill('Navigation');
+	await expect(page.getByTestId('snippet-row')).toHaveCount(100, { timeout: 10_000 });
+	await search.focus();
+
+	for (let press = 0; press < 60; press += 1) await page.keyboard.press('ArrowDown');
+	await nextFrames(page);
+	const started = await activeSnippet(page);
+	expectFullyVisible(started, 'before sort');
+	expect(started.activeTitle).toBe('Navigation 059');
+	const activeId = started.activeId;
+
+	// A sort change moves the active row but must not drop or replace it.
+	await page.getByTestId('snippet-sort').selectOption('title');
+	await search.focus();
+	await nextFrames(page);
+	const sorted = await activeSnippet(page);
+	expect(sorted.activeId).toBe(activeId);
+	expect(sorted.activeTitle).toBe('Navigation 059');
+	expectFullyVisible(sorted, 'after sort');
+
+	// A folder filter keeps the active row when that row belongs to the folder.
+	await page.getByTestId('snippet-folder-filter').selectOption('beta');
+	await search.focus();
+	await expect(page.getByTestId('snippet-row')).toHaveCount(60);
+	await nextFrames(page);
+	const filtered = await activeSnippet(page);
+	expect(filtered.activeId).toBe(activeId);
+	expectFullyVisible(filtered, 'after folder filter');
+
+	// A query change keeps the active row when the row still matches.
+	await search.fill('Navigation 05');
+	await expect.poll(async () => page.getByTestId('snippet-row').count()).toBeLessThan(60);
+	await expect(page.getByTestId('snippet-row').first()).toBeVisible();
+	await nextFrames(page);
+	const queried = await activeSnippet(page);
+	expect(queried.activeId).toBe(activeId);
+	expectFullyVisible(queried, 'after query change');
+
+	// An empty result has no stale active descendant.
+	await search.fill('zzzz-no-such-snippet');
+	await expect(page.getByTestId('snippet-no-match')).toBeVisible();
+	expect(await search.getAttribute('aria-activedescendant')).toBeNull();
+
+	await search.fill('Navigation');
+	await expect(page.getByTestId('snippet-row')).toHaveCount(60);
+	await nextFrames(page);
+	const restored = await activeSnippet(page);
+	expect(restored.activeId).toBe(activeId);
+	expectFullyVisible(restored, 'after query reset');
+
+	await attach(info, 'snippets-active-filters.json', {
+		started,
+		sorted,
+		filtered,
+		queried,
+		restored
+	});
+});
+
 for (const layout of [
 	{ name: '375px', width: 375, height: 812, zoom: null },
 	{ name: 'zoomed-desktop', width: 1280, height: 900, zoom: '200%' }

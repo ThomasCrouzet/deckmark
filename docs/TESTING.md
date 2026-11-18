@@ -3525,6 +3525,38 @@ Chromium, Firefox and WebKit key events do not prove a physical iPhone or iPad s
 keyboard, a hardware keyboard, a native IME session or a Tauri WebView. Those checks
 stay separate.
 
+## Command palette pagination and search result activation
+
+Keep the pagination action outside the command listbox. The retained risks are a
+button inside the listbox, an owned listbox child that is not an option, a page
+that drops the query text or the input focus, and a disabled command that runs
+from a pointer or a keyboard event. `e2e/palette-pagination.spec.ts` seeds 220
+workspaces, pages with the keyboard, checks the option count and the axe result,
+and checks small, empty and disabled states.
+
+Keep one activation target for each search result. The retained risk is a nested
+button that owns the action while the announced option has no handler.
+`e2e/search-replace.spec.ts` checks the option accessible name, the absent nested
+button and tab stop, keyboard activation, and a real mouse click on the option.
+
+Run:
+
+```sh
+E2E_PORT=4211 npx playwright test e2e/palette-pagination.spec.ts e2e/search-replace.spec.ts \
+  --project=chromium --project=firefox --project=webkit --workers=1 --retries=0
+```
+
+The spec attaches `palette-pagination.json`, `palette-small-states.json` and
+`search-option-activation.json`. A browser run shows the structure and the
+handlers that the DOM exposes. It cannot prove what a screen reader announces or
+which element a screen reader activates. Emulation does not reproduce the iOS
+gesture model, the PWA process, or a native WebView accessibility bridge. A
+physical check must enable VoiceOver, open the palette with more than 100
+commands, find and activate Show more, and navigate to the new options. Repeat on
+iPadOS Safari with a hardware keyboard. Then activate a search result option and
+confirm that the correct file and line open. Record the OS, browser and each
+announcement.
+
 ## Export profile listbox risks
 
 Keep one Tab stop for the profile listbox. The measured risks are one Tab stop per

@@ -42,6 +42,69 @@ async function seedWorkspaces(page: Page, count: number): Promise<void> {
 	});
 }
 
+test.describe('Command palette small and disabled states', () => {
+	test.beforeEach(async ({ page }) => {
+		await resetAppState(page);
+	});
+
+	test('keeps small, empty and disabled states consistent with French labels', async ({
+		page
+	}, info) => {
+		await openPalette(page);
+		const dialog = page.getByRole('dialog', { name: 'Palette de commandes', exact: true });
+		const listbox = page.locator('#cmd-palette-listbox');
+		const input = page.getByRole('combobox');
+		await expect(listbox).toBeVisible();
+
+		// Fewer than 100 matches: no pagination action is offered.
+		const initialCount = await listbox.locator(':scope > *').count();
+		expect(initialCount).toBeGreaterThan(0);
+		expect(initialCount).toBeLessThan(100);
+		await expect(dialog.getByRole('button', { name: /Afficher .* commandes de plus/ })).toHaveCount(
+			0
+		);
+
+		// A command that needs a document is announced disabled and stays inert.
+		await input.fill('Mode lecture');
+		await expect(listbox.locator(':scope > *')).toHaveCount(1);
+		const disabled = listbox.getByRole('option');
+		await expect(disabled).toHaveAttribute('aria-disabled', 'true');
+		await expect(disabled).toHaveAccessibleName(/Mode lecture/);
+		await expect(disabled).toHaveAttribute('aria-selected', 'true');
+		await input.press('Enter');
+		await expect(dialog).toBeVisible();
+		await expect(page.locator('.mdsh-preview')).toHaveCount(0);
+		await disabled.dispatchEvent('click');
+		await expect(dialog).toBeVisible();
+
+		// A query change keeps exactly one selected option and a live
+		// active descendant, then resets to the full list.
+		await input.fill('Mode');
+		await expect(listbox.locator('[aria-selected="true"]')).toHaveCount(1);
+		await expect(input).toHaveAttribute('aria-activedescendant', /.+/);
+		await expect(listbox.locator(':scope > *').first()).toBeVisible();
+
+		await input.fill('');
+		await expect(listbox.locator(':scope > *')).toHaveCount(initialCount);
+
+		// Pointer activation of an available command closes the palette.
+		await input.fill('Créer un document');
+		const available = listbox.getByRole('option').first();
+		await expect(available).not.toHaveAttribute('aria-disabled', 'true');
+		await available.click();
+		await expect(dialog).not.toBeVisible();
+
+		await info.attach('palette-small-states.json', {
+			body: JSON.stringify({
+				initialCount,
+				disabledLabel: 'Mode lecture',
+				pointerActivation: 'Créer un document'
+			}),
+			contentType: 'application/json'
+		});
+	});
+});
+
 test.describe('Command palette pagination accessibility', () => {
 	test.beforeEach(async ({ page }) => {
 		await resetAppState(page);
