@@ -52,8 +52,8 @@ async function openId(page: Page): Promise<string> {
 	return (await button.getAttribute('data-file-id')) ?? '';
 }
 
-function largeNote(tag: string, chars: number): string {
-	const head = `---\ntags: [${tag}]\n---\n\n# ${tag}\n\n[[memory-target]]\n\n`;
+function largeNote(tag: string, chars: number, label = tag): string {
+	const head = `---\ntags: [${tag}]\n---\n\n# ${label}\n\n[[memory-target]]\n\n`;
 	const tail = '\n\nEnd of note.\n';
 	const filler = 'Paragraph for the retained source owner check. '.repeat(
 		Math.ceil(Math.max(0, chars - head.length - tail.length) / 50)
@@ -84,7 +84,7 @@ test.describe('closed document source owners', () => {
 		page
 	}, testInfo) => {
 		await resetAppState(page);
-		const content = largeNote('memory-owner', 1_200_000);
+		const content = largeNote('retention-tag', 1_200_000, 'memory-owner');
 		await seedFiles(page, [{ name: 'memory-owner.md', content }]);
 		const id = await openId(page);
 
@@ -108,17 +108,18 @@ test.describe('closed document source owners', () => {
 		expect(closed?.owners).toEqual([]);
 		expect(closed?.state).toBe('deferred');
 
-		// Titles, tags and wiki targets stay available without the body. The tag
-		// chip comes from the derived metadata of the deferred item.
-		await expect(
-			page.locator('aside').getByRole('button', { name: 'Filtrer par tag memory-owner' })
-		).toBeVisible();
-
-		await page.locator('aside summary', { hasText: 'Documents conservés' }).click();
+		// Titles and tags stay available without the body. The library filter
+		// reads the derived tag list, so a tag that is absent from the file name
+		// proves that the metadata survived the release.
 		await page
 			.locator('aside')
-			.getByRole('button', { name: 'memory-owner.md', exact: true })
+			.getByRole('button', { name: /^Bibliothèque de documents/ })
 			.click();
+		const library = page.getByRole('dialog', { name: /Bibliothèque de documents/ });
+		await library.getByLabel('Filtrer par titre, nom de fichier ou tag').fill('retention-tag');
+		const libraryEntry = library.getByRole('button', { name: 'Ouvrir memory-owner.md' });
+		await expect(libraryEntry).toBeVisible();
+		await libraryEntry.click();
 		await expect
 			.poll(async () => (await memoryDocument(page, id))?.contentDeferred, { timeout: 15_000 })
 			.toBe(false);
