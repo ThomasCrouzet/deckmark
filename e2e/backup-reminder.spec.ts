@@ -209,6 +209,104 @@ test('a failed export preserves the overdue reminder across close and reload', a
 	});
 });
 
+test('a cancelled Settings export preserves the overdue reminder', async ({ page }, info) => {
+	test.setTimeout(90_000);
+	await resetAppState(page);
+	// One note stays below the serialized chunk bound. Six notes force several
+	// bounded chunks, so the export keeps the spinner and its cancel action in
+	// the DOM after the 200 ms display delay.
+	await page.evaluate(
+		async ({ backupKey, reminderKey }) => {
+			await new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts', 'readwrite');
+					const paragraph = 'Backup paragraph text for the export pipeline.\n'.repeat(10_000);
+					for (let index = 0; index < 6; index += 1)
+						transaction.objectStore('drafts').put({
+							id: `cancel-${index}`,
+							name: `Cancel large ${index}`,
+							content: `# Cancel note ${index}\n\n${paragraph}`,
+							createdAt: 1_700_000_000_000,
+							updatedAt: 1_700_000_000_000,
+							order: index,
+							open: true,
+							kind: 'note'
+						});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => {
+						database.close();
+						reject(transaction.error);
+					};
+				};
+			});
+			localStorage.setItem('mdsh:activeId', 'cancel-0');
+			localStorage.setItem(backupKey, String(Date.now() - 60 * 24 * 60 * 60 * 1000));
+			localStorage.removeItem(reminderKey);
+		},
+		{ backupKey: BACKUP_KEY, reminderKey: REMINDER_KEY }
+	);
+	await page.reload();
+	await ready(page);
+	await expect(reminder(page)).toBeVisible();
+	const before = await timestamps(page);
+	expect(before.backup).not.toBeNull();
+	expect(before.reminder).toBeNull();
+
+	await openSettings(page);
+	await page.evaluate(() => {
+		// Slow each existing pipeline yield. This is a delay only; the export
+		// still reads and serializes the real drafts.
+		(
+			window as unknown as { __MDSH_EXPORT_PIPELINE_DELAY_MS__: number }
+		).__MDSH_EXPORT_PIPELINE_DELAY_MS__ = 500;
+	});
+	let downloaded = false;
+	page.on('download', () => {
+		downloaded = true;
+	});
+	const pending = page.waitForEvent('download', { timeout: 3000 }).catch(() => null);
+	await page.getByRole('button', { name: 'Exporter une sauvegarde', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'Annuler l’export' })).toBeVisible({
+		timeout: 5000
+	});
+	await page.getByRole('button', { name: 'Annuler l’export' }).click();
+	expect(await pending, 'a cancelled export writes no file').toBeNull();
+	await expect(page.locator('.spinner')).toHaveCount(0, { timeout: 10_000 });
+	// A cancel is not a success and not a failure record.
+	await expect(page.getByRole('status').filter({ hasText: 'Sauvegarde exportée.' })).toHaveCount(0);
+	const afterCancel = await timestamps(page);
+	expect(afterCancel.backup).toBe(before.backup);
+	expect(afterCancel.reminder).toBe(before.reminder);
+	expect(afterCancel.error).toBeNull();
+	expect(downloaded).toBe(false);
+
+	// The cancel action leaves the dialog. Use its close control, because the
+	// removed toast button does not keep focus inside the Escape handler.
+	await page.getByRole('button', { name: 'Fermer', exact: true }).click();
+	await expect(page.getByRole('dialog', { name: 'Réglages' })).toBeHidden();
+	await expect(reminder(page)).toBeVisible();
+	await page.reload();
+	await ready(page);
+	await expect(reminder(page)).toBeVisible();
+	const reloaded = await timestamps(page);
+	expect(reloaded.backup).toBe(before.backup);
+	expect(reloaded.reminder).toBe(before.reminder);
+	expect(reloaded.error).toBeNull();
+	await attach(info, 'backup-reminder-cancel.json', {
+		before,
+		afterCancel,
+		reloaded,
+		downloaded,
+		reminderVisibleAfterReload: await reminder(page).isVisible()
+	});
+});
+
 test('opening, closing Settings and changing documents keep the reminder due', async ({
 	page
 }, info) => {
