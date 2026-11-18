@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"source": "Measured Playwright durations from GitHub Actions run 42338368121 e2e-shard jobs (2026-11-07). document-memory-plateau.spec.ts uses a local Chromium measurement (2026-11-18). Paths are relative to the Playwright rootDir.",
+	"source": "Measured Playwright durations from GitHub Actions run 42338368121 e2e-shard jobs (2026-11-07). document-memory-plateau.spec.ts uses a local Chromium measurement (2026-11-18). The representative-editor-report entries use local 20-run durations from 2026-11-18 and the next measured CI run replaces them. Paths are relative to the Playwright rootDir.",
 	"fallbackSeconds": 60,
 	"groups": [
 		{
@@ -581,6 +581,12 @@
 		},
 		{
 			"project": "chromium",
+			"file": "representative-editor-report.spec.ts",
+			"seconds": 540.0,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
 			"file": "review-regressions.spec.ts",
 			"seconds": 6.8,
 			"tests": 5
@@ -875,6 +881,12 @@
 		},
 		{
 			"project": "firefox",
+			"file": "representative-editor-report.spec.ts",
+			"seconds": 560.0,
+			"tests": 1
+		},
+		{
+			"project": "firefox",
 			"file": "search-replace.spec.ts",
 			"seconds": 6.1,
 			"tests": 2
@@ -1052,6 +1064,12 @@
 			"file": "read-preview-isolation.spec.ts",
 			"seconds": 15.5,
 			"tests": 3
+		},
+		{
+			"project": "webkit",
+			"file": "representative-editor-report.spec.ts",
+			"seconds": 550.0,
+			"tests": 1
 		},
 		{
 			"project": "webkit",

@@ -192,11 +192,30 @@ exact-byte result. A control row waits without a key and must record no input,
 no route decision and no accepted edit. A cold first mount and a warm Source to
 WYSIWYG switch record the browser cache note.
 
-The local Chromium run kept the plain, mixed and Enter rows on the scoped route.
-The list and table rows still take the whole-document route with the reasons
-`container-list` and `container-table`. That is the known #572 remainder, and
-the report records it instead of claiming a local edit. The values are local
-diagnostics, not a budget, compositor paint or a native WebView result.
+One case runs 20 measured passes after one declared warmup pass. `rawRuns`
+keeps every pass and `cases` pools only the measured passes. A metric record
+states `measured`, `insufficient-samples` or `unsupported` with its
+denominator. Firefox and WebKit do not expose long tasks or the JavaScript heap
+estimate in this case, so those records are `unsupported` instead of zero. A
+test-only 120 ms busy wait in the input path is a negative control: the frame
+metric must show at least 80 ms.
+
+`scripts/representative-budgets.json` holds the reviewed p95 limits from 20
+measured passes per case on Linux Chromium, Firefox and WebKit. The Chromium,
+Firefox and WebKit projects enforce the limits with a 50 percent tolerance when
+at least 20 measured passes exist. A p95 over five samples does not satisfy the
+gate. `scripts/representative-audit.mjs` recomputes the aggregates from the raw
+passes and rejects a forged percentile, a dropped pass, a short tail and an
+over-budget case.
+
+The plain, mixed and Enter rows stay on the scoped route. After the container
+publication change, the list and table rows also stay on the scoped route with a
+full counter at zero. The reviewed p95 input values
+were 31 ms to 54 ms on Chromium, 31 ms to 44 ms on Firefox and 40 ms to 88 ms on
+WebKit on the earlier source. The list and table budgets stay above that earlier
+whole-document route and act as upper bounds for the bounded route. A second
+20-run confirmation passed every limit. The values remain desktop browser
+evidence, not compositor paint or a native WebView result.
 
 Backup and archive outputs publish local `mdsh:export-profile` performance
 measures. `e2e/backup-export-bounds.spec.ts` adds a profile for the JSON and
@@ -1014,7 +1033,7 @@ Environment classes:
 | --- | --- |
 | Source only | The changed branch in `src/lib/source-fidelity.ts` is reviewed. This is not a runtime result. |
 | Node isolated | `src/lib/source-fidelity.test.ts` records a parser input below 64 KiB for one list and one table edit. This is not a browser result. |
-| Desktop browser | Chromium, Firefox and WebKit executed the container workflow. The representative report executed on Chromium only. |
+| Desktop browser | Chromium, Firefox and WebKit executed the container workflow and the representative report. |
 | Emulated mobile | Not tested. No mobile project selects these cases. |
 | Installed PWA | Not tested. Playwright does not install a PWA or reproduce its lifecycle. |
 | Physical and native | Not tested. No physical iOS device and no optimized native WebView are attached. |

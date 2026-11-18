@@ -1,0 +1,61 @@
+{
+	"version": 1,
+	"description": "Reviewed p95 budgets for the representative editor tail baseline. Each limit comes from 20 measured passes per case after one declared warmup pass on Linux Chromium, Firefox and WebKit. The tolerance keeps ordinary shared-runner variance below the gate; it is not a performance target. A p95 with fewer than 20 samples is not a tail estimate and fails closed.",
+	"defaults": {
+		"minimumSamples": 20,
+		"warmupRuns": 1,
+		"toleranceRatio": 0.5,
+		"statistic": "p95",
+		"percentile": "nearest-rank"
+	},
+	"platforms": {
+		"web-chromium": {
+			"label": "Headless Chromium through the instrumented Web build on Linux",
+			"source": "Local 20-run baseline on 2026-11-18, Chromium 158.0.8127.18. Observed p95 values were 37.2, 33.6, 33.8, 53.6, 32.3, 33.5, 32.1, 32.6, 32.5 and 32.9 ms for the ten edit cases in report order.",
+			"metrics": {
+				"plain-start.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"mixed-start.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"plain-middle.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"mixed-middle.inputToFrameMs": { "p95": 100, "unit": "ms" },
+				"plain-end.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"mixed-end.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"list-edit.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"table-edit.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"mixed-enter-split.inputToFrameMs": { "p95": 75, "unit": "ms" },
+				"slow-key-repeat.inputToFrameMs": { "p95": 75, "unit": "ms" }
+			}
+		},
+		"web-firefox": {
+			"label": "Headless Firefox through the instrumented Web build on Linux",
+			"source": "Local 20-run baseline on 2026-11-18, Firefox 159.0. Observed p95 values were 44, 33, 34, 34, 35, 40, 44, 33, 31 and 34 ms for the ten edit cases in report order.",
+			"metrics": {
+				"plain-start.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"mixed-start.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"plain-middle.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"mixed-middle.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"plain-end.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"mixed-end.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"list-edit.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"table-edit.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"mixed-enter-split.inputToFrameMs": { "p95": 75, "unit": "ms" },
+				"slow-key-repeat.inputToFrameMs": { "p95": 75, "unit": "ms" }
+			}
+		},
+		"web-webkit": {
+			"label": "Headless WebKit through the instrumented Web build on Linux",
+			"source": "Local 20-run baseline on 2026-11-18, WebKit 27.2. Observed p95 values were 48, 88, 52, 40, 42, 46, 42, 46, 51 and 41 ms for the ten edit cases in report order.",
+			"metrics": {
+				"plain-start.inputToFrameMs": { "p95": 100, "unit": "ms" },
+				"mixed-start.inputToFrameMs": { "p95": 140, "unit": "ms" },
+				"plain-middle.inputToFrameMs": { "p95": 110, "unit": "ms" },
+				"mixed-middle.inputToFrameMs": { "p95": 100, "unit": "ms" },
+				"plain-end.inputToFrameMs": { "p95": 100, "unit": "ms" },
+				"mixed-end.inputToFrameMs": { "p95": 100, "unit": "ms" },
+				"list-edit.inputToFrameMs": { "p95": 100, "unit": "ms" },
+				"table-edit.inputToFrameMs": { "p95": 100, "unit": "ms" },
+				"mixed-enter-split.inputToFrameMs": { "p95": 90, "unit": "ms" },
+				"slow-key-repeat.inputToFrameMs": { "p95": 90, "unit": "ms" }
+			}
+		}
+	}
+}
