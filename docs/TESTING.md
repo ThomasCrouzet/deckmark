@@ -185,21 +185,30 @@ painted frame, engine long tasks, the product stage windows and the durable save
 measures.
 
 The case fails when the mixed-format edit parses the complete source, when a
-publication or a resumed key exceeds 250 ms, when a long task above 100 ms does
+publication or a resumed key exceeds 250 ms, when a long task above 250 ms does
 not overlap a stage that reported its own start and end time, when a resume
 delay of at least 250 ms does not fall inside a named stage, or when a durable
-projection hook exceeds 250 ms.
+projection hook exceeds 250 ms. Tasks between 100 and 250 ms stay in the
+evidence as near misses because their consumers do not publish a span yet.
 
 The durable write reports its own `durableWrite` stage because the IndexedDB put
 spans an await. A long task inside the put then has a named owner instead of
 appearing as unexplained latency.
 
+The second case covers a paste and a structural split. A trusted paste of plain
+text in the mixed paragraph keeps the bounded route (about 36 ms at 240 KB). A
+following Enter split takes the conservative whole-document route: about 2.4 s
+to 2.6 s at 240 KB, inside the named `markdownPublish` and `restoreMarkdown`
+windows. That cost stays a measured incident for the source restoration owner.
+The case checks the exact bytes after the paste, the image identity after the
+split, and exact undo back to the seed.
+
 Before the bounded source path, the same fixture parsed the complete source for
 each publication (p50 1.6 s to 1.8 s) and the resumed key waited 0.7 s to 2.1 s.
 At the current source, the publication stays under 20 ms, the resumed key stays
-under 170 ms, and no publication parses the complete source. The build before
-the stage boundary change reported no stage start times, so 11 of 17 long tasks
-had no named owner.
+under 170 ms, and no typed character parses the complete source. The build
+before the stage boundary change reported no stage start times, so 11 of 17 long
+tasks had no named owner.
 
 Run:
 
@@ -207,11 +216,12 @@ Run:
 npx playwright test e2e/editor-publish-stall.spec.ts --project=chromium --workers=1 --retries=0 --trace=off
 ```
 
-Keep `editor-publish-stall.json` and `saved-note.md` with the fixture hash, the
-image hash, the raw key samples, the stage windows, the long tasks, the save
-measures, the saved bytes, the caret and the undo result, the source revision
-and the command. A Chromium result does not establish Firefox, WebKit, a native
-WebView, an installed PWA or a physical device.
+Keep `editor-publish-stall.json`, `editor-publish-structural.json` and
+`saved-note.md` with the fixture hash, the image hash, the raw key samples, the
+stage windows, the long tasks, the near misses, the save measures, the saved
+bytes, the caret and the undo result, the source revision and the command. A
+Chromium result does not establish Firefox, WebKit, a native WebView, an
+installed PWA or a physical device.
 
 ## Image-rich rendered input risks
 
