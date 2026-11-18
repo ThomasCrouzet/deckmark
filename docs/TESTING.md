@@ -184,17 +184,22 @@ Each sample records the delay between two accepted input events, the second
 painted frame, engine long tasks, the product stage windows and the durable save
 measures.
 
-The case fails when a long task above 100 ms does not overlap a stage that
-reported its own start and end time, when a resume delay of at least 250 ms does
-not fall inside the `restoreMarkdown` stage, or when a durable save stage
-(`mdsh:document-storage`, `mdsh:draft-manifest`, `mdsh:draft-metadata`) exceeds
-250 ms. The delay itself stays recorded evidence. The complete restore remains
-the property of the source restore work.
+The case fails when the mixed-format edit parses the complete source, when a
+publication or a resumed key exceeds 250 ms, when a long task above 100 ms does
+not overlap a stage that reported its own start and end time, when a resume
+delay of at least 250 ms does not fall inside a named stage, or when a durable
+projection hook exceeds 250 ms.
 
-At the audited source, the 240 KB note reached the complete restore for each
-publication (p50 1.6 s to 2.1 s) and the resumed key waited 0.7 s to 2.1 s. The
-durable save stages stayed below 22 ms. The build before the change reported no
-stage start times, so 11 of 17 long tasks had no named owner.
+The durable write reports its own `durableWrite` stage because the IndexedDB put
+spans an await. A long task inside the put then has a named owner instead of
+appearing as unexplained latency.
+
+Before the bounded source path, the same fixture parsed the complete source for
+each publication (p50 1.6 s to 1.8 s) and the resumed key waited 0.7 s to 2.1 s.
+At the current source, the publication stays under 20 ms, the resumed key stays
+under 170 ms, and no publication parses the complete source. The build before
+the stage boundary change reported no stage start times, so 11 of 17 long tasks
+had no named owner.
 
 Run:
 

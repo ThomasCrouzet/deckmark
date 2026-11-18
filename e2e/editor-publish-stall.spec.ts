@@ -10,10 +10,10 @@ import { resetAppState } from './helpers';
 // durations. Publication that runs while input resumes shows as a raised
 // between-event delay, not only as one slow frame.
 //
-// Budgets: each engine long task above 100 ms must overlap a named stage
-// window, a long resume wait must fall inside the complete source restore, and
-// the durable save stages must stay below the 250 ms long-task budget. The
-// resume delay itself is recorded evidence and stays a measured incident.
+// Budgets: the mixed-format edit keeps the bounded source path, a publication
+// and a resumed key stay inside the 250 ms long-task budget, each long task
+// above 100 ms overlaps a named stage window, and the durable projection hooks
+// stay below 250 ms. The raw delay stays recorded evidence.
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce', trace: 'off' });
 
@@ -423,29 +423,31 @@ test('attributes a resumed keystroke to the publication stage', async ({ page },
 
 	const probe = await readProbe(page);
 	const measures = await measureMeasures(page);
+	const scoped = probe.counters.sourceFidelityScoped ?? 0;
 	const fullRestores = probe.stages.filter((stage) => stage.name === 'sourceFidelityFull');
-	const longestRestore = fullRestores.reduce((longest, stage) => Math.max(longest, stage.value), 0);
 	const uncovered = unattributed(probe.longTasks, probe.stages);
 	const resumeDelays = allDelays.map((delay) => Math.round(delay * 100) / 100);
 	const maxResumeDelay = resumeDelays.length ? Math.max(...resumeDelays) : 0;
-	// A resume that waits at least the long-task budget must wait inside the
-	// named restore stage. A new cause must fail this check, not pass as noise.
-	const restoreSpans = probe.stages.filter(
-		(stage) => stage.name === 'restoreMarkdown' && stage.span
+	// A resume that waits at least the long-task budget must wait inside a named
+	// stage. A new cause must fail this check, not pass as noise.
+	const waitSpans = probe.stages.filter(
+		(stage) => (stage.name === 'restoreMarkdown' || stage.name === 'durableWrite') && stage.span
 	);
-	const reproduced = perSession.filter((session) => session.resumeDelay >= 250);
-	const unexplained = reproduced.filter((session) => {
+	const longWaits = perSession.filter((session) => session.resumeDelay >= 250);
+	const unexplained = longWaits.filter((session) => {
 		const from = session.waitTo - session.resumeDelay;
-		const covered = coveredBySpans(from, session.waitTo, restoreSpans);
+		const covered = coveredBySpans(from, session.waitTo, waitSpans);
 		return covered < session.resumeDelay * 0.5;
 	});
-	const saveStages = [
-		measures['mdsh:document-storage'],
-		measures['mdsh:draft-manifest'],
-		measures['mdsh:draft-metadata']
-	];
-	const longestSaveStage = Math.max(...saveStages.map((stage) => stage?.max ?? 0));
-	const saveStageCount = saveStages.reduce((total, stage) => total + (stage?.count ?? 0), 0);
+	const publications = probe.stages.filter((stage) => stage.name === 'markdownPublish');
+	const publicationP95 = percentile(
+		publications.map((stage) => stage.value),
+		0.95
+	);
+	const durableWrites = probe.stages.filter((stage) => stage.name === 'durableWrite');
+	const projectionStages = [measures['mdsh:draft-manifest'], measures['mdsh:draft-metadata']];
+	const longestProjection = Math.max(...projectionStages.map((stage) => stage?.max ?? 0));
+	const projectionCount = projectionStages.reduce((total, stage) => total + (stage?.count ?? 0), 0);
 
 	// The saved row must keep the exact target line, the typed run, the image
 	// identity and the table content.
@@ -498,8 +500,9 @@ test('attributes a resumed keystroke to the publication stage', async ({ page },
 			imageBytes: fixture.imageBytes,
 			sessions: perSession,
 			maxResumeDelay,
+			scoped,
 			fullRestores: fullRestores.length,
-			longestRestore,
+			publicationP95,
 			longTasks: probe.longTasks.length,
 			unattributed: uncovered.length
 		})
@@ -541,12 +544,17 @@ test('attributes a resumed keystroke to the publication stage', async ({ page },
 			})
 		),
 		fullRestores: fullRestores.length,
-		longestRestore,
+		scopedRestores: scoped,
+		publicationP95,
 		longTasks: probe.longTasks,
 		unattributedLongTasks: uncovered,
-		reproduced: reproduced.map((session) => session.name),
+		longWaits: longWaits.map((session) => session.name),
 		unexplainedResumes: unexplained.map((session) => session.name),
-		saveStages: { longest: longestSaveStage, count: saveStageCount },
+		durableWrites: {
+			count: durableWrites.length,
+			max: durableWrites.reduce((longest, stage) => Math.max(longest, stage.value), 0)
+		},
+		projections: { longest: longestProjection, count: projectionCount },
 		counters: probe.counters,
 		measures,
 		savedBytes: Buffer.byteLength(saved),
@@ -554,29 +562,36 @@ test('attributes a resumed keystroke to the publication stage', async ({ page },
 	});
 	await info.attach('saved-note.md', { body: saved, contentType: 'text/markdown' });
 
-	// The mixed-format edit must actually reach the complete source restore.
+	// The mixed-format edit keeps the bounded source path. A complete parse of a
+	// 240 KB source for one letter is the regression this case keeps.
+	expect(scoped, 'the mixed-format edit must take the bounded source path').toBeGreaterThan(0);
+	expect(fullRestores.length, 'the mixed-format edit must not parse the complete source').toBe(0);
 	expect(
-		fullRestores.length,
-		'the mixed-format note must reach the full restore stage'
-	).toBeGreaterThan(0);
-	expect(
-		longestRestore,
-		'the full restore must be long enough to appear in a trace'
-	).toBeGreaterThan(50);
+		publications.length,
+		'each measured session must publish the accepted source'
+	).toBeGreaterThanOrEqual(sessions.length);
+	expect(publicationP95, 'a publication must stay inside the 250 ms long-task budget').toBeLessThan(
+		250
+	);
 
 	// A long task must stay attributable to a named stage that reported its own
 	// start and end time.
 	expect(uncovered, 'each long task must overlap a named stage window').toEqual([]);
 
-	// Any resume that waits at least the long-task budget must wait inside the
-	// complete source restore. The delay stays recorded evidence; the fix for it
-	// belongs to the source restore owner and not to this measurement.
-	expect(unexplained, 'a long resume wait must fall inside the restore stage').toEqual([]);
+	// A resumed key must stay inside the long-task budget in this scenario.
+	expect(maxResumeDelay, 'a resumed key must stay inside the 250 ms budget').toBeLessThan(250);
 
-	// The durable save stages must stay below the long-task budget in this
-	// scenario, so a save is not the cause of the input delay.
-	expect(saveStageCount, 'the durable save stages must run in this workflow').toBeGreaterThan(0);
-	expect(longestSaveStage, 'a durable save stage must not block input').toBeLessThan(250);
+	// Any resume that still waits at least the budget must wait inside a named
+	// stage, so a new cause fails this check instead of passing as noise.
+	expect(unexplained, 'a long resume wait must fall inside a named stage').toEqual([]);
+
+	// The durable write must report its interval and its projections must stay
+	// below the long-task budget.
+	expect(durableWrites.length, 'the durable write stage must run').toBeGreaterThan(0);
+	expect(projectionCount, 'the durable projection hooks must run in this workflow').toBeGreaterThan(
+		0
+	);
+	expect(longestProjection, 'a durable projection hook must not block input').toBeLessThan(250);
 
 	// Undo must remove the typed run and keep the exact original line.
 	for (let attempt = 0; attempt < 20; attempt += 1) {

@@ -37,6 +37,14 @@ export function recordEditorDuration(name: string, value: number): void {
 	emit({ kind: 'duration', name, value, start: endedAt - value, end: endedAt });
 }
 
+/**
+ * Record one completed interval with both boundary times. An asynchronous stage
+ * uses this function because a wrapper cannot await inside the measurement.
+ */
+export function recordEditorSpan(name: string, start: number, end: number): void {
+	emit({ kind: 'duration', name, value: end - start, start, end });
+}
+
 /** Record one accepted publication revision and its changed span. */
 export function recordEditorEdit(edit: SourceEdit): void {
 	emit({ kind: 'edit', edit });
