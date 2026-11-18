@@ -108,7 +108,12 @@ test.describe('closed document source owners', () => {
 		expect(closed?.owners).toEqual([]);
 		expect(closed?.state).toBe('deferred');
 
-		// Titles, tags and wiki targets stay available without the body.
+		// Titles, tags and wiki targets stay available without the body. The tag
+		// chip comes from the derived metadata of the deferred item.
+		await expect(
+			page.locator('aside').getByRole('button', { name: 'Filtrer par tag memory-owner' })
+		).toBeVisible();
+
 		await page.locator('aside summary', { hasText: 'Documents conservés' }).click();
 		await page
 			.locator('aside')
