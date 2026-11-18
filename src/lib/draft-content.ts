@@ -5,6 +5,7 @@
 
 import { db, type DraftRow } from './db';
 import type { FileItem } from './types';
+import { DOCUMENT_MEMORY, utf16Bytes } from './document-memory';
 
 export interface SearchCorpusFile {
 	id: string;
@@ -53,32 +54,51 @@ export async function buildSearchCorpus(files: readonly FileItem[]): Promise<Sea
 }
 
 /**
- * Keeps closed bodies within a byte budget. A body is cleared only after its
- * durable row exists; the derived metadata keeps titles, tags and backlinks.
+ * Keeps closed bodies within a logical UTF-16 byte budget. A body is cleared
+ * only after its durable row exists, no operation pins it and no local write
+ * is pending or failed. The derived metadata keeps titles, tags and backlinks.
+ *
+ * `file.dirty` is a disk status, not a memory pin. A note that still needs a
+ * disk save can release its body once the local revision is durable. The disk
+ * flag stays on the item so the status remains honest.
  */
 export async function reclaimClosedBodies(options: {
 	files: readonly FileItem[];
 	closedFiles: FileItem[];
 	isPending: (id: string) => boolean;
+	isPinned: (id: string) => boolean;
+	/** True when the exact in-memory source is durable and no write is pending. */
+	isDurable: (file: FileItem) => boolean;
 	rowFor: (file: FileItem) => DraftRow;
 	budget?: number;
-}): Promise<void> {
-	const budget = options.budget ?? 2 * 1024 * 1024;
+	/** Releases the other source owners of the cleared document. */
+	onEvict?: (file: FileItem, chars: number) => void;
+}): Promise<number> {
+	const budget = options.budget ?? DOCUMENT_MEMORY.closedBodyBytes;
 	let retained = 0;
-	for (const file of options.files) retained += file.content.length + (file.data?.length ?? 0);
-	for (const file of options.closedFiles)
-		retained += file.content.length + (file.data?.length ?? 0);
-	if (retained <= budget) return;
+	for (const file of options.files) retained += utf16Bytes(bodyChars(file));
+	for (const file of options.closedFiles) retained += utf16Bytes(bodyChars(file));
+	if (retained <= budget) return 0;
 	const { draftMetadataFor } = await import('./draft-metadata');
+	let evicted = 0;
 	for (const file of options.closedFiles) {
 		if (retained <= budget) break;
-		if (!file.content && !file.data) continue;
-		if (file.dirty || options.isPending(file.id)) continue;
-		const bytes = file.content.length + (file.data?.length ?? 0);
+		const chars = bodyChars(file);
+		if (chars === 0) continue;
+		if (options.isPending(file.id) || options.isPinned(file.id)) continue;
+		if (!options.isDurable(file)) continue;
 		file.derivedMetadata ??= draftMetadataFor(options.rowFor(file));
 		file.content = '';
 		delete file.data;
 		file.contentDeferred = true;
-		retained -= bytes;
+		retained -= utf16Bytes(chars);
+		evicted += 1;
+		options.onEvict?.(file, chars);
 	}
+	return evicted;
+}
+
+/** Logical characters of the source that a library item holds. */
+export function bodyChars(file: FileItem): number {
+	return file.content.length + (file.data?.length ?? 0);
 }

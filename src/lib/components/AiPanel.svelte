@@ -388,7 +388,8 @@
 			);
 			await waitForTestHydrationDelay();
 			await filesStore.ensureContent(
-				needed.filter((id) => !filesStore.active || id !== filesStore.active.id)
+				needed.filter((id) => !filesStore.active || id !== filesStore.active.id),
+				'ai'
 			);
 			if (controller.signal.aborted) return;
 			const contextChanged =

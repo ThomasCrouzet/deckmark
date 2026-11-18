@@ -1,6 +1,6 @@
 import { stripFrontmatter } from './frontmatter-fields';
 import type { MetadataSnapshot, MetadataSource } from './metadata-derive';
-import type { MetadataRequest } from './metadata.worker';
+import type { MetadataJobRequest, MetadataRequest } from './metadata.worker';
 import type { DocumentEditSpan, DocumentEdits } from './document-revisions';
 
 /** One changed range in the previous content, with its replacement text. */
@@ -237,7 +237,7 @@ export interface DeltaInput {
  * content revision. The Worker confirms that it holds the matching baseline.
  * Every other case returns the full snapshot.
  */
-export function buildRequest(input: DeltaInput): MetadataRequest {
+export function buildRequest(input: DeltaInput): MetadataJobRequest {
 	const { documentRevision, chain, previous } = input;
 	if (documentRevision === undefined || !chain?.length) return input.full;
 	if (chain.length > 256) return input.full;

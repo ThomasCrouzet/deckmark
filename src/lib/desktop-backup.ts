@@ -165,10 +165,10 @@ async function invokeDesktop<T>(command: string, args: Record<string, unknown>):
 
 async function buildSnapshot(): Promise<string> {
 	const { filesStore } = await import('./files.svelte');
-	await filesStore.flushPendingAwait();
 	// The bounded collection validates the complete generated snapshot while it
 	// reads, so the scheduled path does not hold a second full validation pass.
 	// The read yields between pages and keeps typing and navigation responsive.
+	await filesStore.flushPendingAwait('backup');
 	const backup = await collectBackup();
 	return serializeBackup(backup);
 }

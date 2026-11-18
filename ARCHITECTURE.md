@@ -302,6 +302,29 @@ The abrupt-exit workflow kills Chromium with SIGKILL and reopens the same profil
 at the debounce, transaction, backup, workspace, and conflict stages. Its artifact
 lists committed content, conflict copies, and revisions available in history.
 
+## Closed documents release their source
+
+A document moves through one lifecycle: active, pending, pinned, durable, and
+deferred. `document-memory.ts` owns the pin owners and the lifecycle counters.
+The store connects it to the other modules.
+
+A closed document releases five source owners together after a proven local
+write: the `FileItem` body, the `DocumentRevisions` snapshot, the `SaveQueue`
+baseline, the `MetaIndex` source and the metadata Worker baseline. Titles, tags,
+document titles, wiki targets, the disk flag and the saved revision token stay.
+The next open reads the durable row and tracks it as a new baseline before any
+edit.
+
+Disk dirtiness is not a memory pin. A note that still needs a disk save can
+release its body because IndexedDB holds the accepted bytes. The dirty flag
+stays, so the disk status remains honest.
+
+Export, backup, history, search, AI and project operations hold explicit pins.
+A pinned document is not evictable. A document with a pending or failed write is
+not evictable. The retained body budget is measured in UTF-16 bytes. The
+metadata Worker keeps a byte budget and allows one larger baseline for the note
+in use.
+
 ## Native file access uses session capabilities
 
 Desktop Complete does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. Rust stores approved Markdown paths in `disk-access.json` in the application data directory. It issues new tokens after restart. IndexedDB records cannot add paths to this registry. Removing a disk link revokes its native permission.

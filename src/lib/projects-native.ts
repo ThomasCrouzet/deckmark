@@ -636,7 +636,7 @@ async function loadLocalEntry(
 	const id = await localEntryId(projectId, entry);
 	if (!id) return undefined;
 	if (entry.kind === 'markdown') {
-		await filesStore.ensureContent([id]);
+		await filesStore.ensureContent([id], 'project');
 		const row = await db.drafts.get(id);
 		return row ? { kind: 'markdown', row } : undefined;
 	}

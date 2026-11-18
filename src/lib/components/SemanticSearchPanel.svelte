@@ -116,7 +116,8 @@
 
 	async function hydrate(files: readonly FileItem[]): Promise<void> {
 		await filesStore.ensureContent(
-			files.filter((file) => file.contentDeferred).map((file) => file.id)
+			files.filter((file) => file.contentDeferred).map((file) => file.id),
+			'search'
 		);
 	}
 

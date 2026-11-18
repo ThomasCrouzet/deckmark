@@ -19,7 +19,7 @@ import type { FileItem } from './types';
 import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-utils';
 import { deriveMetadata, type MetadataSource, type MetadataValues } from './metadata-derive';
-import type { MetadataRequest, MetadataResponse } from './metadata.worker';
+import type { MetadataJobRequest, MetadataRequest, MetadataResponse } from './metadata.worker';
 import type { WikiLinkIndex } from './wiki-link-index';
 import type { MetadataRunner } from './metadata-runner';
 import type { DocumentEdits } from './document-revisions';
@@ -70,7 +70,7 @@ export class MetaIndex {
 	private runner: MetadataRunner | null = null;
 	private disposed = false;
 	private timer: ReturnType<typeof setTimeout> | undefined;
-	private active: MetadataRequest | null = null;
+	private active: MetadataJobRequest | null = null;
 	/** Accepted edit chains per file, coalesced until the next Worker job. */
 	private editChains = new Map<string, EditRecord[]>();
 
@@ -241,6 +241,25 @@ export class MetaIndex {
 			this.schedule();
 			return;
 		}
+		if (file.contentDeferred && file.derivedMetadata) {
+			// The body was released after a proven write. Do not parse the empty
+			// placeholder: it would replace the derived title, tags and targets.
+			const durable = file.derivedMetadata;
+			this.pending.delete(id);
+			this.publish(id, {
+				name: file.name,
+				isNote: documentKindForFile(file) === 'note',
+				sourceKind: file.kind,
+				content: '',
+				title: durable.title,
+				documentTitle: durable.documentTitle,
+				tags: durable.tags,
+				targets: durable.targets
+			});
+			this.onPublish?.(id);
+			this.schedule();
+			return;
+		}
 		const documentRevision = this.contentRevisions.get(id);
 		const full: Extract<MetadataRequest, { kind: 'full' }> = {
 			kind: 'full',
@@ -355,6 +374,40 @@ export class MetaIndex {
 		this.wikiIndex = null;
 		this.tagCounts = null;
 		this.allTagsCache = null;
+	}
+
+	/**
+	 * Drops the retained source of a closed durable document and keeps the
+	 * derived title, document title, tags and targets. The next read reuses the
+	 * cache because the deferred item body is empty too.
+	 */
+	releaseContent(id: string): number {
+		const entry = this.metaCache.get(id);
+		if (!entry || entry.content.length === 0) return 0;
+		const chars = entry.content.length;
+		entry.content = '';
+		return chars;
+	}
+
+	/**
+	 * Drops the metadata Worker baseline for `id`. A later delta is rejected and
+	 * the index sends one full snapshot for the new revision.
+	 */
+	releaseWorkerBaseline(id: string): boolean {
+		return this.runner?.release(id) ?? false;
+	}
+
+	/** Logical characters retained by cached metadata sources, total or one id. */
+	retainedContentChars(id?: string): number {
+		if (id !== undefined) return this.metaCache.get(id)?.content.length ?? 0;
+		let total = 0;
+		for (const entry of this.metaCache.values()) total += entry.content.length;
+		return total;
+	}
+
+	/** Logical characters retained by the metadata Worker baselines. */
+	retainedWorkerChars(id?: string): number {
+		return this.runner?.baselineChars(id) ?? 0;
 	}
 
 	/** Invalidates the backlinks index and the tag cache (e.g. a bulk change). */

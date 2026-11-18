@@ -2,6 +2,7 @@ import { type MetadataSnapshot, type MetadataSource, type MetadataValues } from 
 import { updateMetadata } from './metadata-update';
 import type { MetadataEdit } from './metadata-delta';
 import { applySourceTextSpans } from './source-text-spans';
+import { DOCUMENT_MEMORY, utf16Bytes } from './document-memory';
 
 export type { MetadataEdit } from './metadata-delta';
 
@@ -27,7 +28,12 @@ export type MetadataRequest =
 			/** Expected content length after the edits. */
 			length: number;
 			edits: readonly MetadataEdit[];
-	  };
+	  }
+	/** Releases the baseline of a closed durable document. No response. */
+	| { kind: 'forget'; id: string };
+
+/** A request that runs a metadata job and returns a response. */
+export type MetadataJobRequest = Exclude<MetadataRequest, { kind: 'forget' }>;
 
 export interface MetadataResponse {
 	id: string;
@@ -43,16 +49,47 @@ export interface MetadataResponse {
 interface Baseline {
 	revision: number;
 	snapshot: MetadataSnapshot;
+	/** Estimated UTF-16 bytes of the retained source and derived values. */
+	bytes: number;
 }
 
-// Keep a small bounded cache, not a second copy of the whole library.
-const BASELINE_LIMIT = 16;
+// Keep a bounded cache, not a second copy of the whole library. The budget is
+// in estimated UTF-16 bytes, so a few large notes cannot fill it. One baseline
+// stays even above the budget so the document in use keeps its delta chain.
+const BASELINE_BYTE_LIMIT = DOCUMENT_MEMORY.metadataBaselineBytes;
+const BASELINE_ENTRY_LIMIT = DOCUMENT_MEMORY.metadataBaselineEntries;
+const BASELINE_OVERHEAD_BYTES = 1024;
 const baselines = new Map<string, Baseline>();
+let baselineBytes = 0;
+
+function snapshotBytes(snapshot: MetadataSnapshot): number {
+	const derived =
+		snapshot.title.length +
+		snapshot.documentTitle.length +
+		snapshot.tags.reduce((total, tag) => total + tag.length, 0) +
+		snapshot.targets.reduce((total, target) => total + target.length, 0);
+	return utf16Bytes(snapshot.content.length + derived) + BASELINE_OVERHEAD_BYTES;
+}
+
+function forget(id: string): boolean {
+	const entry = baselines.get(id);
+	if (!entry) return false;
+	baselines.delete(id);
+	baselineBytes -= entry.bytes;
+	return true;
+}
 
 function remember(id: string, revision: number, snapshot: MetadataSnapshot): void {
-	baselines.delete(id);
-	baselines.set(id, { revision, snapshot });
-	while (baselines.size > BASELINE_LIMIT) baselines.delete(baselines.keys().next().value!);
+	forget(id);
+	const bytes = snapshotBytes(snapshot);
+	baselines.set(id, { revision, snapshot, bytes });
+	baselineBytes += bytes;
+	while (
+		baselines.size > 1 &&
+		(baselines.size > BASELINE_ENTRY_LIMIT || baselineBytes > BASELINE_BYTE_LIMIT)
+	) {
+		forget(baselines.keys().next().value!);
+	}
 }
 
 /** Applies spans against the baseline text, or returns null for a bad range. */
@@ -64,6 +101,10 @@ function applyEdits(base: string, edits: readonly MetadataEdit[], length: number
 self.addEventListener('message', (event: MessageEvent<MetadataRequest>) => {
 	const started = performance.now();
 	const request = event.data;
+	if (request.kind === 'forget') {
+		forget(request.id);
+		return;
+	}
 	const previous = baselines.get(request.id);
 	let response: MetadataResponse;
 	if (request.kind === 'delta') {
