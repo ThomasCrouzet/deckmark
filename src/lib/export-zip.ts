@@ -21,6 +21,22 @@ async function profilePause(): Promise<void> {
 	await new Promise<void>((resolve) => setTimeout(resolve, Math.min(500, Math.round(value))));
 }
 
+/** Local phase measure for the export profile. */
+function profilePhase(kind: string, phase: string): () => void {
+	const start = performance.now();
+	return () => {
+		try {
+			performance.measure('mdsh:export-profile', {
+				start,
+				end: performance.now(),
+				detail: { kind, phase }
+			});
+		} catch {
+			// A failed diagnostic must not change the export.
+		}
+	};
+}
+
 // ─── Library ZIP export ───────────────────────────────────────────────────────
 
 export interface ExportArchiveOptions {
@@ -38,6 +54,7 @@ export async function exportZip(
 		return false;
 	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');
 	checkAborted(options.signal);
+	const planEnd = profilePhase('library-zip', 'plan');
 	const encoder = new TextEncoder();
 	const encoded = new Map<string, Uint8Array>();
 	const binaryBytes = new Map<string, Uint8Array>();
@@ -129,10 +146,12 @@ export async function exportZip(
 					...(file.mime ? { mime: file.mime } : {}),
 					...(file.data ? { data: file.data } : {})
 				}));
+			const nestedEnd = profilePhase('library-zip', 'compress');
 			const archive = await buildProjectZip(project.name, documents, assets, {
 				signal: options.signal,
 				onProgress: options.onProgress
 			});
+			nestedEnd();
 			archiveBytes += archive.size;
 			transientArchiveBytes += archive.size * 2;
 			if (
@@ -143,6 +162,8 @@ export async function exportZip(
 			zip.file(archiveName(`${project.name}.zip`), await archive.arrayBuffer());
 		}
 	}
+	planEnd();
+	const compressEnd = profilePhase('library-zip', 'compress');
 	// A throwing update callback stops the JSZip stream and rejects this
 	// promise. No archive reaches the caller after a cancel.
 	const blob = await zip.generateAsync({ type: 'blob' }, (metadata) => {
@@ -150,7 +171,11 @@ export async function exportZip(
 		const percent = Math.round(metadata.percent);
 		options.onProgress?.({ phase: 'compress', completed: percent, total: 100, percent });
 	});
+	compressEnd();
 	checkAborted(options.signal);
 	if (blob.size > IMPORT_LIMITS.maxBatchBytes) throw new Error('Library export size limit');
-	return triggerDownload(blob, filename);
+	const writeEnd = profilePhase('library-zip', 'write');
+	const saved = await triggerDownload(blob, filename);
+	writeEnd();
+	return saved;
 }

@@ -633,6 +633,60 @@ expected and actual Markdown. The Chromium, Firefox and WebKit projects run it.
 A desktop browser result does not prove physical iPhone or iPad input latency,
 installed PWA behavior or a native WebView.
 
+### Representative editor report
+
+Issue #327 asks for one representative report with raw samples, tail
+statistics, long tasks, queue delay, handler duration, frame opportunities and
+the next-input delay for each case. Issue #572 asks for the WYSIWYG route
+matrix around the same workloads. `e2e/representative-editor-report.spec.ts`
+covers both requests on one 36 KB note. The note holds plain and mixed inline
+paragraphs near the start, middle and end, a 320 item list, a 140 row table, an
+embedded image and a tail sentinel.
+
+The case records these rows:
+
+| Row | Workload |
+| --- | --- |
+| `plain-start`, `plain-middle`, `plain-end` | Three letters in a plain paragraph. |
+| `mixed-start`, `mixed-middle`, `mixed-end` | Three letters in a paragraph with unchanged bold, emphasis, link and inline code. |
+| `list-edit` | Three letters inside one item of a large list. |
+| `table-edit` | Three letters inside one cell of a large table. |
+| `mixed-enter-split` | Enter before a bold run in a mixed paragraph. |
+| `slow-key-repeat` | Three keys at 45 ms, then one key after 300, 500, 800 and 1200 ms pauses. |
+| `control-no-change` | The same idle interval without a key. |
+
+Each row keeps the raw input samples and the nearest-rank p50, p95, max and
+denominator for the queue delay, the dispatch proxy, the second-frame
+opportunity and the next-input delay. It also keeps every product stage with
+its own start and end, the `performance.measure` durable stages, every long
+task, the accepted edit spans, the coarse fallback reason, the editor snapshot
+length, the posted metadata and allocated snapshot character counts, the
+durable character and byte length, and the exact-byte result. The posted and
+allocated counts are UTF-16 code units. The durable byte count is UTF-8. The
+route reason names the changed top-level block for a rejected local restore,
+for example `container-list` or `container-table`. It is a coarse class, not
+the exact internal predicate.
+
+The report also records the first editor mount in a fresh browser context
+(`cold`) and a Source to WYSIWYG switch on the same document (`warm`). Service
+workers are blocked. This is a browser cache note, not an installed PWA cache
+update.
+
+```sh
+npx playwright test e2e/representative-editor-report.spec.ts \
+  --project=chromium --workers=1 --retries=0 --trace=off
+```
+
+Keep `representative-editor-report.json`, `representative-expected.md` and
+`representative-actual.md` with the source revision, command and browser
+version. The gate checks the scoped route for plain, mixed and Enter rows, the
+whole-document route and its reason for the list and table rows, three frame
+samples for each three-key row, six next-input gaps for the slow repeat, exact
+durable bytes and exact exported Markdown. The latency values are report-only.
+A Chromium frame opportunity is not compositor paint. This file does not select
+Firefox or WebKit. It does not prove a physical iOS device, an installed PWA or
+an optimized native WebView.
+
 ### Shared derived-state edit spans
 
 One accepted edit record feeds the metadata index and the statistics runtime.
@@ -1042,6 +1096,17 @@ the stream and rejects the promise, so compression does not continue after the
 cancel. `buildProjectZip` takes the same signal and progress options and keeps
 the exact entry bytes.
 
+A fifth case runs the encrypted Settings export and reads the AES-GCM envelope.
+It records the collection, encoding and encryption phases, the contiguous
+plaintext copy that AES-GCM needs, the ciphertext length and the long tasks. A
+sixth case measures the library ZIP, the project ZIP and the documentation site
+ZIP with local `mdsh:export-profile` performance measures. The library and
+project ZIPs separate planning from compression and output. The documentation
+site separates planning, rendering, entry assembly and compression. Each lazy
+module publishes its own measures, so the shared graph and the precache entry
+count stay unchanged. The case reads the measure detail to group each phase by
+operation.
+
 ```sh
 E2E_PORT=4411 npx playwright test e2e/backup-export-bounds.spec.ts \
   --project=chromium --workers=1 --retries=0
@@ -1049,7 +1114,8 @@ E2E_PORT=4411 npx playwright test e2e/backup-export-bounds.spec.ts \
 
 Keep the JSON and HTML reports, `backup-export-bounds.json`,
 `backup-cancellation.json`, `library-zip-cancellation.json`,
-`docs-site-cancellation.json`, the downloaded backup, `selection.zip` and
+`docs-site-cancellation.json`, `encrypted-backup-profile.json`,
+`archive-phase-profiles.json`, the downloaded backup, `selection.zip` and
 `docs-site.zip` with the source revision, command and browser version. The
 asserted budgets are one long task of at most 250 ms and one raw asset row at a
 time. The test-only

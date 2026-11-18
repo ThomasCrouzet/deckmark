@@ -304,7 +304,29 @@ export class SourceFidelity {
 			return scoped.result;
 		}
 		recordEditorCounter('sourceFidelityFull');
+		recordEditorCounter(`sourceFidelityFullReason:${this.fullRouteReason(markdown, hint)}`);
 		return measureEditorStage('sourceFidelityFull', () => this.restoreFull(markdown, commit));
+	}
+
+	/**
+	 * Coarse class for a rejected local restore. The value names the changed
+	 * top-level block or the missing edit hint. It is evidence for a measurement
+	 * report, not an exact internal predicate.
+	 */
+	private fullRouteReason(markdown: string, hint?: SourceFidelityHint): string {
+		const block = (this.baseline.children ?? [])[this.findChangedBlock(markdown)];
+		if (!block) return 'no-baseline-block';
+		if (block.type === 'list') return 'container-list';
+		if (block.type === 'table') return 'container-table';
+		if (block.type === 'blockquote') return 'container-blockquote';
+		if (block.type === 'code' || block.type === 'fence') return 'container-code';
+		if (block.type === 'html') return 'container-html';
+		if (block.type === 'paragraph' || block.type === 'heading') {
+			if (!hint) return 'missing-edit-hint';
+			if (this.originalBlocks() === null) return 'block-count-mismatch';
+			return 'unsupported-change-shape';
+		}
+		return `block-${block.type}`;
 	}
 
 	private findChangedBlock(markdown: string): number {

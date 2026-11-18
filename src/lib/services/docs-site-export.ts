@@ -63,6 +63,22 @@ async function profilePause(): Promise<void> {
 	await new Promise<void>((resolve) => setTimeout(resolve, Math.min(500, Math.round(value))));
 }
 
+/** Local phase measure for the documentation site profile. */
+function profilePhase(kind: string, phase: string): () => void {
+	const start = performance.now();
+	return () => {
+		try {
+			performance.measure('mdsh:export-profile', {
+				start,
+				end: performance.now(),
+				detail: { kind, phase }
+			});
+		} catch {
+			// A failed diagnostic must not change the export.
+		}
+	};
+}
+
 export class DocsSiteExportError extends Error {
 	constructor(public readonly report: DocsSiteReport) {
 		super('Documentation site export has resource errors');
@@ -109,6 +125,7 @@ async function buildZip(
 	signal?: AbortSignal,
 	onProgress?: ZipProgressReporter
 ): Promise<Blob> {
+	const writeEnd = profilePhase('docs-site', 'write');
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const ordered = files.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -121,9 +138,11 @@ async function buildZip(
 		});
 	}
 	checkAborted(signal);
+	writeEnd();
+	const compressEnd = profilePhase('docs-site', 'compress');
 	// A throwing update callback stops the JSZip stream and rejects this
 	// promise. No archive reaches the caller after a cancel.
-	return zip.generateAsync(
+	const blob = await zip.generateAsync(
 		{
 			type: 'blob',
 			compression: 'DEFLATE',
@@ -137,6 +156,8 @@ async function buildZip(
 			onProgress?.({ phase: 'compress', completed: percent, total: 100, percent });
 		}
 	);
+	compressEnd();
+	return blob;
 }
 
 /**
@@ -214,10 +235,13 @@ export async function buildDocsSite(
 	options: BuildDocsSiteOptions = {}
 ): Promise<DocsSiteResult> {
 	checkAborted(options.signal);
+	const planEnd = profilePhase('docs-site', 'plan');
 	const plan = planDocsSite(input);
 	if (!plan.pages.length) throw new Error('The project contains no Markdown documents');
 	const sanitized = await sanitizePublishedSvgAssets(plan);
+	planEnd();
 	checkAborted(options.signal);
+	const renderEnd = profilePhase('docs-site', 'render');
 	const rendered = await renderDocsSite(plan, {
 		...(options.signal ? { signal: options.signal } : {})
 	});
@@ -234,6 +258,7 @@ export async function buildDocsSite(
 	);
 	if (report.summary.errors > 0) throw new DocsSiteExportError(report);
 	const files = buildDocsSiteFiles(plan, { pages: rendered.pages, issues });
+	renderEnd();
 	checkAborted(options.signal);
 	const blob = await buildZip(files, options.signal, options.onProgress);
 	checkAborted(options.signal);

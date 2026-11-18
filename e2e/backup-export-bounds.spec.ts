@@ -218,6 +218,25 @@ async function pipelineRuns(page: Page): Promise<PipelineRun[]> {
 	});
 }
 
+interface ExportProfile {
+	kind: string;
+	phase: string;
+	duration: number;
+}
+
+async function exportProfiles(page: Page): Promise<ExportProfile[]> {
+	return page.evaluate(() =>
+		performance.getEntriesByName('mdsh:export-profile', 'measure').map((entry) => {
+			const detail = (entry as PerformanceEntry & { detail?: Record<string, unknown> }).detail;
+			return {
+				kind: String(detail?.kind ?? ''),
+				phase: String(detail?.phase ?? ''),
+				duration: entry.duration
+			};
+		})
+	);
+}
+
 async function installLongTaskProbe(page: Page): Promise<void> {
 	await page.evaluate(() => {
 		const host = window as unknown as {
@@ -547,6 +566,222 @@ test('library ZIP cancellation publishes no archive', async ({ page }, info) => 
 		contentType: 'application/json'
 	});
 	await info.attach('selection.zip', { path: zipPath, contentType: 'application/zip' });
+});
+
+test('JSON and encrypted backups profile collection, encoding and encryption', async ({
+	page
+}, info) => {
+	test.setTimeout(240_000);
+	await resetAppState(page);
+	const corpus = await seedCorpus(page, {
+		textMiB: 8,
+		rows: 60,
+		assets: 3,
+		assetBytes: 256 * 1024,
+		projectDocuments: 2,
+		openFiles: 2
+	});
+	await page.reload();
+	await waitForReady(page);
+	await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 20_000 });
+	await installLongTaskProbe(page);
+
+	const plainPending = page.waitForEvent('download', { timeout: 180_000 });
+	await openSettings(page);
+	await page.getByRole('button', { name: 'Exporter une sauvegarde', exact: true }).click();
+	const plainBytes = await readDownload(await plainPending);
+	expect((JSON.parse(plainBytes.toString('utf8')) as { format?: string }).format).toBe(
+		'mdsh-backup'
+	);
+	const plainRun = (await pipelineRuns(page)).filter((run) => run.kind === 'backup').at(-1);
+	expect(plainRun, 'the plain backup must publish its pipeline counters').toBeTruthy();
+	expect(plainRun!.completed).toBe(true);
+	expect(plainRun!.timings.collect ?? 0, 'plain collection time must be separate').toBeGreaterThan(
+		0
+	);
+	expect(plainRun!.timings.encode ?? 0, 'plain encoding time must be separate').toBeGreaterThan(0);
+	expect(plainRun!.timings.encrypt, 'the plain path must not report encryption').toBeUndefined();
+	expect(plainRun!.joinedCopyChars, 'the plain path must not join a second copy').toBe(0);
+
+	const passphrase = 'bounded-export-profile';
+	const pendingDownload = page.waitForEvent('download', { timeout: 180_000 });
+	await page.getByRole('button', { name: 'Exporter (chiffré)…', exact: true }).click();
+	for (const name of ['Chiffrer la sauvegarde', 'Confirmer la phrase secrète']) {
+		const prompt = page.getByRole('dialog', { name, exact: true });
+		await prompt.locator('input[type=password]').fill(passphrase);
+		await prompt.getByRole('button', { name: 'OK', exact: true }).click();
+	}
+	const download = await pendingDownload;
+	const buffer = await readDownload(download);
+	await page.keyboard.press('Escape');
+
+	const envelope = JSON.parse(buffer.toString('utf8')) as {
+		alg?: string;
+		kdf?: string;
+		ct?: string;
+	};
+	expect(envelope.alg).toBe('AES-GCM');
+	expect(envelope.kdf).toBe('PBKDF2-SHA256');
+	expect((envelope.ct ?? '').length).toBeGreaterThan(0);
+
+	const encryptedRun = (await pipelineRuns(page)).filter((run) => run.kind === 'backup').at(-1);
+	expect(encryptedRun, 'the encrypted backup must publish its pipeline counters').toBeTruthy();
+	expect(encryptedRun!.completed).toBe(true);
+	expect(encryptedRun!.timings.collect ?? 0, 'collection time must be separate').toBeGreaterThan(0);
+	expect(encryptedRun!.timings.encode ?? 0, 'encoding time must be separate').toBeGreaterThan(0);
+	expect(encryptedRun!.timings.encrypt ?? 0, 'encryption time must be separate').toBeGreaterThan(0);
+	expect(
+		encryptedRun!.joinedCopyChars,
+		'AES-GCM must count its contiguous plaintext copy'
+	).toBeGreaterThan(0);
+	expect(encryptedRun!.serializedChars).toBeGreaterThan(0);
+	const tasks = await longTasks(page);
+
+	const profilePath = info.outputPath('encrypted-backup-profile.json');
+	await writeFile(
+		profilePath,
+		JSON.stringify(
+			{
+				command:
+					'npx playwright test e2e/backup-export-bounds.spec.ts --project=chromium --workers=1 --retries=0 --grep encrypted',
+				corpus,
+				plainDownloadBytes: plainBytes.byteLength,
+				encryptedDownloadBytes: buffer.byteLength,
+				envelope: {
+					alg: envelope.alg,
+					kdf: envelope.kdf,
+					ciphertextChars: envelope.ct?.length ?? 0
+				},
+				plainRun,
+				encryptedRun,
+				longTasks: tasks
+			},
+			null,
+			2
+		)
+	);
+	await info.attach('encrypted-backup-profile.json', {
+		path: profilePath,
+		contentType: 'application/json'
+	});
+});
+
+test('archive phase profiles separate planning and rendering from compression', async ({
+	page
+}, info) => {
+	test.setTimeout(300_000);
+	await resetAppState(page);
+	const corpus = await seedCorpus(page, {
+		textMiB: 8,
+		rows: 40,
+		assets: 3,
+		assetBytes: 256 * 1024,
+		projectDocuments: 3,
+		openFiles: 6
+	});
+	await page.reload();
+	await waitForReady(page);
+	await expect(page.locator('.cm-content').first()).toBeVisible({ timeout: 20_000 });
+	await installLongTaskProbe(page);
+
+	const phases = (profiles: ExportProfile[], kind: string) =>
+		profiles
+			.filter((profile) => profile.kind === kind)
+			.reduce<Record<string, number>>((totals, profile) => {
+				totals[profile.phase] = (totals[profile.phase] ?? 0) + profile.duration;
+				return totals;
+			}, {});
+
+	// Library ZIP: text entries and the outer archive.
+	const openRows = page.locator('aside .mdsh-file-row button[data-file-id]');
+	await expect(openRows).toHaveCount(6);
+	for (let index = 0; index < 6; index++) {
+		await openRows.nth(index).click({ modifiers: ['Control'] });
+	}
+	await expect(page.locator('aside [aria-label="Actions sur la sélection"]')).toBeVisible();
+	const libraryDownload = page.waitForEvent('download', { timeout: 180_000 });
+	await page
+		.locator('aside [aria-label="Actions sur la sélection"]')
+		.getByRole('button', { name: /ZIP/ })
+		.click();
+	const libraryBytes = await readDownload(await libraryDownload);
+	expect(libraryBytes.subarray(0, 2).toString('latin1')).toBe('PK');
+	const profiles = await exportProfiles(page);
+	const libraryPhases = phases(profiles, 'library-zip');
+	expect(libraryPhases.plan ?? 0, 'library planning time must be recorded').toBeGreaterThan(0);
+	expect(libraryPhases.compress ?? 0, 'library compression time must be recorded').toBeGreaterThan(
+		0
+	);
+	expect(libraryPhases.write ?? 0, 'library write time must be recorded').toBeGreaterThan(0);
+
+	// Project ZIP: documents and binary assets.
+	await page.getByTestId('projects-open').click();
+	const projects = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await expect(projects).toBeVisible();
+	await projects.locator('select').selectOption(corpus.projectId);
+	const projectDownload = page.waitForEvent('download', { timeout: 180_000 });
+	await projects.getByRole('button', { name: 'Exporter le projet' }).click();
+	const projectBytes = await readDownload(await projectDownload);
+	expect(projectBytes.subarray(0, 2).toString('latin1')).toBe('PK');
+	const projectPhases = phases(await exportProfiles(page), 'project-zip');
+	expect(projectPhases.plan ?? 0, 'project planning time must be recorded').toBeGreaterThan(0);
+	expect(projectPhases.compress ?? 0, 'project compression time must be recorded').toBeGreaterThan(
+		0
+	);
+	await page.keyboard.press('Escape');
+
+	// Documentation site ZIP: planning and rendering before archive assembly.
+	await page.getByTestId('projects-open').click();
+	await expect(projects).toBeVisible();
+	await projects.locator('select').selectOption(corpus.projectId);
+	await projects.getByRole('button', { name: 'Exporter le site de documentation' }).click();
+	const panel = page.getByTestId('docs-site-panel');
+	await expect(panel.getByTestId('docs-site-run')).toBeVisible();
+	const docsDownload = page.waitForEvent('download', { timeout: 180_000 });
+	await panel.getByTestId('docs-site-run').click();
+	const docsBytes = await readDownload(await docsDownload);
+	expect(docsBytes.subarray(0, 2).toString('latin1')).toBe('PK');
+	const docsProfiles = await exportProfiles(page);
+	const docsPhases = phases(docsProfiles, 'docs-site');
+	expect(docsPhases.plan ?? 0, 'docs-site planning time must be recorded').toBeGreaterThan(0);
+	expect(docsPhases.render ?? 0, 'docs-site rendering time must be recorded').toBeGreaterThan(0);
+	expect(docsPhases.write ?? 0, 'docs-site entry assembly time must be recorded').toBeGreaterThan(
+		0
+	);
+	expect(docsPhases.compress ?? 0, 'docs-site compression time must be recorded').toBeGreaterThan(
+		0
+	);
+
+	const tasks = await longTasks(page);
+	const profilePath = info.outputPath('archive-phase-profiles.json');
+	await writeFile(
+		profilePath,
+		JSON.stringify(
+			{
+				command:
+					'npx playwright test e2e/backup-export-bounds.spec.ts --project=chromium --workers=1 --retries=0 --grep archive',
+				corpus,
+				libraryBytes: libraryBytes.byteLength,
+				projectBytes: projectBytes.byteLength,
+				docsSiteBytes: docsBytes.byteLength,
+				phases: {
+					library: libraryPhases,
+					project: projectPhases,
+					docsSite: docsPhases
+				},
+				profiles: profiles.filter(
+					(profile) => profile.kind === 'library-zip' || profile.kind === 'project-zip'
+				),
+				longTasks: tasks
+			},
+			null,
+			2
+		)
+	);
+	await info.attach('archive-phase-profiles.json', {
+		path: profilePath,
+		contentType: 'application/json'
+	});
 });
 
 test('documentation site cancellation publishes no archive', async ({ page }, info) => {

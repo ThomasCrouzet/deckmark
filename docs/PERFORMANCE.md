@@ -177,6 +177,37 @@ the E2E case, not by a past build or a CI configuration alone. Latency stays
 report-only until a reviewed 20-run baseline exists. Installed PWA, physical
 iPhone and iPad, and all three optimized native clients remain **not tested**.
 
+## Representative editor report
+
+`e2e/representative-editor-report.spec.ts` covers the issue #327 report fields
+and the issue #572 WYSIWYG route matrix on one 36 KB note. The note holds plain
+and mixed inline paragraphs near the start, middle and end, a 320 item list, a
+140 row table, an embedded image and a tail sentinel. The case records a
+separate row for each workload. Each row keeps the raw input samples, the
+nearest-rank p50, p95, max and denominator for the queue delay, dispatch proxy,
+second-frame opportunity and next-input delay, every product stage with its own
+start and end, the durable save measures, long tasks, the accepted edit spans,
+the coarse source-route reason, the editor and durable byte counts, and the
+exact-byte result. A control row waits without a key and must record no input,
+no route decision and no accepted edit. A cold first mount and a warm Source to
+WYSIWYG switch record the browser cache note.
+
+The local Chromium run kept the plain, mixed and Enter rows on the scoped route.
+The list and table rows still take the whole-document route with the reasons
+`container-list` and `container-table`. That is the known #572 remainder, and
+the report records it instead of claiming a local edit. The values are local
+diagnostics, not a budget, compositor paint or a native WebView result.
+
+Backup and archive outputs publish local `mdsh:export-profile` performance
+measures. `e2e/backup-export-bounds.spec.ts` adds a profile for the JSON and
+encrypted backup and a profile for the library ZIP, the project ZIP and the
+documentation site ZIP. The encrypted row separates collection, encoding and
+AES-GCM encryption and counts the contiguous plaintext copy. The archive rows
+separate planning from compression and output. The documentation site row also
+separates rendering and entry assembly. The default corpus for these rows is
+8 MiB with three binary assets. The values are local Chromium evidence, not a
+heap measure, a native memory measure or a physical device result.
+
 #
 ## Read and slide mode benchmarks
 
