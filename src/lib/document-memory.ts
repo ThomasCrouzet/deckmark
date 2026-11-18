@@ -23,14 +23,6 @@ export type DocumentState = 'active' | 'pending' | 'pinned' | 'durable' | 'defer
 
 export type PinOwner = 'export' | 'history' | 'backup' | 'search' | 'ai' | 'project' | 'operation';
 
-export const MEMORY_SUBSYSTEMS: readonly DocumentMemorySubsystem[] = [
-	'fileItem',
-	'revisions',
-	'saveQueue',
-	'metaIndex',
-	'metadataWorker'
-];
-
 /**
  * Byte budgets for retained source. A body budget of 2 MiB keeps active work
  * small on a memory-constrained device. The Worker budget holds one large
@@ -58,34 +50,6 @@ export interface DocumentMemoryCounters {
 	metadataReleases: number;
 	workerReleases: number;
 	pinAcquires: number;
-}
-
-export interface DocumentMemoryAmount {
-	chars: number;
-	bytes: number;
-	documents: number;
-}
-
-export interface DocumentMemoryEntry {
-	id: string;
-	name: string;
-	state: DocumentState;
-	contentDeferred: boolean;
-	dirty: boolean;
-	evictable: boolean;
-	logicalChars: number;
-	owners: DocumentMemorySubsystem[];
-	chars: Record<DocumentMemorySubsystem, number>;
-	bytes: Record<DocumentMemorySubsystem, number>;
-}
-
-export interface DocumentMemoryStats {
-	budgetBytes: number;
-	retained: Record<DocumentMemorySubsystem, DocumentMemoryAmount>;
-	total: { chars: number; bytes: number };
-	counters: DocumentMemoryCounters;
-	heap: { usedJSHeapSize: number | null; totalJSHeapSize: number | null };
-	documents: DocumentMemoryEntry[];
 }
 
 /** Explicit pin ownership. A pin blocks every eviction of that document. */
@@ -122,26 +86,6 @@ export class DocumentPins {
 
 	isPinned(id: string): boolean {
 		return this.owned.has(id);
-	}
-
-	ownersOf(id: string): PinOwner[] {
-		return [...(this.owned.get(id)?.keys() ?? [])];
-	}
-
-	counts(): Record<PinOwner, number> {
-		const counts: Record<PinOwner, number> = {
-			export: 0,
-			history: 0,
-			backup: 0,
-			search: 0,
-			ai: 0,
-			project: 0,
-			operation: 0
-		};
-		for (const owners of this.owned.values()) {
-			for (const owner of owners.keys()) counts[owner] += 1;
-		}
-		return counts;
 	}
 
 	clear(): void {
@@ -191,28 +135,4 @@ export class DocumentMemory {
 	clear(): void {
 		this.pins.clear();
 	}
-}
-
-interface HeapMemory {
-	usedJSHeapSize: number;
-	totalJSHeapSize: number;
-}
-
-function readHeap(): DocumentMemoryStats['heap'] {
-	const memory = (performance as Performance & { memory?: HeapMemory }).memory;
-	if (!memory) return { usedJSHeapSize: null, totalJSHeapSize: null };
-	return {
-		usedJSHeapSize: memory.usedJSHeapSize,
-		totalJSHeapSize: memory.totalJSHeapSize
-	};
-}
-
-/** Test and diagnostics entry point. Local runs only; it reads no storage. */
-export function installDocumentMemoryProbe(read: () => Omit<DocumentMemoryStats, 'heap'>): void {
-	if (typeof window === 'undefined') return;
-	(
-		window as unknown as { __MDSH_DOCUMENT_MEMORY__?: { stats: () => DocumentMemoryStats } }
-	).__MDSH_DOCUMENT_MEMORY__ = {
-		stats: () => ({ ...read(), heap: readHeap() })
-	};
 }

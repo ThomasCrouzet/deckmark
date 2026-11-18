@@ -59,18 +59,8 @@ import {
 } from './document-revisions';
 import { reportPersistenceError, resolveDraftSaveError } from './storage';
 import { reportError } from './report';
-import {
-	DOCUMENT_MEMORY,
-	DocumentMemory,
-	MEMORY_SUBSYSTEMS,
-	installDocumentMemoryProbe,
-	utf16Bytes,
-	type DocumentMemoryEntry,
-	type DocumentMemoryStats,
-	type DocumentMemorySubsystem,
-	type DocumentState,
-	type PinOwner
-} from './document-memory';
+import { DOCUMENT_MEMORY, DocumentMemory, type PinOwner } from './document-memory';
+import type { DocumentMemorySample } from './document-memory-probe';
 import { recordVersion, createCheckpoint, createCheckpoints } from './version-history';
 import type { ReplaceOptions } from './replace';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
@@ -302,9 +292,17 @@ class FilesStore {
 	}
 
 	constructor() {
-		// The probe is a local diagnostic surface. It reads the current store
-		// state and never touches storage.
-		installDocumentMemoryProbe(() => this.documentMemoryReport());
+		if (browser) {
+			// The report builder stays in a lazy chunk. The boot graph keeps only
+			// the counters and the pins.
+			void import('./document-memory-probe').then(({ installDocumentMemoryProbe }) =>
+				installDocumentMemoryProbe({
+					budgetBytes: DOCUMENT_MEMORY.closedBodyBytes,
+					counters: () => this.memory.counters,
+					samples: () => this.library.map((file) => this.documentMemorySample(file))
+				})
+			);
+		}
 	}
 
 	/** True when the current source is durable and no write is pending or failed. */
@@ -312,75 +310,41 @@ class FilesStore {
 		return !this.locallyDirty.has(file.id) && !this.saveQueue.has(file.id);
 	}
 
-	private documentState(file: FileItem): DocumentState {
-		if (file.contentDeferred) return 'deferred';
-		if (this.files.includes(file)) return 'active';
-		if (this.memory.pins.isPinned(file.id)) return 'pinned';
-		if (this.locallyDirty.has(file.id) || this.saveQueue.has(file.id)) return 'pending';
-		return 'durable';
-	}
-
-	private documentMemoryEntry(file: FileItem): DocumentMemoryEntry {
-		const chars: Record<DocumentMemorySubsystem, number> = {
-			fileItem: file.content.length + (file.data?.length ?? 0),
-			revisions: this.documents.retainedChars(file.id),
-			saveQueue: this.saveQueue.retainedChars(file.id),
-			metaIndex: this.metaIndex.retainedContentChars(file.id),
-			metadataWorker: this.metaIndex.retainedWorkerChars(file.id)
-		};
-		const bytes = Object.fromEntries(
-			MEMORY_SUBSYSTEMS.map((subsystem) => [subsystem, utf16Bytes(chars[subsystem])])
-		) as Record<DocumentMemorySubsystem, number>;
+	private documentMemorySample(file: FileItem): DocumentMemorySample {
 		return {
 			id: file.id,
 			name: file.name,
-			state: this.documentState(file),
 			contentDeferred: !!file.contentDeferred,
 			dirty: file.dirty,
-			evictable:
-				!this.files.includes(file) &&
-				!file.contentDeferred &&
-				!this.memory.pins.isPinned(file.id) &&
-				this.isLocallyDurable(file),
-			logicalChars: chars.fileItem,
-			owners: MEMORY_SUBSYSTEMS.filter((subsystem) => chars[subsystem] > 0),
-			chars,
-			bytes
-		};
-	}
-
-	/** Logical retained source per owner. These numbers are not a heap measurement. */
-	private documentMemoryReport(): Omit<DocumentMemoryStats, 'heap'> {
-		const retained = Object.fromEntries(
-			MEMORY_SUBSYSTEMS.map((subsystem) => [subsystem, { chars: 0, bytes: 0, documents: 0 }])
-		) as DocumentMemoryStats['retained'];
-		const documents = this.library.map((file) => this.documentMemoryEntry(file));
-		for (const document of documents) {
-			for (const subsystem of MEMORY_SUBSYSTEMS) {
-				if (document.chars[subsystem] > 0) retained[subsystem].documents += 1;
-				retained[subsystem].chars += document.chars[subsystem];
-				retained[subsystem].bytes += document.bytes[subsystem];
+			active: this.files.includes(file),
+			pinned: this.memory.pins.isPinned(file.id),
+			pending: this.locallyDirty.has(file.id) || this.saveQueue.has(file.id),
+			chars: {
+				fileItem: file.content.length + (file.data?.length ?? 0),
+				revisions: this.documents.retainedChars(file.id),
+				saveQueue: this.saveQueue.retainedChars(file.id),
+				metaIndex: this.metaIndex.retainedContentChars(file.id),
+				metadataWorker: this.metaIndex.retainedWorkerChars(file.id)
 			}
-		}
-		const total = { chars: 0, bytes: 0 };
-		for (const subsystem of MEMORY_SUBSYSTEMS) {
-			total.chars += retained[subsystem].chars;
-			total.bytes += retained[subsystem].bytes;
-		}
-		return {
-			budgetBytes: DOCUMENT_MEMORY.closedBodyBytes,
-			retained,
-			total,
-			counters: { ...this.memory.counters },
-			documents
 		};
 	}
 
 	private pinDocuments(owner: PinOwner, ids: readonly string[]): () => void {
-		return this.memory.pin(
-			owner,
-			ids.filter((id) => this.library.some((file) => file.id === id))
-		);
+		return this.memory.pin(owner, ids);
+	}
+
+	/** Holds `ids` for an async operation and releases them on every exit. */
+	private async pinned<T>(
+		owner: PinOwner,
+		ids: readonly string[],
+		run: () => Promise<T>
+	): Promise<T> {
+		const release = this.pinDocuments(owner, ids);
+		try {
+			return await run();
+		} finally {
+			release();
+		}
 	}
 
 	get library(): FileItem[] {
@@ -1954,35 +1918,29 @@ class FilesStore {
 	}
 	async export(id: string): Promise<ExportResult> {
 		this.dispatchEditorFlush();
-		const release = this.pinDocuments('export', [id]);
-		try {
+		return this.pinned('export', [id], async () => {
 			await this.ensureContent([id], 'export');
 			const { exportMarkdown } = await import('./draft-access');
-			return await exportMarkdown(id, this.exportDeps);
-		} finally {
-			release();
-		}
+			return exportMarkdown(id, this.exportDeps);
+		});
 	}
 	async exportAll(): Promise<void> {
 		this.dispatchEditorFlush();
-		const release = this.pinDocuments(
+		return this.pinned(
 			'export',
-			this.library.map((file) => file.id)
+			this.library.map((file) => file.id),
+			async () => {
+				await this.ensureLibraryContent();
+				await exportAllZipOp(this.exportDeps);
+			}
 		);
-		try {
-			await this.ensureLibraryContent();
-			await exportAllZipOp(this.exportDeps);
-		} finally {
-			release();
-		}
 	}
 	async exportOpen(): Promise<void> {
 		this.dispatchEditorFlush();
 		// Capture the open-tab membership before the asynchronous hydration. A
 		// tab closed during the export must not change the archive set.
 		const openIds = this.files.map((file) => file.id);
-		const release = this.pinDocuments('export', openIds);
-		try {
+		return this.pinned('export', openIds, async () => {
 			const { openExportSnapshot } = await import('./draft-access');
 			const snapshot = await openExportSnapshot(this.files, (ids) =>
 				this.ensureContent(ids, 'export')
@@ -1995,32 +1953,24 @@ class FilesStore {
 			}
 			if (snapshot.length === 0) return;
 			await exportAllZipOp({ ...this.exportDeps, getFiles: () => snapshot });
-		} finally {
-			release();
-		}
+		});
 	}
 	async exportHTML(id: string): Promise<void> {
 		this.dispatchEditorFlush();
-		const release = this.pinDocuments('export', [id]);
-		try {
+		return this.pinned('export', [id], async () => {
 			await this.ensureContent([id], 'export');
 			await exportHTMLOp(id, this.exportDeps);
-		} finally {
-			release();
-		}
+		});
 	}
 	async exportActiveHTML(): Promise<void> {
 		if (this.active) await this.exportHTML(this.active.id);
 	}
 	async exportPDF(id: string): Promise<void> {
 		this.dispatchEditorFlush();
-		const release = this.pinDocuments('export', [id]);
-		try {
+		return this.pinned('export', [id], async () => {
 			await this.ensureContent([id], 'export');
 			await exportPDFOp(id, this.exportDeps);
-		} finally {
-			release();
-		}
+		});
 	}
 	async exportActivePDF(): Promise<void> {
 		if (this.active) await this.exportPDF(this.active.id);
@@ -2028,13 +1978,10 @@ class FilesStore {
 	async exportSelectedZip(): Promise<void> {
 		this.dispatchEditorFlush();
 		const ids = [...this.selectedIds];
-		const release = this.pinDocuments('export', ids);
-		try {
+		return this.pinned('export', ids, async () => {
 			await this.ensureContent(ids, 'export');
 			await exportSelectionZipOp(this.selectedIds, this.exportDeps);
-		} finally {
-			release();
-		}
+		});
 	}
 
 	// §4.5 / §M1 - Drag-reorder.
