@@ -26,6 +26,7 @@ import {
 	type DraftManifestDerived
 } from './draft-manifest-key';
 import { draftProjection } from './meta-index';
+import { DOCUMENT_MEMORY, utf16Bytes } from './document-memory';
 
 // Source fingerprint for the durable projection.
 //
@@ -421,14 +422,44 @@ interface DurableProjectionState {
 /** The latest projection per document. A few entries cover the open tabs. */
 const LIMIT = 8;
 const states = new Map<string, DurableProjectionState>();
+/** Estimated UTF-16 bytes of each retained projection state. */
+const stateBytes = new Map<string, number>();
+let stateByteTotal = 0;
+
+function forgetProjection(id: string): void {
+	const bytes = stateBytes.get(id) ?? 0;
+	stateBytes.delete(id);
+	states.delete(id);
+	stateByteTotal -= bytes;
+}
+
+/** Retained bytes of the source, the binary data and the derived values. */
+function projectionStateBytes(state: DurableProjectionState): number {
+	const derived =
+		state.metadata.title.length +
+		state.metadata.documentTitle.length +
+		state.metadata.contentHash.length +
+		state.metadataKey.length +
+		state.metadata.tags.reduce((total, tag) => total + tag.length, 0) +
+		state.metadata.targets.reduce((total, target) => total + target.length, 0);
+	return utf16Bytes(state.content.length + (state.data?.length ?? 0) + derived) + 1024;
+}
 
 function rememberProjection(id: string, state: DurableProjectionState): void {
-	states.delete(id);
+	forgetProjection(id);
 	states.set(id, state);
-	while (states.size > LIMIT) {
+	const bytes = projectionStateBytes(state);
+	stateBytes.set(id, bytes);
+	stateByteTotal += bytes;
+	// Keep at least the most recent source. One note larger than the budget
+	// must keep its incremental chain until its next full write.
+	while (
+		states.size > 1 &&
+		(states.size > LIMIT || stateByteTotal > DOCUMENT_MEMORY.projectionBytes)
+	) {
 		const oldest = states.keys().next().value;
 		if (oldest === undefined) break;
-		states.delete(oldest);
+		forgetProjection(oldest);
 	}
 }
 
@@ -817,6 +848,8 @@ if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'u
 					updatedAt: number;
 					projectId?: string;
 					relativePath?: string;
+					/** Seeds a closed library note when false. Defaults to an open tab. */
+					open?: boolean;
 				}): Promise<void>;
 			};
 		}
@@ -840,6 +873,7 @@ if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'u
 			updatedAt: number;
 			projectId?: string;
 			relativePath?: string;
+			open?: boolean;
 		}) {
 			await db.drafts.put({
 				id: row.id,
@@ -848,7 +882,7 @@ if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'u
 				createdAt: 1,
 				updatedAt: row.updatedAt,
 				order: 0,
-				open: true,
+				open: row.open ?? true,
 				kind: 'note',
 				...(row.projectId ? { projectId: row.projectId } : {}),
 				...(row.relativePath ? { relativePath: row.relativePath } : {})

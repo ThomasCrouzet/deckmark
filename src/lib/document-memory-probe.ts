@@ -44,6 +44,7 @@ export interface DocumentMemoryEntry {
 	state: DocumentState;
 	contentDeferred: boolean;
 	dirty: boolean;
+	pending: boolean;
 	evictable: boolean;
 	logicalChars: number;
 	owners: DocumentMemorySubsystem[];
@@ -93,6 +94,7 @@ function entryOf(sample: DocumentMemorySample): DocumentMemoryEntry {
 		state: stateOf(sample),
 		contentDeferred: sample.contentDeferred,
 		dirty: sample.dirty,
+		pending: sample.pending,
 		evictable: !sample.active && !sample.contentDeferred && !sample.pinned && !sample.pending,
 		logicalChars: chars.fileItem,
 		owners: MEMORY_SUBSYSTEMS.filter((subsystem) => chars[subsystem] > 0),

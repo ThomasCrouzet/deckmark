@@ -13,6 +13,7 @@ interface MemoryDocument {
 	state: string;
 	contentDeferred: boolean;
 	dirty: boolean;
+	pending: boolean;
 	logicalChars: number;
 	evictable: boolean;
 	owners: string[];
@@ -68,6 +69,40 @@ async function exportExact(page: Page): Promise<string> {
 	const path = await file.path();
 	if (!path) throw new Error('Exported Markdown has no path');
 	return readFile(path, 'utf8');
+}
+
+/** One note with a YAML title, a tag and optional leading body text. */
+function titledNote(title: string, tag: string, chars: number, lead = ''): string {
+	const head = `---\ntitle: ${title}\ntags: [${tag}]\n---\n\n# ${title}\n\n${lead}`;
+	const tail = '\n\nEnd of note.\n';
+	const line = 'Paragraph for the eviction metadata check.\n';
+	const filler = Math.max(0, chars - head.length - tail.length);
+	return head + line.repeat(Math.ceil(filler / line.length)).slice(0, filler) + tail;
+}
+
+/** Exact durable content of one draft, read by file name. */
+async function storedByName(page: Page, name: string): Promise<string> {
+	return page.evaluate(
+		(draftName) =>
+			new Promise<string>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const rows = database.transaction('drafts').objectStore('drafts').getAll();
+					rows.onerror = () => {
+						database.close();
+						reject(rows.error);
+					};
+					rows.onsuccess = () => {
+						database.close();
+						const row = rows.result.find((entry: { name: string }) => entry.name === draftName);
+						resolve((row as { content?: string } | undefined)?.content ?? '');
+					};
+				};
+			}),
+		name
+	);
 }
 
 async function attachEvidence(testInfo: TestInfo, name: string, payload: unknown): Promise<void> {
@@ -456,6 +491,197 @@ test.describe('closed document source owners', () => {
 			pinnedDocuments: pinned,
 			pinAcquires: after.counters.pinAcquires,
 			archive: archive.suggestedFilename()
+		});
+	});
+
+	test('keeps tags, titles, backlinks, selection, scroll and the per-draft undo policy across eviction', async ({
+		page
+	}, testInfo) => {
+		test.setTimeout(240_000);
+		await resetAppState(page);
+		const targetName = 'Memory Target.md';
+		const sourceName = 'Memory Source.md';
+		const source = titledNote(
+			'Memory Source Title',
+			'memoire-source',
+			1_300_000,
+			'A link to [[Memory Target]].\n\n'
+		);
+		const target = titledNote('Memory Target Title', 'memoire-survit', 1_300_000);
+		await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles([
+			{ name: sourceName, mimeType: 'text/markdown', buffer: Buffer.from(source) },
+			{ name: targetName, mimeType: 'text/markdown', buffer: Buffer.from(target) }
+		]);
+		await expect(page.locator('aside li[aria-setsize]').first()).toHaveAttribute(
+			'aria-setsize',
+			'2'
+		);
+
+		const targetId = await page
+			.locator('aside button[data-file-id]')
+			.filter({ hasText: 'Memory Target Title' })
+			.first()
+			.getAttribute('data-file-id');
+		const sourceId = await page
+			.locator('aside button[data-file-id]')
+			.filter({ hasText: 'Memory Source Title' })
+			.first()
+			.getAttribute('data-file-id');
+		expect(targetId).toBeTruthy();
+		expect(sourceId).toBeTruthy();
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.logicalChars, { timeout: 30_000 })
+			.toBe(target.length);
+
+		// Accept one local edit and wait for the durable row before the close.
+		const marker = ' visit-target';
+		await page.locator('.cm-content').first().click();
+		await page.keyboard.press('ControlOrMeta+End');
+		await page.keyboard.insertText(marker);
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.logicalChars, { timeout: 30_000 })
+			.toBe(target.length + marker.length);
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.pending, { timeout: 30_000 })
+			.toBe(false);
+		const savedTarget = await storedByName(page, targetName);
+		expect(savedTarget).toBe(target + marker);
+
+		await page.keyboard.press('ControlOrMeta+End');
+		for (let index = 0; index < 5; index += 1) await page.keyboard.press('Shift+ArrowLeft');
+		await page.waitForTimeout(300);
+		const selected = await page.evaluate(() => window.getSelection()?.toString());
+		expect(selected).toBe('arget');
+		const scroller = page.locator('.cm-scroller').first();
+		await expect
+			.poll(() => scroller.evaluate((element) => element.scrollTop), { timeout: 10_000 })
+			.toBeGreaterThan(100);
+		const scrollBefore = await scroller.evaluate((element) => element.scrollTop);
+		expect(scrollBefore).toBeGreaterThan(100);
+
+		// Evict both notes: their bodies are above the closed body budget.
+		await page
+			.locator('aside')
+			.getByRole('button', { name: 'Fermer Memory Target Title', exact: true })
+			.click();
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.contentDeferred, {
+				timeout: 30_000
+			})
+			.toBe(true);
+		await page
+			.locator('aside')
+			.getByRole('button', { name: 'Fermer Memory Source Title', exact: true })
+			.click();
+		await expect
+			.poll(async () => (await memoryDocument(page, sourceId!))?.contentDeferred, {
+				timeout: 30_000
+			})
+			.toBe(true);
+		expect((await memoryDocument(page, targetId!))?.owners).toEqual([]);
+		expect((await memoryDocument(page, sourceId!))?.owners).toEqual([]);
+
+		// Title and tag live in the derived projection while the body is absent.
+		await page
+			.locator('aside')
+			.getByRole('button', { name: /^Bibliothèque de documents/ })
+			.click();
+		const library = page.getByRole('dialog', { name: /Bibliothèque de documents/ });
+		const filter = library.getByLabel('Filtrer par titre, nom de fichier ou tag');
+		await filter.fill('memoire-survit');
+		const targetRow = library.getByRole('button', { name: `Ouvrir ${targetName}` });
+		await expect(targetRow).toBeVisible();
+		await expect(library.getByRole('button', { name: `Ouvrir ${sourceName}` })).toBeHidden();
+		await filter.fill('Memory Target Title');
+		await expect(targetRow).toBeVisible();
+		await targetRow.click();
+
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.contentDeferred, {
+				timeout: 30_000
+			})
+			.toBe(false);
+		await expect(page.locator(`aside button[data-file-id="${targetId}"]`)).toHaveAttribute(
+			'aria-label',
+			/^Memory Target Title/
+		);
+		// The backlink target comes from the source body that was evicted too.
+		const backlinks = page.locator('aside nav[aria-label="Backlinks"]');
+		await expect(
+			backlinks.getByRole('button', { name: 'Ouvrir Memory Source Title' })
+		).toBeVisible();
+
+		await page.locator('.cm-content').first().focus();
+		await expect
+			.poll(() => page.evaluate(() => window.getSelection()?.toString()), { timeout: 30_000 })
+			.toBe(selected);
+		await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
+		const scrollAfter = await scroller.evaluate((element) => element.scrollTop);
+		expect(Math.abs(scrollAfter - scrollBefore)).toBeLessThanOrEqual(8);
+
+		// The restored per-draft history can undo only this note's own edit.
+		await page.keyboard.press('ControlOrMeta+z');
+		await expect.poll(() => storedByName(page, targetName)).toBe(target);
+		expect(await storedByName(page, sourceName)).toBe(source);
+		await page.keyboard.press('ControlOrMeta+Shift+z');
+		await expect.poll(() => storedByName(page, targetName)).toBe(savedTarget);
+
+		// A changed title must not come back from the older projection after the
+		// next eviction.
+		const renamed = savedTarget.replace(
+			'title: Memory Target Title',
+			'title: Renamed Memory Target'
+		);
+		const editor = page.locator('.cm-content').first();
+		await editor.click();
+		await page.keyboard.press('ControlOrMeta+Home');
+		await page.keyboard.press('ArrowDown');
+		await page.keyboard.press('Shift+End');
+		await page.keyboard.insertText('title: Renamed Memory Target');
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.logicalChars, { timeout: 60_000 })
+			.toBe(renamed.length);
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.pending, { timeout: 60_000 })
+			.toBe(false);
+		await page
+			.locator('aside')
+			.getByRole('button', { name: 'Fermer Renamed Memory Target', exact: true })
+			.click();
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.contentDeferred, {
+				timeout: 30_000
+			})
+			.toBe(true);
+		await page
+			.locator('aside')
+			.getByRole('button', { name: /^Bibliothèque de documents/ })
+			.click();
+		await filter.fill('Renamed Memory Target');
+		await expect(targetRow).toBeVisible();
+		await filter.fill('Memory Target Title');
+		await expect(targetRow).toBeHidden();
+		await filter.fill('memoire-survit');
+		await targetRow.click();
+		await expect
+			.poll(async () => (await memoryDocument(page, targetId!))?.contentDeferred, {
+				timeout: 30_000
+			})
+			.toBe(false);
+		expect(await exportExact(page)).toBe(renamed);
+
+		await attachEvidence(testInfo, 'document-memory-eviction-metadata.json', {
+			command:
+				'npx playwright test e2e/document-memory.spec.ts --project=chromium --workers=1 --retries=0',
+			targetChars: target.length,
+			sourceChars: source.length,
+			selected,
+			scrollBefore,
+			scrollAfter,
+			undoRestoredTarget: true,
+			sourceUnchangedByUndo: true,
+			renamedTitle: 'Renamed Memory Target',
+			browser: await page.evaluate(() => navigator.userAgent)
 		});
 	});
 });
