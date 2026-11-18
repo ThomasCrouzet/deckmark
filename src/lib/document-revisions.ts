@@ -191,7 +191,8 @@ export class DocumentRevisions {
 		if (METRICS)
 			performance.measure('mdsh:document-serialization', {
 				start: started,
-				end: performance.now()
+				end: performance.now(),
+				detail: { chars: text.length }
 			});
 		if (!this.isCurrent(revision)) return null;
 		const snapshot = { revision, text };

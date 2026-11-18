@@ -30,6 +30,22 @@ async function profilePause(): Promise<void> {
 	await new Promise<void>((resolve) => setTimeout(resolve, Math.min(500, Math.round(value))));
 }
 
+/** Local phase measure for the archive profile. */
+function profilePhase(kind: string, phase: string): () => void {
+	const start = performance.now();
+	return () => {
+		try {
+			performance.measure('mdsh:export-profile', {
+				start,
+				end: performance.now(),
+				detail: { kind, phase }
+			});
+		} catch {
+			// A failed diagnostic must not change the archive.
+		}
+	};
+}
+
 import { PROJECT_SCALE_LIMITS, projectDocumentLimit } from './project-limits';
 
 export const PROJECT_LIMITS = PROJECT_SCALE_LIMITS;
@@ -456,6 +472,7 @@ export async function buildProjectZip(
 	options: ProjectZipOptions = {}
 ): Promise<Blob> {
 	checkAborted(options.signal);
+	const planEnd = profilePhase('project-zip', 'plan');
 	const { default: JSZip } = await import('jszip');
 	const zip = new JSZip();
 	const entryOptions = options.date ? { date: options.date } : undefined;
@@ -645,6 +662,8 @@ export async function buildProjectZip(
 	}
 	// A throwing update callback stops the JSZip stream and rejects this
 	// promise. The archive never reaches the caller after a cancel.
+	planEnd();
+	const compressEnd = profilePhase('project-zip', 'compress');
 	const output = await zip.generateAsync(
 		{
 			type: 'arraybuffer',
@@ -657,10 +676,14 @@ export async function buildProjectZip(
 			options.onProgress?.({ phase: 'compress', completed: percent, total: 100, percent });
 		}
 	);
+	compressEnd();
 	checkAborted(options.signal);
 	const bytes = new Uint8Array(output);
 	checkZipDirectory(bytes);
-	return new Blob([bytes], { type: 'application/zip' });
+	const writeEnd = profilePhase('project-zip', 'write');
+	const blob = new Blob([bytes], { type: 'application/zip' });
+	writeEnd();
+	return blob;
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
