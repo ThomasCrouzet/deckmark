@@ -1,5 +1,66 @@
 # Desktop performance work
 
+## Revision and changed-span contract
+
+Issue [#345](https://github.com/ThomasCrouzet/deckmark/issues/345) coordinates
+the shared source revision record. The contract lives in `src/lib/source-edit.ts`.
+It is the only accepted revision shape for the large-file work.
+
+One accepted edit produces one `SourceEdit` record. The record holds:
+
+- `documentId` and `revision`, the source identity after the edit.
+- `baseRevision`, the revision that the previous span refers to.
+- `space`, either `editor-markdown` or `portable-source`.
+- `kind`, either `insert`, `replace` or `full`.
+- `previous` and `next`, the changed ranges in each snapshot.
+- `previousLength` and `nextLength`, when the producer knows the snapshot size.
+
+The visual editor records the `editor-markdown` space. Source and Code edits
+record the `portable-source` space. The canonical revision layer in
+`document-revisions.ts` records each accepted CodeMirror edit as it applies.
+One changed range stays exact. Multiple ranges become an explicit `full`
+revision. The length chain links each record to the next accepted revision. The
+metadata codec (#369) keeps its own accepted-span chain, and its Worker applies
+the spans with `applySourceTextSpans`.
+
+The contract has these rules:
+
+- A consumer applies a span only to the previous snapshot of the stated
+  `baseRevision` and `space`.
+- A consumer must take a full snapshot when `kind` is `full`, the base
+  revision differs, or the apply helper returns null.
+- A consumer must not compare complete sources again when the record is exact.
+- A 32-bit hash is not a source identity.
+- A rendered span stays in editor Markdown coordinates. A consumer on the
+  portable source maps the frontmatter and restoration boundary, or uses a
+  full fallback.
+
+Owner map: [#572](https://github.com/ThomasCrouzet/deckmark/issues/572) owns
+rendered source restoration, [#574](https://github.com/ThomasCrouzet/deckmark/issues/574)
+owns durable projections, [#369](https://github.com/ThomasCrouzet/deckmark/issues/369)
+owns metadata and statistics consumers, [#373](https://github.com/ThomasCrouzet/deckmark/issues/373)
+owns source release, and [#327](https://github.com/ThomasCrouzet/deckmark/issues/327)
+owns the cross-platform evidence.
+
+The instrumented build emits each accepted record on the
+`deckmark:editor-perf` event. The case installs a local collector that keeps the
+last records. A record holds the spans, both lengths and the coordinate space.
+It does not hold the source text. Run:
+
+```sh
+npx playwright test e2e/revision-contract.spec.ts --project=chromium \
+  --workers=1 --retries=0
+```
+
+The case checks a source edit, a coalesced source burst, a structural source
+edit and a rendered edit. It attaches `revision-contract.json` with the raw
+records, the fixture hash, the browser version and the source identity. This
+local Chromium run does not prove Firefox, WebKit, an installed PWA, a physical
+device or a native WebView result.
+
+The shared record adds 302 gzip bytes to the boot graph. The reviewed boot
+budget moves from 212000 to 212500 gzip bytes. No other mode budget changes.
+
 ## Cross-mode stress evidence
 
 Issue [#327](https://github.com/ThomasCrouzet/deckmark/issues/327) adds a separate

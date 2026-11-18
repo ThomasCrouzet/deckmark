@@ -6,6 +6,11 @@
 // restoration. A consumer that works on the portable source must map the span
 // across that materialization boundary, or use a full fallback. The contract
 // never claims that two coordinate spaces are equal.
+//
+// Source and Code edits use the same record in the `portable-source` space.
+// Their accepted CodeMirror change sets become one record per edit. A set with
+// one range stays exact. A set with several ranges becomes an explicit `full`
+// revision, so a consumer never patches derived state with a stale local range.
 
 export interface SourceSpan {
 	readonly from: number;
@@ -20,12 +25,22 @@ export type SourceEditKind = 'insert' | 'replace' | 'full';
 export interface SourceEdit {
 	readonly documentId: string;
 	readonly revision: number;
+	/**
+	 * Revision of the previous snapshot. Optional for producers that record one
+	 * publication at a time. A consumer must not reuse the span when this value
+	 * is present and does not equal the revision that it holds.
+	 */
+	readonly baseRevision?: number;
 	readonly space: SourceEditSpace;
 	readonly kind: SourceEditKind;
 	/** Replaced span in the previous snapshot. */
 	readonly previous: SourceSpan;
 	/** Replacement span in the next snapshot. */
 	readonly next: SourceSpan;
+	/** Length of the previous snapshot in this coordinate space. */
+	readonly previousLength?: number;
+	/** Length of the next snapshot in this coordinate space. */
+	readonly nextLength?: number;
 }
 
 /** The span shape that the incremental serializer and source fidelity emit. */

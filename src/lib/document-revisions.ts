@@ -44,12 +44,64 @@ interface Entry {
 	changes?: ChangeSet | null;
 	pending: boolean;
 	timer: ReturnType<typeof setTimeout> | null;
+	/** Length of the last accepted editor text. */
+	appliedLength: number;
 }
 
 // A removed or replaced document must never make an old handle current again.
 let generation = 0;
 const METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 const DELAY = 100;
+
+/**
+ * Builds the accepted record for one CodeMirror edit. One changed range stays
+ * exact. Multiple ranges become an explicit full revision. The length chain
+ * links each record to the next accepted revision.
+ */
+function sourceEditForChange(
+	documentId: string,
+	revision: number,
+	baseRevision: number,
+	changes: ChangeSet,
+	previousLength: number
+): SourceEdit {
+	let ranges = 0;
+	let from = 0;
+	let to = 0;
+	let inserted = 0;
+	let delta = 0;
+	changes.iterChanges((nextFrom, nextTo, _fromB, _toB, text) => {
+		ranges += 1;
+		from = nextFrom;
+		to = nextTo;
+		inserted = text.length;
+		delta += text.length - (nextTo - nextFrom);
+	});
+	if (ranges === 1 && previousLength >= 0) {
+		return {
+			documentId,
+			revision,
+			baseRevision,
+			space: 'portable-source',
+			kind: to > from ? 'replace' : 'insert',
+			previous: { from, to },
+			next: { from, to: from + inserted },
+			previousLength,
+			nextLength: previousLength + delta
+		};
+	}
+	return {
+		documentId,
+		revision,
+		baseRevision,
+		space: 'portable-source',
+		kind: 'full',
+		previous: { from: 0, to: Math.max(0, previousLength) },
+		next: { from: 0, to: Math.max(0, previousLength + delta) },
+		previousLength: Math.max(0, previousLength),
+		nextLength: Math.max(0, previousLength + delta)
+	};
+}
 
 export class DocumentRevisions {
 	private entries = new Map<string, Entry>();
@@ -69,7 +121,8 @@ export class DocumentRevisions {
 			snapshot: { revision, text },
 			edit: null,
 			pending: false,
-			timer: null
+			timer: null,
+			appliedLength: text.length
 		});
 		return revision;
 	}
@@ -91,12 +144,31 @@ export class DocumentRevisions {
 	apply(change: DocumentChange): DocumentRevision | null {
 		if (!this.isCurrent(change.base)) return null;
 		const entry = this.entries.get(change.base.fileId)!;
-		entry.revision = { fileId: change.base.fileId, generation: ++generation };
+		const revision = { fileId: change.base.fileId, generation: ++generation };
+		entry.revision = revision;
 		entry.read = change.readText;
 		entry.snapshot = null;
-		entry.edit = change.edits.kind === 'source-edit' ? change.edits.edit : null;
+		entry.edit = null;
 		entry.changes = change.edits.kind === 'codemirror' ? change.edits.changes : null;
 		entry.pending = true;
+		if (change.edits.kind === 'source-edit') {
+			entry.edit = change.edits.edit;
+			entry.appliedLength = change.edits.edit.nextLength ?? -1;
+		} else if (change.edits.kind === 'codemirror') {
+			const edit = sourceEditForChange(
+				revision.fileId,
+				revision.generation,
+				change.base.generation,
+				change.edits.changes,
+				entry.appliedLength
+			);
+			entry.edit = edit;
+			entry.appliedLength = edit.nextLength ?? -1;
+			if (METRICS)
+				window.dispatchEvent(
+					new CustomEvent('deckmark:editor-perf', { detail: { kind: 'edit', edit } })
+				);
+		}
 		if (METRICS) performance.mark('mdsh:document-edit');
 		entry.timer ??= setTimeout(() => {
 			entry.timer = null;
@@ -106,7 +178,7 @@ export class DocumentRevisions {
 				this.fail(error);
 			}
 		}, DELAY);
-		return entry.revision;
+		return revision;
 	}
 
 	snapshot(fileId: string): DocumentSnapshot | null {
@@ -125,6 +197,7 @@ export class DocumentRevisions {
 		const snapshot = { revision, text };
 		entry.snapshot = snapshot;
 		entry.read = () => text;
+		entry.appliedLength = text.length;
 		return snapshot;
 	}
 
