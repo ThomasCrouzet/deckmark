@@ -24,6 +24,7 @@
 	import { editorStateCache } from '#lib/editor-state.js';
 	import { stripFrontmatter } from '#lib/frontmatter.js';
 	import { SourceFidelity, type SourceFidelityHint } from '#lib/source-fidelity.js';
+	import { applyEditSpans, type DocumentEditSpan } from '#lib/edit-spans.js';
 	import {
 		createIncrementalMarkdown,
 		updateIncrementalMarkdown,
@@ -48,7 +49,7 @@
 		onChange: (markdown: string, fileId: string, edit?: SourceEdit) => void;
 		// A switch can precede the asynchronous Markdown callback. Flush to the
 		// captured outgoing file before the view is replaced.
-		onFlush?: (fileId: string, markdown: string) => void;
+		onFlush?: (fileId: string, markdown: string, edit?: SourceEdit) => void;
 	}
 
 	let { fileId, content, readonly = false, onChange, onFlush }: Props = $props();
@@ -63,6 +64,10 @@
 	let retryVersion = $state(0);
 	let mountToken = 0;
 	let lastEditorMarkdown = '';
+	// Exact changed span of the latest restore. The publish and flush paths
+	// send this one record to the store instead of letting each consumer
+	// compare the complete source again.
+	let lastRestoreSpan: DocumentEditSpan | null = null;
 	let updateExternalContent: ((markdown: string) => Promise<void>) | null = null;
 	let removeFlushListener: (() => void) | null = null;
 	let removeHistoryListener: (() => void) | null = null;
@@ -277,6 +282,7 @@
 		let fidelity: SourceFidelity | null = null;
 		const restoreMarkdown = (markdown: string, commit = true) =>
 			measureEditorStage('restoreMarkdown', () => {
+				lastRestoreSpan = null;
 				const hint =
 					commit && pendingHint?.markdown === markdown
 						? {
@@ -290,7 +296,19 @@
 				if (editorBaseline === null || markdown === editorBaseline) return sourceMarkdown;
 				const restored = roundTrip.restore(markdown, commit, hint);
 				const restoredHint = roundTrip.lastScopedHint ?? hint;
-				return frontmatter.raw + (fidelity?.restore(restored, commit, restoredHint) ?? restored);
+				const content = fidelity?.restore(restored, commit, restoredHint) ?? restored;
+				const scoped = fidelity?.lastScopedSpan;
+				if (commit && scoped) {
+					// Offsets in the restored body, shifted by the unchanged
+					// front-matter prefix. The inserted bytes are already known.
+					const prefix = frontmatter.raw.length;
+					lastRestoreSpan = {
+						from: scoped.previousFrom + prefix,
+						to: scoped.previousTo + prefix,
+						insert: content.slice(scoped.nextFrom, scoped.nextTo)
+					};
+				}
+				return frontmatter.raw + content;
 			});
 		lastEditorMarkdown = initial;
 		let alternativesSignature = '';
@@ -468,6 +486,38 @@
 			idleHandle = null;
 			idleKind = null;
 		};
+		// Validate the accepted span against the two published strings once, so
+		// a consumer can trust the record. This is a splice and a native string
+		// equality, not a search for the changed prefix and suffix.
+		const acceptedSourceEdit = (
+			previous: string,
+			next: string,
+			revision: number
+		): SourceEdit | null => {
+			const span = lastRestoreSpan;
+			if (!span || next === previous) {
+				recordEditorCounter('derivedSpanMissing');
+				return null;
+			}
+			if (applyEditSpans(previous, [span]) !== next) {
+				recordEditorCounter('derivedSpanRejected');
+				return null;
+			}
+			recordEditorCounter('derivedSpanAccepted');
+			return createSourceEdit(
+				idForMount,
+				revision,
+				'portable-source',
+				{
+					previousFrom: span.from,
+					previousTo: span.to,
+					nextFrom: span.from,
+					nextTo: span.from + span.insert.length
+				},
+				previous.length,
+				next.length
+			);
+		};
 		const cancelPendingWork = () => {
 			if (markdownTimer !== null) {
 				clearTimeout(markdownTimer);
@@ -494,7 +544,7 @@
 				const hint = pendingHint ? { ...pendingHint } : null;
 				const portableMarkdown = restoreMarkdown(markdown);
 				if (token !== mountToken || revision !== markdownRevision) return;
-				const edit = createSourceEdit(
+				const editorEdit = createSourceEdit(
 					idForMount,
 					revision,
 					'editor-markdown',
@@ -503,11 +553,12 @@
 					markdown.length
 				);
 				editorMarkdownSnapshot = markdown;
-				recordEditorEdit(edit);
+				recordEditorEdit(editorEdit);
+				const portableEdit = acceptedSourceEdit(lastEditorMarkdown, portableMarkdown, revision);
 				lastEditorMarkdown = portableMarkdown;
 				queueMicrotask(applyImageAlternatives);
-				if (token === mountToken) onChange(portableMarkdown, idForMount, edit);
-				else onFlush?.(idForMount, portableMarkdown);
+				if (token === mountToken) onChange(portableMarkdown, idForMount, portableEdit ?? undefined);
+				else onFlush?.(idForMount, portableMarkdown, portableEdit ?? undefined);
 			};
 			if (typeof window.requestIdleCallback === 'function') {
 				idleKind = 'idle';
@@ -1155,8 +1206,9 @@
 			try {
 				saveMountedPosition?.();
 				const markdown = restoreMarkdown(serializeIncrementalMarkdown());
+				const edit = acceptedSourceEdit(lastEditorMarkdown, markdown, markdownRevision);
 				lastEditorMarkdown = markdown;
-				onFlush?.(idForMount, markdown);
+				onFlush?.(idForMount, markdown, edit ?? undefined);
 				cancelPendingWork();
 			} catch (error) {
 				event.preventDefault();

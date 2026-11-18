@@ -1,7 +1,8 @@
 import { ImportSession, readDataUrl, type ImportOptions, type ImportReport } from './import-limits';
-import type { SourceEdit } from './source-edit';
+
 import { readPreference, writePreference } from './preferences';
 import { IMPORT_LIMITS } from './config';
+import type { SourceEdit } from './source-edit';
 import { browser } from '$app/env';
 import { db, newId } from './db';
 import type { DraftRow } from './db';
@@ -214,7 +215,7 @@ class FilesStore {
 		value: FileItem[];
 	} | null = null;
 	private savedRevisions = new Map<string, DocumentRevision>();
-	private documents: DocumentRevisions = new DocumentRevisions(
+	readonly documents: DocumentRevisions = new DocumentRevisions(
 		(snapshot) => {
 			const file = this.library.find((entry) => entry.id === snapshot.revision.fileId);
 			if (!file || !this.documents.isCurrent(snapshot.revision)) return;

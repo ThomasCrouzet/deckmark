@@ -33,6 +33,8 @@ interface Entry {
 	snapshot: DocumentSnapshot | null;
 	/** Latest accepted producer span for this revision. */
 	edit: SourceEdit | null;
+	/** Accepted CodeMirror change set for the latest revision. */
+	changes?: ChangeSet | null;
 	pending: boolean;
 	timer: ReturnType<typeof setTimeout> | null;
 }
@@ -74,6 +76,11 @@ export class DocumentRevisions {
 		return this.entries.get(fileId)?.edit ?? null;
 	}
 
+	/** Latest accepted CodeMirror change set of this file. */
+	editChanges(fileId: string): ChangeSet | null {
+		return this.entries.get(fileId)?.changes ?? null;
+	}
+
 	apply(change: DocumentChange): DocumentRevision | null {
 		if (!this.isCurrent(change.base)) return null;
 		const entry = this.entries.get(change.base.fileId)!;
@@ -81,6 +88,7 @@ export class DocumentRevisions {
 		entry.read = change.readText;
 		entry.snapshot = null;
 		entry.edit = change.edits.kind === 'source-edit' ? change.edits.edit : null;
+		entry.changes = change.edits.kind === 'codemirror' ? change.edits.changes : null;
 		entry.pending = true;
 		if (METRICS) performance.mark('mdsh:document-edit');
 		entry.timer ??= setTimeout(() => {
@@ -125,6 +133,23 @@ export class DocumentRevisions {
 		if (METRICS)
 			performance.measure('mdsh:document-derived', { start: started, end: performance.now() });
 		if (this.isCurrent(snapshot.revision)) entry.pending = false;
+		if (METRICS && entry.edit) {
+			try {
+				const at = performance.now();
+				performance.measure('mdsh:derived-edit', {
+					start: at,
+					end: at,
+					detail: {
+						id: fileId,
+						revision: entry.edit.revision,
+						space: entry.edit.space,
+						kind: entry.edit.kind
+					}
+				});
+			} catch {
+				// Diagnostics must not change the publication.
+			}
+		}
 		return snapshot;
 	}
 

@@ -1,52 +1,21 @@
-import type { ChangeSet } from '@codemirror/state';
 import { stripFrontmatter } from './frontmatter-fields';
 import type { MetadataSnapshot, MetadataSource } from './metadata-derive';
 import type { MetadataRequest } from './metadata.worker';
+import { composeEditSpans, spansOfEdits } from './edit-span-chain';
+import type { DocumentEditSpan } from './edit-spans';
+import type { DocumentEdits } from './document-revisions';
 
 /** One changed range in the previous content, with its replacement text. */
-export interface MetadataEdit {
-	/** Start offset in the previous content. */
-	from: number;
-	/** End offset in the previous content. */
-	to: number;
-	/** Text inserted at the range. */
-	insert: string;
-}
+export type MetadataEdit = DocumentEditSpan;
 
 /** One changed range against the original text, with its replacement. */
-export interface TextEditSpan {
-	readonly from: number;
-	readonly to: number;
-	readonly insert: string;
-}
+export type TextEditSpan = DocumentEditSpan;
 
 /**
  * A changed line can hold plain prose only. It cannot open or close a fence,
  * add a heading, front-matter key, wiki link, HTML marker or escape.
  */
 const PLAIN_LINE = /^[\p{L}\p{N}][\p{L}\p{N} ,.!?'’\-_*#]*$/u;
-
-/**
- * Combines accepted CodeMirror change sets into spans against the original
- * text. Returns null when the sets do not compose, so the caller falls back to
- * one full snapshot.
- */
-export function composeTextEdits(changes: readonly ChangeSet[]): TextEditSpan[] | null {
-	let composed: ChangeSet | null = null;
-	for (const change of changes) {
-		try {
-			composed = composed ? composed.compose(change) : change;
-		} catch {
-			return null;
-		}
-	}
-	if (!composed) return null;
-	const spans: TextEditSpan[] = [];
-	composed.iterChanges((from, to, _fromB, _toB, inserted) => {
-		spans.push({ from, to, insert: inserted.toString() });
-	});
-	return spans;
-}
 
 /**
  * Returns true when every changed line can only hold plain body text. Such a
@@ -117,7 +86,7 @@ export interface DeltaInput {
 	revision: number;
 	full: Extract<MetadataRequest, { kind: 'full' }>;
 	documentRevision: number | undefined;
-	chain: readonly { base: number; next: number; changes: ChangeSet }[] | undefined;
+	chain: readonly { base: number; next: number; edits: DocumentEdits }[] | undefined;
 	previous: Pick<MetadataSnapshot, 'content'> | undefined;
 	source: MetadataSource;
 }
@@ -137,8 +106,13 @@ export function buildRequest(input: DeltaInput): MetadataRequest {
 	}
 	if (!previous) return input.full;
 	const base = chain[0]!.base;
-	const spans = composeTextEdits(chain.map((record) => record.changes));
-	if (!spans) return input.full;
+	const lists = chain.map((record, index) =>
+		spansOfEdits(record.edits, index === chain.length - 1 ? input.source.content : undefined)
+	);
+	if (lists.some((record) => !record)) return input.full;
+	const composed = composeEditSpans(lists as readonly (readonly DocumentEditSpan[])[]);
+	if ('rejected' in composed) return input.full;
+	const spans = composed.spans;
 	const frontmatterEnd = stripFrontmatter(previous.content).raw.length;
 	if (!metadataEditReuse(previous.content, input.source.content, frontmatterEnd, spans))
 		return input.full;

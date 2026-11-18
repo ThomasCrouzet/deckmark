@@ -15,7 +15,6 @@
 // for display/export goes through async `parseFrontmatter` in frontmatter.ts.
 // Parity for the supported subset is covered in `meta-index.test.ts`.
 
-import type { ChangeSet } from '@codemirror/state';
 import type { FileItem } from './types';
 import { documentKindForFile } from './document-kind';
 import { stripMdExtension } from './file-utils';
@@ -32,7 +31,8 @@ const META_METRICS = import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1';
 interface EditRecord {
 	base: number;
 	next: number;
-	changes: ChangeSet;
+	/** Accepted edits in the source of `base`. */
+	edits: DocumentEdits;
 }
 
 /** Per-file cache entry. */
@@ -172,17 +172,12 @@ export class MetaIndex {
 	/**
 	 * Records one accepted editor change. The chain is usable while it stays
 	 * contiguous and ends at the published content revision. Only the compact
-	 * change set is retained; the editor state is not.
+	 * changed spans are retained; the editor state and the source are not.
 	 */
 	recordEdit(id: string, base: number, next: number, edits: DocumentEdits): void {
 		if (this.disposed) return;
-		const changes = edits.kind === 'codemirror' ? edits.changes : null;
-		if (!changes) {
-			this.editChains.delete(id);
-			return;
-		}
 		const current = this.editChains.get(id) ?? [];
-		current.push({ base, next, changes });
+		current.push({ base, next, edits });
 		this.editChains.set(id, current);
 	}
 
