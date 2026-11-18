@@ -633,10 +633,11 @@ was extended.
 
 The shard has one dependency path. The `e2e-build` job installs and saves
 `node_modules` first; the shards then restore that cache. At `848b597` all eight
-shards reported a cache hit and skipped the install step. A cold dependency
-install runs in `e2e-build` with `npm ci`. A cold-cache run and a warm-cache run
-at the final lane head both passed; the lane report records their run
-identifiers. A cold shard cache is not a separate path.
+shards reported a cache hit and skipped the install step. Run `44177684930` at
+`1f44711` started with no saved cache: `e2e-build` ran `npm ci`, and its eight
+shards restored the new cache and passed. The workflow file and the image pin
+are identical from `848b597` to `1f44711`, so these two runs exercise the two
+cache states of the same E2E setup. A cold shard cache is not a separate path.
 
 These are single uncontrolled pairs. They differ in event type, base revision,
 runner allocation and test duration. The test step and the benchmark step vary
