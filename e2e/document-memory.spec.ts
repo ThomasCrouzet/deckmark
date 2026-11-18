@@ -77,6 +77,33 @@ async function attachEvidence(testInfo: TestInfo, name: string, payload: unknown
 	});
 }
 
+/**
+ * Fails the durable write of a marked draft, so the case can prove that the
+ * source of a failed local write is kept. The flag starts disabled and the case
+ * turns it off before it retries the save.
+ */
+async function installDraftWriteFault(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const state = window as unknown as { __MDSH_FAIL_DRAFT_WRITES__?: boolean };
+		state.__MDSH_FAIL_DRAFT_WRITES__ = false;
+		const put = IDBObjectStore.prototype.put;
+		IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+			const row = value as { content?: string } | undefined;
+			if (
+				state.__MDSH_FAIL_DRAFT_WRITES__ &&
+				this.name === 'drafts' &&
+				typeof row?.content === 'string' &&
+				row.content.includes('FAILED-WRITE-MARKER')
+			) {
+				throw new DOMException('Injected quota failure', 'QuotaExceededError');
+			}
+			return arguments.length > 1
+				? put.call(this, value as never, key as never)
+				: put.call(this, value as never);
+		} as typeof put;
+	});
+}
+
 test.describe('closed document source owners', () => {
 	test.use({ locale: 'fr-FR' });
 
@@ -275,6 +302,160 @@ test.describe('closed document source owners', () => {
 			editedChars: edited.length,
 			closed,
 			browser: await page.evaluate(() => navigator.userAgent)
+		});
+	});
+
+	test('keeps the source of a failed local write and recovers it', async ({ page }, testInfo) => {
+		await installDraftWriteFault(page);
+		await resetAppState(page);
+		const content = `${largeNote('retention-fail', 1_200_000, 'memory-fail')}\nFAILED-WRITE-MARKER\n`;
+		await page.evaluate(() => {
+			(window as unknown as { __MDSH_FAIL_DRAFT_WRITES__?: boolean }).__MDSH_FAIL_DRAFT_WRITES__ =
+				true;
+		});
+		await seedFiles(page, [{ name: 'memory-fail.md', content }]);
+		const id = await openId(page);
+
+		await expect
+			.poll(async () => (await memoryDocument(page, id))?.logicalChars ?? 0, { timeout: 15_000 })
+			.toBe(content.length);
+		await expect(page.locator('#app-statusbar')).toContainText('Non enregistré localement');
+
+		// The write failed, so the source exists only in memory. A close must keep
+		// the body and the failure.
+		await page
+			.locator('aside')
+			.getByRole('button', { name: /^Fermer / })
+			.first()
+			.click();
+		await page.waitForTimeout(1200);
+		const closed = await memoryDocument(page, id);
+		expect(closed?.contentDeferred).toBe(false);
+		expect(closed?.logicalChars).toBe(content.length);
+		expect(closed?.state).toBe('pending');
+
+		await attachEvidence(testInfo, 'document-memory-failed-write.json', {
+			command:
+				'npx playwright test e2e/document-memory.spec.ts --project=chromium --workers=1 --retries=0',
+			failed: closed,
+			statusBar: await page.locator('#app-statusbar').innerText()
+		});
+
+		// A durable retry recovers the row, and the next close can release the body.
+		await page.evaluate(() => {
+			(window as unknown as { __MDSH_FAIL_DRAFT_WRITES__?: boolean }).__MDSH_FAIL_DRAFT_WRITES__ =
+				false;
+		});
+		await page
+			.locator('#app-statusbar')
+			.getByRole('button', { name: "Réessayer l'enregistrement" })
+			.click();
+		await expect
+			.poll(async () => (await memoryDocument(page, id))?.state, { timeout: 15_000 })
+			.toBe('durable');
+
+		await page.locator('aside summary', { hasText: 'Documents conservés' }).click();
+		await page
+			.locator('aside')
+			.getByRole('button', { name: 'memory-fail.md', exact: true })
+			.click();
+		await expect
+			.poll(async () => (await memoryDocument(page, id))?.contentDeferred, { timeout: 15_000 })
+			.toBe(false);
+		expect(await exportExact(page)).toBe(content);
+
+		await page
+			.locator('aside')
+			.getByRole('button', { name: /^Fermer / })
+			.first()
+			.click();
+		await expect
+			.poll(async () => (await memoryDocument(page, id))?.contentDeferred, { timeout: 15_000 })
+			.toBe(true);
+	});
+
+	test('holds every library body during a full export and releases it after', async ({
+		page
+	}, testInfo) => {
+		await resetAppState(page);
+		const bodies = Array.from({ length: 12 }, (_, index) => ({
+			name: `export-${String(index).padStart(2, '0')}.md`,
+			content: largeNote(`export-${index}`, 512 * 1024)
+		}));
+		await page.evaluate(async (rows) => {
+			await new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts', 'readwrite');
+					const store = transaction.objectStore('drafts');
+					const now = Date.now();
+					rows.forEach((row, index) => {
+						store.put({
+							id: `export-${index}`,
+							name: row.name,
+							content: row.content,
+							createdAt: now,
+							updatedAt: now,
+							order: index,
+							open: false
+						});
+					});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => {
+						database.close();
+						reject(transaction.error);
+					};
+				};
+			});
+		}, bodies);
+		await page.reload();
+		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
+			state: 'visible',
+			timeout: 15_000
+		});
+		await expect
+			.poll(
+				async () =>
+					(await memoryStats(page)).documents.filter((entry) => entry.contentDeferred).length,
+				{ timeout: 20_000 }
+			)
+			.toBeGreaterThanOrEqual(8);
+
+		const download = page.waitForEvent('download');
+		await page.getByRole('button', { name: 'Palette de commandes' }).click();
+		await page.keyboard.type('Exporter tous les fichiers');
+		await page.keyboard.press('Enter');
+
+		// The export pins every library body before it reads the rows. A close or
+		// another reclaim pass cannot release them while the archive is built.
+		await expect
+			.poll(
+				async () =>
+					(await memoryStats(page)).documents.filter((entry) => entry.state === 'pinned').length,
+				{ timeout: 15_000, intervals: [50, 50, 100] }
+			)
+			.toBeGreaterThan(0);
+		const pinned = (await memoryStats(page)).documents.filter(
+			(entry) => entry.state === 'pinned'
+		).length;
+		const archive = await download;
+		expect(archive.suggestedFilename()).toMatch(/\.zip$/);
+
+		const after = await memoryStats(page);
+		expect(after.documents.some((entry) => entry.state === 'pinned')).toBe(false);
+		expect(after.counters.pinAcquires).toBeGreaterThan(0);
+		await attachEvidence(testInfo, 'document-memory-export-pins.json', {
+			command:
+				'npx playwright test e2e/document-memory.spec.ts --project=chromium --workers=1 --retries=0',
+			libraryNotes: bodies.length,
+			pinnedDocuments: pinned,
+			pinAcquires: after.counters.pinAcquires,
+			archive: archive.suggestedFilename()
 		});
 	});
 });

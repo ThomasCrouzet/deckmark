@@ -743,8 +743,11 @@ Chromium heap values when the browser exposes them. The spec checks that a
 durable close releases every owner and that the reopened export keeps exact
 bytes. It seeds 12 closed notes of 512 KiB, reloads, and requires the closed
 body budget to hold with evicted owners at zero. It also checks a disk-dirty but
-durable note: the dirty flag stays and the body is released. These sizes are
-logical counts. They are not heap or RSS measurements.
+durable note: the dirty flag stays and the body is released. A failed local
+write keeps its body and its failure until a durable retry succeeds. A full
+library export pins every body and releases the pins when the archive is
+complete. These sizes are logical counts. They are not heap or RSS
+measurements.
 
 Run:
 
