@@ -18,6 +18,7 @@ import { validateMarkdownContent } from './import-limits';
 import { notify } from './notify.svelte';
 import { t } from './i18n';
 import { reportError } from './report';
+import { spinnerStore } from './spinner.svelte';
 
 export const PROJECT_DRAG_TYPE = 'application/x-mdsh-project';
 
@@ -180,21 +181,32 @@ export async function exportProject(projectId: string): Promise<boolean> {
 		})
 	);
 	if (!snapshot.project) throw new Error('Project no longer exists');
-	const { buildProjectZip } = await import('./project-io.js');
-	const blob = await buildProjectZip(
-		snapshot.project.name,
-		snapshot.documents.map((doc) => ({
-			id: doc.id,
-			relativePath: doc.relativePath!,
-			content: doc.content,
-			...(doc.kind ? { kind: doc.kind } : {}),
-			...(doc.mime ? { mime: doc.mime } : {}),
-			...(doc.data ? { data: doc.data } : {})
-		})),
-		snapshot.assets
-	);
-	const { triggerDownload, sanitizeFilename } = await import('./services/export');
-	return triggerDownload(blob, sanitizeFilename(`${snapshot.project.name}.zip`));
+	const controller = new AbortController();
+	const dismiss = spinnerStore.show(t('projects.exporting'), () => controller.abort());
+	try {
+		const { buildProjectZip } = await import('./project-io.js');
+		const blob = await buildProjectZip(
+			snapshot.project.name,
+			snapshot.documents.map((doc) => ({
+				id: doc.id,
+				relativePath: doc.relativePath!,
+				content: doc.content,
+				...(doc.kind ? { kind: doc.kind } : {}),
+				...(doc.mime ? { mime: doc.mime } : {}),
+				...(doc.data ? { data: doc.data } : {})
+			})),
+			snapshot.assets,
+			{ signal: controller.signal }
+		);
+		const { triggerDownload, sanitizeFilename } = await import('./services/export');
+		return triggerDownload(blob, sanitizeFilename(`${snapshot.project.name}.zip`));
+	} catch (error) {
+		// A cancelled archive stops at the next entry and publishes no file.
+		if (controller.signal.aborted) return false;
+		throw error;
+	} finally {
+		dismiss();
+	}
 }
 
 /** Reads the durable project snapshot without changing document content. */

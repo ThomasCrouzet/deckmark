@@ -9,7 +9,8 @@ import { resetAppState } from './helpers';
 // - the backup pipeline counters from the instrumented build,
 // - the longest main-thread task during the operation,
 // - typing and navigation while the operation runs,
-// - cancellation before any output is published.
+// - cancellation before any output is published,
+// - cancellation of a library ZIP and a documentation site ZIP.
 //
 // It does not prove native WebView, physical memory pressure or installed PWA
 // behavior. See docs/TESTING.md.
@@ -434,4 +435,119 @@ test('cancellation publishes no backup and preserves the corpus', async ({ page 
 		path: cancellationPath,
 		contentType: 'application/json'
 	});
+});
+
+test('library ZIP cancellation publishes no archive', async ({ page }, info) => {
+	test.setTimeout(120_000);
+	await resetAppState(page);
+	const corpus = await seedCorpus(page, {
+		textMiB: 8,
+		rows: 40,
+		assets: 2,
+		assetBytes: 256 * 1024,
+		projectDocuments: 2,
+		openFiles: 8
+	});
+	await page.reload();
+	await waitForReady(page);
+	await setPipelineDelay(page, 200);
+	let downloads = 0;
+	page.on('download', () => downloads++);
+
+	const openRows = page.locator('aside .mdsh-file-row button[data-file-id]');
+	await expect(openRows).toHaveCount(8);
+	for (let index = 0; index < 8; index++) {
+		await openRows.nth(index).click({ modifiers: ['Control'] });
+	}
+	await expect(page.locator('aside [aria-label="Actions sur la sélection"]')).toBeVisible();
+	await page
+		.locator('aside [aria-label="Actions sur la sélection"]')
+		.getByRole('button', { name: /ZIP/ })
+		.click();
+	await expect(spinner(page)).toBeVisible({ timeout: 10_000 });
+	await page.getByRole('button', { name: 'Annuler l’export' }).click();
+	await expect(spinner(page)).toHaveCount(0, { timeout: 10_000 });
+	await page.waitForTimeout(1500);
+	expect(downloads).toBe(0);
+
+	await setPipelineDelay(page, 0);
+	const zipPath = info.outputPath('selection.zip');
+	const retriedDownload = page.waitForEvent('download', { timeout: 120_000 });
+	await page
+		.locator('aside [aria-label="Actions sur la sélection"]')
+		.getByRole('button', { name: /ZIP/ })
+		.click();
+	const download = await retriedDownload;
+	await download.saveAs(zipPath);
+	expect(downloads).toBe(1);
+	const stream = await download.createReadStream();
+	const chunks: Buffer[] = [];
+	for await (const chunk of stream!) chunks.push(chunk);
+	const buffer = Buffer.concat(chunks);
+	expect(buffer.subarray(0, 2).toString('latin1')).toBe('PK');
+
+	const zipMetricsPath = info.outputPath('library-zip-cancellation.json');
+	await writeFile(
+		zipMetricsPath,
+		JSON.stringify({ corpus, downloads, bytes: buffer.byteLength }, null, 2)
+	);
+	await info.attach('library-zip-cancellation.json', {
+		path: zipMetricsPath,
+		contentType: 'application/json'
+	});
+	await info.attach('selection.zip', { path: zipPath, contentType: 'application/zip' });
+});
+
+test('documentation site cancellation publishes no archive', async ({ page }, info) => {
+	test.setTimeout(180_000);
+	await resetAppState(page);
+	await seedCorpus(page, {
+		textMiB: 4,
+		rows: 20,
+		assets: 2,
+		assetBytes: 128 * 1024,
+		projectDocuments: 6,
+		openFiles: 1
+	});
+	await page.reload();
+	await waitForReady(page);
+	await setPipelineDelay(page, 200);
+	let downloads = 0;
+	page.on('download', () => downloads++);
+
+	await page.getByTestId('projects-open').click();
+	const projects = page.getByRole('dialog', { name: 'Projets Markdown' });
+	await expect(
+		projects.getByRole('button', { name: 'Exporter le site de documentation' })
+	).toBeVisible();
+	await projects.getByRole('button', { name: 'Exporter le site de documentation' }).click();
+	const panel = page.getByTestId('docs-site-panel');
+	await expect(panel.getByTestId('docs-site-run')).toBeVisible();
+	await panel.getByTestId('docs-site-run').click();
+	await expect(panel.getByTestId('docs-site-busy')).toBeVisible({ timeout: 15_000 });
+	await panel.getByTestId('docs-site-cancel').click();
+	await expect(panel.getByTestId('docs-site-cancelled')).toBeVisible();
+	await page.waitForTimeout(1500);
+	expect(downloads).toBe(0);
+
+	await setPipelineDelay(page, 0);
+	const retriedDownload = page.waitForEvent('download', { timeout: 120_000 });
+	await panel.getByTestId('docs-site-run').click();
+	const download = await retriedDownload;
+	const zipPath = info.outputPath('docs-site.zip');
+	await download.saveAs(zipPath);
+	expect(downloads).toBe(1);
+	const stream = await download.createReadStream();
+	const chunks: Buffer[] = [];
+	for await (const chunk of stream!) chunks.push(chunk);
+	const buffer = Buffer.concat(chunks);
+	expect(buffer.subarray(0, 2).toString('latin1')).toBe('PK');
+
+	const metricsPath = info.outputPath('docs-site-cancellation.json');
+	await writeFile(metricsPath, JSON.stringify({ downloads, bytes: buffer.byteLength }, null, 2));
+	await info.attach('docs-site-cancellation.json', {
+		path: metricsPath,
+		contentType: 'application/json'
+	});
+	await info.attach('docs-site.zip', { path: zipPath, contentType: 'application/zip' });
 });

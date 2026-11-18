@@ -12,6 +12,7 @@ export const docsSiteFr: Record<DocsSiteMessageKey, string> = {
 	'docsSite.export': 'Exporter le site',
 	'docsSite.cancel': 'Annuler',
 	'docsSite.exporting': 'Rendu des pages et des ressources...',
+	'docsSite.exportingProgress': 'Création de l’archive… {percent} %',
 	'docsSite.empty': 'Créez un projet avant d’exporter un site de documentation.',
 	'docsSite.failed':
 		'L’export du site a échoué. Vérifiez les ressources signalées, puis réessayez.',

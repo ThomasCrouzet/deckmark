@@ -54,6 +54,7 @@ export const projectEn = {
 	'projects.importZip': 'Import project ZIP',
 	'projects.importFolder': 'Import folder',
 	'projects.export': 'Export project',
+	'projects.exporting': 'Building the project archive...',
 	'projects.exportUnsaved':
 		'The latest edits are not saved yet, so no ZIP was created. Retry after the save succeeds.',
 	'projects.checkLinks': 'Check links',
