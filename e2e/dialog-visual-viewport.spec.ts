@@ -105,6 +105,14 @@ async function openPalette(page: Page): Promise<Locator> {
 	return dialog;
 }
 
+async function openComments(page: Page): Promise<Locator> {
+	const palette = await openPalette(page);
+	await palette.getByRole('option', { name: /Open editorial comments/i }).click();
+	const dialog = page.getByTestId('comments-panel');
+	await expect(dialog).toBeVisible();
+	return dialog;
+}
+
 test.beforeEach(async ({ page }) => {
 	await installVisualViewport(page);
 	await resetAppState(page);
@@ -154,18 +162,21 @@ test('keeps dialog controls inside a shrinking visual viewport', async ({ page }
 		evidence.push({ dialog: 'settings', scrolled });
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
+		await expect(page.locator('.cm-content')).toBeFocused();
 	}
 
 	// Search: query, selection and results survive the viewport change.
 	{
 		const dialog = await openSearch(page);
 		const input = dialog.getByRole('combobox');
+		const result = dialog.getByRole('option').filter({ hasText: 'Review note' });
 		await input.fill('Review');
 		await input.evaluate((element: HTMLInputElement) => element.setSelectionRange(2, 4));
-		await expect(dialog.getByRole('option').filter({ hasText: 'Review note' })).toBeVisible();
+		await expect(result).toBeVisible();
 		await shrinkVisualViewport(page, 360, 160);
 		await expectInsideVisibleRegion(page, await dialogPanel(dialog));
 		await expectInsideVisibleRegion(page, input);
+		await expectInsideVisibleRegion(page, result);
 		await expectInsideVisibleRegion(
 			page,
 			dialog.getByRole('button', { name: 'Close', exact: true })
@@ -177,36 +188,46 @@ test('keeps dialog controls inside a shrinking visual viewport', async ({ page }
 				element.selectionEnd
 			])
 		).toEqual([2, 4]);
-		await expect(dialog.getByRole('option').filter({ hasText: 'Review note' })).toBeVisible();
+		await expect(result).toBeVisible();
 		await restoreVisualViewport(page);
 		await expectInsideVisibleRegion(page, await dialogPanel(dialog));
+		await expectInsideVisibleRegion(page, result);
 		evidence.push({ dialog: 'search', value: 'Review', selection: [2, 4] });
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
 		expect(await input.isVisible()).toBe(false);
+		await expect(page.locator('.cm-content')).toBeFocused();
 	}
 
-	// Command palette: the list and its close control stay reachable.
+	// Command palette: the query field, the first command and the close control
+	// stay reachable.
 	{
 		const dialog = await openPalette(page);
+		const input = dialog.getByRole('combobox');
+		await input.fill('settings');
+		const command = dialog.getByRole('option').first();
+		await expect(command).toBeVisible();
 		await shrinkVisualViewport(page, 340, 200);
 		await expectInsideVisibleRegion(page, await dialogPanel(dialog));
+		await expectInsideVisibleRegion(page, input);
+		await expectInsideVisibleRegion(page, command);
 		await expectInsideVisibleRegion(
 			page,
 			dialog.getByRole('button', { name: 'Close', exact: true })
 		);
+		await expect(input).toHaveValue('settings');
 		await restoreVisualViewport(page);
-		evidence.push({ dialog: 'palette' });
+		await expectInsideVisibleRegion(page, await dialogPanel(dialog));
+		evidence.push({ dialog: 'palette', value: 'settings' });
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
+		await expect(page.locator('.cm-content')).toBeFocused();
 	}
 
 	// Document library: the filter field and the close control stay reachable.
 	{
-		await page
-			.locator('aside')
-			.getByRole('button', { name: /^Document library/ })
-			.click();
+		const trigger = page.locator('aside').getByRole('button', { name: /^Document library/ });
+		await trigger.click();
 		const dialog = page.getByRole('dialog', { name: /^Document library/, exact: false });
 		await expect(dialog).toBeVisible();
 		const filter = dialog.getByRole('textbox');
@@ -224,6 +245,7 @@ test('keeps dialog controls inside a shrinking visual viewport', async ({ page }
 		evidence.push({ dialog: 'library', value: 'Review' });
 		await page.keyboard.press('Escape');
 		await expect(dialog).toBeHidden();
+		await expect(trigger).toBeFocused();
 	}
 
 	await info.attach('visual-viewport-dialogs.json', {
@@ -244,4 +266,86 @@ test('keeps dialog controls inside a shrinking visual viewport', async ({ page }
 		),
 		contentType: 'application/json'
 	});
+});
+
+test('keeps the comment form and its actions inside a shrinking visual viewport', async ({
+	page
+}, info) => {
+	await page.getByTestId('welcome-new').click();
+	await page.getByTestId('create-note').click();
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
+	await writeSourceContent(page, '# Review note\n\nA searchable review paragraph.\n');
+
+	const dialog = await openComments(page);
+	const backdrop = page.locator('.comments-backdrop');
+	const quote = dialog.getByTestId('comment-quote');
+	const body = dialog.getByTestId('comment-body');
+	const author = dialog.getByTestId('comment-author');
+	await quote.fill('A searchable review paragraph.');
+	await body.fill('Check the wording.');
+	await body.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(5, 14));
+	await author.fill('Reviewer');
+	await expect(page.locator('.mdsh-shell')).toHaveAttribute('inert', '');
+
+	// The keyboard shifts the visible region. The shared dialog contract must
+	// move and resize the comment overlay to the same region.
+	await shrinkVisualViewport(page, 360, 140);
+	await expect.poll(() => backdrop.evaluate((element) => element.style.height)).toBe('360px');
+	await expectInsideVisibleRegion(page, dialog);
+	await expectInsideVisibleRegion(page, author);
+	expect(
+		await body.evaluate((element: HTMLTextAreaElement) => [
+			element.selectionStart,
+			element.selectionEnd
+		])
+	).toEqual([5, 14]);
+
+	const close = dialog.getByRole('button', { name: 'Close', exact: true });
+	await expectInsideVisibleRegion(page, close);
+	for (let index = 0; index < 12; index += 1) {
+		await page.keyboard.press('Tab');
+		expect(
+			await page.evaluate(
+				() => document.activeElement?.closest('[data-testid="comments-panel"]') !== null
+			)
+		).toBe(true);
+	}
+
+	// The reviewed quote, the submit action and the new row stay reachable by
+	// scrolling inside the dialog.
+	await quote.scrollIntoViewIfNeeded();
+	await expectInsideVisibleRegion(page, quote);
+	const add = dialog.getByTestId('comment-add');
+	await add.scrollIntoViewIfNeeded();
+	await expectInsideVisibleRegion(page, add);
+	await add.click();
+	await expect(dialog).toContainText('Check the wording.');
+	const row = dialog.locator('article.comment').filter({ hasText: 'Check the wording.' });
+	await row.scrollIntoViewIfNeeded();
+	await expectInsideVisibleRegion(page, row);
+
+	// Closing the keyboard restores the full overlay and keeps the rows.
+	await restoreVisualViewport(page);
+	await expect.poll(() => backdrop.evaluate((element) => element.style.height)).toBe('');
+	await expectInsideVisibleRegion(page, dialog);
+	await expect(dialog).toContainText('Check the wording.');
+
+	await info.attach('visual-viewport-comments.json', {
+		body: JSON.stringify(
+			{
+				command:
+					'npx playwright test e2e/dialog-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0',
+				method: 'synthetic VisualViewport override, not a physical keyboard',
+				keyboard: { height: 360, offsetTop: 140 },
+				selection: [5, 14],
+				backgroundInert: true,
+				rows: 1
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	await page.keyboard.press('Escape');
+	await expect(dialog).toHaveCount(0);
 });
