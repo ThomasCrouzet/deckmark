@@ -416,8 +416,7 @@
 			onPresentingChange(false);
 			disposed = true;
 			clipboardShortcut = null;
-			thumbnailTouch = null;
-			slideDragIndex = null;
+			clearFilmstripGesture();
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
 			window.removeEventListener('mdsh:flush-editor', flush);
@@ -444,6 +443,8 @@
 	function go(index: number) {
 		textEdit.finish();
 		if (!editor.commit()) return;
+		// A pending filmstrip gesture belongs to the previous active slide.
+		clearFilmstripGesture();
 		editor.selectSlide(index);
 		gestures.resetView();
 	}
@@ -740,6 +741,8 @@
 	function present() {
 		if (editor.error || sourceOpen) return;
 		textEdit.finish();
+		// The filmstrip hides during playback, so no filmstrip gesture survives it.
+		clearFilmstripGesture();
 		presenting = true;
 		gestures.resetView();
 		void tick().then(() => root?.focus());
@@ -809,6 +812,10 @@
 		} catch (error) {
 			reportError('recover presentation copy', error, { notifyUser: t('storage.saveFailed') });
 		}
+	}
+	function clearFilmstripGesture() {
+		thumbnailTouch = null;
+		slideDragIndex = null;
 	}
 	function thumbnailPointerDown(event: PointerEvent, index: number) {
 		if (event.pointerType === 'touch')

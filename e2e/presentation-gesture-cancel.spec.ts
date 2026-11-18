@@ -95,12 +95,82 @@ async function touchRelease(page: Page, up: number, pointerId = 19): Promise<voi
 	);
 }
 
+async function tapThumbnail(page: Page, index: number, pointerId = 21): Promise<void> {
+	await page.evaluate(
+		({ index, pointerId }) => {
+			const target = Array.from(
+				document.querySelectorAll<HTMLElement>('[data-testid="slide-thumbnail"]')
+			)[index];
+			if (!target) throw new Error('The target thumbnail is absent.');
+			const rect = target.getBoundingClientRect();
+			const x = rect.left + rect.width / 2;
+			const y = rect.top + rect.height / 2;
+			const event = (type: string) =>
+				new PointerEvent(type, {
+					bubbles: true,
+					cancelable: true,
+					pointerId,
+					pointerType: 'touch',
+					isPrimary: true,
+					buttons: type === 'pointerup' ? 0 : 1,
+					clientX: x,
+					clientY: y
+				});
+			target.dispatchEvent(event('pointerdown'));
+			window.dispatchEvent(event('pointerup'));
+			target.dispatchEvent(
+				new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y })
+			);
+		},
+		{ index, pointerId }
+	);
+}
+
+async function scrollFilmstrip(
+	page: Page
+): Promise<{ axis: string; before: number; after: number }> {
+	return page.evaluate(() => {
+		const filmstrip = document.querySelector<HTMLElement>('.thumbnails');
+		if (!filmstrip) throw new Error('The filmstrip is absent.');
+		// The filmstrip is a vertical list in a wide editor and a horizontal
+		// list at compact width. Scroll along the axis that actually overflows.
+		const vertical = filmstrip.scrollHeight > filmstrip.clientHeight + 1;
+		const horizontal = !vertical && filmstrip.scrollWidth > filmstrip.clientWidth + 1;
+		if (!vertical && !horizontal)
+			throw new Error(
+				`The filmstrip cannot scroll: ${JSON.stringify({
+					scrollWidth: filmstrip.scrollWidth,
+					clientWidth: filmstrip.clientWidth,
+					scrollHeight: filmstrip.scrollHeight,
+					clientHeight: filmstrip.clientHeight
+				})}`
+			);
+		const before = horizontal ? filmstrip.scrollLeft : filmstrip.scrollTop;
+		const reachable = horizontal
+			? filmstrip.scrollWidth - filmstrip.clientWidth
+			: filmstrip.scrollHeight - filmstrip.clientHeight;
+		if (horizontal) filmstrip.scrollLeft = reachable;
+		else filmstrip.scrollTop = reachable;
+		return {
+			axis: horizontal ? 'horizontal' : 'vertical',
+			before,
+			after: horizontal ? filmstrip.scrollLeft : filmstrip.scrollTop
+		};
+	});
+}
+
 async function dragGesture(
 	page: Page,
-	options: { start: number; drop?: number | null; end?: boolean; escape?: boolean }
+	options: {
+		start: number;
+		drop?: number | null;
+		end?: boolean;
+		escape?: boolean;
+		outside?: boolean;
+	}
 ): Promise<void> {
 	await page.evaluate(
-		({ start, drop, end, escape }) => {
+		({ start, drop, end, escape, outside }) => {
 			const thumbnails = Array.from(
 				document.querySelectorAll<HTMLElement>('[data-testid="slide-thumbnail"]')
 			);
@@ -112,6 +182,14 @@ async function dragGesture(
 			);
 			if (escape)
 				window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+			if (outside) {
+				// Release the drag over the canvas, which is not a drop target.
+				const canvas = document.querySelector<HTMLElement>('[data-testid="slide-canvas"]');
+				if (!canvas) throw new Error('The slide canvas is absent.');
+				canvas.dispatchEvent(
+					new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer })
+				);
+			}
 			if (drop !== null && drop !== undefined) {
 				const target = thumbnails[drop];
 				if (!target) throw new Error('The target thumbnail is absent.');
@@ -175,6 +253,11 @@ test('drops a cancelled touch or native drag before unrelated input reorders sli
 	await unrelatedDrop(page, 1);
 	expect(await slideIds(editor)).toEqual(original);
 
+	// Releasing the drag outside every drop target ends it without a reorder.
+	await dragGesture(page, { start: 0, outside: true, end: true });
+	await unrelatedDrop(page, 1);
+	expect(await slideIds(editor)).toEqual(original);
+
 	// Escape during a native drag cancels it.
 	await dragGesture(page, { start: 0, escape: true, end: true });
 	await unrelatedDrop(page, 1);
@@ -221,6 +304,97 @@ test('drops a cancelled touch or native drag before unrelated input reorders sli
 		),
 		contentType: 'application/json'
 	});
+});
+
+test('keeps the slide order on a tap and a filmstrip scroll', async ({ page }) => {
+	const fixture = presentationFixture(
+		Array.from({ length: 12 }, (_, index) => `# Slide ${index + 1}`)
+	);
+	await importMarkdown(page, fixture);
+	const editor = await waitForPresentation(page);
+	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(12);
+	const original = await slideIds(editor);
+
+	// A touch tap selects a slide. The pointer moves less than the reorder
+	// threshold, so it must not change the order.
+	await tapThumbnail(page, 2);
+	await expect(editor.getByTestId('slide-thumbnail').nth(2)).toHaveAttribute(
+		'aria-current',
+		'true'
+	);
+	expect(await slideIds(editor)).toEqual(original);
+
+	// Scrolling the filmstrip in either layout changes only its own offset.
+	const scroll = await scrollFilmstrip(page);
+	await expect
+		.poll(() =>
+			page.evaluate(() => {
+				const filmstrip = document.querySelector<HTMLElement>('.thumbnails');
+				if (!filmstrip) return 0;
+				return Math.max(filmstrip.scrollTop, filmstrip.scrollLeft);
+			})
+		)
+		.toBeGreaterThan(0);
+	expect(scroll.after).toBeGreaterThan(scroll.before);
+	expect(await slideIds(editor)).toEqual(original);
+	await expect(editor.getByTestId('slide-thumbnail').nth(2)).toHaveAttribute(
+		'aria-current',
+		'true'
+	);
+
+	// A compact editor uses the horizontal filmstrip. Its scroll must also
+	// leave the order and the active slide unchanged.
+	await page.setViewportSize({ width: 900, height: 800 });
+	await expect
+		.poll(() => editor.evaluate((element) => element.getBoundingClientRect().width))
+		.toBeLessThan(800);
+	const compactScroll = await scrollFilmstrip(page);
+	expect(compactScroll.axis).toBe('horizontal');
+	expect(compactScroll.after).toBeGreaterThan(0);
+	expect(await slideIds(editor)).toEqual(original);
+	await expect(editor.getByTestId('slide-thumbnail').nth(2)).toHaveAttribute(
+		'aria-current',
+		'true'
+	);
+
+	// The same order survives a reload.
+	await expect(editor.locator('.save-state')).toHaveText('saved', { timeout: 10_000 });
+	await page.reload();
+	const reopened = await waitForPresentation(page);
+	expect(await slideIds(reopened)).toEqual(original);
+});
+
+test('discards a pending thumbnail touch when the active slide changes', async ({ page }) => {
+	const fixture = presentationFixture(['# Alpha', '# Beta', '# Gamma']);
+	await importMarkdown(page, fixture);
+	const editor = await waitForPresentation(page);
+	await expect(editor.getByTestId('slide-thumbnail')).toHaveCount(3);
+	const original = await slideIds(editor);
+
+	// Leave a touch origin pending, then switch the active slide with another
+	// input. The pending origin belongs to the previous slide context.
+	await touchGesture(page, { down: 0 });
+	await editor.getByTestId('slide-thumbnail').nth(2).click();
+	await expect(editor.getByTestId('slide-thumbnail').nth(2)).toHaveAttribute(
+		'aria-current',
+		'true'
+	);
+
+	// A later terminal event for the old pointer identifier must not reorder.
+	await touchRelease(page, 1, 19);
+	expect(await slideIds(editor)).toEqual(original);
+	await expect(editor.getByTestId('slide-thumbnail').nth(2)).toHaveAttribute(
+		'aria-current',
+		'true'
+	);
+
+	// A new touch drag still reorders the intended slide once.
+	await touchGesture(page, { down: 0, up: 1 });
+	await expect
+		.poll(async () => await slideIds(editor), { timeout: 5_000 })
+		.toEqual([original[1], original[0], original[2]]);
+	await editor.getByTestId('slide-undo').click();
+	await expect.poll(async () => await slideIds(editor)).toEqual(original);
 });
 
 test('drops a pending thumbnail touch when the editor unmounts', async ({ page }) => {
