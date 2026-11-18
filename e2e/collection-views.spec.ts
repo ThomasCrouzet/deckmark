@@ -713,6 +713,8 @@ test('keeps saved views consistent when localStorage rejects writes', async ({
 	await page.getByTestId('collection-save-view').click();
 	await expect(error).toHaveCount(0);
 	await expect(selector).toContainText('Rapid');
+	await expect(selector.locator('option')).toHaveCount(3);
+	await expect(selector.locator('option', { hasText: 'Rapid' })).toHaveCount(1);
 	const after = JSON.parse((await stored()) ?? '[]') as Array<{ name: string }>;
 	expect(after.map((view) => view.name)).toEqual(['Stable', 'Rapid']);
 
@@ -729,6 +731,38 @@ test('keeps saved views consistent when localStorage rejects writes', async ({
 	await expect(page.getByTestId('collection-group')).toHaveValue('status');
 	await expect(page.getByTestId('collection-board')).toBeVisible();
 	await expect(page.getByTestId('collection-table')).toHaveCount(0);
+	await expect(restored.locator('option')).toHaveCount(3);
+
+	// A rejected delete keeps the view and its selection. The retry removes it
+	// once and leaves no phantom option.
+	const stableValue = await restored.inputValue();
+	const storedBeforeDelete = await stored();
+	expect(stableValue).not.toBe('');
+	await setWriteFailure(true);
+	await deleteButton.click();
+	await expect(error).toBeVisible();
+	await expect(restored.locator(`option[value="${stableValue}"]`)).toHaveCount(1);
+	await expect(restored).toHaveValue(stableValue);
+	expect(await stored()).toBe(storedBeforeDelete);
+
+	await setWriteFailure(false);
+	await deleteButton.click();
+	await expect(error).toHaveCount(0);
+	await expect(restored).not.toContainText('Stable');
+	await expect(restored.locator(`option[value="${stableValue}"]`)).toHaveCount(0);
+	await expect(restored).toHaveValue('');
+	await expect(deleteButton).toHaveCount(0);
+	await expect(restored.locator('option')).toHaveCount(2);
+	const afterDelete = (JSON.parse((await stored()) ?? '[]') as Array<{ name: string }>).map(
+		(view) => view.name
+	);
+	expect(afterDelete).toEqual(['Rapid']);
+
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	await openCollection(page);
+	await expect(page.getByTestId('collection-views')).toContainText('Rapid');
+	await expect(page.getByTestId('collection-views')).not.toContainText('Stable');
 
 	expect(failures).toEqual([]);
 	expect(await rejections()).toEqual([]);
@@ -737,6 +771,7 @@ test('keeps saved views consistent when localStorage rejects writes', async ({
 		result: {
 			storedBefore: JSON.parse(before ?? '[]'),
 			storedAfter: after,
+			storedAfterDelete: afterDelete,
 			pageErrors: failures,
 			unhandledRejections: await rejections()
 		}

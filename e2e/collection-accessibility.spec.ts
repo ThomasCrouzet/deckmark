@@ -169,19 +169,72 @@ test('keeps a persistent accessible name on the view name field', async ({
 	expect(boardBounds.left).toBeGreaterThanOrEqual(0);
 	expect(boardBounds.right).toBeLessThanOrEqual(400);
 
+	// A 200 percent CSS zoom keeps the same focus order and a visible field.
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.evaluate(() => {
+		document.documentElement.style.zoom = '2';
+	});
+	await expect(restored).toHaveAccessibleName('Nom de la vue');
+	await selector.focus();
+	await page.keyboard.press('Tab');
+	await expect(restored).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(saveButton).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(deleteButton).toBeFocused();
+	const zoomBounds = await field.evaluate((element) => {
+		const rect = element.getBoundingClientRect();
+		return { left: rect.left, right: rect.right, width: rect.width };
+	});
+	expect(zoomBounds.width).toBeGreaterThan(0);
+	expect(zoomBounds.left).toBeGreaterThanOrEqual(0);
+	expect(zoomBounds.right).toBeLessThanOrEqual(1280);
+
+	// The table view keeps the same traversal at a narrow phone width.
+	await page.evaluate(() => {
+		document.documentElement.style.zoom = '';
+	});
+	await page.setViewportSize({ width: 375, height: 720 });
+	await page.getByRole('button', { name: 'Tableau', exact: true }).click();
+	await expect(page.getByTestId('collection-table')).toBeVisible();
+	await selector.focus();
+	await page.keyboard.press('Tab');
+	await expect(restored).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(saveButton).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(deleteButton).toBeFocused();
+	const narrowBounds = await field.evaluate((element) => {
+		const rect = element.getBoundingClientRect();
+		return { left: rect.left, right: rect.right, width: rect.width };
+	});
+	expect(narrowBounds.width).toBeGreaterThan(0);
+	expect(narrowBounds.left).toBeGreaterThanOrEqual(0);
+	expect(narrowBounds.right).toBeLessThanOrEqual(375);
+
 	await writeArtifact('collection-view-name-label.json', {
-		fixture: { notes: oneNote.length, tableViewport: '520x720', boardViewport: '400x720' },
+		fixture: {
+			notes: oneNote.length,
+			tableViewport: '520x720',
+			boardViewport: '400x720',
+			narrowViewport: '375x720',
+			zoom: '200 percent CSS zoom at 1280x900'
+		},
 		result: {
 			accessibleName: 'Nom de la vue',
 			tableTraversal: ['savedViews', 'viewName', 'saveView', 'deleteView'],
 			boardTraversal: ['savedViews', 'viewName', 'saveView', 'deleteView'],
+			zoomTraversal: ['savedViews', 'viewName', 'saveView', 'deleteView'],
+			narrowTraversal: ['savedViews', 'viewName', 'saveView', 'deleteView'],
 			tableBounds,
 			boardBounds,
+			zoomBounds,
+			narrowBounds,
 			restoredValue: await restored.inputValue()
 		}
 	});
 	await info.attach('collection-view-name-label.json', {
-		body: JSON.stringify({ tableBounds, boardBounds }, null, 2),
+		body: JSON.stringify({ tableBounds, boardBounds, zoomBounds, narrowBounds }, null, 2),
 		contentType: 'application/json'
 	});
 });
@@ -343,6 +396,121 @@ test('reports logical ARIA indices in the virtualized table', async ({ page }, i
 	expect(resizedYaml.map((header) => Number(header.index))).toEqual(
 		resizedYaml.map((header) => 2 + a11yColumns.indexOf(header.text))
 	);
+
+	const visibleHeaders = () =>
+		table.locator('thead th').evaluateAll((cells) =>
+			cells
+				.filter((cell) => cell.getAttribute('aria-hidden') !== 'true')
+				.map((cell) => ({
+					text: cell.textContent?.trim() ?? '',
+					index: Number(cell.getAttribute('aria-colindex'))
+				}))
+		);
+	const expectLogicalHeaderIndices = (headers: Array<{ text: string; index: number }>) => {
+		expect(headers[0]?.index).toBe(1);
+		expect(headers.slice(1).map((header) => header.index)).toEqual(
+			headers.slice(1).map((header) => 2 + a11yColumns.indexOf(header.text))
+		);
+	};
+
+	// Keep the logical indices correct when a resize and a sort follow an
+	// off-screen column window. The earlier resize ran after the filter reset
+	// the window to the first group.
+	await body.evaluate((element) => {
+		element.scrollLeft = 26 * 140;
+	});
+	await expect
+		.poll(async () => (await table.locator('thead th').allTextContents()).includes('field32'))
+		.toBe(true);
+	const windowedHeaders = await visibleHeaders();
+	expect(windowedHeaders.slice(1)[0]?.text).not.toBe('field00');
+	expect(windowedHeaders.slice(1)[0]?.index).toBeGreaterThan(2);
+	expectLogicalHeaderIndices(windowedHeaders);
+
+	await page.setViewportSize({ width: 1280, height: 800 });
+	const resizeAfterScroll = await visibleHeaders();
+	expect(resizeAfterScroll.slice(1)[0]?.text).not.toBe('field00');
+	expectLogicalHeaderIndices(resizeAfterScroll);
+	await page.setViewportSize({ width: 640, height: 720 });
+	const narrowAfterScroll = await visibleHeaders();
+	expect(narrowAfterScroll.slice(1)[0]?.text).not.toBe('field00');
+	expectLogicalHeaderIndices(narrowAfterScroll);
+
+	await page.getByTestId('collection-sort').selectOption('field10');
+	await expect
+		.poll(async () => (await table.locator('thead th').allTextContents()).includes('field00'))
+		.toBe(true);
+	const sortedHeaders = await visibleHeaders();
+	expectLogicalHeaderIndices(sortedHeaders);
+	expect(sortedHeaders.slice(1)[0]?.index).toBe(2);
+	await expect(table).toHaveAttribute('aria-rowcount', String(A11Y_NOTE_COUNT + 1));
+	await expect(table.locator('tbody tr:not(.spacer)').first()).toHaveAttribute(
+		'aria-rowindex',
+		'2'
+	);
+
+	await body.evaluate((element) => {
+		element.scrollLeft = element.scrollWidth;
+	});
+	await expect
+		.poll(async () => (await table.locator('thead th').allTextContents()).includes('title'))
+		.toBe(true);
+	const rescrolledHeaders = await visibleHeaders();
+	expectLogicalHeaderIndices(rescrolledHeaders);
+	expect(rescrolledHeaders.slice(1)[0]?.text).not.toBe('field00');
+
+	// Spacer cells and rows stay out of the accessibility tree and carry no
+	// logical position or text.
+	const spacerCells = await table.locator('th.spacer, td.spacer').evaluateAll((cells) =>
+		cells.map((cell) => ({
+			text: cell.textContent?.trim() ?? '',
+			index: cell.getAttribute('aria-colindex'),
+			hidden: cell.getAttribute('aria-hidden')
+		}))
+	);
+	expect(spacerCells.length).toBeGreaterThan(0);
+	for (const spacer of spacerCells) {
+		expect(spacer.text).toBe('');
+		expect(spacer.index).toBeNull();
+		expect(spacer.hidden).toBe('true');
+	}
+	const spacerRowData = await table.locator('tr.spacer').evaluateAll((elements) =>
+		elements.map((element) => ({
+			text: element.textContent?.trim() ?? '',
+			index: element.getAttribute('aria-rowindex'),
+			hidden: element.getAttribute('aria-hidden')
+		}))
+	);
+	for (const spacer of spacerRowData) {
+		expect(spacer.text).toBe('');
+		expect(spacer.index).toBeNull();
+		expect(spacer.hidden).toBe('true');
+	}
+
+	const windowSnapshot = await table.ariaSnapshot();
+	const snapshotHeaders = windowSnapshot
+		.split('\n')
+		.map((line) => line.trim())
+		.filter((line) => line.startsWith('- columnheader'))
+		.map((line) => line.replace(/^- columnheader\s+/, '').replace(/^"|"$/g, ''));
+	expect(snapshotHeaders).toEqual(rescrolledHeaders.map((header) => header.text));
+	expect(snapshotHeaders).not.toContain('');
+	expect(windowSnapshot).not.toContain('field00');
+
+	// Keyboard activation opens the logical row that the virtual window shows.
+	const headerRowIndex = await headerRow.getAttribute('aria-rowindex');
+	const firstVisibleRow = table.locator('tbody tr:not(.spacer)').first();
+	const firstVisibleTitle = (await firstVisibleRow.locator('th button').innerText()).trim();
+	const firstVisibleNote = Number(firstVisibleTitle.replace('Note ', ''));
+	expect(Number.isFinite(firstVisibleNote)).toBe(true);
+	await expect(firstVisibleRow).toHaveAttribute('aria-rowindex', String(firstVisibleNote + 2));
+	await expect(firstVisibleRow.locator('th[scope="row"]')).toHaveAttribute('aria-colindex', '1');
+	const rowButton = firstVisibleRow.locator('th button');
+	await rowButton.focus();
+	await expect(rowButton).toBeFocused();
+	await page.keyboard.press('Enter');
+	await expect(page.getByTestId('collection-panel')).toHaveCount(0);
+	await expect(page.locator('.cm-content')).toContainText(`title: Note ${firstVisibleNote}`);
 	expect(failures).toEqual([]);
 
 	const result = {
@@ -350,7 +518,7 @@ test('reports logical ARIA indices in the virtualized table', async ({ page }, i
 		result: {
 			rowcount: A11Y_NOTE_COUNT + 1,
 			colcount: a11yColumns.length + 1,
-			headerRowIndex: await headerRow.getAttribute('aria-rowindex'),
+			headerRowIndex,
 			firstRenderedYamlHeader: renderedHeaders[0]?.text,
 			yamlHeaderIndices,
 			rowSamples: rowData.slice(0, 3),
@@ -358,6 +526,15 @@ test('reports logical ARIA indices in the virtualized table', async ({ page }, i
 			filteredRowcount: 2,
 			filteredFirstColumnIndex: filteredYaml[0]?.index,
 			resizedColumnCount: resizedHeaders.length,
+			windowedHeaders,
+			resizeAfterScroll,
+			narrowAfterScroll,
+			sortedHeaders,
+			rescrolledHeaders,
+			spacerCells: spacerCells.length,
+			spacerRows: spacerRowData.length,
+			snapshotHeaders,
+			keyboardActivatedNote: firstVisibleNote,
 			pageErrors: failures
 		}
 	};
@@ -367,4 +544,8 @@ test('reports logical ARIA indices in the virtualized table', async ({ page }, i
 		contentType: 'application/json'
 	});
 	await info.attach('collection-aria-tree.yaml', { body: snapshot, contentType: 'text/yaml' });
+	await info.attach('collection-aria-window-tree.yaml', {
+		body: windowSnapshot,
+		contentType: 'text/yaml'
+	});
 });
