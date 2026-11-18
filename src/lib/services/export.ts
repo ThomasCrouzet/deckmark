@@ -22,12 +22,7 @@ import { IMPORT_LIMITS, MAX_IMAGE_BYTES } from '../config';
 import { isPresentation } from '../presentation/detect';
 import { documentKindForFile, isBinaryDocument } from '../document-kind';
 import { activeProfile, applyExportProfile } from '../export-profiles';
-import {
-	EXPORT_BATCH_POLICY,
-	yieldToMainThread,
-	type ExportProgressReporter
-} from '../export-pipeline';
-import { generateZipBytes } from '../zip-archive';
+import type { ExportProgressReporter } from '../export-pipeline';
 
 export interface MediaExportOptions {
 	allowNetworkImages?: boolean;
@@ -420,6 +415,10 @@ export async function exportZip(
 		return false;
 	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');
 	const encoder = new TextEncoder();
+	const [{ EXPORT_BATCH_POLICY, yieldToMainThread }, { generateZipBytes }] = await Promise.all([
+		import('../export-pipeline'),
+		import('../zip-archive')
+	]);
 	let inputBytes = 0;
 	let entries = files.length;
 	let processed = 0;

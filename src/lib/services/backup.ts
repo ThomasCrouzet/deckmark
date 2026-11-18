@@ -37,13 +37,7 @@ import { documentKind } from '../document-kind';
 import { imageMime, pathKey, projectPath } from '../project-paths';
 import { MAX_SNIPPETS, normalizeSnippetRow, validSnippetRow } from '../snippets';
 import { checkAborted, isAbortError } from '../abort';
-import {
-	EXPORT_BATCH_POLICY,
-	ExportPipelineRun,
-	readKeyBatches,
-	yieldToMainThread,
-	type ExportProgressReporter
-} from '../export-pipeline';
+import type { ExportPipelineRun, ExportProgressReporter } from '../export-pipeline';
 
 export const BACKUP_FORMAT = 'mdsh-backup';
 export const BACKUP_SCHEMA_VERSION = 2;
@@ -293,6 +287,8 @@ export async function collectBackup(
 	now = Date.now(),
 	options: BackupCollectOptions = {}
 ): Promise<BackupFile> {
+	const { ExportPipelineRun, EXPORT_BATCH_POLICY, readKeyBatches } =
+		await import('../export-pipeline');
 	const run = options.run ?? new ExportPipelineRun('backup-collect');
 	const signal = options.signal;
 	const encoder = new TextEncoder();
@@ -589,6 +585,8 @@ export async function serializeBackupBounded(
 	backup: BackupFile,
 	options: BackupEncodeOptions = {}
 ): Promise<string[]> {
+	const { ExportPipelineRun, EXPORT_BATCH_POLICY, yieldToMainThread } =
+		await import('../export-pipeline');
 	const run = options.run ?? new ExportPipelineRun('backup-encode');
 	const expected = estimateBackupChars(backup);
 	const output: string[] = [];
@@ -1675,6 +1673,7 @@ export async function downloadBackup(
 	options: BackupExportOptions = {}
 ): Promise<boolean> {
 	if (typeof document === 'undefined') return false;
+	const { ExportPipelineRun } = await import('../export-pipeline');
 	const run = new ExportPipelineRun('backup');
 	try {
 		await ensureDurable();

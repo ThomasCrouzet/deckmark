@@ -28,13 +28,6 @@
 	import { workspaceStore } from '#lib/workspaces.svelte.js';
 	import { templatesStore } from '#lib/templates.svelte.js';
 	import { snippetsStore } from '#lib/snippets.svelte.js';
-	import {
-		downloadBackup,
-		restoreFromText,
-		isEncryptedBackup,
-		inspectBackupText,
-		serializeBackup
-	} from '#lib/services/backup.js';
 	import { version } from '../../../package.json';
 	import { publicHostInfo } from '#lib/host.js';
 	import { editionManifest } from '#lib/edition.js';
@@ -491,6 +484,7 @@
 		successMessage: string,
 		failureMessage: string
 	): Promise<void> {
+		const { downloadBackup } = await import('#lib/services/backup.js');
 		const controller = new AbortController();
 		const dismiss = spinnerStore.show(t('settings.exportingBackup'), () => controller.abort());
 		let percent = -1;
@@ -550,6 +544,10 @@
 	}
 
 	async function restoreBackupText(text: string, verifyOnly = false): Promise<void> {
+		// The backup service stays out of the boot bundle. A restore is a user
+		// action, so the module is loaded on demand.
+		const { isEncryptedBackup, inspectBackupText, serializeBackup, restoreFromText } =
+			await import('#lib/services/backup.js');
 		// §2.8 - Encrypted backup: ask for the passphrase first.
 		let passphrase: string | undefined;
 		if (isEncryptedBackup(text)) {

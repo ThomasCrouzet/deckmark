@@ -4,7 +4,6 @@
 
 import { abortable, checkAborted } from '../abort';
 import type { ExportProgressReporter } from '../export-pipeline';
-import { generateZipBytes } from '../zip-archive';
 import {
 	docsSiteIssue,
 	mergeIssues,
@@ -101,7 +100,10 @@ async function buildZip(
 	signal?: AbortSignal,
 	onProgress?: ExportProgressReporter
 ): Promise<Blob> {
-	const { default: JSZip } = await import('jszip');
+	const [{ default: JSZip }, { generateZipBytes }] = await Promise.all([
+		import('jszip'),
+		import('../zip-archive')
+	]);
 	const zip = new JSZip();
 	const ordered = files.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	for (const file of ordered) {

@@ -8,11 +8,6 @@
 // The store keeps only one-liner delegations.
 
 import { browser } from '$app/env';
-import {
-	exportHTML as exportHTMLService,
-	exportPDF as exportPDFService,
-	exportZip as exportZipService
-} from './services/export';
 import { spinnerStore } from './spinner.svelte';
 import { t } from '#lib/i18n/index.js';
 import { notify } from './notify.svelte';
@@ -91,6 +86,7 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 	if (!browser) return;
 	const snapshot = deps.getFiles().map((file) => ({ ...file }));
 	if (snapshot.length === 0) return;
+	const { exportZip: exportZipService } = await import('./services/export');
 	const controller = new AbortController();
 	const dismiss = spinnerStore.show(t('export.creatingZip'), () => controller.abort());
 	try {
@@ -135,6 +131,7 @@ export async function exportAllZip(deps: ExportDeps): Promise<void> {
 export async function exportHTML(id: string, deps: ExportDeps): Promise<void> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return;
+	const { exportHTML: exportHTMLService } = await import('./services/export');
 	const controller = new AbortController();
 	const dismiss = spinnerStore.show(t('export.preparingHtml'), () => controller.abort());
 	try {
@@ -159,6 +156,7 @@ export async function exportHTML(id: string, deps: ExportDeps): Promise<void> {
 export async function exportPDF(id: string, deps: ExportDeps): Promise<void> {
 	const file = deps.getFiles().find((f) => f.id === id);
 	if (!file || !browser) return;
+	const { exportPDF: exportPDFService } = await import('./services/export');
 	const controller = new AbortController();
 	const dismiss = spinnerStore.show(t('export.preparingPdf'), () => controller.abort());
 	try {
@@ -189,6 +187,7 @@ export async function exportSelectionZip(
 		.filter((f) => selectedIds.has(f.id))
 		.map((file) => ({ ...file }));
 	if (files.length === 0) return;
+	const { exportZip: exportZipService } = await import('./services/export');
 	const controller = new AbortController();
 	const dismiss = spinnerStore.show(t('export.creatingZip'), () => controller.abort());
 	try {

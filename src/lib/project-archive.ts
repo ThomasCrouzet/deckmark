@@ -12,7 +12,6 @@ import { decodeBinaryDataBytes } from './data-url';
 import type { ProjectAssetRow } from './db';
 import { checkAborted } from './abort';
 import type { ExportProgressReporter } from './export-pipeline';
-import { generateZipBytes } from './zip-archive';
 type JSZipObject = import('jszip').JSZipObject;
 
 import { PROJECT_SCALE_LIMITS, projectDocumentLimit } from './project-limits';
@@ -627,6 +626,7 @@ export async function buildProjectZip(
 		// every entry keeps the archive reproducible.
 		for (const entry of Object.values(zip.files)) entry.date = options.date;
 	}
+	const { generateZipBytes } = await import('./zip-archive');
 	const bytes = await generateZipBytes(zip, {
 		signal: options.signal,
 		...(options.onProgress ? { onProgress: options.onProgress } : {})
