@@ -740,6 +740,48 @@ use deferred list and read promises. Run
 The cases do not replace the native picker, grant confinement, or scheduler
 checks above.
 
+## Bounded backup work
+
+Backup collection can hold the complete corpus. The retained risks are a
+second Base64 corpus, a second complete JSON string, a re-decode of bytes that
+this build just generated, one long main-thread task, a cancellation that only
+rejects the outer promise, and success or partial output after a failure or a
+cancellation.
+
+The policy is in `src/lib/services/backup.ts`, in the lazy backup module. A
+page reads at most 32 rows and yields between pages. One raw project asset is
+converted and released at a time. Serialized JSON is kept in chunks of at most
+512 KiB. A cancel is checked at every page and every chunk. The key order of
+each store is captured once, so a concurrent insert or delete cannot shift a
+later page. Generated asset byte lengths come from the IndexedDB row, so the
+generated path does not decode its own Base64. Imported backups still take the
+complete hostile-input validation in `validateBackupValue`.
+
+`e2e/backup-export-bounds.spec.ts` seeds a supported corpus directly in
+IndexedDB and runs the real Settings export. It records the pipeline counters,
+every long-task duration, typing during the export, the exact downloaded bytes,
+and a cancellation that must publish no file. The default corpus is 16 MiB;
+set `MDSH_BACKUP_CORPUS_MIB` for a larger supported local corpus.
+
+```sh
+E2E_PORT=4411 npx playwright test e2e/backup-export-bounds.spec.ts \
+  --project=chromium --workers=1 --retries=0
+```
+
+Keep the JSON and HTML reports, `backup-export-bounds.json`,
+`backup-cancellation.json` and the downloaded backup with the source revision,
+command and browser version. The asserted budgets are one long task of at most
+250 ms and one raw asset row at a time. The test-only
+`__MDSH_EXPORT_PIPELINE_DELAY_MS__` value makes the yield points observable; it
+does not change production behavior. Engine long-task entries and
+`performance` values are local Chromium evidence.
+
+This profile does not prove native WebView behavior, a physical device, real
+memory pressure or the installed PWA lifecycle. The scheduled desktop snapshot
+uses the same bounded collection, but its native schedule and IPC path need a
+Desktop client run. A cancelled archive ZIP for the library, project or docs
+site is a separate export path and is not part of this profile.
+
 `e2e/capture-snippets-review.spec.ts` checks snippet updates across windows.
 Desktop-edition cases also check first-mount templates, duplicate and concurrent
 saves, and failed writes that retain capture input. Set `CAPTURE_REVIEW_DESKTOP=1`

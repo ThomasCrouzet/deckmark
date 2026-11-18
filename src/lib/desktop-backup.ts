@@ -7,7 +7,7 @@
 import { browser } from '$app/env';
 import { IS_DESKTOP_EDITION } from './edition';
 import { readPreference, writePreference } from './preferences';
-import { collectBackup, serializeBackup, validateBackupValue } from './services/backup';
+import { collectBackup, serializeBackup } from './services/backup';
 
 const STORAGE_KEY = 'mdsh:desktop-backup';
 const DEFAULT_INTERVAL_HOURS = 24;
@@ -166,8 +166,10 @@ async function invokeDesktop<T>(command: string, args: Record<string, unknown>):
 async function buildSnapshot(): Promise<string> {
 	const { filesStore } = await import('./files.svelte');
 	await filesStore.flushPendingAwait();
+	// The bounded collection validates the complete generated snapshot while it
+	// reads, so the scheduled path does not hold a second full validation pass.
+	// The read yields between pages and keeps typing and navigation responsive.
 	const backup = await collectBackup();
-	validateBackupValue(backup);
 	return serializeBackup(backup);
 }
 

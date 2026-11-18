@@ -440,11 +440,13 @@
 	]);
 
 	async function handleExportBackup(): Promise<void> {
+		const controller = new AbortController();
+		const dismiss = spinnerStore.show(t('settings.exportingBackup'), () => controller.abort());
 		try {
 			// Flush unflushed keystrokes before reading Dexie - backup is
 			// IDB-sourced and would otherwise omit the last debounce window.
 			await filesStore.flushPendingAwait();
-			const ok = await downloadBackup();
+			const ok = await downloadBackup(undefined, undefined, { signal: controller.signal });
 			// Desktop dialog cancel returns false - do not claim success.
 			if (ok) {
 				recordExternalBackupSuccess();
@@ -452,9 +454,13 @@
 				notify.success(t('settings.backupExported'));
 			}
 		} catch (err) {
+			// A cancelled export stops at the next page and writes no file.
+			if (controller.signal.aborted) return;
 			recordExternalBackupFailure();
 			await refreshStorageHealth();
 			reportError('backup export', err, { notifyUser: t('settings.backupExportFailed') });
+		} finally {
+			dismiss();
 		}
 	}
 
@@ -482,20 +488,25 @@
 			notify.error(t('settings.passphraseMismatch'));
 			return;
 		}
+		const controller = new AbortController();
+		const dismiss = spinnerStore.show(t('settings.exportingBackup'), () => controller.abort());
 		try {
 			await filesStore.flushPendingAwait();
-			const ok = await downloadBackup(passphrase);
+			const ok = await downloadBackup(passphrase, undefined, { signal: controller.signal });
 			if (ok) {
 				recordExternalBackupSuccess();
 				await refreshStorageHealth();
 				notify.success(t('settings.encryptedBackupExported'));
 			}
 		} catch (err) {
+			if (controller.signal.aborted) return;
 			recordExternalBackupFailure();
 			await refreshStorageHealth();
 			reportError('encrypted backup export', err, {
 				notifyUser: t('settings.encryptedExportFailed')
 			});
+		} finally {
+			dismiss();
 		}
 	}
 
