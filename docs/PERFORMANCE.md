@@ -730,17 +730,33 @@ sample. The report also records heartbeat gaps and the
 A tables-removed diagnostic deletes every table line at load time and edits the
 same prose caret. It shows whether the table container is the cost.
 
-Measured route reason on the pre-fix build (`33f4a64`, production build,
-Chromium, local Linux host):
+Measured on the pre-fix build (`cfc9c01`, production build, Chromium, local
+Linux host, reviewed command in the next paragraph). The table-cell edit took
+the whole-document route on every key. The other positions took the scoped
+route and reported no long task.
 
-| Fixture | Table-cell route | Publish (ms) | Prose / list / image route |
+| Fixture | Table-cell route | Publish block p50 / p95 (ms) | Other positions |
 | --- | --- | ---: | --- |
-| `note-200k-mixed` | `container-table` | 300 to 500 | scoped |
-| `note-600k-mixed` | `container-table` | 1200 to 2100 | scoped |
-| `note-1mb-mixed` | `container-table` | 2000 to 3000 | scoped |
+| `note-200k-mixed` | `container-table`, 60/60 keys | 379 / 755 | scoped, publish block 0 |
+| `note-600k-mixed` | `container-table`, 60/60 keys | 970 / 1045 | scoped, publish block 0 |
+| `note-1mb-mixed` | `container-table`, 60/60 keys | 2079 / 2489 | scoped, publish block 0 |
+
+The tables-removed diagnostic measured a 7 ms input frame and no publish block
+on the 600 KB note. The source cases measured 2.7 to 2.9 ms p95 and no publish
+block. The reviewed command is:
+
+```sh
+node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output /srv/dev/cache/tmp/opencode/w7/web-chromium.json
+```
+
+That run failed on `edit200kTablePublishBlock`, `edit600kTablePublishBlock` and
+`edit1mbTablePublishBlock` only. Every other metric passed. The whole Chromium
+job measured 14.4 minutes on this host before the fix. The fix removes the
+one-second table publish, so the expected job time after the fix is about 11 to
+12 minutes, inside the 25 minute job limit.
 
 The full plan runs on Chromium. Firefox and WebKit keep a five-key diagnostic
-probe, and their mixed budget entries are optional. This keeps the
+probe, and their mixed budget entries are optional. This also keeps the
 `web-benchmark` job inside its 25 minute limit.
 
 ### Keystroke targets and the local typing profile
