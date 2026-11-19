@@ -24,10 +24,8 @@ interface ImageState {
 	occurrence: number;
 }
 
-/** Bounded occurrence counter key. The long URI never enters the key. */
-function occurrenceKey(source: string, title: string): string {
-	return `${fingerprint(source)}:${fingerprint(title)}`;
-}
+/** Longest image identity map before a document rebuild clears it. */
+const IDENTITY_CACHE_LIMIT = 256;
 
 /**
  * Milkdown image schemas require string titles. Markdown parsers use null when
@@ -79,19 +77,12 @@ function formatImageLine(image: ParsedImageLine): string {
 	return `![${escapeAlt(image.alt)}](${image.source}${title})`;
 }
 
-function imageKey(source: string, title: string, occurrence: number): string {
-	// The title travels with the image through a reorder. The occurrence still
-	// disambiguates identical source and caption pairs that have no stable node ID.
-	// Long embedded data URIs stay out of the key so a map entry never copies them.
-	return `${occurrence}:${fingerprint(source)}:${fingerprint(title)}`;
-}
-
 /**
  * Bounded 64-bit fingerprint. Two independent 32-bit mixes make an accidental
  * collision between distinct image sources negligible. The caller still checks
  * the exact identity before it trusts a stored occurrence.
  */
-function fingerprint(value: string): string {
+function hash64(value: string): string {
 	let first = 0x811c9dc5;
 	let second = 0x9e3779b9;
 	for (let index = 0; index < value.length; index += 1) {
@@ -226,6 +217,49 @@ export class ImageMarkdownRoundTrip {
 	private regions: ImageRegion[] = [];
 	private lastInput: string | null = null;
 	private lastOutput = '';
+	/**
+	 * Bounded fingerprints of the unchanged image sources and titles. A large
+	 * embedded data URI is hashed once per document, not once per publish.
+	 */
+	private hashes = new Map<string, string>();
+	/** Last serialized line for one exact source identity. */
+	private rendered = new Map<string, { title: string; alt: string; ratio: number; line: string }>();
+
+	private hash(value: string): string {
+		const cached = this.hashes.get(value);
+		if (cached !== undefined) return cached;
+		if (this.hashes.size >= IDENTITY_CACHE_LIMIT) this.hashes.clear();
+		const computed = hash64(value);
+		this.hashes.set(value, computed);
+		return computed;
+	}
+
+	/** Bounded occurrence counter key. The long URI never enters the key. */
+	private occurrenceKey(source: string, title: string): string {
+		return `${this.hash(source)}:${this.hash(title)}`;
+	}
+
+	private imageKey(source: string, title: string, occurrence: number): string {
+		// The title travels with the image through a reorder. The occurrence still
+		// disambiguates identical source and caption pairs that have no stable node ID.
+		// Long embedded data URIs stay out of the key so a map entry never copies them.
+		return `${occurrence}:${this.hash(source)}:${this.hash(title)}`;
+	}
+
+	/**
+	 * Serialized image line for one exact identity. The stored entry keeps the
+	 * exact source, title, alt and ratio, so a changed caption or a fingerprint
+	 * collision rebuilds the line instead of reusing stale bytes.
+	 */
+	private imageLine(image: ParsedImageLine, alt: string, ratio: number): string {
+		const cached = this.rendered.get(image.source);
+		if (cached && cached.title === image.title && cached.alt === alt && cached.ratio === ratio)
+			return cached.line;
+		const line = formatImageLine({ ...image, alt });
+		if (this.rendered.size >= IDENTITY_CACHE_LIMIT) this.rendered.clear();
+		this.rendered.set(image.source, { title: image.title, alt, ratio, line });
+		return line;
+	}
 
 	/** Read one accepted image occurrence, with an exact collision check. */
 	private lookup(
@@ -234,7 +268,7 @@ export class ImageMarkdownRoundTrip {
 		title: string,
 		occurrence: number
 	): ImageState | undefined {
-		const found = target.get(imageKey(source, title, occurrence));
+		const found = target.get(this.imageKey(source, title, occurrence));
 		if (
 			found &&
 			found.source === source &&
@@ -254,7 +288,7 @@ export class ImageMarkdownRoundTrip {
 		ratio: number
 	): void {
 		const value: ImageState = { alt, ratio, source, title, occurrence };
-		const key = imageKey(source, title, occurrence);
+		const key = this.imageKey(source, title, occurrence);
 		const current = target.get(key);
 		if (
 			current &&
@@ -291,7 +325,7 @@ export class ImageMarkdownRoundTrip {
 				push(line);
 				continue;
 			}
-			const identity = occurrenceKey(image.source, image.title);
+			const identity = this.occurrenceKey(image.source, image.title);
 			const occurrence = occurrences.get(identity) ?? 0;
 			occurrences.set(identity, occurrence + 1);
 			const meta = IMAGE_META_LINE.exec(lines[index + 1] ?? '');
@@ -438,14 +472,14 @@ export class ImageMarkdownRoundTrip {
 				continue;
 			}
 			const regionStart = starts[index]!;
-			const identity = occurrenceKey(image.source, image.title);
+			const identity = this.occurrenceKey(image.source, image.title);
 			const occurrence = occurrences.get(identity) ?? 0;
 			occurrences.set(identity, occurrence + 1);
 			const current = this.lookup(this.state, image.source, image.title, occurrence);
 			const ratio = numericRatio(image.alt) ?? current?.ratio ?? 1;
 			const alt = current?.alt ?? this.uploadedAlt.get(image.source) ?? image.title;
 			this.store(nextState, image.source, image.title, occurrence, alt, ratio);
-			push(formatImageLine({ ...image, alt }));
+			push(this.imageLine(image, alt, ratio));
 			if (Math.abs(ratio - 1) > 0.005) push(`<!-- mdsh:image ratio=${ratio.toFixed(2)} -->`);
 			// The editor keeps the image block and a ratio comment as separate
 			// top-level blocks, so blank lines can separate them. The portable

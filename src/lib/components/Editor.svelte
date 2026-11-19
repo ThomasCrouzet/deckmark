@@ -56,7 +56,7 @@
 
 	let container: HTMLElement;
 	let crepe: CrepeType | null = null;
-	let restoreMountedMarkdown: ((markdown: string) => string) | null = null;
+	let restoreMountedMarkdown: ((markdown: string) => string | null) | null = null;
 	let serializeMountedMarkdown: (() => string) | null = null;
 	let imageObserver: MutationObserver | null = null;
 	let imageResizeObserver: ResizeObserver | null = null;
@@ -280,7 +280,17 @@
 		let sourceMarkdown = initial;
 		let editorBaseline: string | null = null;
 		let fidelity: SourceFidelity | null = null;
-		const restoreMarkdown = (markdown: string, commit = true) =>
+		/**
+		 * Restore the accepted source for `markdown`.
+		 *
+		 * `abort` is checked between the image and source stages. A publish that
+		 * a newer transaction superseded stops before it parses the note.
+		 */
+		const restoreMarkdown = (
+			markdown: string,
+			commit = true,
+			abort?: () => boolean
+		): string | null =>
 			measureEditorStage('restoreMarkdown', () => {
 				lastRestoreSpan = null;
 				const hint =
@@ -295,6 +305,7 @@
 				if (commit) pendingHint = null;
 				if (editorBaseline === null || markdown === editorBaseline) return sourceMarkdown;
 				const restored = roundTrip.restore(markdown, commit, hint);
+				if (abort?.()) return null;
 				const restoredHint = roundTrip.lastScopedHint ?? hint;
 				const content = fidelity?.restore(restored, commit, restoredHint) ?? restored;
 				const scoped = fidelity?.lastScopedSpan;
@@ -475,6 +486,14 @@
 		// Source fidelity runs when the main thread is idle, and a newer revision
 		// cancels the older result before it can reach the store.
 		let markdownRevision = 0;
+		// The last revision that reached the store. A repeated schedule for that
+		// revision is a no-op, so keys that arrive faster than the debounce do
+		// not publish the same source twice.
+		let publishedRevision = -1;
+		// One publish owns the main thread. A schedule that arrives while it
+		// runs is coalesced into one follow-up for the newest revision.
+		let publishing = false;
+		let publishQueued = false;
 		let markdownTimer: ReturnType<typeof setTimeout> | null = null;
 		let idleHandle: number | null = null;
 		let idleKind: 'idle' | 'timeout' | null = null;
@@ -524,47 +543,70 @@
 				clearTimeout(markdownTimer);
 				markdownTimer = null;
 			}
+			publishQueued = false;
 			cancelIdleWork();
 		};
 		const publishMarkdown = () => {
+			if (publishing) {
+				publishQueued = true;
+				return;
+			}
 			const revision = markdownRevision;
+			if (revision === publishedRevision) return;
 			const emit = () => {
-				if (token !== mountToken || revision !== markdownRevision) return;
-				// The publication has named stages so a trace can attribute a long
-				// task or a waiting input event to the serialization or the restore.
-				measureEditorStage('markdownPublish', () => {
-					let markdown: string;
-					try {
-						markdown = measureEditorStage('markdownSerialize', serializeIncrementalMarkdown);
-					} catch (error) {
-						reportError('visual editor serialization', error);
-						return;
+				publishing = true;
+				try {
+					// A new transaction or a new mount owns the next publish. The
+					// check runs before the serialization and between the stages.
+					if (token !== mountToken || revision !== markdownRevision) return;
+					// The publication has named stages so a trace can attribute a long
+					// task or a waiting input event to the serialization or the restore.
+					measureEditorStage('markdownPublish', () => {
+						let markdown: string;
+						try {
+							markdown = measureEditorStage('markdownSerialize', serializeIncrementalMarkdown);
+						} catch (error) {
+							reportError('visual editor serialization', error);
+							return;
+						}
+						if (token !== mountToken || revision !== markdownRevision) return;
+						recordEditorCounter('markdownUpdated');
+						// Capture the serializer hint before restore consumes it. The edit
+						// stays in editor Markdown coordinates until a consumer maps the
+						// portable source boundary.
+						const hint = pendingHint ? { ...pendingHint } : null;
+						const portableMarkdown = restoreMarkdown(
+							markdown,
+							true,
+							() => token !== mountToken || revision !== markdownRevision
+						);
+						if (portableMarkdown === null) return;
+						if (token !== mountToken || revision !== markdownRevision) return;
+						const editorEdit = createSourceEdit(
+							idForMount,
+							revision,
+							'editor-markdown',
+							hint,
+							editorMarkdownSnapshot.length,
+							markdown.length
+						);
+						editorMarkdownSnapshot = markdown;
+						recordEditorEdit(editorEdit);
+						const portableEdit = acceptedSourceEdit(lastEditorMarkdown, portableMarkdown, revision);
+						lastEditorMarkdown = portableMarkdown;
+						queueMicrotask(applyImageAlternatives);
+						if (token === mountToken) {
+							publishedRevision = revision;
+							onChange(portableMarkdown, idForMount, portableEdit ?? undefined);
+						} else onFlush?.(idForMount, portableMarkdown, portableEdit ?? undefined);
+					});
+				} finally {
+					publishing = false;
+					if (publishQueued) {
+						publishQueued = false;
+						if (markdownRevision !== publishedRevision) scheduleMarkdownUpdate();
 					}
-					if (token !== mountToken || revision !== markdownRevision) return;
-					recordEditorCounter('markdownUpdated');
-					// Capture the serializer hint before restore consumes it. The edit
-					// stays in editor Markdown coordinates until a consumer maps the
-					// portable source boundary.
-					const hint = pendingHint ? { ...pendingHint } : null;
-					const portableMarkdown = restoreMarkdown(markdown);
-					if (token !== mountToken || revision !== markdownRevision) return;
-					const editorEdit = createSourceEdit(
-						idForMount,
-						revision,
-						'editor-markdown',
-						hint,
-						editorMarkdownSnapshot.length,
-						markdown.length
-					);
-					editorMarkdownSnapshot = markdown;
-					recordEditorEdit(editorEdit);
-					const portableEdit = acceptedSourceEdit(lastEditorMarkdown, portableMarkdown, revision);
-					lastEditorMarkdown = portableMarkdown;
-					queueMicrotask(applyImageAlternatives);
-					if (token === mountToken)
-						onChange(portableMarkdown, idForMount, portableEdit ?? undefined);
-					else onFlush?.(idForMount, portableMarkdown, portableEdit ?? undefined);
-				});
+				}
 			};
 			if (typeof window.requestIdleCallback === 'function') {
 				idleKind = 'idle';
@@ -749,7 +791,7 @@
 							// transaction must not leave source-fidelity or image state on a
 							// document that the editor never applied.
 							const markdown = restoreMarkdown(ctx.get(serializerCtx)(transaction.doc), false);
-							if (documentKind(markdown) === 'note') return true;
+							if (markdown === null || documentKind(markdown) === 'note') return true;
 							notify.error(t('documents.noConversion'));
 							return false;
 						});
@@ -1212,6 +1254,7 @@
 			try {
 				saveMountedPosition?.();
 				const markdown = restoreMarkdown(serializeIncrementalMarkdown());
+				if (markdown === null) return;
 				const edit = acceptedSourceEdit(lastEditorMarkdown, markdown, markdownRevision);
 				lastEditorMarkdown = markdown;
 				onFlush?.(idForMount, markdown, edit ?? undefined);

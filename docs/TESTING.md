@@ -289,6 +289,41 @@ bytes, the caret and the undo result, the source revision and the command. A
 Chromium result does not establish Firefox, WebKit, a native WebView, an
 installed PWA or a physical device.
 
+## Scoped table publication on a large note
+
+The retained risk for issue 709 (work item W1) is a whole-document source
+restore for an edit inside a table cell of a large note. A container anywhere in
+the note used to force the full route. The serializer also collapsed its block
+reuse cache when two adjacent bullet lists alternate markers, and the image
+round trip re-fingerprinted every embedded data URI.
+
+`e2e/table-publish-scope.spec.ts` builds a 600 KB note in the browser. The note
+has a padded table with alignment markers, two adjacent bullet lists, six
+embedded base64 JPEG images and dense prose. The case opens Edit mode, places the
+caret in one table cell and types twelve characters at 350 ms cadence.
+
+The case fails when a key reports `sourceFidelityFull`, when a
+`sourceFidelityFullReason` counter appears, when `markdownIncrementalFallback`
+runs, when `imageMarkdownFull` runs, when publication p95 is 150 ms or more, when
+a long task between keys is 250 ms or more, or when the durable bytes differ
+from the expected source.
+
+On the same host, the build before this change reported publication p50 603 ms
+and p95 856 ms with twelve long tasks of 857 ms. The current source reports p50
+14 to 29 ms and p95 24 to 50 ms with no long task above 50 ms, and every key
+takes the scoped container route.
+
+Run:
+
+```sh
+npx playwright test e2e/table-publish-scope.spec.ts --project=chromium --workers=1 --retries=0
+```
+
+Keep `table-publish-scope.json` with the command, the revision, the environment,
+the fixture hash and shape, the route counters, the publication samples, the long
+tasks, the caret and the saved bytes. A Chromium result does not establish
+Firefox, WebKit, a native WebView or a physical device.
+
 ## Image-rich rendered input risks
 
 Keep the image-heavy typing attribution independent from the text-only latency

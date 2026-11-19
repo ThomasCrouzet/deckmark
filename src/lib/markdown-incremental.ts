@@ -67,8 +67,8 @@ export function createIncrementalMarkdown(
 	const silent: boolean[] = [];
 	let cursor = 0;
 	for (let index = 0; index < blockMarkdown.length; index += 1) {
-		const markdown = blockMarkdown[index]!;
-		if (!markdown) {
+		const blockText = blockMarkdown[index]!;
+		if (!blockText) {
 			if (separator && full.startsWith(separator, cursor)) {
 				prefixes.push(separator);
 				cursor += separator.length;
@@ -82,7 +82,21 @@ export function createIncrementalMarkdown(
 			}
 			continue;
 		}
-		const found = full.indexOf(markdown, cursor);
+		// A bullet list alone uses the default marker. In the document, the
+		// alternate marker separates it from an adjacent list sibling, so try
+		// both forms. Only a whitespace gap may precede a block, so a match
+		// inside another block cannot be accepted.
+		let markdown = blockText;
+		let found = full.indexOf(markdown, cursor);
+		if (found >= 0 && !BLOCK_GAP.test(full.slice(cursor, found))) found = -1;
+		if (found < 0 && isBulletList(blocks[index]!)) {
+			const alternate = alternateListMarkers(markdown);
+			const alternateAt = full.indexOf(alternate, cursor);
+			if (alternateAt >= 0 && BLOCK_GAP.test(full.slice(cursor, alternateAt))) {
+				markdown = alternate;
+				found = alternateAt;
+			}
+		}
 		if (found < 0) {
 			// The full serializer owns a global reconstruction this block cannot
 			// reproduce. Keep the full string and refuse incremental updates.
@@ -96,6 +110,7 @@ export function createIncrementalMarkdown(
 				markdown: full
 			};
 		}
+		blockMarkdown[index] = markdown;
 		prefixes.push(full.slice(cursor, found));
 		silent.push(false);
 		cursor = found + markdown.length;
@@ -150,6 +165,37 @@ const PLAIN_TYPES = new Set(['paragraph', 'heading']);
 function isPlainBlock(node: ProseNode): boolean {
 	return PLAIN_TYPES.has(node.type.name);
 }
+
+const BULLET_MARKER = /^([*+-])(?=\s)/gm;
+
+function isBulletList(node: ProseNode): boolean {
+	return node.type.name === 'bullet_list';
+}
+
+/**
+ * The `mdast-util-to-markdown` serializer uses a different bullet for the
+ * second of two adjacent list siblings, so a reparse cannot merge them into
+ * one list. A list block serialized on its own always gets the default
+ * marker, so its in-document form is the alternate marker.
+ */
+function alternateListMarkers(markdown: string): string {
+	const marker = /^([*+-])(?=\s)/.exec(markdown)?.[1];
+	if (!marker) return markdown;
+	return markdown.replace(BULLET_MARKER, marker === '*' ? '-' : '*');
+}
+
+/**
+ * Apply the marker that a previous list sibling forces on this block. The
+ * cached neighbor text already carries the in-document marker.
+ */
+function alignListMarkers(markdown: string, previousMarkdown: string): string {
+	const marker = /^([*+-])(?=\s)/.exec(previousMarkdown)?.[1];
+	if (!marker) return markdown;
+	return markdown.replace(BULLET_MARKER, marker === '*' ? '-' : '*');
+}
+
+/** Only whitespace may separate two serialized top-level blocks. */
+const BLOCK_GAP = /^\s*$/;
 
 function serializeBlock(doc: ProseNode, node: ProseNode, serialize: Serialize): string {
 	return serialize(doc.type.create(doc.attrs, [node])).replace(/\n$/, '');
@@ -432,7 +478,11 @@ export function updateIncrementalMarkdown(
 		if (next.type.name !== previous.type.name) {
 			return { state: createIncrementalMarkdown(doc, serialize), full: true };
 		}
-		const markdown = serializeBlock(doc, next, serialize);
+		let markdown = serializeBlock(doc, next, serialize);
+		// Adjacent list siblings alternate their bullet marker, so a changed
+		// list keeps the marker that its previous sibling forces.
+		if (index > 0 && isBulletList(next) && isBulletList(state.blocks[index - 1]!))
+			markdown = alignListMarkers(markdown, state.blockMarkdown[index - 1]!);
 		if (state.silent[index]) {
 			if (markdown === '') {
 				blocks[index] = next;

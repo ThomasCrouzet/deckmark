@@ -88,6 +88,15 @@ interface ContainerLeaf {
 /** Container blocks that can hold an unchanged text leaf at any depth. */
 const CONTAINER_TYPES = new Set(['list', 'table', 'blockquote']);
 
+/** Fenced code blocks whose body edit stays line-local. */
+const FENCE_TYPES = new Set(['code']);
+
+/**
+ * Largest block that a scoped route may parse for its semantic check. A larger
+ * block keeps the whole-document route, which is the documented fallback.
+ */
+const BOUNDED_BLOCK_CHARS = 262_144;
+
 function start(node: MarkdownNode): number {
 	return node.position?.start.offset ?? 0;
 }
@@ -136,6 +145,49 @@ function equal(a: MarkdownNode, b: MarkdownNode): boolean {
 		(a.children?.length ?? 0) === (b.children?.length ?? 0) &&
 		(a.children ?? []).every((child, index) => equal(child, b.children![index]!))
 	);
+}
+
+/**
+ * True when two trees have the same node types and child counts at every
+ * depth. A source container can differ from the serializer form in alignment,
+ * padding or markers while its leaf paths still match, so the positional route
+ * accepts that difference and the semantic check decides the rest.
+ */
+function sameShape(a: MarkdownNode, b: MarkdownNode): boolean {
+	if (a.type !== b.type) return false;
+	const left = a.children ?? [];
+	const right = b.children ?? [];
+	if (left.length !== right.length) return false;
+	return left.every((child, index) => sameShape(child, right[index]!));
+}
+
+/** Inline content of a table cell without its delimiter pipes and padding. */
+function cellContent(raw: string): string {
+	const left = raw.indexOf('|');
+	const right = raw.lastIndexOf('|');
+	if (left < 0 || right <= left) return raw;
+	return raw.slice(left + 1, right).trim();
+}
+
+/**
+ * Fence marker lines and the raw body of one fenced code block. The body keeps
+ * its final line ending so a patch never rewrites a line-ending byte.
+ */
+function fenceParts(raw: string): { open: string; close: string; content: string } | null {
+	const openEnd = raw.indexOf('\n');
+	if (openEnd < 0) return null;
+	const open = raw.slice(0, openEnd).replace(/\r$/, '');
+	if (!/^ {0,3}(?:`{3,}|~{3,})/.test(open)) return null;
+	const lastNewline = raw.lastIndexOf('\n');
+	if (lastNewline < openEnd) return null;
+	const close = raw.slice(lastNewline + 1).replace(/\r$/, '');
+	if (!/^ {0,3}(?:`{3,}|~{3,})\s*$/.test(close)) return null;
+	return { open, close, content: raw.slice(openEnd + 1, lastNewline + 1) };
+}
+
+/** Decoded code body without its final line ending. */
+function fenceBody(content: string): string {
+	return content.replaceAll('\r\n', '\n').replace(/\n$/, '');
 }
 
 function apply(source: string, patches: Patch[]): string {
@@ -347,10 +399,26 @@ export class SourceFidelity {
 	 * Coarse class for a rejected local restore. The value names the changed
 	 * top-level block or the missing edit hint. It is evidence for a measurement
 	 * report, not an exact internal predicate.
+	 *
+	 * The reason is positional: it names only the block that the changed span
+	 * intersects. A container elsewhere in the note never names the fallback.
 	 */
 	private fullRouteReason(markdown: string, hint?: SourceFidelityHint): string {
-		const block = (this.baseline.children ?? [])[this.findChangedBlock(markdown)];
-		if (!block) return 'no-baseline-block';
+		const before = this.baseline.children ?? [];
+		let from: number;
+		let to: number;
+		if (hint) {
+			from = hint.previousFrom;
+			to = hint.previousTo;
+		} else {
+			const range = changeRange(this.markdown, markdown);
+			from = range.from;
+			to = range.oldTo;
+		}
+		const block = before.find(
+			(node) => end(node) > from || (from === to && end(node) >= from && start(node) <= from)
+		);
+		if (!block || start(block) > to) return 'no-baseline-block';
 		if (block.type === 'list') return 'container-list';
 		if (block.type === 'table') return 'container-table';
 		if (block.type === 'blockquote') return 'container-blockquote';
@@ -455,6 +523,8 @@ export class SourceFidelity {
 		}
 		const container = this.restoreContainerBlock(markdown, hint, before, originals);
 		if (container) return container;
+		const fence = this.restoreFenceBlock(markdown, hint, before, originals);
+		if (fence) return fence;
 		return this.restoreSingleBlock(markdown, hint?.insert ? undefined : hint, before, originals);
 	}
 
@@ -472,7 +542,7 @@ export class SourceFidelity {
 		before: MarkdownNode[],
 		originals: MarkdownNode[]
 	): ScopedRestore | null {
-		const target = this.containerTarget(markdown, hint, before, originals);
+		const target = this.containerTarget(markdown, hint, before, originals, CONTAINER_TYPES);
 		if (!target) return null;
 		const local = this.restoreContainerBytes(target);
 		if (local) return this.commitContainer(target, local);
@@ -481,12 +551,107 @@ export class SourceFidelity {
 		return null;
 	}
 
+	/**
+	 * Patch one edit inside a fenced code body. A code body is literal text, so
+	 * the change is line-local and cannot change block structure outside the
+	 * fence. The changed fence alone is parsed for its semantic check.
+	 */
+	private restoreFenceBlock(
+		markdown: string,
+		hint: SourceFidelityHint | undefined,
+		before: MarkdownNode[],
+		originals: MarkdownNode[]
+	): ScopedRestore | null {
+		const target = this.containerTarget(markdown, hint, before, originals, FENCE_TYPES);
+		if (!target || !target.block.position) return null;
+		const beforeFence = fenceParts(target.blockRaw);
+		const afterFence = fenceParts(target.trimmed);
+		if (!beforeFence || !afterFence) return null;
+		// A changed fence line, info string or indentation keeps the full route
+		// because it can change how the block parses.
+		if (beforeFence.open !== afterFence.open || beforeFence.close !== afterFence.close) return null;
+		const oldValue = (target.block.value ?? '').replaceAll('\r\n', '\n');
+		const newValue = fenceBody(afterFence.content);
+		if (oldValue === newValue) return null;
+		if (fenceBody(beforeFence.content) !== oldValue) return null;
+		const sourceRaw = this.source.slice(target.sourceFrom, target.sourceTo);
+		const sourceFence = fenceParts(sourceRaw);
+		if (!sourceFence || fenceBody(sourceFence.content) !== oldValue) return null;
+		const patches: Patch[] = [];
+		for (const change of textChanges(oldValue, newValue)) {
+			const sourceOffsets = textRange(
+				sourceFence.content,
+				oldValue,
+				change.from,
+				change.oldTo,
+				true
+			);
+			const nextOffsets = textRange(
+				afterFence.content,
+				newValue,
+				change.newFrom,
+				change.newTo,
+				true
+			);
+			if (!sourceOffsets || !nextOffsets) return null;
+			patches.push({
+				start: sourceOffsets.from,
+				end: sourceOffsets.to,
+				value: this.lineEndings(afterFence.content.slice(nextOffsets.from, nextOffsets.to))
+			});
+		}
+		if (!patches.length) return null;
+		const openEnd = sourceRaw.indexOf('\n');
+		const candidateBlock =
+			sourceRaw.slice(0, openEnd + 1) +
+			apply(sourceFence.content, patches) +
+			sourceRaw.slice(openEnd + 1 + sourceFence.content.length);
+		let candidate: MarkdownNode;
+		try {
+			const tree = this.parse(candidateBlock);
+			const blocks = (tree.children ?? []).filter((node) => node.type !== 'definition');
+			if (blocks.length !== 1) return null;
+			candidate = blocks[0]!;
+		} catch {
+			return null;
+		}
+		if (candidate.type !== target.block.type) return null;
+		if ((candidate.value ?? '').replaceAll('\r\n', '\n') !== newValue) return null;
+		if (start(candidate) !== 0 || end(candidate) !== candidateBlock.length) return null;
+		const sourceIndex = this.originalIndex(target.original);
+		if (sourceIndex < 0) return null;
+		const result =
+			this.source.slice(0, target.sourceFrom) + candidateBlock + this.source.slice(target.sourceTo);
+		const afterTree = this.parse(target.trimmed);
+		const markdownNodes = (afterTree.children ?? []).filter((node) => node.type !== 'definition');
+		if (markdownNodes.length !== 1) return null;
+		recordEditorCounter('sourceFidelityScopedFence');
+		return {
+			result,
+			blockIndex: target.from,
+			blockCount: 1,
+			sourceIndex,
+			sourceCount: 1,
+			markdownStart: target.blockStart,
+			sourceStart: target.sourceFrom,
+			markdownDelta: target.delta,
+			sourceDelta: result.length - this.source.length,
+			markdownNodes,
+			sourceNodes: [candidate],
+			previousFrom: target.sourceFrom,
+			previousTo: target.sourceTo,
+			nextFrom: target.sourceFrom,
+			nextTo: target.sourceFrom + candidateBlock.length
+		};
+	}
+
 	/** Locate and validate the one changed container block. */
 	private containerTarget(
 		markdown: string,
 		hint: SourceFidelityHint | undefined,
 		before: MarkdownNode[],
-		originals: MarkdownNode[]
+		originals: MarkdownNode[],
+		types: Set<string>
 	): ContainerTarget | null {
 		const delta = markdown.length - this.markdown.length;
 		let from: number;
@@ -503,10 +668,11 @@ export class SourceFidelity {
 		const block = before[from];
 		const original = originals[from];
 		if (!block || !original || !block.position || !original.position) return null;
-		if (!CONTAINER_TYPES.has(block.type)) return null;
-		// A source block with different semantics or with reference syntax keeps
-		// the whole-document route.
-		if (original.type !== block.type || !equal(block, original)) return null;
+		if (!types.has(block.type)) return null;
+		// The source container must keep the same leaf layout as the baseline.
+		// Its bytes may differ in markers, padding or alignment, and the
+		// semantic check on the changed parent decides the rest.
+		if (original.type !== block.type || !sameShape(block, original)) return null;
 		const blockStart = start(block);
 		const blockEnd = end(block);
 		const sourceFrom = start(original);
@@ -611,7 +777,8 @@ export class SourceFidelity {
 	 * while the tree differs in one text leaf.
 	 */
 	private restoreContainerTree(target: ContainerTarget): ContainerLeaf | null {
-		if (target.blockRaw.length > 262_144 || target.trimmed.length > 262_144) return null;
+		if (target.blockRaw.length > BOUNDED_BLOCK_CHARS || target.trimmed.length > BOUNDED_BLOCK_CHARS)
+			return null;
 		let tree: MarkdownNode;
 		try {
 			tree = this.parse(target.trimmed);
@@ -754,11 +921,15 @@ export class SourceFidelity {
 				end: patch.end - start(sourceParent)
 			}))
 		);
+		// A table cell source and serializer form can differ in the padding
+		// around the delimiter pipes. Compare the inline meaning, not the padding.
+		const compare = (value: string) =>
+			sourceParent.type === 'tableCell' ? cellContent(value) : value;
 		try {
 			if (
 				!equal(
-					this.parse(this.normalize(candidateParent)),
-					this.parse(this.normalize(edit.nextParentText))
+					this.parse(this.normalize(compare(candidateParent))),
+					this.parse(this.normalize(compare(edit.nextParentText)))
 				)
 			)
 				return null;
@@ -1094,7 +1265,7 @@ export class SourceFidelity {
 		const oldRaw = this.source.slice(sourceFrom, sourceTo);
 		// Stay inside one bounded block. A large insert or a large container
 		// keeps the whole-document route as the documented fallback.
-		if (oldRaw.length > 32_768 || inserted.length > 32_768) return null;
+		if (oldRaw.length > BOUNDED_BLOCK_CHARS || inserted.length > BOUNDED_BLOCK_CHARS) return null;
 		// Reference brackets can resolve against definitions outside this block.
 		if (/[[\]]/.test(oldRaw)) {
 			const tree = this.parse(oldRaw);
@@ -1305,7 +1476,7 @@ export class SourceFidelity {
 		// against definitions outside this paragraph, so a block with brackets
 		// must parse to the same tree on its own. Newly inserted brackets could
 		// create such a reference, so they keep the whole-document route.
-		if (raw.length > 32_768 || next.length > 32_768) return null;
+		if (raw.length > BOUNDED_BLOCK_CHARS || next.length > BOUNDED_BLOCK_CHARS) return null;
 		if (/[[\]]/.test(raw)) {
 			const rawTree = this.parse(raw);
 			const rawNode = rawTree.children?.[0];

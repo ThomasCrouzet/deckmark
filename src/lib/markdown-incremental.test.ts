@@ -5,6 +5,8 @@ import { createIncrementalMarkdown, updateIncrementalMarkdown } from './markdown
 interface FakeBlock {
 	type: { name: string };
 	text: string;
+	/** Bullet-list item texts, used to model the serializer marker alternation. */
+	items?: string[];
 }
 
 interface FakeDoc {
@@ -21,6 +23,11 @@ function heading(text: string): FakeBlock {
 
 function imageBlock(text: string): FakeBlock {
 	return { type: { name: 'image-block' }, text };
+}
+
+/** A bullet list block. The real serializer alternates markers for adjacent lists. */
+function bulletList(...items: string[]): FakeBlock {
+	return { type: { name: 'bullet_list' }, text: '', items };
 }
 
 function docOf(...children: FakeBlock[]): ProseNode {
@@ -41,8 +48,25 @@ function serialize(node: ProseNode): string {
 	// The real serializer omits a trailing empty paragraph, for example one
 	// that the editor keeps after a table.
 	const children = [...value.children];
-	while (children.length > 0 && children[children.length - 1]!.text === '') children.pop();
-	return children.map((entry) => entry.text).join('\n\n') + '\n';
+	while (
+		children.length > 0 &&
+		children[children.length - 1]!.type.name === 'paragraph' &&
+		children[children.length - 1]!.text === ''
+	)
+		children.pop();
+	// `mdast-util-to-markdown` uses a different bullet for the second of two
+	// adjacent list siblings so a reparse cannot merge them into one list.
+	let lastBullet: string | undefined;
+	const parts = children.map((child) => {
+		if (child.type.name === 'bullet_list') {
+			const bullet = lastBullet === '*' ? '-' : '*';
+			lastBullet = bullet;
+			return (child.items ?? []).map((item) => `${bullet} ${item}`).join('\n');
+		}
+		lastBullet = undefined;
+		return child.text;
+	});
+	return parts.join('\n\n') + '\n';
 }
 
 describe('incremental Markdown serialization', () => {
@@ -198,5 +222,34 @@ describe('incremental Markdown serialization', () => {
 		expect(updateIncrementalMarkdown(state, docOf(heading('First'), second), serialize).full).toBe(
 			true
 		);
+	});
+
+	it('keeps the reuse cache with adjacent list blocks', () => {
+		const first = bulletList('Alpha', 'Beta');
+		const second = bulletList('Gamma', 'Delta');
+		const doc = docOf(first, second);
+		const state = createIncrementalMarkdown(doc, serialize);
+		// The whole-document serializer uses the alternate marker for the second
+		// adjacent list, so its solo form must not defeat the decomposition.
+		expect(state.blocks).toHaveLength(2);
+		expect(state.markdown).toBe('* Alpha\n* Beta\n\n- Gamma\n- Delta\n');
+		expect(state.blockMarkdown).toEqual(['* Alpha\n* Beta', '- Gamma\n- Delta']);
+
+		const changed = docOf(first, bulletList('Gamma', 'DeltaX'));
+		const result = updateIncrementalMarkdown(state, changed, serialize);
+		expect(result.full).toBe(false);
+		expect(result.state.markdown).toBe(serialize(changed));
+		expect(result.state.markdown).toContain('\n\n- Gamma\n- DeltaX\n');
+	});
+
+	it('keeps the following list marker after an edit in the first list', () => {
+		const first = bulletList('Alpha', 'Beta');
+		const second = bulletList('Gamma', 'Delta');
+		const state = createIncrementalMarkdown(docOf(first, second), serialize);
+		const changed = docOf(bulletList('Alpha', 'BetaX'), second);
+		const result = updateIncrementalMarkdown(state, changed, serialize);
+		expect(result.full).toBe(false);
+		expect(result.state.markdown).toBe(serialize(changed));
+		expect(result.state.markdown).toBe('* Alpha\n* BetaX\n\n- Gamma\n- Delta\n');
 	});
 });
