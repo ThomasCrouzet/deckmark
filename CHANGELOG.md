@@ -5,6 +5,38 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.5.5](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.4...v2.5.5) (2026-11-19)
+
+
+### Bug Fixes
+
+* **a11y:** keep the active snippet visible after filter changes ([#691](https://github.com/ThomasCrouzet/deckmark/issues/691)) ([f3152dd](https://github.com/ThomasCrouzet/deckmark/commit/f3152dda18b3b04a23819bcfa71c13f58ed0ceee)), closes [#610](https://github.com/ThomasCrouzet/deckmark/issues/610) [#611](https://github.com/ThomasCrouzet/deckmark/issues/611) [#622](https://github.com/ThomasCrouzet/deckmark/issues/622) [#631](https://github.com/ThomasCrouzet/deckmark/issues/631)
+* **a11y:** size mode switch targets for hybrid pointers ([#697](https://github.com/ThomasCrouzet/deckmark/issues/697)) ([8bacd8f](https://github.com/ThomasCrouzet/deckmark/commit/8bacd8f8c2ce8e15b44a77efc7ea1b779658c13c))
+* **comments:** keep the dialog inside the visual viewport ([#700](https://github.com/ThomasCrouzet/deckmark/issues/700)) ([ab7bef9](https://github.com/ThomasCrouzet/deckmark/commit/ab7bef9661f9f84ef5b85f30347e5790b9a5bf77)), closes [#600](https://github.com/ThomasCrouzet/deckmark/issues/600) [#604](https://github.com/ThomasCrouzet/deckmark/issues/604)
+* **docs-check:** keep worker free of UI runes ([#659](https://github.com/ThomasCrouzet/deckmark/issues/659)) ([808faea](https://github.com/ThomasCrouzet/deckmark/commit/808faea5850491a263023f4144a1e2115cff53a2))
+* **git:** clear a stale diff error and prove keyboard review ([#671](https://github.com/ThomasCrouzet/deckmark/issues/671)) ([267c5f8](https://github.com/ThomasCrouzet/deckmark/commit/267c5f87b2496d0a4560bb2e75d635eea44a357e))
+* **history:** reload a version after it returns ([#654](https://github.com/ThomasCrouzet/deckmark/issues/654)) ([61fef0f](https://github.com/ThomasCrouzet/deckmark/commit/61fef0f863934eec2e7a64143360336f376f41cd))
+* **presentation:** drop a filmstrip gesture on slide switch ([#692](https://github.com/ThomasCrouzet/deckmark/issues/692)) ([6b290c2](https://github.com/ThomasCrouzet/deckmark/commit/6b290c292cf1e2a38b6e942fb5cb0a10ce5101f5))
+* **pwa:** keep fixed chrome inside safe areas ([#595](https://github.com/ThomasCrouzet/deckmark/issues/595)) ([#672](https://github.com/ThomasCrouzet/deckmark/issues/672)) ([2c92e29](https://github.com/ThomasCrouzet/deckmark/commit/2c92e29d721f999841aaaf40c507c81bdcc285e9))
+* **pwa:** verify the emitted manifest identity at both base paths ([#674](https://github.com/ThomasCrouzet/deckmark/issues/674)) ([7f16a25](https://github.com/ThomasCrouzet/deckmark/commit/7f16a2534193409a51dda9acdbd97d736bede6bf))
+* **semantic-search:** discard superseded index builds ([#657](https://github.com/ThomasCrouzet/deckmark/issues/657)) ([1e29598](https://github.com/ThomasCrouzet/deckmark/commit/1e29598f8287487359aa1eacf05b36c2203f2a35))
+* **sidebar,touch:** keep focus when the last file closes ([#675](https://github.com/ThomasCrouzet/deckmark/issues/675)) ([6ba5263](https://github.com/ThomasCrouzet/deckmark/commit/6ba5263300810f8f1a21779a525a780a4d361a78))
+
+
+### Performance Improvements
+
+* attribute publication stalls to named stages ([#678](https://github.com/ThomasCrouzet/deckmark/issues/678)) ([f2699ef](https://github.com/ThomasCrouzet/deckmark/commit/f2699ef9ace2c8876a02e2ad8cba25af385f4c02))
+* **autosave:** reuse the durable projection from accepted edit spans ([#681](https://github.com/ThomasCrouzet/deckmark/issues/681)) ([c9a23e7](https://github.com/ThomasCrouzet/deckmark/commit/c9a23e75599119c87a1c51ed23fbad4a1910cf41)), closes [#574](https://github.com/ThomasCrouzet/deckmark/issues/574)
+* **backup:** bound collection, encoding and export cancellation ([#684](https://github.com/ThomasCrouzet/deckmark/issues/684)) ([efc679c](https://github.com/ThomasCrouzet/deckmark/commit/efc679c6e6d58eeca5853c6b24f109aa8c946e7d))
+* define the shared source revision contract ([#682](https://github.com/ThomasCrouzet/deckmark/issues/682)) ([c914b43](https://github.com/ThomasCrouzet/deckmark/commit/c914b4381021ae6c806cf900e9671c4f9ea4495c)), closes [#345](https://github.com/ThomasCrouzet/deckmark/issues/345)
+* **derived-state:** reuse authoritative edit spans across metadata and statistics ([#685](https://github.com/ThomasCrouzet/deckmark/issues/685)) ([5c5ff17](https://github.com/ThomasCrouzet/deckmark/commit/5c5ff17cf7b83aa1ef0efdc64f42b333c5b5a5b1))
+* **editor:** bound mixed-format source restoration ([#677](https://github.com/ThomasCrouzet/deckmark/issues/677)) ([ef6d12d](https://github.com/ThomasCrouzet/deckmark/commit/ef6d12de3ffbb87b8036bde7508752aa21d170ad))
+* **export:** stop archive compression on cancel ([#686](https://github.com/ThomasCrouzet/deckmark/issues/686)) ([5f51d5c](https://github.com/ThomasCrouzet/deckmark/commit/5f51d5c3045ae2fd073a5bfa8188e5f20d3465af))
+* **storage:** measure the retained heap plateau and keep metadata across eviction ([#704](https://github.com/ThomasCrouzet/deckmark/issues/704)) ([bb2a49f](https://github.com/ThomasCrouzet/deckmark/commit/bb2a49f4a8d3a1f293a8dd55de793688b31d6d8c))
+* **storage:** release closed document source across owners ([#683](https://github.com/ThomasCrouzet/deckmark/issues/683)) ([79068a9](https://github.com/ThomasCrouzet/deckmark/commit/79068a97ccf3f4cdb86209a4972a5b10e56668b3))
+* **wysiwyg:** keep a mixed-format split local ([#699](https://github.com/ThomasCrouzet/deckmark/issues/699)) ([78e598d](https://github.com/ThomasCrouzet/deckmark/commit/78e598d4ddb2b665a01a727108c33b6406c01068)), closes [#327](https://github.com/ThomasCrouzet/deckmark/issues/327) [#350](https://github.com/ThomasCrouzet/deckmark/issues/350) [#572](https://github.com/ThomasCrouzet/deckmark/issues/572) [#345](https://github.com/ThomasCrouzet/deckmark/issues/345)
+* **wysiwyg:** keep list and table edits local ([#705](https://github.com/ThomasCrouzet/deckmark/issues/705)) ([3930b96](https://github.com/ThomasCrouzet/deckmark/commit/3930b96beb1216c8b80e10d3d64d8780bcd9e410)), closes [#569](https://github.com/ThomasCrouzet/deckmark/issues/569) [#572](https://github.com/ThomasCrouzet/deckmark/issues/572)
+
 ## [2.5.4](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.3...v2.5.4) (2026-11-13)
 
 
