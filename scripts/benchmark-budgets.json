@@ -113,7 +113,7 @@
 	"platforms": {
 		"web-chromium": {
 			"label": "Headless Chromium through the production static build",
-			"source": "Calibrated from GitHub Actions run 41933449566 (2026-11-04, ubuntu-24.04, 5 runs) and a local production build. Update only with reviewed evidence.",
+			"source": "Calibrated from GitHub Actions run 41933449566 (2026-11-04, ubuntu-24.04, 5 runs) and a local production build. The mixed edit and source limits come from the reviewed W7 plan in issue #709; the pre-fix run must fail the 600 KB table-cell publish block. Update only with reviewed evidence.",
 			"metrics": {
 				"coldStart": {
 					"p95": 400,
@@ -233,6 +233,174 @@
 					"p95": 800,
 					"unit": "MB",
 					"note": "CI Chromium measured 679.8 MB p95. The budget keeps headroom above the runner baseline."
+				},
+				"edit200kProseInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit200kProsePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit200kTableInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit200kTablePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit200kListInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit200kListPublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit200kImageInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit200kImagePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit600kProseInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit600kProsePublishBlock": {
+					"p95": 200,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit600kImageInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit600kImagePublishBlock": {
+					"p95": 200,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit600kTableInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit600kTablePublishBlock": {
+					"p95": 250,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit600kListInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit600kListPublishBlock": {
+					"p95": 250,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit1mbProseInputToFrame": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit1mbProsePublishBlock": {
+					"p95": 300,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit1mbTableInputToFrame": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit1mbTablePublishBlock": {
+					"p95": 300,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"source200kInputToFrame": {
+					"p95": 40,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay."
+				},
+				"source200kPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"source600kInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay."
+				},
+				"source600kPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"source1mbInputToFrame": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay."
+				},
+				"source1mbPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
+				},
+				"edit600kTableRemovedInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key."
+				},
+				"edit600kTableRemovedPublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key."
 				}
 			}
 		},
@@ -352,6 +520,202 @@
 					"unit": "MB",
 					"optional": true,
 					"note": "The engine does not expose a reliable heap measurement to this harness. Unmeasured is accepted explicitly."
+				},
+				"edit200kProseInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kProsePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kTableInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kTablePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kListInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kListPublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kImageInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kImagePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kProseInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kProsePublishBlock": {
+					"p95": 200,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kImageInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kImagePublishBlock": {
+					"p95": 200,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kTableInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kTablePublishBlock": {
+					"p95": 250,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kListInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kListPublishBlock": {
+					"p95": 250,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit1mbProseInputToFrame": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit1mbProsePublishBlock": {
+					"p95": 300,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit1mbTableInputToFrame": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit1mbTablePublishBlock": {
+					"p95": 300,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source200kInputToFrame": {
+					"p95": 40,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source200kPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source600kInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source600kPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source1mbInputToFrame": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source1mbPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kTableRemovedInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kTableRemovedPublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
 				}
 			}
 		},
@@ -477,6 +841,202 @@
 					"unit": "MB",
 					"optional": true,
 					"note": "The engine does not expose a reliable heap measurement to this harness. Unmeasured is accepted explicitly."
+				},
+				"edit200kProseInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kProsePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kTableInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kTablePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kListInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kListPublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kImageInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit200kImagePublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kProseInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kProsePublishBlock": {
+					"p95": 200,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kImageInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kImagePublishBlock": {
+					"p95": 200,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kTableInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kTablePublishBlock": {
+					"p95": 250,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kListInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kListPublishBlock": {
+					"p95": 250,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit1mbProseInputToFrame": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit1mbProsePublishBlock": {
+					"p95": 300,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit1mbTableInputToFrame": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit1mbTablePublishBlock": {
+					"p95": 300,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source200kInputToFrame": {
+					"p95": 40,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source200kPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source600kInputToFrame": {
+					"p95": 50,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source600kPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source1mbInputToFrame": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Source editor at the document middle. PublishBlock covers the 150 ms publish throttle and the 400 ms save delay. Optional because the full mixed suite runs on Chromium only."
+				},
+				"source1mbPublishBlock": {
+					"p95": 60,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kTableRemovedInputToFrame": {
+					"p95": 80,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Mixed note, caret placed by text target. PublishBlock is the longest long task that starts after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
+				},
+				"edit600kTableRemovedPublishBlock": {
+					"p95": 120,
+					"unit": "ms",
+					"minimumRuns": 20,
+					"optional": true,
+					"note": "Three passes of one declared warmup key and twenty measured keys. The reported p95 is the median of the three pass p95 values. Longest engine-reported long task after the gated frame and before the next key. Optional because the full mixed suite runs on Chromium only."
 				}
 			}
 		},

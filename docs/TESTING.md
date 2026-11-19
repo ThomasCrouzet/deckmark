@@ -2655,7 +2655,7 @@ an engine that handles one insert with an engine that processes each key.
 ### Scroll sample timeline diagnostics
 
 A `scrollFrame` budget failure keeps the existing summary line and adds one
-bounded numeric line for each scroll sample. The CI gate uses five samples. The
+bounded numeric line for each scroll sample. The CI gate uses twenty samples. The
 line records the run, the scroll ratio, the measured duration, the start time,
 the two animation frame times, the requested and applied `scrollTop`, the scroll
 room and the number of reported long-task entries that overlap the sample. A
@@ -2681,20 +2681,62 @@ document text or private data.
 ### Fixture corpus and budgets
 
 `scripts/benchmark-fixtures/manifest.json` describes the corpus. The repository
-keeps `note-small.md`, `presentation.md`, and deterministic generators in
-`scripts/benchmark-fixtures/corpus.mjs`:
+keeps `note-small.md`, `presentation.md`, `note-200k-mixed.md`,
+`note-600k-mixed.md`, `note-1mb-mixed.md` and deterministic generators in
+`scripts/benchmark-fixtures/corpus.mjs` and `mixed.mjs`:
 
 - `note-large` creates about 240 KB of Markdown.
 - `library` creates 300 notes of about 16 KB each.
 - `project-tree` creates one project with 600 documents in 30 nested folders.
+- The mixed notes copy the reported note shape. They have uneven prose, one
+  padded table of 64 rows, one list of 96 items and inline base64 images on
+  single long lines. `note-600k-mixed.md` has six images and a longest line of
+  90,002 characters. Regenerate them with
+  `node scripts/benchmark-fixtures/generate-mixed.mjs`, then copy the printed
+  descriptors into the manifest.
+
+### Mixed typing suite
+
+`scripts/benchmark-local.mjs` measures the mixed notes in a separate browser
+context. The suite closes the measured blind spots of the earlier gate: a
+generated note with no image and short lines, a 3000 ms visual typing limit, an
+unused long-task observer, and a five-sample p95 that equaled the maximum.
+
+The suite places the caret by text target at four positions: prose middle, table
+cell, list item, and a paragraph after the last chart image. Each position runs
+three passes of one declared warmup key and twenty measured keys. The gate value
+is the median of the three pass p95 values. The report keeps every raw sample,
+the heartbeat gaps, and the `sourceFidelityFullReason` counters.
+
+Retain these failure risks:
+
+- A headless engine can omit the `longtask` entry type. The report records the
+  support value. A missing long-task entry is not proof that no stall occurred.
+- The full plan runs on Chromium only. Firefox and WebKit keep a five-key
+  diagnostic probe, because the full plan would exceed the 25 minute job limit.
+  Their mixed budget entries are `optional` and stay report-only.
+- The tables-removed case is a diagnostic. It compares the same caret with and
+  without table lines. It does not prove the cause of a stall on its own.
+- The mixed suite uses a short-lived context with one document. A large library
+  and project tree are not part of a mixed typing sample.
+- A change to a mixed fixture changes the route. Compare the recorded descriptor
+  and route reasons before a budget change. The loader fails closed on a
+  descriptor drift, a missing image, a short longest line, a small table or a
+  short list.
+
+The E2E case `mixed 600 KB table cell publish` in
+`e2e/editor-input-latency.spec.ts` asserts that one table-cell key does not
+block the main thread for 250 ms. It records the fixture hash, ten per-key
+publish-block values and the route reasons in its attached JSON. It fails on the
+pre-fix build with about 1.2 to 1.8 seconds.
 
 `scripts/benchmark-budgets.json` holds one baseline set for each platform key:
 `web-chromium`, `web-firefox`, `web-webkit`,
 `native-linux-webkitgtk`, `native-windows-webview2` and
 `native-macos-wkwebview`. A baseline is a recorded p95 for one platform. It is
 not a claim that two platforms have equal timings. The default tolerance is
-1.0, so a measurement can be twice the recorded baseline before it reports
-`over-budget`. The report always includes the comparison. Pass
+0.25, so a measurement can be 25 percent above the recorded baseline before it
+reports `over-budget`. The report always includes the comparison. Pass
 `--enforce-budgets` only for a dedicated regression run with a stable machine.
 
 The recorded Chromium baseline near 2.5 s for a document switch uses the

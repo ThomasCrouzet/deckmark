@@ -677,9 +677,11 @@ npm run test:benchmark-gate
 ```
 
 The browser benchmark collects 20 samples for startup, cached restart, project
-tree render, presentation load and visual typing, 3 samples for the library
-reload, and up to 5 samples for the remaining scenarios. Heap collects four
-samples. The five startup metrics on each web platform set `minimumRuns` to 20,
+tree render, presentation load, visual typing, document switch, large document
+open, scroll, source typing, driver typing, presentation slide switch, presentation
+present and HTML export. The library reload keeps 3 samples. Heap collects four
+samples. Every former five-sample metric now uses 20 samples, so its p95 is the
+second-worst value and not the maximum. The five startup metrics on each web platform set `minimumRuns` to 20,
 which matches the 20 samples that the generator collects. The gate reports every
 sample and the maximum. The 20-sample metrics use that count because a p95 over
 5 samples is the maximum: one browser garbage-collection pause, one slow cached
@@ -692,6 +694,74 @@ startup measurement installs a paint observer before navigation, waits a
 bounded time for either the observer or the timeline entry, and records which
 source supplied the value. A required metric with a missing sample fails the
 gate, so a partial report cannot pass on its remaining samples.
+
+### Mixed typing suite and the blind spots it closes
+
+Issue #709 work item W7 keeps a mixed fixture set and a mixed typing suite. The
+suite closes four measured blind spots of the earlier gate:
+
+- The generated corpus had a longest line of 520 characters and no images. A
+  purpose-built generated note therefore took the scoped source route and
+  published in milliseconds.
+- The visual typing metric allowed 3000 ms in Chromium, so a 1.4 s blocking
+  publish passed.
+- The harness installed a long-task observer but never used it for input.
+- Five samples made p95 equal to the maximum.
+
+The fixture set is `note-200k-mixed`, `note-600k-mixed` and `note-1mb-mixed` in
+`scripts/benchmark-fixtures/`. Each note has uneven prose, one wide padded table
+of 64 rows, one list of 96 items and inline base64 images on single long lines.
+The 600 KB note has six images and a longest line of 90,002 characters. The table
+ends without a blank line, as in many real notes. The manifest records bytes,
+SHA-256, `maxLineChars`, `inlineImageCount`, `tableRowCount` and `listItemCount`.
+`loadFixtures` recomputes the descriptor and fails closed when a mixed fixture
+reports no inline image, a longest line under 20000 characters, a table under 60
+rows or a list under 90 items. `npm run test:ci` runs these self-checks.
+
+The suite measures four caret positions per note: prose middle, table cell, list
+item, and a paragraph after the last chart image. Each position runs three passes
+of one declared warmup key and twenty measured keys. One metric is the
+input-to-frame time. The other is `publishBlockMs`: the longest engine-reported
+long task that starts after the gated animation frame and ends before the next
+key. The gate uses the median of the three pass p95 values and keeps every raw
+sample. The report also records heartbeat gaps and the
+`sourceFidelityFullReason` counters per scenario.
+
+A tables-removed diagnostic deletes every table line at load time and edits the
+same prose caret. It shows whether the table container is the cost.
+
+Measured route reason on the pre-fix build (`33f4a64`, production build,
+Chromium, local Linux host):
+
+| Fixture | Table-cell route | Publish (ms) | Prose / list / image route |
+| --- | --- | ---: | --- |
+| `note-200k-mixed` | `container-table` | 300 to 500 | scoped |
+| `note-600k-mixed` | `container-table` | 1200 to 2100 | scoped |
+| `note-1mb-mixed` | `container-table` | 2000 to 3000 | scoped |
+
+The full plan runs on Chromium. Firefox and WebKit keep a five-key diagnostic
+probe, and their mixed budget entries are optional. This keeps the
+`web-benchmark` job inside its 25 minute limit.
+
+### Keystroke targets and the local typing profile
+
+16 ms and 33 ms are product targets for a keystroke in the visual editor. 16 ms
+is one frame at 60 Hz and 33 ms is two frames. They are not gate limits. The
+reviewed budgets are the numbers in `scripts/benchmark-budgets.json`, and the
+report keeps the p50 and every raw sample next to them.
+
+Gate a typing change locally without the runner-specific cold start and paint
+limits. First derive a private budget file that omits the navigation metrics.
+Then run the harness with `--skip-navigation`:
+
+```sh
+node -e "const b=require('./scripts/benchmark-budgets.json'); const m=b.platforms['web-chromium'].metrics; for (const k of ['coldStart','cachedRestart','firstContentfulPaint','domInteractive','domContentLoaded','libraryReload']) delete m[k]; process.stdout.write(JSON.stringify(b,null,'\t')+'\n')" > /srv/dev/cache/tmp/opencode/bench-budgets-typing.json
+node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --skip-navigation --enforce-budgets --budgets /srv/dev/cache/tmp/opencode/bench-budgets-typing.json --output /srv/dev/cache/tmp/opencode/bench-typing.json
+```
+
+`--skip-navigation` omits cold start, cached restart, first contentful paint, DOM
+timing and the library reload samples. Keep the file outside Git. CI never
+passes this flag, and the reviewed budget file still gates the full run.
 
 ### WebKit source typing stall (issue 552)
 
