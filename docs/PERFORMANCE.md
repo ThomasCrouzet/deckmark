@@ -629,6 +629,129 @@ prototype that keeps one complete document model, and an explicit correctness
 matrix for those interactions. This is a measured prototype decision, not a
 claim that 5 MB visual editing is fast.
 
+## Long-document paint containment
+
+Issue [#709](https://github.com/ThomasCrouzet/deckmark/issues/709) covers work
+item W2. Paint containment follows the rendered structure of a document, not
+only its encoded source length.
+
+### Gate rule
+
+`src/lib/editor-document-policy.ts` holds three sufficient conditions:
+
+| Condition | Value | Constant |
+| --- | ---: | --- |
+| Interaction characters | 262,144 (256 KiB) | `LONG_DOCUMENT_CHARS` |
+| Rendered elements | 4,000 | `LONG_DOCUMENT_ELEMENTS` |
+| Rendered top-level blocks | 800 | `LONG_DOCUMENT_BLOCKS` |
+
+`Editor.svelte` counts the direct children and the descendant elements of the
+ProseMirror root after the first layout. One condition is sufficient for the
+`mdsh-long-document` class. The class stays set for the mount, so a later
+shrink does not reshape the scroll region under the caret. The element count
+sets the gate because the measured keystroke gain is complete at about 8,000
+elements. The block count covers a document of many small blocks.
+
+### Rendered structure at 200 KB
+
+Chromium, production build, each document opened in Edit mode.
+
+| Content | Elements | Top-level blocks | Gate |
+| --- | ---: | ---: | --- |
+| prose | 611 | 611 | off |
+| code | 5,603 | 2,696 | on |
+| links | 8,464 | 3,628 | on |
+| headings | 8,674 | 8,674 | on |
+| lists | 40,414 | 755 | on |
+| tables | 55,216 | 1,228 | on |
+| math (KaTeX) | 195,394 | 4,093 | on |
+
+A 200 KB prose note stays at 611 elements. A 200 KB table note builds 55,216
+elements and now receives containment.
+
+### Measured effect
+
+Chromium, production build, caret at 50 percent of the document, 60 ms cadence,
+12 inserted characters. The table reports the second animation frame after the
+`beforeinput` event.
+
+| Document | Before p50 / p95 (ms) | After p50 / p95 (ms) |
+| --- | ---: | ---: |
+| tables 200 KB | 288.1 / 319.7 | 24.5 / 29.3 |
+| math 200 KB | 1,166.0 / 1,417.5 | 68.0 / 136.5 |
+| prose 200 KB | 9.5 / 32.4 | 9.2 / 33.1 |
+| prose 1.5 MB | 27.0 / 39.4 | 21.3 / 30.0 |
+
+The prose rows use three interleaved runs of each build and report the median
+p50. Prose does not change, and the 1.5 MB prose note does not regress. The host
+ran other builds during the measurements, so the tables and math rows come from
+one run per build with a large margin.
+
+### Per-block intrinsic size
+
+`content-visibility: auto` reserves a fallback length for each block that has
+not rendered yet: 2.4em for text, 3.2em for a heading, 12em for a table or a
+code block and 320px for an image. An unrevealed table is much taller than
+12em, so the document height changed while the user scrolled.
+
+`Editor.svelte` now writes one generated style sheet with a measured size for
+each top-level block. Four rules govern that sheet:
+
+- The sizes live in a `<style>` element in `document.head`, not in the `style`
+  attribute of a block. An attribute change inside the editable area makes the
+  ProseMirror DOM observer re-render the whole document, and the re-render drops
+  the attribute.
+- The measured size is the content box. The code subtracts the padding and the
+  border of the block, because `contain-intrinsic-size` sizes the content box.
+  Without that step a code block adds its own padding to every reserved size.
+- The selector repeats `.mdsh-editor` to outrank the per-type fallback rules in
+  `milkdown.css`. The sheet also moves to the end of `document.head`, after the
+  Milkdown theme that the first mount loads.
+- A block insert or removal moves the records with the block order. A same-count
+  edit keeps every record, so typing does not rewrite the sheet.
+
+The measurement pass adds `mdsh-containment-measuring` to the ProseMirror root.
+That class lifts containment for one synchronous read, so a re-rendered document
+still reports real heights. The class never reaches a paint.
+
+### Contained height against the laid-out height
+
+Chromium, production build, tall documents in Edit mode. The laid-out height is
+the document height with the generated sheet and the class removed.
+
+| Document | Laid out (px) | Contained (px) | Difference |
+| --- | ---: | ---: | ---: |
+| tables 200 KB | 167,858 | 168,327 | +0.28% |
+| math 200 KB | 186,740 | 188,446 | +0.91% |
+| lists 200 KB | 137,734 | 137,815 | +0.06% |
+| links 200 KB | 176,412 | 177,938 | +0.87% |
+| headings 200 KB | 474,098 | 477,234 | +0.66% |
+| code 200 KB | 233,770 | 234,807 | +0.44% |
+
+Without the generated sheet the same table note starts at 103,994 px and grows
+to 118,909 px during the scroll walk. The measured sizes remove that change.
+
+### Scroll stability
+
+`e2e/editor-containment.spec.ts` scrolls a 60-section table note through six
+positions. Run it with:
+
+```sh
+npx playwright test e2e/editor-containment.spec.ts --project=chromium \
+  --workers=1 --retries=0
+```
+
+At each position the case records the block under the viewport centre, waits for
+the offscreen blocks to render and compares the screen position of that block.
+The case fails when the block moves more than 2 px, or when the document height
+moves by more than 2 percent. The case attaches a screenshot and a JSON record
+of the fixture hash, the gate values, the scroll steps and the source identity.
+
+The `mdsh-webkit-engine` exclusion is unchanged. Apple WebKit keeps every live
+block in the layout tree, and no containment rule applies there. Read mode stays
+out of this work item: its preview blocks use a different container, and a
+change there must pass the Split mode heading geometry checks first.
+
 ## Enforced benchmark gate
 
 `scripts/benchmark-budgets.json` is the reviewed reference for each platform and

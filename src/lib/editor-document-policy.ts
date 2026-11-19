@@ -8,8 +8,41 @@
  * need the same editor policy.
  */
 
-/** Interaction characters that select the long-document paint policy. */
+/**
+ * Interaction characters that select the long-document paint policy on their
+ * own. The rendered structure adds a second condition in the editor.
+ */
 export const LONG_DOCUMENT_CHARS = 256 * 1024;
+
+/**
+ * Rendered top-level blocks that select the long-document paint policy.
+ * A document under the character threshold can still build a very large
+ * rendered tree, and each keystroke then pays a full layout pass.
+ */
+export const LONG_DOCUMENT_BLOCKS = 800;
+
+/**
+ * Rendered elements that select the long-document paint policy. The measured
+ * keystroke gain is already complete at about 8,000 elements, so the gate uses
+ * the rendered count and not the encoded size. 200 KB of prose stays at 611
+ * elements; 200 KB of tables reaches 55,216.
+ */
+export const LONG_DOCUMENT_ELEMENTS = 4000;
+
+/** Rendered structure of one mounted document. */
+export interface RenderedStructure {
+	/** Direct children of the ProseMirror root. */
+	topLevelBlocks: number;
+	/** Every descendant element of the ProseMirror root. */
+	elements: number;
+}
+
+/** True when the rendered structure needs paint containment. */
+export function structureNeedsContainment(structure: RenderedStructure): boolean {
+	return (
+		structure.topLevelBlocks >= LONG_DOCUMENT_BLOCKS || structure.elements >= LONG_DOCUMENT_ELEMENTS
+	);
+}
 
 const DATA_IMAGE_PREFIX = 'data:image/';
 
