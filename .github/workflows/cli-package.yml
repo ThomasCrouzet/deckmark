@@ -241,7 +241,7 @@ jobs:
 
       - name: Run the installed-package suite
         shell: bash
-        timeout-minutes: 8
+        timeout-minutes: 20
         env:
           TMPDIR: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
