@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { MIXED_MARKERS, mixedNote } from '../scripts/benchmark-fixtures/mixed.mjs';
 import { resetAppState } from './helpers';
 import { enableTypewriter, installTypewriterProbe } from './typewriter-helpers';
 
 const counterKey = 'deckmark:editor-perf-counters';
 const largeId = 'perf-large';
 const sourceId = 'perf-source';
+const mixedId = 'perf-mixed-600k';
+const mixedTableMarker = MIXED_MARKERS.table;
 
 // DOM trace snapshots distort input timings on multi-megabyte documents.
 test.use({ locale: 'en-US', reducedMotion: 'reduce', trace: 'off' });
@@ -623,6 +626,216 @@ test('large rendered note stays interactive while autosave runs between keys', a
 	await expect
 		.poll(async () => (await storedContent(page, largeId)).includes(typed), { timeout: 30_000 })
 		.toBe(true);
+});
+
+type MixedPublishSample = {
+	frameMs: number;
+	publishMs: number | null;
+	publishBlockMs: number;
+	routeReasons: string[];
+	changed: boolean;
+};
+
+/**
+ * Record the publication that follows one table-cell key. The long-task
+ * observer is installed once. The gate value is the longest task that starts
+ * after the gated animation frame and ends before the next key.
+ */
+async function installMixedPublishProbe(page: Page) {
+	await page.addInitScript(() => {
+		type Event = {
+			kind: string;
+			name?: string;
+			value?: number;
+			start?: number;
+			end?: number;
+		};
+		const probe = {
+			events: [] as Event[],
+			longTasks: [] as Array<{ start: number; duration: number }>
+		};
+		const windowWithProbe = window as unknown as {
+			__mixedProbe: typeof probe;
+			__mixedKey: (text: string) => Promise<MixedPublishSample>;
+			__MDSH_EDITOR_PERF__: boolean;
+		};
+		windowWithProbe.__mixedProbe = probe;
+		windowWithProbe.__MDSH_EDITOR_PERF__ = true;
+		window.addEventListener('deckmark:editor-perf', (event) => {
+			probe.events.push((event as CustomEvent<Event>).detail);
+		});
+		const supported =
+			typeof PerformanceObserver === 'function' &&
+			Array.isArray(PerformanceObserver.supportedEntryTypes) &&
+			PerformanceObserver.supportedEntryTypes.includes('longtask');
+		if (supported) {
+			new PerformanceObserver((list) => {
+				for (const entry of list.getEntries()) {
+					probe.longTasks.push({ start: entry.startTime, duration: entry.duration });
+				}
+			}).observe({ type: 'longtask', buffered: false });
+		}
+		windowWithProbe.__mixedKey = (text: string) =>
+			new Promise<MixedPublishSample>((resolve) => {
+				const root = document.querySelector('.ProseMirror');
+				if (!root) {
+					resolve({
+						frameMs: -1,
+						publishMs: null,
+						publishBlockMs: -1,
+						routeReasons: [],
+						changed: false
+					});
+					return;
+				}
+				const eventStart = probe.events.length;
+				const taskStart = probe.longTasks.length;
+				const before = root.textContent?.length ?? 0;
+				const startedAt = performance.now();
+				document.execCommand('insertText', false, text);
+				requestAnimationFrame(() => {
+					const frameAt = performance.now();
+					const frameMs = frameAt - startedAt;
+					const finish = () => {
+						// PerformanceObserver callbacks are queued tasks.
+						setTimeout(() => {
+							const events = probe.events.slice(eventStart);
+							const publish = events.find(
+								(event) =>
+									event.kind === 'duration' &&
+									event.name === 'markdownPublish' &&
+									(event.start ?? 0) >= startedAt - 50
+							);
+							const windowEnd = publish?.end ?? performance.now();
+							const tasks = probe.longTasks
+								.slice(taskStart)
+								.filter(
+									(task) => task.start + task.duration > frameAt && task.start <= windowEnd + 100
+								);
+							resolve({
+								frameMs,
+								publishMs: publish?.value ?? null,
+								publishBlockMs: tasks.length ? Math.max(...tasks.map((task) => task.duration)) : 0,
+								routeReasons: events
+									.filter(
+										(event) => event.kind === 'counter' && (event.name ?? '').includes('FullReason')
+									)
+									.map((event) => event.name ?? ''),
+								changed: (root.textContent?.length ?? 0) > before
+							});
+						}, 40);
+					};
+					const deadline = frameAt + 6_000;
+					const poll = () => {
+						const found = probe.events
+							.slice(eventStart)
+							.some((event) => event.kind === 'duration' && event.name === 'markdownPublish');
+						if (found || performance.now() > deadline) {
+							finish();
+							return;
+						}
+						setTimeout(poll, 20);
+					};
+					poll();
+				});
+			});
+	});
+}
+
+async function placeCaretInMixedTable(page: Page): Promise<boolean> {
+	return page.evaluate((marker) => {
+		const root = document.querySelector('.ProseMirror');
+		if (!root) return false;
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		let found: Node | null = null;
+		let node: Node | null;
+		while ((node = walker.nextNode())) {
+			if (node.textContent?.includes(marker)) {
+				found = node;
+				break;
+			}
+		}
+		if (!found?.textContent) return false;
+		const offset = found.textContent.indexOf(marker) + marker.length;
+		const range = document.createRange();
+		range.setStart(found, offset);
+		range.collapse(true);
+		found.parentElement?.scrollIntoView({ block: 'center' });
+		(root as HTMLElement).focus();
+		const selection = window.getSelection();
+		if (!selection) return false;
+		selection.removeAllRanges();
+		selection.addRange(range);
+		return Boolean(found.parentElement?.closest('td'));
+	}, mixedTableMarker);
+}
+
+test('mixed 600 KB table cell publish', async ({ page }, info) => {
+	// The reported note shape: a padded table, a long list and six base64
+	// images. Pre-fix, one cell key still triggers a whole-document restore.
+	test.setTimeout(240_000);
+	const content = mixedNote({
+		label: '600k',
+		targetBytes: 600_000,
+		imageLineChars: [90_000, 70_000, 60_000, 50_000, 40_000, 30_000]
+	});
+	await seedNote(page, mixedId, content);
+	await page.evaluate(() => localStorage.setItem('mdsh:mode', 'wysiwyg'));
+	await installMixedPublishProbe(page);
+	await page.reload();
+	await openVisualEditor(page);
+	await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 120_000 });
+	expect(await placeCaretInMixedTable(page), 'the caret must land in a table cell').toBe(true);
+	await page.waitForTimeout(1_000);
+	await page.evaluate(() =>
+		(window as unknown as { __mixedKey: (text: string) => Promise<MixedPublishSample> }).__mixedKey(
+			'w'
+		)
+	);
+	const samples: MixedPublishSample[] = [];
+	for (let key = 0; key < 10; key += 1) {
+		samples.push(
+			await page.evaluate(
+				(text) =>
+					(
+						window as unknown as {
+							__mixedKey: (value: string) => Promise<MixedPublishSample>;
+						}
+					).__mixedKey(text),
+				`k${key % 10}`
+			)
+		);
+	}
+	const publishBlock = Math.max(...samples.map((sample) => sample.publishBlockMs));
+	const routeReasons = [...new Set(samples.flatMap((sample) => sample.routeReasons))];
+	await info.attach('mixed-table-cell-publish.json', {
+		body: JSON.stringify(
+			{
+				fixture: {
+					generator: 'mixedNote',
+					bytes: Buffer.byteLength(content),
+					sha256: createHash('sha256').update(content).digest('hex'),
+					maxLineChars: Math.max(...content.split('\n').map((line) => line.length))
+				},
+				method:
+					'Ten keys in one padded table cell. Each sample is the longest long task that starts after the input animation frame and ends before the next key.',
+				browser: page.context().browser()?.version(),
+				samples,
+				publishBlock,
+				routeReasons
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	expect(
+		samples.every((sample) => sample.publishMs !== null && sample.changed),
+		'every key must publish a change'
+	).toBe(true);
+	expect(publishBlock, 'a table cell key must not block the main thread for 250 ms').toBeLessThan(
+		250
+	);
 });
 
 test('ordinary source typing keeps CRLF bytes without rebuilding the full source', async ({

@@ -37,6 +37,42 @@ export function summarize(values, unit = 'ms') {
 	};
 }
 
+/**
+ * Summarize repeated passes. Each pass is one array of samples. The gate value
+ * is the median of the per-pass p95 values, so one noisy pass can neither fail
+ * nor hide a systematic slowdown. `runs` is the total measured sample count and
+ * every raw sample stays in the report.
+ * @param {number[][]} passes
+ * @param {'ms' | 'MB'} [unit]
+ */
+export function summarizePasses(passes, unit = 'ms') {
+	const usable = passes
+		.map((values) => values.filter((value) => typeof value === 'number' && Number.isFinite(value)))
+		.filter((values) => values.length > 0);
+	if (usable.length === 0) {
+		return { runs: 0, unit, measured: false };
+	}
+	const flat = passes.flat();
+	const complete =
+		usable.length === passes.length &&
+		flat.every((value) => typeof value === 'number' && Number.isFinite(value));
+	const passP95 = usable.map((values) => Number(percentile(values, 0.95).toFixed(3)));
+	const sortedPassP95 = [...passP95].sort((left, right) => left - right);
+	const measured = flat.filter((value) => typeof value === 'number' && Number.isFinite(value));
+	return {
+		runs: measured.length,
+		unit,
+		measured: true,
+		complete,
+		passes: passP95.length,
+		passP95,
+		p50: Number(percentile(measured, 0.5).toFixed(3)),
+		p95: sortedPassP95[Math.floor(sortedPassP95.length / 2)],
+		min: Number(Math.min(...measured).toFixed(3)),
+		max: Number(Math.max(...measured).toFixed(3))
+	};
+}
+
 /** @param {number} bytes */
 export function megabytes(bytes) {
 	return Number((bytes / (1024 * 1024)).toFixed(1));
@@ -87,9 +123,85 @@ export function environmentIdentity(extra = {}) {
 
 const manifestPath = (/** @type {string} */ root) => join(root, 'manifest.json');
 
+/** @param {string} text */
+export function maxLineChars(text) {
+	let longest = 0;
+	let start = 0;
+	for (let index = 0; index <= text.length; index += 1) {
+		const code = text.charCodeAt(index);
+		if (index < text.length && code !== 10 && code !== 13) continue;
+		longest = Math.max(longest, index - start);
+		if (code === 13 && text.charCodeAt(index + 1) === 10) index += 1;
+		start = index + 1;
+	}
+	return longest;
+}
+
+/**
+ * Structure of one committed mixed note. The manifest keeps the reviewed
+ * values; the loader recomputes them from the bytes so a drift cannot pass.
+ * @param {string} text
+ */
+export function mixedDescriptor(text) {
+	let tableRowCount = 0;
+	let listItemCount = 0;
+	for (const block of text.split(/\n{2,}/)) {
+		const rows = block.split('\n').filter((line) => line.startsWith('|'));
+		if (rows.length > 2) tableRowCount = Math.max(tableRowCount, rows.length - 2);
+		const items = block.split('\n').filter((line) => /^\d+\. /.test(line));
+		if (items.length) listItemCount = Math.max(listItemCount, items.length);
+	}
+	return {
+		bytes: Buffer.byteLength(text),
+		sha256: createHash('sha256').update(text).digest('hex'),
+		maxLineChars: maxLineChars(text),
+		inlineImageCount: text.match(/!\[[^\]]*\]\(data:image\/[a-z+]+;base64,[^)]*\)/g)?.length ?? 0,
+		tableRowCount,
+		listItemCount
+	};
+}
+
+/**
+ * Fail closed when a mixed fixture does not carry the reviewed structure.
+ * @param {string} id
+ * @param {Record<string, number | string>} expected
+ * @param {Record<string, number | string>} actual
+ */
+export function assertMixedDescriptor(id, expected, actual) {
+	if (!expected) throw new Error(`Mixed fixture ${id} has no descriptor.`);
+	for (const key of [
+		'bytes',
+		'sha256',
+		'maxLineChars',
+		'inlineImageCount',
+		'tableRowCount',
+		'listItemCount'
+	]) {
+		if (!(key in expected)) throw new Error(`Mixed fixture ${id} descriptor has no ${key}.`);
+		if (expected[key] !== actual[key]) {
+			throw new Error(
+				`Mixed fixture ${id} ${key} is ${actual[key]}, the manifest records ${expected[key]}.`
+			);
+		}
+	}
+	if (actual.inlineImageCount === 0) {
+		throw new Error(`Mixed fixture ${id} has no inline base64 image.`);
+	}
+	if (Number(actual.maxLineChars) < 20_000) {
+		throw new Error(`Mixed fixture ${id} longest line is under 20000 characters.`);
+	}
+	if (Number(actual.tableRowCount) < 60) {
+		throw new Error(`Mixed fixture ${id} table has fewer than 60 rows.`);
+	}
+	if (Number(actual.listItemCount) < 90) {
+		throw new Error(`Mixed fixture ${id} list has fewer than 90 items.`);
+	}
+}
+
 /**
  * Read the fixture manifest and hash every fixture. Generated fixtures are
  * hashed from their deterministic output; their bytes stay out of the report.
+ * A mixed note also reports and verifies its document structure.
  * @param {string} root
  */
 export async function loadFixtures(root = join(import.meta.dirname, 'benchmark-fixtures')) {
@@ -99,7 +211,8 @@ export async function loadFixtures(root = join(import.meta.dirname, 'benchmark-f
 	for (const fixture of manifest.fixtures) {
 		if (fixture.path) {
 			const bytes = await readFile(join(absoluteRoot, fixture.path));
-			descriptors.push({
+			const text = bytes.toString('utf8');
+			const descriptor = {
 				id: fixture.id,
 				kind: fixture.kind,
 				description: fixture.description,
@@ -107,7 +220,18 @@ export async function loadFixtures(root = join(import.meta.dirname, 'benchmark-f
 				bytes: bytes.byteLength,
 				sha256: createHash('sha256').update(bytes).digest('hex'),
 				targets: fixture.targets
-			});
+			};
+			if (fixture.kind === 'mixed-note') {
+				const structure = mixedDescriptor(text);
+				assertMixedDescriptor(fixture.id, fixture.descriptor ?? {}, structure);
+				Object.assign(descriptor, {
+					maxLineChars: structure.maxLineChars,
+					inlineImageCount: structure.inlineImageCount,
+					tableRowCount: structure.tableRowCount,
+					listItemCount: structure.listItemCount
+				});
+			}
+			descriptors.push(descriptor);
 			continue;
 		}
 		const generate = generators[fixture.generator];

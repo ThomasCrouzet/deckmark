@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"source": "Measured Playwright durations from GitHub Actions run 42338368121 e2e-shard jobs (2026-11-07). document-memory-plateau.spec.ts uses a local Chromium measurement (2026-11-18). The representative-editor-report entries use local 20-run durations from 2026-11-18 and the next measured CI run replaces them. Paths are relative to the Playwright rootDir.",
+	"source": "Measured Playwright durations from GitHub Actions run 42338368121 e2e-shard jobs (2026-11-07). document-memory-plateau.spec.ts uses a local Chromium measurement (2026-11-18). The representative-editor-report entries use local 20-run durations from 2026-11-18 and the next measured CI run replaces them. The editor-input-latency and image-input-latency entries use local Chromium and WebKit durations from 2026-11-19 under concurrent lane load, and the next measured CI run replaces them. Paths are relative to the Playwright rootDir.",
 	"fallbackSeconds": 60,
 	"groups": [
 		{
@@ -203,6 +203,12 @@
 		},
 		{
 			"project": "chromium",
+			"file": "editor-input-latency.spec.ts",
+			"seconds": 205.1,
+			"tests": 16
+		},
+		{
+			"project": "chromium",
 			"file": "editor-state.spec.ts",
 			"seconds": 23.4,
 			"tests": 4
@@ -308,6 +314,12 @@
 			"file": "image-annotations.spec.ts",
 			"seconds": 2.5,
 			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "image-input-latency.spec.ts",
+			"seconds": 80.4,
+			"tests": 6
 		},
 		{
 			"project": "chromium",
@@ -974,6 +986,12 @@
 			"file": "golden-path.spec.ts",
 			"seconds": 14.9,
 			"tests": 3
+		},
+		{
+			"project": "webkit",
+			"file": "image-input-latency.spec.ts",
+			"seconds": 134.5,
+			"tests": 6
 		},
 		{
 			"project": "webkit",

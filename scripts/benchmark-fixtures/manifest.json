@@ -39,6 +39,51 @@
 			"generatorArgs": { "documents": 600, "folders": 30 },
 			"description": "One project with 600 documents in 30 nested folders. Used for project tree rendering.",
 			"targets": ["web", "native"]
+		},
+		{
+			"id": "note-200k-mixed",
+			"kind": "mixed-note",
+			"path": "note-200k-mixed.md",
+			"description": "About 200 KB mixed note with uneven prose, one wide padded table of 64 rows, one list of 96 items, and two inline base64 images on single long lines. The table ends without a blank line, as in the reported note.",
+			"targets": ["web"],
+			"descriptor": {
+				"bytes": 198882,
+				"sha256": "5b3a530095c899919ff996060c7c6f41705a98b49211f8cc8ce9217db7e9fb74",
+				"maxLineChars": 60002,
+				"inlineImageCount": 2,
+				"tableRowCount": 64,
+				"listItemCount": 96
+			}
+		},
+		{
+			"id": "note-600k-mixed",
+			"kind": "mixed-note",
+			"path": "note-600k-mixed.md",
+			"description": "About 600 KB mixed note that copies the reported shape: uneven prose, one wide padded table of 64 rows, one list of 96 items and six inline base64 images with a 90,000 character longest line. A table-cell edit takes the whole-document route on the pre-fix build.",
+			"targets": ["web"],
+			"descriptor": {
+				"bytes": 599271,
+				"sha256": "7dacf12ec112f99b20d27e28ae62201b62976d8eab868babea23c56aa86cae2f",
+				"maxLineChars": 90002,
+				"inlineImageCount": 6,
+				"tableRowCount": 64,
+				"listItemCount": 96
+			}
+		},
+		{
+			"id": "note-1mb-mixed",
+			"kind": "mixed-note",
+			"path": "note-1mb-mixed.md",
+			"description": "About 1 MB mixed note with the same table, list and six images as the 600 KB fixture and more prose. Upper size of the mixed typing suite.",
+			"targets": ["web"],
+			"descriptor": {
+				"bytes": 999094,
+				"sha256": "7876441b77dbd570fc831fca9fb5ec38d46931dbc3560af93a1580f06fe64061",
+				"maxLineChars": 90002,
+				"inlineImageCount": 6,
+				"tableRowCount": 64,
+				"listItemCount": 96
+			}
 		}
 	]
 }

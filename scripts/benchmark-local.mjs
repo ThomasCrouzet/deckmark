@@ -17,9 +17,11 @@ import {
 	megabytes,
 	platformKeyForWeb,
 	round,
-	summarize
+	summarize,
+	summarizePasses
 } from './benchmark-shared.mjs';
 import { largeNote, libraryRows, projectRows } from './benchmark-fixtures/corpus.mjs';
+import { MIXED_MARKERS, removeTables } from './benchmark-fixtures/mixed.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 const defaultPort = 4183;
@@ -52,7 +54,8 @@ function parseArguments(args) {
 		fixtures: join(projectRoot, 'scripts/benchmark-fixtures'),
 		buildMode: process.env.BENCHMARK_BUILD_MODE ?? 'production-static',
 		enforceBudgets: false,
-		prebuilt: false
+		prebuilt: false,
+		skipNavigation: false
 	};
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index];
@@ -65,6 +68,7 @@ function parseArguments(args) {
 		else if (arg === '--fixtures') options.fixtures = resolve(args[++index] ?? '');
 		else if (arg === '--build-mode') options.buildMode = args[++index] ?? options.buildMode;
 		else if (arg === '--enforce-budgets') options.enforceBudgets = true;
+		else if (arg === '--skip-navigation') options.skipNavigation = true;
 		else if (arg === '--prebuilt') options.prebuilt = true;
 		else throw new Error(`Unknown argument: ${arg}`);
 	}
@@ -652,6 +656,622 @@ async function measureModeSwitch(page, runs) {
 	return { wysiwygLoad, typing, typingSync, diagnostics };
 }
 
+// Mixed typing suite. The measured window covers the animation frame after the
+// input and the publication that follows it. The gate value is the longest
+// engine-reported long task that starts after that frame and before the next
+// key. Route counters name the source-fidelity path that the edit took.
+const mixedPasses = 3;
+const mixedKeysPerPass = 20;
+const mixedWarmupPerPass = 1;
+const mixedPublishTimeoutMs = 6_000;
+const mixedSourceSettleMs = 1_200;
+const mixedKeyCharacters = 'abcdefghijklmnopqrstuvwxyz';
+
+/** @typedef {'prose' | 'table' | 'list' | 'image'} MixedPosition */
+
+const mixedPositionLabels = {
+	prose: 'Prose',
+	table: 'Table',
+	list: 'List',
+	image: 'Image'
+};
+
+/** @param {string} size @param {MixedPosition} position @param {'InputToFrame' | 'PublishBlock'} part */
+function mixedEditMetric(size, position, part) {
+	return `edit${size}${mixedPositionLabels[position]}${part}`;
+}
+
+/** @param {string} size @param {'InputToFrame' | 'PublishBlock'} part */
+function mixedSourceMetric(size, part) {
+	return `source${size}${part}`;
+}
+
+/**
+ * The full mixed suite runs on Chromium. Firefox and WebKit keep a short
+ * diagnostic probe so the job stays inside its time limit, and their budget
+ * entries stay optional.
+ */
+const mixedEditPlan = [
+	{ fixture: 'note-200k-mixed', size: '200k', positions: ['prose', 'table', 'list', 'image'] },
+	{ fixture: 'note-600k-mixed', size: '600k', positions: ['prose', 'table', 'list', 'image'] },
+	{ fixture: 'note-1mb-mixed', size: '1mb', positions: ['prose', 'table'] }
+];
+const mixedSourcePlan = ['200k', '600k', '1mb'];
+const mixedDiagnosticPlan = [
+	{ fixture: 'note-600k-mixed', size: '600k', positions: ['prose', 'table'] }
+];
+
+async function seedMixedDatabase(page, rows, activeId, mode) {
+	await page.evaluate(
+		async ({ rows: draftRows, activeId: id, mode: editorMode }) => {
+			await new Promise((resolvePromise, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts', 'readwrite');
+					const drafts = transaction.objectStore('drafts');
+					drafts.clear();
+					for (const row of draftRows) drafts.put(row);
+					transaction.oncomplete = () => {
+						database.close();
+						resolvePromise(undefined);
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			});
+			localStorage.setItem('mdsh:activeId', id);
+			localStorage.setItem('mdsh:mode', editorMode);
+			localStorage.setItem('mdsh:locale', 'en');
+		},
+		{ rows, activeId, mode }
+	);
+}
+
+async function installMixedProbe(page) {
+	await page.evaluate(() => {
+		const benchmark = (window.__benchmark = window.__benchmark ?? {});
+		benchmark.keyEvents = [];
+		benchmark.longTasks = [];
+		if (!benchmark.mixedListener) {
+			benchmark.mixedListener = true;
+			window.addEventListener('deckmark:editor-perf', (event) => {
+				if (benchmark.keyEvents.length < 2_000) benchmark.keyEvents.push(event.detail);
+			});
+			if (
+				typeof PerformanceObserver === 'function' &&
+				Array.isArray(PerformanceObserver.supportedEntryTypes) &&
+				PerformanceObserver.supportedEntryTypes.includes('longtask')
+			) {
+				try {
+					new PerformanceObserver((list) => {
+						for (const entry of list.getEntries()) {
+							if (benchmark.longTasks.length < 4_000) {
+								benchmark.longTasks.push({ start: entry.startTime, duration: entry.duration });
+							}
+						}
+					}).observe({ type: 'longtask', buffered: false });
+					benchmark.longTaskSupport = 'available';
+				} catch {
+					benchmark.longTaskSupport = 'unavailable';
+				}
+			} else {
+				benchmark.longTaskSupport = 'unavailable';
+			}
+		}
+		benchmark.nextFrames = () =>
+			new Promise((resolvePromise) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolvePromise(undefined)))
+			);
+		benchmark.placeCaret = (marker) => {
+			const root = document.querySelector('.milkdown .ProseMirror');
+			if (!root) return { ok: false, reason: 'missing-root' };
+			const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+			/** @type {Node | null} */
+			let found = null;
+			let node;
+			while ((node = walker.nextNode())) {
+				if (node.textContent?.includes(marker)) {
+					found = node;
+					break;
+				}
+			}
+			if (!found?.textContent) return { ok: false, reason: 'missing-marker' };
+			const offset = found.textContent.indexOf(marker) + marker.length;
+			const range = document.createRange();
+			range.setStart(found, offset);
+			range.collapse(true);
+			const element = found.parentElement;
+			element?.scrollIntoView({ block: 'center' });
+			root.focus();
+			const selection = window.getSelection();
+			if (!selection) return { ok: false, reason: 'missing-selection' };
+			selection.removeAllRanges();
+			selection.addRange(range);
+			return {
+				ok: true,
+				tag: element?.tagName ?? null,
+				inCell: Boolean(element?.closest('td')),
+				inItem: Boolean(element?.closest('li'))
+			};
+		};
+		benchmark.setSourceCaret = (ratio) => {
+			const root = document.querySelector('.cm-content');
+			const view = root?.cmView?.view ?? root?.cmTile?.root?.view;
+			if (!view?.state?.doc) return { ok: false, reason: 'missing-codemirror' };
+			const length = view.state.doc.length;
+			const target = Math.max(0, Math.min(length, Math.round(length * ratio)));
+			view.dispatch({ selection: { anchor: target }, scrollIntoView: true });
+			view.focus();
+			return { ok: true, length, target, actual: view.state.selection.main.head };
+		};
+		benchmark.mixedKey = (text, options) =>
+			new Promise((resolvePromise) => {
+				const editor = document.querySelector(options.selector);
+				if (!editor) {
+					resolvePromise({ supported: false, reason: 'missing-editor' });
+					return;
+				}
+				const cmView = editor.cmView?.view ?? editor.cmTile?.root?.view;
+				const lengthBefore = options.mode === 'source' ? (cmView?.state.doc.length ?? null) : null;
+				// Keep only this key's events. A growing buffer would stop
+				// recording after a few hundred keys.
+				benchmark.keyEvents.length = 0;
+				benchmark.longTasks.length = 0;
+				const eventStart = 0;
+				const taskStart = 0;
+				const heartbeats = [];
+				const heartbeat = setInterval(() => {
+					if (heartbeats.length < 400) heartbeats.push(performance.now());
+				}, 50);
+				const startedAt = performance.now();
+				let supported = true;
+				try {
+					supported = document.execCommand('insertText', false, text);
+				} catch {
+					supported = false;
+				}
+				requestAnimationFrame(() => {
+					const frameAt = performance.now();
+					const frameMs = frameAt - startedAt;
+					const finish = () => {
+						clearInterval(heartbeat);
+						// PerformanceObserver callbacks are queued tasks. Let them run
+						// before the window is read, then stop the window.
+						setTimeout(() => {
+							const events = benchmark.keyEvents.slice(eventStart);
+							const tasks = benchmark.longTasks.slice(taskStart);
+							const publish = events.find(
+								/** @param {{ kind?: string, name?: string }} event */
+								(event) => event.kind === 'duration' && event.name === 'markdownPublish'
+							);
+							const windowEnd = publish
+								? Math.max(publish.end ?? publish.start, frameAt)
+								: performance.now();
+							const blockTasks = tasks.filter(
+								(task) => task.start + task.duration > frameAt && task.start <= windowEnd + 100
+							);
+							const gaps = [];
+							for (let index = 1; index < heartbeats.length; index += 1) {
+								const gap = heartbeats[index] - heartbeats[index - 1];
+								if (gap > 100) gaps.push(Math.round(gap));
+							}
+							// A blocked thread defers the final interval tick past the
+							// window end, so record that last gap from the window itself.
+							const lastTick = heartbeats.at(-1);
+							if (lastTick !== undefined && windowEnd - lastTick > 100) {
+								gaps.push(Math.round(windowEnd - lastTick));
+							}
+							const counters = events
+								.filter((event) => event.kind === 'counter')
+								.map((event) => event.name);
+							const stages = {};
+							for (const event of events) {
+								if (event.kind !== 'duration') continue;
+								stages[event.name] = (stages[event.name] ?? 0) + event.value;
+							}
+							const lengthAfter =
+								options.mode === 'source' ? (cmView?.state.doc.length ?? null) : null;
+							resolvePromise({
+								supported,
+								changed:
+									publish !== undefined
+										? counters.includes('markdownUpdated')
+										: lengthBefore !== null && lengthAfter !== null
+											? lengthAfter > lengthBefore
+											: null,
+								frameMs,
+								publishMs: publish ? publish.value : null,
+								publishBlockMs: blockTasks.length
+									? Math.max(...blockTasks.map((task) => task.duration))
+									: 0,
+								longTaskCount: blockTasks.length,
+								waitMs: windowEnd - frameAt,
+								heartbeatCount: heartbeats.length,
+								heartbeatMaxGapMs: gaps.length ? Math.max(...gaps) : 0,
+								heartbeatGaps: gaps.slice(0, 12),
+								counters: counters.filter(
+									(name) => name.includes('Fidelity') || name.includes('imageMarkdown')
+								),
+								stages
+							});
+						}, 40);
+					};
+					if (options.mode === 'source') {
+						setTimeout(finish, options.settleMs ?? mixedSourceSettleMs);
+						return;
+					}
+					const deadline = frameAt + (options.timeoutMs ?? mixedPublishTimeoutMs);
+					const poll = () => {
+						const events = benchmark.keyEvents.slice(eventStart);
+						if (
+							events.some(
+								(event) =>
+									event.kind === 'duration' &&
+									event.name === 'markdownPublish' &&
+									event.start >= startedAt - 50
+							)
+						) {
+							finish();
+							return;
+						}
+						if (performance.now() > deadline) {
+							finish();
+							return;
+						}
+						setTimeout(poll, 20);
+					};
+					poll();
+				});
+			});
+	});
+}
+
+async function openVisualNote(page, bytes) {
+	const visual = page.locator('.milkdown .ProseMirror');
+	if (!(await visual.isVisible().catch(() => false))) {
+		const wysiwyg = page.locator('button[data-mode="wysiwyg"]');
+		if (await wysiwyg.count()) await domClick(page, 'button[data-mode="wysiwyg"]');
+		const dialog = page.getByRole('dialog', { name: 'Render this large document?' });
+		if (await dialog.isVisible().catch(() => false)) {
+			await dialog.getByRole('button', { name: 'Render document' }).click();
+		}
+	}
+	await visual.waitFor({ state: 'visible', timeout: bytes >= 256 * 1024 ? 180_000 : 120_000 });
+	await waitForIdle(page, 30_000);
+}
+
+async function placeMixedCaret(page, marker, position) {
+	const placed = await page.evaluate((value) => window.__benchmark.placeCaret(value), marker);
+	if (!placed?.ok) throw new Error(`Cannot place the mixed caret at ${marker}: ${placed?.reason}`);
+	if (position === 'table' && !placed.inCell)
+		throw new Error('The table caret did not land inside a table cell.');
+	if (position === 'list' && !placed.inItem)
+		throw new Error('The list caret did not land inside a list item.');
+	if ((position === 'prose' || position === 'image') && (placed.inCell || placed.inItem))
+		throw new Error(`The ${position} caret landed inside a container.`);
+	await page.evaluate(() => window.__benchmark.nextFrames());
+	return placed;
+}
+
+/** @param {number} key */
+function mixedKeyText(key) {
+	return mixedKeyCharacters[key % mixedKeyCharacters.length];
+}
+
+/**
+ * Measure one scenario: one fixture, one caret position, three passes of one
+ * declared warmup key and twenty measured keys.
+ */
+async function measureMixedScenario(page, scenario) {
+	const { passes, keysPerPass, mode } = scenario;
+	const inputToFrame = [];
+	const publishBlock = [];
+	const diagnostics = [];
+	for (let pass = 0; pass < passes; pass += 1) {
+		if (mode === 'source') {
+			const caret = await page.evaluate(() => window.__benchmark.setSourceCaret(0.5));
+			if (!caret?.ok) throw new Error(`Cannot place the source caret: ${caret?.reason}`);
+			await page.evaluate(() => window.__benchmark.nextFrames());
+		} else {
+			await placeMixedCaret(page, scenario.marker, scenario.position);
+		}
+		await waitForIdle(page, 10_000);
+		// One declared warmup key per pass. It is not measured and it lets the
+		// publish, save and layout settle before the measured keys.
+		await page.evaluate(
+			([text, options]) => window.__benchmark.mixedKey(text, options),
+			['w', scenario.keyOptions]
+		);
+		const passInput = [];
+		const passBlock = [];
+		for (let key = 0; key < keysPerPass; key += 1) {
+			const sample = await page.evaluate(
+				([text, options]) => window.__benchmark.mixedKey(text, options),
+				[mixedKeyText(key), scenario.keyOptions]
+			);
+			if (sample?.supported !== true || sample.changed !== true) {
+				passInput.push(null);
+				passBlock.push(null);
+				diagnostics.push({
+					pass,
+					key,
+					status: 'rejected',
+					supported: sample?.supported ?? null,
+					changed: sample?.changed ?? null,
+					reason: sample?.reason ?? null
+				});
+				continue;
+			}
+			if (mode === 'wysiwyg' && sample.publishMs === null) {
+				passInput.push(null);
+				passBlock.push(null);
+				diagnostics.push({ pass, key, status: 'no-publish', waitMs: round(sample.waitMs) });
+				continue;
+			}
+			passInput.push(round(sample.frameMs));
+			passBlock.push(round(sample.publishBlockMs));
+			diagnostics.push({
+				pass,
+				key,
+				frameMs: round(sample.frameMs),
+				publishMs: sample.publishMs === null ? null : round(sample.publishMs),
+				publishBlockMs: round(sample.publishBlockMs),
+				longTaskCount: sample.longTaskCount,
+				waitMs: round(sample.waitMs),
+				heartbeatCount: sample.heartbeatCount,
+				heartbeatMaxGapMs: sample.heartbeatMaxGapMs,
+				heartbeatGaps: sample.heartbeatGaps,
+				routeReasons: sample.counters.filter((name) => name.includes('FullReason')),
+				imagePaths: sample.counters.filter((name) => name.includes('imageMarkdown'))
+			});
+		}
+		inputToFrame.push(passInput);
+		publishBlock.push(passBlock);
+	}
+	const routeReasons = {};
+	for (const entry of diagnostics) {
+		for (const reason of entry.routeReasons ?? []) {
+			routeReasons[reason] = (routeReasons[reason] ?? 0) + 1;
+		}
+	}
+	return {
+		id: scenario.id,
+		fixture: scenario.fixture,
+		fixtureId: scenario.fixtureId,
+		mode: scenario.mode,
+		position: scenario.position,
+		passes,
+		keysPerPass,
+		warmupPerPass: mixedWarmupPerPass,
+		inputToFrame,
+		publishBlock,
+		routeReasons,
+		diagnostics
+	};
+}
+
+/**
+ * Measure the mixed fixtures. Chromium runs the full gated plan. The other
+ * engines run one diagnostic probe per listed position; their budget entries
+ * are optional and the job keeps its time limit.
+ */
+async function runMixedSuite(browser, url, fixtures, full) {
+	const editPlan = full ? mixedEditPlan : mixedDiagnosticPlan;
+	const passes = full ? mixedPasses : 1;
+	const keysPerPass = full ? mixedKeysPerPass : 5;
+	const scenarios = [];
+	const metrics = { samples: {}, summaries: {} };
+	const fixtureTextById = {};
+	for (const descriptor of fixtures.descriptors) {
+		if (!descriptor.path) continue;
+		fixtureTextById[descriptor.id] = await readFile(descriptor.path, 'utf8');
+	}
+
+	const record = (scenario, size) => {
+		const inputMetric = mixedEditMetric(size, scenario.position, 'InputToFrame');
+		const blockMetric = mixedEditMetric(size, scenario.position, 'PublishBlock');
+		metrics.samples[inputMetric] = scenario.inputToFrame.flat();
+		metrics.samples[blockMetric] = scenario.publishBlock.flat();
+		metrics.summaries[inputMetric] = summarizePasses(scenario.inputToFrame);
+		metrics.summaries[blockMetric] = summarizePasses(scenario.publishBlock);
+		scenario.metrics = { inputToFrame: inputMetric, publishBlock: blockMetric };
+	};
+
+	for (const entry of editPlan) {
+		const content = fixtureTextById[entry.fixture];
+		if (!content) throw new Error(`Missing mixed fixture content: ${entry.fixture}`);
+		const context = await browser.newContext({ locale: 'en-US' });
+		await context.addInitScript(() => {
+			window.__MDSH_EDITOR_PERF__ = true;
+		});
+		const page = await context.newPage();
+		try {
+			await page.goto(url);
+			await waitForShell(page);
+			await seedMixedDatabase(
+				page,
+				[
+					{
+						id: entry.fixture,
+						name: `${entry.fixture}.md`,
+						content,
+						createdAt: 1_700_000_000_000,
+						updatedAt: 1_700_000_000_000,
+						order: 0,
+						open: true
+					}
+				],
+				entry.fixture,
+				'wysiwyg'
+			);
+			await page.reload();
+			await waitForShell(page);
+			await openVisualNote(page, Buffer.byteLength(content));
+			await installMixedProbe(page);
+			for (const position of entry.positions) {
+				console.error(`Mixed edit ${entry.size} ${position}.`);
+				const scenario = await measureMixedScenario(page, {
+					id: `mixed-edit-${entry.size}-${position}`,
+					fixture: entry.fixture,
+					fixtureId: entry.fixture,
+					mode: 'wysiwyg',
+					position,
+					marker: MIXED_MARKERS[position],
+					passes,
+					keysPerPass,
+					keyOptions: {
+						selector: '.milkdown .ProseMirror',
+						mode: 'wysiwyg',
+						timeoutMs: mixedPublishTimeoutMs
+					}
+				});
+				scenarios.push(scenario);
+				if (full) record(scenario, entry.size);
+			}
+			metrics.longTaskSupport = await page.evaluate(
+				() => window.__benchmark.longTaskSupport ?? 'unavailable'
+			);
+		} finally {
+			await context.close();
+		}
+	}
+
+	// Source mode: one page, three documents, one caret at the middle.
+	if (full && mixedSourcePlan.length > 0) {
+		const context = await browser.newContext({ locale: 'en-US' });
+		await context.addInitScript(() => {
+			window.__MDSH_EDITOR_PERF__ = true;
+		});
+		const page = await context.newPage();
+		try {
+			await page.goto(url);
+			await waitForShell(page);
+			const rows = mixedSourcePlan.map((size) => {
+				const id = `note-${size}-mixed`;
+				const content = fixtureTextById[id];
+				if (!content) throw new Error(`Missing mixed fixture content: ${id}`);
+				return {
+					id,
+					name: `${id}.md`,
+					content,
+					createdAt: 1_700_000_000_000,
+					updatedAt: 1_700_000_000_000,
+					order: mixedSourcePlan.indexOf(size),
+					open: true
+				};
+			});
+			await seedMixedDatabase(page, rows, rows[0].id, 'source');
+			await page.reload();
+			await waitForShell(page);
+			await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 60_000 });
+			await installMixedProbe(page);
+			for (const [index, size] of mixedSourcePlan.entries()) {
+				const row = rows[index];
+				console.error(`Mixed source ${size}.`);
+				if (index > 0) {
+					await domClick(page, `button[data-file-id="${row.id}"]`);
+					await page.waitForFunction(
+						(expected) => document.querySelector('header input')?.value === expected,
+						row.name.replace(/\.md$/, ''),
+						{ timeout: 60_000 }
+					);
+				}
+				await waitForIdle(page, 20_000);
+				const scenario = await measureMixedScenario(page, {
+					id: `mixed-source-${size}`,
+					fixture: row.id,
+					fixtureId: row.id,
+					mode: 'source',
+					position: 'prose',
+					passes: mixedPasses,
+					keysPerPass: mixedKeysPerPass,
+					keyOptions: {
+						selector: '.cm-content',
+						mode: 'source',
+						settleMs: mixedSourceSettleMs
+					}
+				});
+				scenarios.push(scenario);
+				const inputMetric = mixedSourceMetric(size, 'InputToFrame');
+				const blockMetric = mixedSourceMetric(size, 'PublishBlock');
+				metrics.samples[inputMetric] = scenario.inputToFrame.flat();
+				metrics.samples[blockMetric] = scenario.publishBlock.flat();
+				metrics.summaries[inputMetric] = summarizePasses(scenario.inputToFrame);
+				metrics.summaries[blockMetric] = summarizePasses(scenario.publishBlock);
+				scenario.metrics = { inputToFrame: inputMetric, publishBlock: blockMetric };
+			}
+		} finally {
+			await context.close();
+		}
+
+		// Tables-removed diagnostic: the same note and caret with no table line.
+		{
+			const base = fixtureTextById['note-600k-mixed'];
+			if (!base) throw new Error('Missing mixed fixture content: note-600k-mixed');
+			const content = removeTables(base);
+			const context = await browser.newContext({ locale: 'en-US' });
+			await context.addInitScript(() => {
+				window.__MDSH_EDITOR_PERF__ = true;
+			});
+			const page = await context.newPage();
+			try {
+				await page.goto(url);
+				await waitForShell(page);
+				await seedMixedDatabase(
+					page,
+					[
+						{
+							id: 'mixed-600k-notables',
+							name: 'mixed-600k-notables.md',
+							content,
+							createdAt: 1_700_000_000_000,
+							updatedAt: 1_700_000_000_000,
+							order: 0,
+							open: true
+						}
+					],
+					'mixed-600k-notables',
+					'wysiwyg'
+				);
+				await page.reload();
+				await waitForShell(page);
+				await openVisualNote(page, Buffer.byteLength(content));
+				await installMixedProbe(page);
+				console.error('Mixed edit 600k table-removed.');
+				const scenario = await measureMixedScenario(page, {
+					id: 'mixed-edit-600k-table-removed',
+					fixture: 'note-600k-mixed without table lines',
+					fixtureId: 'mixed-600k-notables',
+					mode: 'wysiwyg',
+					position: 'prose',
+					marker: MIXED_MARKERS.prose,
+					passes: mixedPasses,
+					keysPerPass: mixedKeysPerPass,
+					keyOptions: {
+						selector: '.milkdown .ProseMirror',
+						mode: 'wysiwyg',
+						timeoutMs: mixedPublishTimeoutMs
+					}
+				});
+				scenarios.push(scenario);
+				metrics.samples.edit600kTableRemovedInputToFrame = scenario.inputToFrame.flat();
+				metrics.samples.edit600kTableRemovedPublishBlock = scenario.publishBlock.flat();
+				metrics.summaries.edit600kTableRemovedInputToFrame = summarizePasses(scenario.inputToFrame);
+				metrics.summaries.edit600kTableRemovedPublishBlock = summarizePasses(scenario.publishBlock);
+				scenario.metrics = {
+					inputToFrame: 'edit600kTableRemovedInputToFrame',
+					publishBlock: 'edit600kTableRemovedPublishBlock'
+				};
+			} finally {
+				await context.close();
+			}
+		}
+	}
+
+	return { scenarios, metrics };
+}
+
 async function measureProjectTree(page, runs) {
 	const panel = page.locator('[role="dialog"][aria-labelledby="projects-title"]');
 	const values = [];
@@ -820,15 +1440,19 @@ async function runWebBenchmark(options, fixtures) {
 	const failures = [];
 	const browserErrors = [];
 	let page;
-	const expensiveRuns = Math.min(options.runs, 5);
 	// A p95 over five samples is the maximum, so one browser stall fails the
 	// gate. Twenty samples make p95 the second-worst value: a systematic slowdown
-	// still fails, and the report keeps every sample and the maximum.
-	const projectTreeRuns = Math.max(options.runs, 20);
+	// still fails, and the report keeps every sample and the maximum. Every
+	// five-sample metric now uses the same standard count.
+	const standardRuns = Math.max(options.runs, 20);
+	const projectTreeRuns = standardRuns;
 	// Startup and cached restart also need enough samples for a meaningful p95.
-	const startupRuns = Math.max(options.runs, 20);
+	const startupRuns = standardRuns;
 	try {
-		const startup = await measureStartup(browser, url, startupRuns);
+		// A local typing profile skips the cold and cached navigation samples. The
+		// runner-specific FCP and cold-start limits then do not decide a typing
+		// change. Use a local budget file that omits those metrics.
+		const startup = options.skipNavigation ? null : await measureStartup(browser, url, startupRuns);
 		const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
 		page = await context.newPage();
 		page.on('pageerror', (error) => browserErrors.push(error.stack ?? error.message));
@@ -839,7 +1463,7 @@ async function runWebBenchmark(options, fixtures) {
 		await waitForShell(page);
 		await seedDatabase(page);
 		const libraryReload = [];
-		for (let run = 0; run < Math.min(options.runs, 3); run += 1) {
+		for (let run = 0; !options.skipNavigation && run < Math.min(options.runs, 3); run += 1) {
 			const libraryReloadAt = performance.now();
 			await page.reload();
 			await waitForShell(page);
@@ -855,13 +1479,13 @@ async function runWebBenchmark(options, fixtures) {
 		// a single scheduler hiccup. Same rule as the visual typing metrics below.
 		const inputRuns = Math.max(options.runs, 20);
 		const typingSource = await measureInput(page, '.cm-content', inputRuns, 'source');
-		const typingSourceDriver = await measureDriverTyping(page, options.runs, 'driver');
-		const documentSwitch = await measureDocumentSwitch(page, options.runs);
-		const largeDocumentOpen = await measureLargeDocumentOpen(page, options.runs);
+		const typingSourceDriver = await measureDriverTyping(page, standardRuns, 'driver');
+		const documentSwitch = await measureDocumentSwitch(page, standardRuns);
+		const largeDocumentOpen = await measureLargeDocumentOpen(page, standardRuns);
 		await waitForIdle(page);
 		const typingLarge = await measureInput(page, '.cm-content', inputRuns, 'large');
 		// Twenty samples make p95 the second-worst value instead of the maximum of five.
-		const readMode = await measureReadMode(page, Math.max(expensiveRuns, 20));
+		const readMode = await measureReadMode(page, standardRuns);
 		await domClick(page, 'button[data-mode="read"]');
 		await page.locator('.mdsh-read .mdsh-preview').waitFor({ state: 'visible', timeout: 60_000 });
 		await page.waitForFunction(
@@ -880,22 +1504,22 @@ async function runWebBenchmark(options, fixtures) {
 		// present. Let that work settle before the two-frame scroll sample, or a
 		// single first-paint stall becomes the p95 of five samples.
 		await waitForIdle(page);
-		const scroll = await measureScroll(page, options.runs);
+		const scroll = await measureScroll(page, standardRuns);
 		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
 		// Twenty samples make p95 the second-worst value for the visual typing
 		// metrics, which have a noisy tail on shared runners.
-		const modeSwitch = await measureModeSwitch(page, Math.max(expensiveRuns, 20));
+		const modeSwitch = await measureModeSwitch(page, standardRuns);
 		const heapSamples = [await measureHeap(page, options.browser)];
 		await domClick(page, 'button[data-mode="source"]');
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
 		await page.locator('button[data-file-id="bench-000"]').click();
 		await page.waitForFunction(() => document.querySelector('header input')?.value === 'bench-000');
-		const exportHtml = await measureExport(page, expensiveRuns);
+		const exportHtml = await measureExport(page, standardRuns);
 		heapSamples.push(await measureHeap(page, options.browser));
 		const projectTree = await measureProjectTree(page, projectTreeRuns);
 		heapSamples.push(await measureHeap(page, options.browser));
-		const presentation = await measurePresentation(page, expensiveRuns, 20);
+		const presentation = await measurePresentation(page, standardRuns, 20);
 		heapSamples.push(await measureHeap(page, options.browser));
 		const identityContext = await browser.newContext();
 		const identityPage = await identityContext.newPage();
@@ -903,13 +1527,21 @@ async function runWebBenchmark(options, fixtures) {
 		await identityContext.close();
 		await context.close();
 
+		// Mixed fixtures run last. They use their own contexts so the library and
+		// project corpus above cannot change a typing sample.
+		const mixed = await runMixedSuite(browser, url, fixtures, options.browser === 'chromium');
+
 		const samples = {
-			coldStart: startup.coldStart,
-			cachedRestart: startup.cachedRestart,
-			firstContentfulPaint: startup.firstContentfulPaint,
-			domInteractive: startup.domInteractive,
-			domContentLoaded: startup.domContentLoaded,
-			libraryReload,
+			...(startup
+				? {
+						coldStart: startup.coldStart,
+						cachedRestart: startup.cachedRestart,
+						firstContentfulPaint: startup.firstContentfulPaint,
+						domInteractive: startup.domInteractive,
+						domContentLoaded: startup.domContentLoaded
+					}
+				: {}),
+			...(options.skipNavigation ? {} : { libraryReload }),
 			documentSwitch,
 			largeDocumentOpen,
 			typingSource: typingSource.values,
@@ -927,15 +1559,18 @@ async function runWebBenchmark(options, fixtures) {
 			presentationSlideSwitch: presentation.slideSwitch,
 			presentationPresent: presentation.present,
 			exportHtml: exportHtml.values,
-			heapUsedMb: heapSamples
+			heapUsedMb: heapSamples,
+			...mixed.metrics.samples
 		};
-		const startupDiagnostics = { firstContentfulPaintSource: startup.fcpSources };
-		const summary = Object.fromEntries(
-			Object.entries(samples).map(([name, values]) => [
-				name,
-				summarize(values, name === 'heapUsedMb' ? 'MB' : 'ms')
-			])
-		);
+		const startupDiagnostics = startup ? { firstContentfulPaintSource: startup.fcpSources } : null;
+		const summary = {
+			...Object.fromEntries(
+				Object.entries(samples)
+					.filter(([name]) => !(name in mixed.metrics.summaries))
+					.map(([name, values]) => [name, summarize(values, name === 'heapUsedMb' ? 'MB' : 'ms')])
+			),
+			...mixed.metrics.summaries
+		};
 		const budgets = await loadBudgets(options.budgets);
 		const platformKey = platformKeyForWeb(options.browser);
 		const budget = budgetReport({ platformKey, summary, budgets });
@@ -975,12 +1610,25 @@ async function runWebBenchmark(options, fixtures) {
 					'Wall clock from the document click or slide action to the visible slide state.',
 				export:
 					'Wall clock from a DOM click on the named palette option to the browser download event. Readiness checks precede the sample. Download byte checks follow it.',
-				heap: 'Chromium CDP JSHeapUsedSize. Other engines report performance.memory when present.'
+				heap: 'Chromium CDP JSHeapUsedSize. Other engines report performance.memory when present.',
+				mixedInputToFrame:
+					'Mixed note, caret placed by text target inside a table cell, a list item, a paragraph near the middle or a paragraph after a chart image. In-page time from execCommand insertText to the next animation frame.',
+				mixedPublishBlock:
+					'The longest engine-reported long task that starts after the gated frame and before the next key. Three passes of one declared warmup key and twenty measured keys; the reported p95 is the median of the three pass p95 values.',
+				mixedSource:
+					'Source editor at the document middle. The same protocol with a 1200 ms settle window for the 150 ms publish throttle and the 400 ms save delay.',
+				mixedDiagnostic:
+					'The tables-removed case deletes every table line at load time and edits the same prose caret. It shows whether the table container is the cost.',
+				mixedRoute:
+					'routeReasons counts the sourceFidelityFullReason counters per scenario. A table-cell edit must name container-table on the pre-fix build.'
 			},
 			limits: [
 				'Headless browser timings do not prove native WebView timings. Run --target native separately.',
 				'A shared CI runner has unequal hardware. Treat the budget as a baseline for this platform.',
-				'Input latency uses a synthetic execCommand path, not a physical keyboard driver.'
+				'Input latency uses a synthetic execCommand path, not a physical keyboard driver.',
+				'--skip-navigation omits the cold, cached, paint and library reload samples. Use it with a local budget file that omits those metrics so a typing change is gated without the runner-specific navigation limits. CI never passes this flag.',
+				'The 16 ms and 33 ms keystroke targets in docs/PERFORMANCE.md are product targets, not gate limits.',
+				'The mixed suite runs the full plan on Chromium. Firefox and WebKit keep a five-key diagnostic probe and their mixed budget entries are optional.'
 			],
 			budget,
 			budgetEnforced: options.enforceBudgets,
@@ -997,6 +1645,14 @@ async function runWebBenchmark(options, fixtures) {
 				typingSource: typingSource.diagnostics,
 				typingLarge: typingLarge.diagnostics,
 				typingWysiwyg: modeSwitch.diagnostics
+			},
+			mixed: {
+				passes: mixedPasses,
+				keysPerPass: mixedKeysPerPass,
+				warmupPerPass: mixedWarmupPerPass,
+				fullPlan: options.browser === 'chromium',
+				longTaskSupport: mixed.metrics.longTaskSupport ?? null,
+				scenarios: mixed.scenarios
 			},
 			exportDownloads: exportHtml.downloads,
 			failures
