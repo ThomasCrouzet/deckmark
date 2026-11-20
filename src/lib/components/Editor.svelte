@@ -88,6 +88,13 @@
 	// until a forced layout. Vendor is an engine-family gate, not a version
 	// guess, so every Apple WebKit build keeps live blocks in the layout tree.
 	const webkitEngine = typeof navigator !== 'undefined' && /Apple/i.test(navigator.vendor ?? '');
+	// Gecko pays the containment work on every mounted block. On the 240 KB
+	// benchmark note (2 317 blocks, 47 527 elements) the visual-editor mount
+	// took 5.17 s with the measured structure and 3.78 s with the origin/main
+	// build that has no structural gate, and the typing sample was not faster
+	// (p50 123 ms against 114 ms). The engine keeps the character gate that
+	// predates this work item.
+	const geckoEngine = typeof navigator !== 'undefined' && /Firefox\//.test(navigator.userAgent);
 	// Paint containment and the caret plugin follow the rendered interaction
 	// surface, not the encoded length of an embedded image. The source length
 	// still bounds the render confirmation and the storage/import caps.
@@ -193,6 +200,9 @@
 			elements: root.getElementsByTagName('*').length
 		};
 		if (!structureNeedsContainment(structure)) return;
+		// Gecko keeps the character gate alone and receives no class from the
+		// measured structure, so it pays no mount cost.
+		if (geckoEngine) return;
 		// Apple WebKit never applies the containment rules, and the source-size
 		// rule keeps its historical fallback-only behaviour. Both need no sheet.
 		if (!webkitEngine && !documentPolicy.longDocument) {
@@ -212,6 +222,7 @@
 	 * limit is reached.
 	 */
 	function startContainmentCheck(token: number, attempt = 0): void {
+		if (geckoEngine) return;
 		containmentFrame = requestAnimationFrame(() => {
 			containmentFrame = null;
 			if (token !== mountToken) return;

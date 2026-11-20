@@ -688,6 +688,38 @@ p50. Prose does not change, and the 1.5 MB prose note does not regress. The host
 ran other builds during the measurements, and each run records the load
 average.
 
+### Engine policy
+
+The measured structure applies to Chromium only. Gecko pays the containment
+work on every mounted block.
+
+Firefox, production build, the 240 KB mixed note of the Web benchmark, visual
+editor opened from Source mode, 20 samples of the mode switch. The typing value
+is the same report's `typingWysiwyg` p50.
+
+| Build | Mount p50 / p95 (ms) | Typing p50 (ms) |
+| --- | ---: | ---: |
+| origin/main, no structural gate | 3,778 / 4,361 | 114 |
+| branch before the Gecko policy, run 1 | 5,173 / 6,589 | 123 |
+| branch before the Gecko policy, run 2 | 5,104 / 5,843 | 126 |
+| branch with the Gecko policy | 3,399 / 5,261 | 92 |
+
+The runs recorded a load average of 6.9 to 11.4 on a shared host. The branch
+before the policy crossed the 10,000 ms mount cap on a loaded host, and every
+value above stayed inside the cap on this host.
+
+The measurement pass is not the cost. A probe on the same document reads 2,317
+bounding boxes in 5 to 15 ms. Neutralizing `content-visibility` for the same
+build lowers the mount by 0.4 to 0.7 s, and the class and the generated sheet
+reach the document 1.2 to 1.5 s after the ProseMirror root appears. The engine
+therefore keeps the character gate alone: a note of at least 262,144
+interaction characters still receives containment, as it did before this work
+item, and a large table or math note below that threshold does not.
+
+Chromium keeps the measured structure and the gain it reports. The exclusion
+uses the engine family, not a version guess, in the same way as the WebKit
+exclusion.
+
 ### Per-kind intrinsic size
 
 `content-visibility: auto` reserves a fallback length for each block that has
@@ -775,7 +807,8 @@ moves by more than 2 percent. The case attaches a screenshot and a JSON record
 of the fixture hash, the gate values, the scroll steps and the source identity.
 
 The `mdsh-webkit-engine` exclusion is unchanged. Apple WebKit keeps every live
-block in the layout tree, and no containment rule applies there. Read mode stays
+block in the layout tree, and no containment rule applies there. Gecko keeps the
+character gate alone, as the engine policy above records. Read mode stays
 out of this work item: its preview blocks use a different container, and a
 change there must pass the Split mode heading geometry checks first.
 
