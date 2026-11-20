@@ -9,7 +9,7 @@
 	import type { Crepe as CrepeType } from '@milkdown/crepe';
 	import type { EditorView } from '@milkdown/kit/prose/view';
 	import type { Transaction } from '@milkdown/kit/prose/state';
-	import type { Slice } from '@milkdown/kit/prose/model';
+	import type { Node as PMNode, Slice } from '@milkdown/kit/prose/model';
 	import { onDestroy, untrack } from 'svelte';
 	import { renderMermaidPreview } from '../milkdown-mermaid-preview';
 	import { reportError } from '#lib/report.js';
@@ -33,7 +33,7 @@
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
-	import { editorDocumentPolicy } from '#lib/editor-document-policy.js';
+	import { editorDocumentPolicy, structureNeedsContainment } from '#lib/editor-document-policy.js';
 	import { measureEditorStage, recordEditorCounter, recordEditorEdit } from '#lib/editor-perf.js';
 	import { createSourceEdit, type SourceEdit } from '#lib/source-edit.js';
 	import {
@@ -92,6 +92,180 @@
 	// surface, not the encoded length of an embedded image. The source length
 	// still bounds the render confirmation and the storage/import caps.
 	const documentPolicy = $derived(editorDocumentPolicy(content));
+	// A document under the source threshold can still build a very large
+	// rendered tree: 200 KB of tables costs 55 000 elements and a full layout
+	// per keystroke. The measured structure adds containment in that case.
+	// The flag is sticky for one mount, because shrinking the tree back under
+	// the budget must not reshape the scroll region under the caret.
+	let structuralContainment = $state(false);
+	const paintContainment = $derived(documentPolicy.longDocument || structuralContainment);
+	// Per-block intrinsic sizes in document order. A generated style sheet
+	// carries them: an inline style on a ProseMirror block is a DOM mutation,
+	// and the editor then re-renders the whole document and drops the style.
+	// A style sheet is invisible to that observer and survives a re-render.
+	let containmentHeights: Array<number | undefined> = [];
+	let containmentNodes: readonly PMNode[] = [];
+	let containmentStyle: HTMLStyleElement | null = null;
+	let mountedView: EditorView | null = null;
+	let containmentCheckTimer: number | null = null;
+	let containmentFrame: number | null = null;
+
+	/** Top-level document blocks, in rendered order. */
+	function containmentDocNodes(): readonly PMNode[] {
+		const nodes: PMNode[] = [];
+		mountedView?.state.doc.forEach((node) => nodes.push(node));
+		return nodes;
+	}
+
+	/**
+	 * Keeps the height records aligned with the block order. An inserted or
+	 * removed block shifts every later index, so the records move with it. A
+	 * same-count edit keeps every index and needs no rewrite: the edited block
+	 * is in view, and the browser remembers its rendered size.
+	 */
+	function realignContainmentHeights(next: readonly PMNode[]): boolean {
+		const previous = containmentNodes;
+		containmentNodes = next;
+		if (previous.length === next.length) return false;
+		let prefix = 0;
+		const limit = Math.min(previous.length, next.length);
+		while (prefix < limit && previous[prefix] === next[prefix]) prefix += 1;
+		let suffix = 0;
+		while (
+			suffix < limit - prefix &&
+			previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]
+		)
+			suffix += 1;
+		const removed = previous.length - prefix - suffix;
+		const inserted = next.length - prefix - suffix;
+		containmentHeights.splice(
+			prefix,
+			removed,
+			...new Array<number | undefined>(inserted).fill(undefined)
+		);
+		return true;
+	}
+
+	/**
+	 * Records the rendered height of each block that has no record. Reads every
+	 * box before it writes, so one pass costs one layout and not one per block.
+	 * `reveal` lifts containment for the read, which recovers the real height of
+	 * blocks that a re-render left unrendered.
+	 */
+	function measureContainmentBlocks(root: HTMLElement, reveal: boolean): number {
+		const targets: number[] = [];
+		for (let index = 0; index < containmentNodes.length; index += 1) {
+			if (!reveal && containmentHeights[index] !== undefined) continue;
+			if (!root.children[index]) break;
+			targets.push(index);
+		}
+		if (!targets.length) return 0;
+		if (reveal) root.classList.add('mdsh-containment-measuring');
+		// `contain-intrinsic-size` sizes the content box, so the block padding
+		// and border are removed from the measured border box. Without this
+		// step a block with padding is reserved at its own height plus padding.
+		const heights = targets.map((index) => {
+			const block = root.children[index] as HTMLElement;
+			const style = getComputedStyle(block);
+			const edges =
+				Number.parseFloat(style.paddingTop) +
+				Number.parseFloat(style.paddingBottom) +
+				Number.parseFloat(style.borderTopWidth) +
+				Number.parseFloat(style.borderBottomWidth);
+			const borderBox = block.getBoundingClientRect().height;
+			return borderBox - (Number.isFinite(edges) ? edges : 0);
+		});
+		if (reveal) root.classList.remove('mdsh-containment-measuring');
+		let recorded = 0;
+		targets.forEach((index, position) => {
+			const height = heights[position];
+			if (height === undefined || height <= 0) return;
+			containmentHeights[index] = height;
+			recorded += 1;
+		});
+		return recorded;
+	}
+
+	/** Writes the measured block heights into the generated style sheet. */
+	function writeContainmentStyle(): void {
+		if (!containmentStyle) return;
+		const rules: string[] = [];
+		for (let index = 0; index < containmentHeights.length; index += 1) {
+			const height = containmentHeights[index];
+			if (!height) continue;
+			// The editor sheet repeats `.mdsh-editor` to outrank the per-type
+			// fallback lengths in milkdown.css. Both use five class selectors, so
+			// source order would otherwise decide the winner.
+			rules.push(
+				`.mdsh-editor.mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine) .ProseMirror > :nth-child(${
+					index + 1
+				}) { contain-intrinsic-size: auto ${Math.round(height)}px; }`
+			);
+		}
+		// Keep the sheet after every bundled stylesheet, including the Milkdown
+		// theme that the first mount loads dynamically.
+		document.head.append(containmentStyle);
+		containmentStyle.textContent = rules.join('\n');
+	}
+
+	function resetContainmentMeasurements(): void {
+		containmentHeights = [];
+		containmentNodes = [];
+	}
+
+	/** Applies containment when the rendered structure needs it. */
+	function refreshPaintContainment(): void {
+		const root = container?.querySelector<HTMLElement>('.ProseMirror');
+		if (!root) return;
+		// The element count walks the whole rendered tree, so it runs only until
+		// the gate activates once. The flag stays set for the mount.
+		if (!structuralContainment) {
+			const structure = {
+				topLevelBlocks: root.children.length,
+				elements: root.getElementsByTagName('*').length
+			};
+			if (!structureNeedsContainment(structure)) return;
+		}
+		// Apple WebKit never applies the containment rules, and the source-size
+		// rule keeps its historical fallback-only behaviour. Both need no map.
+		if (!webkitEngine && !documentPolicy.longDocument) {
+			const nodes = containmentDocNodes();
+			const shifted = realignContainmentHeights(nodes);
+			const pinned = containmentHeights.filter((height) => height !== undefined).length;
+			const measured = measureContainmentBlocks(
+				root,
+				!structuralContainment || pinned * 2 < nodes.length
+			);
+			// A hidden or not yet laid out container reports zero heights. Skipping
+			// activation lets the caller retry after the first layout.
+			if (!structuralContainment && measured === 0 && pinned === 0) return;
+			if (measured > 0 || shifted) writeContainmentStyle();
+		}
+		structuralContainment = true;
+	}
+
+	function scheduleContainmentCheck(): void {
+		if (containmentCheckTimer !== null) return;
+		containmentCheckTimer = window.setTimeout(() => {
+			containmentCheckTimer = null;
+			refreshPaintContainment();
+		}, 400);
+	}
+
+	/**
+	 * Measures after the first layout, because a mode switch can mount the
+	 * editor before its container has a box. Each frame retries while the
+	 * document is still invisible and stops as soon as the gate or the attempt
+	 * limit is reached.
+	 */
+	function startContainmentCheck(token: number, attempt = 0): void {
+		containmentFrame = requestAnimationFrame(() => {
+			containmentFrame = null;
+			if (token !== mountToken) return;
+			refreshPaintContainment();
+			if (!structuralContainment && attempt < 20) startContainmentCheck(token, attempt + 1);
+		});
+	}
 
 	// These tokens can start a presentation marker, an escaped line or a framed
 	// presentation element. A change that touches one of them must keep the full
@@ -153,6 +327,14 @@
 	async function mount(initial: string, token: number, idForMount: string) {
 		if (!container) return;
 		loadError = false;
+		structuralContainment = false;
+		resetContainmentMeasurements();
+		// One sheet per mount. It carries the measured block sizes and lives
+		// outside the editor DOM, where the ProseMirror observer cannot see it.
+		containmentStyle?.remove();
+		containmentStyle = document.createElement('style');
+		containmentStyle.setAttribute('data-mdsh-containment', '');
+		document.head.append(containmentStyle);
 		const [
 			{ Crepe },
 			{
@@ -807,6 +989,7 @@
 							if (!transaction.docChanged) return markdownRevision;
 							markdownRevision += 1;
 							scheduleMarkdownUpdate();
+							scheduleContainmentCheck();
 							return markdownRevision;
 						}
 					}
@@ -863,6 +1046,7 @@
 		instance.setReadonly(true);
 		try {
 			await instance.create();
+			mountedView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
 		} catch (err) {
 			if (token === mountToken) loadError = true;
 			reportError('Crepe mount', err);
@@ -1229,6 +1413,7 @@
 			imageFrame = 0;
 		};
 		fullImageScan();
+		startContainmentCheck(token);
 		mountedFileId = idForMount;
 		await restoreEditorPosition(instance, idForMount, token);
 		// Re-enable editing before the caret request. A read-only ProseMirror
@@ -1270,6 +1455,9 @@
 		updateExternalContent = async (markdown: string) => {
 			if (markdown === lastEditorMarkdown) return;
 			if (token !== mountToken || markdown !== content || idForMount !== fileId) return;
+			// A full replace builds new block nodes at every index. Drop the
+			// records so the next pass measures the new blocks at their real size.
+			resetContainmentMeasurements();
 			frontmatter = stripFrontmatter(markdown);
 			roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);
 			lastEditorMarkdown = markdown;
@@ -1280,11 +1468,24 @@
 			editorBaseline = resetIncrementalMarkdown();
 			resetFidelity();
 			applyImageAlternatives();
+			scheduleContainmentCheck();
 		};
 		if (content !== initial && fileId === idForMount) await updateExternalContent(content);
 	}
 
 	async function unmount() {
+		mountedView = null;
+		if (containmentFrame !== null) {
+			cancelAnimationFrame(containmentFrame);
+			containmentFrame = null;
+		}
+		if (containmentCheckTimer !== null) {
+			clearTimeout(containmentCheckTimer);
+			containmentCheckTimer = null;
+		}
+		containmentStyle?.remove();
+		containmentStyle = null;
+		resetContainmentMeasurements();
 		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1') {
 			delete (window as unknown as { __MDSH_EDITOR_VIEW__?: unknown }).__MDSH_EDITOR_VIEW__;
 		}
@@ -1388,7 +1589,7 @@
 <div
 	bind:this={container}
 	class="mdsh-editor"
-	class:mdsh-long-document={documentPolicy.longDocument}
+	class:mdsh-long-document={paintContainment}
 	class:mdsh-webkit-engine={webkitEngine}
 	role="region"
 	aria-label={t('editor.ariaLabel')}

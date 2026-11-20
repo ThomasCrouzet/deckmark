@@ -111,6 +111,13 @@ milkdown-editor,
 	contain-intrinsic-size: auto 3.2em;
 }
 
+/* The measurement pass lifts containment for one synchronous read, so the
+   generated sheet records the real height of every block and not a fallback.
+   The class exists only inside one task and never reaches a paint. */
+.mdsh-editor .ProseMirror.mdsh-containment-measuring > * {
+	content-visibility: visible !important;
+}
+
 /* Keep heading levels visible while users inspect or edit a heading. */
 .milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
 	position: relative;
