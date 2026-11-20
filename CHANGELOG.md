@@ -5,6 +5,24 @@ Toutes les évolutions notables de **mdsh** sont documentées ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 versionnement [SemVer](https://semver.org/lang/fr/).
 
+## [2.5.6](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.5...v2.5.6) (2026-11-20)
+
+
+### Bug Fixes
+
+* **benchmark:** keep fixture bytes on Windows checkouts ([e707a86](https://github.com/ThomasCrouzet/deckmark/commit/e707a86d3317eff8550d01c301b98c77dacc6f11))
+* **editor:** keep a padded table cell on the scoped route ([9fc26ff](https://github.com/ThomasCrouzet/deckmark/commit/9fc26ff7d715bd4e5c27e4e575a4c1368b532431))
+
+
+### Performance Improvements
+
+* **benchmark:** gate mixed note typing and the publish block ([cfc9c01](https://github.com/ThomasCrouzet/deckmark/commit/cfc9c010b725cb1cb27e292e4a860f4baf80efda))
+* **editor:** fix typing latency on large rendered notes ([5361148](https://github.com/ThomasCrouzet/deckmark/commit/53611480a82f72f10793168f6fceb8a9c798bcad))
+* **editor:** gate paint containment on rendered structure ([7c2e49a](https://github.com/ThomasCrouzet/deckmark/commit/7c2e49a86e3700dbcba32345e04cce87e96527ae))
+* **editor:** keep one containment sheet per mount ([3abf890](https://github.com/ThomasCrouzet/deckmark/commit/3abf890da0f9a49f26fcc134752aa9412cfd7dee))
+* **editor:** keep structural paint containment on Chromium ([c3ece38](https://github.com/ThomasCrouzet/deckmark/commit/c3ece380f06c243f076180c8ec294f37b0ac8ab9))
+* **editor:** scope the publish path for a large note ([9bf5a5d](https://github.com/ThomasCrouzet/deckmark/commit/9bf5a5d76bd3a5f9784ff52f03ad33cc0bb431c1))
+
 ## [2.5.5](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.4...v2.5.5) (2026-11-19)
 
 
