@@ -152,13 +152,24 @@ function equal(a: MarkdownNode, b: MarkdownNode): boolean {
  * depth. A source container can differ from the serializer form in alignment,
  * padding or markers while its leaf paths still match, so the positional route
  * accepts that difference and the semantic check decides the rest.
+ *
+ * A table also differs in row width. A source line after the table that holds
+ * no blank separator parses as a row, and later rows can hold fewer cells than
+ * the header. The serializer pads every row to the header column count, so the
+ * source form of a short row has fewer cells. The row order still matches, and
+ * a cell that exists only in the serializer form resolves to no source leaf,
+ * which keeps the full route. Accept only that direction: a source row with
+ * more cells than the serializer row has no positional counterpart.
  */
 function sameShape(a: MarkdownNode, b: MarkdownNode): boolean {
 	if (a.type !== b.type) return false;
 	const left = a.children ?? [];
 	const right = b.children ?? [];
-	if (left.length !== right.length) return false;
-	return left.every((child, index) => sameShape(child, right[index]!));
+	if (left.length !== right.length && (a.type !== 'tableRow' || right.length > left.length))
+		return false;
+	for (let index = 0; index < Math.min(left.length, right.length); index += 1)
+		if (!sameShape(left[index]!, right[index]!)) return false;
+	return true;
 }
 
 /** Inline content of a table cell without its delimiter pipes and padding. */

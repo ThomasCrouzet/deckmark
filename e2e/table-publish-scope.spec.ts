@@ -200,7 +200,7 @@ async function readProbe(page: Page): Promise<Probe> {
 	});
 }
 
-async function storedContent(page: Page): Promise<string> {
+async function storedContent(page: Page, rowId = noteId): Promise<string> {
 	return page.evaluate(
 		(rowId) =>
 			new Promise<string>((resolve, reject) => {
@@ -216,11 +216,11 @@ async function storedContent(page: Page): Promise<string> {
 					get.onerror = () => reject(get.error);
 				};
 			}),
-		noteId
+		rowId
 	);
 }
 
-async function placeCaretAtCellEnd(page: Page): Promise<void> {
+async function placeCaretAtCellEnd(page: Page, text = target): Promise<void> {
 	await page.locator('.ProseMirror').evaluate((root, text) => {
 		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 		let node: Node | null;
@@ -238,7 +238,7 @@ async function placeCaretAtCellEnd(page: Page): Promise<void> {
 			return;
 		}
 		throw new Error(`Target cell not found: ${text}`);
-	}, target);
+	}, text);
 	await page.evaluate(
 		() =>
 			new Promise<void>((resolve) =>
@@ -434,4 +434,213 @@ test('a table cell edit stays scoped on a 600 KB note with images', async ({ pag
 		counters.sourceFidelityScopedHint ?? 0,
 		'the edit hint must reach the restore'
 	).toBeGreaterThan(0);
+});
+
+// Issue #709 (work item W1b): the mixed benchmark notes put a padded table
+// directly before a prose line, with no blank line between them. The source
+// parser reads that prose line as a one-cell table row, and the serializer
+// pads the same row to the header column count. The container route must still
+// accept the source form; it must not fall back to the whole document because
+// one row holds fewer cells in the source than in the serializer output.
+//
+// The fixture keeps the padded 64-row table, the adjacent prose line and two
+// embedded JPEG images. Four typed keys must all report the container route.
+
+const adjacentId = 'table-publish-scope-adjacent-prose';
+const adjacentTarget = 'Adjacent row caret anchor';
+const adjacentKeys = ['A', 'B', 'C', 'D'];
+
+async function seedAdjacentProseNote(page: Page): Promise<Fixture> {
+	return page.evaluate(
+		async ({ rowId, target }) => {
+			const photo = (seedValue: number): string => {
+				const canvas = document.createElement('canvas');
+				canvas.width = 480;
+				canvas.height = 360;
+				const context = canvas.getContext('2d');
+				if (!context) throw new Error('no 2d context');
+				const image = context.createImageData(480, 360);
+				let seed = seedValue;
+				for (let index = 0; index < image.data.length; index += 4) {
+					seed = (seed * 1_103_515_245 + 12_345) >>> 0;
+					image.data[index] = seed & 0xff;
+					image.data[index + 1] = (seed >>> 8) & 0xff;
+					image.data[index + 2] = (seed >>> 16) & 0xff;
+					image.data[index + 3] = 255;
+				}
+				context.putImageData(image, 0, 0);
+				return canvas.toDataURL('image/jpeg', 0.6);
+			};
+			let content = '# Mixed note\n\nOpening paragraph keeps ordinary prose.\n\n';
+			let encodedBytes = 0;
+			for (let index = 0; index < 2; index += 1) {
+				const uri = photo(0x51f2c1 + index * 733);
+				encodedBytes += Math.ceil((uri.length * 3) / 4);
+				content += `![Captured screen ${index}](${uri})\n\n`;
+			}
+			const header = ['Step', 'Owner', 'Recorded value', 'Note', 'State'];
+			const tableRows = 64;
+			const markerRow = 21;
+			const body: string[][] = [];
+			for (let index = 0; index < tableRows; index += 1) {
+				body.push([
+					String(index + 1),
+					`team ${1 + (index % 4)}`,
+					`${index}.4`,
+					index === markerRow ? target : `row ${index + 1} detail ${index * 7}`,
+					index % 3 === 0 ? 'open' : 'done'
+				]);
+			}
+			// Pad every cell to a column width, exactly as the benchmark fixture
+			// does. The editor serializer re-pads the changed row on each key.
+			const widths = header.map((cell, column) =>
+				Math.max(cell.length, ...body.map((row) => row[column]!.length))
+			);
+			const line = (cells: string[]) =>
+				`| ${cells.map((cell, column) => cell.padEnd(widths[column]!)).join(' | ')} |`;
+			content += '## Wide table\n\nEvery row below holds five cells.\n\n';
+			content += `${[line(header), line(widths.map((width) => '-'.repeat(width))), ...body.map(line)].join('\n')}\n`;
+			// The prose line directly after the table, with no blank separator.
+			content += 'Values in the table above come from the same review pass.\n\n';
+			content += '## Filler\n\n';
+			let section = 0;
+			while (content.length < 260_000) {
+				content += `### Section ${section}\n\n${'Ordinary sentence with words that stay the same. '.repeat(8)}\n\n`;
+				section += 1;
+			}
+			content += '\n## Tail\n\nTail paragraph keeps the caret target.\n';
+			await new Promise<void>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const database = request.result;
+					const transaction = database.transaction('drafts', 'readwrite');
+					transaction.objectStore('drafts').put({
+						id: rowId,
+						name: `${rowId}.md`,
+						content,
+						createdAt: 1_700_000_000_000,
+						updatedAt: 1_700_000_000_000,
+						order: 0,
+						open: true
+					});
+					transaction.oncomplete = () => {
+						database.close();
+						resolve();
+					};
+					transaction.onerror = () => reject(transaction.error);
+				};
+			});
+			localStorage.setItem('mdsh:activeId', rowId);
+			localStorage.setItem('mdsh:locale', 'en');
+			return {
+				content,
+				chars: content.length,
+				bytes: new TextEncoder().encode(content).length,
+				tableRows,
+				images: { count: 2, encodedBytes }
+			};
+		},
+		{ rowId: adjacentId, target: adjacentTarget }
+	);
+}
+
+test('a padded table followed by prose keeps the container route', async ({ page }, info) => {
+	test.slow();
+	test.setTimeout(600_000);
+	await installProbe(page);
+	await resetAppState(page, { mode: 'source' });
+	const fixture = await seedAdjacentProseNote(page);
+	await page.reload();
+	await page.locator('[data-mode=wysiwyg]').click();
+	const dialog = page.getByRole('dialog', { name: /Render this large document/ });
+	await dialog.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {});
+	if (await dialog.isVisible().catch(() => false))
+		await dialog.getByRole('button', { name: /Render document/ }).click();
+	await expect(page.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'true', {
+		timeout: 300_000
+	});
+	await expect
+		.poll(() =>
+			page.locator('.milkdown-image-block img').evaluateAll((images) =>
+				images.every((image) => {
+					const target = image as HTMLImageElement;
+					return target.complete && target.naturalWidth > 0;
+				})
+			)
+		)
+		.toBe(true);
+	await page.waitForTimeout(2_500);
+	await resetProbe(page);
+	await placeCaretAtCellEnd(page, adjacentTarget);
+
+	for (const [index, character] of adjacentKeys.entries()) {
+		await page.keyboard.insertText(character);
+		if (index < adjacentKeys.length - 1) await page.waitForTimeout(cadence);
+	}
+	await page.waitForTimeout(1_500);
+	const typed = adjacentKeys.join('');
+	const expected = fixture.content.replace(adjacentTarget, `${adjacentTarget}${typed}`);
+	await expect
+		.poll(async () => storedContent(page, adjacentId), {
+			timeout: 120_000,
+			message: 'the durable row must keep every byte'
+		})
+		.toBe(expected);
+	await page.waitForTimeout(500);
+	const probe = await readProbe(page);
+	const counters = probe.counters;
+	const fullReasons = Object.keys(counters).filter((name) =>
+		name.startsWith('sourceFidelityFullReason:')
+	);
+	const publications = probe.stages.filter((stage) => stage.name === 'markdownPublish');
+	const evidence = {
+		schema: 'deckmark-table-publish-scope/1',
+		case: 'adjacent prose after a padded table',
+		command: `npx playwright test e2e/table-publish-scope.spec.ts --project=${info.project.name} --workers=1 --retries=0`,
+		revision: revision(),
+		environment: {
+			project: info.project.name,
+			browser: page.context().browser()?.version() ?? 'unknown',
+			node: process.version,
+			platform: process.platform,
+			locale: 'en-US',
+			mode: 'Edit'
+		},
+		fixture: {
+			id: adjacentId,
+			chars: fixture.chars,
+			bytes: fixture.bytes,
+			sha256: createHash('sha256').update(fixture.content).digest('hex'),
+			tableRows: fixture.tableRows,
+			images: fixture.images,
+			shape: 'padded 64-row table with a prose line directly after it and two base64 JPEG images'
+		},
+		keys: { count: adjacentKeys.length, cadenceMs: cadence, typed },
+		results: {
+			counters,
+			fullFallbackReasons: fullReasons,
+			publications: publications.length,
+			savedExact: true,
+			savedBytes: Buffer.byteLength(expected)
+		}
+	};
+	await attachArtifact(info, evidence);
+	await info.attach('adjacent-saved-note.md', { body: expected, contentType: 'text/markdown' });
+	console.log(
+		'[publish-scope-adjacent]',
+		JSON.stringify({ chars: fixture.chars, counters, publications: publications.length })
+	);
+
+	expect(counters.sourceFidelityScoped ?? 0, 'each key must stay scoped').toBeGreaterThanOrEqual(
+		adjacentKeys.length
+	);
+	expect(counters.sourceFidelityFull ?? 0, 'no key may restore the whole source').toBe(0);
+	expect(fullReasons, 'no key may report a whole-document fallback').toEqual([]);
+	expect(
+		counters['sourceFidelityScopedContainer'] ?? 0,
+		'the table route must run'
+	).toBeGreaterThan(0);
+	expect(counters.imageMarkdownFull ?? 0, 'no key may re-fingerprint every embedded image').toBe(0);
+	expect(publications.length, 'each key must publish').toBeGreaterThanOrEqual(adjacentKeys.length);
 });
