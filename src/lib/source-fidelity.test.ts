@@ -344,12 +344,152 @@ describe('bounded paragraph reconciliation', () => {
 		).toBe(source.replace('Third paragraph.', 'Last paragraph.'));
 	});
 
-	it('does not use a scoped paragraph for a large text block', () => {
+	it('keeps a long paragraph edit bounded to the changed block', () => {
 		const source = `Before.\n\n${'long word '.repeat(7_000)}\n\nAfter.\n`;
 		const { fidelity, baseline, parsed } = observed(source);
 		const next = baseline.replace('long word', 'long term');
 		expect(fidelity.restore(next, false)).toBe(source.replace('long word', 'long term'));
+		expect(paths).toEqual(['fastPath']);
+		expect(Math.max(...parsed), 'a 70 KB block edit must parse only that block').toBeLessThan(
+			256 * 1024
+		);
+	});
+
+	it('keeps the whole-document route above the bounded block parse', () => {
+		const source = `Before.\n\n${'long word '.repeat(40_000)}\n\nAfter.\n`;
+		const { fidelity, baseline, parsed } = observed(source);
+		const next = baseline.replace('long word', 'long term');
+		expect(fidelity.restore(next, false)).toBe(source.replace('long word', 'long term'));
 		expect(parsed).toContain(next.length);
+	});
+
+	it('keeps a fenced code body edit on the scoped route', () => {
+		const filler = `${'Filler prose keeps a stable sentence. '.repeat(1_500)}\n\n`;
+		const source = `${filler}\`\`\`\`ts\nconst first = 1;\nconst second = 2;\nconst third = 3;\n\`\`\`\`\n\nTail paragraph.\n`;
+		const { fidelity, baseline, parsed } = observed(source);
+		const tree = parse(baseline);
+		const block = (tree.children ?? []).find((node) => node.type === 'code')!;
+		const from = block.position?.start.offset;
+		const to = block.position?.end.offset;
+		expect(from, 'the fence must carry offsets').toBeTypeOf('number');
+		const anchor = baseline.indexOf('const second = 2;') + 'const second = 2'.length;
+		const next = `${baseline.slice(0, anchor)}0${baseline.slice(anchor)}`;
+		const counters: string[] = [];
+		const observeCounter = (event: Event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+			if (detail.kind === 'counter') counters.push(detail.name);
+		};
+		window.addEventListener('deckmark:editor-perf', observeCounter);
+		try {
+			expect(
+				fidelity.restore(next, true, {
+					previousFrom: from!,
+					previousTo: to!,
+					nextFrom: from!,
+					nextTo: to! + 1
+				})
+			).toBe(source.replace('const second = 2;', 'const second = 20;'));
+		} finally {
+			window.removeEventListener('deckmark:editor-perf', observeCounter);
+		}
+		expect(paths.at(-1), 'the fence edit must stay local').toBe('fastPath');
+		expect(counters).toContain('sourceFidelityScopedFence');
+		expect(counters, 'the fence edit must not parse the whole note').not.toContain(
+			'sourceFidelityFull'
+		);
+		expect(Math.max(...parsed), 'the fence route must parse only the changed fence').toBeLessThan(
+			64 * 1024
+		);
+	});
+
+	it('keeps a container route when the source container is not in serializer form', () => {
+		const gfm = remark().use(remarkGfm);
+		const gfmParse = (value: string) => gfm.parse(value);
+		const gfmNormalize = (value: string) => String(gfm.processSync(value));
+		const source = [
+			'Wide table',
+			'',
+			'| key                  | value                               | note                     |',
+			'| :------------------- | :---------------------------------- | :----------------------- |',
+			'| row 1                | stable cell target words            | padded source cell       |',
+			'| row 2                | other cell                          | second row               |',
+			'',
+			'Tail paragraph.',
+			''
+		].join('\n');
+		// The editor serializer re-pads the table and drops the alignment
+		// colons. The source is not in serializer form, so the route must use
+		// the changed container position, not source equality.
+		const baseline = [
+			'Wide table',
+			'',
+			'| key | value | note |',
+			'| --- | --- | --- |',
+			'| row 1 | stable cell target words | padded source cell |',
+			'| row 2 | other cell | second row |',
+			'',
+			'Tail paragraph.',
+			''
+		].join('\n');
+		const parsed: number[] = [];
+		const fidelity = new SourceFidelity(
+			source,
+			baseline,
+			(value) => {
+				parsed.push(value.length);
+				return gfmParse(value);
+			},
+			gfmNormalize
+		);
+		const tree = gfmParse(baseline);
+		const block = (tree.children ?? []).find((node) => node.type === 'table')!;
+		const from = block.position?.start.offset;
+		const to = block.position?.end.offset;
+		const at = baseline.indexOf('stable cell target words') + 'stable cell target words'.length;
+		const next = `${baseline.slice(0, at)}X${baseline.slice(at)}`;
+		const atSource = source.indexOf('stable cell target words') + 'stable cell target words'.length;
+		expect(
+			fidelity.restore(next, true, {
+				previousFrom: from!,
+				previousTo: to!,
+				nextFrom: from!,
+				nextTo: to! + 1
+			}),
+			'the source table bytes must stay exact'
+		).toBe(`${source.slice(0, atSource)}X${source.slice(atSource)}`);
+		expect(paths.at(-1), 'a changed table cell must stay local').toBe('fastPath');
+		expect(
+			Math.max(...parsed),
+			'the table route must parse only the changed container'
+		).toBeLessThan(64 * 1024);
+	});
+
+	it('names the changed block when a distant container rejects the change', () => {
+		const filler = `${'Filler prose keeps a stable sentence. '.repeat(1_000)}\n\n`;
+		const table = ['| key | value |', '| --- | --- |', '| row 1 | stable cell |', ''].join('\n');
+		const source = `${filler}${table}\n\n${'Long block words keep a stable sentence. '.repeat(9_000)}\n`;
+		const { fidelity, baseline } = observed(source);
+		const at = baseline.indexOf('Long block words');
+		const next = baseline.slice(0, at) + 'X' + baseline.slice(at);
+		const counters: string[] = [];
+		const observeCounter = (event: Event) => {
+			const detail = (event as CustomEvent<{ kind: string; name: string }>).detail;
+			if (detail.kind === 'counter') counters.push(detail.name);
+		};
+		window.addEventListener('deckmark:editor-perf', observeCounter);
+		try {
+			fidelity.restore(next, false);
+		} finally {
+			window.removeEventListener('deckmark:editor-perf', observeCounter);
+		}
+		expect(
+			counters.filter((name) => name.startsWith('sourceFidelityFullReason:')),
+			'a container outside the changed span must not name the reason'
+		).toHaveLength(1);
+		expect(
+			counters.some((name) => name.includes('container-')),
+			'a distant container must not name the fallback'
+		).toBe(false);
 	});
 
 	it('keeps unresolved reference text on the whole-document semantic route', () => {

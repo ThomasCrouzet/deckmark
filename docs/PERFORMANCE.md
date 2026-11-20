@@ -629,6 +629,189 @@ prototype that keeps one complete document model, and an explicit correctness
 matrix for those interactions. This is a measured prototype decision, not a
 claim that 5 MB visual editing is fast.
 
+## Long-document paint containment
+
+Issue [#709](https://github.com/ThomasCrouzet/deckmark/issues/709) covers work
+item W2. Paint containment follows the rendered structure of a document, not
+only its encoded source length.
+
+### Gate rule
+
+`src/lib/editor-document-policy.ts` holds three sufficient conditions:
+
+| Condition | Value | Constant |
+| --- | ---: | --- |
+| Interaction characters | 262,144 (256 KiB) | `LONG_DOCUMENT_CHARS` |
+| Rendered elements | 4,000 | `LONG_DOCUMENT_ELEMENTS` |
+| Rendered top-level blocks | 800 | `LONG_DOCUMENT_BLOCKS` |
+
+`Editor.svelte` counts the direct children and the descendant elements of the
+ProseMirror root after the first layout. One condition is sufficient for the
+`mdsh-long-document` class. The class stays set for the mount, so a later
+shrink does not reshape the scroll region under the caret. The element count
+sets the gate because the measured keystroke gain is complete at about 8,000
+elements. The block count covers a document of many small blocks.
+
+### Rendered structure at 200 KB
+
+Chromium, production build, each document opened in Edit mode.
+
+| Content | Elements | Top-level blocks | Gate |
+| --- | ---: | ---: | --- |
+| prose | 611 | 611 | off |
+| code | 5,603 | 2,696 | on |
+| links | 8,464 | 3,628 | on |
+| headings | 8,674 | 8,674 | on |
+| lists | 40,414 | 755 | on |
+| tables | 55,216 | 1,228 | on |
+| math (KaTeX) | 195,394 | 4,093 | on |
+
+A 200 KB prose note stays at 611 elements. A 200 KB table note builds 55,216
+elements and now receives containment.
+
+### Measured effect
+
+Chromium, production build, caret at 50 percent of the document, 60 ms cadence,
+12 inserted characters. The table reports the second animation frame after the
+`beforeinput` event.
+
+| Document | Before p50 / p95 (ms) | After p50 / p95 (ms) |
+| --- | ---: | ---: |
+| tables 200 KB | 288.1 / 319.7 | 15.5 / 32.1 |
+| math 200 KB | 1,166.0 / 1,417.5 | 43.7 / 59.6 |
+| prose 200 KB | 9.5 / 32.4 | 9.2 / 33.1 |
+| prose 1.5 MB | 27.0 / 39.4 | 21.3 / 30.0 |
+
+The tables and math rows report the median of three runs of the per-kind sheet.
+The prose rows use three interleaved runs of each build and report the median
+p50. Prose does not change, and the 1.5 MB prose note does not regress. The host
+ran other builds during the measurements, and each run records the load
+average.
+
+### Engine policy
+
+The measured structure applies to Chromium only. Gecko pays the containment
+work on every mounted block.
+
+Firefox, production build, the 240 KB mixed note of the Web benchmark, visual
+editor opened from Source mode, 20 samples of the mode switch. The typing value
+is the same report's `typingWysiwyg` p50.
+
+| Build | Mount p50 / p95 (ms) | Typing p50 (ms) |
+| --- | ---: | ---: |
+| origin/main, no structural gate | 3,778 / 4,361 | 114 |
+| branch before the Gecko policy, run 1 | 5,173 / 6,589 | 123 |
+| branch before the Gecko policy, run 2 | 5,104 / 5,843 | 126 |
+| branch with the Gecko policy | 3,399 / 5,261 | 92 |
+
+The runs recorded a load average of 6.9 to 11.4 on a shared host. The branch
+before the policy crossed the 10,000 ms mount cap on a loaded host, and every
+value above stayed inside the cap on this host.
+
+The measurement pass is not the cost. A probe on the same document reads 2,317
+bounding boxes in 5 to 15 ms. Neutralizing `content-visibility` for the same
+build lowers the mount by 0.4 to 0.7 s, and the class and the generated sheet
+reach the document 1.2 to 1.5 s after the ProseMirror root appears. The engine
+therefore keeps the character gate alone: a note of at least 262,144
+interaction characters still receives containment, as it did before this work
+item, and a large table or math note below that threshold does not.
+
+Chromium keeps the measured structure and the gain it reports. The exclusion
+uses the engine family, not a version guess, in the same way as the WebKit
+exclusion.
+
+### Per-kind intrinsic size
+
+`content-visibility: auto` reserves a fallback length for each block that has
+not rendered yet: 2.4em for text, 3.2em for a heading, 12em for a table or a
+code block and 320px for an image. An unrevealed table is much taller than
+12em, so the document height changed while the user scrolled.
+
+`Editor.svelte` writes one generated style sheet with a measured mean size for
+each top-level block kind: heading, table, code, list or quote, and paragraph.
+The mean of a kind keeps the reserved document height equal to the laid-out
+height when the containment starts. `contain-intrinsic-size: auto <length>`
+remembers the last rendered size of a block, so the fallback only covers a
+block that has not rendered yet.
+
+The sheet is written once per mount and never rewritten. An earlier revision
+wrote one rule per top-level block and rewrote the sheet after every block
+change. A style sheet change invalidates every element, so each write forced a
+full style recalculation of the document:
+
+| Sheet | Rules | Style recalculation |
+| --- | ---: | ---: |
+| one rule per block | 2,141 | 1.3 to 2.2 s |
+| one rule per block kind | 3 | about 0.2 s |
+
+Chromium, production build, 240 KB mixed note with 4,287 elements. The
+measurement sets the sheet and forces layout. Any new sheet forces one
+recalculation of every element, so even three rules cost about 0.2 s at the
+mount. The per-block sheet produced two unattributed long tasks of 405 ms and
+3.5 s in `e2e/editor-publish-stall.spec.ts` 'attributes a paste and a structural
+split', one for the paste and one for the split. The per-kind sheet writes once
+at the mount and reports no long task in the same workflow.
+
+Four rules govern the sheet:
+
+- The sizes live in a `<style>` element in `document.head`, not in the `style`
+  attribute of a block. An attribute change inside the editable area makes the
+  ProseMirror DOM observer re-render the whole document, and the re-render drops
+  the attribute.
+- The measured size is the content box. The code subtracts the padding and the
+  border of the kind, because `contain-intrinsic-size` sizes the content box.
+  Without that step a code block adds its own padding to every reserved size.
+- The selector repeats `.mdsh-editor` to outrank the per-type fallback rules in
+  `milkdown.css`, and wraps the kind in `:is()` so one rule covers a selector
+  list. The sheet also moves to the end of `document.head`, after the Milkdown
+  theme that the first mount loads.
+- The sheet is written once per mount. A block insert, removal or edit changes
+  no rule, so an edit never invalidates style.
+
+The measurement reads one bounding box per top-level block after the first
+layout: 21 ms for 4,093 blocks (195,394 elements) and 8 ms for 1,228 blocks
+(55,216 elements). It forces no document-wide render and it runs once.
+
+### Contained height against the laid-out height
+
+Chromium, production build, tall documents in Edit mode. The laid-out height is
+the document height with the generated sheet and the long-document class
+removed.
+
+| Document | Laid out (px) | Contained (px) | Difference |
+| --- | ---: | ---: | ---: |
+| tables 200 KB | 167,858 | 168,312 | +0.27% |
+| math 200 KB | 186,740 | 188,432 | +0.91% |
+| lists 200 KB | 137,734 | 138,047 | +0.23% |
+| links 200 KB | 176,412 | 177,923 | +0.86% |
+| headings 200 KB | 474,098 | 473,524 | -0.12% |
+| code 200 KB | 233,770 | 234,792 | +0.44% |
+
+Without the generated sheet the same table note starts at 103,994 px and grows
+to 118,909 px during the scroll walk. The measured sizes remove that change.
+
+### Scroll stability
+
+`e2e/editor-containment.spec.ts` scrolls a 60-section table note through six
+positions. Run it with:
+
+```sh
+npx playwright test e2e/editor-containment.spec.ts --project=chromium \
+  --workers=1 --retries=0
+```
+
+At each position the case records the block under the viewport centre, waits for
+the offscreen blocks to render and compares the screen position of that block.
+The case fails when the block moves more than 2 px, or when the document height
+moves by more than 2 percent. The case attaches a screenshot and a JSON record
+of the fixture hash, the gate values, the scroll steps and the source identity.
+
+The `mdsh-webkit-engine` exclusion is unchanged. Apple WebKit keeps every live
+block in the layout tree, and no containment rule applies there. Gecko keeps the
+character gate alone, as the engine policy above records. Read mode stays
+out of this work item: its preview blocks use a different container, and a
+change there must pass the Split mode heading geometry checks first.
+
 ## Enforced benchmark gate
 
 `scripts/benchmark-budgets.json` is the reviewed reference for each platform and
@@ -677,9 +860,11 @@ npm run test:benchmark-gate
 ```
 
 The browser benchmark collects 20 samples for startup, cached restart, project
-tree render, presentation load and visual typing, 3 samples for the library
-reload, and up to 5 samples for the remaining scenarios. Heap collects four
-samples. The five startup metrics on each web platform set `minimumRuns` to 20,
+tree render, presentation load, visual typing, document switch, large document
+open, scroll, source typing, driver typing, presentation slide switch, presentation
+present and HTML export. The library reload keeps 3 samples. Heap collects four
+samples. Every former five-sample metric now uses 20 samples, so its p95 is the
+second-worst value and not the maximum. The five startup metrics on each web platform set `minimumRuns` to 20,
 which matches the 20 samples that the generator collects. The gate reports every
 sample and the maximum. The 20-sample metrics use that count because a p95 over
 5 samples is the maximum: one browser garbage-collection pause, one slow cached
@@ -692,6 +877,90 @@ startup measurement installs a paint observer before navigation, waits a
 bounded time for either the observer or the timeline entry, and records which
 source supplied the value. A required metric with a missing sample fails the
 gate, so a partial report cannot pass on its remaining samples.
+
+### Mixed typing suite and the blind spots it closes
+
+Issue #709 work item W7 keeps a mixed fixture set and a mixed typing suite. The
+suite closes four measured blind spots of the earlier gate:
+
+- The generated corpus had a longest line of 520 characters and no images. A
+  purpose-built generated note therefore took the scoped source route and
+  published in milliseconds.
+- The visual typing metric allowed 3000 ms in Chromium, so a 1.4 s blocking
+  publish passed.
+- The harness installed a long-task observer but never used it for input.
+- Five samples made p95 equal to the maximum.
+
+The fixture set is `note-200k-mixed`, `note-600k-mixed` and `note-1mb-mixed` in
+`scripts/benchmark-fixtures/`. Each note has uneven prose, one wide padded table
+of 64 rows, one list of 96 items and inline base64 images on single long lines.
+The 600 KB note has six images and a longest line of 90,002 characters. The table
+ends without a blank line, as in many real notes. The manifest records bytes,
+SHA-256, `maxLineChars`, `inlineImageCount`, `tableRowCount` and `listItemCount`.
+`loadFixtures` recomputes the descriptor and fails closed when a mixed fixture
+reports no inline image, a longest line under 20000 characters, a table under 60
+rows or a list under 90 items. `npm run test:ci` runs these self-checks.
+
+The suite measures four caret positions per note: prose middle, table cell, list
+item, and a paragraph after the last chart image. Each position runs three passes
+of one declared warmup key and twenty measured keys. One metric is the
+input-to-frame time. The other is `publishBlockMs`: the longest engine-reported
+long task that starts after the gated animation frame and ends before the next
+key. The gate uses the median of the three pass p95 values and keeps every raw
+sample. The report also records heartbeat gaps and the
+`sourceFidelityFullReason` counters per scenario.
+
+A tables-removed diagnostic deletes every table line at load time and edits the
+same prose caret. It shows whether the table container is the cost.
+
+Measured on the pre-fix build (`cfc9c01`, production build, Chromium, local
+Linux host, reviewed command in the next paragraph). The table-cell edit took
+the whole-document route on every key. The other positions took the scoped
+route and reported no long task.
+
+| Fixture | Table-cell route | Publish block p50 / p95 (ms) | Other positions |
+| --- | --- | ---: | --- |
+| `note-200k-mixed` | `container-table`, 60/60 keys | 379 / 755 | scoped, publish block 0 |
+| `note-600k-mixed` | `container-table`, 60/60 keys | 970 / 1045 | scoped, publish block 0 |
+| `note-1mb-mixed` | `container-table`, 60/60 keys | 2079 / 2489 | scoped, publish block 0 |
+
+The tables-removed diagnostic measured a 7 ms input frame and no publish block
+on the 600 KB note. The source cases measured 2.7 to 2.9 ms p95 and no publish
+block. The reviewed command is:
+
+```sh
+node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output /srv/dev/cache/tmp/opencode/w7/web-chromium.json
+```
+
+That run failed on `edit200kTablePublishBlock`, `edit600kTablePublishBlock` and
+`edit1mbTablePublishBlock` only. Every other metric passed. The whole Chromium
+job measured 14.4 minutes on this host before the fix. The fix removes the
+one-second table publish, so the expected job time after the fix is about 11 to
+12 minutes, inside the 25 minute job limit.
+
+The full plan runs on Chromium. Firefox and WebKit keep a five-key diagnostic
+probe, and their mixed budget entries are optional. This also keeps the
+`web-benchmark` job inside its 25 minute limit.
+
+### Keystroke targets and the local typing profile
+
+16 ms and 33 ms are product targets for a keystroke in the visual editor. 16 ms
+is one frame at 60 Hz and 33 ms is two frames. They are not gate limits. The
+reviewed budgets are the numbers in `scripts/benchmark-budgets.json`, and the
+report keeps the p50 and every raw sample next to them.
+
+Gate a typing change locally without the runner-specific cold start and paint
+limits. First derive a private budget file that omits the navigation metrics.
+Then run the harness with `--skip-navigation`:
+
+```sh
+node -e "const b=require('./scripts/benchmark-budgets.json'); const m=b.platforms['web-chromium'].metrics; for (const k of ['coldStart','cachedRestart','firstContentfulPaint','domInteractive','domContentLoaded','libraryReload']) delete m[k]; process.stdout.write(JSON.stringify(b,null,'\t')+'\n')" > /srv/dev/cache/tmp/opencode/bench-budgets-typing.json
+node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --skip-navigation --enforce-budgets --budgets /srv/dev/cache/tmp/opencode/bench-budgets-typing.json --output /srv/dev/cache/tmp/opencode/bench-typing.json
+```
+
+`--skip-navigation` omits cold start, cached restart, first contentful paint, DOM
+timing and the library reload samples. Keep the file outside Git. CI never
+passes this flag, and the reviewed budget file still gates the full run.
 
 ### WebKit source typing stall (issue 552)
 

@@ -2,11 +2,27 @@
 // evidence fails closed before any browser or native measurement runs.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { budgetGateFailed, budgetReport, loadBudgets, summarize } from './benchmark-shared.mjs';
+import {
+	assertMixedDescriptor,
+	budgetGateFailed,
+	budgetReport,
+	loadBudgets,
+	loadFixtures,
+	maxLineChars,
+	mixedDescriptor,
+	summarize,
+	summarizePasses
+} from './benchmark-shared.mjs';
+import {
+	MIXED_FIXTURE_SPECS,
+	MIXED_MARKERS,
+	mixedNote,
+	removeTables
+} from './benchmark-fixtures/mixed.mjs';
 
 const reviewedBudgets = await loadBudgets();
 
@@ -546,4 +562,107 @@ describe('retained artifact evidence contract', () => {
 	});
 
 	it.after(() => rmSync(directory, { recursive: true, force: true }));
+});
+
+describe('mixed benchmark fixtures', () => {
+	const root = join(import.meta.dirname, 'benchmark-fixtures');
+	const expected = {
+		'note-200k-mixed': { images: 2, bytes: 200_000 },
+		'note-600k-mixed': { images: 6, bytes: 600_000 },
+		'note-1mb-mixed': { images: 6, bytes: 1_000_000 }
+	};
+
+	it('loads every mixed fixture and verifies its manifest descriptor', async () => {
+		const { descriptors } = await loadFixtures(root);
+		for (const [id, want] of Object.entries(expected)) {
+			const descriptor = descriptors.find((entry) => entry.id === id);
+			assert.ok(descriptor, `${id} must be in the manifest`);
+			assert.equal(descriptor.kind, 'mixed-note');
+			assert.equal(descriptor.inlineImageCount, want.images);
+			assert.ok(descriptor.maxLineChars >= 20_000, `${id} longest line`);
+			assert.ok(descriptor.tableRowCount >= 60, `${id} table rows`);
+			assert.ok(descriptor.listItemCount >= 90, `${id} list items`);
+			const delta = Math.abs(descriptor.bytes - want.bytes);
+			assert.ok(delta <= want.bytes * 0.05, `${id} bytes must stay within 5 percent`);
+		}
+	});
+
+	it('reproduces the committed bytes from the generator', async () => {
+		for (const spec of MIXED_FIXTURE_SPECS) {
+			const generated = mixedNote({
+				label: spec.label,
+				targetBytes: spec.targetBytes,
+				imageLineChars: spec.imageLineChars
+			});
+			const committed = readFileSync(join(root, `${spec.id}.md`), 'utf8');
+			assert.equal(generated, committed, `${spec.id} must match its generator output`);
+		}
+	});
+
+	it('fails closed when a mixed descriptor hides a missing image or a short line', () => {
+		const content = readFileSync(join(root, 'note-200k-mixed.md'), 'utf8');
+		const descriptor = mixedDescriptor(content);
+		const noImage = { ...descriptor, inlineImageCount: 1 };
+		assert.throws(
+			() => assertMixedDescriptor('synthetic', noImage, descriptor),
+			/inlineImageCount/
+		);
+		const shortLine = { ...descriptor, maxLineChars: descriptor.maxLineChars - 1 };
+		assert.throws(() => assertMixedDescriptor('synthetic', shortLine, descriptor), /maxLineChars/);
+		assert.throws(
+			() => assertMixedDescriptor('synthetic', { ...descriptor, tableRowCount: 10 }, descriptor),
+			/table/
+		);
+		assert.equal(maxLineChars('a\nbb\nccc'), 3);
+	});
+
+	it('keeps every caret marker unique and the tables-removed variant consistent', () => {
+		const content = readFileSync(join(root, 'note-600k-mixed.md'), 'utf8');
+		for (const marker of Object.values(MIXED_MARKERS)) {
+			assert.equal(content.split(marker).length - 1, 1, `${marker} must appear once`);
+		}
+		const removed = removeTables(content);
+		assert.equal(removed.split('\n').filter((line) => line.startsWith('|')).length, 0);
+		assert.equal(removed.includes(MIXED_MARKERS.table), false);
+		assert.ok(removed.includes(MIXED_MARKERS.prose));
+		assert.ok(removed.includes(MIXED_MARKERS.list));
+		assert.ok(removed.includes(MIXED_MARKERS.image));
+	});
+});
+
+describe('pass-based summaries', () => {
+	it('uses the median pass p95 as the gate value', () => {
+		const summary = summarizePasses([
+			[10, 11, 12],
+			[20, 21, 22],
+			[30, 31, 32]
+		]);
+		assert.equal(summary.passes, 3);
+		assert.deepEqual(summary.passP95, [12, 22, 32]);
+		assert.equal(summary.p95, 22);
+		assert.equal(summary.runs, 9);
+		assert.equal(summary.complete, true);
+	});
+
+	it('keeps a single pass honest and marks a null sample incomplete', () => {
+		const single = summarizePasses([[5, 6, 7]]);
+		assert.equal(single.p95, 7);
+		const incomplete = summarizePasses([
+			[5, null, 7],
+			[5, 6, 7]
+		]);
+		assert.equal(incomplete.complete, false);
+		assert.equal(incomplete.runs, 5);
+		assert.equal(summarizePasses([[], []]).measured, false);
+	});
+
+	it('rejects a missing measurement through the budget gate', () => {
+		const report = budgetReport({
+			platformKey: 'web-test',
+			summary: { switchMs: summarizePasses([[]]) },
+			budgets
+		});
+		assert.equal(report.status, 'invalid');
+		assert.match(report.failures.join(','), /switchMs:missing-measurement/);
+	});
 });

@@ -33,7 +33,7 @@
 	import { themeStore } from '#lib/ui/theme.svelte.js';
 	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
-	import { editorDocumentPolicy } from '#lib/editor-document-policy.js';
+	import { editorDocumentPolicy, structureNeedsContainment } from '#lib/editor-document-policy.js';
 	import { measureEditorStage, recordEditorCounter, recordEditorEdit } from '#lib/editor-perf.js';
 	import { createSourceEdit, type SourceEdit } from '#lib/source-edit.js';
 	import {
@@ -56,7 +56,7 @@
 
 	let container: HTMLElement;
 	let crepe: CrepeType | null = null;
-	let restoreMountedMarkdown: ((markdown: string) => string) | null = null;
+	let restoreMountedMarkdown: ((markdown: string) => string | null) | null = null;
 	let serializeMountedMarkdown: (() => string) | null = null;
 	let imageObserver: MutationObserver | null = null;
 	let imageResizeObserver: ResizeObserver | null = null;
@@ -88,10 +88,148 @@
 	// until a forced layout. Vendor is an engine-family gate, not a version
 	// guess, so every Apple WebKit build keeps live blocks in the layout tree.
 	const webkitEngine = typeof navigator !== 'undefined' && /Apple/i.test(navigator.vendor ?? '');
+	// Gecko pays the containment work on every mounted block. On the 240 KB
+	// benchmark note (2 317 blocks, 47 527 elements) the visual-editor mount
+	// took 5.17 s with the measured structure and 3.78 s with the origin/main
+	// build that has no structural gate, and the typing sample was not faster
+	// (p50 123 ms against 114 ms). The engine keeps the character gate that
+	// predates this work item.
+	const geckoEngine = typeof navigator !== 'undefined' && /Firefox\//.test(navigator.userAgent);
 	// Paint containment and the caret plugin follow the rendered interaction
 	// surface, not the encoded length of an embedded image. The source length
 	// still bounds the render confirmation and the storage/import caps.
 	const documentPolicy = $derived(editorDocumentPolicy(content));
+	// A document under the source threshold can still build a very large
+	// rendered tree: 200 KB of tables costs 55 000 elements and a full layout
+	// per keystroke. The measured structure adds containment in that case.
+	// The flag is sticky for one mount, because shrinking the tree back under
+	// the budget must not reshape the scroll region under the caret.
+	let structuralContainment = $state(false);
+	const paintContainment = $derived(documentPolicy.longDocument || structuralContainment);
+	// One small generated style sheet carries a measured fallback length per
+	// block kind. It is written once per mount and never rewritten: a style
+	// sheet change invalidates every element, and a sheet with one rule per
+	// block cost 1.3 to 2.2 s of style recalculation on a 240 KB note with
+	// 2 140 blocks. `contain-intrinsic-size: auto <length>` remembers the last
+	// rendered size of a block, so the fallback only covers a block that has not
+	// rendered yet.
+	let containmentStyle: HTMLStyleElement | null = null;
+	let containmentFrame: number | null = null;
+
+	/**
+	 * Block kinds that receive a measured fallback length. Each kind gets the
+	 * mean content-box height of its rendered blocks. The mean keeps the
+	 * reserved height of the document equal to its laid-out height.
+	 */
+	const CONTAINMENT_KINDS = [
+		'h1, h2, h3, h4, h5, h6',
+		'.milkdown-table-block',
+		'.milkdown-code-block, pre',
+		'.milkdown-list-item-block, ul, ol, blockquote',
+		'p'
+	] as const;
+
+	/**
+	 * Mean content-box height of each rendered block kind. One rect read per
+	 * top-level block costs a few milliseconds when the first layout is
+	 * complete, and it never forces the document to render.
+	 */
+	function measureContainmentFallbacks(
+		root: HTMLElement
+	): Array<{ selector: string; height: number }> {
+		const totals: Record<string, { sum: number; count: number; edges: number }> = {};
+		for (const child of root.children) {
+			const height = child.getBoundingClientRect().height;
+			if (!(height > 0)) continue;
+			const selector = CONTAINMENT_KINDS.find((kind) => child.matches(kind));
+			if (!selector) continue;
+			const known = totals[selector];
+			if (known) {
+				known.sum += height;
+				known.count += 1;
+				continue;
+			}
+			const style = getComputedStyle(child);
+			// `contain-intrinsic-size` sizes the content box, so the block padding
+			// and border are removed from the measured border box. Without this
+			// step a code block is reserved at its own height plus padding on
+			// every block of the kind. The padding is a style constant of a kind.
+			const edges =
+				Number.parseFloat(style.paddingTop) +
+				Number.parseFloat(style.paddingBottom) +
+				Number.parseFloat(style.borderTopWidth) +
+				Number.parseFloat(style.borderBottomWidth);
+			totals[selector] = { sum: height, count: 1, edges: Number.isFinite(edges) ? edges : 0 };
+		}
+		const measured: Array<{ selector: string; height: number }> = [];
+		for (const [selector, total] of Object.entries(totals)) {
+			const height = total.sum / total.count - total.edges;
+			if (height > 0) measured.push({ selector, height });
+		}
+		return measured;
+	}
+
+	/** Writes the measured fallback lengths into the generated style sheet. */
+	function writeContainmentStyle(
+		fallbacks: ReadonlyArray<{ selector: string; height: number }>
+	): void {
+		if (!containmentStyle) return;
+		const rules = fallbacks.map(
+			({ selector, height }) =>
+				// The editor sheet repeats `.mdsh-editor` to outrank the per-type
+				// fallback lengths in milkdown.css. Both use class selectors, so source
+				// order would otherwise decide the winner.
+				`.mdsh-editor.mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine) .ProseMirror > :is(${selector}) { contain-intrinsic-size: auto ${Math.round(height)}px; }`
+		);
+		// Keep the sheet after every bundled stylesheet, including the Milkdown
+		// theme that the first mount loads dynamically.
+		document.head.append(containmentStyle);
+		containmentStyle.textContent = rules.join('\n');
+	}
+
+	/** Applies containment when the rendered structure needs it. */
+	function refreshPaintContainment(): void {
+		if (structuralContainment) return;
+		const root = container?.querySelector<HTMLElement>('.ProseMirror');
+		if (!root) return;
+		// This runs once per mount. The flag stays set for the mount, because
+		// shrinking the tree back under the budget must not reshape the scroll
+		// region under the caret.
+		const structure = {
+			topLevelBlocks: root.children.length,
+			elements: root.getElementsByTagName('*').length
+		};
+		if (!structureNeedsContainment(structure)) return;
+		// Gecko keeps the character gate alone and receives no class from the
+		// measured structure, so it pays no mount cost.
+		if (geckoEngine) return;
+		// Apple WebKit never applies the containment rules, and the source-size
+		// rule keeps its historical fallback-only behaviour. Both need no sheet.
+		if (!webkitEngine && !documentPolicy.longDocument) {
+			const fallbacks = measureContainmentFallbacks(root);
+			// A hidden or not yet laid out container reports zero heights. Skipping
+			// activation lets the caller retry after the first layout.
+			if (!fallbacks.length) return;
+			writeContainmentStyle(fallbacks);
+		}
+		structuralContainment = true;
+	}
+
+	/**
+	 * Measures after the first layout, because a mode switch can mount the
+	 * editor before its container has a box. Each frame retries while the
+	 * document is still invisible and stops as soon as the gate or the attempt
+	 * limit is reached.
+	 */
+	function startContainmentCheck(token: number, attempt = 0): void {
+		if (geckoEngine) return;
+		containmentFrame = requestAnimationFrame(() => {
+			containmentFrame = null;
+			if (token !== mountToken) return;
+			refreshPaintContainment();
+			if (!structuralContainment && attempt < 20) startContainmentCheck(token, attempt + 1);
+		});
+	}
 
 	// These tokens can start a presentation marker, an escaped line or a framed
 	// presentation element. A change that touches one of them must keep the full
@@ -153,6 +291,13 @@
 	async function mount(initial: string, token: number, idForMount: string) {
 		if (!container) return;
 		loadError = false;
+		structuralContainment = false;
+		// One sheet per mount. It carries the measured fallback lengths and lives
+		// outside the editor DOM, where the ProseMirror observer cannot see it.
+		containmentStyle?.remove();
+		containmentStyle = document.createElement('style');
+		containmentStyle.setAttribute('data-mdsh-containment', '');
+		document.head.append(containmentStyle);
 		const [
 			{ Crepe },
 			{
@@ -280,7 +425,17 @@
 		let sourceMarkdown = initial;
 		let editorBaseline: string | null = null;
 		let fidelity: SourceFidelity | null = null;
-		const restoreMarkdown = (markdown: string, commit = true) =>
+		/**
+		 * Restore the accepted source for `markdown`.
+		 *
+		 * `abort` is checked between the image and source stages. A publish that
+		 * a newer transaction superseded stops before it parses the note.
+		 */
+		const restoreMarkdown = (
+			markdown: string,
+			commit = true,
+			abort?: () => boolean
+		): string | null =>
 			measureEditorStage('restoreMarkdown', () => {
 				lastRestoreSpan = null;
 				const hint =
@@ -295,6 +450,7 @@
 				if (commit) pendingHint = null;
 				if (editorBaseline === null || markdown === editorBaseline) return sourceMarkdown;
 				const restored = roundTrip.restore(markdown, commit, hint);
+				if (abort?.()) return null;
 				const restoredHint = roundTrip.lastScopedHint ?? hint;
 				const content = fidelity?.restore(restored, commit, restoredHint) ?? restored;
 				const scoped = fidelity?.lastScopedSpan;
@@ -475,6 +631,14 @@
 		// Source fidelity runs when the main thread is idle, and a newer revision
 		// cancels the older result before it can reach the store.
 		let markdownRevision = 0;
+		// The last revision that reached the store. A repeated schedule for that
+		// revision is a no-op, so keys that arrive faster than the debounce do
+		// not publish the same source twice.
+		let publishedRevision = -1;
+		// One publish owns the main thread. A schedule that arrives while it
+		// runs is coalesced into one follow-up for the newest revision.
+		let publishing = false;
+		let publishQueued = false;
 		let markdownTimer: ReturnType<typeof setTimeout> | null = null;
 		let idleHandle: number | null = null;
 		let idleKind: 'idle' | 'timeout' | null = null;
@@ -524,47 +688,70 @@
 				clearTimeout(markdownTimer);
 				markdownTimer = null;
 			}
+			publishQueued = false;
 			cancelIdleWork();
 		};
 		const publishMarkdown = () => {
+			if (publishing) {
+				publishQueued = true;
+				return;
+			}
 			const revision = markdownRevision;
+			if (revision === publishedRevision) return;
 			const emit = () => {
-				if (token !== mountToken || revision !== markdownRevision) return;
-				// The publication has named stages so a trace can attribute a long
-				// task or a waiting input event to the serialization or the restore.
-				measureEditorStage('markdownPublish', () => {
-					let markdown: string;
-					try {
-						markdown = measureEditorStage('markdownSerialize', serializeIncrementalMarkdown);
-					} catch (error) {
-						reportError('visual editor serialization', error);
-						return;
+				publishing = true;
+				try {
+					// A new transaction or a new mount owns the next publish. The
+					// check runs before the serialization and between the stages.
+					if (token !== mountToken || revision !== markdownRevision) return;
+					// The publication has named stages so a trace can attribute a long
+					// task or a waiting input event to the serialization or the restore.
+					measureEditorStage('markdownPublish', () => {
+						let markdown: string;
+						try {
+							markdown = measureEditorStage('markdownSerialize', serializeIncrementalMarkdown);
+						} catch (error) {
+							reportError('visual editor serialization', error);
+							return;
+						}
+						if (token !== mountToken || revision !== markdownRevision) return;
+						recordEditorCounter('markdownUpdated');
+						// Capture the serializer hint before restore consumes it. The edit
+						// stays in editor Markdown coordinates until a consumer maps the
+						// portable source boundary.
+						const hint = pendingHint ? { ...pendingHint } : null;
+						const portableMarkdown = restoreMarkdown(
+							markdown,
+							true,
+							() => token !== mountToken || revision !== markdownRevision
+						);
+						if (portableMarkdown === null) return;
+						if (token !== mountToken || revision !== markdownRevision) return;
+						const editorEdit = createSourceEdit(
+							idForMount,
+							revision,
+							'editor-markdown',
+							hint,
+							editorMarkdownSnapshot.length,
+							markdown.length
+						);
+						editorMarkdownSnapshot = markdown;
+						recordEditorEdit(editorEdit);
+						const portableEdit = acceptedSourceEdit(lastEditorMarkdown, portableMarkdown, revision);
+						lastEditorMarkdown = portableMarkdown;
+						queueMicrotask(applyImageAlternatives);
+						if (token === mountToken) {
+							publishedRevision = revision;
+							onChange(portableMarkdown, idForMount, portableEdit ?? undefined);
+						} else onFlush?.(idForMount, portableMarkdown, portableEdit ?? undefined);
+					});
+				} finally {
+					publishing = false;
+					if (publishQueued) {
+						publishQueued = false;
+						if (markdownRevision !== publishedRevision) scheduleMarkdownUpdate();
 					}
-					if (token !== mountToken || revision !== markdownRevision) return;
-					recordEditorCounter('markdownUpdated');
-					// Capture the serializer hint before restore consumes it. The edit
-					// stays in editor Markdown coordinates until a consumer maps the
-					// portable source boundary.
-					const hint = pendingHint ? { ...pendingHint } : null;
-					const portableMarkdown = restoreMarkdown(markdown);
-					if (token !== mountToken || revision !== markdownRevision) return;
-					const editorEdit = createSourceEdit(
-						idForMount,
-						revision,
-						'editor-markdown',
-						hint,
-						editorMarkdownSnapshot.length,
-						markdown.length
-					);
-					editorMarkdownSnapshot = markdown;
-					recordEditorEdit(editorEdit);
-					const portableEdit = acceptedSourceEdit(lastEditorMarkdown, portableMarkdown, revision);
-					lastEditorMarkdown = portableMarkdown;
-					queueMicrotask(applyImageAlternatives);
-					if (token === mountToken)
-						onChange(portableMarkdown, idForMount, portableEdit ?? undefined);
-					else onFlush?.(idForMount, portableMarkdown, portableEdit ?? undefined);
-				});
+				}
 			};
 			if (typeof window.requestIdleCallback === 'function') {
 				idleKind = 'idle';
@@ -749,7 +936,7 @@
 							// transaction must not leave source-fidelity or image state on a
 							// document that the editor never applied.
 							const markdown = restoreMarkdown(ctx.get(serializerCtx)(transaction.doc), false);
-							if (documentKind(markdown) === 'note') return true;
+							if (markdown === null || documentKind(markdown) === 'note') return true;
 							notify.error(t('documents.noConversion'));
 							return false;
 						});
@@ -821,6 +1008,7 @@
 		instance.setReadonly(true);
 		try {
 			await instance.create();
+			instance.editor.action((ctx) => ctx.get(editorViewCtx));
 		} catch (err) {
 			if (token === mountToken) loadError = true;
 			reportError('Crepe mount', err);
@@ -1187,6 +1375,7 @@
 			imageFrame = 0;
 		};
 		fullImageScan();
+		startContainmentCheck(token);
 		mountedFileId = idForMount;
 		await restoreEditorPosition(instance, idForMount, token);
 		// Re-enable editing before the caret request. A read-only ProseMirror
@@ -1212,6 +1401,7 @@
 			try {
 				saveMountedPosition?.();
 				const markdown = restoreMarkdown(serializeIncrementalMarkdown());
+				if (markdown === null) return;
 				const edit = acceptedSourceEdit(lastEditorMarkdown, markdown, markdownRevision);
 				lastEditorMarkdown = markdown;
 				onFlush?.(idForMount, markdown, edit ?? undefined);
@@ -1242,6 +1432,12 @@
 	}
 
 	async function unmount() {
+		if (containmentFrame !== null) {
+			cancelAnimationFrame(containmentFrame);
+			containmentFrame = null;
+		}
+		containmentStyle?.remove();
+		containmentStyle = null;
 		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1') {
 			delete (window as unknown as { __MDSH_EDITOR_VIEW__?: unknown }).__MDSH_EDITOR_VIEW__;
 		}
@@ -1345,7 +1541,7 @@
 <div
 	bind:this={container}
 	class="mdsh-editor"
-	class:mdsh-long-document={documentPolicy.longDocument}
+	class:mdsh-long-document={paintContainment}
 	class:mdsh-webkit-engine={webkitEngine}
 	role="region"
 	aria-label={t('editor.ariaLabel')}
