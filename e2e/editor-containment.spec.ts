@@ -264,9 +264,13 @@ test.describe('rendered-structure paint containment', () => {
 		expect(gate.longDocument, 'the rendered tree selects containment').toBe(true);
 		expect(gate.elements).toBeGreaterThanOrEqual(4000);
 		expect(gate.contentVisibility).toBe('auto');
-		// The measured sizes live in a generated sheet, not in inline styles: the
-		// editor re-renders a block whose style attribute changes.
-		expect(gate.containmentRules).toBeGreaterThan(100);
+		// The measured sizes live in one small generated sheet, not in inline
+		// styles: the editor re-renders a block whose style attribute changes. The
+		// sheet holds one rule per block kind and never one per block, because a
+		// sheet with 2,000 rules costs seconds of style recalculation on a long
+		// document and is rewritten on every edit.
+		expect(gate.containmentRules).toBeGreaterThan(0);
+		expect(gate.containmentRules).toBeLessThanOrEqual(16);
 		expect(gate.tableIntrinsicSize).toMatch(/^auto [0-9.]+px$/);
 
 		const checks: ScrollCheck[] = [];

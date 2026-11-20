@@ -677,56 +677,83 @@ Chromium, production build, caret at 50 percent of the document, 60 ms cadence,
 
 | Document | Before p50 / p95 (ms) | After p50 / p95 (ms) |
 | --- | ---: | ---: |
-| tables 200 KB | 288.1 / 319.7 | 24.5 / 29.3 |
-| math 200 KB | 1,166.0 / 1,417.5 | 68.0 / 136.5 |
+| tables 200 KB | 288.1 / 319.7 | 15.5 / 32.1 |
+| math 200 KB | 1,166.0 / 1,417.5 | 43.7 / 59.6 |
 | prose 200 KB | 9.5 / 32.4 | 9.2 / 33.1 |
 | prose 1.5 MB | 27.0 / 39.4 | 21.3 / 30.0 |
 
+The tables and math rows report the median of three runs of the per-kind sheet.
 The prose rows use three interleaved runs of each build and report the median
 p50. Prose does not change, and the 1.5 MB prose note does not regress. The host
-ran other builds during the measurements, so the tables and math rows come from
-one run per build with a large margin.
+ran other builds during the measurements, and each run records the load
+average.
 
-### Per-block intrinsic size
+### Per-kind intrinsic size
 
 `content-visibility: auto` reserves a fallback length for each block that has
 not rendered yet: 2.4em for text, 3.2em for a heading, 12em for a table or a
 code block and 320px for an image. An unrevealed table is much taller than
 12em, so the document height changed while the user scrolled.
 
-`Editor.svelte` now writes one generated style sheet with a measured size for
-each top-level block. Four rules govern that sheet:
+`Editor.svelte` writes one generated style sheet with a measured mean size for
+each top-level block kind: heading, table, code, list or quote, and paragraph.
+The mean of a kind keeps the reserved document height equal to the laid-out
+height when the containment starts. `contain-intrinsic-size: auto <length>`
+remembers the last rendered size of a block, so the fallback only covers a
+block that has not rendered yet.
+
+The sheet is written once per mount and never rewritten. An earlier revision
+wrote one rule per top-level block and rewrote the sheet after every block
+change. A style sheet change invalidates every element, so each write forced a
+full style recalculation of the document:
+
+| Sheet | Rules | Style recalculation |
+| --- | ---: | ---: |
+| one rule per block | 2,141 | 1.3 to 2.2 s |
+| one rule per block kind | 3 | about 0.2 s |
+
+Chromium, production build, 240 KB mixed note with 4,287 elements. The
+measurement sets the sheet and forces layout. Any new sheet forces one
+recalculation of every element, so even three rules cost about 0.2 s at the
+mount. The per-block sheet produced two unattributed long tasks of 405 ms and
+3.5 s in `e2e/editor-publish-stall.spec.ts` 'attributes a paste and a structural
+split', one for the paste and one for the split. The per-kind sheet writes once
+at the mount and reports no long task in the same workflow.
+
+Four rules govern the sheet:
 
 - The sizes live in a `<style>` element in `document.head`, not in the `style`
   attribute of a block. An attribute change inside the editable area makes the
   ProseMirror DOM observer re-render the whole document, and the re-render drops
   the attribute.
 - The measured size is the content box. The code subtracts the padding and the
-  border of the block, because `contain-intrinsic-size` sizes the content box.
+  border of the kind, because `contain-intrinsic-size` sizes the content box.
   Without that step a code block adds its own padding to every reserved size.
 - The selector repeats `.mdsh-editor` to outrank the per-type fallback rules in
-  `milkdown.css`. The sheet also moves to the end of `document.head`, after the
-  Milkdown theme that the first mount loads.
-- A block insert or removal moves the records with the block order. A same-count
-  edit keeps every record, so typing does not rewrite the sheet.
+  `milkdown.css`, and wraps the kind in `:is()` so one rule covers a selector
+  list. The sheet also moves to the end of `document.head`, after the Milkdown
+  theme that the first mount loads.
+- The sheet is written once per mount. A block insert, removal or edit changes
+  no rule, so an edit never invalidates style.
 
-The measurement pass adds `mdsh-containment-measuring` to the ProseMirror root.
-That class lifts containment for one synchronous read, so a re-rendered document
-still reports real heights. The class never reaches a paint.
+The measurement reads one bounding box per top-level block after the first
+layout: 21 ms for 4,093 blocks (195,394 elements) and 8 ms for 1,228 blocks
+(55,216 elements). It forces no document-wide render and it runs once.
 
 ### Contained height against the laid-out height
 
 Chromium, production build, tall documents in Edit mode. The laid-out height is
-the document height with the generated sheet and the class removed.
+the document height with the generated sheet and the long-document class
+removed.
 
 | Document | Laid out (px) | Contained (px) | Difference |
 | --- | ---: | ---: | ---: |
-| tables 200 KB | 167,858 | 168,327 | +0.28% |
-| math 200 KB | 186,740 | 188,446 | +0.91% |
-| lists 200 KB | 137,734 | 137,815 | +0.06% |
-| links 200 KB | 176,412 | 177,938 | +0.87% |
-| headings 200 KB | 474,098 | 477,234 | +0.66% |
-| code 200 KB | 233,770 | 234,807 | +0.44% |
+| tables 200 KB | 167,858 | 168,312 | +0.27% |
+| math 200 KB | 186,740 | 188,432 | +0.91% |
+| lists 200 KB | 137,734 | 138,047 | +0.23% |
+| links 200 KB | 176,412 | 177,923 | +0.86% |
+| headings 200 KB | 474,098 | 473,524 | -0.12% |
+| code 200 KB | 233,770 | 234,792 | +0.44% |
 
 Without the generated sheet the same table note starts at 103,994 px and grows
 to 118,909 px during the scroll walk. The measured sizes remove that change.

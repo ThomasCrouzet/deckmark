@@ -9,7 +9,7 @@
 	import type { Crepe as CrepeType } from '@milkdown/crepe';
 	import type { EditorView } from '@milkdown/kit/prose/view';
 	import type { Transaction } from '@milkdown/kit/prose/state';
-	import type { Node as PMNode, Slice } from '@milkdown/kit/prose/model';
+	import type { Slice } from '@milkdown/kit/prose/model';
 	import { onDestroy, untrack } from 'svelte';
 	import { renderMermaidPreview } from '../milkdown-mermaid-preview';
 	import { reportError } from '#lib/report.js';
@@ -99,157 +99,110 @@
 	// the budget must not reshape the scroll region under the caret.
 	let structuralContainment = $state(false);
 	const paintContainment = $derived(documentPolicy.longDocument || structuralContainment);
-	// Per-block intrinsic sizes in document order. A generated style sheet
-	// carries them: an inline style on a ProseMirror block is a DOM mutation,
-	// and the editor then re-renders the whole document and drops the style.
-	// A style sheet is invisible to that observer and survives a re-render.
-	let containmentHeights: Array<number | undefined> = [];
-	let containmentNodes: readonly PMNode[] = [];
+	// One small generated style sheet carries a measured fallback length per
+	// block kind. It is written once per mount and never rewritten: a style
+	// sheet change invalidates every element, and a sheet with one rule per
+	// block cost 1.3 to 2.2 s of style recalculation on a 240 KB note with
+	// 2 140 blocks. `contain-intrinsic-size: auto <length>` remembers the last
+	// rendered size of a block, so the fallback only covers a block that has not
+	// rendered yet.
 	let containmentStyle: HTMLStyleElement | null = null;
-	let mountedView: EditorView | null = null;
-	let containmentCheckTimer: number | null = null;
 	let containmentFrame: number | null = null;
 
-	/** Top-level document blocks, in rendered order. */
-	function containmentDocNodes(): readonly PMNode[] {
-		const nodes: PMNode[] = [];
-		mountedView?.state.doc.forEach((node) => nodes.push(node));
-		return nodes;
-	}
+	/**
+	 * Block kinds that receive a measured fallback length. Each kind gets the
+	 * mean content-box height of its rendered blocks. The mean keeps the
+	 * reserved height of the document equal to its laid-out height.
+	 */
+	const CONTAINMENT_KINDS = [
+		'h1, h2, h3, h4, h5, h6',
+		'.milkdown-table-block',
+		'.milkdown-code-block, pre',
+		'.milkdown-list-item-block, ul, ol, blockquote',
+		'p'
+	] as const;
 
 	/**
-	 * Keeps the height records aligned with the block order. An inserted or
-	 * removed block shifts every later index, so the records move with it. A
-	 * same-count edit keeps every index and needs no rewrite: the edited block
-	 * is in view, and the browser remembers its rendered size.
+	 * Mean content-box height of each rendered block kind. One rect read per
+	 * top-level block costs a few milliseconds when the first layout is
+	 * complete, and it never forces the document to render.
 	 */
-	function realignContainmentHeights(next: readonly PMNode[]): boolean {
-		const previous = containmentNodes;
-		containmentNodes = next;
-		if (previous.length === next.length) return false;
-		let prefix = 0;
-		const limit = Math.min(previous.length, next.length);
-		while (prefix < limit && previous[prefix] === next[prefix]) prefix += 1;
-		let suffix = 0;
-		while (
-			suffix < limit - prefix &&
-			previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]
-		)
-			suffix += 1;
-		const removed = previous.length - prefix - suffix;
-		const inserted = next.length - prefix - suffix;
-		containmentHeights.splice(
-			prefix,
-			removed,
-			...new Array<number | undefined>(inserted).fill(undefined)
-		);
-		return true;
-	}
-
-	/**
-	 * Records the rendered height of each block that has no record. Reads every
-	 * box before it writes, so one pass costs one layout and not one per block.
-	 * `reveal` lifts containment for the read, which recovers the real height of
-	 * blocks that a re-render left unrendered.
-	 */
-	function measureContainmentBlocks(root: HTMLElement, reveal: boolean): number {
-		const targets: number[] = [];
-		for (let index = 0; index < containmentNodes.length; index += 1) {
-			if (!reveal && containmentHeights[index] !== undefined) continue;
-			if (!root.children[index]) break;
-			targets.push(index);
-		}
-		if (!targets.length) return 0;
-		if (reveal) root.classList.add('mdsh-containment-measuring');
-		// `contain-intrinsic-size` sizes the content box, so the block padding
-		// and border are removed from the measured border box. Without this
-		// step a block with padding is reserved at its own height plus padding.
-		const heights = targets.map((index) => {
-			const block = root.children[index] as HTMLElement;
-			const style = getComputedStyle(block);
+	function measureContainmentFallbacks(
+		root: HTMLElement
+	): Array<{ selector: string; height: number }> {
+		const totals: Record<string, { sum: number; count: number; edges: number }> = {};
+		for (const child of root.children) {
+			const height = child.getBoundingClientRect().height;
+			if (!(height > 0)) continue;
+			const selector = CONTAINMENT_KINDS.find((kind) => child.matches(kind));
+			if (!selector) continue;
+			const known = totals[selector];
+			if (known) {
+				known.sum += height;
+				known.count += 1;
+				continue;
+			}
+			const style = getComputedStyle(child);
+			// `contain-intrinsic-size` sizes the content box, so the block padding
+			// and border are removed from the measured border box. Without this
+			// step a code block is reserved at its own height plus padding on
+			// every block of the kind. The padding is a style constant of a kind.
 			const edges =
 				Number.parseFloat(style.paddingTop) +
 				Number.parseFloat(style.paddingBottom) +
 				Number.parseFloat(style.borderTopWidth) +
 				Number.parseFloat(style.borderBottomWidth);
-			const borderBox = block.getBoundingClientRect().height;
-			return borderBox - (Number.isFinite(edges) ? edges : 0);
-		});
-		if (reveal) root.classList.remove('mdsh-containment-measuring');
-		let recorded = 0;
-		targets.forEach((index, position) => {
-			const height = heights[position];
-			if (height === undefined || height <= 0) return;
-			containmentHeights[index] = height;
-			recorded += 1;
-		});
-		return recorded;
+			totals[selector] = { sum: height, count: 1, edges: Number.isFinite(edges) ? edges : 0 };
+		}
+		const measured: Array<{ selector: string; height: number }> = [];
+		for (const [selector, total] of Object.entries(totals)) {
+			const height = total.sum / total.count - total.edges;
+			if (height > 0) measured.push({ selector, height });
+		}
+		return measured;
 	}
 
-	/** Writes the measured block heights into the generated style sheet. */
-	function writeContainmentStyle(): void {
+	/** Writes the measured fallback lengths into the generated style sheet. */
+	function writeContainmentStyle(
+		fallbacks: ReadonlyArray<{ selector: string; height: number }>
+	): void {
 		if (!containmentStyle) return;
-		const rules: string[] = [];
-		for (let index = 0; index < containmentHeights.length; index += 1) {
-			const height = containmentHeights[index];
-			if (!height) continue;
-			// The editor sheet repeats `.mdsh-editor` to outrank the per-type
-			// fallback lengths in milkdown.css. Both use five class selectors, so
-			// source order would otherwise decide the winner.
-			rules.push(
-				`.mdsh-editor.mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine) .ProseMirror > :nth-child(${
-					index + 1
-				}) { contain-intrinsic-size: auto ${Math.round(height)}px; }`
-			);
-		}
+		const rules = fallbacks.map(
+			({ selector, height }) =>
+				// The editor sheet repeats `.mdsh-editor` to outrank the per-type
+				// fallback lengths in milkdown.css. Both use class selectors, so source
+				// order would otherwise decide the winner.
+				`.mdsh-editor.mdsh-editor.mdsh-long-document:not(.mdsh-webkit-engine) .ProseMirror > :is(${selector}) { contain-intrinsic-size: auto ${Math.round(height)}px; }`
+		);
 		// Keep the sheet after every bundled stylesheet, including the Milkdown
 		// theme that the first mount loads dynamically.
 		document.head.append(containmentStyle);
 		containmentStyle.textContent = rules.join('\n');
 	}
 
-	function resetContainmentMeasurements(): void {
-		containmentHeights = [];
-		containmentNodes = [];
-	}
-
 	/** Applies containment when the rendered structure needs it. */
 	function refreshPaintContainment(): void {
+		if (structuralContainment) return;
 		const root = container?.querySelector<HTMLElement>('.ProseMirror');
 		if (!root) return;
-		// The element count walks the whole rendered tree, so it runs only until
-		// the gate activates once. The flag stays set for the mount.
-		if (!structuralContainment) {
-			const structure = {
-				topLevelBlocks: root.children.length,
-				elements: root.getElementsByTagName('*').length
-			};
-			if (!structureNeedsContainment(structure)) return;
-		}
+		// This runs once per mount. The flag stays set for the mount, because
+		// shrinking the tree back under the budget must not reshape the scroll
+		// region under the caret.
+		const structure = {
+			topLevelBlocks: root.children.length,
+			elements: root.getElementsByTagName('*').length
+		};
+		if (!structureNeedsContainment(structure)) return;
 		// Apple WebKit never applies the containment rules, and the source-size
-		// rule keeps its historical fallback-only behaviour. Both need no map.
+		// rule keeps its historical fallback-only behaviour. Both need no sheet.
 		if (!webkitEngine && !documentPolicy.longDocument) {
-			const nodes = containmentDocNodes();
-			const shifted = realignContainmentHeights(nodes);
-			const pinned = containmentHeights.filter((height) => height !== undefined).length;
-			const measured = measureContainmentBlocks(
-				root,
-				!structuralContainment || pinned * 2 < nodes.length
-			);
+			const fallbacks = measureContainmentFallbacks(root);
 			// A hidden or not yet laid out container reports zero heights. Skipping
 			// activation lets the caller retry after the first layout.
-			if (!structuralContainment && measured === 0 && pinned === 0) return;
-			if (measured > 0 || shifted) writeContainmentStyle();
+			if (!fallbacks.length) return;
+			writeContainmentStyle(fallbacks);
 		}
 		structuralContainment = true;
-	}
-
-	function scheduleContainmentCheck(): void {
-		if (containmentCheckTimer !== null) return;
-		containmentCheckTimer = window.setTimeout(() => {
-			containmentCheckTimer = null;
-			refreshPaintContainment();
-		}, 400);
 	}
 
 	/**
@@ -328,8 +281,7 @@
 		if (!container) return;
 		loadError = false;
 		structuralContainment = false;
-		resetContainmentMeasurements();
-		// One sheet per mount. It carries the measured block sizes and lives
+		// One sheet per mount. It carries the measured fallback lengths and lives
 		// outside the editor DOM, where the ProseMirror observer cannot see it.
 		containmentStyle?.remove();
 		containmentStyle = document.createElement('style');
@@ -989,7 +941,6 @@
 							if (!transaction.docChanged) return markdownRevision;
 							markdownRevision += 1;
 							scheduleMarkdownUpdate();
-							scheduleContainmentCheck();
 							return markdownRevision;
 						}
 					}
@@ -1046,7 +997,7 @@
 		instance.setReadonly(true);
 		try {
 			await instance.create();
-			mountedView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
+			instance.editor.action((ctx) => ctx.get(editorViewCtx));
 		} catch (err) {
 			if (token === mountToken) loadError = true;
 			reportError('Crepe mount', err);
@@ -1455,9 +1406,6 @@
 		updateExternalContent = async (markdown: string) => {
 			if (markdown === lastEditorMarkdown) return;
 			if (token !== mountToken || markdown !== content || idForMount !== fileId) return;
-			// A full replace builds new block nodes at every index. Drop the
-			// records so the next pass measures the new blocks at their real size.
-			resetContainmentMeasurements();
 			frontmatter = stripFrontmatter(markdown);
 			roundTrip = new ImageMarkdownRoundTrip(frontmatter.content);
 			lastEditorMarkdown = markdown;
@@ -1468,24 +1416,17 @@
 			editorBaseline = resetIncrementalMarkdown();
 			resetFidelity();
 			applyImageAlternatives();
-			scheduleContainmentCheck();
 		};
 		if (content !== initial && fileId === idForMount) await updateExternalContent(content);
 	}
 
 	async function unmount() {
-		mountedView = null;
 		if (containmentFrame !== null) {
 			cancelAnimationFrame(containmentFrame);
 			containmentFrame = null;
 		}
-		if (containmentCheckTimer !== null) {
-			clearTimeout(containmentCheckTimer);
-			containmentCheckTimer = null;
-		}
 		containmentStyle?.remove();
 		containmentStyle = null;
-		resetContainmentMeasurements();
 		if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1') {
 			delete (window as unknown as { __MDSH_EDITOR_VIEW__?: unknown }).__MDSH_EDITOR_VIEW__;
 		}
