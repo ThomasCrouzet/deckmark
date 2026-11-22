@@ -18,9 +18,12 @@ interface UpdateLifecycle {
 	registration: ServiceWorkerRegistration;
 	timer: ReturnType<typeof setInterval>;
 	onUpdateFound: () => void;
+	onVisibilityChange: () => void;
 	tracked: WeakSet<ServiceWorker>;
 	offered: WeakSet<ServiceWorker>;
 	readyAnnounced: boolean;
+	/** One re-offer per foregrounding, reset when the page becomes hidden. */
+	reofferedInForeground: boolean;
 }
 
 let generation = 0;
@@ -77,13 +80,28 @@ async function activateWorker(worker: ServiceWorker): Promise<void> {
 	window.location.reload();
 }
 
-function offerUpdate(current: UpdateLifecycle, worker: ServiceWorker): void {
-	if (current.offered.has(worker)) return;
+function presentUpdate(current: UpdateLifecycle, worker: ServiceWorker): void {
 	current.offered.add(worker);
 	notify.actionable(t('pwa.updateAvailable'), {
 		label: t('pwa.reload'),
 		run: () => void applyPwaUpdate(() => activateWorker(worker))
 	});
+}
+
+function offerUpdate(current: UpdateLifecycle, worker: ServiceWorker): void {
+	if (current.offered.has(worker)) return;
+	presentUpdate(current, worker);
+}
+
+/**
+ * A dismissed prompt is not recreated by `updatefound` or by the hourly
+ * `registration.update()`. Offer it again when the page returns to the
+ * foreground, at most once per foregrounding, while a worker still waits.
+ */
+function reofferUpdate(current: UpdateLifecycle, worker: ServiceWorker): void {
+	if (current.reofferedInForeground) return;
+	current.reofferedInForeground = true;
+	presentUpdate(current, worker);
 }
 
 function trackInstallation(worker: ServiceWorker): void {
@@ -112,6 +130,7 @@ function disposeLifecycle(): void {
 	if (!lifecycle) return;
 	clearInterval(lifecycle.timer);
 	lifecycle.registration.removeEventListener('updatefound', lifecycle.onUpdateFound);
+	document.removeEventListener('visibilitychange', lifecycle.onVisibilityChange);
 	lifecycle = null;
 }
 
@@ -128,14 +147,31 @@ function attachRegistration(registration: ServiceWorkerRegistration): void {
 			.update()
 			.catch((error: unknown) => reportWarning('check application update', error));
 	}, UPDATE_INTERVAL_MS);
-	lifecycle = {
+	const onVisibilityChange = () => {
+		// A replaced registration must not reopen a prompt.
+		const current = lifecycle;
+		if (!current || current.registration !== registration) return;
+		if (document.visibilityState === 'hidden') {
+			current.reofferedInForeground = false;
+			return;
+		}
+		if (document.visibilityState !== 'visible') return;
+		const waiting = registration.waiting;
+		if (!waiting || !navigator.serviceWorker.controller) return;
+		reofferUpdate(current, waiting);
+	};
+	const current: UpdateLifecycle = {
 		registration,
 		timer,
 		onUpdateFound,
+		onVisibilityChange,
 		tracked: new WeakSet(),
 		offered: new WeakSet(),
-		readyAnnounced: false
+		readyAnnounced: false,
+		reofferedInForeground: false
 	};
+	lifecycle = current;
+	document.addEventListener('visibilitychange', onVisibilityChange);
 }
 
 async function registerWorker(attempt: number): Promise<void> {

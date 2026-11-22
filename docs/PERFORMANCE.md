@@ -563,6 +563,41 @@ returns a fresh one.
 No editor rewrite was needed. Typing stays on the editor thread, and no work
 moved to Rust.
 
+## Lazy French dictionary and KaTeX chunks
+
+Issue [#730](https://github.com/ThomasCrouzet/deckmark/issues/730) removes the
+French dictionary and the KaTeX renderer from the startup and editor closures.
+
+- `src/lib/i18n/i18n.svelte.ts` keeps English as the only static dictionary.
+  A French locale loads `messages/fr` with a dynamic import. `t()` falls back to
+  English until that chunk arrives and then re-renders. The French chunk is part
+  of the app build and the service worker precache, so French still works
+  offline with no third-party request.
+- `patches/milkdown/deferred-katex.patch` replaces the top-level
+  `import katex from 'katex'` in `@milkdown/crepe` with a loader that imports
+  KaTeX when a formula first renders. The inline math node and the LaTeX code
+  block preview call the loader. `npm run patch:milkdown` applies and verifies
+  the patch during install.
+- `vite.config.ts` merges the two 22-byte SvelteKit facades for app state and
+  paths into the startup state resource. The precache entry count stays below
+  its reviewed budget after the new French chunk.
+
+Measured with Node 26.13.1 on 2026-11-22, base commit `b6014ef`, one production
+build for each tree:
+
+| Closure | Before | After | Difference |
+| --- | ---: | ---: | ---: |
+| boot | 212,920 gzip bytes | 187,455 gzip bytes | -25,465 |
+| read | 266,798 gzip bytes | 243,534 gzip bytes | -23,264 |
+| source | 216,549 gzip bytes | 216,549 gzip bytes | 0 |
+| wysiwyg | 614,621 gzip bytes | 514,515 gzip bytes | -100,106 |
+| precache | 423 entries | 421 entries | -2 |
+
+Read mode keeps the KaTeX chunk because it renders formulas. The editor closure
+no longer imports that chunk statically. These numbers are directional evidence
+from a local Node 26 build. CI under its pinned Node 22 toolchain is the binding
+gate.
+
 ## Checks after the change
 
 ```text

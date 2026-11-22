@@ -77,6 +77,16 @@ async function loadModule() {
 
 const HOUR = 60 * 60 * 1000;
 
+/** jsdom keeps `visibilityState` on the prototype; shadow it per case. */
+function setPageVisibility(state: DocumentVisibilityState): void {
+	Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+	document.dispatchEvent(new Event('visibilitychange'));
+}
+
+function resetPageVisibility(): void {
+	delete (document as unknown as Record<string, unknown>).visibilityState;
+}
+
 beforeEach(() => {
 	pwa.basePath = '';
 	pwa.register.mockReset();
@@ -94,6 +104,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	resetPageVisibility();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
@@ -204,6 +215,64 @@ describe('PWA update glue', () => {
 
 		const actions = notify.toasts.filter((toast) => toast.action);
 		expect(actions).toHaveLength(1);
+	});
+
+	it('re-offers a dismissed update when the page returns to the foreground', async () => {
+		vi.useFakeTimers();
+		const registration = makeRegistration();
+		pwa.register.mockResolvedValue(registration);
+		const { registerPwaUpdates, notify } = await loadModule();
+		registerPwaUpdates();
+		await vi.waitFor(() => expect(registration.listenerCount('updatefound')).toBe(1));
+
+		const waiting = makeWorker('installed');
+		registration.installing = waiting as unknown as ServiceWorker;
+		registration.waiting = waiting as unknown as ServiceWorker;
+		registration.emit('updatefound');
+		const actions = () => notify.toasts.filter((toast) => toast.action);
+		expect(actions()).toHaveLength(1);
+
+		// The user dismisses the toast. A plain foregrounding offers it again.
+		notify.clear();
+		setPageVisibility('hidden');
+		setPageVisibility('visible');
+		expect(actions()).toHaveLength(1);
+
+		// The foregrounding is capped: a repeated visible event adds no toast.
+		setPageVisibility('visible');
+		expect(actions()).toHaveLength(1);
+
+		// The hourly poll alone does not recreate the prompt.
+		notify.clear();
+		await vi.advanceTimersByTimeAsync(2 * HOUR);
+		expect(actions()).toHaveLength(0);
+
+		// The next real return to the foreground offers it again.
+		setPageVisibility('hidden');
+		setPageVisibility('visible');
+		expect(actions()).toHaveLength(1);
+	});
+
+	it('does not re-offer a waiting update to a page without a controller', async () => {
+		vi.useFakeTimers();
+		const registration = makeRegistration();
+		pwa.register.mockResolvedValue(registration);
+		const { registerPwaUpdates, notify } = await loadModule();
+		registerPwaUpdates();
+		await vi.waitFor(() => expect(registration.listenerCount('updatefound')).toBe(1));
+		registration.waiting = makeWorker('installed') as unknown as ServiceWorker;
+
+		vi.stubGlobal('navigator', {
+			serviceWorker: {
+				controller: null,
+				register: (...args: unknown[]) => pwa.register(...args),
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn()
+			}
+		});
+		setPageVisibility('hidden');
+		setPageVisibility('visible');
+		expect(notify.toasts.filter((toast) => toast.action)).toHaveLength(0);
 	});
 
 	it('flushes draft changes before update activation', async () => {

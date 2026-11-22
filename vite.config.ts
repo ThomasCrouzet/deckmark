@@ -145,6 +145,14 @@ export default defineConfig(({ mode }) => {
 										id.endsWith('/src/lib/edition/web/tauri-api-stub.ts')
 									)
 										return 'workspace-state';
+									// Two 22-byte SvelteKit facades for app state and paths would
+									// each hold one precache entry for a re-export only. Merge them
+									// into the startup state resource.
+									if (
+										id.includes('/node_modules/@sveltejs/kit/src/runtime/app/state/') ||
+										id.includes('/node_modules/@sveltejs/kit/src/runtime/app/paths/')
+									)
+										return 'workspace-state';
 									// The lazy wiki index stays in one offline resource.
 									if (id.endsWith('/src/lib/wiki-link-index.ts')) return 'workspace-state';
 									// These dependency-free helpers share one small offline resource.

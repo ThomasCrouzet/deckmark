@@ -81,9 +81,12 @@ intact. The manifest and package checksums provide the recovery record.
 
 ## Web Light
 
-Web Light contains no updater, no update check and no network request. The
-settings panel renders the update section only in the desktop edition, and the
-native commands exist only in the Rust binary.
+Web Light has no release updater and no update server. The service worker does
+check its own app shell: it polls the host each hour and when the page returns
+to the foreground, and an update prompt offers a reload when a new shell waits.
+That request uses only app files from the same host. The settings panel renders
+the update section only in the desktop edition, and the native commands exist
+only in the Rust binary.
 
 ## Standby checks
 
