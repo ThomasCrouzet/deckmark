@@ -244,6 +244,13 @@
 		});
 	}
 
+	/**
+	 * Moves the preview to the section of `line`. The suppression window only
+	 * mutes the echo of a preview-driven source scroll. A caret move clears
+	 * that window in `handleSourceCursor` so a real caret line is never
+	 * dropped here: a dropped line is not retried, which leaves the preview
+	 * behind the caret.
+	 */
 	function syncPreviewToSourceLine(line: number): void {
 		if (performance.now() < suppressSourceScrollUntil) return;
 		const headings = previewLayout?.headings ?? currentSourceIndex().headings;
@@ -265,6 +272,10 @@
 		// The editor also emits viewport moves while it scrolls the caret into
 		// view. Keep the caret as the sync target during that programmatic scroll.
 		suppressSourceViewportUntil = performance.now() + 400;
+		// A caret move is explicit. It outranks the echo window opened by the
+		// previous preview-driven source scroll, which would otherwise drop
+		// this sync with no later retry.
+		suppressSourceScrollUntil = 0;
 		onCursorLine(line);
 		syncPreviewToSourceLine(line);
 	}
