@@ -420,25 +420,27 @@
 			if (!editor.flush()) event.preventDefault();
 		};
 		window.addEventListener('mdsh:flush-editor', flush);
-		// The browser consumes Escape to leave fullscreen before the keydown
-		// handlers run. End the presentation too so one Escape has one meaning.
+		// Escape is consumed by the browser to leave fullscreen, so WebKit sends
+		// no keydown for it. The entry and the exit notification can also arrive
+		// in one task, after the fullscreen element is already null. A session
+		// therefore owns the fullscreen from the request, not from the entry
+		// notification, and one loss ends the presentation either way.
 		const onFullscreenChange = () => {
-			const nowActive = document.fullscreenElement === root;
-			if (nowActive) {
+			if (document.fullscreenElement === root) {
 				// A request can complete after its presentation ended. Release
 				// that fullscreen instead of leaving the editor in it.
 				if (!presenting) leaveFullscreen();
 				else fullscreenActive = true;
 				return;
 			}
-			const wasActive = fullscreenActive;
+			if (!fullscreenActive) return;
 			fullscreenActive = false;
 			// Change events arrive late. A loss that follows an exit that this
 			// editor requested belongs to the previous session, so it must not
 			// end the next presentation. Only a loss that the user caused, such
 			// as Escape, ends the current one.
 			if (performance.now() - selfExitAt < SELF_EXIT_WINDOW_MS) return;
-			if (wasActive && presenting) exitPresent();
+			if (presenting) exitPresent();
 		};
 		document.addEventListener('fullscreenchange', onFullscreenChange);
 		const visualViewport = window.visualViewport;
@@ -788,6 +790,10 @@
 		// This call runs in the click handler. A deferred request loses user
 		// activation and rejects, leaving the overlay as the fallback.
 		if (!element || typeof element.requestFullscreen !== 'function') return;
+		// Claim the session before the request settles. WebKit can report the
+		// entry and the exit in one task, after the fullscreen element is already
+		// null, so a loss must not depend on having seen the entry notification.
+		fullscreenActive = true;
 		element.requestFullscreen().catch(() => {
 			fullscreenActive = false;
 		});
