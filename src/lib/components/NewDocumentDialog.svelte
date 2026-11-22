@@ -572,28 +572,6 @@
 			grid-template-columns: minmax(0, 1fr);
 		}
 	}
-	@media (max-width: 260px) {
-		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels. */
-		.cards,
-		.template-list {
-			grid-template-columns: minmax(0, 1fr);
-		}
-		.cards button {
-			min-height: 0;
-			padding: 8px;
-			gap: 6px;
-		}
-		.cards button span {
-			/* Keep the node laid out: measurement checks reject a zero-size child. */
-			display: -webkit-box;
-			overflow: hidden;
-			-webkit-box-orient: vertical;
-			-webkit-line-clamp: 2;
-			line-clamp: 2;
-			font-size: 10px;
-			line-height: 1.15;
-		}
-	}
 	@media (max-width: 640px) {
 		.template-list {
 			grid-template-columns: minmax(0, 1fr);
@@ -620,6 +598,31 @@
 		/* Below a phone width the two type columns no longer fit. */
 		.cards {
 			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+	@media (max-width: 260px) {
+		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels.
+		   This block follows the phone block on purpose: a hidden description
+		   collapses to a zero-size box, so the zoom layout keeps the text laid
+		   out and clamps it instead. */
+		.cards,
+		.template-list {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.cards button {
+			min-height: 0;
+			padding: 8px;
+			gap: 6px;
+		}
+		.cards button span {
+			/* Keep the node laid out: measurement checks reject a zero-size child. */
+			display: -webkit-box;
+			overflow: hidden;
+			-webkit-box-orient: vertical;
+			-webkit-line-clamp: 2;
+			line-clamp: 2;
+			font-size: 10px;
+			line-height: 1.15;
 		}
 	}
 	@media (max-width: 240px) {
