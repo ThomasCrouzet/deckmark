@@ -317,6 +317,8 @@ export const fr: Record<MessageKey, string> = {
 		'Le raccourci n’a pas pu être enregistré. Tes réglages précédents sont conservés.',
 	'settings.shortcutDuplicate':
 		'Une autre commande utilise ce raccourci. Désactive-le d’abord ou choisis-en un autre.',
+	'settings.shortcutConflict':
+		'Une autre commande utilise déjà ce raccourci : {command}. Désactivez-le d’abord ou choisissez-en un autre.',
 	'settings.shortcutReserved':
 		'Cette combinaison est réservée par le navigateur, le système ou l’éditeur de texte. Choisis-en une autre.',
 	'settings.shortcutInvalid':
@@ -423,6 +425,7 @@ export const fr: Record<MessageKey, string> = {
 	'sidebar.deleteConfirm': 'Déplacer ce document dans la corbeille ?',
 	'sidebar.deleteMessage': 'Tu pourras le restaurer depuis la corbeille.',
 	'sidebar.trash': 'Corbeille',
+	'sidebar.trashPurgeOn': 'Suppression automatique le {date}',
 	'sidebar.restore': 'Restaurer {name}',
 	'statusBar.saveFailed': 'Non enregistré localement',
 	'statusBar.retrySave': "Réessayer l'enregistrement",

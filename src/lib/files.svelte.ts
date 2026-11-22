@@ -99,6 +99,9 @@ function applyDraftLocation(file: FileItem, row: DraftRow): void {
 	file.updatedAt = Math.max(file.updatedAt, row.updatedAt);
 }
 
+/** A visible trash entry with the time left before the automatic purge. */
+export type TrashEntry = TrashedFile & { remainingMs?: number };
+
 class FilesStore {
 	files = $state<FileItem[]>([]);
 	/** Durable documents that are not currently shown as tabs. */
@@ -167,7 +170,7 @@ class FilesStore {
 	// storage disabled, corrupted profile). Shown as a banner by +page.
 	loadError = $state<string | null>(null);
 	lastSavedAt = $state<number>(0);
-	trash = $state<TrashedFile[]>([]);
+	trash = $state<TrashEntry[]>([]);
 	trashBusy = $state(false);
 	private pendingTrashBatch: Promise<boolean> | null = null;
 	// §B3.2 - `true` during the debounce (400 ms) + the IDB write. Shown by StatusBar.
@@ -689,7 +692,7 @@ class FilesStore {
 		this.closedFiles = loaded.closedFiles;
 		this.activeId = loaded.activeId;
 		this.metaIndex.invalidateBacklinksIndex();
-		this.trash = trash.map(({ entry }) => entry);
+		this.trash = trash.map(({ entry, remainingMs }) => ({ ...entry, remainingMs }));
 		this.loadError = null;
 		this.loaded = true;
 		// Metadata-first startup can keep closed bodies from the full-row

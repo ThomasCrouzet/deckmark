@@ -9,7 +9,7 @@ beforeEach(() => {
 describe('shortcut customization', () => {
 	it('rejects duplicates, reserved combinations, and invalid values', () => {
 		expect(keyboardStore.set('palette', { key: 'f', shift: true })).toBe('duplicate');
-		expect(keyboardStore.set('palette', { key: 'p', shift: true })).toBe('reserved');
+		expect(keyboardStore.set('palette', { key: 'k', shift: false })).toBe('reserved');
 		expect(keyboardStore.set('palette', { key: 'Escape', shift: false })).toBe('invalid');
 		expect(keyboardStore.set('unknown', null)).toBe('invalid');
 	});
@@ -18,7 +18,7 @@ describe('shortcut customization', () => {
 			keyboardStore.storageKey,
 			JSON.stringify({
 				unknown: null,
-				palette: { key: 'p', shift: true },
+				palette: { key: 'k', shift: false },
 				new: { key: 'g', shift: 'no' }
 			})
 		);
@@ -37,8 +37,8 @@ describe('shortcut customization', () => {
 		}
 	});
 	it('separates web and desktop reservations', () => {
-		expect(isReservedShortcut({ key: 'p', shift: true }, false)).toBe(true);
-		expect(isReservedShortcut({ key: 'p', shift: true }, true)).toBe(false);
+		expect(isReservedShortcut({ key: 'k', shift: false }, false)).toBe(true);
+		expect(isReservedShortcut({ key: 'k', shift: false }, true)).toBe(false);
 		expect(isReservedShortcut({ key: 'c', shift: false }, true)).toBe(true);
 	});
 	it('keeps the configuration after a storage failure', () => {
