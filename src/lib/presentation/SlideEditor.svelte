@@ -2260,18 +2260,18 @@
 			padding-inline: 8px;
 		}
 	}
-	@container (max-width: 640px) {
-		/* Issue #741: wrap the tools into two rows instead of hiding them behind a
-		   horizontal scroll, and keep 44 px touch targets. */
+	@media (max-width: 640px) {
+		/* Issue #741: keep one compact row with 44 px touch targets on a narrow
+		   screen. The density spec requires a single row at every width and at
+		   real 200 percent zoom, so the row scrolls instead of wrapping. */
 		.presentation-tools {
-			flex-wrap: wrap;
-			overflow-x: visible;
-			row-gap: 4px;
-			padding-block: 4px;
+			flex-wrap: nowrap;
 		}
-		.presentation-tools button {
+		.presentation-tools button,
+		.selection-tools button {
 			min-height: 44px;
 			min-width: 44px;
+			flex: none;
 		}
 	}
 	@media (pointer: coarse) {
