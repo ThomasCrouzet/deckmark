@@ -3,6 +3,7 @@
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import BrandLogo from './BrandLogo.svelte';
+	import SiteFooter from './SiteFooter.svelte';
 
 	interface Props {
 		onNew: () => void;
@@ -15,13 +16,14 @@
 	let { onNew, onImport, onDemo, onLibrary, documentCount = 0 }: Props = $props();
 </script>
 
-<div class="welcome-shell flex h-full items-center px-6 py-10 sm:px-10 lg:px-[8vw]">
-	<section class="welcome-console w-full max-w-4xl" aria-labelledby="welcome-title">
+<div class="welcome-shell flex h-full flex-col items-center px-6 py-10 sm:px-10 lg:px-[8vw]">
+	<section class="welcome-console my-auto w-full max-w-4xl" aria-labelledby="welcome-title">
 		<div class="welcome-grid">
 			<div class="welcome-intro">
 				<div class="mdsh-kicker mb-5">{t('welcome.systemLabel')}</div>
 				<h1 id="welcome-title" class="welcome-title">
-					<BrandLogo />
+					<span class="welcome-brand"><BrandLogo /></span>
+					<span class="welcome-title-text">{t('welcome.titleText')}</span>
 				</h1>
 				<div class="welcome-rule" aria-hidden="true"></div>
 				<p class="mt-6 max-w-md text-base leading-relaxed text-fg-muted">
@@ -93,6 +95,8 @@
 			</div>
 		</div>
 	</section>
+
+	<SiteFooter class="mt-8 w-full max-w-4xl shrink-0" />
 </div>
 
 <style>
@@ -141,6 +145,19 @@
 	}
 	.welcome-title {
 		width: min(100%, 24rem);
+	}
+	.welcome-brand {
+		display: block;
+	}
+	/* §750 - The heading carries real text. The logo stays the visual brand
+	   mark above the text. */
+	.welcome-title-text {
+		display: block;
+		margin-top: 1rem;
+		font-size: clamp(1.05rem, 2.4vw, 1.3rem);
+		font-weight: 500;
+		line-height: 1.3;
+		color: var(--color-fg);
 	}
 	.welcome-rule {
 		width: min(100%, 380px);

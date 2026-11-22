@@ -1099,6 +1099,13 @@ export const fr: Record<MessageKey, string> = {
 	'sidebar.tagFilters': 'Filtres par tag',
 	'sidebar.unexportedChangesHint': ' - modifications non exportées',
 
+	// site
+	'site.footerDocs': 'Documentation',
+	'site.footerEditions': 'Éditions',
+	'site.footerGitHub': 'GitHub',
+	'site.footerIssue': 'Signaler un problème',
+	'site.footerLabel': 'Ressources du projet',
+
 	// source
 	'source.loadErrorHint':
 		'Le module est peut-être indisponible hors-ligne (jamais ouvert auparavant) ou le cache est obsolète après une mise à jour.',
@@ -1258,6 +1265,7 @@ export const fr: Record<MessageKey, string> = {
 	'versionHistory.vsCurrent': 'vs version actuelle',
 
 	// welcome
+	'welcome.titleText': 'Votre espace de travail Markdown',
 	'welcome.demoLabel': 'Démo',
 	'welcome.importMd': 'Importer .md',
 	'welcome.initializeLabel': 'Initialiser l’espace',

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex" />
+		<meta name="color-scheme" content="dark" />
+		<title>Page not found - DeckMark editor</title>
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #0b0c0d;
+				--bg-1: #131619;
+				--border: #3f4141;
+				--border-strong: #8a8275;
+				--fg: #eee8dd;
+				--fg-muted: #cbc2b5;
+				--accent: #c79a55;
+			}
+			body {
+				margin: 0;
+				min-height: 100dvh;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				padding: 1.5rem;
+				background: var(--bg);
+				color: var(--fg);
+				font-family:
+					system-ui,
+					-apple-system,
+					'Segoe UI',
+					sans-serif;
+				font-size: 15px;
+				line-height: 1.55;
+			}
+			main {
+				width: 100%;
+				max-width: 34rem;
+			}
+			.kicker {
+				margin: 0 0 1rem;
+				font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+				font-size: 10px;
+				letter-spacing: 0.18em;
+				text-transform: uppercase;
+				color: var(--accent);
+			}
+			h1 {
+				margin: 0;
+				font-size: 1.75rem;
+				line-height: 1.2;
+			}
+			p {
+				margin: 0.75rem 0 0;
+				color: var(--fg-muted);
+			}
+			.action {
+				display: inline-flex;
+				min-height: 44px;
+				align-items: center;
+				margin-top: 1.5rem;
+				padding: 0 0.9rem;
+				border: 1px solid var(--border-strong);
+				color: var(--accent);
+				font-weight: 500;
+				text-decoration: none;
+			}
+			.action:hover {
+				border-color: var(--accent);
+				background: var(--bg-1);
+			}
+			nav {
+				margin-top: 1.5rem;
+				padding-top: 0.5rem;
+				border-top: 1px solid var(--border);
+			}
+			nav a {
+				display: inline-flex;
+				min-height: 44px;
+				align-items: center;
+				margin-right: 1.25rem;
+				font-size: 13px;
+				color: var(--fg-muted);
+				text-decoration: none;
+			}
+			nav a:hover {
+				color: var(--accent);
+			}
+		</style>
+	</head>
+	<body>
+		<!-- §749 - Not-found page. The static adapter writes no 404 page because
+		     the fallback is `index.html`. GitHub Pages and Cloudflare Pages serve
+		     this file for an unknown path with a 404 status. It carries no script,
+		     so the single-page app does not start on a bad address. -->
+		<main>
+			<p class="kicker">DeckMark</p>
+			<h1>Page not found</h1>
+			<p>This address does not exist. Open DeckMark and select a document from the library.</p>
+			<p><a class="action" href="https://www.deckmark.dev/">Open DeckMark</a></p>
+			<nav aria-label="Project resources">
+				<a href="https://github.com/ThomasCrouzet/deckmark/tree/main/docs">Documentation</a>
+				<a href="https://github.com/ThomasCrouzet/deckmark">GitHub</a>
+				<a href="https://github.com/ThomasCrouzet/deckmark/issues">Report an issue</a>
+			</nav>
+		</main>
+	</body>
+</html>
