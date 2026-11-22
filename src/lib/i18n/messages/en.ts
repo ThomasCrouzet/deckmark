@@ -318,6 +318,8 @@ export const en = {
 		'The shortcut could not be saved. Your previous settings are unchanged.',
 	'settings.shortcutDuplicate':
 		'Another command already uses this shortcut. Disable it first or choose another.',
+	'settings.shortcutConflict':
+		'Another command already uses this shortcut: {command}. Disable it first or choose another.',
 	'settings.shortcutReserved':
 		'This combination is reserved by the browser, system or text editor. Choose another.',
 	'settings.shortcutInvalid': 'Use Ctrl or Cmd with a letter, digit or punctuation, without Alt.',
@@ -420,6 +422,7 @@ export const en = {
 	'sidebar.deleteConfirm': 'Move this document to trash?',
 	'sidebar.deleteMessage': 'You can restore it from the trash.',
 	'sidebar.trash': 'Trash',
+	'sidebar.trashPurgeOn': 'Automatic purge on {date}',
 	'sidebar.restore': 'Restore {name}',
 	'statusBar.saveFailed': 'Not saved locally',
 	'statusBar.retrySave': 'Retry saving',

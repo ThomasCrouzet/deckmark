@@ -213,6 +213,63 @@ test('applies documented formatting, block, and history shortcuts in Edit mode',
 	});
 });
 
+test('reports the real owner of a shortcut conflict and accepts the default Save chord', async ({
+	page
+}, testInfo) => {
+	const dialog = await openSettings(page);
+	await dialog.getByText('Raccourcis clavier', { exact: true }).click();
+	const shortcuts = dialog
+		.locator('details')
+		.filter({ has: page.locator('summary', { hasText: 'Raccourcis clavier' }) });
+	const save = dialog.getByRole('textbox', {
+		name: 'Raccourci pour Enregistrer',
+		exact: true
+	});
+	const feedback = shortcuts.getByRole('status');
+	const labels = await page.evaluate(() => {
+		const mac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+		return { alternative: mac ? '⌘;' : 'Ctrl+;', save: mac ? '⌘S' : 'Ctrl+S' };
+	});
+
+	await save.focus();
+	await page.keyboard.press('ControlOrMeta+;');
+	await expect(save).toHaveValue(labels.alternative);
+	await expect(feedback).toHaveText('Raccourcis enregistrés localement.');
+
+	// Ctrl+S is the default chord of Save, so the app owns it. Restoring that
+	// default must not report a browser reservation.
+	await save.focus();
+	await page.keyboard.press('ControlOrMeta+s');
+	await expect(save).toHaveValue(labels.save);
+	await expect(feedback).toHaveText('Raccourcis enregistrés localement.');
+
+	// A chord bound to another command names that command.
+	await save.focus();
+	await page.keyboard.press('ControlOrMeta+,');
+	await expect(save).toHaveValue(labels.save);
+	await expect(feedback).toHaveText(
+		'Une autre commande utilise déjà ce raccourci : Réglages. Désactivez-le d’abord ou choisissez-en un autre.'
+	);
+
+	// A chord that no command owns keeps the browser reservation message.
+	await save.focus();
+	await page.keyboard.press('ControlOrMeta+Shift+k');
+	await expect(save).toHaveValue(labels.save);
+	await expect(feedback).toHaveText(
+		'Cette combinaison est réservée par le navigateur, le système ou l’éditeur de texte. Choisis-en une autre.'
+	);
+
+	await testInfo.attach('shortcut-conflict-owner', {
+		body: JSON.stringify({
+			command: 'save',
+			restored: labels.save,
+			conflictOwner: 'settings',
+			reservedChord: 'Ctrl+Shift+K'
+		}),
+		contentType: 'application/json'
+	});
+});
+
 test('persists a customized shortcut and executes it once after reload', async ({
 	page
 }, testInfo) => {

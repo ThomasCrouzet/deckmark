@@ -10,11 +10,21 @@ export interface ShortcutBinding {
 type Overrides = Record<string, ShortcutBinding | null>;
 export type ShortcutError = 'invalid' | 'reserved' | 'duplicate' | 'storage';
 
+/** Id of the command whose default binding uses this chord, if any. */
+export function defaultCommandFor(binding: ShortcutBinding): string | undefined {
+	return coreCommands.find(
+		(command) => command.key === binding.key && command.shift === binding.shift
+	)?.id;
+}
+
 export function isReservedShortcut(binding: ShortcutBinding, desktop: boolean): boolean {
 	// Keep editing shortcuts in the active component.
 	if (['a', 'c', 'v', 'x', 'z', 'y', 'b', 'i', 'u', 'q', 'h', 'm'].includes(binding.key))
 		return true;
 	if (desktop) return false;
+	// The web shell intercepts the default chords of its own commands, so a
+	// command, not the browser, owns them.
+	if (defaultCommandFor(binding)) return false;
 	return ['n', 'o', 'p', 'r', 't', 'w', 'l', 'e', 'h', 'j', 'd', 's', 'g', 'k', 'm'].includes(
 		binding.key
 	);
@@ -69,19 +79,24 @@ class KeyboardStore {
 			);
 		});
 	}
+	/** Command that already uses this chord, when it is not the edited command. */
+	conflictOwner(id: string, binding: ShortcutBinding): string | undefined {
+		return coreCommands.find((entry) => {
+			if (entry.id === id) return false;
+			const other = this.binding(entry.id);
+			return other?.key === binding.key && other.shift === binding.shift;
+		})?.id;
+	}
 	validate(id: string, binding: ShortcutBinding | null): ShortcutError | null {
 		if (!coreCommands.some((entry) => entry.id === id)) return 'invalid';
 		if (binding === null) return null;
 		if (!isBinding(binding)) return 'invalid';
+		if (this.conflictOwner(id, binding)) return 'duplicate';
+		// A command keeps its own default chord: the shell intercepts it before
+		// the browser or the editor, so restoring that default is not a conflict.
+		const own = coreCommands.find((entry) => entry.id === id);
+		if (own?.key === binding.key && own.shift === binding.shift) return null;
 		if (isReservedShortcut(binding, isDesktop())) return 'reserved';
-		if (
-			coreCommands.some((entry) => {
-				if (entry.id === id) return false;
-				const other = this.binding(entry.id);
-				return other?.key === binding.key && other.shift === binding.shift;
-			})
-		)
-			return 'duplicate';
 		return null;
 	}
 	load(): void {

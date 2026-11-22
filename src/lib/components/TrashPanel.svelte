@@ -1,15 +1,26 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { X } from '@lucide/svelte';
-	import { filesStore } from '#lib/files.svelte.js';
+	import { filesStore, type TrashEntry } from '#lib/files.svelte.js';
 	import { promptStore } from '#lib/prompt.svelte.js';
-	import { t } from '#lib/i18n/index.js';
+	import { t, i18n } from '#lib/i18n/index.js';
+	import { TIMERS } from '#lib/config.js';
 
 	let { onEmpty }: { onEmpty: () => void } = $props();
 	let summary: HTMLElement | undefined = $state();
 	let selectedIds = $state<string[]>([]);
 	const selected = $derived(new Set(selectedIds));
 	const selectedEntries = $derived(filesStore.trash.filter((entry) => selected.has(entry.file.id)));
+
+	function purgeLabel(entry: TrashEntry): string {
+		// Loaded entries carry the remaining time computed by the purge scan.
+		// A document moved to the trash in this session falls back to its age.
+		const remaining = entry.remainingMs ?? TIMERS.trashRetentionMs - (Date.now() - entry.trashedAt);
+		const date = new Intl.DateTimeFormat(i18n.locale === 'fr' ? 'fr-FR' : 'en-US', {
+			dateStyle: 'medium'
+		}).format(Date.now() + remaining);
+		return t('sidebar.trashPurgeOn', { date });
+	}
 	$effect(() => {
 		const available = new Set(filesStore.trash.map((entry) => entry.file.id));
 		const retained = selectedIds.filter((id) => available.has(id));
@@ -111,12 +122,15 @@
 					}}
 				/>
 			</label>
-			<button
-				class="min-w-0 flex-1 truncate py-2 text-left"
-				disabled={filesStore.trashBusy}
-				onclick={() => void restore(entry.file.id)}
-				>{t('sidebar.restore', { name: entry.file.name })}</button
-			>
+			<div class="flex min-w-0 flex-1 flex-col">
+				<button
+					class="truncate py-2 text-left"
+					disabled={filesStore.trashBusy}
+					onclick={() => void restore(entry.file.id)}
+					>{t('sidebar.restore', { name: entry.file.name })}</button
+				>
+				<span class="truncate text-fg-dim" data-testid="trash-purge-hint">{purgeLabel(entry)}</span>
+			</div>
 			<button
 				class="p-2 text-danger"
 				disabled={filesStore.trashBusy}

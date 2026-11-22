@@ -109,17 +109,21 @@
 		}
 	} as const;
 	const hc = $derived(hostCopy[i18n.locale === 'fr' ? 'fr' : 'en']);
-	function showShortcutResult(error: ShortcutError | null): void {
+	function showShortcutResult(error: ShortcutError | null, ownerId?: string): void {
+		const owner = ownerId ? coreCommands.find((command) => command.id === ownerId) : undefined;
 		shortcutFeedback = t(
 			error === 'invalid'
 				? 'settings.shortcutInvalid'
 				: error === 'reserved'
 					? 'settings.shortcutReserved'
 					: error === 'duplicate'
-						? 'settings.shortcutDuplicate'
+						? owner
+							? 'settings.shortcutConflict'
+							: 'settings.shortcutDuplicate'
 						: error === 'storage'
 							? 'settings.shortcutStorage'
-							: 'settings.shortcutSaved'
+							: 'settings.shortcutSaved',
+			owner ? { command: t(owner.label) } : undefined
 		);
 	}
 	function captureShortcut(event: KeyboardEvent, id: string): void {
@@ -138,9 +142,8 @@
 			showShortcutResult('invalid');
 			return;
 		}
-		showShortcutResult(
-			keyboardStore.set(id, { key: event.key.toLowerCase(), shift: event.shiftKey })
-		);
+		const binding = { key: event.key.toLowerCase(), shift: event.shiftKey };
+		showShortcutResult(keyboardStore.set(id, binding), keyboardStore.conflictOwner(id, binding));
 	}
 	let storageHealth: StorageHealth | null = $state(null);
 	let backupBusy = $state(false);
