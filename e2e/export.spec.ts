@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { resetAppState, seedFiles, openPalette, writeSourceContent } from './helpers';
+import { resetAppState, runAction, seedFiles, openPalette, writeSourceContent } from './helpers';
 
 test.describe('Exports MD / HTML / PDF', () => {
 	test.beforeEach(async ({ page }) => {
@@ -140,7 +140,7 @@ test.describe('Exports MD / HTML / PDF', () => {
 					'Author paragraph for pagination.\n\n'.repeat(120)
 			}
 		]);
-		await page.getByRole('button', { name: 'Exporter en PDF' }).click();
+		await runAction(page, 'export-pdf');
 		await expect.poll(() => capturedHtml.length).toBeGreaterThan(100);
 
 		const printableBody = /<main class="print-body">([\s\S]*)<\/main>/.exec(capturedHtml)?.[1];

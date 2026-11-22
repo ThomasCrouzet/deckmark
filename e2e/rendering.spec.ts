@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { resetAppState, seedFiles, openPalette } from './helpers';
+import { resetAppState, runAction, seedFiles, openPalette } from './helpers';
 
 async function expectMermaidLabels(page: Page, selector: string) {
 	const diagram = page.locator(selector).first();
@@ -195,7 +195,7 @@ test.describe('KaTeX and Mermaid rendering in read mode', () => {
 					}
 			}).observe(document.body, { childList: true, subtree: true });
 		});
-		await page.getByRole('button', { name: 'Exporter en PDF' }).click();
+		await runAction(page, 'export-pdf');
 		await expect.poll(() => captured.length).toBeGreaterThan(100);
 		const printable = await browser.newPage();
 		await printable.goto(page.url());
@@ -421,7 +421,7 @@ test.describe('KaTeX and Mermaid rendering in read mode', () => {
 					}
 			}).observe(document.body, { childList: true, subtree: true });
 		});
-		await page.getByRole('button', { name: 'Exporter en PDF' }).click();
+		await runAction(page, 'export-pdf');
 		await expect
 			.poll(() => printable.includes('Complete offscreen sentinel.'), { timeout: 30_000 })
 			.toBe(true);

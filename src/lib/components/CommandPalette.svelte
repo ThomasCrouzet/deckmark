@@ -42,6 +42,7 @@
 		Eye,
 		Pencil,
 		Code2,
+		Braces,
 		FileOutput,
 		Files,
 		PanelLeft,
@@ -70,7 +71,13 @@
 		FolderOpen,
 		History,
 		Workflow,
-		Copy
+		Copy,
+		Save,
+		CopyPlus,
+		HardDriveDownload,
+		Archive,
+		Trash2,
+		SlidersHorizontal
 	} from '@lucide/svelte';
 
 	interface Command {
@@ -297,14 +304,14 @@
 			label: t('snippets.open'),
 			hint: t('snippets.openHint'),
 			keywords: t('snippets.search'),
-			icon: Code2,
+			icon: Braces,
 			run: onOpenSnippets
 		},
 		{
 			id: 'snippet-save-selection',
 			label: t('snippets.saveSelection'),
 			hint: t('snippets.saveSelectionHint'),
-			icon: Code2,
+			icon: Braces,
 			enabled: () => filesStore.active !== null && (kind === 'note' || kind === 'code'),
 			run: onSaveSnippetSelection
 		},
@@ -312,11 +319,11 @@
 			id: 'snippet-save-file',
 			label: t('snippets.saveFile'),
 			hint: t('snippets.saveFileHint'),
-			icon: Code2,
+			icon: Braces,
 			enabled: () => filesStore.active !== null && (kind === 'note' || kind === 'code'),
 			run: onSaveSnippetFile
 		},
-		{ id: 'backup', label: t('actions.backups'), icon: Download, run: onOpenSettings },
+		{ id: 'backup', label: t('actions.backups'), icon: Archive, run: onOpenSettings },
 		{
 			id: 'close-file',
 			label: t('palette.closeFile'),
@@ -329,7 +336,7 @@
 		{
 			id: 'delete-file',
 			label: t('palette.deleteFile'),
-			icon: X,
+			icon: Trash2,
 			run: () => {
 				const id = filesStore.activeId;
 				if (id)
@@ -413,7 +420,7 @@
 			label: t('palette.save'),
 			keywords: t('palette.saveKeywords'),
 			kbd: formatKbd('⌘S'),
-			icon: Download,
+			icon: Save,
 			enabled: () => filesStore.active !== null,
 			run: onSave
 		},
@@ -422,7 +429,7 @@
 			label: t('palette.saveAs'),
 			keywords: t('palette.saveAsKeywords'),
 			kbd: formatKbd('⌘⇧S'),
-			icon: Download,
+			icon: CopyPlus,
 			enabled: () => filesStore.active !== null,
 			run: onSaveAs
 		},
@@ -442,7 +449,7 @@
 						label: t('palette.saveToDisk'),
 						keywords: t('palette.saveToDiskKeywords'),
 						kbd: keyboardStore.label('save-as') ?? formatKbd('⌘⇧S'),
-						icon: Download,
+						icon: HardDriveDownload,
 						enabled: () => filesStore.active !== null,
 						run: onSaveToDisk
 					}
@@ -686,7 +693,7 @@
 			id: 'export-profiles',
 			label: t('exportProfiles.command'),
 			hint: t('exportProfiles.commandHint'),
-			icon: Download,
+			icon: SlidersHorizontal,
 			run: onOpenExportProfiles
 		},
 		{
@@ -1085,6 +1092,7 @@
 						<div class="mb-4 grid grid-cols-2 gap-2">
 							{#each group.commands as command (command.id)}
 								<button
+									data-testid={`action-${command.id}`}
 									class="flex min-h-11 items-center gap-2 rounded border border-border px-3 py-2 text-left text-sm hover:bg-bg-2"
 									disabled={!isAvailable(command)}
 									onclick={() => runCommand(command)}

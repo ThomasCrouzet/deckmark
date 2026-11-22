@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetAppState, seedFiles, openPalette, createFirstFile } from './helpers';
+import { resetAppState, runAction, seedFiles, openPalette, createFirstFile } from './helpers';
 import { fidelityFixtures, sentence, replacement } from './fixtures/source-fidelity';
 import { openPresentationSource, presentationFixture } from './presentation-helpers';
 import { noteContent } from '../scripts/benchmark-fixtures/corpus.mjs';
@@ -466,7 +466,7 @@ test('a linked disk file keeps its BOM and rejects an external revision', async 
 		.click();
 	await page.locator('[data-mode=wysiwyg]').click();
 	await editSentence(page, sentence, replacement);
-	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
+	await runAction(page, 'save-disk');
 	const diskBytes = () =>
 		page.evaluate(async () => {
 			const file = await (
@@ -504,7 +504,7 @@ test('a linked disk file keeps its BOM and rejects an external revision', async 
 		await writer.close();
 	}, external);
 	await editSentence(page, replacement, 'A later local sentence.');
-	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
+	await runAction(page, 'save-disk');
 	const dialog = page.getByRole('dialog', { name: 'Résoudre le conflit disque pour bom-disk.md' });
 	await expect(dialog).toContainText('An external sentence.');
 	await expect(dialog).toContainText('A later local sentence.');

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { createFirstFile, resetAppState, writeSourceContent } from './helpers';
+import { createFirstFile, resetAppState, runAction, writeSourceContent } from './helpers';
 
 const nativeScrollbarTest = test.extend({
 	// Headless Firefox hides all scrollbars with an agent stylesheet.
@@ -384,7 +384,7 @@ test.describe('Editor width', () => {
 		await expectPdfTextWidth(page);
 		const editorWidth = await textWidth(page.locator('.ProseMirror'));
 		const captured = await capturePrint(page);
-		await page.getByRole('button', { name: 'Exporter en PDF', exact: true }).click();
+		await runAction(page, 'export-pdf');
 		await expect.poll(() => captured().length).toBeGreaterThan(100);
 
 		const printable = await browser.newPage();
