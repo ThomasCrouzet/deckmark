@@ -62,5 +62,32 @@ versions can affect raster output.
 | `presentation-present.png` | Launch deck in presentation mode. |
 | `presentation-editor-mobile.png` | Slide editor at a 390-pixel viewport width. |
 
+## Capture the README hero and gallery
+
+The README top shows `docs/hero.webp`, an animated demo of about 18 seconds. The
+"See it in action" gallery uses `docs/screenshots/readme-*-dark.webp` and
+`readme-*-light.webp`. GitHub selects the variant from the reader's color scheme.
+Run:
+
+```sh
+npm run build
+node scripts/capture-hero.mjs
+node scripts/capture-hero-compose.mjs
+node scripts/capture-showcase.mjs
+```
+
+`capture-hero.mjs` records the real interface with the Chrome DevTools screencast at
+1152 by 720 CSS pixels and a device pixel ratio of 2. It types a note, links a
+note, opens Split view with a Mermaid diagram, and presents the ORBIT deck.
+`capture-hero-compose.mjs` places the frames in a rounded window with a shadow on a
+graphite gradient. It writes `hero.mp4`, `hero.webp` and `hero.gif` to `test-results/capture-hero/`. Copy
+`hero.webp` and `hero.mp4` to `docs/`, and copy `hero.gif` to `docs/demo.gif` for
+places that do not show WebP. Keep the GIF under 8 MB.
+
+`capture-showcase.mjs` captures the write, split, slide editor, present and palette
+views in both themes and frames them in the same way. It writes to
+`test-results/capture-showcase/`. Copy each output to
+`docs/screenshots/readme-<name>-<theme>.webp`. Inspect every frame before you commit.
+
 Source, reading, and palette captures also have `-light` variants. The four
 desktop PWA images are 2560 by 1600 pixels. `relay-mobile.webp` is 390 by 844 pixels.

@@ -30,6 +30,10 @@
   <img src="https://img.shields.io/badge/offline_first_PWA-8a6fd1" alt="Offline-first PWA">
 </p>
 
+<p align="center">
+  <a href="https://www.deckmark.dev/"><img src="docs/hero.webp" alt="DeckMark demo: write a launch plan, link a note, render a Mermaid diagram in split view, then present the slide deck." width="960"></a>
+</p>
+
 <!-- readme:section positioning -->
 ## Why DeckMark?
 
@@ -52,8 +56,6 @@ license, or a proprietary format. DeckMark trades none of those.
 | Built-in Markdown presentations | ✅ | Plugins | ❌ | ❌ |
 
 *Checked November 2026. Verify each product's current terms.*
-
-![DeckMark demo: plan a launch with linked notes, diagrams, code, project checks, exports, and a presentation.](docs/demo.gif)
 
 <!-- readme:section get-started -->
 ## Get started
@@ -87,6 +89,53 @@ on macOS, Windows, and Linux. Beta installers are unsigned: compare downloads ag
 | **Presentation** | Arrange slides with text, shapes, images, and connectors. Presenter notes, full-screen presenting, and export to Markdown, HTML, or PDF. A deck stays a readable Markdown file. |
 | **Code / JSON** | Create or import text and code files. Syntax highlighting, search, indentation, JSON checks, formatting, and minification. |
 | **Image / PDF** | Import images and PDFs. Annotate images and export a flattened PNG. PDF viewing depends on the browser viewer and policy. |
+
+<!-- readme:section capabilities -->
+## See it in action
+
+<table>
+<tr>
+  <td width="50%" valign="top">
+    <strong>Write</strong><br>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-write-dark.webp">
+      <img src="docs/screenshots/readme-write-light.webp" alt="A note in Edit mode with a wiki link, a table, a checklist, and a rendered Mermaid diagram.">
+    </picture>
+  </td>
+  <td width="50%" valign="top">
+    <strong>Source and preview</strong><br>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-split-dark.webp">
+      <img src="docs/screenshots/readme-split-light.webp" alt="Split view: Markdown source on the left, rendered KaTeX and Mermaid on the right.">
+    </picture>
+  </td>
+</tr>
+<tr>
+  <td width="50%" valign="top">
+    <strong>Build slides</strong><br>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-present-dark.webp">
+      <img src="docs/screenshots/readme-present-light.webp" alt="The slide editor with the filmstrip, the canvas, and the properties panel.">
+    </picture>
+  </td>
+  <td width="50%" valign="top">
+    <strong>Present</strong><br>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-present-mode-dark.webp">
+      <img src="docs/screenshots/readme-present-mode-light.webp" alt="A slide in Present mode.">
+    </picture>
+  </td>
+</tr>
+</table>
+
+Every command is one search away: open the palette with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> on macOS).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-palette-dark.webp">
+    <img src="docs/screenshots/readme-palette-light.webp" alt="The command palette filtered to export commands.">
+  </picture>
+</p>
 
 <!-- readme:section capabilities -->
 ## Keep your documents together
