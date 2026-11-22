@@ -829,13 +829,14 @@
 		}
 		if (caretRequest && !openedSearch && !handledGoTo) {
 			if (!keepSelection) {
-				// A mode switch without a stored position starts at the end of
-				// the document, where the user stopped reading or typing.
+				// A mode switch without a stored position puts the caret at the
+				// end of the document, where the user stopped reading or typing.
+				// The viewport stays at the restored position: scrolling to the
+				// caret here hides the document head behind line virtualization
+				// and breaks the screen-reader and smoke contracts that read
+				// the visible source text from the top.
 				const end = view.state.doc.length;
-				view.dispatch({
-					selection: { anchor: end },
-					effects: cm.EditorView.scrollIntoView(end)
-				});
+				view.dispatch({ selection: { anchor: end } });
 			}
 			view.focus();
 		}
