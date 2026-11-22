@@ -69,6 +69,22 @@
 	let { open, onClose, editorWidth, prefs }: Props = $props();
 
 	let closeButton: HTMLButtonElement | null = $state(null);
+	// A prompt inerts this dialog, so the browser drops focus to the body. When
+	// the prompt closes, put the keyboard back on the dialog's first control.
+	let promptWasOpen = false;
+	$effect(() => {
+		const promptOpen = promptStore.open;
+		if (promptWasOpen && !promptOpen && open) {
+			// The prompt trap restores focus in a microtask. Run after that
+			// restore so this control wins for a trigger inside the dialog.
+			void tick().then(() => {
+				requestAnimationFrame(() => {
+					if (open && !promptStore.open) closeButton?.focus();
+				});
+			});
+		}
+		promptWasOpen = promptOpen;
+	});
 	let importInput: HTMLInputElement | null = $state(null);
 	let shortcutFeedback = $state('');
 	const host = $derived(publicHostInfo(location.hostname));

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { resetAppState, seedFiles } from './helpers';
+import { createFirstFile, resetAppState, seedFiles } from './helpers';
 
 async function dispatchEscape(
 	locator: Locator,
@@ -253,5 +253,41 @@ test('keeps the Library open for composing Enter and activates once after compos
 		queryAfterComposition: 'alpha-library',
 		activeAfterComposition: 'beta-library',
 		activeAfterNormalEnter: 'alpha-library'
+	});
+});
+
+test('keeps a drafted comment for composing Escape and a filled body', async ({ page }, info) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await openCommand(page, 'commentaires');
+	const panel = page.getByTestId('comments-panel');
+	await expect(panel).toBeVisible({ timeout: 20_000 });
+	const body = page.getByTestId('comment-body');
+	await body.fill('Brouillon de commentaire');
+
+	const composing = await dispatchEscape(body, { composing: true });
+	await expect(panel).toBeVisible();
+	await expect(body).toHaveValue('Brouillon de commentaire');
+	const legacy = await dispatchEscape(body, { legacyKeyCode: true });
+	await expect(panel).toBeVisible();
+	await expect(body).toHaveValue('Brouillon de commentaire');
+	// A normal Escape keeps a filled body. Only an explicit control discards it.
+	const normal = await dispatchEscape(body, { composing: false });
+	expect(normal).toBe(true);
+	await expect(panel).toBeVisible();
+	await expect(body).toHaveValue('Brouillon de commentaire');
+
+	// An empty body closes the panel as before.
+	await info.attach('ime-comments.png', { body: await page.screenshot() });
+	await body.fill('');
+	await page.keyboard.press('Escape');
+	await expect(panel).toHaveCount(0);
+	await attach(info, 'ime-comments.json', {
+		composingKept: 'Brouillon de commentaire',
+		legacyKept: 'Brouillon de commentaire',
+		composingPrevented: composing,
+		legacyPrevented: legacy,
+		normalEscapePrevented: normal,
+		emptyBodyClosed: true
 	});
 });

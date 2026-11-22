@@ -20,7 +20,7 @@
 	// (prompt mode) or `onResolve(true|false)` (confirm mode).
 
 	import { tick } from 'svelte';
-	import { focusTrap } from '#lib/a11y/focusTrap.js';
+	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import { t } from '#lib/i18n/index.js';
 	import { X } from '@lucide/svelte';
 	import Toasts from './Toasts.svelte';
@@ -123,6 +123,7 @@
 		aria-describedby={message ? 'prompt-modal-message' : undefined}
 		tabindex="-1"
 		use:focusTrap
+		use:visualViewportPanel
 	>
 		<div
 			class="mdsh-dialog-panel max-h-[75dvh] overflow-y-auto flex w-full max-w-md flex-col gap-4 rounded-lg border border-border bg-bg-1 p-4

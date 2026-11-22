@@ -34,7 +34,7 @@
 	import { buildKeydownHandler } from '#lib/ui/shortcuts.svelte.js';
 	import { createUiPrefs } from '#lib/ui/prefs.svelte.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
-	import { requestEditorFocus } from '#lib/ui/editor-focus.js';
+	import { requestEditorFocus, requestModeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { registerPwaUpdates } from '#lib/ui/pwa-update.js';
 	import { buildDropHandlers } from '#lib/ui/image-drop.svelte.js';
 	import { schedulePrefetch } from '#lib/ui/prefetch.svelte.js';
@@ -105,6 +105,19 @@
 	function openOutline() {
 		openDocumentTool('outline');
 	}
+	// Read has no caret. The reading scroller mounts through a lazy import, so
+	// the request waits for the mode and the element, then gives keyboard
+	// scrolling a target.
+	function focusReadSurface(attempt = 0): void {
+		if (mode === 'read') {
+			const surface = document.querySelector<HTMLElement>('#main .mdsh-read');
+			if (surface) {
+				surface.focus({ preventScroll: true });
+				return;
+			}
+		}
+		if (attempt < 30) requestAnimationFrame(() => focusReadSurface(attempt + 1));
+	}
 	async function requestMode(nextMode: EditMode): Promise<void> {
 		if (kind !== 'note' && kind !== 'code') return;
 		if (kind === 'code') {
@@ -123,6 +136,12 @@
 			filesStore.allowDocumentRendering(activeId);
 		}
 		filesStore.flushDocumentEdits();
+		// The editor remounts in the next mode. Carry the caret request across
+		// that asynchronous mount instead of leaving focus on the toolbar.
+		if (nextMode !== mode && activeId) {
+			if (nextMode === 'read') focusReadSurface();
+			else requestModeEditorFocus(activeId, nextMode);
+		}
 		mode = nextMode;
 	}
 	$effect(() => {
