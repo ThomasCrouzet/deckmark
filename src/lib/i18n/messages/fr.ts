@@ -175,6 +175,8 @@ export const fr: Record<MessageKey, string> = {
 	'palette.reportProblem': 'Signaler un problème',
 	'settings.about': 'À propos de deckmark',
 	'settings.authorCredit': 'Créé par Thomas CROUZET',
+	'settings.installedVersion': 'Version installée {version}',
+	'settings.releaseLink': 'Notes de version et téléchargements (nouvel onglet)',
 	'sidebar.homeLabel': 'Ouvrir la page d’accueil',
 	'settings.githubProfile': 'Profil GitHub',
 	'settings.userGuide': 'Guide utilisateur (nouvel onglet)',

@@ -12,6 +12,9 @@ const edition =
 const nativeStub = fileURLToPath(
 	new URL('./src/lib/edition/web/tauri-api-stub.ts', import.meta.url)
 );
+const mermaidElkStub = fileURLToPath(
+	new URL('./src/lib/render/mermaid-elk-stub.ts', import.meta.url)
+);
 
 export default defineConfig(({ mode }) => {
 	// Vite does not load `.env.local` into `process.env` for this configuration.
@@ -67,6 +70,18 @@ export default defineConfig(({ mode }) => {
 			__VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false'
 		},
 		plugins: [
+			{
+				// Mermaid keeps each layout engine behind a dynamic import. ELK adds
+				// about 1.5 MB of code, and the dagre layout stays pinned in
+				// `src/lib/render/sanitize-html.ts`, so the ELK engine is unreachable.
+				// Resolve its module to a small stub and keep the bytes out of the build.
+				name: 'mermaid-elk-stub',
+				enforce: 'pre',
+				resolveId(source: string, importer: string | undefined) {
+					if (!importer?.includes('/node_modules/mermaid/')) return null;
+					return /^\.\/elk-[A-Za-z0-9_-]+\.mjs$/.test(source) ? mermaidElkStub : null;
+				}
+			},
 			tailwindcss(),
 			sveltekit({
 				compilerOptions: {

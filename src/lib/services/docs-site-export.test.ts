@@ -203,6 +203,14 @@ describe('documentation site output', () => {
 		expect(index).not.toContain('<script>alert(1)</script>');
 		expect(index).toContain('&lt;img src=x onerror=alert(1)&gt;');
 		expect(index).toContain('Safe &amp; sound');
+		// The page loads external search and theme files, so the CSP permits
+		// scripts from the site origin only and keeps no inline script escape.
+		const csp = index.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] ?? '';
+		expect(csp).toContain("script-src 'self'");
+		expect(csp.match(/script-src[^;]*/)?.[0]).not.toContain('unsafe-inline');
+		expect(index).toContain('<script src="_mdsh/search-index.js" defer></script>');
+		expect(index).toContain('<script src="_mdsh/site.js" defer></script>');
+		expect(index).toContain('data-site-theme');
 	});
 
 	it('blocks remote image sources but keeps the page usable', async () => {

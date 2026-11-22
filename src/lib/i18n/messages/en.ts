@@ -174,6 +174,8 @@ export const en = {
 	'palette.reportProblem': 'Report a problem',
 	'settings.about': 'About DeckMark',
 	'settings.authorCredit': 'Created by Thomas CROUZET',
+	'settings.installedVersion': 'Installed version {version}',
+	'settings.releaseLink': 'Release notes and downloads (opens in a new tab)',
 	'sidebar.homeLabel': 'Go to the start page',
 	'settings.githubProfile': 'GitHub profile',
 	'settings.userGuide': 'User guide (opens in a new tab)',

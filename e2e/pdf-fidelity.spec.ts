@@ -105,6 +105,14 @@ FIN DU DOCUMENT VISIBLE.
 		}).observe(document.body, { childList: true, subtree: true });
 	});
 	await runAction(page, 'export-pdf');
+	// The print frame runs no script and carries no content it did not build.
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() => document.querySelector('iframe[data-mdsh-print]')?.getAttribute('sandbox') ?? null
+			)
+		)
+		.toBe('allow-same-origin allow-modals');
 	await expect.poll(() => captured.length).toBeGreaterThan(100);
 	const printable = await browser.newPage({ viewport: { width: 673, height: 970 } });
 	try {

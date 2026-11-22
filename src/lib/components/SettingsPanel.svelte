@@ -1122,7 +1122,7 @@
 				</section>
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
-					<p>
+					<p data-testid="about-version">
 						{t('brand.name')}
 						{version} ·
 						{editionManifest().edition === 'desktop'
@@ -1135,6 +1135,18 @@
 						})}
 					</p>
 					<p class="mt-1" data-testid="about-author">{t('settings.authorCredit')}</p>
+					{#if isDesktop()}
+						<p class="mt-1" data-testid="installed-version">
+							{t('settings.installedVersion', { version })}
+						</p>
+						<a
+							class="mt-1 inline-block underline"
+							href="https://github.com/ThomasCrouzet/deckmark/releases"
+							target="_blank"
+							rel="noopener noreferrer"
+							data-testid="release-link">{t('settings.releaseLink')}</a
+						>
+					{/if}
 					<a
 						class="mt-1 inline-block underline"
 						href="https://github.com/ThomasCrouzet"
