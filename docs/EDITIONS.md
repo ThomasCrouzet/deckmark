@@ -102,9 +102,9 @@ passes on every device.
 
 | Platform | Release artifact | Requirement |
 | --- | --- | --- |
-| macOS | `deckmark_<version>_macOS_Apple-Silicon.dmg` | macOS 14 or later on an Apple Silicon Mac. |
-| Windows x64 | `deckmark_<version>_x64-setup.exe` | WebView2. The installer can add WebView2 when it is absent. |
-| Linux x64 | `deckmark_<version>_amd64.deb` or `deckmark_<version>_amd64.AppImage` | WebKitGTK 4.1 and the packaged native libraries. |
+| macOS | `DeckMark_<version>_macOS_Apple-Silicon.dmg` | macOS 14 or later on an Apple Silicon Mac. |
+| Windows x64 | `DeckMark_<version>_x64-setup.exe` | WebView2. The installer can add WebView2 when it is absent. |
+| Linux x64 | `DeckMark_<version>_amd64.deb` or `DeckMark_<version>_amd64.AppImage` | WebKitGTK 4.1 and the packaged native libraries. |
 
 The Desktop workflow builds these targets from the same source tag as the stable
 release. The installers are unsigned beta artifacts. macOS can show a Gatekeeper
