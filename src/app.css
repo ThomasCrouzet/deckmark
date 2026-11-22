@@ -485,6 +485,8 @@ body.typewriter-mode .mdsh-editor {
 :root[data-touch-capable='true'] #app-statusbar button,
 :root[data-touch-capable='true'] [data-document-navigation] button,
 :root[data-touch-capable='true'] #files-panel button,
+:root[data-touch-capable='true'] .image-toolbar button,
+:root[data-touch-capable='true'] .image-toolbar .ink-color,
 :root[data-touch-capable='true'] [role='dialog'] button,
 :root[data-touch-capable='true'] [role='dialog'] summary,
 :root[data-touch-capable='true'] #files-panel summary,

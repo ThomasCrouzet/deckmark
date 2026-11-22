@@ -232,7 +232,9 @@
 												: 'documents.pdf'
 							)}</span
 						>
-						<span class="title-save" role="status"
+						<!-- §754 - Decorative save text. StatusBar owns the save
+						     announcement; a second live region duplicated it. -->
+						<span class="title-save"
 							>{filesStore.saveErrorIds.includes(filesStore.active.id)
 								? t('statusBar.saveFailed')
 								: filesStore.hasPendingSave

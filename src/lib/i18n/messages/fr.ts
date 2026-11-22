@@ -797,6 +797,8 @@ export const fr: Record<MessageKey, string> = {
 	'ai.stop': 'Arrêter',
 	'ai.retry': 'Réessayer',
 	'ai.reply': 'Réponse',
+	'ai.streamStarted': 'Réponse en cours.',
+	'ai.streamFinished': 'Réponse terminée.',
 	'ai.history': 'Historique local de la session',
 	'ai.noContext': 'Aucun contenu de document n’est choisi pour cette requête.',
 	'ai.noSelection': 'Sélectionnez du texte dans l’éditeur avant d’utiliser la portée sélection.',

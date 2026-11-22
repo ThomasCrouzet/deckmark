@@ -780,6 +780,8 @@ export const en = {
 	'ai.stop': 'Stop',
 	'ai.retry': 'Retry',
 	'ai.reply': 'Reply',
+	'ai.streamStarted': 'Reply started.',
+	'ai.streamFinished': 'Reply finished.',
 	'ai.history': 'Local session history',
 	'ai.noContext': 'No document content is selected for this request.',
 	'ai.noSelection': 'Select text in the editor before using the selection scope.',
