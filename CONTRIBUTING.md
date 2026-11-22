@@ -21,7 +21,7 @@ Open an issue before you start a large change or feature.
 ## Setup
 
 ```sh
-npm install --legacy-peer-deps   # required (Milkdown peer deps)
+npm ci --legacy-peer-deps   # required (Milkdown peer deps)
 npm run dev
 ```
 
@@ -56,7 +56,7 @@ review, and security scans. The security audits are scoped to the changed inputs
 and an unknown path requests both audits. Merge Dependabot pull requests manually
 after required checks pass. This action starts the normal post-merge deployment.
 
-`npm install` installs lefthook hooks. `pre-commit` runs Prettier and ESLint on staged files. `pre-push` runs check and tests.
+`npm ci` runs the prepare script, which installs the lefthook hooks. `pre-commit` runs Prettier and ESLint on staged files. `pre-push` runs check and tests.
 
 ## Draft pull requests and CI tiers
 

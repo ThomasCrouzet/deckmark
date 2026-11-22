@@ -210,6 +210,13 @@ trigger an operating-system warning. Older releases can use the previous mdsh
 name. The Desktop release workflow includes checksums and build provenance.
 Desktop update delivery is on standby. The app does not check for or install
 updates. Download and install each new release manually.
+
+If macOS blocks the app, open **System Settings > Privacy & Security** and choose
+**Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/DeckMark.app`.
+On Windows, choose **More info > Run anyway**. On Linux, install the `.deb` with
+your package manager, or mark the `.AppImage` executable. Trust an installer only
+after you compare it with `SHA256SUMS`.
+
 See the [Desktop guide](docs/USER_GUIDE.md#desktop-complete-app) for
 requirements and supported architectures.
 

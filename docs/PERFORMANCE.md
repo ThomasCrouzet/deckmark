@@ -600,7 +600,7 @@ and the reviewed `scripts/benchmark-editor-typing.mjs` harness (SHA-256
 `0a5e1b4a917014da135fa9c980fbebbfeac5e15a45a1e9ac16ca72062d46e57f`).
 
 ```sh
-node scripts/benchmark-editor-typing.mjs --browser chromium --runs 3   --sizes 240000,1000000,5000000 --modes visual --libraries both   --output /srv/dev/cache/tmp/opencode/bench-324.json
+node scripts/benchmark-editor-typing.mjs --browser chromium --runs 3   --sizes 240000,1000000,5000000 --modes visual --libraries both   --output ${TMPDIR:-/tmp}/bench/bench-324.json
 ```
 
 | Source bytes | DOM nodes | Input frame p50 / p95 (ms) | Sync p50 / p95 (ms) |
@@ -929,7 +929,7 @@ on the 600 KB note. The source cases measured 2.7 to 2.9 ms p95 and no publish
 block. The reviewed command is:
 
 ```sh
-node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output /srv/dev/cache/tmp/opencode/w7/web-chromium.json
+node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output ${TMPDIR:-/tmp}/bench/w7/web-chromium.json
 ```
 
 That run failed on `edit200kTablePublishBlock`, `edit600kTablePublishBlock` and
@@ -954,8 +954,8 @@ limits. First derive a private budget file that omits the navigation metrics.
 Then run the harness with `--skip-navigation`:
 
 ```sh
-node -e "const b=require('./scripts/benchmark-budgets.json'); const m=b.platforms['web-chromium'].metrics; for (const k of ['coldStart','cachedRestart','firstContentfulPaint','domInteractive','domContentLoaded','libraryReload']) delete m[k]; process.stdout.write(JSON.stringify(b,null,'\t')+'\n')" > /srv/dev/cache/tmp/opencode/bench-budgets-typing.json
-node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --skip-navigation --enforce-budgets --budgets /srv/dev/cache/tmp/opencode/bench-budgets-typing.json --output /srv/dev/cache/tmp/opencode/bench-typing.json
+node -e "const b=require('./scripts/benchmark-budgets.json'); const m=b.platforms['web-chromium'].metrics; for (const k of ['coldStart','cachedRestart','firstContentfulPaint','domInteractive','domContentLoaded','libraryReload']) delete m[k]; process.stdout.write(JSON.stringify(b,null,'\t')+'\n')" > ${TMPDIR:-/tmp}/bench/bench-budgets-typing.json
+node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --skip-navigation --enforce-budgets --budgets ${TMPDIR:-/tmp}/bench/bench-budgets-typing.json --output ${TMPDIR:-/tmp}/bench/bench-typing.json
 ```
 
 `--skip-navigation` omits cold start, cached restart, first contentful paint, DOM
@@ -1008,9 +1008,9 @@ Reproduce the WebKit workload on Linux with a production static build:
 BASE_PATH='' npm run build
 node scripts/benchmark-local.mjs --browser webkit --runs 20 \
   --build-mode production-static \
-  --output /srv/dev/cache/tmp/opencode/webkit-20.json
+  --output ${TMPDIR:-/tmp}/bench/webkit-20.json
 node scripts/benchmark-gate.mjs \
-  --report /srv/dev/cache/tmp/opencode/webkit-20.json \
+  --report ${TMPDIR:-/tmp}/bench/webkit-20.json \
   --budgets scripts/benchmark-budgets.json
 ```
 
@@ -1194,7 +1194,7 @@ Verification:
 - `npx playwright test e2e/project-explorer.spec.ts --project=chromium`: 7 passed.
 - The Chromium production benchmark stays inside every budget, including
   `documentSwitch` and `largeDocumentOpen`.
-- Raw benchmark evidence: `/tmp/opencode/bench-after-switch.json` from source
+- Raw benchmark evidence: `<evidence-dir>/bench-after-switch.json` from source
   revision in this branch, 5 runs, production static build.
 
 The change does not alter save durability, per-file undo, source bytes, focus or

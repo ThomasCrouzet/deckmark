@@ -13,6 +13,11 @@ private, and client-side.
 - Node 22 or later.
 - A repository checkout with its dependencies installed.
 
+The CLI and the MCP server are source-checkout tools. The project publishes no
+npm package for either tool and no standalone download on the release page. Run
+them from the checkout, or build the relocatable package from a source checkout as
+described in [CLI and MCP installation](CLI-MCP-INSTALLATION.md).
+
 The first command builds a cached CLI bundle in `.cli/`. The build uses the
 existing Vite dependency. A later source change rebuilds the bundle. The Web
 build does not read `.cli/`, and the PWA precache does not include it.
