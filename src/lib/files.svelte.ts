@@ -160,6 +160,12 @@ class FilesStore {
 	}
 
 	loaded = $state(false);
+	/**
+	 * Bumped when a load replaces the library objects. A view can compare this
+	 * value with a FileItem id instead of holding an object reference, because
+	 * a reload recreates the objects with the same ids.
+	 */
+	libraryRevision = $state(0);
 	/** Monotonic boundary for startup and backup reloads. */
 	private loadGeneration = 0;
 	/** Latest tab activation request. A late hydration may not steal focus. */
@@ -695,6 +701,7 @@ class FilesStore {
 		this.trash = trash.map(({ entry, remainingMs }) => ({ ...entry, remainingMs }));
 		this.loadError = null;
 		this.loaded = true;
+		this.libraryRevision += 1;
 		// Metadata-first startup can keep closed bodies from the full-row
 		// fallback. Release the ones above the budget before the first render.
 		void this.reclaimClosedBodies().catch(() => undefined);

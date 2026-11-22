@@ -65,16 +65,17 @@
 	let { onPresentingChange = () => {} }: { onPresentingChange?: (value: boolean) => void } =
 		$props();
 	const fileId = filesStore.active!.id;
-	const fileIdentity = filesStore.active!;
 	const guidanceId = $props.id();
 	const editor =
 		pendingEditors.get(fileId) ??
 		new PresentationEditor(
 			filesStore.active?.content ?? '',
 			(source, base) => {
+				// A reload or a backup restore recreates the FileItem with the same
+				// id, so an object reference is not stable identity. The durable id
+				// and the base this edit started from prove the target is unchanged.
 				const file = filesStore.library.find((entry) => entry.id === fileId);
-				if (file !== fileIdentity || file.content !== base)
-					throw new Error('Presentation source changed');
+				if (!file || file.content !== base) throw new Error('Presentation source changed');
 				if (documentKind(source) !== 'presentation') throw new Error('Presentation data missing');
 				filesStore.updateContent(fileId, source);
 			},
@@ -110,6 +111,7 @@
 	const INSPECTOR_SIDE_BREAKPOINT = 800;
 	let multiSelect = $state(false);
 	let presenting = $state(false);
+	let fullscreenActive = $state(false);
 	let showNotes = $state(false);
 	let busy = $state(false);
 	let overflow = $state(false);
@@ -308,6 +310,21 @@
 			}
 		});
 	});
+	// A store reload keeps the open document but replaces its FileItem object.
+	// Retry a write that failed on the previous generation when the durable body
+	// still matches this editor. A real divergence stays with the existing
+	// source-changed handling above.
+	let storeRevision = $state(filesStore.libraryRevision);
+	$effect(() => {
+		const revision = filesStore.libraryRevision;
+		if (revision === storeRevision) return;
+		storeRevision = revision;
+		const file = filesStore.files.find((entry) => entry.id === fileId);
+		if (!file || !editor.saveError || file.content !== editor.source) return;
+		untrack(() => {
+			if (editor.flush()) userMessage = '';
+		});
+	});
 	$effect(() => {
 		const element = viewport;
 		if (!element) return;
@@ -400,6 +417,13 @@
 			if (!editor.flush()) event.preventDefault();
 		};
 		window.addEventListener('mdsh:flush-editor', flush);
+		// The browser consumes Escape to leave fullscreen before the keydown
+		// handlers run. End the presentation too so one Escape has one meaning.
+		const onFullscreenChange = () => {
+			fullscreenActive = document.fullscreenElement === root;
+			if (!fullscreenActive && presenting) exitPresent();
+		};
+		document.addEventListener('fullscreenchange', onFullscreenChange);
 		const visualViewport = window.visualViewport;
 		const resizeObserver = new ResizeObserver(keepFocusedControlVisible);
 		if (root) resizeObserver.observe(root);
@@ -420,6 +444,8 @@
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
 			window.removeEventListener('mdsh:flush-editor', flush);
+			document.removeEventListener('fullscreenchange', onFullscreenChange);
+			leaveFullscreen();
 			resizeObserver.disconnect();
 			window.removeEventListener('resize', keepFocusedControlVisible);
 			visualViewport?.removeEventListener('resize', keepFocusedControlVisible);
@@ -454,7 +480,9 @@
 			imageInput?.click();
 			return;
 		}
-		editor.add(type, type === 'text' ? t('slides.newText') : '');
+		const id = editor.add(type, type === 'text' ? t('slides.newText') : '');
+		// The text tool creates an editable object: open it for typing at once.
+		if (type === 'text') void textEdit.begin(id);
 	}
 	async function insertImages(files: File[]) {
 		if (!files.length) return;
@@ -738,8 +766,27 @@
 			busy = false;
 		}
 	}
+	function enterFullscreen() {
+		const element = root;
+		// This call runs in the click handler. A deferred request loses user
+		// activation and rejects, leaving the overlay as the fallback.
+		if (!element || typeof element.requestFullscreen !== 'function') return;
+		element.requestFullscreen().catch(() => {
+			fullscreenActive = false;
+		});
+	}
+	function leaveFullscreen() {
+		if (document.fullscreenElement !== root) return;
+		const request = document.exitFullscreen?.();
+		if (request) void request.catch(() => {});
+	}
+	function toggleFullscreen() {
+		if (document.fullscreenElement === root) leaveFullscreen();
+		else enterFullscreen();
+	}
 	function present() {
 		if (editor.error || sourceOpen) return;
+		enterFullscreen();
 		textEdit.finish();
 		// The filmstrip hides during playback, so no filmstrip gesture survives it.
 		clearFilmstripGesture();
@@ -749,7 +796,8 @@
 	}
 	function exitPresent() {
 		presenting = false;
-		if (document.fullscreenElement === root) void document.exitFullscreen?.();
+		fullscreenActive = false;
+		leaveFullscreen();
 		void tick().then(() =>
 			root?.querySelector<HTMLButtonElement>('[data-testid="slide-present"]')?.focus()
 		);
@@ -985,11 +1033,12 @@
 			{@render action('present-notes', showNotes ? 'slides.hideNotes' : 'slides.showNotes', () => {
 				showNotes = !showNotes;
 			})}
-			{#if root?.requestFullscreen}<button
+			{#if typeof root?.requestFullscreen === 'function'}<button
+					data-testid="slide-present-fullscreen"
 					title={t('slides.fullscreen')}
 					aria-label={t('slides.fullscreen')}
-					onclick={() => void root?.requestFullscreen().catch(() => {})}
-					><Maximize size={18} /></button
+					aria-pressed={fullscreenActive}
+					onclick={toggleFullscreen}><Maximize size={18} /></button
 				>{/if}
 		{/if}
 		{#if presenting}<button
@@ -1364,6 +1413,7 @@
 									deck={editor.deck}
 									{fileId}
 									priority="active"
+									suppressPlaceholder={presenting}
 									{...textEdit.editingId ? { hideTextId: textEdit.editingId } : {}}
 								/>
 							</div>
@@ -1930,6 +1980,11 @@
 		background: transparent;
 		cursor: move;
 		touch-action: none;
+	}
+	/* A text object opens for editing on double-click, so its hover cue is a
+	   text cursor rather than the move cursor used by shapes. */
+	button.slide-object[data-object-type='text'] {
+		cursor: text;
 	}
 	button.slide-object:hover {
 		outline: calc(1px / var(--slide-scale)) solid #2563eb80;

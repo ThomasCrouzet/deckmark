@@ -18,6 +18,8 @@
 		fileId?: string;
 		hideTextId?: string;
 		priority?: 'active' | 'background';
+		/** A projected slide never shows the authoring placeholder text. */
+		suppressPlaceholder?: boolean;
 	}
 
 	const RENDER_LIMIT = 4;
@@ -49,7 +51,14 @@
 		html: string;
 	}
 
-	let { slide, deck, fileId, hideTextId, priority = 'background' }: Props = $props();
+	let {
+		slide,
+		deck,
+		fileId,
+		hideTextId,
+		priority = 'background',
+		suppressPlaceholder = false
+	}: Props = $props();
 	let renderedContent = new SvelteMap<string, RenderedElement>();
 	let failedElements = new SvelteSet<string>();
 	let renderFailed = $derived(failedElements.size > 0);
@@ -133,7 +142,14 @@
 	});
 
 	function contentFor(element: PresentationSlide['elements'][number]): string {
+		// The placeholder is an authoring aid. A projected slide shows the box
+		// empty, which matches the exported slide.
+		if (suppressPlaceholder && isPlaceholder(element)) return '';
 		return renderedContent.get(element.id)?.html ?? '';
+	}
+
+	function isPlaceholder(element: PresentationSlide['elements'][number]): boolean {
+		return element.type === 'text' && element.content.trim() === t('slides.newText');
 	}
 
 	// One endpoint index and one connector box per element for this render pass.

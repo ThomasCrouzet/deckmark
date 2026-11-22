@@ -17,9 +17,13 @@ async function resetEnglishApp(page: Page): Promise<void> {
 
 async function addText(editor: Locator, markdown: string): Promise<void> {
 	await editor.getByTestId('slide-add-text').click();
-	const text = editor.locator('[data-testid="slide-object"][data-object-type="text"]').last();
-	await text.dblclick();
-	await editor.getByTestId('slide-text-editor').fill(markdown);
+	const inline = editor.getByTestId('slide-text-editor');
+	// Creating text opens the inline editor. Older fixtures open it by a click.
+	if ((await inline.count()) === 0) {
+		const text = editor.locator('[data-testid="slide-object"][data-object-type="text"]').last();
+		await text.dblclick();
+	}
+	await inline.fill(markdown);
 	await editor.getByTestId('slide-text-done').click();
 }
 
