@@ -81,7 +81,7 @@ test('shows the save time of the active document, not the last write', async ({
 	const saveState = page.getByTestId('save-state');
 	await expect(page.locator('.cm-content').first()).toContainText('Restored draft');
 	// A restored draft is durable before this session records a save for it.
-	await expect(saveState).toHaveText('Brouillons locaux : enregistré');
+	await expect(saveState).toHaveText('Brouillon local : enregistré');
 
 	await page.locator('aside button[data-file-id="fresh-doc"]').click();
 	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toHaveValue('fresh');
@@ -95,7 +95,7 @@ test('shows the save time of the active document, not the last write', async ({
 	await expect(page.locator('input[aria-label^="Nom du fichier"]')).toHaveValue('aged');
 	// The aged document has no write in this session. The fresh write must not
 	// leak into its status line.
-	await expect(saveState).toHaveText('Brouillons locaux : enregistré');
+	await expect(saveState).toHaveText('Brouillon local : enregistré');
 
 	await info.attach('per-document-status.json', {
 		body: JSON.stringify({ freshAge, agedState: await saveState.innerText() }, null, 2),

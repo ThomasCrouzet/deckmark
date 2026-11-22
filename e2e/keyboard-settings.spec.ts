@@ -256,7 +256,7 @@ test('reports the real owner of a shortcut conflict and accepts the default Save
 	await page.keyboard.press('ControlOrMeta+Shift+k');
 	await expect(save).toHaveValue(labels.save);
 	await expect(feedback).toHaveText(
-		'Cette combinaison est réservée par le navigateur, le système ou l’éditeur de texte. Choisis-en une autre.'
+		'Cette combinaison est réservée par le navigateur, le système ou l’éditeur de texte. Choisissez-en une autre.'
 	);
 
 	await testInfo.attach('shortcut-conflict-owner', {
