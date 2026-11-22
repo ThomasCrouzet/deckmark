@@ -1,4 +1,4 @@
-# AGENTS.md - mdsh
+# AGENTS.md - DeckMark
 
 ## Scope
 
@@ -53,6 +53,6 @@ Start with the applicable check. Use the full suite for shared state, storage, e
 
 - Product scope, supported browsers, and limits: `README.md`.
 - Contribution and writing rules: `CONTRIBUTING.md`.
-- Modules, storage, export, and PWA: `.codex/references/project-map.md`.
+- Modules, storage, export, and PWA: `docs/DEVELOPMENT.md`.
 - Architecture decisions: `ARCHITECTURE.md`.
 - Portable format compatibility and version policy: `docs/FORMAT-COMPATIBILITY.md`.

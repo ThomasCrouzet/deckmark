@@ -16,14 +16,28 @@ acceptance criteria and the tests.
 
 | Register | Count |
 | --- | --- |
-| Active implementation issues | 27 |
+| Active implementation issues | 0 |
 | Active benchmark tracker | 0 |
-| Closed implementation issues | 65 |
-| Source audit commit | `babfff5b` |
-| Checked | 2026-11-11 at `babfff5b` |
+| Closed implementation issues | 92 |
+| Source audit commit | `b6014ef` |
+| Checked | 2026-11-22 at `b6014ef` |
 
 The roadmap issue #345 and the benchmark tracker #327 are closed. This file keeps
 them in the closed register. The GitHub issue state is the source of truth.
+
+## Product outlook: Now / Next / Not planned
+
+The pre-launch campaign is the current work. Each open issue holds its own scope
+and acceptance criteria.
+
+- **Now:** the open issues #712 through #765: public docs and release naming, the
+  exported documentation site security and search, accessibility and mobile
+  layout, and the PWA update prompt.
+- **Next:** the installed CLI and MCP package that runs without a source checkout
+  (#748), and the physical-device and native-client validation checklist (#703).
+- **Not planned:** Desktop update delivery stays on standby (see
+  `docs/decisions/desktop-updates-standby.md`). The project adds no required
+  backend, telemetry, cloud storage, or network request.
 
 ## Check procedure
 
@@ -45,42 +59,8 @@ sed -n '/^## Closed register/,/^## Audit provenance/p' docs/ROADMAP.md | grep -c
 
 ## Active register
 
-### Native I/O and project assets
-
-- [ ] #351 - Use metadata-first native project refresh and scoped IPC instead of large snapshots
-- [ ] #369 - Transmit metadata Worker deltas and retain per-file bounded baselines
-- [ ] #383 - Offload large initial and switch statistics, and bound selectionchange text copying
-
-### 2026-11-11 audit cycle
-
-These issues come from the 2026-11-11 audit. The docs-site campaign delivers #557,
-#564 and #566 in the `campaign/docs-site` pull request, so they are not separate
-register entries.
-
-- [ ] #552 - Investigate the Source typing p95 spike that blocks Desktop validation
-- [ ] #553 - Gate large-note multi-paragraph visibility and persistence in WebKit
-- [ ] #554 - Index presentation connector endpoints once per slide render
-- [ ] #555 - Enforce the folder manifest size limit before reading and parsing
-- [ ] #556 - Make service-worker registration retries and update polling idempotent
-- [ ] #558 - Account for typed binary payloads and enforce size limits on every mutation
-- [ ] #559 - Retain the blob URL until the browser has begun a download in WebKit
-- [ ] #560 - Exclude ignored trees before path validation and capacity checks
-- [ ] #561 - Prevent file-boundary spoofing in serialized AI context
-- [ ] #562 - Preserve text and code MIME metadata across portable ZIP round trips
-- [ ] #563 - Reconcile disk deletions during Refresh without discarding local recovery copies
-- [ ] #565 - Avoid quadratic scope scans and full-file encoding beyond the token budget
-- [ ] #569 - Reproduce and attribute typing stalls caused by large embedded images
-- [ ] #570 - Render bounded resolution-adaptive previews instead of full-size bitmaps
-- [ ] #571 - Avoid rereading and four-pass hashing cached image assets on editor resolution
-- [ ] #572 - Avoid reassembling large embedded image data URIs on every text publish
-- [ ] #573 - Bound image resize work and fix offscreen image geometry
-- [ ] #574 - Remove synchronous full-document scans from IndexedDB draft projection hooks
-- [ ] #575 - Skip redundant image proxy resolution and fence stale NodeView results
-- [ ] #576 - Stop transferring unchanged Base64 image payloads on every document-stat update
-- [ ] #577 - Preserve scoped image and source restoration on paragraph splits and adjacent edits
-- [ ] #578 - Set stable image fetch policies before src to avoid reload and decode churn
-- [ ] #579 - Decouple large-document interaction and paint heuristics from embedded image URI length
-- [ ] #580 - Do not force full image restoration for unchanged punctuation in edited paragraphs
+No open entry. The 2026-11-22 check found every listed entry closed, and each one
+moved to the closed register.
 
 ## Scope separation
 
@@ -92,7 +72,10 @@ Keep these pairs distinct during implementation and review:
 - #414 operating-system image drop is not #395 Read-mode image incorporation. Both are now closed.
 - #415 source serializer is not #416 thumbnail filmstrip. Both are now closed.
 
-## Remaining order
+## Sequence of the closed cycle
+
+Every issue below is closed. The list records the order in which the work landed.
+It is not a backlog.
 
 1. **Native refresh:** #351 bounds native project IPC volume. #369 bounds metadata
    Worker deltas. #563 keeps disk and local recovery state consistent.
@@ -188,17 +171,55 @@ Keep these pairs distinct during implementation and review:
 - [x] #397 - Do not report durable linked-save success when revision metadata cannot persist (2026-11-10)
 - [x] #415 - Avoid whole-deck clone, validation and serialization for one-element edits (2026-11-10)
 
+### Closed before the 2026-11-22 check
+
+The 2026-11-22 check found these 27 active entries closed. The docs-site campaign
+delivered #557, #564 and #566 in the `campaign/docs-site` pull request, so they
+have no separate register entry.
+
+- [x] #351 - Use metadata-first native project refresh and scoped IPC instead of large snapshots (2026-11-11)
+- [x] #369 - Transmit metadata Worker deltas and retain per-file bounded baselines (2026-11-18)
+- [x] #383 - Offload large initial and switch statistics, and bound selectionchange text copying (2026-11-11)
+- [x] #552 - Investigate the Source typing p95 spike that blocks Desktop validation (2026-11-11)
+- [x] #553 - Gate large-note multi-paragraph visibility and persistence in WebKit (2026-11-11)
+- [x] #554 - Index presentation connector endpoints once per slide render (2026-11-11)
+- [x] #555 - Enforce the folder manifest size limit before reading and parsing (2026-11-11)
+- [x] #556 - Make service-worker registration retries and update polling idempotent (2026-11-11)
+- [x] #558 - Account for typed binary payloads and enforce size limits on every mutation (2026-11-11)
+- [x] #559 - Retain the blob URL until the browser has begun a download in WebKit (2026-11-11)
+- [x] #560 - Exclude ignored trees before path validation and capacity checks (2026-11-11)
+- [x] #561 - Prevent file-boundary spoofing in serialized AI context (2026-11-11)
+- [x] #562 - Preserve text and code MIME metadata across portable ZIP round trips (2026-11-11)
+- [x] #563 - Reconcile disk deletions during Refresh without discarding local recovery copies (2026-11-11)
+- [x] #565 - Avoid quadratic scope scans and full-file encoding beyond the token budget (2026-11-11)
+- [x] #569 - Reproduce and attribute typing stalls caused by large embedded images (2026-11-18)
+- [x] #570 - Render bounded resolution-adaptive previews instead of full-size bitmaps (2026-11-11)
+- [x] #571 - Avoid rereading and four-pass hashing cached image assets on editor resolution (2026-11-11)
+- [x] #572 - Avoid reassembling large embedded image data URIs on every text publish (2026-11-18)
+- [x] #573 - Bound image resize work and fix offscreen image geometry (2026-11-11)
+- [x] #574 - Remove synchronous full-document scans from IndexedDB draft projection hooks (2026-11-18)
+- [x] #575 - Skip redundant image proxy resolution and fence stale NodeView results (2026-11-11)
+- [x] #576 - Stop transferring unchanged Base64 image payloads on every document-stat update (2026-11-11)
+- [x] #577 - Preserve scoped image and source restoration on paragraph splits and adjacent edits (2026-11-11)
+- [x] #578 - Set stable image fetch policies before src to avoid reload and decode churn (2026-11-11)
+- [x] #579 - Decouple large-document interaction and paint heuristics from embedded image URI length (2026-11-11)
+- [x] #580 - Do not force full image restoration for unchanged punctuation in edited paragraphs (2026-11-11)
+
 ## Audit provenance and interpretation
 
-The source was read at `babfff5b`. Previous audits used `0cb455e3`, `30a69269`,
-`4318db42` and `b8cfbf1d`. This register was checked against the GitHub issue state
-on 2026-11-11 at `babfff5b`.
+The source was read at `b6014ef`. Previous audits used `babfff5b`, `0cb455e3`,
+`30a69269`, `4318db42` and `b8cfbf1d`. This register was checked against the GitHub
+issue state on 2026-11-22 at `b6014ef`.
+
+The 2026-11-22 check found all 27 active entries closed. It moved each one to the
+closed register and found no open implementation issue. Previous entries kept
+their evidence and their close dates.
 
 The 2026-11-10 check found 21 issues in the audit active list that were closed,
-and 4 issues in the audit closed list that were open. This check corrects both
-lists again. The 11 issues that closed after the previous check moved to the
-closed register. #369 and #383 returned to the active register because GitHub
-reports them open. #327 and #345 are closed and keep their completed evidence.
+and 4 issues in the audit closed list that were open. That check corrected both
+lists. The 11 issues that closed after the previous check moved to the closed
+register. #369 and #383 returned to the active register because GitHub reported
+them open. #327 and #345 are closed and keep their completed evidence.
 
 The platform counts are static audit records. They are not runtime benchmark
 results. Each child issue holds the measured evidence for its own platform.
