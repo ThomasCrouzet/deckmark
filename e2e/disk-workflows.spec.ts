@@ -51,6 +51,13 @@ async function mockSavePicker(page: Page, name: string) {
 	}, name);
 }
 
+/** Save As moved from the toolbar to the labeled Actions menu (issue #721). */
+async function saveAsFromActions(page: Page) {
+	await page.locator('[data-actions-trigger]').click();
+	const actions = page.getByRole('dialog', { name: 'Actions', exact: true });
+	await actions.getByRole('button', { name: 'Enregistrer sous', exact: true }).click();
+}
+
 async function importLinkedFile(page: Page, name: string, content: string) {
 	await writeOpfsFile(page, name, content);
 	await mockOpenPicker(page, name);
@@ -98,7 +105,7 @@ test('unsupported File System Access API falls back to a download copy', async (
 	await writeSourceContent(page, '# Local fallback');
 
 	const downloadEvent = page.waitForEvent('download');
-	await page.getByTestId('save-as').click();
+	await saveAsFromActions(page);
 	const download = await downloadEvent;
 	const path = info.outputPath('fallback-copy.md');
 	await download.saveAs(path);
@@ -265,7 +272,7 @@ test('Save As writes a new file and keeps the linked source unchanged', async ({
 	await writeSourceContent(page, '# Source\n\nLocal change');
 
 	await mockSavePicker(page, 'copy.md');
-	await page.getByTestId('save-as').click();
+	await saveAsFromActions(page);
 	await expect.poll(() => readOpfsFile(page, 'copy.md')).toBe('# Source\n\nLocal change');
 	expect(await readOpfsFile(page, 'source.md')).toBe('# Source\n\nOriginal');
 	await expect(toolbarStatus(page)).toHaveAttribute('data-origin', 'disk');
@@ -279,7 +286,7 @@ test('Save As writes a new file and keeps the linked source unchanged', async ({
 			value: async () => handle
 		});
 	});
-	await page.getByTestId('save-as').click();
+	await saveAsFromActions(page);
 	await expect(page.getByText(/ne peut pas choisir la source liée/)).toBeVisible();
 	expect(await readOpfsFile(page, 'source.md')).toBe('# Source\n\nOriginal');
 
@@ -355,7 +362,7 @@ test('cancelled native dialog keeps the original and the draft intact', async ({
 		});
 	});
 
-	await page.getByTestId('save-as').click();
+	await saveAsFromActions(page);
 	await expect(page.getByText(/Enregistrer sous pour « cancel.md » annulé/)).toBeVisible();
 	expect(await readOpfsFile(page, 'cancel.md')).toBe('# Cancel\n\nOriginal');
 	await expect(page.locator('.cm-content')).toContainText('Draft stays');

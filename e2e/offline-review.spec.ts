@@ -65,7 +65,9 @@ const test = base.extend<{
 			}
 		}
 		await visit(buildDirectory);
-		expect(elkPath, 'The production fixture must contain the ELK module').not.toBe('');
+		// The ELK layout engine was removed from the build (issue #757): the
+		// sanitizer pins Mermaid to dagre, so no ELK chunk may ship at all.
+		expect(elkPath, 'The production fixture must not contain the ELK module').toBe('');
 		await info.attach('build-identity.json', {
 			body: JSON.stringify({ buildDirectory, hashes, elkPath }, null, 2),
 			contentType: 'application/json'
@@ -288,7 +290,7 @@ for (const fixture of elkFixtures)
 			expect(requested).toEqual(baseline);
 			expect(
 				evidence.events.some(
-					(event) => event.event === 'request' && String(event.url).endsWith(originServer.elkPath)
+					(event) => event.event === 'request' && String(event.url).includes('elk')
 				)
 			).toBe(false);
 		} finally {
@@ -305,7 +307,7 @@ for (const fixture of elkFixtures)
 		expect(offline).toEqual(baseline);
 		expect(
 			evidence.events.some(
-				(event) => event.event === 'request' && String(event.url).endsWith(originServer.elkPath)
+				(event) => event.event === 'request' && String(event.url).includes('elk')
 			)
 		).toBe(false);
 	});

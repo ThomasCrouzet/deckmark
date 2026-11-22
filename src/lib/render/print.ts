@@ -312,6 +312,10 @@ export async function printInIframe(
 	iframe.setAttribute('data-mdsh-print', '');
 	iframe.setAttribute('aria-hidden', 'true');
 	iframe.setAttribute('tabindex', '-1');
+	// The print document runs no script. Keep the frame same-origin so this
+	// module can write the document, and permit the print dialog. Script
+	// execution stays blocked.
+	iframe.setAttribute('sandbox', 'allow-same-origin allow-modals');
 	iframe.title = t('print.iframeTitle');
 	// Visually hidden but rendered - required for print() to work.
 	iframe.style.cssText =

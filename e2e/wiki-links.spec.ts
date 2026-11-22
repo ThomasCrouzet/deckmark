@@ -6,6 +6,19 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		await resetAppState(page);
 	});
 
+	test('loads the editor without the virtual cursor mark warning', async ({ page }) => {
+		const warnings: string[] = [];
+		page.on('console', (message) => {
+			if (message.type() === 'warning') warnings.push(message.text());
+		});
+		await page.reload();
+		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+		await seedFiles(page, [{ name: 'cursor-warning', content: '# Cursor\n\nText.\n' }]);
+		await page.locator('button[data-mode="wysiwyg"]').click();
+		await expect(page.locator('.ProseMirror')).toBeVisible();
+		expect(warnings.filter((text) => text.includes('Virtual cursor'))).toEqual([]);
+	});
+
 	test('keeps wiki links and literals after visual edit', async ({ page }, testInfo) => {
 		const frontmatter = "---\nnote: '[[Metadata|literal YAML]]'\n---\n";
 		const source = [
@@ -65,7 +78,7 @@ test.describe('Wiki-links navigation + backlinks', () => {
 
 		// Wait for the 400 ms save delay before the reload. A reload during the
 		// delay can keep the previous draft and hide a real persistence failure.
-		await expect(page.locator('#app-statusbar')).toContainText('Brouillons locaux : enregistré');
+		await expect(page.locator('#app-statusbar')).toContainText('Brouillon local : enregistré');
 		await page.reload();
 		await expect(preview).toContainText('Saved from the visual editor.');
 		await verifyReading();
@@ -78,7 +91,7 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		for (const target of ['Ideas', 'Diagrams']) {
 			await preview.locator(`a[data-mdsh-wiki="${target}"]`).click();
 			await expect(nameInput).toHaveValue(target);
-			const backlinks = page.locator('aside [aria-label="Backlinks"]');
+			const backlinks = page.locator('aside [aria-label="Rétroliens"]');
 			await expect(backlinks).toContainText('Field notes');
 			await backlinks.getByRole('button', { name: /Field notes/ }).click();
 			await verifyReading();
@@ -189,7 +202,7 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		await expect(attribute.locator('a[data-mdsh-wiki="Real"]')).toBeVisible();
 
 		await page.locator('aside button[aria-label^="old"]').first().click();
-		const backlinks = page.locator('aside [aria-label="Backlinks"]');
+		const backlinks = page.locator('aside [aria-label="Rétroliens"]');
 		await expect(backlinks.getByText('raw-html')).toHaveCount(0);
 
 		await page.locator('input[aria-label^="Nom du fichier"]').fill('renamed');
@@ -215,7 +228,7 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		]);
 		// Activate "cible" to show its backlinks in the sidebar.
 		await page.locator('aside button[aria-label^="cible"]').first().click();
-		const backlinksSection = page.locator('aside [aria-label="Backlinks"]');
+		const backlinksSection = page.locator('aside [aria-label="Rétroliens"]');
 		await expect(backlinksSection).toBeVisible({ timeout: 5000 });
 		await expect(backlinksSection.getByText('ref-a')).toBeVisible();
 		await expect(backlinksSection.getByText('ref-b')).toBeVisible();

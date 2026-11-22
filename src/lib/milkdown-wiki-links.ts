@@ -108,8 +108,10 @@ const wikiLinkRemark = $remark(
 		}
 );
 
+// Keep the mark inclusive because the virtual cursor extension warns about
+// non-inclusive marks. The input rule applies the mark to the completed link
+// text only.
 const wikiLinkSchema = $markSchema('mdshWikiLink', () => ({
-	inclusive: false,
 	parseDOM: [{ tag: 'span[data-mdsh-wiki-link]' }],
 	toDOM: () => ['span', { 'data-mdsh-wiki-link': '' }, 0],
 	parseMarkdown: {

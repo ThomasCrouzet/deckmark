@@ -38,6 +38,9 @@
 	let output = $state('');
 	let error = $state('');
 	let streaming = $state(false);
+	// §735 - One status region announces the start and the end of a reply. The
+	// streamed fragments themselves are not announced.
+	let streamAnnouncement = $state('');
 	let selectionText = $state('');
 	let controller: AbortController | null = null;
 	let lastPrompt = $state('');
@@ -328,6 +331,7 @@
 		appliedBefore = [];
 		appliedAfter = [];
 		streaming = true;
+		streamAnnouncement = t('ai.streamStarted');
 		lastPrompt = text;
 		controller = new AbortController();
 		try {
@@ -459,7 +463,9 @@
 				output += t('ai.stopped');
 			else error = aiErrorMessage(failure);
 		} finally {
+			const started = streaming;
 			streaming = false;
+			if (started) streamAnnouncement = t('ai.streamFinished');
 			controller = null;
 		}
 	}
@@ -529,6 +535,10 @@
 					<X size={16} />
 				</button>
 			</header>
+
+			<span class="sr-only" role="status" aria-live="polite" data-testid="ai-stream-status"
+				>{streamAnnouncement}</span
+			>
 
 			<div class="ai-body">
 				<section aria-labelledby="ai-context-title">
@@ -649,7 +659,7 @@
 				{#if output}
 					<section aria-labelledby="ai-output-title">
 						<h3 id="ai-output-title">{t('ai.reply')}</h3>
-						<pre class="ai-output" data-testid="ai-output" aria-live="polite">{output}</pre>
+						<pre class="ai-output" data-testid="ai-output">{output}</pre>
 					</section>
 				{/if}
 				{#if proposal && patchPlan}

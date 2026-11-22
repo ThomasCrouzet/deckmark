@@ -276,6 +276,36 @@ test('reports premature EOF instead of partial success', async ({ page }, info: 
 	});
 });
 
+test('announces the start and the end of a streamed reply', async ({ page }, info: TestInfo) => {
+	await configureMockAi(page, { delay: 800 });
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, 'Streaming announcement.');
+	await openAiPanel(page);
+	const status = page.getByTestId('ai-stream-status');
+	await expect(status).toHaveAttribute('role', 'status');
+	await page.getByTestId('ai-action-explain').click();
+	// The suite runs with the French interface.
+	await expect(status).toHaveText('Réponse en cours.');
+	await expect(status).toHaveText('Réponse terminée.');
+	await expect(page.getByTestId('ai-output')).toContainText('First chunk. Second chunk.');
+	// The streamed fragments are not a live region. Only the status announces.
+	await expect(page.getByTestId('ai-output')).not.toHaveAttribute('aria-live', /.+/);
+	const liveRegions = await page
+		.getByTestId('ai-panel')
+		.locator('[aria-live], [role="status"]')
+		.evaluateAll((elements) => elements.map((element) => element.textContent?.trim() ?? ''));
+	expect(liveRegions).toHaveLength(1);
+	expect(liveRegions[0]).toBe('Réponse terminée.');
+	await info.attach('ai-stream-announcement.json', {
+		body: JSON.stringify({
+			announcements: ['Réponse en cours.', 'Réponse terminée.'],
+			liveRegions
+		}),
+		contentType: 'application/json'
+	});
+});
+
 test('fits a narrow web viewport', async ({ page }) => {
 	await configureMockAi(page);
 	await resetAppState(page);

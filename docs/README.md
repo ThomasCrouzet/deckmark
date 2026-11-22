@@ -10,6 +10,7 @@
 - [Presentation editor](presentation-editor.md): build, present, and export a slide deck.
 - [Presentation format](presentation-format.md): the Markdown file contract and failure limits.
 - [Command-line interface](CLI.md): local check, search, render, export, and inspect commands.
+- [Installed CLI and MCP package](CLI-MCP-INSTALLATION.md): install the CLI and local MCP server and handle usage errors.
 - [Local MCP server](MCP.md): client setup, approved roots, and read-only tools.
 - [Support](../SUPPORT.md): report a problem or request help.
 - [Security policy](../SECURITY.md): privacy boundaries and private reports.
@@ -19,6 +20,7 @@
 - [Contribution rules](../CONTRIBUTING.md): setup, code style, and review requirements.
 - [Development guide](DEVELOPMENT.md): module map and development procedures.
 - [Architecture](../ARCHITECTURE.md): design decisions and storage guarantees.
+- [Continuous integration](CI.md): required checks, scheduling, and tier protocol.
 - [Testing](TESTING.md): commands, failure risks, and repeatable evidence.
 - [Performance](PERFORMANCE.md): measured desktop bottlenecks and results.
 - [Performance roadmap](ROADMAP.md): active and closed performance and integrity register.

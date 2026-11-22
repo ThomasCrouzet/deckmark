@@ -128,6 +128,11 @@ test.describe('PWA - manifest', () => {
 	});
 });
 
+test('keeps the descriptive document title after hydration', async ({ page }, testInfo) => {
+	await page.goto(activeAppPath(testInfo));
+	await expect(page).toHaveTitle('DeckMark editor - local-first offline Markdown workspace');
+});
+
 /**
  * §A1.5 - Offline startup regression test from the 2026-06-16 audit.
  * The precache must contain the complete app shell: the SPA fallback document,

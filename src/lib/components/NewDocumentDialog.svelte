@@ -146,6 +146,15 @@
 		templatesStore.choices.filter((tpl) => !tpl.builtin && matches(tpl, query))
 	);
 	const empty = $derived(ready && builtin.length === 0 && saved.length === 0);
+	// Keep the dialog inside a 768 px-high viewport. The three most common
+	// starters stay visible; the expander reveals the rest. A search always
+	// shows every match, so nothing becomes unreachable.
+	const FEATURED_TEMPLATES = 3;
+	let expanded = $state(false);
+	const searching = $derived(query.trim().length > 0);
+	const showAll = $derived(expanded || searching);
+	const visibleBuiltin = $derived(showAll ? builtin : builtin.slice(0, FEATURED_TEMPLATES));
+	const hiddenTemplates = $derived(Math.max(0, builtin.length - FEATURED_TEMPLATES));
 
 	async function run(action: () => Promise<void>) {
 		if (busy) return;
@@ -160,7 +169,7 @@
 
 <div class="backdrop bg-black/60 backdrop-blur-sm">
 	<div
-		class="dialog"
+		class="dialog mdsh-dialog-panel"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="new-document-title"
@@ -285,9 +294,34 @@
 						data-testid="template-search"
 					/>
 				</label>
-				{#each [{ label: t('templates.builtinGroup'), items: builtin }, { label: t('templates.userGroup'), items: saved }] as group (group.label)}
+				{#each [{ key: 'builtin', label: t('templates.builtinGroup'), items: visibleBuiltin }, { key: 'saved', label: t('templates.userGroup'), items: saved }] as group (group.key)}
 					{#if group.items.length > 0}
-						<h4>{group.label}</h4>
+						<div class="template-group-head">
+							<h4>{group.label}</h4>
+							{#if group.key === 'builtin' && hiddenTemplates > 0}
+								{#if !showAll}
+									<button
+										type="button"
+										class="template-expander"
+										aria-expanded={false}
+										data-testid="template-expander"
+										onclick={() => (expanded = true)}
+									>
+										{t('templates.showAll', { n: builtin.length })}
+									</button>
+								{:else if !searching}
+									<button
+										type="button"
+										class="template-expander"
+										aria-expanded={true}
+										data-testid="template-expander"
+										onclick={() => (expanded = false)}
+									>
+										{t('templates.showFewer')}
+									</button>
+								{/if}
+							{/if}
+						</div>
 						<div class="template-list">
 							{#each group.items as template (template.id)}
 								<button
@@ -336,11 +370,11 @@
 		max-height: calc(100dvh - 32px);
 		overflow: hidden;
 		padding: 24px;
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
+		border: var(--mdsh-dialog-border);
+		border-radius: var(--mdsh-dialog-radius);
 		background: var(--color-bg-1);
 		color: var(--color-fg);
-		box-shadow: var(--shadow-lg);
+		box-shadow: var(--mdsh-dialog-shadow);
 	}
 	h2 {
 		flex: none;
@@ -401,8 +435,33 @@
 	}
 	.template-list {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 8px;
+	}
+	.template-group-head {
+		display: flex;
+		min-height: 32px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+	.template-group-head h4 {
+		margin: 0;
+	}
+	.template-expander {
+		flex: none;
+		min-height: 28px;
+		padding: 2px 8px;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--color-fg-muted);
+		font-size: 11px;
+		text-align: center;
+	}
+	.template-expander:hover {
+		border-color: var(--color-accent);
+		color: var(--color-fg);
 	}
 	.template-list button {
 		min-width: 0;
@@ -513,8 +572,39 @@
 			grid-template-columns: minmax(0, 1fr);
 		}
 	}
+	@media (max-width: 640px) {
+		.template-list {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+	@media (max-width: 480px) {
+		.dialog {
+			padding: 16px;
+		}
+		/* The titles are self-explanatory. Dropping the descriptions keeps the
+		   dialog usable without scrolling on a phone. */
+		.cards {
+			gap: 8px;
+		}
+		.cards button {
+			gap: 8px;
+			padding: 10px;
+		}
+		.cards button span {
+			display: none;
+		}
+	}
+	@media (max-width: 360px) {
+		/* Below a phone width the two type columns no longer fit. */
+		.cards {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
 	@media (max-width: 260px) {
-		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels. */
+		/* 200 percent browser zoom on a 320 pixel screen leaves 160 CSS pixels.
+		   This block follows the phone block on purpose: a hidden description
+		   collapses to a zero-size box, so the zoom layout keeps the text laid
+		   out and clamps it instead. */
 		.cards,
 		.template-list {
 			grid-template-columns: minmax(0, 1fr);
@@ -533,19 +623,6 @@
 			line-clamp: 2;
 			font-size: 10px;
 			line-height: 1.15;
-		}
-	}
-	@media (max-width: 640px) {
-		.template-list {
-			grid-template-columns: minmax(0, 1fr);
-		}
-	}
-	@media (max-width: 480px) {
-		.cards {
-			grid-template-columns: minmax(0, 1fr);
-		}
-		.dialog {
-			padding: 16px;
 		}
 	}
 	@media (max-width: 240px) {

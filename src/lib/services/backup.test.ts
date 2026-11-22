@@ -389,7 +389,9 @@ describe('§2.8 - encrypted backup', () => {
 
 	it('rejects encrypted text restoration without a passphrase', async () => {
 		const env = await encryptString('{"format":"mdsh-backup","schemaVersion":1}', 'pw');
-		await expect(restoreFromText(JSON.stringify(env), 'replace')).rejects.toThrow(/passphrase/i);
+		await expect(restoreFromText(JSON.stringify(env), 'replace')).rejects.toThrow(
+			/phrase secrète requise/i
+		);
 	});
 });
 

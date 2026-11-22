@@ -1,6 +1,6 @@
 {
 	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-	"productName": "deckmark",
+	"productName": "DeckMark",
 	"version": "../package.json",
 	"identifier": "io.github.thomascrouzet.deckmark",
 	"build": {

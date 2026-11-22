@@ -35,6 +35,8 @@
 	);
 	let anchors = $state<Record<string, CommentAnchor>>({});
 	let anchorJob = 0;
+	// A close request that arrives during a durable write waits for the write.
+	let closeAfterSave = false;
 
 	$effect(() => {
 		if (!open) return;
@@ -112,6 +114,7 @@
 	$effect(() => {
 		if (!open) {
 			boundId = null;
+			closeAfterSave = false;
 			return;
 		}
 		const id = filesStore.activeId;
@@ -173,6 +176,7 @@
 			// Keep the unsaved text so the user can retry the durable write.
 			error = t('comments.saveFailed');
 			adding = false;
+			closeAfterSave = false;
 			return;
 		}
 		// The optional author preference cannot reject a saved comment.
@@ -185,6 +189,12 @@
 			error = t('comments.refreshFailed');
 		}
 		adding = false;
+		// An Escape during the write asked to close. The row is saved and the
+		// form is empty, so honor that request now.
+		if (closeAfterSave) {
+			closeAfterSave = false;
+			onClose();
+		}
 	}
 
 	async function setStatus(comment: CommentRow, status: CommentRow['status']) {
@@ -206,13 +216,24 @@
 	function anchorKey(comment: CommentRow): string {
 		return anchors[comment.id]?.state ?? 'detached';
 	}
+
+	// Escape closes an empty form only. A drafted body survives the key,
+	// because a close discards it when the file binds again. A body under an
+	// active save is not a draft, so the close request waits for the write
+	// instead of being lost. A composing Escape belongs to the input method.
+	function handleEscape(event: KeyboardEvent): void {
+		if (!open || event.key !== 'Escape') return;
+		if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+		event.preventDefault();
+		if (body.trim()) {
+			if (adding) closeAfterSave = true;
+			return;
+		}
+		onClose();
+	}
 </script>
 
-<svelte:window
-	onkeydown={(event) => {
-		if (open && event.key === 'Escape') onClose();
-	}}
-/>
+<svelte:window onkeydown={handleEscape} />
 
 {#if open}
 	<div class="comments-backdrop" use:visualViewportPanel={'.comments-panel'}>
@@ -223,9 +244,7 @@
 			aria-labelledby="comments-title"
 			tabindex="-1"
 			use:focusTrap
-			onkeydown={(event) => {
-				if (event.key === 'Escape') onClose();
-			}}
+			onkeydown={handleEscape}
 			data-testid="comments-panel"
 		>
 			<header>

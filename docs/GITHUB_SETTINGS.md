@@ -4,9 +4,9 @@ This file records settings that a maintainer must apply manually. Repository aut
 
 ## General
 
-- Description: `Local-first offline Markdown workspace for web and Desktop Beta with visual editing, reading, and slides`.
+- Description: `Local-first Markdown workspace for notes and slide decks, in your browser. Offline, no account, no telemetry.` (applied 2026-11-22).
 - Website: `https://www.deckmark.dev/`.
-- Topics: `markdown-editor`, `wysiwyg`, `local-first`, `offline-first`, `privacy`, `pwa`, `svelte`, `sveltekit`, `tauri`, `typescript`.
+- Topics: `client-side`, `editor`, `knowledge-base`, `local-first`, `markdown`, `mcp`, `milkdown`, `note-taking`, `offline`, `presentation`, `pwa`, `slides`, `svelte`, `sveltekit`, `tauri`, `wysiwyg` (applied 2026-11-22).
 - Enable Issues. Enable Discussions only if the maintainer wants another support channel.
 - Enable Private Vulnerability Reporting and verify the private advisory link in `SECURITY.md`.
 - Keep GitHub Pages source set to GitHub Actions.

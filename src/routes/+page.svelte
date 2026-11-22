@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { readPreference, writePreference } from '#lib/preferences.js';
 	import { browser } from '$app/env';
@@ -34,7 +34,7 @@
 	import { buildKeydownHandler } from '#lib/ui/shortcuts.svelte.js';
 	import { createUiPrefs } from '#lib/ui/prefs.svelte.js';
 	import { themeStore } from '#lib/ui/theme.svelte.js';
-	import { requestEditorFocus } from '#lib/ui/editor-focus.js';
+	import { requestEditorFocus, requestModeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { registerPwaUpdates } from '#lib/ui/pwa-update.js';
 	import { buildDropHandlers } from '#lib/ui/image-drop.svelte.js';
 	import { schedulePrefetch } from '#lib/ui/prefetch.svelte.js';
@@ -105,6 +105,19 @@
 	function openOutline() {
 		openDocumentTool('outline');
 	}
+	// Read has no caret. The reading scroller mounts through a lazy import, so
+	// the request waits for the mode and the element, then gives keyboard
+	// scrolling a target.
+	function focusReadSurface(attempt = 0): void {
+		if (mode === 'read') {
+			const surface = document.querySelector<HTMLElement>('#main .mdsh-read');
+			if (surface) {
+				surface.focus({ preventScroll: true });
+				return;
+			}
+		}
+		if (attempt < 30) requestAnimationFrame(() => focusReadSurface(attempt + 1));
+	}
 	async function requestMode(nextMode: EditMode): Promise<void> {
 		if (kind !== 'note' && kind !== 'code') return;
 		if (kind === 'code') {
@@ -123,12 +136,24 @@
 			filesStore.allowDocumentRendering(activeId);
 		}
 		filesStore.flushDocumentEdits();
+		// The editor remounts in the next mode. Carry the caret request across
+		// that asynchronous mount instead of leaving focus on the toolbar.
+		if (nextMode !== mode && activeId) {
+			if (nextMode === 'read') focusReadSurface();
+			else requestModeEditorFocus(activeId, nextMode);
+		}
 		mode = nextMode;
 	}
+	// §734 - A mode forced by the render constraint must not replace the saved
+	// preference. Only an explicit user choice reaches `mdsh:mode`. This marker
+	// is not reactive: it names the one transition the persistence effect skips.
+	let forcedMode: EditMode | null = null;
 	$effect(() => {
 		const activeId = filesStore.activeId;
-		if (kind === 'note' && activeId && filesStore.requiresRenderConfirmation(activeId))
+		if (kind === 'note' && activeId && filesStore.requiresRenderConfirmation(activeId)) {
+			if (untrack(() => mode) !== 'source') forcedMode = 'source';
 			mode = 'source';
+		}
 	});
 	// §B1.10 / B2.2 - Text announced to SRs on each mode switch + one-off
 	// contextual announcement (e.g. "⌘F switched to source mode for search").
@@ -373,6 +398,13 @@
 	$effect(() => {
 		if (!hydrated) return;
 		writePreference('mdsh:sidebar', sidebarOpen ? 'open' : 'closed');
+		// §734 - The render constraint may force Source for a large document. A
+		// forced transition is not a preference and must not survive a reload.
+		if (forcedMode === mode) {
+			forcedMode = null;
+			return;
+		}
+		forcedMode = null;
 		writePreference('mdsh:mode', mode);
 	});
 

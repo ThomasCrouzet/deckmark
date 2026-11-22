@@ -1,6 +1,12 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import {
+	createFirstFile,
+	openPalette,
+	resetAppState,
+	runAction,
+	writeSourceContent
+} from './helpers';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -168,7 +174,7 @@ test('split view and history diff support keyboard access and axe checks', async
 	await attachEvidence(testInfo, page, 'split-diff-accessibility');
 });
 
-test('disk conflict traps focus, passes axe, and restores the save trigger', async ({
+test('disk conflict traps focus, passes axe, and restores the Actions trigger', async ({
 	page
 }, testInfo) => {
 	await page.evaluate(async () => {
@@ -195,8 +201,7 @@ test('disk conflict traps focus, passes axe, and restores the save trigger', asy
 		await writer.close();
 	});
 
-	const save = page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true });
-	await save.click();
+	await runAction(page, 'save-disk');
 	const dialog = page.getByRole('dialog', {
 		name: 'Résoudre le conflit disque pour accessible-conflict.md'
 	});
@@ -207,7 +212,7 @@ test('disk conflict traps focus, passes axe, and restores the save trigger', asy
 	await expect(dialog.getByRole('button', { name: 'Écraser le disque' })).toBeFocused();
 	await page.keyboard.press('Escape');
 	await expect(dialog).toHaveCount(0);
-	await expect(save).toBeFocused();
+	await expect(page.locator('[data-actions-trigger]')).toBeFocused();
 
 	await attachEvidence(testInfo, page, 'disk-conflict-accessibility');
 });

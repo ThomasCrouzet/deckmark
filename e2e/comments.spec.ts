@@ -289,6 +289,33 @@ test('keeps a saved comment when the author preference is blocked', async ({
 	});
 });
 
+test('closes on an Escape that arrives while the comment save is in flight', async ({
+	page
+}, info: TestInfo) => {
+	await resetAppState(page);
+	await createFirstFile(page);
+	await writeSourceContent(page, 'Alpha unique. Beta tail.');
+	await openComments(page);
+	await page.getByTestId('comment-quote').fill('Alpha unique.');
+	await page.getByTestId('comment-body').fill('In-flight close.');
+	await page.getByTestId('comment-author').fill('Reviewer');
+
+	// Click and press Escape in one task. The durable write is still pending,
+	// so the form still holds the body when the key arrives. A close that is
+	// dropped here leaves the panel over an inert shell and blocks the editor.
+	await page.evaluate(() => {
+		document.querySelector<HTMLElement>('[data-testid="comment-add"]')?.click();
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+	});
+	await expect(page.getByTestId('comments-panel')).toHaveCount(0);
+	await expect(page.locator('.mdsh-shell[inert]')).toHaveCount(0);
+	expect(await storedComments(page)).toHaveLength(1);
+	await info.attach('comments-escape-during-save.json', {
+		body: JSON.stringify({ panelClosed: true, shellInert: false, rows: 1 }, null, 2),
+		contentType: 'application/json'
+	});
+});
+
 test('reports moved and detached anchors without guessing', async ({ page }, info: TestInfo) => {
 	await resetAppState(page);
 	await createFirstFile(page);
@@ -296,11 +323,15 @@ test('reports moved and detached anchors without guessing', async ({ page }, inf
 	await openComments(page);
 	await addComment(page, 'Alpha unique.', 'Anchor test.');
 	await page.keyboard.press('Escape');
+	// The next write needs an interactive shell. Escape must have closed the
+	// panel, which is the only owner of `inert` on the shell here.
+	await expect(page.getByTestId('comments-panel')).toHaveCount(0);
 
 	await writeSourceContent(page, 'Intro. Alpha unique. Beta tail.');
 	await openComments(page);
 	await expect(page.getByTestId('comments-panel')).toContainText('ancre déplacée');
 	await page.keyboard.press('Escape');
+	await expect(page.getByTestId('comments-panel')).toHaveCount(0);
 
 	await writeSourceContent(page, 'Alpha removed. Beta tail.');
 	await openComments(page);

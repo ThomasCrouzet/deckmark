@@ -563,6 +563,41 @@ returns a fresh one.
 No editor rewrite was needed. Typing stays on the editor thread, and no work
 moved to Rust.
 
+## Lazy French dictionary and KaTeX chunks
+
+Issue [#730](https://github.com/ThomasCrouzet/deckmark/issues/730) removes the
+French dictionary and the KaTeX renderer from the startup and editor closures.
+
+- `src/lib/i18n/i18n.svelte.ts` keeps English as the only static dictionary.
+  A French locale loads `messages/fr` with a dynamic import. `t()` falls back to
+  English until that chunk arrives and then re-renders. The French chunk is part
+  of the app build and the service worker precache, so French still works
+  offline with no third-party request.
+- `patches/milkdown/deferred-katex.patch` replaces the top-level
+  `import katex from 'katex'` in `@milkdown/crepe` with a loader that imports
+  KaTeX when a formula first renders. The inline math node and the LaTeX code
+  block preview call the loader. `npm run patch:milkdown` applies and verifies
+  the patch during install.
+- `vite.config.ts` merges the two 22-byte SvelteKit facades for app state and
+  paths into the startup state resource. The precache entry count stays below
+  its reviewed budget after the new French chunk.
+
+Measured with Node 26.13.1 on 2026-11-22, base commit `b6014ef`, one production
+build for each tree:
+
+| Closure | Before | After | Difference |
+| --- | ---: | ---: | ---: |
+| boot | 212,920 gzip bytes | 187,455 gzip bytes | -25,465 |
+| read | 266,798 gzip bytes | 243,534 gzip bytes | -23,264 |
+| source | 216,549 gzip bytes | 216,549 gzip bytes | 0 |
+| wysiwyg | 614,621 gzip bytes | 514,515 gzip bytes | -100,106 |
+| precache | 423 entries | 421 entries | -2 |
+
+Read mode keeps the KaTeX chunk because it renders formulas. The editor closure
+no longer imports that chunk statically. These numbers are directional evidence
+from a local Node 26 build. CI under its pinned Node 22 toolchain is the binding
+gate.
+
 ## Checks after the change
 
 ```text
@@ -600,7 +635,7 @@ and the reviewed `scripts/benchmark-editor-typing.mjs` harness (SHA-256
 `0a5e1b4a917014da135fa9c980fbebbfeac5e15a45a1e9ac16ca72062d46e57f`).
 
 ```sh
-node scripts/benchmark-editor-typing.mjs --browser chromium --runs 3   --sizes 240000,1000000,5000000 --modes visual --libraries both   --output /srv/dev/cache/tmp/opencode/bench-324.json
+node scripts/benchmark-editor-typing.mjs --browser chromium --runs 3   --sizes 240000,1000000,5000000 --modes visual --libraries both   --output ${TMPDIR:-/tmp}/bench/bench-324.json
 ```
 
 | Source bytes | DOM nodes | Input frame p50 / p95 (ms) | Sync p50 / p95 (ms) |
@@ -929,7 +964,7 @@ on the 600 KB note. The source cases measured 2.7 to 2.9 ms p95 and no publish
 block. The reviewed command is:
 
 ```sh
-node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output /srv/dev/cache/tmp/opencode/w7/web-chromium.json
+node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output ${TMPDIR:-/tmp}/bench/w7/web-chromium.json
 ```
 
 That run failed on `edit200kTablePublishBlock`, `edit600kTablePublishBlock` and
@@ -954,8 +989,8 @@ limits. First derive a private budget file that omits the navigation metrics.
 Then run the harness with `--skip-navigation`:
 
 ```sh
-node -e "const b=require('./scripts/benchmark-budgets.json'); const m=b.platforms['web-chromium'].metrics; for (const k of ['coldStart','cachedRestart','firstContentfulPaint','domInteractive','domContentLoaded','libraryReload']) delete m[k]; process.stdout.write(JSON.stringify(b,null,'\t')+'\n')" > /srv/dev/cache/tmp/opencode/bench-budgets-typing.json
-node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --skip-navigation --enforce-budgets --budgets /srv/dev/cache/tmp/opencode/bench-budgets-typing.json --output /srv/dev/cache/tmp/opencode/bench-typing.json
+node -e "const b=require('./scripts/benchmark-budgets.json'); const m=b.platforms['web-chromium'].metrics; for (const k of ['coldStart','cachedRestart','firstContentfulPaint','domInteractive','domContentLoaded','libraryReload']) delete m[k]; process.stdout.write(JSON.stringify(b,null,'\t')+'\n')" > ${TMPDIR:-/tmp}/bench/bench-budgets-typing.json
+node scripts/benchmark-local.mjs --browser chromium --runs 5 --build-mode production-static --skip-navigation --enforce-budgets --budgets ${TMPDIR:-/tmp}/bench/bench-budgets-typing.json --output ${TMPDIR:-/tmp}/bench/bench-typing.json
 ```
 
 `--skip-navigation` omits cold start, cached restart, first contentful paint, DOM
@@ -1008,9 +1043,9 @@ Reproduce the WebKit workload on Linux with a production static build:
 BASE_PATH='' npm run build
 node scripts/benchmark-local.mjs --browser webkit --runs 20 \
   --build-mode production-static \
-  --output /srv/dev/cache/tmp/opencode/webkit-20.json
+  --output ${TMPDIR:-/tmp}/bench/webkit-20.json
 node scripts/benchmark-gate.mjs \
-  --report /srv/dev/cache/tmp/opencode/webkit-20.json \
+  --report ${TMPDIR:-/tmp}/bench/webkit-20.json \
   --budgets scripts/benchmark-budgets.json
 ```
 
@@ -1194,7 +1229,7 @@ Verification:
 - `npx playwright test e2e/project-explorer.spec.ts --project=chromium`: 7 passed.
 - The Chromium production benchmark stays inside every budget, including
   `documentSwitch` and `largeDocumentOpen`.
-- Raw benchmark evidence: `/tmp/opencode/bench-after-switch.json` from source
+- Raw benchmark evidence: `<evidence-dir>/bench-after-switch.json` from source
   revision in this branch, 5 runs, production static build.
 
 The change does not alter save durability, per-file undo, source bytes, focus or

@@ -198,7 +198,7 @@ test('large draft checkpoints read the newest history key, not its body, while t
 	});
 	await page.reload();
 	await expect(page.locator('.cm-content')).toBeVisible({ timeout: 30_000 });
-	await expect(page.locator('#app-statusbar')).toContainText('Brouillons locaux : enregistré', {
+	await expect(page.locator('#app-statusbar')).toContainText('Brouillon local : enregistré', {
 		timeout: 60_000
 	});
 
@@ -238,7 +238,7 @@ test('an eligible large draft checkpoint reads and stores the exact draft', asyn
 	});
 	await page.reload();
 	await expect(page.locator('.cm-content')).toBeVisible({ timeout: 30_000 });
-	await expect(page.locator('#app-statusbar')).toContainText('Brouillons locaux : enregistré', {
+	await expect(page.locator('#app-statusbar')).toContainText('Brouillon local : enregistré', {
 		timeout: 60_000
 	});
 

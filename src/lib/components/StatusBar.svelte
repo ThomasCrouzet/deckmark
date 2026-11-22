@@ -5,6 +5,7 @@
 	import { reportError } from '#lib/report.js';
 	import { t } from '#lib/i18n/index.js';
 	import { onMount } from 'svelte';
+	import { readPreference, writePreference } from '#lib/preferences.js';
 	import {
 		formatSaveAge,
 		reportPersistenceError,
@@ -16,8 +17,13 @@
 	let { kind = 'note', onOpenSettings }: { kind?: DocumentKind; onOpenSettings?: () => void } =
 		$props();
 	let backupDue = $state(false);
+	// A dismissed reminder stays hidden across reloads. The backup-reminder
+	// timestamp still sets the 7-day window; this key only records the explicit
+	// dismissal of the banner.
+	const REMINDER_HIDDEN_KEY = 'mdsh:ui:backup-reminder-hidden';
 	function dismissReminder() {
 		recordBackupReminderShown();
+		writePreference(REMINDER_HIDDEN_KEY, '1');
 		backupDue = false;
 	}
 	async function retrySave() {
@@ -45,7 +51,13 @@
 	onMount(() => {
 		// The reminder depends only on two local timestamps. A full health read
 		// would add an asset-index cursor and a storage estimate for no benefit.
-		const syncBackupReminder = () => (backupDue = isBackupReminderDueNow());
+		const syncBackupReminder = () => {
+			const due = isBackupReminderDueNow();
+			// A completed backup clears the explicit dismissal, so the next
+			// overdue window can show the banner again.
+			if (!due) writePreference(REMINDER_HIDDEN_KEY, null);
+			backupDue = due && readPreference(REMINDER_HIDDEN_KEY) !== '1';
+		};
 		syncBackupReminder();
 		const stopBackupReminder = subscribeBackupReminder(syncBackupReminder);
 		const id = setInterval(() => (now = Date.now()), 10_000);
@@ -235,11 +247,12 @@
 		runtime = null;
 	});
 	let saveLabel = $derived.by(() => {
-		if (!filesStore.active) return '';
-		// Restored drafts are durable before this session records a save time.
-		return filesStore.lastSavedAt === 0
-			? t('stats.saved')
-			: formatSaveAge(filesStore.lastSavedAt, now);
+		const active = filesStore.active;
+		if (!active) return '';
+		const savedAt = filesStore.savedAtFor(active.id);
+		// §731 - Each document shows its own write time. A restored draft is
+		// durable before this session records a save for it.
+		return savedAt === 0 ? t('stats.saved') : formatSaveAge(savedAt, now);
 	});
 </script>
 
@@ -303,7 +316,7 @@
 			{:else if filesStore.hasPendingSave}
 				<span class="text-accent" aria-live="off">{t('statusBar.saving')}</span>
 			{:else}
-				<span>{t('statusBar.local', { state: saveLabel })}</span>
+				<span data-testid="save-state">{t('statusBar.local', { state: saveLabel })}</span>
 			{/if}
 		</div>
 	</footer>

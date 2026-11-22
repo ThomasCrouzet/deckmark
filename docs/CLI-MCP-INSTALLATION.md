@@ -404,13 +404,13 @@ Package version: 2.4.0
 Runtime: Node 26.13.0 linux-x64
 ```
 
-Absolute artifact paths:
+Artifact paths, relative to the worktree root:
 
 ```text
-Package:  /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/deckmark-cli-2.4.0-linux-x64
-Archive:  /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/deckmark-cli-2.4.0-linux-x64.tar.gz
-Manifest: /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/deckmark-cli-2.4.0-linux-x64/deckmark-build.json
-Evidence: /srv/dev/projects/.deckmark-worktrees/cli-packaging/test-results/272-cli-pack-evidence.json
+Package:  ./test-results/deckmark-cli-2.4.0-linux-x64
+Archive:  ./test-results/deckmark-cli-2.4.0-linux-x64.tar.gz
+Manifest: ./test-results/deckmark-cli-2.4.0-linux-x64/deckmark-build.json
+Evidence: ./test-results/272-cli-pack-evidence.json
 ```
 
 The archive SHA-256 is `packageArchiveSha256` in that evidence file. A rebuild

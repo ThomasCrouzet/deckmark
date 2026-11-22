@@ -9,6 +9,9 @@
 @import '../styles/prose-base.css';
 
 .mdsh-preview {
+	/* One content column shared with Edit (issue #743). `--editor-max-width` is
+	   set on <main>, so Read and Edit keep the same origin and measure. Source
+	   mode is the only mode with a line-number gutter. */
 	max-width: var(--editor-max-width, 820px);
 	margin: 0 auto;
 	padding: 3rem 5vw 15vh;
@@ -60,15 +63,61 @@
 	margin: 0.25em 0;
 }
 
-/* Style native GFM task checkboxes. */
+/* Style native GFM task checkboxes with the Relay tokens (issue #754).
+   The renderer emits a disabled native input. `appearance: none` replaces the
+   browser control with a bordered square; the checked state fills it with the
+   accent and draws the mark in the on-accent color. */
 .mdsh-preview li.task-list-item {
 	list-style: none;
 }
 
 .mdsh-preview li.task-list-item > input[type='checkbox'] {
-	margin: 0 0.4em 0 -1.3em;
-	vertical-align: middle;
+	appearance: none;
+	-webkit-appearance: none;
+	position: relative;
+	display: inline-block;
+	width: 1em;
+	height: 1em;
+	margin: 0 0.45em 0 -1.3em;
+	vertical-align: -0.12em;
+	border: 1px solid var(--color-border-strong);
+	border-radius: var(--radius-xs);
+	background: var(--color-bg-1);
 	accent-color: var(--color-accent);
+	/* The input keeps its disabled state for assistive technology, but it must
+	   not inherit the platform dimming. */
+	opacity: 1;
+}
+
+.mdsh-preview li.task-list-item > input[type='checkbox']:checked {
+	border-color: var(--color-accent);
+	background: var(--color-accent);
+}
+
+.mdsh-preview li.task-list-item > input[type='checkbox']:checked::after {
+	content: '';
+	position: absolute;
+	left: 0.27em;
+	top: 0.1em;
+	width: 0.42em;
+	height: 0.22em;
+	border-left: 2px solid var(--color-on-accent);
+	border-bottom: 2px solid var(--color-on-accent);
+	transform: rotate(-45deg);
+}
+
+@media (forced-colors: active) {
+	.mdsh-preview li.task-list-item > input[type='checkbox'] {
+		border-color: ButtonText;
+		background: Canvas;
+	}
+	.mdsh-preview li.task-list-item > input[type='checkbox']:checked {
+		background: Highlight;
+		border-color: Highlight;
+	}
+	.mdsh-preview li.task-list-item > input[type='checkbox']:checked::after {
+		border-color: HighlightText;
+	}
 }
 
 /* Preview code blocks. Milkdown uses CodeMirror. */

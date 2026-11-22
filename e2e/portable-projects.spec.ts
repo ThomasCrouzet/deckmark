@@ -218,7 +218,7 @@ offlineProjectTest(
 		await panel.getByRole('button', { name: 'Ouvrir notes/guide.md', exact: true }).click();
 		await expect(page.locator('#app-toolbar input')).toHaveValue('guide');
 		// Wait for the reopened tab state to reach storage before reloading.
-		await expect(page.locator('#app-statusbar')).toContainText('Brouillons locaux :');
+		await expect(page.locator('#app-statusbar')).toContainText('Brouillon local :');
 		await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 		await page.reload();
 		await expect

@@ -7,7 +7,7 @@ async function openNewDocument(page: Page) {
 	await page.locator('aside button[aria-label^="Nouveau fichier"]').first().click();
 	const dialog = page.getByRole('dialog', { name: 'Créer un document' });
 	await expect(dialog).toBeVisible();
-	await expect(page.getByTestId('create-template-builtin:readme')).toBeVisible();
+	await expect(page.getByTestId('create-note')).toBeVisible();
 	return dialog;
 }
 
@@ -23,6 +23,11 @@ test('offers built-in starters and creates them in Edit', async ({ page }, info:
 	await resetAppState(page);
 	await createFirstFile(page);
 	const dialog = await openNewDocument(page);
+	for (const id of ['meeting', 'journal', 'todo']) {
+		await expect(page.getByTestId(`create-template-builtin:${id}`)).toBeVisible();
+	}
+	await expect(page.getByTestId('create-template-builtin:readme')).toHaveCount(0);
+	await page.getByTestId('template-expander').click();
 	for (const id of ['readme', 'specification', 'incident', 'personal-notes']) {
 		await expect(page.getByTestId(`create-template-builtin:${id}`)).toBeVisible();
 	}
@@ -98,7 +103,7 @@ test('saves a presentation as a template and creates a new deck', async ({
 	await expect(page.getByText('Modèle enregistré.')).toBeVisible();
 
 	await page.locator('aside button[aria-label^="Nouveau fichier"]').first().click();
-	await expect(page.getByTestId('create-template-builtin:readme')).toBeVisible();
+	await expect(page.getByTestId('create-note')).toBeVisible();
 	await page.getByTestId('template-search').fill('Deck');
 	const template = page
 		.getByRole('dialog', { name: 'Créer un document' })

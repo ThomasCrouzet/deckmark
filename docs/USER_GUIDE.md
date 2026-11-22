@@ -14,6 +14,8 @@ domain is not available, open the
 [GitHub Pages fallback](https://thomascrouzet.github.io/deckmark/).
 Desktop installers are separate `desktop-v<version>` prereleases on
 [GitHub Releases](https://github.com/ThomasCrouzet/deckmark/releases).
+**Settings > About** shows the installed version. Include that version when you
+report a defect.
 
 ## Start writing
 
@@ -461,11 +463,17 @@ See the [edition matrix](EDITIONS.md) for the full comparison.
 
 Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the `desktop-v<version>` prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The workflow also creates a GitHub build provenance attestation.
 
+If macOS blocks the app, open **System Settings > Privacy & Security** and choose
+**Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/DeckMark.app`.
+On Windows, choose **More info > Run anyway** in the SmartScreen prompt. On Linux,
+install the `.deb` with your package manager, or mark the `.AppImage` executable.
+Compare every file with `SHA256SUMS` before you trust it.
+
 | Platform | Artifact | Requirement |
 | --- | --- | --- |
-| macOS | `deckmark_<version>_macOS_Apple-Silicon.dmg` | macOS 14 or later on an Apple Silicon Mac. |
-| Windows x64 | `deckmark_<version>_x64-setup.exe` | WebView2. The installer can add WebView2 if it is absent. |
-| Linux x64 | `deckmark_<version>_amd64.deb` or `deckmark_<version>_amd64.AppImage` | WebKitGTK 4.1 and the packaged native libraries. |
+| macOS | `DeckMark_<version>_macOS_Apple-Silicon.dmg` | macOS 14 or later on an Apple Silicon Mac. |
+| Windows x64 | `DeckMark_<version>_x64-setup.exe` | WebView2. The installer can add WebView2 if it is absent. |
+| Linux x64 | `DeckMark_<version>_amd64.deb` or `DeckMark_<version>_amd64.AppImage` | WebKitGTK 4.1 and the packaged native libraries. |
 
 The Beta release provides these four installers. Choose the NSIS installer on
 Windows. Choose the deb package or the portable AppImage on Linux. A managed MSI

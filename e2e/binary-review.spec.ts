@@ -144,8 +144,11 @@ async function exportLibrary(page: Page) {
 }
 
 for (const fixture of fixtures) {
-	for (const action of ['save-as', 'save-to-disk']) {
-		test(`${action} preserves ${fixture.name} bytes without a disk link`, async ({
+	for (const action of [
+		{ id: 'save-as', label: 'Enregistrer sous' },
+		{ id: 'save-to-disk', label: 'Enregistrer sur le disque' }
+	]) {
+		test(`${action.id} preserves ${fixture.name} bytes without a disk link`, async ({
 			page
 		}, info) => {
 			await importBinary(page, fixture);
@@ -158,9 +161,14 @@ for (const fixture of fixtures) {
 					}
 				});
 			});
-			const result = await downloadBytes(page, info, `${action}-${fixture.name}`, () =>
-				page.getByTestId(action).click()
-			);
+			const result = await downloadBytes(page, info, `${action.id}-${fixture.name}`, async () => {
+				// Both actions live in the labeled Actions menu (issue #721).
+				await page.locator('[data-actions-trigger]').click();
+				await page
+					.getByRole('dialog', { name: 'Actions', exact: true })
+					.getByRole('button', { name: action.label, exact: true })
+					.click();
+			});
 			expect(result.name).toBe(fixture.name);
 			expect(result.bytes.equals(fixture.buffer)).toBe(true);
 			await expect(

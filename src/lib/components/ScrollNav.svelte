@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ArrowDown, ArrowUp } from '@lucide/svelte';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import type { EditMode } from '#lib/types.js';
 	import { t } from '#lib/i18n/index.js';
 
@@ -14,6 +14,18 @@
 	let scrollable = $state(false);
 	let canUp = $state(false);
 	let canDown = $state(false);
+	// 0-100, drives the progress line of the compact control.
+	let progress = $state(0);
+	// A phone shows one contextual control instead of two side-by-side FABs.
+	let compact = $state(false);
+
+	onMount(() => {
+		const query = window.matchMedia('(max-width: 639px)');
+		const sync = () => (compact = query.matches);
+		sync();
+		query.addEventListener('change', sync);
+		return () => query.removeEventListener('change', sync);
+	});
 
 	// Resolve the live scroller at call time. A stale element from another
 	// mode or file can therefore never receive the scroll.
@@ -31,11 +43,14 @@
 			scrollable = false;
 			canUp = false;
 			canDown = false;
+			progress = 0;
 			return;
 		}
 		scrollable = element.scrollHeight > element.clientHeight + 24;
 		canUp = element.scrollTop > 1;
 		canDown = element.scrollTop + element.clientHeight < element.scrollHeight - 2;
+		const range = element.scrollHeight - element.clientHeight;
+		progress = range > 0 ? Math.round((element.scrollTop / range) * 100) : 0;
 	}
 
 	function go(edge: 'top' | 'bottom') {
@@ -160,28 +175,51 @@
 
 {#if scrollable}
 	<div class="mdsh-scroll-nav" role="group" aria-label={t('scroll.navigation')}>
-		<button
-			type="button"
-			onclick={() => go('top')}
-			disabled={!canUp}
-			aria-label={t('scroll.toTop')}
-			aria-keyshortcuts="Alt+Home"
-			title={`${t('scroll.toTop')} (Alt+Home)`}
-			data-testid="scroll-top"
-		>
-			<ArrowUp size={16} aria-hidden="true" />
-		</button>
-		<button
-			type="button"
-			onclick={() => go('bottom')}
-			disabled={!canDown}
-			aria-label={t('scroll.toBottom')}
-			aria-keyshortcuts="Alt+End"
-			title={`${t('scroll.toBottom')} (Alt+End)`}
-			data-testid="scroll-bottom"
-		>
-			<ArrowDown size={16} aria-hidden="true" />
-		</button>
+		{#if compact}
+			<!-- One contextual control at phone widths: it points to the next
+			     reachable edge, and the line at its bottom shows the position. -->
+			<button
+				type="button"
+				class="mdsh-scroll-toggle"
+				onclick={() => go(canDown ? 'bottom' : 'top')}
+				aria-label={t(canDown ? 'scroll.toBottom' : 'scroll.toTop')}
+				aria-keyshortcuts={canDown ? 'Alt+End' : 'Alt+Home'}
+				title={`${t(canDown ? 'scroll.toBottom' : 'scroll.toTop')} (${
+					canDown ? 'Alt+End' : 'Alt+Home'
+				})`}
+				style:--scroll-progress="{progress}%"
+				data-testid="scroll-nav-toggle"
+			>
+				{#if canDown}
+					<ArrowDown size={16} aria-hidden="true" />
+				{:else}
+					<ArrowUp size={16} aria-hidden="true" />
+				{/if}
+			</button>
+		{:else}
+			<button
+				type="button"
+				onclick={() => go('top')}
+				disabled={!canUp}
+				aria-label={t('scroll.toTop')}
+				aria-keyshortcuts="Alt+Home"
+				title={`${t('scroll.toTop')} (Alt+Home)`}
+				data-testid="scroll-top"
+			>
+				<ArrowUp size={16} aria-hidden="true" />
+			</button>
+			<button
+				type="button"
+				onclick={() => go('bottom')}
+				disabled={!canDown}
+				aria-label={t('scroll.toBottom')}
+				aria-keyshortcuts="Alt+End"
+				title={`${t('scroll.toBottom')} (Alt+End)`}
+				data-testid="scroll-bottom"
+			>
+				<ArrowDown size={16} aria-hidden="true" />
+			</button>
+		{/if}
 	</div>
 {/if}
 
@@ -213,6 +251,17 @@
 	.mdsh-scroll-nav button:hover:not(:disabled) {
 		color: var(--color-fg);
 		border-color: var(--color-border-strong);
+	}
+	.mdsh-scroll-nav .mdsh-scroll-toggle {
+		/* The compact control is the only pointer target in the thumb zone, so
+		   keep the 44 px touch size at every pointer type. */
+		width: 2.75rem;
+		height: 2.75rem;
+		/* The line reports the reading position without adding a second control. */
+		background-image: linear-gradient(var(--color-accent), var(--color-accent));
+		background-repeat: no-repeat;
+		background-position: center calc(100% - 5px);
+		background-size: var(--scroll-progress, 0%) 2px;
 	}
 	.mdsh-scroll-nav button:focus-visible {
 		outline: 2px solid var(--color-accent);

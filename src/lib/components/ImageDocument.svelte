@@ -14,6 +14,7 @@
 	} from '@lucide/svelte';
 	import type { FileItem } from '#lib/types.js';
 	import { t } from '#lib/i18n/index.js';
+	import type { MessageKey } from '#lib/i18n/index.js';
 	import { filesStore } from '#lib/files.svelte.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import { planBinaryView, type BinaryViewSnapshot } from '#lib/services/binary-view-plan.js';
@@ -28,6 +29,13 @@
 	const MAX_RENDER_PIXELS = 16_000_000;
 	const MAX_EXPORT_PIXELS = 24_000_000;
 	const COLORS = ['#f5c542', '#ff6b6b', '#4dabf7', '#51cf66'];
+	// §737 - A swatch needs a readable name, not a hexadecimal value.
+	const COLOR_LABELS: MessageKey[] = [
+		'annotations.colorYellow',
+		'annotations.colorRed',
+		'annotations.colorBlue',
+		'annotations.colorGreen'
+	];
 
 	interface Point {
 		x: number;
@@ -350,13 +358,15 @@
 				title={t('annotations.eraser')}
 				data-testid="image-eraser"><Eraser size={14} /></button
 			>
-			{#each COLORS as swatch (swatch)}
+			{#each COLORS as swatch, index (swatch)}
 				<button
 					type="button"
 					class="ink-color"
 					class:active={color === swatch}
 					style:background={swatch}
-					aria-label={swatch}
+					aria-label={t(COLOR_LABELS[index]!)}
+					aria-pressed={color === swatch}
+					data-testid={`image-color-${index}`}
 					onclick={() => (color = swatch)}
 				></button>
 			{/each}
@@ -488,7 +498,8 @@
 	}
 	.image-toolbar button {
 		display: inline-flex;
-		min-height: 30px;
+		min-height: 32px;
+		min-width: 32px;
 		align-items: center;
 		justify-content: center;
 		gap: 4px;
@@ -505,7 +516,8 @@
 		color: var(--color-accent);
 	}
 	.ink-color {
-		width: 22px;
+		width: 24px;
+		min-width: 24px;
 		padding: 0 !important;
 	}
 	.ink-color.active {

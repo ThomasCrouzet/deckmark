@@ -111,6 +111,18 @@ export async function openPalette(page: Page, timeout = 5_000) {
 	});
 }
 
+/** Open the labeled Actions menu from the toolbar. */
+export async function openActions(page: Page) {
+	await page.locator('[data-actions-trigger]').click();
+	await expect(page.getByRole('dialog', { name: 'Actions', exact: true })).toBeVisible();
+}
+
+/** Run one labeled command from the Actions menu. */
+export async function runAction(page: Page, id: string) {
+	await openActions(page);
+	await page.getByTestId(`action-${id}`).click();
+}
+
 /** Select source mode from the toolbar for deterministic CodeMirror behavior. */
 export async function switchToSource(page: Page) {
 	// The mode control has `role="radio"`. Use its unique and stable `data-mode` value.

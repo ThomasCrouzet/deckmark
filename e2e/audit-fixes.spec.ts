@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAppState, createFirstFile } from './helpers';
+import { resetAppState, runAction, createFirstFile } from './helpers';
 
 test('registers the Window file launch queue and applies import limits', async ({ page }) => {
 	await page.addInitScript(() => {
@@ -105,7 +105,7 @@ test('preserves the disk revision across reload and refuses an unconfirmed overw
 	});
 	await page.reload();
 	await expect(editor).toHaveText('LOCAL_VERSION');
-	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
+	await runAction(page, 'save-disk');
 	const prompt = page.getByRole('dialog', {
 		name: 'Résoudre le conflit disque pour revision-check.md'
 	});

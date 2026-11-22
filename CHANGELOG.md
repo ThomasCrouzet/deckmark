@@ -1,9 +1,9 @@
 # Changelog
 
-Toutes les évolutions notables de **mdsh** sont documentées ici.
+All notable changes to **DeckMark** are documented in this file.
 
-Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
-versionnement [SemVer](https://semver.org/lang/fr/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [2.5.6](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.5...v2.5.6) (2026-11-20)
 

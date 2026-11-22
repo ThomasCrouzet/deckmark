@@ -1,12 +1,17 @@
 import 'fake-indexeddb/auto';
 import '@testing-library/jest-dom/vitest';
-import { i18n } from '#lib/i18n/index.js';
+import { i18n, registerDictionary } from './i18n/i18n.svelte';
+import { fr } from './i18n/messages/fr';
 
 // Default test locale = French. The app default is English (i18n layer), but
 // the content assertions of the tests target the historical French strings. The
 // en/fr parity and the English default are verified separately in i18n.test.ts;
 // tests that want another locale set it explicitly (e.g. i18n.test.ts switches
 // back to 'en').
+//
+// The app loads French in a lazy chunk, so register the dictionary here: the
+// tests assert French strings synchronously.
+registerDictionary('fr', fr);
 i18n.locale = 'fr';
 
 // In-memory `localStorage` polyfill. Node 22 ships an experimental native

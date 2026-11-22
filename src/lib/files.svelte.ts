@@ -99,6 +99,9 @@ function applyDraftLocation(file: FileItem, row: DraftRow): void {
 	file.updatedAt = Math.max(file.updatedAt, row.updatedAt);
 }
 
+/** A visible trash entry with the time left before the automatic purge. */
+export type TrashEntry = TrashedFile & { remainingMs?: number };
+
 class FilesStore {
 	files = $state<FileItem[]>([]);
 	/** Durable documents that are not currently shown as tabs. */
@@ -157,6 +160,12 @@ class FilesStore {
 	}
 
 	loaded = $state(false);
+	/**
+	 * Bumped when a load replaces the library objects. A view can compare this
+	 * value with a FileItem id instead of holding an object reference, because
+	 * a reload recreates the objects with the same ids.
+	 */
+	libraryRevision = $state(0);
 	/** Monotonic boundary for startup and backup reloads. */
 	private loadGeneration = 0;
 	/** Latest tab activation request. A late hydration may not steal focus. */
@@ -167,7 +176,12 @@ class FilesStore {
 	// storage disabled, corrupted profile). Shown as a banner by +page.
 	loadError = $state<string | null>(null);
 	lastSavedAt = $state<number>(0);
-	trash = $state<TrashedFile[]>([]);
+	/**
+	 * §731 - Time of the last successful local write per document. One shared
+	 * timestamp showed the save time of another document after a tab switch.
+	 */
+	private savedAtById = $state(new Map<string, number>());
+	trash = $state<TrashEntry[]>([]);
 	trashBusy = $state(false);
 	private pendingTrashBatch: Promise<boolean> | null = null;
 	// §B3.2 - `true` during the debounce (400 ms) + the IDB write. Shown by StatusBar.
@@ -265,6 +279,8 @@ class FilesStore {
 		// resynchronize this draft (and do not overwrite our write).
 		onDraftSaved: (id, updatedAt, revision) => {
 			if (revision) this.savedRevisions.set(id, revision);
+			// §731 - The status bar shows this document's own write time.
+			this.savedAtById.set(id, Date.now());
 			// A superseded write never reaches this callback, so the newest
 			// content of this id is now in IndexedDB.
 			this.locallyDirty.delete(id);
@@ -289,6 +305,14 @@ class FilesStore {
 
 	get active(): FileItem | null {
 		return this.files.find((f) => f.id === this.activeId) ?? null;
+	}
+
+	/**
+	 * §731 - Time of the last successful local write of one document, or 0 when
+	 * this session has no write for it yet. The status bar reads this per id.
+	 */
+	savedAtFor(id: string | null | undefined): number {
+		return id ? (this.savedAtById.get(id) ?? 0) : 0;
 	}
 
 	constructor() {
@@ -689,9 +713,10 @@ class FilesStore {
 		this.closedFiles = loaded.closedFiles;
 		this.activeId = loaded.activeId;
 		this.metaIndex.invalidateBacklinksIndex();
-		this.trash = trash.map(({ entry }) => entry);
+		this.trash = trash.map(({ entry, remainingMs }) => ({ ...entry, remainingMs }));
 		this.loadError = null;
 		this.loaded = true;
+		this.libraryRevision += 1;
 		// Metadata-first startup can keep closed bodies from the full-row
 		// fallback. Release the ones above the budget before the first render.
 		void this.reclaimClosedBodies().catch(() => undefined);
@@ -1017,6 +1042,9 @@ class FilesStore {
 		this.dispatchEditorFlush();
 		this.rememberActive();
 		this.activeId = id;
+		// §731 - Diagnostics read this scalar. Keep it aligned with the document
+		// whose status the user now sees.
+		this.lastSavedAt = this.savedAtFor(id);
 		this.persistActiveId();
 	}
 

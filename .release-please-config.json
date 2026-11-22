@@ -10,7 +10,7 @@
 	"packages": {
 		".": {
 			"release-type": "node",
-			"package-name": "mdsh",
+			"package-name": "deckmark",
 			"changelog-path": "CHANGELOG.md"
 		}
 	},

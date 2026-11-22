@@ -69,6 +69,28 @@
 	let { open, onClose, editorWidth, prefs }: Props = $props();
 
 	let closeButton: HTMLButtonElement | null = $state(null);
+	let dialogEl: HTMLDivElement | null = $state(null);
+	// A prompt inerts this dialog, so the browser can drop focus to the body.
+	// The prompt trap restores the control that opened it; this is the fallback
+	// for the case where no such control is reachable.
+	let promptWasOpen = false;
+	$effect(() => {
+		const promptOpen = promptStore.open;
+		if (promptWasOpen && !promptOpen && open) {
+			// The prompt trap restores focus in a microtask. Run after that
+			// restore so the check sees its result.
+			void tick().then(() => {
+				requestAnimationFrame(() => {
+					if (!open || promptStore.open) return;
+					const active = document.activeElement;
+					// A restored control inside this dialog keeps the keyboard.
+					if (active && active !== document.body && dialogEl?.contains(active)) return;
+					closeButton?.focus();
+				});
+			});
+		}
+		promptWasOpen = promptOpen;
+	});
 	let importInput: HTMLInputElement | null = $state(null);
 	let shortcutFeedback = $state('');
 	const host = $derived(publicHostInfo(location.hostname));
@@ -109,17 +131,21 @@
 		}
 	} as const;
 	const hc = $derived(hostCopy[i18n.locale === 'fr' ? 'fr' : 'en']);
-	function showShortcutResult(error: ShortcutError | null): void {
+	function showShortcutResult(error: ShortcutError | null, ownerId?: string): void {
+		const owner = ownerId ? coreCommands.find((command) => command.id === ownerId) : undefined;
 		shortcutFeedback = t(
 			error === 'invalid'
 				? 'settings.shortcutInvalid'
 				: error === 'reserved'
 					? 'settings.shortcutReserved'
 					: error === 'duplicate'
-						? 'settings.shortcutDuplicate'
+						? owner
+							? 'settings.shortcutConflict'
+							: 'settings.shortcutDuplicate'
 						: error === 'storage'
 							? 'settings.shortcutStorage'
-							: 'settings.shortcutSaved'
+							: 'settings.shortcutSaved',
+			owner ? { command: t(owner.label) } : undefined
 		);
 	}
 	function captureShortcut(event: KeyboardEvent, id: string): void {
@@ -138,9 +164,8 @@
 			showShortcutResult('invalid');
 			return;
 		}
-		showShortcutResult(
-			keyboardStore.set(id, { key: event.key.toLowerCase(), shift: event.shiftKey })
-		);
+		const binding = { key: event.key.toLowerCase(), shift: event.shiftKey };
+		showShortcutResult(keyboardStore.set(id, binding), keyboardStore.conflictOwner(id, binding));
 	}
 	let storageHealth: StorageHealth | null = $state(null);
 	let backupBusy = $state(false);
@@ -640,6 +665,7 @@
 
 {#if open}
 	<div
+		bind:this={dialogEl}
 		class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pb-4 backdrop-blur-sm
 		       pt-[max(env(safe-area-inset-top),10vh)]"
 		style:padding-left="max(env(safe-area-inset-left), 1rem)"
@@ -1103,7 +1129,7 @@
 				</section>
 				<section class="mt-5 border-t border-border pt-3 text-xs text-fg-muted">
 					<h3 class="mb-2 font-medium text-fg">{t('settings.about')}</h3>
-					<p>
+					<p data-testid="about-version">
 						{t('brand.name')}
 						{version} ·
 						{editionManifest().edition === 'desktop'
@@ -1116,6 +1142,18 @@
 						})}
 					</p>
 					<p class="mt-1" data-testid="about-author">{t('settings.authorCredit')}</p>
+					{#if isDesktop()}
+						<p class="mt-1" data-testid="installed-version">
+							{t('settings.installedVersion', { version })}
+						</p>
+						<a
+							class="mt-1 inline-block underline"
+							href="https://github.com/ThomasCrouzet/deckmark/releases"
+							target="_blank"
+							rel="noopener noreferrer"
+							data-testid="release-link">{t('settings.releaseLink')}</a
+						>
+					{/if}
 					<a
 						class="mt-1 inline-block underline"
 						href="https://github.com/ThomasCrouzet"

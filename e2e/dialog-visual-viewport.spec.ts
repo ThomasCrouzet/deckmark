@@ -268,6 +268,62 @@ test('keeps dialog controls inside a shrinking visual viewport', async ({ page }
 	});
 });
 
+test('keeps the prompt modal inside a shrinking visual viewport', async ({ page }, info) => {
+	await page.getByTestId('welcome-new').click();
+	await page.getByTestId('create-note').click();
+	await expect(page.getByTestId('document-kind')).toHaveText('Note', { timeout: 15_000 });
+
+	const palette = await openPalette(page);
+	await palette.locator('input[type="text"]').fill('rename');
+	await palette.getByRole('option', { name: /Rename document/i }).click();
+	const prompt = page.getByRole('dialog', { name: 'Document name', exact: true });
+	await expect(prompt).toBeVisible();
+	const input = prompt.getByRole('textbox');
+	await expect(input).toBeFocused();
+
+	// The prompt overlay must follow the same visual-viewport contract as the
+	// other dialogs. It applied only the focus trap before issue #723.
+	expect(await prompt.evaluate((element) => (element as HTMLElement).style.top)).toBe('');
+	await shrinkVisualViewport(page, 360, 140);
+	await expect
+		.poll(() => prompt.evaluate((element) => (element as HTMLElement).style.top))
+		.toBe('140px');
+	await expect
+		.poll(() => prompt.evaluate((element) => (element as HTMLElement).style.height))
+		.toBe('360px');
+	await expectInsideVisibleRegion(page, await dialogPanel(prompt));
+	await expectInsideVisibleRegion(page, input);
+	await expectInsideVisibleRegion(
+		page,
+		prompt.getByRole('button', { name: 'Cancel', exact: true })
+	);
+	await expect(input).toBeFocused();
+
+	await restoreVisualViewport(page);
+	await expect
+		.poll(() => prompt.evaluate((element) => (element as HTMLElement).style.top))
+		.toBe('');
+	await expectInsideVisibleRegion(page, await dialogPanel(prompt));
+
+	await info.attach('visual-viewport-prompt.json', {
+		body: JSON.stringify(
+			{
+				command:
+					'npx playwright test e2e/dialog-visual-viewport.spec.ts --project=chromium --workers=1 --retries=0',
+				method: 'synthetic VisualViewport override, not a physical keyboard',
+				keyboard: { height: 360, offsetTop: 140 },
+				dialog: 'prompt',
+				inputFocused: true
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+	await page.keyboard.press('Escape');
+	await expect(prompt).toBeHidden();
+});
+
 test('keeps the comment form and its actions inside a shrinking visual viewport', async ({
 	page
 }, info) => {

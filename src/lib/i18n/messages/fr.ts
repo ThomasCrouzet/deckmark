@@ -1,3 +1,6 @@
+// Register: vous. Keep every new string in vous form (second person plural).
+// The English catalog stays the source of truth for keys and values.
+
 // French messages (second locale). Typed against `MessageKey`: any key missing
 // from or extra to `en.ts` is a compile error. Values keep French diacritics.
 
@@ -21,7 +24,7 @@ export const fr: Record<MessageKey, string> = {
 	...backupProjectFr,
 	...desktopBackupFr,
 	'docsCheck.command': 'Vérifier la documentation',
-	'docsCheck.commandHint': 'Lance un audit hors ligne du projet sélectionné.',
+	'docsCheck.commandHint': 'Lancez un audit hors ligne du projet sélectionné.',
 	'brand.name': 'DeckMark',
 	'brand.localWorkspace': 'Espace local',
 	'library.browseCount': 'Retrouver vos documents ({n})',
@@ -48,6 +51,8 @@ export const fr: Record<MessageKey, string> = {
 	'templates.builtinGroup': 'Modèles intégrés',
 	'templates.userGroup': 'Modèles enregistrés',
 	'templates.noMatch': 'Aucun modèle ne correspond à la recherche.',
+	'templates.showAll': 'Afficher les {n} modèles',
+	'templates.showFewer': 'Afficher moins de modèles',
 	'templates.loading': 'Chargement des modèles…',
 	'templates.readme': 'README',
 	'templates.readmeDescription': 'Présentation, installation et utilisation du projet',
@@ -69,7 +74,7 @@ export const fr: Record<MessageKey, string> = {
 	'navigation.next': 'Résultat suivant',
 	'navigation.close': 'Fermer la navigation du document',
 	'navigation.empty': 'Ajoutez un titre pour naviguer dans ce document.',
-	'statusBar.local': 'Brouillons locaux : {state}',
+	'statusBar.local': 'Brouillon local : {state}',
 	'statusBar.diskManual': 'Enregistrement disque manuel',
 	'statusBar.backupDue': 'Sauvegarder vos documents',
 	'statusBar.dismissReminder': 'Me rappeler la sauvegarde la semaine prochaine',
@@ -170,6 +175,8 @@ export const fr: Record<MessageKey, string> = {
 	'palette.reportProblem': 'Signaler un problème',
 	'settings.about': 'À propos de deckmark',
 	'settings.authorCredit': 'Créé par Thomas CROUZET',
+	'settings.installedVersion': 'Version installée {version}',
+	'settings.releaseLink': 'Notes de version et téléchargements (nouvel onglet)',
 	'sidebar.homeLabel': 'Ouvrir la page d’accueil',
 	'settings.githubProfile': 'Profil GitHub',
 	'settings.userGuide': 'Guide utilisateur (nouvel onglet)',
@@ -250,12 +257,12 @@ export const fr: Record<MessageKey, string> = {
 		'La sauvegarde dépasse les limites : 64 Mio au total, 3 000 documents et 16 Mio par document.',
 	'backup.encryptedInvalidJson': 'Fichier chiffré illisible : ce n’est pas du JSON valide.',
 	'backup.futureVersion':
-		'Sauvegarde créée par une version plus récente de deckmark (schéma v{version}). Mets l’application à jour.',
+		'Sauvegarde créée par une version plus récente de deckmark (schéma v{version}). Mettez l’application à jour.',
 	'backup.invalidJson': 'Fichier illisible : ce n’est pas du JSON valide.',
 	'backup.invalidSchema': 'Sauvegarde invalide : version de schéma absente ou incohérente.',
 	'backup.notEncrypted': 'Ce fichier n’est pas chiffré.',
 	'backup.notMdshBackup': 'Ce fichier n’est pas une sauvegarde DeckMark.',
-	'backup.passphraseRequired': 'Sauvegarde chiffrée : passphrase requise.',
+	'backup.passphraseRequired': 'Sauvegarde chiffrée : phrase secrète requise.',
 
 	// common
 	'import.depth': 'Profondeur maximale des dossiers atteinte',
@@ -279,7 +286,7 @@ export const fr: Record<MessageKey, string> = {
 		'Ce document s’ouvre en mode Source pour conserver la réactivité de l’application. L’édition visuelle ou la lecture peut prendre plus de temps. Continuer ?',
 	'page.largeDocumentTitle': 'Afficher ce document volumineux ?',
 	'palette.unavailable':
-		'Cette commande est indisponible dans le contexte actuel. Attends la fin de l’opération en cours ou utilise un autre format d’export.',
+		'Cette commande est indisponible dans le contexte actuel. Attendez la fin de l’opération en cours ou utilisez un autre format d’export.',
 	'editor.linkPlaceholder': 'Coller un lien...',
 	'editor.strikethrough': 'Barré',
 	'editor.link': 'Lien',
@@ -306,7 +313,7 @@ export const fr: Record<MessageKey, string> = {
 	'editor.heading': 'Titre {n}',
 	'editor.text': 'Texte',
 	'editor.loadErrorTitle':
-		'Impossible de charger l’éditeur visuel. Ton document reste disponible en mode Source.',
+		'Impossible de charger l’éditeur visuel. Votre document reste disponible en mode Source.',
 	'settings.disableShortcutFor': 'Désactiver le raccourci pour {command}',
 	'settings.shortcutFor': 'Raccourci pour {command}',
 	'settings.shortcutDisable': 'Désactiver',
@@ -314,13 +321,15 @@ export const fr: Record<MessageKey, string> = {
 	'settings.shortcutReset': 'Rétablir tous les raccourcis par défaut',
 	'settings.shortcutSaved': 'Raccourcis enregistrés localement.',
 	'settings.shortcutStorage':
-		'Le raccourci n’a pas pu être enregistré. Tes réglages précédents sont conservés.',
+		'Le raccourci n’a pas pu être enregistré. Vos réglages précédents sont conservés.',
 	'settings.shortcutDuplicate':
-		'Une autre commande utilise ce raccourci. Désactive-le d’abord ou choisis-en un autre.',
+		'Une autre commande utilise ce raccourci. Désactivez-le d’abord ou choisissez-en un autre.',
+	'settings.shortcutConflict':
+		'Une autre commande utilise déjà ce raccourci : {command}. Désactivez-le d’abord ou choisissez-en un autre.',
 	'settings.shortcutReserved':
-		'Cette combinaison est réservée par le navigateur, le système ou l’éditeur de texte. Choisis-en une autre.',
+		'Cette combinaison est réservée par le navigateur, le système ou l’éditeur de texte. Choisissez-en une autre.',
 	'settings.shortcutInvalid':
-		'Utilise Ctrl ou Cmd avec une lettre, un chiffre ou une ponctuation, sans Alt.',
+		'Utilisez Ctrl ou Cmd avec une lettre, un chiffre ou une ponctuation, sans Alt.',
 	'settings.writingShortcuts': 'Raccourcis d’écriture',
 	'settings.writingShortcutsHelp':
 		'Le mode Éditer propose les raccourcis de mise en forme et de structure. Le mode Source propose les raccourcis de navigation et d’indentation Markdown.',
@@ -349,14 +358,14 @@ export const fr: Record<MessageKey, string> = {
 	'settings.shortcutCopyLineDown': 'Copier la ligne vers le bas',
 	'settings.shortcutSelectNextOccurrence': 'Sélectionner l’occurrence suivante',
 	'settings.shortcutInstructions':
-		'Place le focus dans un champ, puis appuie sur Ctrl (Cmd sur Mac), éventuellement Maj, et une lettre ou ponctuation. Les combinaisons du navigateur et d’édition sont réservées. Les changements restent locaux.',
+		'Placez le focus dans un champ, puis appuyez sur Ctrl (Cmd sur Mac), éventuellement Maj, et une lettre ou ponctuation. Les combinaisons du navigateur et d’édition sont réservées. Les changements restent locaux.',
 	'settings.shortcutsDesktop':
 		'Application desktop : les menus natifs proposent aussi ces actions. Les champs, la composition et les dialogues ouverts sont prioritaires sur les raccourcis de l’application.',
 	'settings.shortcutsWeb':
 		'Navigateur web : certaines combinaisons sont réservées par le navigateur ou la disposition du clavier. Le bouton Commandes donne accès à chaque action. Les champs, la composition et les dialogues ouverts sont prioritaires.',
 	'settings.shortcuts': 'Raccourcis clavier',
 	'welcome.persistence':
-		'Les brouillons sont enregistrés dans ce navigateur. Exporte une sauvegarde pour les protéger contre une perte du stockage.',
+		'Les brouillons sont enregistrés dans ce navigateur. Exportez une sauvegarde pour les protéger contre une perte du stockage.',
 	'sidebar.purgeMessage':
 		'Cette action supprime aussi son historique des versions. Elle est irréversible.',
 	'sidebar.purgeConfirm': 'Supprimer définitivement ce document ?',
@@ -369,13 +378,13 @@ export const fr: Record<MessageKey, string> = {
 	'graph.linksTo': 'pointe vers',
 	'read.imagesEmbedded': '{n} image(s) incorporée(s) dans le document.',
 	'read.imageContentChanged':
-		'Le document a changé pendant le chargement des images. Réessaie pour conserver tes dernières modifications.',
+		'Le document a changé pendant le chargement des images. Réessayez pour conserver vos dernières modifications.',
 	'read.importImageFolder': 'Sélectionner le dossier d’images',
 	'read.importImageFiles': 'Sélectionner les images',
 	'desktop.linkFailed':
-		'Ce lien n’a pas pu être ouvert. Seuls les liens HTTP et HTTPS s’ouvrent dans ton navigateur.',
+		'Ce lien n’a pas pu être ouvert. Seuls les liens HTTP et HTTPS s’ouvrent dans votre navigateur.',
 	'desktop.closeFailed':
-		'La fenêtre reste ouverte car les dernières modifications n’ont pas pu être enregistrées. Réessaie ou exporte une copie.',
+		'La fenêtre reste ouverte car les dernières modifications n’ont pas pu être enregistrées. Réessayez ou exportez une copie.',
 	'editor.imageCaption': 'Légende de l’image',
 	'editor.imageLinkPlaceholder': 'Lien de l’image (bloqué sans consentement)',
 	'editor.imageUpload': 'Importer une image',
@@ -383,7 +392,7 @@ export const fr: Record<MessageKey, string> = {
 	'common.skipToContent': 'Aller au contenu',
 	'toolbar.commands': 'Commandes',
 	'search.timeout':
-		'La recherche a dépassé le délai autorisé. Simplifie l’expression régulière puis réessaie.',
+		'La recherche a dépassé le délai autorisé. Simplifiez l’expression régulière puis réessayez.',
 	'settings.confirmPassphrase': 'Confirmer la phrase secrète',
 	'settings.passphraseMismatch':
 		"Les phrases secrètes ne correspondent pas. Aucune sauvegarde n'a été créée.",
@@ -392,7 +401,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.moreShown': '{shown} commandes affichées sur {total}.',
 	'palette.commandIndex': 'Commandes',
 	'palette.availableCount': '{n} disponibles',
-	'palette.requiresDocument': 'Ouvre un document pour utiliser cette commande.',
+	'palette.requiresDocument': 'Ouvrez un document pour utiliser cette commande.',
 	'palette.settingsKeywords': 'parametres reglages preferences options settings',
 	'palette.exportMarkdownKeywords': 'enregistrer sauvegarder telecharger markdown',
 	'palette.exportPdfKeywords': 'imprimer impression imprimante pdf print',
@@ -421,8 +430,9 @@ export const fr: Record<MessageKey, string> = {
 	'sidebar.moveUp': 'Déplacer le document vers le haut',
 	'sidebar.moveDown': 'Déplacer le document vers le bas',
 	'sidebar.deleteConfirm': 'Déplacer ce document dans la corbeille ?',
-	'sidebar.deleteMessage': 'Tu pourras le restaurer depuis la corbeille.',
+	'sidebar.deleteMessage': 'Vous pourrez le restaurer depuis la corbeille.',
 	'sidebar.trash': 'Corbeille',
+	'sidebar.trashPurgeOn': 'Suppression automatique le {date}',
 	'sidebar.restore': 'Restaurer {name}',
 	'statusBar.saveFailed': 'Non enregistré localement',
 	'statusBar.retrySave': "Réessayer l'enregistrement",
@@ -434,16 +444,16 @@ export const fr: Record<MessageKey, string> = {
 	'export.mediaFailed':
 		'{n} image(s) n’ont pas pu être préparées : {sources}. L’export a été annulé.',
 	'export.printDialogOpened':
-		"Dialogue d'impression ouvert. Choisis Enregistrer en PDF pour créer le fichier.",
+		"Dialogue d'impression ouvert. Choisissez Enregistrer en PDF pour créer le fichier.",
 
 	// crypto
-	'crypto.emptyPassphrase': 'Passphrase vide.',
+	'crypto.emptyPassphrase': 'Phrase secrète vide.',
 	'crypto.invalidEnvelope': 'Enveloppe chiffrée invalide.',
 	'crypto.invalidEnvelopeEncoding': 'Enveloppe chiffrée invalide (encodage corrompu).',
 	'crypto.invalidEnvelopeIterations':
 		'Enveloppe chiffrée invalide (nombre d’itérations hors limites).',
 	'crypto.webCryptoUnavailable': 'WebCrypto indisponible dans cet environnement.',
-	'crypto.wrongPassphrase': 'Passphrase incorrecte ou données corrompues.',
+	'crypto.wrongPassphrase': 'Phrase secrète incorrecte ou données corrompues.',
 
 	// disk
 	'disk.fileFilter': 'Markdown et texte',
@@ -456,13 +466,13 @@ export const fr: Record<MessageKey, string> = {
 	'disk.downloadedCopy':
 		'Copie de « {name} » téléchargée. La source sur le disque reste inchangée.',
 	'disk.permissionDenied':
-		'Autorisation refusée pour « {name} ». Le fichier disque reste inchangé. Utilise Enregistrer sous pour garder une copie.',
+		'Autorisation refusée pour « {name} ». Le fichier disque reste inchangé. Utilisez Enregistrer sous pour garder une copie.',
 	'disk.saveAsCancelled':
 		'Enregistrer sous pour « {name} » annulé. La source et le brouillon restent inchangés.',
 	'disk.saveAsFailed':
 		"Impossible d'enregistrer une copie de « {name} ». La source reste inchangée.",
 	'disk.saveAsSameFile':
-		'Enregistrer sous ne peut pas choisir la source liée « {name} ». Choisis un autre nom. La source reste inchangée.',
+		'Enregistrer sous ne peut pas choisir la source liée « {name} ». Choisissez un autre nom. La source reste inchangée.',
 	'disk.saveCancelled': 'Enregistrement de « {name} » annulé (fichier disque modifié).',
 	'disk.saveFailed': "Échec de l'enregistrement sur le disque de « {name} ».",
 	'disk.saved': '« {name} » enregistré sur le disque.',
@@ -489,14 +499,14 @@ export const fr: Record<MessageKey, string> = {
 	'diskLinks.close': 'Fermer',
 	'diskLinks.count': '{n} lien(s)',
 	'diskLinks.empty':
-		'Aucun fichier lié au disque. Ouvre un fichier local ou utilise Enregistrer ({shortcut}) pour créer un lien.',
+		'Aucun fichier lié au disque. Ouvrez un fichier local ou utilisez Enregistrer ({shortcut}) pour créer un lien.',
 	'diskLinks.legendBroken': 'cassé',
 	'diskLinks.legendOk': 'ok',
 	'diskLinks.legendPermission': 'permission',
 	'diskLinks.listLabel': 'Fichiers liés au disque',
 	'diskLinks.loading': 'Chargement…',
 	'diskLinks.notSupported':
-		"Ton navigateur ne supporte pas l'API File System Access. Les liens disque ne sont pas disponibles.",
+		"Votre navigateur ne prend pas en charge l'API File System Access. Les liens disque ne sont pas disponibles.",
 	'diskLinks.orphan': 'Orphelin (fichier supprimé du store)',
 	'diskLinks.refresh': 'Recharger',
 	'diskLinks.refreshList': 'Recharger la liste',
@@ -512,13 +522,13 @@ export const fr: Record<MessageKey, string> = {
 	'diskLinks.verifyLink': 'Vérifier le lien de {name}',
 
 	// editor
-	'editor.placeholder': 'Écris ton markdown ici - ou tape /  pour les commandes',
+	'editor.placeholder': 'Écrivez votre markdown ici - ou tapez /  pour les commandes',
 	'editor.ariaLabel': 'Éditeur du document Markdown',
 	'editor.previewLabel': 'Aperçu',
 	'editor.previewLoading': 'Rendu Mermaid…',
 
 	// editorPane
-	'editorPane.dropFiles': 'Dépose tes fichiers .md ici',
+	'editorPane.dropFiles': 'Déposez vos fichiers .md ici',
 	'editorPane.resizeHandle':
 		'Largeur : {width}px - glisser pour ajuster · double-clic pour réinitialiser',
 
@@ -542,12 +552,12 @@ export const fr: Record<MessageKey, string> = {
 	'files.deletedInOtherTab': '« {name} » a été supprimé dans un autre onglet.',
 	'files.retryLoad': 'Réessayer l’accès au stockage',
 	'files.loadError':
-		'Impossible d’accéder au stockage local. Tes notes sont peut-être inaccessibles (navigation privée ? stockage désactivé ?). Réessaie dans une fenêtre normale.',
+		'Impossible d’accéder au stockage local. Vos notes sont peut-être inaccessibles (navigation privée ? stockage désactivé ?). Réessayez dans une fenêtre normale.',
 	'files.alreadyOriginal': '« {name} » est déjà l’original lié.',
 	'files.copyCreated': '« {name} » créé. Cette copie n’a aucun lien disque.',
 	'files.copySuffix': 'copie',
 	'files.editOriginalUnavailable':
-		'Ce navigateur ne peut pas sélectionner le fichier original. Ouvre un fichier local pour modifier sur place.',
+		'Ce navigateur ne peut pas sélectionner le fichier original. Ouvrez un fichier local pour modifier sur place.',
 	'files.modifiedInOtherTab': '« {name} » a été modifié dans un autre onglet.',
 	'files.originalOpened': 'Original lié « {name} » ouvert.',
 	'files.otherTabChanges': 'Des modifications ont été faites dans un autre onglet.',
@@ -558,7 +568,7 @@ export const fr: Record<MessageKey, string> = {
 	'graph.close': 'Fermer',
 	'graph.counts': '{nodes} nœud(s) · {edges} lien(s)',
 	'graph.empty': 'Aucun fichier ouvert.',
-	'graph.help': 'Clique un nœud pour ouvrir le fichier. Les liens proviennent des wiki-links',
+	'graph.help': 'Cliquez un nœud pour ouvrir le fichier. Les liens proviennent des wiki-links',
 	'graph.openNode': 'Ouvrir {label}',
 	'graph.regionLabel': 'Graphe des liens entre fichiers',
 	'graph.title': 'Graphe des liens',
@@ -620,7 +630,7 @@ export const fr: Record<MessageKey, string> = {
 	'blocks.command': 'Gérer les blocs de contenu liés',
 	'blocks.commandHint': 'Réutiliser un bloc canonique avec un choix de mise à jour explicite',
 	'blocks.insert': 'Insérer un bloc lié',
-	'blocks.insertHelp': 'Ajoute un bloc canonique à la note active avec un instantané portable.',
+	'blocks.insertHelp': 'Ajoutez un bloc canonique à la note active avec un instantané portable.',
 	'blocks.source': 'Bloc source',
 	'blocks.insertAction': 'Insérer dans la note active',
 	'blocks.activeTarget': 'Cible : {path}',
@@ -785,25 +795,28 @@ export const fr: Record<MessageKey, string> = {
 	'ai.translate': 'Traduire',
 	'ai.expand': 'Développer',
 	'ai.summarize': 'Résumer',
-	'ai.explainPrompt': 'Explique ce contexte clairement et brièvement.',
-	'ai.fixPrompt': 'Trouve les erreurs et propose des corrections sans les appliquer.',
-	'ai.rewritePrompt': 'Réécris le contenu pour le clarifier. Propose seulement le résultat.',
-	'ai.translatePrompt': 'Traduis le contenu en anglais. Garde le code inchangé.',
-	'ai.expandPrompt': 'Développe le contenu avec des détails utiles. Propose seulement le résultat.',
-	'ai.summarizePrompt': 'Résume les points principaux.',
+	'ai.explainPrompt': 'Expliquez ce contexte clairement et brièvement.',
+	'ai.fixPrompt': 'Trouvez les erreurs et proposez des corrections sans les appliquer.',
+	'ai.rewritePrompt': 'Réécrivez le contenu pour le clarifier. Proposez seulement le résultat.',
+	'ai.translatePrompt': 'Traduisez le contenu en anglais. Gardez le code inchangé.',
+	'ai.expandPrompt':
+		'Développez le contenu avec des détails utiles. Proposez seulement le résultat.',
+	'ai.summarizePrompt': 'Résumez les points principaux.',
 	'ai.prompt': 'Invite',
 	'ai.promptPlaceholder': 'Posez une question sur le contexte choisi',
 	'ai.send': 'Envoyer',
 	'ai.stop': 'Arrêter',
 	'ai.retry': 'Réessayer',
 	'ai.reply': 'Réponse',
+	'ai.streamStarted': 'Réponse en cours.',
+	'ai.streamFinished': 'Réponse terminée.',
 	'ai.history': 'Historique local de la session',
 	'ai.noContext': 'Aucun contenu de document n’est choisi pour cette requête.',
 	'ai.noSelection': 'Sélectionnez du texte dans l’éditeur avant d’utiliser la portée sélection.',
 	'ai.stopped': '\n\n[Requête arrêtée]',
 	'ai.proposePatch': 'Proposer un correctif',
 	'ai.patchPrompt':
-		'Propose un correctif pour la modification demandée. Renvoie uniquement un objet JSON avec les chemins exacts et les empreintes de base du contexte.',
+		'Proposez un correctif pour la modification demandée. Renvoyez uniquement un objet JSON avec les chemins exacts et les empreintes de base du contexte.',
 	'ai.patchReview': 'Vérifier les modifications proposées',
 	'ai.patchReady': 'prêt',
 	'ai.patchStale': 'fichier modifié, rechargez la proposition',
@@ -829,7 +842,7 @@ export const fr: Record<MessageKey, string> = {
 	'modals.labelSettings': 'Réglages',
 	'modals.labelToc': 'Table des matières',
 	'modals.labelWorkspaces': 'Workspaces',
-	'modals.loadFailed': 'Impossible d’ouvrir « {label} ». Vérifie ta connexion puis réessaie.',
+	'modals.loadFailed': 'Impossible d’ouvrir « {label} ». Vérifiez votre connexion puis réessayez.',
 
 	// page
 	'page.focusModeOff': 'Mode focus désactivé',
@@ -841,7 +854,7 @@ export const fr: Record<MessageKey, string> = {
 	'page.modeWysiwyg': 'Mode WYSIWYG',
 	'page.openFromDiskError': "Impossible d'ouvrir le fichier depuis le disque.",
 	'page.saveToDiskError': "Impossible d'enregistrer sur le disque.",
-	'page.switchToSourceForSearch': 'Bascule en mode source pour la recherche dans le fichier',
+	'page.switchToSourceForSearch': 'Passage en mode source pour la recherche dans le fichier',
 	'page.typewriterModeOff': 'Mode typewriter désactivé',
 	'page.typewriterModeOn': 'Mode typewriter activé',
 
@@ -874,7 +887,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.importedFilesTruncated': '{n} fichier(s) importé(s) (limite atteinte, dossier tronqué).',
 	'palette.importingDirectory': 'Import du dossier...',
 	'palette.inputLabel': 'Rechercher une commande ou un fichier',
-	'palette.inputPlaceholder': 'Tape une commande ou un fichier…',
+	'palette.inputPlaceholder': 'Tapez une commande ou un fichier…',
 	'palette.linksGraph': 'Graphe des liens',
 	'palette.linksGraphHint': 'Visualiser les wiki-links entre fichiers',
 	'palette.listboxLabel': 'Commandes disponibles',
@@ -922,7 +935,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.widthReset': "Réinitialiser la largeur de l'éditeur",
 	'palette.widthWide': 'Largeur : large ({px} px)',
 	'palette.workspaceFileCount': '{n} fichier(s)',
-	'palette.workspaceNamePlaceholder': 'ex. Notes meeting',
+	'palette.workspaceNamePlaceholder': 'ex. Compte rendu de réunion',
 	'palette.workspaceNamePrompt': 'Nom du workspace ?',
 	'palette.workspaceSaved': 'Espace de travail enregistré.',
 
@@ -930,7 +943,7 @@ export const fr: Record<MessageKey, string> = {
 	'presentation.dialogAria': 'Mode présentation',
 	'presentation.emptyAfter': ').',
 	'presentation.emptyBefore':
-		'Rien à présenter. Ajoute du contenu (sépare les diapos par une ligne',
+		'Rien à présenter. Ajoutez du contenu (séparez les diapos par une ligne',
 	'presentation.nextAria': 'Diapositive suivante',
 	'presentation.prevAria': 'Diapositive précédente',
 	'presentation.quitAria': 'Quitter la présentation (Échap)',
@@ -958,7 +971,7 @@ export const fr: Record<MessageKey, string> = {
 		'Les images intégrées et les styles réseau Mermaid ne sont pas pris en charge. Insérez les images dans le Markdown.',
 	'read.renderError': 'Erreur de rendu',
 	'read.rendering': 'Rendu…',
-	'read.remoteImagesBlocked': 'Les images distantes sont bloquées pour protéger ta vie privée.',
+	'read.remoteImagesBlocked': 'Les images distantes sont bloquées pour protéger votre vie privée.',
 	'read.loadRemoteImages': 'Charger les images distantes',
 
 	// search
@@ -971,7 +984,7 @@ export const fr: Record<MessageKey, string> = {
 	'search.dialogLabel': 'Recherche cross-fichiers',
 	'search.inputLabel': 'Rechercher dans tous les fichiers',
 	'search.invalidRegex': 'Regex invalide : {error}',
-	'search.minChars': 'Tape au moins 2 caractères…',
+	'search.minChars': 'Tapez au moins 2 caractères…',
 	'search.noOccurrence': 'Aucune occurrence à remplacer.',
 	'search.noResult': 'Aucun résultat.',
 	'search.placeholder': 'Rechercher dans tous les fichiers…',
@@ -1011,16 +1024,16 @@ export const fr: Record<MessageKey, string> = {
 	'settings.lastBackup': 'Dernière sauvegarde externe : {date}',
 	'settings.noBackup': 'Aucune sauvegarde externe réussie enregistrée sur cet appareil.',
 	'settings.backupHealthError':
-		'La dernière tentative de sauvegarde a échoué. Tes brouillons restent uniquement locaux.',
+		'La dernière tentative de sauvegarde a échoué. Vos brouillons restent uniquement locaux.',
 	'settings.backupReminder': 'Une nouvelle sauvegarde externe est recommandée.',
 	'settings.display': 'Affichage',
 	'settings.editor': 'Éditeur',
 	'settings.editorWidth': "Largeur de l'éditeur",
 	'settings.encryptBackupMessage':
-		'Choisis une passphrase. Sans elle, la sauvegarde sera irrécupérable.',
+		'Choisissez une phrase secrète. Sans elle, la sauvegarde sera irrécupérable.',
 	'settings.encryptBackupTitle': 'Chiffrer la sauvegarde',
 	'settings.encryptedBackupExported': 'Sauvegarde chiffrée exportée.',
-	'settings.encryptedBackupPrompt': 'Entre la passphrase utilisée lors de l’export.',
+	'settings.encryptedBackupPrompt': 'Entrez la phrase secrète utilisée lors de l’export.',
 	'settings.encryptedBackupTitle': 'Sauvegarde chiffrée',
 	'settings.encryptedExportFailed': "L'export chiffré a échoué.",
 	'settings.exportBackup': 'Exporter une sauvegarde',
@@ -1029,8 +1042,8 @@ export const fr: Record<MessageKey, string> = {
 	'settings.importBackup': 'Importer une sauvegarde…',
 	'settings.language': 'Langue',
 	'settings.merge': 'Fusionner',
-	'settings.passphrase': 'Passphrase',
-	'settings.passphraseEmpty': 'Passphrase vide - export annulé.',
+	'settings.passphrase': 'Phrase secrète',
+	'settings.passphraseEmpty': 'Phrase secrète vide - export annulé.',
 	'settings.replace': 'Remplacer',
 	'settings.restoreBackupMessage':
 		'« Remplacer » écrase entièrement vos données actuelles par la sauvegarde. « Fusionner » conserve vos fichiers actuels et ajoute ceux de la sauvegarde.',
@@ -1058,9 +1071,9 @@ export const fr: Record<MessageKey, string> = {
 
 	// sidebar
 	'sidebar.allTags': 'Tous',
-	'sidebar.backlinks': 'Backlinks',
+	'sidebar.backlinks': 'Rétroliens',
 	'sidebar.showMore': 'Afficher {n} de plus',
-	'sidebar.backlinksCount': 'Backlinks ({n})',
+	'sidebar.backlinksCount': 'Rétroliens ({n})',
 	'sidebar.brokenDiskLink': 'Lien disque rompu',
 	'sidebar.brokenDiskLinkHint': 'Lien disque rompu - relier le fichier ou dissocier',
 	'sidebar.close': 'Fermer',
@@ -1068,7 +1081,7 @@ export const fr: Record<MessageKey, string> = {
 	'sidebar.closePanel': 'Fermer le panneau',
 	'sidebar.closeSelection': 'Fermer la sélection',
 	'sidebar.closeWithShortcut': 'Fermer ({shortcut})',
-	'sidebar.createOrImportHint': 'Crée-en un ou importe un .md.',
+	'sidebar.createOrImportHint': 'Créez-en un ou importez un .md.',
 	'sidebar.deselect': 'Désélectionner',
 	'sidebar.deselectAll': 'Désélectionner tout',
 	'sidebar.exportSelectionZip': 'Exporter la sélection en ZIP',
@@ -1093,11 +1106,18 @@ export const fr: Record<MessageKey, string> = {
 	'sidebar.tagFilters': 'Filtres par tag',
 	'sidebar.unexportedChangesHint': ' - modifications non exportées',
 
+	// site
+	'site.footerDocs': 'Documentation',
+	'site.footerEditions': 'Éditions',
+	'site.footerGitHub': 'GitHub',
+	'site.footerIssue': 'Signaler un problème',
+	'site.footerLabel': 'Ressources du projet',
+
 	// source
 	'source.loadErrorHint':
 		'Le module est peut-être indisponible hors-ligne (jamais ouvert auparavant) ou le cache est obsolète après une mise à jour.',
 	'source.loadErrorNotify':
-		"Impossible de charger l'éditeur source. Vérifie ta connexion puis réessaie.",
+		"Impossible de charger l'éditeur source. Vérifiez votre connexion puis réessayez.",
 	'source.loadErrorTitle': "Impossible de charger l'éditeur source.",
 	'source.retry': 'Réessayer',
 	'source.imageData': 'Données de l’image',
@@ -1172,13 +1192,13 @@ export const fr: Record<MessageKey, string> = {
 
 	// storage
 	'storage.genericFailed': 'Une opération de stockage local a échoué.',
-	'storage.loadFailed': 'Échec de lecture du stockage local - réessaie.',
+	'storage.loadFailed': 'Échec de lecture du stockage local - réessayez.',
 	'storage.pressureWarning':
-		'Stockage local presque plein ({pct} %). Exporte une sauvegarde puis supprime définitivement les documents inutiles.',
+		'Stockage local presque plein ({pct} %). Exportez une sauvegarde puis supprimez définitivement les documents inutiles.',
 	'storage.quotaFull':
-		'Stockage plein : enregistrement impossible. Exporte une sauvegarde puis supprime définitivement les documents inutiles de la corbeille. Fermer les onglets ne libère pas d’espace.',
+		'Stockage plein : enregistrement impossible. Exportez une sauvegarde puis supprimez définitivement les documents inutiles de la corbeille. Fermer les onglets ne libère pas d’espace.',
 	'storage.saveFailed':
-		'Échec de l’enregistrement local - tes dernières modifications ne sont peut-être pas sauvegardées.',
+		'Échec de l’enregistrement local - vos dernières modifications ne sont peut-être pas sauvegardées.',
 
 	// templates
 	'templates.defaultName': 'Modèle',
@@ -1230,7 +1250,7 @@ export const fr: Record<MessageKey, string> = {
 	'versionHistory.availableVersions': 'Versions disponibles',
 	'versionHistory.close': 'Fermer',
 	'versionHistory.empty':
-		"Aucune version enregistrée pour ce fichier. L'historique se constitue au fil de tes modifications (un instantané toutes les quelques minutes).",
+		"Aucune version enregistrée pour ce fichier. L'historique se constitue au fil de vos modifications (un instantané toutes les quelques minutes).",
 	'versionHistory.kept': '{n} version(s) conservée(s)',
 	'versionHistory.loadError': "Impossible de charger l'historique de versions.",
 	'versionHistory.missing': 'Cette version n’est plus dans le stockage local.',
@@ -1252,6 +1272,7 @@ export const fr: Record<MessageKey, string> = {
 	'versionHistory.vsCurrent': 'vs version actuelle',
 
 	// welcome
+	'welcome.titleText': 'Votre espace de travail Markdown',
 	'welcome.demoLabel': 'Démo',
 	'welcome.importMd': 'Importer .md',
 	'welcome.initializeLabel': 'Initialiser l’espace',
@@ -1261,9 +1282,9 @@ export const fr: Record<MessageKey, string> = {
 	'welcome.legendPanel': 'Panneau',
 	'welcome.newFile': 'Nouveau fichier',
 	'welcome.openDemo': 'Ouvrir un document de démo',
-	'welcome.privacy': 'Aucun serveur. Aucune télémétrie. Tes fichiers restent chez toi.',
+	'welcome.privacy': 'Aucun serveur. Aucune télémétrie. Vos fichiers restent chez vous.',
 	'welcome.tagline': 'Écrivez des notes et créez des présentations.',
-	'welcome.taglineLine2': 'WYSIWYG, lecture, source - tout dans ton navigateur.',
+	'welcome.taglineLine2': 'WYSIWYG, lecture, source - tout dans votre navigateur.',
 	'welcome.systemLabel': 'Espace Markdown local',
 
 	// workspaces
@@ -1276,14 +1297,14 @@ export const fr: Record<MessageKey, string> = {
 	'workspaces.deleteAria': 'Supprimer le workspace {name}',
 	'workspaces.deleteTitle': 'Supprimer',
 	'workspaces.empty':
-		"Aucun workspace. Clique sur « Sauvegarder » pour mémoriser le jeu d'onglets actuel.",
+		"Aucun workspace. Cliquez sur « Sauvegarder » pour mémoriser le jeu d'onglets actuel.",
 	'workspaces.fileCount': '{n} fichier(s)',
 	'workspaces.footerCount': '{n} workspace(s)',
-	'workspaces.footerHint': "Sauvegarde le jeu de fichiers ouverts pour y revenir d'un clic.",
+	'workspaces.footerHint': "Sauvegardez le jeu de fichiers ouverts pour y revenir d'un clic.",
 	'workspaces.listAria': 'Liste des workspaces',
 	'workspaces.loading': 'Chargement…',
 	'workspaces.promptRenameTitle': 'Nouveau nom du workspace ?',
-	'workspaces.promptSavePlaceholder': 'ex. Notes meeting',
+	'workspaces.promptSavePlaceholder': 'ex. Compte rendu de réunion',
 	'workspaces.promptSaveTitle': 'Nom du workspace ?',
 	'workspaces.renameAria': 'Renommer le workspace {name}',
 	'workspaces.renameTitle': 'Renommer',

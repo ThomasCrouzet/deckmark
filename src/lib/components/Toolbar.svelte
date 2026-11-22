@@ -8,8 +8,7 @@
 		Code2,
 		Keyboard,
 		Ellipsis,
-		HardDriveDownload,
-		Printer,
+		Focus,
 		Moon,
 		Sun,
 		Save,
@@ -32,6 +31,9 @@
 		onToggleSidebar: () => void;
 		onSetMode: (mode: EditMode) => void;
 		onExport: () => void;
+		// Save As, Save to disk and Export PDF live in the labeled Actions menu
+		// (issue #721). The page still passes these handlers there, so keep the
+		// prop shape.
 		onExportPDF: () => void;
 		onOpenPalette: () => void;
 		onSave: () => void;
@@ -51,13 +53,10 @@
 		onToggleSidebar,
 		onSetMode,
 		onExport,
-		onExportPDF,
 		onOpenPalette,
 		onSave,
-		onSaveAs,
 		onEditCopy,
 		onEditOriginal,
-		onSaveToDisk,
 		onOpenActions,
 		focusMode = false,
 		onToggleFocus
@@ -232,7 +231,9 @@
 												: 'documents.pdf'
 							)}</span
 						>
-						<span class="title-save" role="status"
+						<!-- §754 - Decorative save text. StatusBar owns the save
+						     announcement; a second live region duplicated it. -->
+						<span class="title-save"
 							>{filesStore.saveErrorIds.includes(filesStore.active.id)
 								? t('statusBar.saveFailed')
 								: filesStore.hasPendingSave
@@ -347,7 +348,7 @@
 				aria-pressed={focusMode}
 				data-testid="focus-toggle"
 			>
-				<Eye size={16} /><span class="ml-1 hidden text-xs sm:inline">{t('toolbar.focus')}</span>
+				<Focus size={16} /><span class="ml-1 hidden text-xs sm:inline">{t('toolbar.focus')}</span>
 			</button>
 		{/if}
 
@@ -397,33 +398,6 @@
 			<Save size={16} />
 		</button>
 
-		<button
-			class="secondary-action mdsh-icon-button hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
-		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-			onclick={onSaveAs}
-			disabled={!filesStore.active}
-			title={`${t('toolbar.saveAs')} (${keyboardStore.label('save-as') ?? ''})`}
-			aria-label={t('toolbar.saveAs')}
-			aria-keyshortcuts={keyboardStore.aria('save-as')}
-			data-testid="save-as"
-		>
-			<Download size={16} />
-		</button>
-
-		{#if diskLinkingAvailable}
-			<button
-				class="secondary-action mdsh-icon-button hidden items-center justify-center rounded p-2 text-fg-muted sm:flex
-			       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-				onclick={onSaveToDisk}
-				disabled={!filesStore.active}
-				title={t('toolbar.saveToDisk')}
-				aria-label={t('toolbar.saveToDisk')}
-				data-testid="save-to-disk"
-			>
-				<HardDriveDownload size={16} />
-			</button>
-		{/if}
-
 		<!-- §B2.3 - `aria-keyshortcuts` announces the shortcuts to SRs (the `title=`
 	     is for the sighted eye). ARIA format: "Control+B Meta+B" - Meta
 	     covers macOS, Control the rest. -->
@@ -438,20 +412,6 @@
 			>
 				<Download size={16} />
 			</button>
-
-			{#if kind === 'note'}
-				<button
-					class="secondary-action mdsh-icon-button hidden items-center justify-center rounded p-2.5 sm:flex sm:p-2 text-fg-muted
-		       hover:bg-bg-2 hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted"
-					onclick={onExportPDF}
-					disabled={!filesStore.active}
-					title={`${t('toolbar.exportPdf')} (${keyboardStore.label('export-pdf') ?? ''})`}
-					aria-label={t('toolbar.exportPdf')}
-					aria-keyshortcuts={keyboardStore.aria('export-pdf')}
-				>
-					<Printer size={16} />
-				</button>
-			{/if}
 		{/if}
 
 		{#if onOpenActions}

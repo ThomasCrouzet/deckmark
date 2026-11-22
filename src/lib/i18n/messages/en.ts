@@ -52,6 +52,8 @@ export const en = {
 	'templates.builtinGroup': 'Built-in templates',
 	'templates.userGroup': 'Saved templates',
 	'templates.noMatch': 'No template matches the search.',
+	'templates.showAll': 'Show all {n} templates',
+	'templates.showFewer': 'Show fewer templates',
 	'templates.loading': 'Loading templates...',
 	'templates.readme': 'README',
 	'templates.readmeDescription': 'Project overview, install, and usage',
@@ -172,6 +174,8 @@ export const en = {
 	'palette.reportProblem': 'Report a problem',
 	'settings.about': 'About DeckMark',
 	'settings.authorCredit': 'Created by Thomas CROUZET',
+	'settings.installedVersion': 'Installed version {version}',
+	'settings.releaseLink': 'Release notes and downloads (opens in a new tab)',
 	'sidebar.homeLabel': 'Go to the start page',
 	'settings.githubProfile': 'GitHub profile',
 	'settings.userGuide': 'User guide (opens in a new tab)',
@@ -318,6 +322,8 @@ export const en = {
 		'The shortcut could not be saved. Your previous settings are unchanged.',
 	'settings.shortcutDuplicate':
 		'Another command already uses this shortcut. Disable it first or choose another.',
+	'settings.shortcutConflict':
+		'Another command already uses this shortcut: {command}. Disable it first or choose another.',
 	'settings.shortcutReserved':
 		'This combination is reserved by the browser, system or text editor. Choose another.',
 	'settings.shortcutInvalid': 'Use Ctrl or Cmd with a letter, digit or punctuation, without Alt.',
@@ -420,6 +426,7 @@ export const en = {
 	'sidebar.deleteConfirm': 'Move this document to trash?',
 	'sidebar.deleteMessage': 'You can restore it from the trash.',
 	'sidebar.trash': 'Trash',
+	'sidebar.trashPurgeOn': 'Automatic purge on {date}',
 	'sidebar.restore': 'Restore {name}',
 	'statusBar.saveFailed': 'Not saved locally',
 	'statusBar.retrySave': 'Retry saving',
@@ -780,6 +787,8 @@ export const en = {
 	'ai.stop': 'Stop',
 	'ai.retry': 'Retry',
 	'ai.reply': 'Reply',
+	'ai.streamStarted': 'Reply started.',
+	'ai.streamFinished': 'Reply finished.',
 	'ai.history': 'Local session history',
 	'ai.noContext': 'No document content is selected for this request.',
 	'ai.noSelection': 'Select text in the editor before using the selection scope.',
@@ -1071,6 +1080,13 @@ export const en = {
 	'sidebar.tagFilters': 'Filters by tag',
 	'sidebar.unexportedChangesHint': ' - unexported changes',
 
+	// site
+	'site.footerDocs': 'Documentation',
+	'site.footerEditions': 'Editions',
+	'site.footerGitHub': 'GitHub',
+	'site.footerIssue': 'Report an issue',
+	'site.footerLabel': 'Project resources',
+
 	// source
 	'source.loadErrorHint':
 		'The module may be unavailable offline (never opened before) or the cache is stale after an update.',
@@ -1229,6 +1245,7 @@ export const en = {
 	'versionHistory.vsCurrent': 'vs current version',
 
 	// welcome
+	'welcome.titleText': 'Your Markdown workspace',
 	'welcome.demoLabel': 'Demo',
 	'welcome.importMd': 'Import .md',
 	'welcome.initializeLabel': 'Initialize workspace',

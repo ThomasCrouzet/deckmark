@@ -79,7 +79,7 @@ test('annotates an image, exports a flattened copy and keeps the original', asyn
 	await expect(page.getByTestId('image-zoom')).toHaveText('110%');
 
 	await page.getByTestId('image-pen').click();
-	await page.getByTestId('image-document').getByRole('button', { name: '#ff6b6b' }).click();
+	await page.getByTestId('image-color-1').click();
 	await draw(page);
 
 	const first = page.waitForEvent('download');
@@ -129,6 +129,59 @@ test('offers pan and tool controls on a narrow viewport', async ({ page }) => {
 	await expect(page.getByTestId('image-highlighter')).toHaveAttribute('aria-pressed', 'true');
 	await draw(page);
 	await expect(page.getByTestId('image-clear')).toBeVisible();
+});
+
+test.describe('annotation touch targets', () => {
+	test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+	test('names every swatch and keeps 44 px targets in the image toolbar', async ({
+		page
+	}, info: TestInfo) => {
+		await resetAppState(page);
+		await importImage(page);
+		const toolbar = page.getByTestId('image-document');
+		await expect(toolbar.locator('.ink-color')).toHaveCount(4);
+		const names = await toolbar
+			.locator('.ink-color')
+			.evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-label')));
+		expect(names).toHaveLength(4);
+		expect(new Set(names).size).toBe(4);
+		for (const name of names) {
+			// A readable color name, never a hexadecimal value.
+			expect(name).toMatch(/^[A-Za-zÀ-ÿ ]+$/);
+		}
+		await expect(
+			toolbar.getByRole('button', { name: names[1] as string, exact: true })
+		).toHaveAttribute('aria-pressed', 'false');
+
+		const measured = await page.evaluate(() => {
+			const targets = [...document.querySelectorAll<HTMLElement>('.image-toolbar button')].map(
+				(element) => {
+					const box = element.getBoundingClientRect();
+					return {
+						label: element.getAttribute('aria-label') ?? element.getAttribute('title') ?? '',
+						width: Math.round(box.width * 10) / 10,
+						height: Math.round(box.height * 10) / 10
+					};
+				}
+			);
+			return {
+				anyPointerCoarse: matchMedia('(any-pointer: coarse)').matches,
+				touchCapable: document.documentElement.getAttribute('data-touch-capable') === 'true',
+				targets
+			};
+		});
+		expect(measured.anyPointerCoarse).toBe(true);
+		expect(measured.touchCapable).toBe(true);
+		expect(measured.targets.length).toBeGreaterThan(8);
+		const tooSmall = measured.targets.filter((target) => target.width < 44 || target.height < 44);
+		expect(tooSmall).toEqual([]);
+
+		await info.attach('image-touch-targets.json', {
+			body: JSON.stringify({ names, ...measured }, null, 2),
+			contentType: 'application/json'
+		});
+	});
 });
 
 test('keeps read-view ink out of image exports', async ({ page }, info) => {
@@ -314,18 +367,18 @@ test('discards a cancelled image pen stroke and keeps redo history and export cl
 	};
 
 	await page.getByTestId('image-pen').click();
-	await page.getByTestId('image-document').getByRole('button', { name: '#ff6b6b' }).click();
+	await page.getByTestId('image-color-1').click();
 	await drawImageLine(page, size, { x: 40, y: 60 }, { x: 80, y: 60 });
 	expect(isRed(await pixelAt('committed-pen', 60, 60))).toBe(true);
 
-	await page.getByTestId('image-document').getByRole('button', { name: '#4dabf7' }).click();
+	await page.getByTestId('image-color-2').click();
 	await drawImageLine(page, size, { x: 40, y: 110 }, { x: 80, y: 110 });
 	expect(isBlue(await pixelAt('committed-blue', 60, 110))).toBe(true);
 	await page.getByTitle('Annuler le trait').click();
 	expect(isBlue(await pixelAt('blue-after-undo', 60, 110))).toBe(false);
 	await expect(page.getByTitle('Rétablir le trait')).toBeEnabled();
 
-	await page.getByTestId('image-document').getByRole('button', { name: '#ff6b6b' }).click();
+	await page.getByTestId('image-color-1').click();
 	await startImageLine(page, size, { x: 100, y: 150 }, { x: 160, y: 150 });
 	await inkFrame(page);
 	expect(isRed(await pixelAt('pen-partial-before-cancel', 130, 150))).toBe(true);
@@ -359,7 +412,7 @@ test('discards a cancelled image pen stroke and keeps redo history and export cl
 	expect(isBlue(await pixelAt('blue-after-redo', 60, 110))).toBe(true);
 
 	await page.getByTestId('image-pen').click();
-	await page.getByTestId('image-document').getByRole('button', { name: '#ff6b6b' }).click();
+	await page.getByTestId('image-color-1').click();
 	await drawImageLine(page, size, { x: 40, y: 175 }, { x: 80, y: 175 });
 	expect(isRed(await pixelAt('later-pen-stroke', 60, 175))).toBe(true);
 	await page.getByTitle('Annuler le trait').click();
@@ -402,7 +455,7 @@ test('rolls back cancelled highlighter and eraser gestures and matches pointer i
 		return pixel;
 	};
 	await page.getByTestId('image-pen').click();
-	await page.getByTestId('image-document').getByRole('button', { name: '#ff6b6b' }).click();
+	await page.getByTestId('image-color-1').click();
 	await drawImageLine(page, size, { x: 30, y: 100 }, { x: 160, y: 100 });
 	expect(isRed(await pixelAt('committed-pen', 100, 100))).toBe(true);
 
@@ -428,7 +481,7 @@ test('rolls back cancelled highlighter and eraser gestures and matches pointer i
 	expect(isRed(await pixelAt('eraser-after-cancel', 100, 100))).toBe(true);
 
 	await page.getByTestId('image-pen').click();
-	await page.getByTestId('image-document').getByRole('button', { name: '#ff6b6b' }).click();
+	await page.getByTestId('image-color-1').click();
 	await startImageLine(page, size, { x: 60, y: 40 }, { x: 120, y: 40 });
 	await inkFrame(page);
 	expect(isRed(await pixelAt('capture-partial-before-loss', 90, 40))).toBe(true);

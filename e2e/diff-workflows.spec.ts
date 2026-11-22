@@ -261,7 +261,7 @@ test.describe('bounded diff workflows', () => {
 
 		await search.getByRole('button', { name: 'Confirmer le remplacement' }).click();
 		await expect(search.getByRole('alert')).toContainText(
-			'Un fichier de l’aperçu a changé. Crée un nouvel aperçu avant le remplacement.'
+			'Un fichier de l’aperçu a changé. Créez un nouvel aperçu avant le remplacement.'
 		);
 		await expect(search.getByRole('heading', { name: 'Aperçu du remplacement' })).toHaveCount(0);
 		await expect.poll(() => activeDraft(page).then((row) => row.content)).toContain('alpha');
@@ -318,7 +318,7 @@ test.describe('bounded diff workflows', () => {
 
 		await search.getByRole('button', { name: 'Confirmer le remplacement' }).click();
 		await expect(search.getByRole('alert')).toContainText(
-			'Un fichier de l’aperçu a changé. Crée un nouvel aperçu avant le remplacement.'
+			'Un fichier de l’aperçu a changé. Créez un nouvel aperçu avant le remplacement.'
 		);
 		await expect
 			.poll(() => activeDraft(otherTab).then((row) => row.content))

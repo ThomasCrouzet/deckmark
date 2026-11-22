@@ -18,6 +18,8 @@ import { t } from '#lib/i18n/index.js';
 interface FilesStoreRef {
 	active: { id: string } | null;
 	displayTitle: (id: string) => string;
+	/** True while an armed timer, an in-flight put or a failed put exists. */
+	hasPendingSave: boolean;
 	createNew: (name?: string, content?: string, options?: { focusEditor?: boolean }) => void;
 	flushPending: () => void;
 	importFiles: (files: File[]) => Promise<unknown>;
@@ -32,6 +34,11 @@ export interface FileIntentsOptions {
 }
 
 export function createFileIntents(opts: FileIntentsOptions) {
+	// Keeps the descriptive served title on the home state after hydration. The
+	// SPA fallback document ships this sentence in `src/app.html`; a bare brand
+	// name would replace it as soon as the root layout mounts.
+	const homeTitle = 'DeckMark editor - local-first offline Markdown workspace';
+
 	// §A2.3 - The document title derives from the active file. `$derived.by` is
 	// re-evaluated on every keystroke (active.content tracked by the store) but
 	// only writes document.title if the final value changes (99 % of keystrokes
@@ -41,7 +48,7 @@ export function createFileIntents(opts: FileIntentsOptions) {
 		if (!browser) return t('brand.name');
 		const store = opts.getFilesStore();
 		const active = store.active;
-		if (!active) return t('brand.name');
+		if (!active) return homeTitle;
 		return `${store.displayTitle(active.id)} - ${t('brand.name')}`;
 	});
 
@@ -55,17 +62,27 @@ export function createFileIntents(opts: FileIntentsOptions) {
 	// an abrupt browser or operating-system kill.
 	$effect(() => {
 		if (!browser) return;
-		const flush = () => opts.getFilesStore().flushPending();
+		const store = opts.getFilesStore();
+		const flush = () => store.flushPending();
 		const flushWhenHidden = () => {
 			if (document.visibilityState === 'hidden') flush();
 		};
+		// The unload flush is synchronous and cannot prove a durable write. A
+		// failed or still-pending save asks the browser for confirmation. A
+		// durable state returns without a prompt, so the normal close is quiet.
+		const flushBeforeExit = (event: BeforeUnloadEvent) => {
+			flush();
+			if (!store.hasPendingSave) return;
+			event.preventDefault();
+			event.returnValue = '';
+		};
 		document.addEventListener('visibilitychange', flushWhenHidden);
 		window.addEventListener('pagehide', flush);
-		window.addEventListener('beforeunload', flush);
+		window.addEventListener('beforeunload', flushBeforeExit);
 		return () => {
 			document.removeEventListener('visibilitychange', flushWhenHidden);
 			window.removeEventListener('pagehide', flush);
-			window.removeEventListener('beforeunload', flush);
+			window.removeEventListener('beforeunload', flushBeforeExit);
 		};
 	});
 

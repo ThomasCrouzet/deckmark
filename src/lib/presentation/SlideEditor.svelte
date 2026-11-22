@@ -54,7 +54,7 @@
 		Pencil,
 		StickyNote,
 		Download,
-		Ellipsis,
+		Settings2,
 		Trash2,
 		Code2,
 		Maximize,
@@ -65,16 +65,17 @@
 	let { onPresentingChange = () => {} }: { onPresentingChange?: (value: boolean) => void } =
 		$props();
 	const fileId = filesStore.active!.id;
-	const fileIdentity = filesStore.active!;
 	const guidanceId = $props.id();
 	const editor =
 		pendingEditors.get(fileId) ??
 		new PresentationEditor(
 			filesStore.active?.content ?? '',
 			(source, base) => {
+				// A reload or a backup restore recreates the FileItem with the same
+				// id, so an object reference is not stable identity. The durable id
+				// and the base this edit started from prove the target is unchanged.
 				const file = filesStore.library.find((entry) => entry.id === fileId);
-				if (file !== fileIdentity || file.content !== base)
-					throw new Error('Presentation source changed');
+				if (!file || file.content !== base) throw new Error('Presentation source changed');
 				if (documentKind(source) !== 'presentation') throw new Error('Presentation data missing');
 				filesStore.updateContent(fileId, source);
 			},
@@ -110,6 +111,10 @@
 	const INSPECTOR_SIDE_BREAKPOINT = 800;
 	let multiSelect = $state(false);
 	let presenting = $state(false);
+	let fullscreenActive = $state(false);
+	// Time of the last fullscreen exit that this editor requested.
+	let selfExitAt = -Infinity;
+	const SELF_EXIT_WINDOW_MS = 1500;
 	let showNotes = $state(false);
 	let busy = $state(false);
 	let overflow = $state(false);
@@ -308,6 +313,21 @@
 			}
 		});
 	});
+	// A store reload keeps the open document but replaces its FileItem object.
+	// Retry a write that failed on the previous generation when the durable body
+	// still matches this editor. A real divergence stays with the existing
+	// source-changed handling above.
+	let storeRevision = $state(filesStore.libraryRevision);
+	$effect(() => {
+		const revision = filesStore.libraryRevision;
+		if (revision === storeRevision) return;
+		storeRevision = revision;
+		const file = filesStore.files.find((entry) => entry.id === fileId);
+		if (!file || !editor.saveError || file.content !== editor.source) return;
+		untrack(() => {
+			if (editor.flush()) userMessage = '';
+		});
+	});
 	$effect(() => {
 		const element = viewport;
 		if (!element) return;
@@ -400,6 +420,29 @@
 			if (!editor.flush()) event.preventDefault();
 		};
 		window.addEventListener('mdsh:flush-editor', flush);
+		// Escape is consumed by the browser to leave fullscreen, so WebKit sends
+		// no keydown for it. The entry and the exit notification can also arrive
+		// in one task, after the fullscreen element is already null. A session
+		// therefore owns the fullscreen from the request, not from the entry
+		// notification, and one loss ends the presentation either way.
+		const onFullscreenChange = () => {
+			if (document.fullscreenElement === root) {
+				// A request can complete after its presentation ended. Release
+				// that fullscreen instead of leaving the editor in it.
+				if (!presenting) leaveFullscreen();
+				else fullscreenActive = true;
+				return;
+			}
+			if (!fullscreenActive) return;
+			fullscreenActive = false;
+			// Change events arrive late. A loss that follows an exit that this
+			// editor requested belongs to the previous session, so it must not
+			// end the next presentation. Only a loss that the user caused, such
+			// as Escape, ends the current one.
+			if (performance.now() - selfExitAt < SELF_EXIT_WINDOW_MS) return;
+			if (presenting) exitPresent();
+		};
+		document.addEventListener('fullscreenchange', onFullscreenChange);
 		const visualViewport = window.visualViewport;
 		const resizeObserver = new ResizeObserver(keepFocusedControlVisible);
 		if (root) resizeObserver.observe(root);
@@ -420,6 +463,8 @@
 			gestures.cancel();
 			window.removeEventListener('mdsh:presentation-action', nativeAction);
 			window.removeEventListener('mdsh:flush-editor', flush);
+			document.removeEventListener('fullscreenchange', onFullscreenChange);
+			leaveFullscreen();
 			resizeObserver.disconnect();
 			window.removeEventListener('resize', keepFocusedControlVisible);
 			visualViewport?.removeEventListener('resize', keepFocusedControlVisible);
@@ -454,7 +499,9 @@
 			imageInput?.click();
 			return;
 		}
-		editor.add(type, type === 'text' ? t('slides.newText') : '');
+		const id = editor.add(type, type === 'text' ? t('slides.newText') : '');
+		// The text tool creates an editable object: open it for typing at once.
+		if (type === 'text') void textEdit.begin(id);
 	}
 	async function insertImages(files: File[]) {
 		if (!files.length) return;
@@ -738,8 +785,32 @@
 			busy = false;
 		}
 	}
+	function enterFullscreen() {
+		const element = root;
+		// This call runs in the click handler. A deferred request loses user
+		// activation and rejects, leaving the overlay as the fallback.
+		if (!element || typeof element.requestFullscreen !== 'function') return;
+		// Claim the session before the request settles. WebKit can report the
+		// entry and the exit in one task, after the fullscreen element is already
+		// null, so a loss must not depend on having seen the entry notification.
+		fullscreenActive = true;
+		element.requestFullscreen().catch(() => {
+			fullscreenActive = false;
+		});
+	}
+	function leaveFullscreen() {
+		if (document.fullscreenElement !== root) return;
+		selfExitAt = performance.now();
+		const request = document.exitFullscreen?.();
+		if (request) void request.catch(() => {});
+	}
+	function toggleFullscreen() {
+		if (document.fullscreenElement === root) leaveFullscreen();
+		else enterFullscreen();
+	}
 	function present() {
 		if (editor.error || sourceOpen) return;
+		enterFullscreen();
 		textEdit.finish();
 		// The filmstrip hides during playback, so no filmstrip gesture survives it.
 		clearFilmstripGesture();
@@ -749,7 +820,8 @@
 	}
 	function exitPresent() {
 		presenting = false;
-		if (document.fullscreenElement === root) void document.exitFullscreen?.();
+		fullscreenActive = false;
+		leaveFullscreen();
 		void tick().then(() =>
 			root?.querySelector<HTMLButtonElement>('[data-testid="slide-present"]')?.focus()
 		);
@@ -923,7 +995,7 @@
 						data-testid="slide-advanced"
 						aria-label={t('slides.advanced')}
 						title={t('slides.advanced')}
-						><Ellipsis size={18} /><span class="compact-label">{t('slides.advanced')}</span
+						><Settings2 size={18} /><span class="compact-label">{t('slides.advanced')}</span
 						></summary
 					>
 					<div class="action-menu">
@@ -985,11 +1057,12 @@
 			{@render action('present-notes', showNotes ? 'slides.hideNotes' : 'slides.showNotes', () => {
 				showNotes = !showNotes;
 			})}
-			{#if root?.requestFullscreen}<button
+			{#if typeof root?.requestFullscreen === 'function'}<button
+					data-testid="slide-present-fullscreen"
 					title={t('slides.fullscreen')}
 					aria-label={t('slides.fullscreen')}
-					onclick={() => void root?.requestFullscreen().catch(() => {})}
-					><Maximize size={18} /></button
+					aria-pressed={fullscreenActive}
+					onclick={toggleFullscreen}><Maximize size={18} /></button
 				>{/if}
 		{/if}
 		{#if presenting}<button
@@ -1364,6 +1437,7 @@
 									deck={editor.deck}
 									{fileId}
 									priority="active"
+									suppressPlaceholder={presenting}
 									{...textEdit.editingId ? { hideTextId: textEdit.editingId } : {}}
 								/>
 							</div>
@@ -1651,7 +1725,9 @@
 	details[open] > summary,
 	button[aria-pressed='true'] {
 		background: var(--color-bg-3);
-		color: var(--color-accent);
+		/* The light theme accent keeps 4.5:1 on raised surfaces but only 4.05:1
+		   on this pressed background, so the dimmed accent keeps the state AA. */
+		color: var(--color-accent-dim);
 	}
 	summary:focus-visible {
 		outline: 2px solid var(--color-focus);
@@ -1931,6 +2007,11 @@
 		cursor: move;
 		touch-action: none;
 	}
+	/* A text object opens for editing on double-click, so its hover cue is a
+	   text cursor rather than the move cursor used by shapes. */
+	button.slide-object[data-object-type='text'] {
+		cursor: text;
+	}
 	button.slide-object:hover {
 		outline: calc(1px / var(--slide-scale)) solid #2563eb80;
 	}
@@ -2203,6 +2284,27 @@
 		.presentation-tools button,
 		.selection-tools button {
 			padding-inline: 8px;
+		}
+	}
+	@media (max-width: 640px) {
+		/* Issue #741: keep one compact row with 44 px touch targets on a narrow
+		   screen. The density spec requires a single row at every width and at
+		   real 200 percent zoom, so the row scrolls instead of wrapping. */
+		.presentation-tools {
+			flex-wrap: nowrap;
+		}
+		.presentation-tools button,
+		.selection-tools button {
+			min-height: 44px;
+			min-width: 44px;
+			flex: none;
+		}
+	}
+	@media (pointer: coarse) {
+		.presentation-tools button,
+		.selection-tools button {
+			min-height: 44px;
+			min-width: 44px;
 		}
 	}
 	@container (max-width: 260px) {

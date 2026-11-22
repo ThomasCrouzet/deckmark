@@ -2,4 +2,5 @@
 src-tauri/vendor/glib/** -text
 patches/glib/variant-str-iter.patch -text
 patches/milkdown/image-proxy-race.patch -text
+patches/milkdown/deferred-katex.patch -text
 scripts/benchmark-fixtures/** -text

@@ -10,6 +10,10 @@
 	// pointer is a trackpad or mouse. The attribute lets the shared CSS and
 	// the component styles agree on one policy.
 	onMount(() => {
+		// §714 - Remove the static home state that `app.html` serves once the app
+		// mounts, so the page never shows two headings or two link lists. The
+		// shell remains when JavaScript is off.
+		document.getElementById('seo-shell')?.remove();
 		if (typeof window.matchMedia !== 'function') return;
 		const query = window.matchMedia('(any-pointer: coarse)');
 		const update = () => {

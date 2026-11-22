@@ -1,5 +1,21 @@
 # Test policy and evidence
 
+## Run the tests in five commands
+
+Run these commands from the repository root after `npm ci`. Each command reports
+its own failure.
+
+```sh
+npm run check    # Type and Svelte checks, then the KaTeX asset check
+npm run lint     # ESLint and Prettier checks
+npm test         # Vitest, the CI contract tests and the backup scheduler check
+npm run build    # Web Light production build and the native boundary check
+npm run test:e2e # Browser workflows against the current build
+```
+
+Use `npm run test:e2e -- <spec>` for one browser workflow. The sections below
+record the retained failure risks, the full commands and the evidence paths.
+
 ## Touch project action geometry
 
 The mobile project action case measures the three action buttons after the
@@ -905,7 +921,7 @@ that setup before the required CRLF checks. Keep duplicate keys, saved CRLF byte
 the download filename and actual exported bytes as exact assertions. A local
 rejecting OPFS trap received no calls after removal. A corrupt export kept saved
 CRLF text but downloaded LF text and failed the unchanged byte assertion.
-Retained local evidence: `/home/thomas/.hermes/tasks/deckmark-issues-20261107/issue-314/ci-repro-20261108/result.md`
+Retained local evidence: `<evidence-dir>/issue-314/ci-repro-20261108/result.md`
 and its JSON receipts. Three byte-identical archived recovery cases executed;
 three duplicate cases did not run. This is mechanism evidence, not CI acceptance.
 
@@ -1080,7 +1096,7 @@ DEVICE_ONLY manual procedures.
 It checks sensitive symlink targets, ambiguous paths across roots, malformed
 JSON-RPC recovery, and notifications. A browser cannot exercise this process or
 its filesystem boundary. Run `npx vitest run cli/mcp.test.ts --maxWorkers=1`.
-The review evidence in `/tmp/opencode/mcp-review-evidence.json` records the command,
+The review evidence in `<evidence-dir>/mcp-review-evidence.json` records the command,
 revision, environment, fixture source, hashes, and before-and-after results.
 
 ### CLI filesystem boundary risks
@@ -1203,7 +1219,7 @@ can read stored objects without conversion. Check conditional includes, attribut
 macros, index fallback, info attributes, global attributes, and directory paths.
 Compare index and disk bytes after rejected staging. Use separate child
 environments for global and system LFS settings. Do not change environment
-variables inside parallel tests. Evidence is in `/tmp/opencode/git-ci-fix/`.
+variables inside parallel tests. Evidence is in `<evidence-dir>/git-ci-fix/`.
 
 Native AI tests bind keys to canonical endpoints, reject caller-selected key IDs,
 and check that pending HTTP requests yield. They use an in-memory secret store
@@ -1219,7 +1235,7 @@ prompt text in the error. Run
 `cargo test --manifest-path src-tauri/Cargo.toml ai::tests` and
 `cargo test --manifest-path src-tauri/Cargo.toml vault::tests`. The frontend
 `AbortSignal` still needs a Desktop panel check. Keep the report in
-`/tmp/opencode/ai-review-cargo-final-evidence.json`. The operating-system keyring
+`<evidence-dir>/ai-review-cargo-final-evidence.json`. The operating-system keyring
 still needs a desktop session. Old host-only entries require key re-entry.
 
 Web provider redirects are refused before the approved prompt can move to a new
@@ -1468,8 +1484,8 @@ visible content, the active document, and the persisted row after transaction re
 Run `npx playwright test e2e/cross-window-review.spec.ts --project=chromium --workers=1`.
 Keep `sync-evidence.json`, the screenshot, trace, and source metadata with the report.
 Both cases failed before the correction and passed in the development check.
-The reports are in `/tmp/opencode/cross-window-review-red/` and
-`/tmp/opencode/cross-window-review-green/`. The production suite checks them again.
+The reports are in `<evidence-dir>/cross-window-review-red/` and
+`<evidence-dir>/cross-window-review-green/`. The production suite checks them again.
 
 ## Durable draft projection risks
 
@@ -3167,7 +3183,7 @@ that interval. `exportDownloads` records the filename, byte count, and SHA-256.
 On failure, the JSON report retains browser state and errors, then the command
 fails. An incomplete run has no budget result.
 
-Run `node scripts/benchmark-local.mjs --browser webkit --runs 5 --build-mode production-static --output /tmp/opencode/web-benchmark-webkit.json`
+Run `node scripts/benchmark-local.mjs --browser webkit --runs 5 --build-mode production-static --output ${TMPDIR:-/tmp}/bench/web-benchmark-webkit.json`
 against a recorded production build. Keep its build hashes with the report.
 
 ### Compact toolbars
@@ -3597,7 +3613,7 @@ The legacy HTML background case checks that table, header, and cell background
 attributes are removed before preview and HTML export. Visible text must remain.
 Passive `cite`, `href`, and `usemap` controls check for automatic requests.
 The red-first development proof and downloaded HTML are in
-`/tmp/opencode/media-background/`. Repeat the seven scoped cases with:
+`<evidence-dir>/media-background/`. Repeat the seven scoped cases with:
 
 ```sh
 MEDIA_REVIEW_PHASE=green npx playwright test --config test-results/expert-review/media-consent/background.config.ts
@@ -3607,7 +3623,7 @@ The `srcset` case repeats HTML export after the first error is dismissed. Both
 attempts must report the same error without a request or download. The existing
 isolated media test compares the complete issue arrays and HTML across repeated
 preparation, including the expired-blob marker. Its old count of three omitted
-two retained `srcset` diagnostics. Evidence is in `/tmp/opencode/media-diagnostics/`.
+two retained `srcset` diagnostics. Evidence is in `<evidence-dir>/media-diagnostics/`.
 
 `e2e/media-consent-review.spec.ts` records requests from HTML media and escaped
 SVG paint URLs. It also checks that unsupported `srcset` causes an export error,
