@@ -1272,10 +1272,12 @@ test('scroll controls reach both ends of long notes in every mode', async ({
 	}
 
 	await page.setViewportSize({ width: 390, height: 700 });
-	await expect(top).toBeVisible();
-	const box = await top.boundingBox();
-	expect(box?.width ?? 0).toBeGreaterThanOrEqual(36);
-	expect(box?.height ?? 0).toBeGreaterThanOrEqual(36);
+	// Issue #755: a phone gets one contextual control instead of two FABs.
+	const toggle = page.getByTestId('scroll-nav-toggle');
+	await expect(toggle).toBeVisible();
+	const box = await toggle.boundingBox();
+	expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+	expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
 
 	await info.attach('scroll-navigation.json', {
 		body: JSON.stringify({

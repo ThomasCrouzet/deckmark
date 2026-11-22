@@ -48,12 +48,20 @@
 						<span>{t('library.browseCount', { n: documentCount })}</span>
 					</button>
 				{/if}
-				<button data-testid="welcome-new" class="welcome-action" onclick={onNew}>
+				<button
+					data-testid="welcome-new"
+					class="welcome-action welcome-action-primary"
+					onclick={onNew}
+				>
 					<span class="welcome-action-icon"><FilePlus size={16} /></span>
 					<span class="flex-1">{t('welcome.newFile')}</span>
 					<kbd>{keyboardStore.label('new') ?? ''}</kbd>
 				</button>
-				<button data-testid="welcome-import" class="welcome-action" onclick={onImport}>
+				<button
+					data-testid="welcome-import"
+					class="welcome-action welcome-action-secondary"
+					onclick={onImport}
+				>
 					<span class="welcome-action-icon"><Upload size={16} /></span>
 					<span class="flex-1">{t('welcome.importMd')}</span>
 					<kbd>{keyboardStore.label('import') ?? ''}</kbd>
@@ -149,6 +157,9 @@
 		background: linear-gradient(90deg, var(--color-accent), var(--color-border) 42%, transparent);
 	}
 	.welcome-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
 		padding-bottom: 0.2rem;
 	}
 	.welcome-action {
@@ -158,18 +169,33 @@
 		align-items: center;
 		gap: 0.75rem;
 		border: 1px solid var(--color-border);
-		border-bottom: 0;
 		background: var(--color-bg-1);
 		padding: 0.6rem 0.75rem;
 		text-align: left;
 		color: var(--color-fg);
 	}
-	.welcome-action:last-child {
-		border-bottom: 1px solid var(--color-border);
+	/* The happy path is the filled accent. On the dark theme the on-accent text
+	   keeps the 7.23:1 amber ratio; the light theme resolves its own pair. */
+	.welcome-action-primary {
+		border-color: var(--color-accent);
+		background: var(--color-accent);
+		color: var(--color-on-accent);
+		font-weight: 600;
+	}
+	.welcome-action-primary .welcome-action-icon {
+		border-right-color: color-mix(in oklab, var(--color-on-accent) 28%, transparent);
+		color: var(--color-on-accent);
+	}
+	.welcome-action-primary kbd {
+		color: color-mix(in oklab, var(--color-on-accent) 88%, transparent);
 	}
 	.welcome-action:hover {
 		border-color: var(--color-accent-dim);
 		background: var(--color-bg-2);
+	}
+	.welcome-action-primary:hover {
+		border-color: var(--color-focus);
+		background: var(--color-focus);
 	}
 	.welcome-action-secondary {
 		color: var(--color-fg-muted);
@@ -213,6 +239,13 @@
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		color: var(--color-fg-dim);
+	}
+	@media (max-width: 768px) {
+		/* Shortcut chips are hidden below this width (see app.css), so the legend
+		   would show labels without keys. */
+		.welcome-shortcuts {
+			display: none;
+		}
 	}
 	@media (max-width: 920px) {
 		.welcome-grid {

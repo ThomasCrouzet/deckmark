@@ -2205,6 +2205,27 @@
 			padding-inline: 8px;
 		}
 	}
+	@container (max-width: 640px) {
+		/* Issue #741: wrap the tools into two rows instead of hiding them behind a
+		   horizontal scroll, and keep 44 px touch targets. */
+		.presentation-tools {
+			flex-wrap: wrap;
+			overflow-x: visible;
+			row-gap: 4px;
+			padding-block: 4px;
+		}
+		.presentation-tools button {
+			min-height: 44px;
+			min-width: 44px;
+		}
+	}
+	@media (pointer: coarse) {
+		.presentation-tools button,
+		.selection-tools button {
+			min-height: 44px;
+			min-width: 44px;
+		}
+	}
 	@container (max-width: 260px) {
 		.header-actions,
 		.presentation-tools,
