@@ -112,6 +112,9 @@
 	let multiSelect = $state(false);
 	let presenting = $state(false);
 	let fullscreenActive = $state(false);
+	// Time of the last fullscreen exit that this editor requested.
+	let selfExitAt = -Infinity;
+	const SELF_EXIT_WINDOW_MS = 1500;
 	let showNotes = $state(false);
 	let busy = $state(false);
 	let overflow = $state(false);
@@ -421,11 +424,21 @@
 		// handlers run. End the presentation too so one Escape has one meaning.
 		const onFullscreenChange = () => {
 			const nowActive = document.fullscreenElement === root;
-			// Only a real loss of an active fullscreen ends the presentation. A
-			// late change event from a previous exit must not cancel the next one.
-			if (!nowActive && !fullscreenActive) return;
-			fullscreenActive = nowActive;
-			if (!nowActive && presenting) exitPresent();
+			if (nowActive) {
+				// A request can complete after its presentation ended. Release
+				// that fullscreen instead of leaving the editor in it.
+				if (!presenting) leaveFullscreen();
+				else fullscreenActive = true;
+				return;
+			}
+			const wasActive = fullscreenActive;
+			fullscreenActive = false;
+			// Change events arrive late. A loss that follows an exit that this
+			// editor requested belongs to the previous session, so it must not
+			// end the next presentation. Only a loss that the user caused, such
+			// as Escape, ends the current one.
+			if (performance.now() - selfExitAt < SELF_EXIT_WINDOW_MS) return;
+			if (wasActive && presenting) exitPresent();
 		};
 		document.addEventListener('fullscreenchange', onFullscreenChange);
 		const visualViewport = window.visualViewport;
@@ -781,6 +794,7 @@
 	}
 	function leaveFullscreen() {
 		if (document.fullscreenElement !== root) return;
+		selfExitAt = performance.now();
 		const request = document.exitFullscreen?.();
 		if (request) void request.catch(() => {});
 	}
