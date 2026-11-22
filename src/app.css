@@ -94,8 +94,10 @@
 	--color-fg-muted: #514b42;
 	--color-fg-subtle: #5c554a;
 	--color-fg-dim: #60594f;
-	--color-accent: #735019;
-	--color-accent-dim: #78551f;
+	/* Keep the amber hue in the light theme. #8a5f22 keeps 4.9:1 on the page
+	   background and 4.5:1 on the raised surface, so it stays AA. */
+	--color-accent: #8a5f22;
+	--color-accent-dim: #7b5520;
 	--color-focus: #654212;
 	--color-on-accent: #fffcf6;
 	--color-on-danger: #fffcf6;
@@ -367,11 +369,23 @@ body.typewriter-mode .mdsh-editor {
 	box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-accent) 14%, transparent);
 }
 
+/* ==========================================================================
+   Modal surface tokens
+   One radius, border and elevation recipe for every modal panel. The palette
+   and the settings panel are the reference look; the New file dialog and the
+   other lazy panels opt in with `.mdsh-dialog-panel`.
+   ========================================================================== */
+:root {
+	--mdsh-dialog-radius: 0px;
+	--mdsh-dialog-border: 1px solid var(--color-border-strong);
+	--mdsh-dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.56);
+}
+
 .mdsh-dialog-panel {
 	position: relative;
-	border-radius: 0 !important;
-	border-color: var(--color-border-strong) !important;
-	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.56) !important;
+	border-radius: var(--mdsh-dialog-radius) !important;
+	border: var(--mdsh-dialog-border) !important;
+	box-shadow: var(--mdsh-dialog-shadow) !important;
 	clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
 }
 
@@ -531,6 +545,16 @@ html[data-touch-capable='true'] .mdsh-scroll-nav button {
 @media (max-width: 639px) {
 	.search-input-row input[role='combobox'] {
 		flex-basis: calc(100% - 2rem);
+	}
+}
+
+/* §741 - Shortcut chips describe a physical keyboard. Hide them on narrow or
+   touch-first viewports, where they wrap the layout and cannot be used. Every
+   shortcut hint in the app is a `kbd` element, so one rule covers the empty
+   state, the file lists and the dialogs. */
+@media (max-width: 768px), (any-pointer: coarse) {
+	kbd {
+		display: none;
 	}
 }
 

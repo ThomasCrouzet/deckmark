@@ -51,6 +51,8 @@ export const fr: Record<MessageKey, string> = {
 	'templates.builtinGroup': 'Modèles intégrés',
 	'templates.userGroup': 'Modèles enregistrés',
 	'templates.noMatch': 'Aucun modèle ne correspond à la recherche.',
+	'templates.showAll': 'Afficher les {n} modèles',
+	'templates.showFewer': 'Afficher moins de modèles',
 	'templates.loading': 'Chargement des modèles…',
 	'templates.readme': 'README',
 	'templates.readmeDescription': 'Présentation, installation et utilisation du projet',

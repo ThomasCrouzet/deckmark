@@ -52,6 +52,8 @@ export const en = {
 	'templates.builtinGroup': 'Built-in templates',
 	'templates.userGroup': 'Saved templates',
 	'templates.noMatch': 'No template matches the search.',
+	'templates.showAll': 'Show all {n} templates',
+	'templates.showFewer': 'Show fewer templates',
 	'templates.loading': 'Loading templates...',
 	'templates.readme': 'README',
 	'templates.readmeDescription': 'Project overview, install, and usage',
