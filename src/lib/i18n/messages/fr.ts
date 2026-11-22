@@ -319,6 +319,7 @@ export const fr: Record<MessageKey, string> = {
 	'settings.shortcutStorage':
 		'Le raccourci n’a pas pu être enregistré. Vos réglages précédents sont conservés.',
 	'settings.shortcutDuplicate':
+		'Une autre commande utilise ce raccourci. Désactivez-le d’abord ou choisissez-en un autre.',
 	'settings.shortcutConflict':
 		'Une autre commande utilise déjà ce raccourci : {command}. Désactivez-le d’abord ou choisissez-en un autre.',
 	'settings.shortcutReserved':
@@ -803,6 +804,8 @@ export const fr: Record<MessageKey, string> = {
 	'ai.stop': 'Arrêter',
 	'ai.retry': 'Réessayer',
 	'ai.reply': 'Réponse',
+	'ai.streamStarted': 'Réponse en cours.',
+	'ai.streamFinished': 'Réponse terminée.',
 	'ai.history': 'Historique local de la session',
 	'ai.noContext': 'Aucun contenu de document n’est choisi pour cette requête.',
 	'ai.noSelection': 'Sélectionnez du texte dans l’éditeur avant d’utiliser la portée sélection.',

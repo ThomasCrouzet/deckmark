@@ -235,11 +235,12 @@
 		runtime = null;
 	});
 	let saveLabel = $derived.by(() => {
-		if (!filesStore.active) return '';
-		// Restored drafts are durable before this session records a save time.
-		return filesStore.lastSavedAt === 0
-			? t('stats.saved')
-			: formatSaveAge(filesStore.lastSavedAt, now);
+		const active = filesStore.active;
+		if (!active) return '';
+		const savedAt = filesStore.savedAtFor(active.id);
+		// §731 - Each document shows its own write time. A restored draft is
+		// durable before this session records a save for it.
+		return savedAt === 0 ? t('stats.saved') : formatSaveAge(savedAt, now);
 	});
 </script>
 
@@ -303,7 +304,7 @@
 			{:else if filesStore.hasPendingSave}
 				<span class="text-accent" aria-live="off">{t('statusBar.saving')}</span>
 			{:else}
-				<span>{t('statusBar.local', { state: saveLabel })}</span>
+				<span data-testid="save-state">{t('statusBar.local', { state: saveLabel })}</span>
 			{/if}
 		</div>
 	</footer>

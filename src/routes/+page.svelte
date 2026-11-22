@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { page } from '$app/state';
 	import { readPreference, writePreference } from '#lib/preferences.js';
 	import { browser } from '$app/env';
@@ -144,10 +144,16 @@
 		}
 		mode = nextMode;
 	}
+	// §734 - A mode forced by the render constraint must not replace the saved
+	// preference. Only an explicit user choice reaches `mdsh:mode`. This marker
+	// is not reactive: it names the one transition the persistence effect skips.
+	let forcedMode: EditMode | null = null;
 	$effect(() => {
 		const activeId = filesStore.activeId;
-		if (kind === 'note' && activeId && filesStore.requiresRenderConfirmation(activeId))
+		if (kind === 'note' && activeId && filesStore.requiresRenderConfirmation(activeId)) {
+			if (untrack(() => mode) !== 'source') forcedMode = 'source';
 			mode = 'source';
+		}
 	});
 	// §B1.10 / B2.2 - Text announced to SRs on each mode switch + one-off
 	// contextual announcement (e.g. "⌘F switched to source mode for search").
@@ -392,6 +398,13 @@
 	$effect(() => {
 		if (!hydrated) return;
 		writePreference('mdsh:sidebar', sidebarOpen ? 'open' : 'closed');
+		// §734 - The render constraint may force Source for a large document. A
+		// forced transition is not a preference and must not survive a reload.
+		if (forcedMode === mode) {
+			forcedMode = null;
+			return;
+		}
+		forcedMode = null;
 		writePreference('mdsh:mode', mode);
 	});
 

@@ -176,6 +176,11 @@ class FilesStore {
 	// storage disabled, corrupted profile). Shown as a banner by +page.
 	loadError = $state<string | null>(null);
 	lastSavedAt = $state<number>(0);
+	/**
+	 * §731 - Time of the last successful local write per document. One shared
+	 * timestamp showed the save time of another document after a tab switch.
+	 */
+	private savedAtById = $state(new Map<string, number>());
 	trash = $state<TrashEntry[]>([]);
 	trashBusy = $state(false);
 	private pendingTrashBatch: Promise<boolean> | null = null;
@@ -274,6 +279,8 @@ class FilesStore {
 		// resynchronize this draft (and do not overwrite our write).
 		onDraftSaved: (id, updatedAt, revision) => {
 			if (revision) this.savedRevisions.set(id, revision);
+			// §731 - The status bar shows this document's own write time.
+			this.savedAtById.set(id, Date.now());
 			// A superseded write never reaches this callback, so the newest
 			// content of this id is now in IndexedDB.
 			this.locallyDirty.delete(id);
@@ -298,6 +305,14 @@ class FilesStore {
 
 	get active(): FileItem | null {
 		return this.files.find((f) => f.id === this.activeId) ?? null;
+	}
+
+	/**
+	 * §731 - Time of the last successful local write of one document, or 0 when
+	 * this session has no write for it yet. The status bar reads this per id.
+	 */
+	savedAtFor(id: string | null | undefined): number {
+		return id ? (this.savedAtById.get(id) ?? 0) : 0;
 	}
 
 	constructor() {
@@ -1027,6 +1042,9 @@ class FilesStore {
 		this.dispatchEditorFlush();
 		this.rememberActive();
 		this.activeId = id;
+		// §731 - Diagnostics read this scalar. Keep it aligned with the document
+		// whose status the user now sees.
+		this.lastSavedAt = this.savedAtFor(id);
 		this.persistActiveId();
 	}
 
