@@ -5,6 +5,7 @@
 	import { i18n, t } from '#lib/i18n/index.js';
 	import { reportError } from '#lib/report.js';
 	import { editorStateCache } from '#lib/editor-state.js';
+	import { consumeEditorFocus } from '#lib/ui/editor-focus.js';
 	import { documentKind } from '#lib/document-kind.js';
 	import { notify } from '#lib/notify.svelte.js';
 	import type { SourceText } from '#lib/code/source-text.js';
@@ -576,6 +577,10 @@
 		// Double-call protection (mount + onDestroy race possible on HMR / fast switch).
 		if (view || !host) return;
 
+		// A mode switch carries a one-shot caret request. It is consumed after
+		// the view exists, so the request cannot be lost to the lazy chunk.
+		const caretRequest = consumeEditorFocus(fileId, 'source');
+
 		// Theme and phrases load with the CodeMirror chunk, not at boot.
 		const theme = cm.sourceTheme();
 
@@ -699,6 +704,7 @@
 		// A deferred body mounts empty before its exact text arrives. Applying a
 		// saved offset to that empty document would collapse the selection.
 		pendingSavedPosition = content.length === 0 ? (savedPosition ?? null) : null;
+		const keepSelection = Boolean(savedPosition || pendingSavedPosition);
 		restoringPosition = Boolean(savedPosition || pendingSavedPosition);
 		const restored = cm.restoreHistoryState({
 			EditorState: cm.EditorState,
@@ -795,11 +801,13 @@
 
 		// Honor a request to open the search panel issued before the lazy-load
 		// completed (typical case: WYSIWYG -> source switch via ⌘F).
+		const openedSearch = pendingOpenSearch;
 		if (pendingOpenSearch) {
 			pendingOpenSearch = false;
 			cm.openSearchPanel(view);
 		}
 		// §B3.7 - Honor a buffered goToLine (SearchPanel hit click during lazy-load).
+		const handledGoTo = Boolean(pendingGoTo);
 		if (pendingGoTo) {
 			const { line, query } = pendingGoTo;
 			pendingGoTo = null;
@@ -818,6 +826,18 @@
 				});
 				cm.openSearchPanel(view);
 			}
+		}
+		if (caretRequest && !openedSearch && !handledGoTo) {
+			if (!keepSelection) {
+				// A mode switch without a stored position starts at the end of
+				// the document, where the user stopped reading or typing.
+				const end = view.state.doc.length;
+				view.dispatch({
+					selection: { anchor: end },
+					effects: cm.EditorView.scrollIntoView(end)
+				});
+			}
+			view.focus();
 		}
 		pendingTypewriter = false;
 	}

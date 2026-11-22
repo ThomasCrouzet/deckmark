@@ -1377,23 +1377,27 @@
 		fullImageScan();
 		startContainmentCheck(token);
 		mountedFileId = idForMount;
+		const hadSavedPosition = editorStateCache.getPosition(idForMount, 'wysiwyg') !== null;
 		await restoreEditorPosition(instance, idForMount, token);
 		// Re-enable editing before the caret request. A read-only ProseMirror
 		// element cannot take focus, so the new note would lose its caret.
 		instance.setReadonly(readonly);
 		// A new note waits for the lazy editor before it can take the caret.
-		// The request survives the modal close and the asynchronous mount.
+		// The request survives the modal close and the asynchronous mount. A
+		// mode switch keeps the restored selection instead of moving to the end.
 		const focusedControl = document.activeElement;
 		if (
 			token === mountToken &&
-			consumeEditorFocus(idForMount) &&
+			consumeEditorFocus(idForMount, 'wysiwyg') &&
 			(!focusedControl ||
 				container.contains(focusedControl) ||
 				!focusedControl.closest('input, textarea, [contenteditable="true"], [role="dialog"]'))
 		) {
 			const editorView = instance.editor.action((ctx) => ctx.get(editorViewCtx));
-			const selection = TextSelection.atEnd(editorView.state.doc);
-			editorView.dispatch(editorView.state.tr.setSelection(selection).scrollIntoView());
+			if (!hadSavedPosition) {
+				const selection = TextSelection.atEnd(editorView.state.doc);
+				editorView.dispatch(editorView.state.tr.setSelection(selection).scrollIntoView());
+			}
 			editorView.focus();
 		}
 		const flushCurrentContent = (event: Event) => {

@@ -206,13 +206,20 @@
 	function anchorKey(comment: CommentRow): string {
 		return anchors[comment.id]?.state ?? 'detached';
 	}
+
+	// Escape closes an empty form only. A drafted body survives the key,
+	// because a close discards it when the file binds again. A composing Escape
+	// belongs to the input method.
+	function handleEscape(event: KeyboardEvent): void {
+		if (!open || event.key !== 'Escape') return;
+		if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
+		event.preventDefault();
+		if (body.trim()) return;
+		onClose();
+	}
 </script>
 
-<svelte:window
-	onkeydown={(event) => {
-		if (open && event.key === 'Escape') onClose();
-	}}
-/>
+<svelte:window onkeydown={handleEscape} />
 
 {#if open}
 	<div class="comments-backdrop" use:visualViewportPanel={'.comments-panel'}>
@@ -223,9 +230,7 @@
 			aria-labelledby="comments-title"
 			tabindex="-1"
 			use:focusTrap
-			onkeydown={(event) => {
-				if (event.key === 'Escape') onClose();
-			}}
+			onkeydown={handleEscape}
 			data-testid="comments-panel"
 		>
 			<header>

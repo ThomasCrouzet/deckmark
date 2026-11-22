@@ -31,6 +31,28 @@ function isBinding(value: unknown): value is ShortcutBinding {
 	);
 }
 
+/**
+ * Physical keys for the punctuation bindings. Some layouts produce these
+ * characters with Shift (AZERTY needs Shift for '/'), so the character alone
+ * cannot identify the chord.
+ */
+const PUNCTUATION_CODES: Record<string, string> = {
+	'/': 'Slash',
+	',': 'Comma',
+	'.': 'Period',
+	';': 'Semicolon'
+};
+
+function matchesBinding(binding: ShortcutBinding, event: KeyboardEvent): boolean {
+	const code = PUNCTUATION_CODES[binding.key];
+	if (code) {
+		// The physical key is the identity. Do not require `shift` to be false
+		// for a character that another layout produces with Shift.
+		return event.code === code || event.key.toLowerCase() === binding.key;
+	}
+	return binding.shift === event.shiftKey && binding.key === event.key.toLowerCase();
+}
+
 class KeyboardStore {
 	overrides = $state<Overrides>({});
 	get storageKey() {
@@ -60,13 +82,7 @@ class KeyboardStore {
 		if (!primary || (event.metaKey && event.ctrlKey)) return undefined;
 		return coreCommands.find((command) => {
 			const binding = this.binding(command.id);
-
-			return (
-				binding &&
-				binding.shift === event.shiftKey &&
-				(binding.key === event.key.toLowerCase() ||
-					(binding.key === '.' && event.code === 'Period'))
-			);
+			return binding !== null && matchesBinding(binding, event);
 		});
 	}
 	validate(id: string, binding: ShortcutBinding | null): ShortcutError | null {
