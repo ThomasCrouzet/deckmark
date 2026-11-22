@@ -133,8 +133,11 @@ Both run from a source checkout. See the [CLI](docs/CLI.md) and [MCP](docs/MCP.m
 | **Web Light**, Firefox and Safari | Selected workflows | Download fallback |
 | **Desktop Complete (Beta)**, macOS, Windows, Linux | Tauri app with native WebView tests | Native in-place saves |
 
-Desktop releases ship four installers (Apple Silicon DMG, Windows NSIS, Linux deb and
-AppImage) with `SHA256SUMS` and build provenance. Installers are unsigned: Gatekeeper
+Desktop releases ship four installers: for macOS the Apple Silicon DMG
+(`DeckMark_<version>_macOS_Apple-Silicon.dmg`), for Windows the NSIS setup
+(`DeckMark_<version>_x64-setup.exe`), and for Linux the deb package and portable
+AppImage (`DeckMark_<version>_amd64.deb`, `DeckMark_<version>_amd64.AppImage`),
+each with `SHA256SUMS` and build provenance. Installers are unsigned: Gatekeeper
 and SmartScreen can warn on first launch. Bundle files use the
 `DeckMark_<version>_<platform>` name. If macOS blocks the app, choose **Open Anyway**
 in **System Settings > Privacy & Security**, or run
