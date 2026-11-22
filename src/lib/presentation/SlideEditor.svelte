@@ -1705,7 +1705,9 @@
 	details[open] > summary,
 	button[aria-pressed='true'] {
 		background: var(--color-bg-3);
-		color: var(--color-accent);
+		/* The light theme accent keeps 4.5:1 on raised surfaces but only 4.05:1
+		   on this pressed background, so the dimmed accent keeps the state AA. */
+		color: var(--color-accent-dim);
 	}
 	summary:focus-visible {
 		outline: 2px solid var(--color-focus);
