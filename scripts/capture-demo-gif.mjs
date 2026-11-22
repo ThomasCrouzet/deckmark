@@ -7,6 +7,7 @@ import {
 	ROOT,
 	VIEWPORT,
 	ensureMode,
+	launchDeck,
 	fileEvidence,
 	newCapturePage,
 	openPalette,
@@ -42,119 +43,6 @@ const CONFIG = {
 	deliverables: ['field notes', 'project archive', 'launch briefing'],
 	offline: true
 };
-
-/** The fixture is an ordinary Markdown deck with editable text and shapes. */
-function launchDeck() {
-	let nextId = 0;
-	const element = (type, x, y, width, height, options = {}) => ({
-		id: `orbit-element-${++nextId}`,
-		type,
-		x,
-		y,
-		width,
-		height,
-		rotation: 0,
-		fill: 'transparent',
-		stroke: 'none',
-		strokeWidth: 0,
-		color: '#142e38',
-		fontSize: 28,
-		textAlign: 'left',
-		content: '',
-		...options
-	});
-	const text = (x, y, width, height, content, fontSize = 28, options = {}) =>
-		element('text', x, y, width, height, { content, fontSize, ...options });
-	const shape = (type, x, y, width, height, fill, options = {}) =>
-		element(type, x, y, width, height, { fill, ...options });
-	const footer = (number) => [
-		shape('rectangle', 72, 642, 1136, 2, '#c9d2cc'),
-		text(72, 658, 700, 44, 'ORBIT / LAUNCH BRIEFING', 17),
-		text(1130, 658, 78, 44, `0${number}`, 17, { textAlign: 'right' })
-	];
-	const slides = [
-		{
-			id: 'orbit-cover',
-			background: '#f8f5ed',
-			notes: 'Introduce Orbit. A small launch with a clear plan.',
-			elements: [
-				text(72, 66, 650, 44, 'A SMALL IDEA. A NEW DIRECTION.', 20),
-				text(64, 182, 740, 164, '**ORBIT**', 112),
-				text(72, 350, 660, 132, 'From field notes  \nto launch day.', 40),
-				shape('rounded-rectangle', 80, 514, 350, 56, '#f77542'),
-				text(92, 518, 330, 48, '**READY FOR LAUNCH**', 20),
-				shape('ellipse', 832, 168, 300, 300, 'transparent', {
-					stroke: '#b7c7c0',
-					strokeWidth: 2
-				}),
-				shape('ellipse', 784, 120, 396, 396, 'transparent', {
-					stroke: '#b7c7c0',
-					strokeWidth: 2
-				}),
-				shape('ellipse', 894, 230, 176, 176, '#142e38'),
-				shape('ellipse', 1082, 202, 68, 68, '#f77542'),
-				shape('ellipse', 810, 436, 34, 34, '#448c7b'),
-				...footer(1)
-			]
-		},
-		{
-			id: 'orbit-plan',
-			background: '#f8f5ed',
-			notes: 'Show the path from connected notes to a checked project and a shared briefing.',
-			elements: [
-				text(72, 64, 900, 48, 'THE FLIGHT PLAN', 20),
-				text(68, 134, 1120, 112, '**A clear path from idea to launch.**', 51),
-				...[
-					['01', 'CONNECT', 'Link the notes.  \nKeep the context.', '#e3ece5'],
-					['02', 'CHECK', 'Review the project.  \nExport a copy.', '#f7e4d8'],
-					['03', 'PRESENT', 'Build the briefing.  \nTell the story.', '#dfebee']
-				].flatMap(([number, title, description, fill], index) => {
-					const x = 80 + index * 382;
-					return [
-						shape('rounded-rectangle', x, 296, 354, 282, fill),
-						text(x + 24, 312, 300, 80, number, 40),
-						text(x + 24, 400, 300, 64, `**${title}**`, 27),
-						text(x + 24, 474, 306, 84, description, 25)
-					];
-				}),
-				...footer(2)
-			]
-		},
-		{
-			id: 'orbit-ready',
-			background: '#e3ece5',
-			notes: 'The notes, project, and briefing are ready. Invite the team to launch.',
-			elements: [
-				text(72, 64, 760, 44, 'THE NEXT CHAPTER STARTS HERE.', 20),
-				text(68, 176, 780, 244, '**Ready for  \nwhat is next.**', 72),
-				text(76, 470, 670, 100, 'Notes connected. Project checked.  \nLet us launch.', 29),
-				shape('ellipse', 858, 214, 298, 298, '#f77542'),
-				text(874, 286, 266, 150, '**GO**', 94, { textAlign: 'center' }),
-				...footer(3)
-			]
-		}
-	];
-	const body = slides
-		.map(
-			(slide) =>
-				`<!-- mdsh-slide:${slide.id} -->\n\n` +
-				slide.elements
-					.filter((item) => item.type === 'text')
-					.map((item) => `<!-- mdsh-element:${item.id} -->\n${item.content}\n`)
-					.join('\n')
-		)
-		.join('\n---\n\n');
-	return `${body}\n\n<!-- mdsh-presentation\n${JSON.stringify({
-		version: 1,
-		width: 1280,
-		height: 720,
-		theme: 'default',
-		slides: slides.map((slide) => ({
-			...slide,
-			elements: slide.elements.map((item) => ({ ...item, content: '' }))
-		}))
-	})}\n-->\n`;
-}
 
 async function prepareProject(session, page) {
 	const { default: JSZip } = await import('jszip');
