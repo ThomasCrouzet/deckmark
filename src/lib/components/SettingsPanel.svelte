@@ -69,17 +69,23 @@
 	let { open, onClose, editorWidth, prefs }: Props = $props();
 
 	let closeButton: HTMLButtonElement | null = $state(null);
-	// A prompt inerts this dialog, so the browser drops focus to the body. When
-	// the prompt closes, put the keyboard back on the dialog's first control.
+	let dialogEl: HTMLDivElement | null = $state(null);
+	// A prompt inerts this dialog, so the browser can drop focus to the body.
+	// The prompt trap restores the control that opened it; this is the fallback
+	// for the case where no such control is reachable.
 	let promptWasOpen = false;
 	$effect(() => {
 		const promptOpen = promptStore.open;
 		if (promptWasOpen && !promptOpen && open) {
 			// The prompt trap restores focus in a microtask. Run after that
-			// restore so this control wins for a trigger inside the dialog.
+			// restore so the check sees its result.
 			void tick().then(() => {
 				requestAnimationFrame(() => {
-					if (open && !promptStore.open) closeButton?.focus();
+					if (!open || promptStore.open) return;
+					const active = document.activeElement;
+					// A restored control inside this dialog keeps the keyboard.
+					if (active && active !== document.body && dialogEl?.contains(active)) return;
+					closeButton?.focus();
 				});
 			});
 		}
@@ -659,6 +665,7 @@
 
 {#if open}
 	<div
+		bind:this={dialogEl}
 		class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pb-4 backdrop-blur-sm
 		       pt-[max(env(safe-area-inset-top),10vh)]"
 		style:padding-left="max(env(safe-area-inset-left), 1rem)"

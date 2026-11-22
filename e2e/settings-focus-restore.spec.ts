@@ -18,8 +18,8 @@ async function activeIn(page: Page, selector: string): Promise<boolean> {
 
 /**
  * Issue #736 (part): the Settings dialog becomes inert while a prompt opens.
- * The browser moves focus to the body, so the prompt close left the keyboard
- * outside the dialog. The panel now returns focus to its first control.
+ * The browser pushes focus out of the dialog, so cancelling the prompt must put
+ * the keyboard back on the control that opened it, inside the dialog.
  */
 test('returns focus to Settings after a prompt closes', async ({ page }, info) => {
 	await resetAppState(page);
@@ -42,11 +42,12 @@ test('returns focus to Settings after a prompt closes', async ({ page }, info) =
 	await expect(passphrase).toBeFocused();
 	expect(await activeIn(page, '[role="dialog"][aria-labelledby="settings-title"]')).toBe(false);
 
-	// Escape cancels the prompt. Focus must come back inside the dialog.
+	// Escape cancels the prompt. Focus must come back inside the dialog, on the
+	// control that requested the prompt.
 	await page.keyboard.press('Escape');
 	await expect(prompt).toBeHidden();
 	await expect(settings).toBeVisible();
-	await expect(close).toBeFocused();
+	await expect(encrypted).toBeFocused();
 	expect(await activeIn(page, '[role="dialog"][aria-labelledby="settings-title"]')).toBe(true);
 
 	// A second prompt keeps the same contract.
@@ -55,13 +56,13 @@ test('returns focus to Settings after a prompt closes', async ({ page }, info) =
 	await expect(prompt).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(prompt).toBeHidden();
-	await expect(close).toBeFocused();
+	await expect(encrypted).toBeFocused();
 
 	await attach(info, 'settings-focus-restore.json', {
 		command:
 			'npx playwright test e2e/settings-focus-restore.spec.ts --project=chromium --workers=1',
 		trigger: 'Export (encrypted) opens the passphrase prompt',
-		restoredControl: 'Settings close button',
+		restoredControl: 'Settings encrypted export button',
 		repeatedPrompt: true
 	});
 	await info.attach('settings-focus-restore.png', { body: await page.screenshot() });
