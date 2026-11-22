@@ -420,8 +420,12 @@
 		// The browser consumes Escape to leave fullscreen before the keydown
 		// handlers run. End the presentation too so one Escape has one meaning.
 		const onFullscreenChange = () => {
-			fullscreenActive = document.fullscreenElement === root;
-			if (!fullscreenActive && presenting) exitPresent();
+			const nowActive = document.fullscreenElement === root;
+			// Only a real loss of an active fullscreen ends the presentation. A
+			// late change event from a previous exit must not cancel the next one.
+			if (!nowActive && !fullscreenActive) return;
+			fullscreenActive = nowActive;
+			if (!nowActive && presenting) exitPresent();
 		};
 		document.addEventListener('fullscreenchange', onFullscreenChange);
 		const visualViewport = window.visualViewport;
