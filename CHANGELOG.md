@@ -5,6 +5,42 @@ All notable changes to **DeckMark** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.6...v2.6.0) (2026-11-22)
+
+
+### Features
+
+* **site:** make the home state indexable and linked ([06bdca8](https://github.com/ThomasCrouzet/deckmark/commit/06bdca8c5b8fb7c7efda30f0e4521c69dc2120a0))
+
+
+### Bug Fixes
+
+* **a11y:** keep the pressed slide toolbar AA in the light theme ([e1eed61](https://github.com/ThomasCrouzet/deckmark/commit/e1eed6187f6425a4594fd4eaf89e28ac61f2e0a0))
+* **app:** wiki cursor warning, ELK stub, iframe sandbox, docs-site CSP, version display ([29c8767](https://github.com/ThomasCrouzet/deckmark/commit/29c87672019b15ab24682ccb91620923eeaf1be9))
+* **ci:** preserve the deferred KaTeX patch bytes on Windows checkouts ([f508a5d](https://github.com/ThomasCrouzet/deckmark/commit/f508a5dcb8cb99691a48b8943ba8d77facd93a02))
+* **comments:** honor a close request during the comment save ([625e217](https://github.com/ThomasCrouzet/deckmark/commit/625e2174751f6d58c944af7836f45d7b720bb5e0))
+* **deps:** update url to 2.5.9 for RUSTSEC-2026-0592 ([eb9d929](https://github.com/ThomasCrouzet/deckmark/commit/eb9d9293036f26e408096d0c8cea85c629802a3e))
+* **dialogs:** keep the creation card text laid out at 200 percent zoom ([28e11c9](https://github.com/ThomasCrouzet/deckmark/commit/28e11c9102dff2096910190071190c49cbe8262d))
+* **e2e:** match the ELK-free build contract and guard stale fullscreen events ([3628c05](https://github.com/ThomasCrouzet/deckmark/commit/3628c0554ad723cfd4594c74b512e3c8583bc9c7))
+* **editor:** keep caret focus across modes, guard unsaved data, AZERTY chords ([e624ac4](https://github.com/ThomasCrouzet/deckmark/commit/e624ac4d0bc3c88f0c89f74f1a8b5d4a8ca52a62))
+* **editor:** keep the source viewport at the document head on a mode switch ([fc4f694](https://github.com/ThomasCrouzet/deckmark/commit/fc4f694919685854f87cf1cd1f25f03093aeafb1))
+* **i18n:** unify French register to vous and fix visible terms ([538893b](https://github.com/ThomasCrouzet/deckmark/commit/538893b7c564c86d6e0bef5450be0071108cf734))
+* **presentation:** end the presentation when WebKit reports one fullscreen loss ([cde389c](https://github.com/ThomasCrouzet/deckmark/commit/cde389c1d696be80aae92bfc6663ee24007f906b))
+* **presentation:** ignore late fullscreen exits from a previous session ([d5c5aa6](https://github.com/ThomasCrouzet/deckmark/commit/d5c5aa66d70c8646d43bfdefc867fc4ed965f611))
+* **presentation:** keep a single dense tools row at every width and zoom ([d7c3286](https://github.com/ThomasCrouzet/deckmark/commit/d7c3286e5a479ed9685e321d124af3613fa95714))
+* **presentation:** real fullscreen, inline text editing, identity survival ([91e9f34](https://github.com/ThomasCrouzet/deckmark/commit/91e9f342fab87e57297fb7ea7bb71b5a766a6379))
+* **settings:** honest shortcut conflicts, trash purge deadlines, release name ([9020cfa](https://github.com/ThomasCrouzet/deckmark/commit/9020cfa28b521e3c2c9ea64b7f38c92a491ae139))
+* **split:** keep the preview in step with the caret line ([79223b2](https://github.com/ThomasCrouzet/deckmark/commit/79223b2ff0b109eb2e36dce34558e9ee69dd051b))
+* **ui:** distinct glyphs for save and export actions across surfaces ([5bbd15d](https://github.com/ThomasCrouzet/deckmark/commit/5bbd15dc07f5f0014ce3488a4bc8ce5607ca5b6a))
+* **ui:** honest per-document status, no forced mode persistence, touch targets ([bad690f](https://github.com/ThomasCrouzet/deckmark/commit/bad690f1410aaf0821dbb5a7d6b93c97a09b2736))
+* **ui:** restore focus to the Settings control that opened a prompt ([2277b80](https://github.com/ThomasCrouzet/deckmark/commit/2277b80d2309d484550656202a924ce0b3d5334d))
+* **ui:** unified column grid, dialog tokens, mobile focus ([34abf8a](https://github.com/ThomasCrouzet/deckmark/commit/34abf8a1947b8a7de6d56e207b8ef5b4411c1b90))
+
+
+### Performance Improvements
+
+* **pwa:** re-offer updates on foreground, lazy-load FR and KaTeX, honest security docs ([0e18049](https://github.com/ThomasCrouzet/deckmark/commit/0e180496fa52faa5a1a90734febf78f812cacc6d))
+
 ## [2.5.6](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.5...v2.5.6) (2026-11-20)
 
 
