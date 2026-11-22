@@ -14,6 +14,8 @@ domain is not available, open the
 [GitHub Pages fallback](https://thomascrouzet.github.io/deckmark/).
 Desktop installers are separate `desktop-v<version>` prereleases on
 [GitHub Releases](https://github.com/ThomasCrouzet/deckmark/releases).
+**Settings > About** shows the installed version. Include that version when you
+report a defect.
 
 ## Start writing
 
@@ -460,6 +462,12 @@ folder access, file associations, native menus, and the macOS print panel.
 See the [edition matrix](EDITIONS.md) for the full comparison.
 
 Desktop installers are unsigned beta artifacts. macOS can show a Gatekeeper warning, and Windows can show a SmartScreen warning. Download files only from the `desktop-v<version>` prerelease for the applicable version. Compare their checksums with `SHA256SUMS`. The workflow also creates a GitHub build provenance attestation.
+
+If macOS blocks the app, open **System Settings > Privacy & Security** and choose
+**Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/DeckMark.app`.
+On Windows, choose **More info > Run anyway** in the SmartScreen prompt. On Linux,
+install the `.deb` with your package manager, or mark the `.AppImage` executable.
+Compare every file with `SHA256SUMS` before you trust it.
 
 | Platform | Artifact | Requirement |
 | --- | --- | --- |
