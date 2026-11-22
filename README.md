@@ -7,7 +7,19 @@
 
 <h1 align="center">DeckMark</h1>
 
+<p align="center">
+  <a href="https://github.com/ThomasCrouzet/deckmark/releases"><img src="https://img.shields.io/github/v/release/ThomasCrouzet/deckmark" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ThomasCrouzet/deckmark" alt="MIT license"></a>
+  <a href="https://github.com/ThomasCrouzet/deckmark/actions/workflows/deploy.yml"><img src="https://github.com/ThomasCrouzet/deckmark/actions/workflows/deploy.yml/badge.svg" alt="Deploy workflow status"></a>
+</p>
+
 <p align="center"><strong>Your Markdown. On your device.</strong></p>
+
+<p align="center">Keep your notes and slide decks in one local Markdown workspace in the browser. It works offline and needs no account.</p>
+
+<p align="center">
+  <img src="docs/demo.gif" alt="DeckMark demo: plan a launch with linked notes, diagrams, code, project checks, exports, and a presentation." width="860">
+</p>
 
 <p align="center">
   <a href="https://www.deckmark.dev/"><strong>Open the web app</strong></a> ·
@@ -61,8 +73,6 @@ IndexedDB.
 <a id="notes-and-presentations"></a>
 
 ## Documents
-
-![DeckMark demo: plan a launch with linked notes, diagrams, code, project checks, exports, and a presentation.](docs/demo.gif)
 
 Select **New file**, then choose **Note**, **Presentation**, **Code**, or **JSON**.
 The Code choice selects a language and suggests a matching extension. Each file

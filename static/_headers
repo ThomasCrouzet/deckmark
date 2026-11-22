@@ -1,3 +1,11 @@
+# Clickjacking: Cloudflare Pages serves this file; GitHub Pages ignores it.
+# The app ships its CSP in a meta element, and a browser ignores
+# frame-ancestors from a meta element. The host must send these two headers.
+# GitHub Pages needs the same values in its hosting configuration.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+
 /
   Cache-Control: public, max-age=0, must-revalidate, no-transform
 

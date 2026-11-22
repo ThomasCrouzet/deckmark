@@ -31,7 +31,22 @@ In scope:
 
 Rendering uses DOMPurify as the final sanitizer. CSS `url()` values in user content accept only validated local SVG fragments. The sanitizer removes SVG `feImage` filters to close that network request path. The app blocks remote images by default. It fetches them only after an explicit action for the document. An HTTPS fetch reveals the client IP address to the remote server. It sends no cookies or referrer and does not follow redirects. The app then embeds the validated bytes in the document. The project does not provide an image proxy.
 
-The production CSP blocks unauthorized scripts, objects, forms, and external framing. It permits HTTPS connections for approved image fetches and optional AI requests. It blocks direct image loading from an external origin. The media preparation layer still enforces consent. The editor, KaTeX, and Mermaid require inline styles. Before rendering, Mermaid diagrams reject images and network styles. They use native SVG labels and keep only drawing styles limited to the SVG. Note HTML exports contain no scripts or remote font dependencies. Documentation site exports include local scripts for navigation controls and optional search.
+The production CSP blocks unauthorized scripts, objects, and forms. It permits HTTPS connections for approved image fetches and optional AI requests. It blocks direct image loading from an external origin. The media preparation layer still enforces consent. The editor, KaTeX, and Mermaid require inline styles. Before rendering, Mermaid diagrams reject images and network styles. They use native SVG labels and keep only drawing styles limited to the SVG. Note HTML exports contain no scripts or remote font dependencies. Documentation site exports include local scripts for navigation controls and optional search.
+
+### Clickjacking protection
+
+The production CSP also declares `frame-ancestors 'none'`. A browser ignores that directive when the policy arrives in a `meta` element, and the app ships its policy in a `meta` element. The control is therefore documentation only and does not block framing on its own.
+
+The enforced layer is an HTTP response header from the host:
+
+- `X-Frame-Options: DENY`
+- `Content-Security-Policy: frame-ancestors 'none'`
+
+The repository ships both values in `static/_headers`. Cloudflare Pages serves that file. GitHub Pages ignores it, so the same values must be set in the hosting configuration for a GitHub Pages deployment. Verify the live response headers after a deployment:
+
+```sh
+curl -sI https://www.deckmark.dev/ | grep -Ei 'x-frame-options|content-security-policy'
+```
 
 Imported PDFs use the browser PDF viewer. The production Web CSP permits local
 blob frames and blocks network frames. Open or download the PDF when inline viewing is unavailable. DeckMark

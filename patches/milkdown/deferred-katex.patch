@@ -1,0 +1,80 @@
+diff --git a/lib/esm/index.js b/lib/esm/index.js
+index dcce7ee..0d19919 100644
+--- a/lib/esm/index.js
++++ b/lib/esm/index.js
+@@ -27,7 +27,14 @@ import { basicSetup } from 'codemirror';
+ import { dropIndicatorConfig, cursor as cursor$1 } from '@milkdown/kit/plugin/cursor';
+ import { createVirtualCursor } from 'prosemirror-virtual-cursor';
+ import { inlineImageConfig, imageInlineComponent } from '@milkdown/kit/component/image-inline';
+-import katex from 'katex';
++// DeckMark patch: load KaTeX with the first formula, not with the editor chunk.
++let katexPromise = null;
++function loadKatex() {
++  if (katexPromise == null) {
++    katexPromise = import("katex").then((module) => module.default != null ? module.default : module);
++  }
++  return katexPromise;
++}
+ import { redo, undo } from '@milkdown/kit/prose/history';
+ import { keymap as keymap$1 } from '@milkdown/kit/prose/keymap';
+ import { Schema } from '@milkdown/kit/prose/model';
+@@ -3110,8 +3117,12 @@ const mathInlineSchema = $nodeSchema(mathInlineId, () => ({
+     const dom = document.createElement("span");
+     dom.dataset.type = mathInlineId;
+     dom.dataset.value = code;
+-    katex.render(code, dom, {
+-      throwOnError: false
++    loadKatex().then((katex) => {
++      katex.render(code, dom, {
++        throwOnError: false
++      });
++    }, () => {
++      dom.textContent = code;
+     });
+     return dom;
+   },
+@@ -3393,6 +3404,7 @@ const remarkInlineMathGuardPlugin = $remark(
+   () => () => visitInlineMath
+ );
+ 
++const latexPreviewRequests = new WeakMap();
+ const latex = (editor, config) => {
+   editor.config(crepeFeatureConfig(CrepeFeature.Latex)).config((ctx) => {
+     const flags = useCrepeFeatures(ctx).get();
+@@ -3404,7 +3416,20 @@ const latex = (editor, config) => {
+       ...prev,
+       renderPreview: (language, content, applyPreview) => {
+         if (language.toLowerCase() === "latex" && content.length > 0) {
+-          return renderLatex(content, config == null ? void 0 : config.katexOptions);
++          const request = (latexPreviewRequests.get(applyPreview) || 0) + 1;
++          latexPreviewRequests.set(applyPreview, request);
++          const options = config == null ? void 0 : config.katexOptions;
++          loadKatex().then((katex) => {
++            if (latexPreviewRequests.get(applyPreview) !== request) return;
++            applyPreview(katex.renderToString(content, {
++              ...options,
++              throwOnError: false,
++              displayMode: true
++            }));
++          }, () => {
++            if (latexPreviewRequests.get(applyPreview) === request) applyPreview(null);
++          });
++          return void 0;
+         }
+         const renderPreview = prev.renderPreview;
+         return renderPreview(language, content, applyPreview);
+@@ -3421,14 +3446,6 @@ const latex = (editor, config) => {
+     });
+   }).use(remarkMathPlugin).use(remarkMathBlockPlugin).use(remarkInlineMathGuardPlugin).use(mathInlineSchema).use(inlineLatexTooltip).use(mathInlineInputRule).use(mathBlockInputRule).use(blockLatexSchema).use(toggleLatexCommand);
+ };
+-function renderLatex(content, options) {
+-  const html = katex.renderToString(content, {
+-    ...options,
+-    throwOnError: false,
+-    displayMode: true
+-  });
+-  return html;
+-}
+ 
+ const linkTooltip = (editor, config) => {
+   editor.config(crepeFeatureConfig(CrepeFeature.LinkTooltip)).config(configureLinkTooltip).config((ctx) => {

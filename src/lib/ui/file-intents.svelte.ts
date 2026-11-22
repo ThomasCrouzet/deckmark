@@ -32,6 +32,11 @@ export interface FileIntentsOptions {
 }
 
 export function createFileIntents(opts: FileIntentsOptions) {
+	// Keeps the descriptive served title on the home state after hydration. The
+	// SPA fallback document ships this sentence in `src/app.html`; a bare brand
+	// name would replace it as soon as the root layout mounts.
+	const homeTitle = 'DeckMark editor - local-first offline Markdown workspace';
+
 	// §A2.3 - The document title derives from the active file. `$derived.by` is
 	// re-evaluated on every keystroke (active.content tracked by the store) but
 	// only writes document.title if the final value changes (99 % of keystrokes
@@ -41,7 +46,7 @@ export function createFileIntents(opts: FileIntentsOptions) {
 		if (!browser) return t('brand.name');
 		const store = opts.getFilesStore();
 		const active = store.active;
-		if (!active) return t('brand.name');
+		if (!active) return homeTitle;
 		return `${store.displayTitle(active.id)} - ${t('brand.name')}`;
 	});
 
