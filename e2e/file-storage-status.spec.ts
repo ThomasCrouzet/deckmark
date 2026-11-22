@@ -49,7 +49,7 @@ test('labels an imported copy as temporary and persists that state', async ({
 	await expect(toolbarStatus(page)).toHaveAttribute('data-origin', 'temporary');
 	await expect(toolbarStatus(page)).toHaveAttribute('aria-label', /Copie temporaire/);
 	await expect(
-		page.locator('#app-statusbar').getByText('Brouillons locaux : enregistré', { exact: true })
+		page.locator('#app-statusbar').getByText('Brouillon local : enregistré', { exact: true })
 	).toBeVisible();
 	const draftId = await toolbarStatus(page).evaluate((element) =>
 		(element.getAttribute('data-testid') ?? '').replace(/^storage-status-/, '')

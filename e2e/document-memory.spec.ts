@@ -606,7 +606,7 @@ test.describe('closed document source owners', () => {
 			/^Memory Target Title/
 		);
 		// The backlink target comes from the source body that was evicted too.
-		const backlinks = page.locator('aside nav[aria-label="Backlinks"]');
+		const backlinks = page.locator('aside nav[aria-label="Rétroliens"]');
 		await expect(
 			backlinks.getByRole('button', { name: 'Ouvrir Memory Source Title' })
 		).toBeVisible();

@@ -20,7 +20,7 @@ test.describe('Welcome demo document', () => {
 		await expect(sidebar.getByText('Task list').first()).toBeVisible();
 
 		// The two other files link to this file, so its backlinks are visible.
-		const backlinksSection = sidebar.locator('[aria-label="Backlinks"]');
+		const backlinksSection = sidebar.locator('[aria-label="Rétroliens"]');
 		await expect(backlinksSection).toBeVisible({ timeout: 5000 });
 		await expect(backlinksSection.getByText('Math and diagrams')).toBeVisible();
 		await expect(backlinksSection.getByText('Task list')).toBeVisible();
