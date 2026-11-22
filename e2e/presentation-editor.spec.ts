@@ -67,6 +67,13 @@ async function addObject(editor: Locator, type: string): Promise<Locator> {
 	const before = await objects(editor, type).count();
 	await editor.getByTestId(`slide-add-${type}`).click();
 	await expect(objects(editor, type)).toHaveCount(before + 1);
+	// A new text object opens the inline editor. These cases start from a
+	// selected object, so close that session before the double-click.
+	const inline = editor.getByTestId('slide-text-editor');
+	if ((await inline.count()) > 0) {
+		await inline.press('Escape');
+		await expect(inline).toHaveCount(0);
+	}
 	return objects(editor, type).last();
 }
 

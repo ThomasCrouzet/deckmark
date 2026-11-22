@@ -123,6 +123,19 @@ function finite(value: number, fallback = 0): number {
 	return Number.isFinite(value) ? value : fallback;
 }
 
+/**
+ * Whitelists an alignment for the inline style text. The parser rejects other
+ * values, but this render-time check does not depend on that model check.
+ */
+function textAlign(value: string): string {
+	return value === 'center' || value === 'right' || value === 'justify' ? value : 'left';
+}
+
+/** The authoring placeholder is never slide content. */
+function isPlaceholderText(element: PresentationElement): boolean {
+	return element.type === 'text' && element.content.trim() === t('slides.newText');
+}
+
 function color(value: string, fallback: string): string {
 	const candidate = value.trim();
 	if (candidate.toLowerCase() === 'none') return 'transparent';
@@ -358,7 +371,7 @@ export function presentationElementAppearance(element: PresentationElement): str
 	const fill = color(element.fill, 'transparent');
 	const stroke = color(element.stroke, 'transparent');
 	const textColor = color(element.color, '#0f172a');
-	return `--element-fill:${fill};--element-stroke:${stroke};--element-stroke-width:${Math.max(0, finite(element.strokeWidth))}px;--element-color:${textColor};--element-font-size:${Math.max(1, finite(element.fontSize, 24))}px;--element-text-align:${element.textAlign}`;
+	return `--element-fill:${fill};--element-stroke:${stroke};--element-stroke-width:${Math.max(0, finite(element.strokeWidth))}px;--element-color:${textColor};--element-font-size:${Math.max(1, finite(element.fontSize, 24))}px;--element-text-align:${textAlign(element.textAlign)}`;
 }
 
 export function renderPresentationConnector(
@@ -441,7 +454,12 @@ export async function renderPresentationSlide(
 	const endpoints = indexPresentationElements(slide.elements);
 	const elements = slide.elements
 		.map((element, elementIndex) =>
-			renderElement(element, slide, endpoints, content[elementIndex] ?? '')
+			renderElement(
+				element,
+				slide,
+				endpoints,
+				isPlaceholderText(element) ? '' : (content[elementIndex] ?? '')
+			)
 		)
 		.join('');
 	return `<section class="mdsh-slide" data-slide-index="${index}" data-slide-id="${escapeHTML(slide.id)}" aria-label="${escapeHTML(t('slides.slide', { n: index + 1 }))}" style="width:${deck.width}px;height:${deck.height}px;--slide-background:${color(slide.background, '#ffffff')}">${elements}</section>`;
@@ -463,7 +481,11 @@ export async function renderPresentationDeck(
 		source: deck.slides
 			.flatMap((slide) => slide.elements)
 			.filter(
-				(element) => element.type !== 'image' && element.type !== 'line' && element.type !== 'arrow'
+				(element) =>
+					element.type !== 'image' &&
+					element.type !== 'line' &&
+					element.type !== 'arrow' &&
+					!isPlaceholderText(element)
 			)
 			.map((element) => element.content)
 			.join('\n\n')

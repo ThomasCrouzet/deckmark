@@ -241,6 +241,11 @@ test('creates, edits, presents, and exports with the keyboard only', async ({ pa
 	await expect(page.getByTestId('presentation-editor')).toBeFocused();
 	await tabTo('slide-add-text');
 	await page.keyboard.press('Enter');
+	// Creation opens the inline editor. Close it to reach the Edit text action.
+	await expect(page.getByTestId('slide-text-editor')).toBeFocused();
+	await page.keyboard.press('Escape');
+	// Restart the keyboard path at the insert toolbar after the inline session.
+	await page.getByTestId('slide-add-text').focus();
 	await tabTo('slide-edit-text');
 	await page.keyboard.press('Enter');
 	await expect(page.getByTestId('slide-text-editor')).toBeFocused();
