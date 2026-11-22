@@ -87,6 +87,9 @@
 		{#if !file.data || failed}
 			<p role="alert">{t('documents.pdfUnavailable')}</p>
 		{:else if url}
+			<!-- A sandbox attribute disables the Chromium PDF viewer, because
+			     sandboxed frames block plugins. Keep the frame unsandboxed and
+			     restrict it through the page CSP frame-src blob: rule. -->
 			<iframe
 				src={url}
 				title={file.name}

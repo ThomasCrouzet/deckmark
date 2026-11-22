@@ -6,6 +6,19 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		await resetAppState(page);
 	});
 
+	test('loads the editor without the virtual cursor mark warning', async ({ page }) => {
+		const warnings: string[] = [];
+		page.on('console', (message) => {
+			if (message.type() === 'warning') warnings.push(message.text());
+		});
+		await page.reload();
+		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+		await seedFiles(page, [{ name: 'cursor-warning', content: '# Cursor\n\nText.\n' }]);
+		await page.locator('button[data-mode="wysiwyg"]').click();
+		await expect(page.locator('.ProseMirror')).toBeVisible();
+		expect(warnings.filter((text) => text.includes('Virtual cursor'))).toEqual([]);
+	});
+
 	test('keeps wiki links and literals after visual edit', async ({ page }, testInfo) => {
 		const frontmatter = "---\nnote: '[[Metadata|literal YAML]]'\n---\n";
 		const source = [
