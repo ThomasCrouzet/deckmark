@@ -584,7 +584,7 @@ for (const operation of ['delete', 'empty'] as const) {
 		await receiver.locator('button[data-mode="wysiwyg"]').click();
 		const editor = receiver.locator('.ProseMirror');
 		await expect(editor).toHaveText('Receiver base');
-		await expect(receiver.locator('#app-statusbar')).toContainText('Brouillons locaux :');
+		await expect(receiver.locator('#app-statusbar')).toContainText('Brouillon local :');
 		await page.locator('aside button[data-file-id="sender"]').click();
 		const confirm = await prepareRemoteBatch(page, operation);
 
@@ -594,7 +594,7 @@ for (const operation of ['delete', 'empty'] as const) {
 		await receiver.keyboard.press('ControlOrMeta+a');
 		await receiver.keyboard.insertText(latest);
 		await expect(editor).toHaveText(latest);
-		await expect(receiver.locator('#app-statusbar')).toContainText('Brouillons locaux :');
+		await expect(receiver.locator('#app-statusbar')).toContainText('Brouillon local :');
 		const beforeBroadcast = await storedState(receiver);
 		expect(beforeBroadcast.drafts.find((row) => row.id === 'receiver')?.content).toBe(
 			'Receiver base\n'

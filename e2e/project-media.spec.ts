@@ -212,7 +212,7 @@ test('project images retain relative paths through visual editing, drop, and HTM
 	}, png);
 	await expect(page.locator('.cm-content')).toContainText('dropped.png');
 	await expect(page.locator('.cm-content')).not.toContainText('data:image');
-	await expect(page.locator('#app-statusbar')).toContainText('Brouillons locaux : enregistré');
+	await expect(page.locator('#app-statusbar')).toContainText('Brouillon local : enregistré');
 	await page.reload();
 	await page.locator('[data-mode=read]').click();
 	await expect(page.locator('.mdsh-preview img')).toHaveCount(2);

@@ -20,7 +20,7 @@ test.describe('Golden path - persistence lifecycle', () => {
 		await page.keyboard.type(payload);
 
 		const status = page.locator('#app-statusbar');
-		await expect(status).toContainText('Brouillons locaux : enregistré');
+		await expect(status).toContainText('Brouillon local : enregistré');
 
 		// Reload the page.
 		await page.reload();
@@ -41,7 +41,7 @@ test.describe('Golden path - persistence lifecycle', () => {
 			});
 			expect(text).toBe(payload);
 		}).toPass({ timeout: 10_000 });
-		await expect(status.getByText('Brouillons locaux : enregistré', { exact: true })).toBeVisible();
+		await expect(status.getByText('Brouillon local : enregistré', { exact: true })).toBeVisible();
 		await testInfo.attach('restored-save-status', {
 			body: await page.screenshot({ animations: 'disabled' }),
 			contentType: 'image/png'
