@@ -1071,6 +1071,13 @@ export const en = {
 	'sidebar.tagFilters': 'Filters by tag',
 	'sidebar.unexportedChangesHint': ' - unexported changes',
 
+	// site
+	'site.footerDocs': 'Documentation',
+	'site.footerEditions': 'Editions',
+	'site.footerGitHub': 'GitHub',
+	'site.footerIssue': 'Report an issue',
+	'site.footerLabel': 'Project resources',
+
 	// source
 	'source.loadErrorHint':
 		'The module may be unavailable offline (never opened before) or the cache is stale after an update.',
@@ -1229,6 +1236,7 @@ export const en = {
 	'versionHistory.vsCurrent': 'vs current version',
 
 	// welcome
+	'welcome.titleText': 'Your Markdown workspace',
 	'welcome.demoLabel': 'Demo',
 	'welcome.importMd': 'Import .md',
 	'welcome.initializeLabel': 'Initialize workspace',

@@ -71,6 +71,42 @@
 		%sveltekit.head%
 	</head>
 	<body class="bg-bg text-fg antialiased">
+		<!-- §714 - Static home state. The build is a single-page app with an
+		     `index.html` fallback, so this block is the document a crawler reads.
+		     `+layout.svelte` removes it when the app mounts. Keep the heading,
+		     the pitch, and the links in step with `SiteFooter.svelte`. -->
+		<div id="seo-shell" class="seo-shell">
+			<div class="seo-shell-inner">
+				<p class="seo-kicker">Local-first Markdown workspace</p>
+				<h1 class="seo-title">Your Markdown workspace</h1>
+				<p class="seo-pitch">
+					Write notes, read documents, and build presentations in Markdown. DeckMark runs in your
+					browser and keeps your files on your device. No account. No cloud sync. No telemetry.
+				</p>
+				<a
+					class="seo-cta"
+					href="https://github.com/ThomasCrouzet/deckmark/blob/main/docs/USER_GUIDE.md"
+					>Read the user guide</a
+				>
+				<noscript>
+					<p class="seo-pitch">
+						Write notes, read documents, and build presentations in Markdown. DeckMark runs in your
+						browser and keeps your files on your device. No account. No cloud sync. No telemetry.
+					</p>
+					<p class="seo-pitch">
+						The editor needs JavaScript. The user guide describes each feature.
+					</p>
+				</noscript>
+				<nav class="seo-footer" aria-label="Project resources">
+					<a href="https://github.com/ThomasCrouzet/deckmark/tree/main/docs">Documentation</a>
+					<a href="https://github.com/ThomasCrouzet/deckmark">GitHub</a>
+					<a href="https://github.com/ThomasCrouzet/deckmark/issues">Report an issue</a>
+					<a href="https://github.com/ThomasCrouzet/deckmark/blob/main/docs/EDITIONS.md"
+						>Editions</a
+					>
+				</nav>
+			</div>
+		</div>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>
