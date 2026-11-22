@@ -1,5 +1,11 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { createFirstFile, openPalette, resetAppState, writeSourceContent } from './helpers';
+import {
+	createFirstFile,
+	openPalette,
+	resetAppState,
+	runAction,
+	writeSourceContent
+} from './helpers';
 import { databaseState } from './storage-evidence';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
@@ -96,7 +102,7 @@ test('follows link, save, conflict and unlink transitions', async ({ page }, inf
 		});
 	});
 
-	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
+	await runAction(page, 'save-disk');
 	await expect(toolbarStatus(page)).toHaveAttribute('data-origin', 'disk');
 	await expect(toolbarStatus(page)).toHaveAttribute('data-sync', 'saved');
 	await expect(toolbarStatus(page)).toHaveAttribute('aria-label', /Lié au disque/);
@@ -109,7 +115,7 @@ test('follows link, save, conflict and unlink transitions', async ({ page }, inf
 		await writer.write('External content');
 		await writer.close();
 	});
-	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
+	await runAction(page, 'save-disk');
 	const conflict = page.getByRole('dialog', { name: /Résoudre le conflit disque/ });
 	await expect(conflict).toBeVisible();
 	await expect(toolbarStatus(page)).toHaveAttribute('data-sync', 'conflict');

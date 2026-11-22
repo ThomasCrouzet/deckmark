@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetAppState, writeSourceContent } from './helpers';
+import { resetAppState, runAction, writeSourceContent } from './helpers';
 
 test('compares real browser filesystem revisions and keeps rejected branches', async ({
 	page
@@ -39,7 +39,7 @@ test('compares real browser filesystem revisions and keeps rejected branches', a
 		);
 	}
 	await external('External change');
-	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
+	await runAction(page, 'save-disk');
 	const dialog = page.getByRole('dialog', {
 		name: 'Résoudre le conflit disque pour comparison.md'
 	});
@@ -48,13 +48,13 @@ test('compares real browser filesystem revisions and keeps rejected branches', a
 	await page.keyboard.press('Escape');
 	expect(await diskText()).toBe('External change');
 	await expect(page.locator('.cm-content')).toHaveText('Local change');
-	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
+	await runAction(page, 'save-disk');
 	await expect(dialog).toBeVisible();
 	await external('Changed during comparison');
 	await dialog.getByRole('button', { name: 'Écraser le disque' }).click();
 	await expect(dialog).not.toBeVisible();
 	expect(await diskText()).toBe('Changed during comparison');
-	await page.getByRole('button', { name: 'Enregistrer sur le disque', exact: true }).click();
+	await runAction(page, 'save-disk');
 	await expect(dialog).toContainText('Changed during comparison');
 	await dialog.getByRole('button', { name: 'Utiliser la révision du disque' }).click();
 	await expect(page.locator('.cm-content')).toHaveText('Changed during comparison');

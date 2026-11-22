@@ -41,6 +41,7 @@ Desktop development also needs Rust 1.97.1. Linux packaging needs `libwebkit2gtk
 - **Offline-first**: Use system fonts. Do not add an app-initiated network request by default. Remote document images require explicit consent. Import `marked`, `katex`, `highlight.js`, `mermaid`, `jszip`, and `js-yaml` dynamically. Do not import them statically.
 - **Browser guards** : any access to `window`/`document`/`localStorage`/`IndexedDB` must be inside `onMount` or guarded by `if (browser)`.
 - **A11y** : contrast ≥ 4.5:1 (text) / 3:1 (UI), `aria-label` on icon-only buttons, full keyboard navigation.
+- **Icons**: One glyph has one action. The save family uses `Save`, `CopyPlus` and `HardDriveDownload`; export uses `Download` or `FileDown`; destructive actions use `Trash2`. A new glyph must differ from its neighbours at 16 px.
 
 Additional conventions (module map, pitfalls, debugging recipes): see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 

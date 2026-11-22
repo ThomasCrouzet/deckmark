@@ -17,7 +17,7 @@
 		CornerDownLeft,
 		Tag,
 		Archive,
-		CircleX,
+		FilterX,
 		Copy,
 		Link2
 	} from '@lucide/svelte';
@@ -691,7 +691,7 @@
 						aria-label={t('sidebar.deselectAll')}
 						title={t('sidebar.deselect')}
 					>
-						<CircleX size={12} />
+						<FilterX size={12} />
 					</button>
 				</div>
 			{/if}
@@ -735,7 +735,7 @@
 					aria-label={t('sidebar.deselectAll')}
 					title={t('sidebar.deselect')}
 				>
-					<CircleX size={12} />
+					<FilterX size={12} />
 				</button>
 			</div>
 		</div>

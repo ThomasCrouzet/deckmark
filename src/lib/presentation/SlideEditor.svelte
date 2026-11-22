@@ -54,7 +54,7 @@
 		Pencil,
 		StickyNote,
 		Download,
-		Ellipsis,
+		Settings2,
 		Trash2,
 		Code2,
 		Maximize,
@@ -923,7 +923,7 @@
 						data-testid="slide-advanced"
 						aria-label={t('slides.advanced')}
 						title={t('slides.advanced')}
-						><Ellipsis size={18} /><span class="compact-label">{t('slides.advanced')}</span
+						><Settings2 size={18} /><span class="compact-label">{t('slides.advanced')}</span
 						></summary
 					>
 					<div class="action-menu">

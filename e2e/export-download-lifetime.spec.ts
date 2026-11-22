@@ -296,9 +296,14 @@ test('keeps the binary object URL for a larger image and exact bytes', async ({ 
 		});
 	});
 
-	const bytes = await saveDownload(page, info, 'large.png', () =>
-		page.getByTestId('save-as').click()
-	);
+	const bytes = await saveDownload(page, info, 'large.png', async () => {
+		// Save As moved to the labeled Actions menu (issue #721).
+		await page.locator('[data-actions-trigger]').click();
+		await page
+			.getByRole('dialog', { name: 'Actions', exact: true })
+			.getByRole('button', { name: 'Enregistrer sous', exact: true })
+			.click();
+	});
 	expect(bytes.equals(largeImage)).toBe(true);
 	expect(sha256(bytes)).toBe(expectedHashes['large.png']);
 

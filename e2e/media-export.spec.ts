@@ -6,6 +6,7 @@ import {
 	createFirstFile,
 	openPalette,
 	resetAppState,
+	runAction,
 	switchToSource,
 	writeSourceContent
 } from './helpers';
@@ -108,7 +109,7 @@ test.describe('Durable images and PDF export', () => {
 		await expectDecodedImage(page, '.mdsh-preview img');
 
 		const captured = await capturePrint(page);
-		await page.getByRole('button', { name: 'Exporter en PDF' }).click();
+		await runAction(page, 'export-pdf');
 		await expect.poll(() => captured().length).toBeGreaterThan(100);
 		expect(captured()).toContain('alt="pwa-192x192"');
 		expect(captured()).toContain('src="data:image/png;base64,');
