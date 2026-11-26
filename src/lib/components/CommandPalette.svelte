@@ -1083,8 +1083,10 @@
 						bind:this={closeButton}
 						class="p-2"
 						onclick={onClose}
-						aria-label={t('palette.close')}><X size={16} /></button
+						aria-label={t('palette.close')}
 					>
+						<X size={16} />
+					</button>
 				</header>
 				<div class="min-h-0 overflow-y-auto p-3">
 					{#each actionGroups as group (group.label)}
@@ -1108,8 +1110,10 @@
 						onclick={() => {
 							view = 'commands';
 							void tick().then(() => inputEl?.focus());
-						}}>{t('actions.allCommands')}</button
+						}}
 					>
+						{t('actions.allCommands')}
+					</button>
 				</div>
 			{:else}
 				<!-- §B1.5 - ARIA combobox + listbox pattern: the input drives the listbox
@@ -1204,9 +1208,9 @@
 								onmousedown={(event) => event.preventDefault()}
 								onmouseenter={() => (selected = i)}
 							>
-								<span class="palette-command-index" aria-hidden="true"
-									>{(i + 1).toString().padStart(2, '0')}</span
-								>
+								<span class="palette-command-index" aria-hidden="true">
+									{(i + 1).toString().padStart(2, '0')}
+								</span>
 								<cmd.icon size={14} class="flex-shrink-0 text-fg-dim" aria-hidden="true" />
 								<span class="flex-1 truncate">{cmd.label}</span>
 								{#if cmd.kbd}

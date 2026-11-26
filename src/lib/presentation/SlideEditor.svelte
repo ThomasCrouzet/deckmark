@@ -964,8 +964,9 @@
 		title={t(label)}
 		aria-label={Icon ? t(label) : undefined}
 		aria-describedby={describedBy}
-		>{#if Icon}<Icon size={16} />{/if}<span class:compact-label={!!Icon}>{t(label)}</span></button
 	>
+		{#if Icon}<Icon size={16} />{/if}<span class:compact-label={!!Icon}>{t(label)}</span>
+	</button>
 {/snippet}
 
 <div
@@ -995,9 +996,9 @@
 						data-testid="slide-advanced"
 						aria-label={t('slides.advanced')}
 						title={t('slides.advanced')}
-						><Settings2 size={18} /><span class="compact-label">{t('slides.advanced')}</span
-						></summary
 					>
+						<Settings2 size={18} /><span class="compact-label">{t('slides.advanced')}</span>
+					</summary>
 					<div class="action-menu">
 						{@render action('source', 'slides.source', openSource)}
 						{@render action(
@@ -1013,8 +1014,9 @@
 						data-testid="slide-export"
 						aria-label={t('slides.export')}
 						title={t('slides.export')}
-						><Download size={17} /><span class="compact-label">{t('slides.export')}</span></summary
 					>
+						<Download size={17} /><span class="compact-label">{t('slides.export')}</span>
+					</summary>
 					<div class="action-menu">
 						{@render action(
 							'export-md',
@@ -1042,15 +1044,18 @@
 					title={t('slides.notes')}
 					aria-pressed={notesOpen}
 					onclick={() => (notesOpen = !notesOpen)}
-					><StickyNote size={17} /><span class="compact-label">{t('slides.notes')}</span></button
 				>
+					<StickyNote size={17} /><span class="compact-label">{t('slides.notes')}</span>
+				</button>
 				<button
 					class="primary"
 					data-testid="slide-present"
 					onclick={present}
 					aria-describedby={sourceOpen ? `${guidanceId}-present` : undefined}
-					disabled={editor.error || sourceOpen}><Play size={15} />{t('slides.present')}</button
+					disabled={editor.error || sourceOpen}
 				>
+					<Play size={15} />{t('slides.present')}
+				</button>
 			</div>
 		{:else}
 			<span class="present-count">{editor.index + 1} / {editor.deck.slides.length}</span>
@@ -1062,14 +1067,18 @@
 					title={t('slides.fullscreen')}
 					aria-label={t('slides.fullscreen')}
 					aria-pressed={fullscreenActive}
-					onclick={toggleFullscreen}><Maximize size={18} /></button
-				>{/if}
+					onclick={toggleFullscreen}
+				>
+					<Maximize size={18} />
+				</button>{/if}
 		{/if}
 		{#if presenting}<button
 				class="icon-button"
 				data-testid="slide-present-exit"
-				onclick={exitPresent}><X size={20} />{t('slides.exitPresent')}</button
-			>{/if}
+				onclick={exitPresent}
+			>
+				<X size={20} />{t('slides.exitPresent')}
+			</button>{/if}
 	</header>
 	{#if !presenting && sourceOpen}<p id={`${guidanceId}-present`} class="action-hint">
 			{t('slides.presentSourceHint')}
@@ -1083,8 +1092,10 @@
 				aria-label={t('slides.close')}
 				onclick={() => {
 					userMessage = '';
-				}}>×</button
+				}}
 			>
+				×
+			</button>
 		</p>{/if}
 	{#if editor.error}<p
 			bind:this={parseAlert}
@@ -1098,8 +1109,9 @@
 	{#if busy && spinnerStore.visible}
 		<div class="message" role="status">
 			{spinnerStore.message}
-			{#if spinnerStore.cancel}<button onclick={spinnerStore.cancel}>{t('export.cancel')}</button
-				>{/if}
+			{#if spinnerStore.cancel}<button onclick={spinnerStore.cancel}>
+					{t('export.cancel')}
+				</button>{/if}
 		</div>
 	{/if}
 	{#if !presenting && !sourceOpen && !editor.error}
@@ -1113,8 +1125,10 @@
 					textEdit.finish();
 					editor.undo();
 				}}
-				disabled={!editor.undoEntries.length}><Undo2 size={18} /></button
+				disabled={!editor.undoEntries.length}
 			>
+				<Undo2 size={18} />
+			</button>
 			<button
 				class="icon-button"
 				data-testid="slide-redo"
@@ -1124,66 +1138,77 @@
 					textEdit.finish();
 					editor.redo();
 				}}
-				disabled={!editor.redoEntries.length}><Redo2 size={18} /></button
+				disabled={!editor.redoEntries.length}
 			>
+				<Redo2 size={18} />
+			</button>
 			<span class="tool-separator"></span>
 			<button
 				data-testid="slide-add-text"
 				aria-label={t('slides.text')}
 				title={t('slides.text')}
 				onclick={() => add('text')}
-				><Type size={17} /><span class="compact-label">{t('slides.text')}</span></button
 			>
+				<Type size={17} /><span class="compact-label">{t('slides.text')}</span>
+			</button>
 			<button
 				data-testid="slide-add-image"
 				aria-label={t('slides.image')}
 				title={t('slides.image')}
 				onclick={() => add('image')}
-				><Image size={17} /><span class="compact-label">{t('slides.image')}</span></button
 			>
+				<Image size={17} /><span class="compact-label">{t('slides.image')}</span>
+			</button>
 			<button
 				data-testid="slide-add-rectangle"
 				aria-label={t('slides.rectangle')}
 				title={t('slides.rectangle')}
 				onclick={() => add('rectangle')}
-				><Square size={17} /><span class="compact-label">{t('slides.rectangle')}</span></button
 			>
+				<Square size={17} /><span class="compact-label">{t('slides.rectangle')}</span>
+			</button>
 			<button
 				data-testid="slide-add-rounded-rectangle"
 				aria-label={t('slides.rounded-rectangle')}
 				title={t('slides.rounded-rectangle')}
 				onclick={() => add('rounded-rectangle')}
-				><svg
+			>
+				<svg
 					width="17"
 					height="17"
 					viewBox="0 0 24 24"
 					fill="none"
 					stroke="currentColor"
 					stroke-width="2"
-					aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="6" /></svg
-				><span class="compact-label">{t('slides.rounded-rectangle')}</span></button
-			>
+					aria-hidden="true"
+				>
+					<rect x="3" y="3" width="18" height="18" rx="6" />
+				</svg><span class="compact-label">{t('slides.rounded-rectangle')}</span>
+			</button>
 			<button
 				data-testid="slide-add-ellipse"
 				aria-label={t('slides.ellipse')}
 				title={t('slides.ellipse')}
 				onclick={() => add('ellipse')}
-				><Circle size={17} /><span class="compact-label">{t('slides.ellipse')}</span></button
 			>
+				<Circle size={17} /><span class="compact-label">{t('slides.ellipse')}</span>
+			</button>
 			<button
 				data-testid="slide-add-line"
 				aria-label={t('slides.line')}
 				title={t('slides.line')}
 				onclick={() => add('line')}
-				><Minus size={17} /><span class="compact-label">{t('slides.line')}</span></button
 			>
+				<Minus size={17} /><span class="compact-label">{t('slides.line')}</span>
+			</button>
 			<button
 				data-testid="slide-add-arrow"
 				aria-label={t('slides.arrow')}
 				title={t('slides.arrow')}
 				onclick={() => add('arrow')}
-				><ArrowUpRight size={17} /><span class="compact-label">{t('slides.arrow')}</span></button
 			>
+				<ArrowUpRight size={17} /><span class="compact-label">{t('slides.arrow')}</span>
+			</button>
 			<span class="tool-separator"></span>
 			<button
 				data-testid="slide-properties"
@@ -1194,9 +1219,9 @@
 					inspectorOpen = !inspectorOpen;
 					inspectorPreference = inspectorOpen ? 'open' : 'closed';
 				}}
-				><SlidersHorizontal size={17} /><span class="compact-label">{t('slides.properties')}</span
-				></button
 			>
+				<SlidersHorizontal size={17} /><span class="compact-label">{t('slides.properties')}</span>
+			</button>
 		</div>
 	{/if}
 	{#if sourceOpen || editor.error}
@@ -1224,12 +1249,12 @@
 					spellcheck="false"></textarea>
 			{/if}
 			<div class="source-actions">
-				<button class="primary" data-testid="slide-source-apply" onclick={applySource}
-					>{t('slides.apply')}</button
-				>
-				<button data-testid="slide-source-cancel" onclick={cancelSource}
-					>{t('slides.cancel')}</button
-				>
+				<button class="primary" data-testid="slide-source-apply" onclick={applySource}>
+					{t('slides.apply')}
+				</button>
+				<button data-testid="slide-source-cancel" onclick={cancelSource}>
+					{t('slides.cancel')}
+				</button>
 			</div>
 		</div>
 	{:else}
@@ -1242,8 +1267,10 @@
 							onclick={() => {
 								textEdit.finish();
 								editor.addSlide();
-							}}><Plus size={16} />{t('slides.add')}</button
+							}}
 						>
+							<Plus size={16} />{t('slides.add')}
+						</button>
 					</div>
 					<div
 						class="thumbnails"
@@ -1312,8 +1339,10 @@
 							onclick={() => {
 								textEdit.finish();
 								editor.duplicateSlide();
-							}}><Copy size={16} /></button
+							}}
 						>
+							<Copy size={16} />
+						</button>
 						<button
 							data-testid="slide-delete-slide"
 							aria-label={t('slides.deleteSlide')}
@@ -1321,24 +1350,28 @@
 							onclick={() => {
 								textEdit.finish();
 								editor.deleteSlide();
-							}}><Trash2 size={16} /></button
+							}}
 						>
+							<Trash2 size={16} />
+						</button>
 						<button
 							data-testid="slide-move-prev"
 							aria-label={t('slides.previousSlide')}
 							title={t('slides.previousSlide')}
 							disabled={editor.index === 0}
 							onclick={() => editor.moveSlide(editor.index, editor.index - 1)}
-							><ChevronLeft size={16} /></button
 						>
+							<ChevronLeft size={16} />
+						</button>
 						<button
 							data-testid="slide-move-next"
 							aria-label={t('slides.nextSlide')}
 							title={t('slides.nextSlide')}
 							disabled={editor.index === editor.deck.slides.length - 1}
 							onclick={() => editor.moveSlide(editor.index, editor.index + 1)}
-							><ChevronRight size={16} /></button
 						>
+							<ChevronRight size={16} />
+						</button>
 					</div>
 				</aside>
 			{/if}
@@ -1392,9 +1425,9 @@
 							!editor.selected.length ? `${guidanceId}-selection` : undefined,
 							Pencil
 						)}
-						<label class="snap-control"
-							><input type="checkbox" bind:checked={gestures.snap} />{t('slides.snap')}</label
-						>
+						<label class="snap-control">
+							<input type="checkbox" bind:checked={gestures.snap} />{t('slides.snap')}
+						</label>
 					</div>{/if}
 				{#if !presenting && !editor.selected.length}<p
 						id={`${guidanceId}-selection`}
@@ -1503,8 +1536,10 @@
 											class="rotate-handle"
 											data-testid="slide-rotate"
 											aria-label={t('slides.rotate')}
-											onpointerdown={(event) => gestures.startHandle(event, 'rotate')}>↻</button
+											onpointerdown={(event) => gestures.startHandle(event, 'rotate')}
 										>
+											↻
+										</button>
 									</div>
 								{/if}
 								{#if editingElement}
@@ -1554,8 +1589,10 @@
 						<span>{t('slides.textHint')}</span><button
 							class="primary"
 							data-testid="slide-text-done"
-							onclick={() => textEdit.finish()}>{t('slides.textDone')}</button
+							onclick={() => textEdit.finish()}
 						>
+							{t('slides.textDone')}
+						</button>
 					</div>{/if}
 				{#if overflow && !presenting}<p
 						class="overflow-warning"
@@ -1564,8 +1601,8 @@
 					>
 						{t('slides.overflow')}
 					</p>{/if}
-				{#if !presenting && notesOpen}<label class="notes"
-						><span>{t('slides.notes')}</span><textarea
+				{#if !presenting && notesOpen}<label class="notes">
+						<span>{t('slides.notes')}</span><textarea
 							data-testid="slide-notes"
 							placeholder={t('slides.notesPlaceholder')}
 							value={editor.slide.notes}
@@ -1578,8 +1615,8 @@
 								editor.slide.notes = event.currentTarget.value;
 								editor.markChanged();
 							}}
-							onblur={() => editor.commit(false)}></textarea></label
-					>
+							onblur={() => editor.commit(false)}></textarea>
+					</label>
 				{:else if presenting && showNotes}<div
 						class="present-notes"
 						data-testid="slide-presenter-notes"
@@ -1617,51 +1654,60 @@
 				data-testid="slide-present-prev"
 				aria-label={t('slides.previous')}
 				disabled={editor.index === 0}
-				onclick={() => go(editor.index - 1)}><ChevronLeft size={20} /></button
-			><span>{editor.index + 1} / {editor.deck.slides.length}</span>
+				onclick={() => go(editor.index - 1)}
+			>
+				<ChevronLeft size={20} />
+			</button><span>{editor.index + 1} / {editor.deck.slides.length}</span>
 			<button
 				data-testid="slide-present-next"
 				aria-label={t('slides.next')}
 				disabled={editor.index === editor.deck.slides.length - 1}
-				onclick={() => go(editor.index + 1)}><ChevronRight size={20} /></button
+				onclick={() => go(editor.index + 1)}
 			>
+				<ChevronRight size={20} />
+			</button>
 		{:else}
 			<span>{t('slides.slide', { n: editor.index + 1 })} / {editor.deck.slides.length}</span>
-			<span class="save-state" role="status"
-				>{editor.saveError || filesStore.saveErrorIds.includes(fileId)
+			<span class="save-state" role="status">
+				{editor.saveError || filesStore.saveErrorIds.includes(fileId)
 					? t('statusBar.saveFailed')
 					: editor.pending || filesStore.hasPendingSave
 						? t('statusBar.saving')
-						: t('stats.saved')}</span
-			>
+						: t('stats.saved')}
+			</span>
 			{#if editor.saveError || filesStore.saveErrorIds.includes(fileId)}<button
 					data-testid="slide-retry-save"
 					onclick={() =>
 						void filesStore
 							.flushPendingAwait()
 							.catch((error) => reportError('retry slide save', error))}
-					>{t('statusBar.retrySave')}</button
-				>{/if}
-			{#if editor.saveError}<button data-testid="slide-save-copy" onclick={saveCopy}
-					>{t('palette.editCopy')}</button
-				>{/if}
+				>
+					{t('statusBar.retrySave')}
+				</button>{/if}
+			{#if editor.saveError}<button data-testid="slide-save-copy" onclick={saveCopy}>
+					{t('palette.editCopy')}
+				</button>{/if}
 			<span class="footer-hint" title={t('slides.shortcuts')}>{t('slides.selectionHint')}</span>
 			<div class="zoom-controls">
 				<button
 					aria-label={t('slides.zoom') + ' -'}
 					onclick={() => {
 						gestures.zoom = Math.max(0.5, gestures.zoom - 0.25);
-					}}><ZoomOut size={16} /></button
+					}}
 				>
-				<button data-testid="slide-fit" onclick={gestures.resetView}
-					>{gestures.zoom === 1 ? t('slides.fit') : `${Math.round(gestures.zoom * 100)}%`}</button
-				>
+					<ZoomOut size={16} />
+				</button>
+				<button data-testid="slide-fit" onclick={gestures.resetView}>
+					{gestures.zoom === 1 ? t('slides.fit') : `${Math.round(gestures.zoom * 100)}%`}
+				</button>
 				<button
 					aria-label={t('slides.zoom') + ' +'}
 					onclick={() => {
 						gestures.zoom = Math.min(4, gestures.zoom + 0.25);
-					}}><ZoomIn size={16} /></button
+					}}
 				>
+					<ZoomIn size={16} />
+				</button>
 			</div>
 		{/if}
 	</footer>

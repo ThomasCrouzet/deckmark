@@ -536,9 +536,9 @@
 				</button>
 			</header>
 
-			<span class="sr-only" role="status" aria-live="polite" data-testid="ai-stream-status"
-				>{streamAnnouncement}</span
-			>
+			<span class="sr-only" role="status" aria-live="polite" data-testid="ai-stream-status">
+				{streamAnnouncement}
+			</span>
 
 			<div class="ai-body">
 				<section aria-labelledby="ai-context-title">
@@ -550,8 +550,10 @@
 								aria-pressed={scope === value}
 								onclick={() => selectScope(value as AiContextScope)}
 								disabled={value === 'project' && !projectSelected}
-								data-testid={`ai-scope-${value}`}>{t(label)}</button
+								data-testid={`ai-scope-${value}`}
 							>
+								{t(label)}
+							</button>
 						{/each}
 					</div>
 					{#if scope === 'selection'}
@@ -592,10 +594,10 @@
 							{#each included as entry (entry.id)}
 								<li data-included="true">
 									<span>{entry.path}</span>
-									<em
-										>{entry.includedTokens}{#if entry.truncated}
-											/ {entry.tokens}{/if}</em
-									>
+									<em>
+										{entry.includedTokens}{#if entry.truncated}
+											/ {entry.tokens}{/if}
+									</em>
 								</li>
 							{/each}
 							{#each excluded as entry (entry.id)}
@@ -624,8 +626,10 @@
 								type="button"
 								disabled={streaming}
 								onclick={() => void run(action.prompt)}
-								data-testid={`ai-action-${action.id}`}>{action.label}</button
+								data-testid={`ai-action-${action.id}`}
 							>
+								{action.label}
+							</button>
 						{/each}
 					</div>
 					<label class="ai-prompt">
@@ -641,14 +645,16 @@
 							type="button"
 							disabled={streaming || !prompt.trim()}
 							onclick={() => void run(prompt)}
-							data-testid="ai-send">{t('ai.send')}</button
+							data-testid="ai-send"
 						>
+							{t('ai.send')}
+						</button>
 						{#if streaming}
 							<button type="button" onclick={stop} data-testid="ai-stop">{t('ai.stop')}</button>
 						{:else if lastPrompt}
-							<button type="button" onclick={() => void run(lastPrompt)} data-testid="ai-retry"
-								>{t('ai.retry')}</button
-							>
+							<button type="button" onclick={() => void run(lastPrompt)} data-testid="ai-retry">
+								{t('ai.retry')}
+							</button>
 						{/if}
 					</div>
 				</section>
@@ -712,8 +718,10 @@
 								type="button"
 								disabled={approvedPaths.length === 0}
 								onclick={() => void applyPatch()}
-								data-testid="ai-patch-apply">{t('ai.patchApply')}</button
+								data-testid="ai-patch-apply"
 							>
+								{t('ai.patchApply')}
+							</button>
 							{#if appliedAfter.length > 0}
 								<button
 									type="button"

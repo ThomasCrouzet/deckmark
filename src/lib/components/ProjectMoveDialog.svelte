@@ -130,22 +130,28 @@
 					type="button"
 					class="rounded border border-border px-3 py-2 text-sm"
 					onclick={onClose}
-					disabled={busy}>{t('projects.cancel')}</button
+					disabled={busy}
 				>
+					{t('projects.cancel')}
+				</button>
 				<button
 					type="button"
 					class="rounded border border-border px-3 py-2 text-sm"
 					onclick={() => void run('copy')}
 					disabled={busy}
-					data-testid="project-move-copy">{t('projects.copy')}</button
+					data-testid="project-move-copy"
 				>
+					{t('projects.copy')}
+				</button>
 				<button
 					type="button"
 					class="rounded border border-accent bg-accent px-3 py-2 text-sm text-on-accent"
 					onclick={() => void run('move')}
 					disabled={busy}
-					data-testid="project-move-submit">{t('projects.move')}</button
+					data-testid="project-move-submit"
 				>
+					{t('projects.move')}
+				</button>
 			</div>
 		</div>
 	</div>

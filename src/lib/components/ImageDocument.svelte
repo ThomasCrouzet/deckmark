@@ -342,22 +342,28 @@
 				aria-pressed={tool === 'pen'}
 				onclick={() => (tool = 'pen')}
 				title={t('annotations.pen')}
-				data-testid="image-pen"><Pen size={14} /></button
+				data-testid="image-pen"
 			>
+				<Pen size={14} />
+			</button>
 			<button
 				type="button"
 				aria-pressed={tool === 'highlighter'}
 				onclick={() => (tool = 'highlighter')}
 				title={t('annotations.highlighter')}
-				data-testid="image-highlighter"><Highlighter size={14} /></button
+				data-testid="image-highlighter"
 			>
+				<Highlighter size={14} />
+			</button>
 			<button
 				type="button"
 				aria-pressed={tool === 'eraser'}
 				onclick={() => (tool = 'eraser')}
 				title={t('annotations.eraser')}
-				data-testid="image-eraser"><Eraser size={14} /></button
+				data-testid="image-eraser"
 			>
+				<Eraser size={14} />
+			</button>
 			{#each COLORS as swatch, index (swatch)}
 				<button
 					type="button"

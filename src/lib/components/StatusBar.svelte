@@ -277,9 +277,9 @@
 					<span class="hidden sm:inline text-fg-dim/60">·</span>
 					<span class="hidden sm:inline">{t('statusBar.lines', { n: stats.lines })}</span>
 					<span class="hidden md:inline text-fg-dim/60">·</span>
-					<span class="hidden md:inline"
-						>{t('statusBar.readMinutes', { n: stats.readMinutes })}</span
-					>
+					<span class="hidden md:inline">
+						{t('statusBar.readMinutes', { n: stats.readMinutes })}
+					</span>
 				{:else}
 					<span aria-busy={!loadFailed} data-testid={loadFailed ? 'stats-load-error' : undefined}>
 						{t(loadFailed ? 'panels.loadFailed' : 'diskLinks.loading')}
@@ -296,23 +296,29 @@
 					onclick={() => {
 						backupDue = false;
 						onOpenSettings?.();
-					}}>{t('statusBar.backupDue')}</button
+					}}
 				>
+					{t('statusBar.backupDue')}
+				</button>
 				<button
 					class="px-1 text-fg-muted"
 					onclick={dismissReminder}
-					aria-label={t('statusBar.dismissReminder')}>×</button
+					aria-label={t('statusBar.dismissReminder')}
 				>
+					×
+				</button>
 			{/if}
 			{#if filesStore.active?.linkedToDisk}<span
 					class="hidden lg:inline text-fg-muted"
-					title={t('statusBar.diskManual')}>{t('statusBar.diskManual')}</span
-				>{/if}
+					title={t('statusBar.diskManual')}
+				>
+					{t('statusBar.diskManual')}
+				</span>{/if}
 			{#if filesStore.saveErrorIds.length > 0}
 				<span role="status" class="text-danger">{t('statusBar.saveFailed')}</span>
-				<button class="ml-2 underline text-danger" onclick={() => void retrySave()}
-					>{t('statusBar.retrySave')}</button
-				>
+				<button class="ml-2 underline text-danger" onclick={() => void retrySave()}>
+					{t('statusBar.retrySave')}
+				</button>
 			{:else if filesStore.hasPendingSave}
 				<span class="text-accent" aria-live="off">{t('statusBar.saving')}</span>
 			{:else}

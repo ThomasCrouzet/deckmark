@@ -195,18 +195,18 @@
 					disabled={busy}
 					onclick={() => void run(() => onCreate('note'))}
 				>
-					<FileText size={28} /><strong>{t('documents.createNote')}</strong><span
-						>{t('documents.noteDescription')}</span
-					>
+					<FileText size={28} /><strong>{t('documents.createNote')}</strong><span>
+						{t('documents.noteDescription')}
+					</span>
 				</button>
 				<button
 					data-testid="create-presentation"
 					disabled={busy}
 					onclick={() => void run(() => onCreate('presentation'))}
 				>
-					<Presentation size={28} /><strong>{t('documents.createPresentation')}</strong><span
-						>{t('documents.presentationDescription')}</span
-					>
+					<Presentation size={28} /><strong>{t('documents.createPresentation')}</strong><span>
+						{t('documents.presentationDescription')}
+					</span>
 				</button>
 				<button
 					bind:this={codeButton}
@@ -215,14 +215,14 @@
 					aria-expanded={codeOpen}
 					onclick={openCodeForm}
 				>
-					<Code size={28} /><strong>{t('documents.createCode')}</strong><span
-						>{t('documents.codeDescription')}</span
-					>
+					<Code size={28} /><strong>{t('documents.createCode')}</strong><span>
+						{t('documents.codeDescription')}
+					</span>
 				</button>
 				<button data-testid="create-json" disabled={busy} onclick={() => void createJson()}>
-					<Braces size={28} /><strong>{t('documents.createJson')}</strong><span
-						>{t('documents.jsonDescription')}</span
-					>
+					<Braces size={28} /><strong>{t('documents.createJson')}</strong><span>
+						{t('documents.jsonDescription')}
+					</span>
 				</button>
 			</div>
 			{#if codeOpen}
@@ -275,8 +275,10 @@
 							type="button"
 							data-testid="create-code-cancel"
 							disabled={busy}
-							onclick={() => void closeCodeForm()}>{t('slides.cancel')}</button
+							onclick={() => void closeCodeForm()}
 						>
+							{t('slides.cancel')}
+						</button>
 					</div>
 				</form>
 			{/if}
@@ -332,11 +334,11 @@
 								>
 									<strong>{template.name}</strong>
 									<span>{template.description}</span>
-									<em
-										>{t(
+									<em>
+										{t(
 											template.kind === 'presentation' ? 'documents.presentation' : 'documents.note'
-										)}</em
-									>
+										)}
+									</em>
 								</button>
 							{/each}
 						</div>

@@ -185,9 +185,9 @@
 			<header class="flex items-center gap-2 border-b border-border px-4 py-2.5">
 				<Workflow size={16} class="text-fg-dim" aria-hidden="true" />
 				<h2 id="graph-title" class="flex-1 text-sm font-medium text-fg">{t('graph.title')}</h2>
-				<span class="text-[11px] text-fg-dim"
-					>{t('graph.counts', { nodes: positions.length, edges: edges.length })}</span
-				>
+				<span class="text-[11px] text-fg-dim">
+					{t('graph.counts', { nodes: positions.length, edges: edges.length })}
+				</span>
 				<button
 					bind:this={closeButton}
 					class="rounded p-1 text-fg-dim transition hover:bg-bg-2 hover:text-fg"
@@ -270,8 +270,10 @@
 								{#each edges.filter((edge) => edge.source === node.id) as edge (edge.target)}
 									<span> / {t('graph.linksTo')} </span><button
 										class="underline"
-										onclick={() => openNode(edge.target)}>{posById.get(edge.target)?.label}</button
+										onclick={() => openNode(edge.target)}
 									>
+										{posById.get(edge.target)?.label}
+									</button>
 								{/each}
 							</li>
 						{/each}

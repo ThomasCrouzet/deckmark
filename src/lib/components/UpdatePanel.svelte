@@ -75,8 +75,10 @@
 					class="mt-2 rounded border border-border px-2.5 py-1"
 					disabled={busy}
 					onclick={() => void check()}
-					data-testid="update-check">{t('updates.check')}</button
+					data-testid="update-check"
 				>
+					{t('updates.check')}
+				</button>
 			{:else}
 				<p class="mt-1 text-fg-muted" role="status" data-testid="update-blocked">
 					{t('updates.blocked')}

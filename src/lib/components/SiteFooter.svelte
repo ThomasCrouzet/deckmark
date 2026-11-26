@@ -16,27 +16,33 @@
 			<a
 				href="https://github.com/ThomasCrouzet/deckmark/tree/main/docs"
 				target="_blank"
-				rel="noopener noreferrer">{t('site.footerDocs')}</a
+				rel="noopener noreferrer"
 			>
+				{t('site.footerDocs')}
+			</a>
 		</li>
 		<li>
-			<a href="https://github.com/ThomasCrouzet/deckmark" target="_blank" rel="noopener noreferrer"
-				>{t('site.footerGitHub')}</a
-			>
+			<a href="https://github.com/ThomasCrouzet/deckmark" target="_blank" rel="noopener noreferrer">
+				{t('site.footerGitHub')}
+			</a>
 		</li>
 		<li>
 			<a
 				href="https://github.com/ThomasCrouzet/deckmark/issues"
 				target="_blank"
-				rel="noopener noreferrer">{t('site.footerIssue')}</a
+				rel="noopener noreferrer"
 			>
+				{t('site.footerIssue')}
+			</a>
 		</li>
 		<li>
 			<a
 				href="https://github.com/ThomasCrouzet/deckmark/blob/main/docs/EDITIONS.md"
 				target="_blank"
-				rel="noopener noreferrer">{t('site.footerEditions')}</a
+				rel="noopener noreferrer"
 			>
+				{t('site.footerEditions')}
+			</a>
 		</li>
 	</ul>
 </nav>

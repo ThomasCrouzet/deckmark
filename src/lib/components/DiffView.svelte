@@ -80,12 +80,12 @@
 				data-diff-kind={line.kind}
 				aria-label={lineLabel(line)}
 			>
-				<span class="select-none border-r border-border/50 px-2 text-right" aria-hidden="true"
-					>{line.oldLine ?? ''}</span
-				>
-				<span class="select-none border-r border-border/50 px-2 text-right" aria-hidden="true"
-					>{line.newLine ?? ''}</span
-				>
+				<span class="select-none border-r border-border/50 px-2 text-right" aria-hidden="true">
+					{line.oldLine ?? ''}
+				</span>
+				<span class="select-none border-r border-border/50 px-2 text-right" aria-hidden="true">
+					{line.newLine ?? ''}
+				</span>
 				<span class="select-none px-1 text-center" aria-hidden="true">
 					{line.kind === 'add'
 						? '+'

@@ -87,19 +87,19 @@
 				<kbd>{keyboardStore.label('export-md') ?? ''}</kbd><span>{t('welcome.legendExport')}</span>
 			</div>
 			<div>
-				<kbd
-					>{keyboardStore.label('mode-wysiwyg') ?? ''} / {keyboardStore.label('mode-read') ?? ''} / {keyboardStore.label(
+				<kbd>
+					{keyboardStore.label('mode-wysiwyg') ?? ''} / {keyboardStore.label('mode-read') ?? ''} / {keyboardStore.label(
 						'mode-source'
-					) ?? ''}</kbd
-				><span>{t('welcome.legendModes')}</span>
+					) ?? ''}
+				</kbd><span>{t('welcome.legendModes')}</span>
 			</div>
 			<div>
 				<kbd>{keyboardStore.label('sidebar') ?? ''}</kbd><span>{t('welcome.legendPanel')}</span>
 			</div>
 			<div>
-				<kbd>{keyboardStore.label('close-file') ?? ''}</kbd><span
-					>{t('welcome.legendCloseTab')}</span
-				>
+				<kbd>{keyboardStore.label('close-file') ?? ''}</kbd><span>
+					{t('welcome.legendCloseTab')}
+				</span>
 			</div>
 		</div>
 	</section>

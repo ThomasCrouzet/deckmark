@@ -218,8 +218,8 @@
 						aria-label={t('toolbar.fileNameLabel')}
 					/>
 					<div class="document-meta">
-						<span data-testid="document-kind" class="type-badge"
-							>{t(
+						<span data-testid="document-kind" class="type-badge">
+							{t(
 								kind === 'note'
 									? 'documents.note'
 									: kind === 'presentation'
@@ -229,24 +229,26 @@
 											: kind === 'image'
 												? 'documents.image'
 												: 'documents.pdf'
-							)}</span
-						>
+							)}
+						</span>
 						<!-- §754 - Decorative save text. StatusBar owns the save
 						     announcement; a second live region duplicated it. -->
-						<span class="title-save"
-							>{filesStore.saveErrorIds.includes(filesStore.active.id)
+						<span class="title-save">
+							{filesStore.saveErrorIds.includes(filesStore.active.id)
 								? t('statusBar.saveFailed')
 								: filesStore.hasPendingSave
 									? t('statusBar.saving')
-									: t('stats.saved')}</span
-						>
+									: t('stats.saved')}
+						</span>
 						<span
 							class="edit-mode-label"
 							data-testid="disk-edit-mode"
 							data-mode={editModeValue}
 							title={t(editModeKey)}
-							aria-label={`${t('editing.status')}: ${t(editModeKey)}`}>{t(editModeKey)}</span
+							aria-label={`${t('editing.status')}: ${t(editModeKey)}`}
 						>
+							{t(editModeKey)}
+						</span>
 						<FileStatusBadge file={filesStore.active} showLabel />
 					</div>
 				</div>
@@ -374,15 +376,15 @@
 		</button>
 
 		<span class="mdsh-local-indicator" role="status">
-			<span class="offline-label"
-				>{t(
+			<span class="offline-label">
+				{t(
 					offlineState.status === 'ready'
 						? 'pwa.ready'
 						: offlineState.status === 'preparing'
 							? 'pwa.preparing'
 							: 'pwa.unavailable'
-				)}</span
-			>
+				)}
+			</span>
 		</span>
 
 		<button
@@ -424,8 +426,9 @@
 				data-actions-trigger
 				title={t('actions.title')}
 				aria-label={t('actions.title')}
-				><Ellipsis size={18} /><span class="text-xs font-medium">{t('actions.title')}</span></button
 			>
+				<Ellipsis size={18} /><span class="text-xs font-medium">{t('actions.title')}</span>
+			</button>
 		{/if}
 		<button
 			class="palette-trigger mdsh-icon-button flex items-center justify-center gap-1.5 rounded px-2 text-fg-muted"

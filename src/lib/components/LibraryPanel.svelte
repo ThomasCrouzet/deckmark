@@ -131,12 +131,14 @@
 				class="rounded p-2"
 				onclick={onClose}
 				disabled={filesStore.trashBusy}
-				aria-label={t('settings.close')}><X size={16} /></button
+				aria-label={t('settings.close')}
 			>
+				<X size={16} />
+			</button>
 		</header>
 		{#if !promptStore.open}<Toasts embedded />{/if}
-		<label class="flex items-center gap-2 px-4 py-3"
-			><Search size={16} /><input
+		<label class="flex items-center gap-2 px-4 py-3">
+			<Search size={16} /><input
 				bind:this={input}
 				bind:value={query}
 				oninput={() => (selectedIds = [])}
@@ -151,8 +153,8 @@
 						open(matches[0].id);
 					}
 				}}
-			/></label
-		>
+			/>
+		</label>
 		<div class="flex flex-wrap gap-2 px-4 pb-3" role="group" aria-label={t('library.scope')}>
 			{#each ['all', 'open', 'closed'] as value (value)}<button
 					class="rounded border border-border px-3 py-2 text-xs"
@@ -163,10 +165,11 @@
 						scope = value;
 						selectedIds = [];
 					}}
-					>{t(
+				>
+					{t(
 						value === 'all' ? 'library.all' : value === 'open' ? 'library.open' : 'library.closed'
-					)}</button
-				>{/each}
+					)}
+				</button>{/each}
 		</div>
 		<div
 			class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2"
@@ -185,33 +188,39 @@
 				/>
 				{t('bulkDelete.selectResults')}
 			</label>
-			<span class="text-xs text-fg-muted" role="status" aria-live="polite" aria-atomic="true"
-				>{t('bulkDelete.selectedCount', { n: selectedMatches.length })}</span
-			>
+			<span class="text-xs text-fg-muted" role="status" aria-live="polite" aria-atomic="true">
+				{t('bulkDelete.selectedCount', { n: selectedMatches.length })}
+			</span>
 			<button
 				class="rounded border border-border px-3 py-2 text-xs text-danger disabled:opacity-50"
 				disabled={filesStore.trashBusy || selectedMatches.length === 0}
-				onclick={() => void removeMany(false)}>{t('bulkDelete.deleteSelected')}</button
+				onclick={() => void removeMany(false)}
 			>
+				{t('bulkDelete.deleteSelected')}
+			</button>
 			<button
 				class="rounded border border-border px-3 py-2 text-xs text-danger disabled:opacity-50"
 				disabled={filesStore.trashBusy || filesStore.library.length === 0}
-				onclick={() => void removeMany(true)}>{t('bulkDelete.deleteAll')}</button
+				onclick={() => void removeMany(true)}
 			>
+				{t('bulkDelete.deleteAll')}
+			</button>
 		</div>
 		{#if unresolved.length}
 			<details
 				class="max-h-48 overflow-y-auto border-t border-border px-4 py-2 text-xs text-fg-muted"
 			>
-				<summary class="cursor-pointer py-1"
-					>{t('library.unresolved', { n: unresolved.length })}</summary
-				>
+				<summary class="cursor-pointer py-1">
+					{t('library.unresolved', { n: unresolved.length })}
+				</summary>
 				<p class="py-2">{t('library.repairHint')}</p>
 				{#each unresolved.slice(0, 200) as link (link.file.id + ':' + link.target)}<button
 						class="block w-full truncate py-2 text-left underline"
 						disabled={filesStore.trashBusy}
-						onclick={() => open(link.file.id)}>{link.file.name} → [[{link.target}]]</button
-					>{/each}
+						onclick={() => open(link.file.id)}
+					>
+						{link.file.name} → [[{link.target}]]
+					</button>{/each}
 			</details>
 		{/if}
 		<ul class="border-t border-border">
@@ -256,28 +265,30 @@
 							<FileStatusBadge {file} />
 						</span>
 						<span id={`library-type-${file.id}`} class="text-xs text-fg-muted">{typeLabel}</span>
-						{#if file.relativePath}<span class="max-w-full truncate text-xs text-fg-muted"
-								>{file.relativePath}</span
-							>{/if}
-						<span class="max-w-full truncate text-xs text-fg-muted"
-							>{filesStore.documentTitle(file.id)} · {new Intl.DateTimeFormat(i18n.locale, {
+						{#if file.relativePath}<span class="max-w-full truncate text-xs text-fg-muted">
+								{file.relativePath}
+							</span>{/if}
+						<span class="max-w-full truncate text-xs text-fg-muted">
+							{filesStore.documentTitle(file.id)} · {new Intl.DateTimeFormat(i18n.locale, {
 								dateStyle: 'medium',
 								timeStyle: 'short'
-							}).format(file.updatedAt)}</span
-						>
-						<span class="text-xs text-fg-muted"
-							>{t(
+							}).format(file.updatedAt)}
+						</span>
+						<span class="text-xs text-fg-muted">
+							{t(
 								openIds.has(file.id) ? 'library.open' : 'library.closed'
 							)}{#each filesStore.getTags(file.id) as tag (tag)}
-								· #{tag}{/each}</span
-						>
+								· #{tag}{/each}
+						</span>
 					</button>
 					<button
 						class="rounded p-3 text-fg-muted hover:text-danger"
 						onclick={() => void remove(file.id)}
 						disabled={filesStore.trashBusy}
-						aria-label={`${t('palette.deleteFile')}: ${file.name}`}><Trash2 size={16} /></button
+						aria-label={`${t('palette.deleteFile')}: ${file.name}`}
 					>
+						<Trash2 size={16} />
+					</button>
 				</li>
 			{:else}<li class="p-6 text-center text-sm text-fg-muted">{t('library.empty')}</li>{/each}
 		</ul>

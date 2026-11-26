@@ -35,9 +35,13 @@
 	<div class="inspector-heading">
 		<h2>{t('slides.properties')}</h2>
 		<button class="close-properties" onclick={onClose}>{t('settings.close')}</button>
-		<button data-testid="slide-multiselect" aria-pressed={multiSelect} onclick={onToggleMultiSelect}
-			>{t('slides.multiSelect')}</button
+		<button
+			data-testid="slide-multiselect"
+			aria-pressed={multiSelect}
+			onclick={onToggleMultiSelect}
 		>
+			{t('slides.multiSelect')}
+		</button>
 	</div>
 	{#if editor.primary}
 		<p class="selection-count">{t('slides.selectionCount', { n: editor.selected.length })}</p>
@@ -45,8 +49,8 @@
 			<legend>{t('slides.position')}</legend>
 			<div class="fields">
 				{#each numeric as key (key)}
-					<label
-						>{t(`slides.${key}`)}
+					<label>
+						{t(`slides.${key}`)}
 						<input
 							type="number"
 							data-testid={'slide-prop-' + key}
@@ -62,8 +66,8 @@
 			<legend>{t('slides.fill')}</legend>
 			<div class="fields">
 				{#each ['fill', 'stroke', 'color'] as key (key)}
-					<label
-						>{t(`slides.${key}` as MessageKey)}
+					<label>
+						{t(`slides.${key}` as MessageKey)}
 						<input
 							type="color"
 							data-testid={'slide-prop-' + key}
@@ -76,32 +80,32 @@
 					</label>
 				{/each}
 			</div>
-			<label class="checkbox"
-				><input
+			<label class="checkbox">
+				<input
 					type="checkbox"
 					checked={editor.primary.fill === 'transparent'}
 					onchange={(event) =>
 						editor.setProperty('fill', event.currentTarget.checked ? 'transparent' : '#dbeafe')}
-				/>{t('slides.transparent')}</label
-			>
-			<label
-				>{t('slides.textAlign')}
+				/>{t('slides.transparent')}
+			</label>
+			<label>
+				{t('slides.textAlign')}
 				<select
 					data-testid="slide-prop-textAlign"
 					value={editor.primary.textAlign}
 					onchange={(event) => editor.setProperty('textAlign', event.currentTarget.value)}
 				>
-					{#each ['left', 'center', 'right'] as alignment (alignment)}<option value={alignment}
-							>{t(`slides.${alignment}` as MessageKey)}</option
-						>{/each}
+					{#each ['left', 'center', 'right'] as alignment (alignment)}<option value={alignment}>
+							{t(`slides.${alignment}` as MessageKey)}
+						</option>{/each}
 				</select>
 			</label>
 		</fieldset>
 		{#if editor.primary.type === 'line' || editor.primary.type === 'arrow'}
 			<div class="fields">
 				{#each ['startId', 'endId'] as endpoint (endpoint)}
-					<label
-						>{t(`slides.${endpoint}` as MessageKey)}
+					<label>
+						{t(`slides.${endpoint}` as MessageKey)}
 						<select
 							data-testid={'slide-prop-' + endpoint}
 							value={editor.primary[endpoint as 'startId' | 'endId'] ?? ''}
@@ -116,10 +120,10 @@
 						>
 							<option value="">{t('slides.unattached')}</option>
 							{#each editor.slide.elements.filter((element) => element.id !== editor.primary?.id && element.type !== 'arrow' && element.type !== 'line') as element, index (element.id)}
-								<option value={element.id}
-									>{t(`slides.${element.type}`)}
-									{index + 1}{element.content ? `: ${element.content.slice(0, 30)}` : ''}</option
-								>
+								<option value={element.id}>
+									{t(`slides.${element.type}`)}
+									{index + 1}{element.content ? `: ${element.content.slice(0, 30)}` : ''}
+								</option>
 							{/each}
 						</select>
 					</label>
@@ -169,8 +173,8 @@
 	{/if}
 	<fieldset>
 		<legend>{t('slides.slides')}</legend>
-		<label
-			>{t('slides.background')}<input
+		<label>
+			{t('slides.background')}<input
 				type="color"
 				data-testid="slide-background"
 				value={editor.slide.background}
@@ -178,10 +182,10 @@
 					editor.change(() => {
 						editor.slide.background = event.currentTarget.value;
 					})}
-			/></label
-		>
-		<label
-			>{t('slides.aspect')}
+			/>
+		</label>
+		<label>
+			{t('slides.aspect')}
 			<select
 				data-testid="slide-aspect"
 				value={editor.deck.width === editor.deck.height
@@ -191,13 +195,13 @@
 						: '16:9'}
 				onchange={(event) => editor.setAspect(event.currentTarget.value)}
 			>
-				<option value="16:9">16:9</option><option value="4:3">4:3</option><option value="1:1"
-					>1:1</option
-				>
+				<option value="16:9">16:9</option><option value="4:3">4:3</option><option value="1:1">
+					1:1
+				</option>
 			</select>
 		</label>
-		<label
-			>{t('slides.theme')}
+		<label>
+			{t('slides.theme')}
 			<select
 				data-testid="slide-theme"
 				value={editor.deck.theme}
@@ -218,9 +222,9 @@
 						}
 					})}
 			>
-				<option value="light">{t('slides.themeLight')}</option><option value="dark"
-					>{t('slides.themeDark')}</option
-				><option value="amber">{t('slides.themeAmber')}</option>
+				<option value="light">{t('slides.themeLight')}</option><option value="dark">
+					{t('slides.themeDark')}
+				</option><option value="amber">{t('slides.themeAmber')}</option>
 			</select>
 		</label>
 	</fieldset>

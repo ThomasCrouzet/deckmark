@@ -391,16 +391,20 @@
 				onclick={close}
 				disabled={busy}
 				class="rounded border border-border px-3 py-1"
-				aria-label={tg('git.close')}>x</button
+				aria-label={tg('git.close')}
 			>
+				x
+			</button>
 		</header>
 		<div class="flex flex-wrap items-center gap-2 border-b border-border p-3">
 			<button
 				type="button"
 				onclick={() => void refresh()}
 				disabled={busy || refreshing || loading}
-				class="rounded border border-border px-3 py-1 text-sm">{tg('git.refresh')}</button
+				class="rounded border border-border px-3 py-1 text-sm"
 			>
+				{tg('git.refresh')}
+			</button>
 			{#if refreshing}<span role="status" class="text-xs text-fg-muted">{tg('git.busy')}</span>{/if}
 			{#if status}
 				<span class="text-xs text-fg-muted">{tg('git.count', { n: status.files.length })}</span>
@@ -521,14 +525,18 @@
 										type="button"
 										class="rounded border border-border px-2 py-0.5 text-xs"
 										class:bg-bg-2={!diffStaged}
-										onclick={() => void setDiffMode(false)}>{tg('git.diff.worktree')}</button
+										onclick={() => void setDiffMode(false)}
 									>
+										{tg('git.diff.worktree')}
+									</button>
 									<button
 										type="button"
 										class="rounded border border-border px-2 py-0.5 text-xs"
 										class:bg-bg-2={diffStaged}
-										onclick={() => void setDiffMode(true)}>{tg('git.diff.staged')}</button
+										onclick={() => void setDiffMode(true)}
 									>
+										{tg('git.diff.staged')}
+									</button>
 								{/if}
 							</div>
 							{#if !selectedPath}
@@ -574,32 +582,37 @@
 											class="rounded border border-border px-2 py-0.5 text-xs"
 											data-testid="git-diff-first"
 											aria-disabled={diffPageIndex === 0}
-											onclick={() => goToDiffPage(0)}>{tg('git.diff.review.first')}</button
+											onclick={() => goToDiffPage(0)}
 										>
+											{tg('git.diff.review.first')}
+										</button>
 										<button
 											type="button"
 											class="rounded border border-border px-2 py-0.5 text-xs"
 											data-testid="git-diff-previous"
 											aria-disabled={diffPageIndex === 0}
 											onclick={() => goToDiffPage(diffPageIndex - 1)}
-											>{tg('git.diff.review.previous')}</button
 										>
+											{tg('git.diff.review.previous')}
+										</button>
 										<button
 											type="button"
 											class="rounded border border-border px-2 py-0.5 text-xs"
 											data-testid="git-diff-next"
 											aria-disabled={diffOnLastPage}
 											onclick={() => goToDiffPage(diffPageIndex + 1)}
-											>{tg('git.diff.review.next')}</button
 										>
+											{tg('git.diff.review.next')}
+										</button>
 										<button
 											type="button"
 											class="rounded border border-border px-2 py-0.5 text-xs"
 											data-testid="git-diff-last"
 											aria-disabled={diffOnLastPage}
 											onclick={() => goToDiffPage(diffPageCount - 1, 'end')}
-											>{tg('git.diff.review.last')}</button
 										>
+											{tg('git.diff.review.last')}
+										</button>
 									</div>
 									<p
 										role="status"
@@ -644,8 +657,10 @@
 									type="button"
 									class="rounded border border-border px-3 py-1 text-sm"
 									disabled={commitDisabled}
-									onclick={() => void createCommit()}>{tg('git.commit.action')}</button
+									onclick={() => void createCommit()}
 								>
+									{tg('git.commit.action')}
+								</button>
 								{#if !mutable}<span class="text-xs text-fg-muted">{tg('git.readOnly')}</span>{/if}
 							</div>
 						</section>

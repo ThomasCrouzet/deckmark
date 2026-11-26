@@ -241,9 +241,9 @@
 		>
 			<header>
 				<h2 id="profile-title">{t('exportProfiles.title')}</h2>
-				<button type="button" onclick={onClose} aria-label={t('settings.close')}
-					><X size={16} /></button
-				>
+				<button type="button" onclick={onClose} aria-label={t('settings.close')}>
+					<X size={16} />
+				</button>
 			</header>
 			<div class="profile-body" tabindex="-1">
 				<div

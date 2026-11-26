@@ -262,18 +262,20 @@
 				onclick={onClose}
 				disabled={busy}
 				aria-label={t('projects.close')}
-				class="rounded border border-border px-3 py-1">×</button
+				class="rounded border border-border px-3 py-1"
 			>
+				×
+			</button>
 		</header>
 		<div class="flex flex-wrap gap-2 border-b border-border p-3">
 			<button disabled={busy} onclick={newProject}>{t('projects.create')}</button>
 			<button disabled={busy} onclick={() => zipInput.click()}>{t('projects.importZip')}</button>
-			<button disabled={busy} onclick={() => folderInput.click()}
-				>{t('projects.importFolder')}</button
-			>
-			{#if nativeAvailable}<button disabled={busy} onclick={openNativeFolder}
-					>{t('projects.nativeOpen')}</button
-				>{/if}
+			<button disabled={busy} onclick={() => folderInput.click()}>
+				{t('projects.importFolder')}
+			</button>
+			{#if nativeAvailable}<button disabled={busy} onclick={openNativeFolder}>
+					{t('projects.nativeOpen')}
+				</button>{/if}
 			<input
 				bind:this={zipInput}
 				type="file"
@@ -353,17 +355,17 @@
 						>
 							<span class="min-w-0 flex-1">{entry.path}</span>
 							{#if entry.localOnly}
-								<span data-native-missing-local-only class="text-fg-muted"
-									>{t('projects.localOnly')}</span
-								>
+								<span data-native-missing-local-only class="text-fg-muted">
+									{t('projects.localOnly')}
+								</span>
 							{/if}
-							<button disabled={busy} onclick={() => resolveMissing(entry.path, 'recreate')}
-								>{t('projects.recreateOnDisk')}</button
-							>
+							<button disabled={busy} onclick={() => resolveMissing(entry.path, 'recreate')}>
+								{t('projects.recreateOnDisk')}
+							</button>
 							{#if !entry.localOnly}
-								<button disabled={busy} onclick={() => resolveMissing(entry.path, 'retain')}
-									>{t('projects.keepLocalCopy')}</button
-								>
+								<button disabled={busy} onclick={() => resolveMissing(entry.path, 'retain')}>
+									{t('projects.keepLocalCopy')}
+								</button>
 							{/if}
 						</li>
 					{/each}
@@ -375,8 +377,8 @@
 			</p>{/if}
 		<div class="min-h-0 flex-1 overflow-auto p-3">
 			{#if projects.length}
-				<label class="flex items-center gap-2 text-sm"
-					>{t('projects.name')}
+				<label class="flex items-center gap-2 text-sm">
+					{t('projects.name')}
 					<select
 						bind:value={selected}
 						onchange={() => {
@@ -386,29 +388,33 @@
 						disabled={busy}
 						class="min-w-0 rounded border border-border bg-bg px-2 py-2"
 					>
-						{#each projects as project (project.id)}<option value={project.id}
-								>{project.name}</option
-							>{/each}
+						{#each projects as project (project.id)}<option value={project.id}>
+								{project.name}
+							</option>{/each}
 					</select>
 				</label>
 				<div class="my-3 flex flex-wrap gap-2">
-					<button disabled={busy || !selected} onclick={newDocument}
-						>{t('projects.newDocument')}</button
-					>
+					<button disabled={busy || !selected} onclick={newDocument}>
+						{t('projects.newDocument')}
+					</button>
 					<button
 						disabled={busy || !selected}
 						onclick={() =>
 							run(async () => {
 								if (selected) await exportProject(selected);
-							})}>{t('projects.export')}</button
+							})}
 					>
+						{t('projects.export')}
+					</button>
 					<button
 						disabled={busy || !selected}
 						onclick={() =>
 							run(async () => {
 								if (selected) issues = await checkProjectLinks(selected);
-							})}>{t('projects.checkLinks')}</button
+							})}
 					>
+						{t('projects.checkLinks')}
+					</button>
 					{#if onOpenDocsCheck}
 						<button
 							disabled={busy || !selected}
@@ -416,8 +422,10 @@
 								if (!selected) return;
 								onOpenDocsCheck(selected);
 								onClose();
-							}}>{t('docsCheck.command')}</button
+							}}
 						>
+							{t('docsCheck.command')}
+						</button>
 					{/if}
 					{#if onOpenDocsSite}
 						<button
@@ -426,15 +434,17 @@
 								if (!selected) return;
 								onOpenDocsSite(selected);
 								onClose();
-							}}>{td('docsSite.command')}</button
+							}}
 						>
+							{td('docsSite.command')}
+						</button>
 					{/if}
 					{#if nativeAvailable && selectedProject?.nativeRootId && gitActionLabel()}
 						<button disabled={busy} onclick={refreshNative}>{t('projects.refresh')}</button>
 						<button disabled={busy} onclick={saveNative}>{t('projects.save')}</button>
-						<button disabled={busy} onclick={() => (gitOpen = true)} data-testid="project-git"
-							>{gitActionLabel()}</button
-						>
+						<button disabled={busy} onclick={() => (gitOpen = true)} data-testid="project-git">
+							{gitActionLabel()}
+						</button>
 						<button disabled={busy} onclick={unlinkNative}>{t('projects.unlink')}</button>
 					{/if}
 				</div>

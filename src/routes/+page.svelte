@@ -903,8 +903,10 @@
 				type="button"
 				class="ml-3 underline"
 				data-testid="retry-storage"
-				onclick={() => filesStore.retryLoad()}>{t('files.retryLoad')}</button
+				onclick={() => filesStore.retryLoad()}
 			>
+				{t('files.retryLoad')}
+			</button>
 		</div>
 	{/if}
 
@@ -1022,9 +1024,9 @@
 			<module.default />
 		{:catch _error}
 			<div role="alert" class="fixed inset-0 z-[80] bg-bg p-6 text-fg">
-				{t('projects.operationFailed')}<button onclick={() => diskConflictStore.choose('cancel')}
-					>{t('diskConflict.cancel')}</button
-				>
+				{t('projects.operationFailed')}<button onclick={() => diskConflictStore.choose('cancel')}>
+					{t('diskConflict.cancel')}
+				</button>
 			</div>
 		{/await}
 	{/if}

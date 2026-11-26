@@ -583,8 +583,10 @@
 			onclick={() => {
 				if (isMobile) onClose();
 				onOpenProjects?.();
-			}}>{t('projects.manage')}</button
+			}}
 		>
+			{t('projects.manage')}
+		</button>
 		<button
 			bind:this={libraryButton}
 			class="m-2 rounded border border-border px-3 py-2 text-left text-sm text-fg-muted hover:bg-bg-2"
@@ -592,8 +594,10 @@
 				event.currentTarget.focus({ preventScroll: true });
 				if (isMobile) onClose();
 				onOpenLibrary?.();
-			}}>{t('library.title')} ({filesStore.library.length})</button
+			}}
 		>
+			{t('library.title')} ({filesStore.library.length})
+		</button>
 	{/if}
 	<!-- §5.1 - Tag filter (chips). Visible only if at least 1 tag
 	     in the corpus. The "All" button resets the filter. -->
@@ -653,9 +657,9 @@
 				{selectionMode ? t('sidebar.selectionModeDone') : t('sidebar.selectionModeStart')}
 			</button>
 			{#if selectionMode || filesStore.selectedIds.size >= 2}
-				<span class="ml-auto text-fg" aria-live="polite" data-testid="selection-count"
-					>{t('sidebar.selectedCount', { n: filesStore.selectedIds.size })}</span
-				>
+				<span class="ml-auto text-fg" aria-live="polite" data-testid="selection-count">
+					{t('sidebar.selectedCount', { n: filesStore.selectedIds.size })}
+				</span>
 				<div class="flex gap-1">
 					<button
 						type="button"
@@ -750,9 +754,9 @@
 				aria-label={t('projects.explorer')}
 			>
 				<div class="flex items-center gap-1 px-2 py-1">
-					<span class="flex-1 text-[11px] uppercase tracking-wide text-fg-dim"
-						>{t('projects.explorer')}</span
-					>
+					<span class="flex-1 text-[11px] uppercase tracking-wide text-fg-dim">
+						{t('projects.explorer')}
+					</span>
 					<button
 						type="button"
 						class="rounded p-1 text-fg-dim hover:bg-bg-2 hover:text-fg"
@@ -869,9 +873,9 @@
 							</span>
 							<span class="min-w-0 flex-1">
 								<span class="block truncate">{label}</span>
-								{#if file.relativePath}<span class="block truncate text-xs text-fg-dim"
-										>{file.relativePath}</span
-									>{/if}
+								{#if file.relativePath}<span class="block truncate text-xs text-fg-dim">
+										{file.relativePath}
+									</span>{/if}
 							</span>
 							<FileStatusBadge {file} />
 							{#if file.dirty}
@@ -906,14 +910,18 @@
 					class="rounded border border-border p-2"
 					disabled={filesStore.files[0]?.id === filesStore.activeId}
 					onclick={() => moveFile(filesStore.activeId!, -1)}
-					aria-label={t('sidebar.moveUp')}><ArrowUp size={16} /></button
+					aria-label={t('sidebar.moveUp')}
 				>
+					<ArrowUp size={16} />
+				</button>
 				<button
 					class="rounded border border-border p-2"
 					disabled={filesStore.files.at(-1)?.id === filesStore.activeId}
 					onclick={() => moveFile(filesStore.activeId!, 1)}
-					aria-label={t('sidebar.moveDown')}><ArrowDown size={16} /></button
+					aria-label={t('sidebar.moveDown')}
 				>
+					<ArrowDown size={16} />
+				</button>
 				<button
 					class="rounded border border-border p-2"
 					onclick={() => filesStore.editCopy(filesStore.activeId!)}
@@ -936,8 +944,10 @@
 				{/if}
 				<button
 					class="rounded border border-border p-2 text-danger"
-					onclick={() => void deleteFile(filesStore.activeId!)}>{t('palette.deleteFile')}</button
+					onclick={() => void deleteFile(filesStore.activeId!)}
 				>
+					{t('palette.deleteFile')}
+				</button>
 			</div>
 		</details>
 	{/if}
@@ -946,9 +956,9 @@
 			class="max-h-48 overflow-y-auto border-t border-border px-3 py-2 text-xs"
 			bind:open={closedOpen}
 		>
-			<summary class="cursor-pointer text-fg"
-				>{t('sidebar.closedFiles')} ({filesStore.closedFiles.length})</summary
-			>
+			<summary class="cursor-pointer text-fg">
+				{t('sidebar.closedFiles')} ({filesStore.closedFiles.length})
+			</summary>
 			{#if closedOpen}
 				{#each visibleClosed as file (file.id)}
 					{@const kind = documentKindForFile(file)}
@@ -1048,9 +1058,9 @@
 		>
 			<FilePlus size={14} />
 			<span>{t('sidebar.newFile')}</span>
-			<kbd class="ml-auto text-[10px] text-fg-dim" aria-hidden="true"
-				>{keyboardStore.label('new') ?? ''}</kbd
-			>
+			<kbd class="ml-auto text-[10px] text-fg-dim" aria-hidden="true">
+				{keyboardStore.label('new') ?? ''}
+			</kbd>
 		</button>
 		<button
 			class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-fg
@@ -1062,9 +1072,9 @@
 		>
 			<Upload size={14} />
 			<span>{t('sidebar.importMd')}</span>
-			<kbd class="ml-auto text-[10px] text-fg-dim" aria-hidden="true"
-				>{keyboardStore.label('import') ?? ''}</kbd
-			>
+			<kbd class="ml-auto text-[10px] text-fg-dim" aria-hidden="true">
+				{keyboardStore.label('import') ?? ''}
+			</kbd>
 		</button>
 	</div>
 </aside>

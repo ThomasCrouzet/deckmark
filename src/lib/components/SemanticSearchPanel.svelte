@@ -371,9 +371,9 @@
 		>
 			<header>
 				<h2 id="semantic-title">{t('semantic.title')}</h2>
-				<button type="button" onclick={onClose} aria-label={t('settings.close')}
-					><X size={16} /></button
-				>
+				<button type="button" onclick={onClose} aria-label={t('settings.close')}>
+					<X size={16} />
+				</button>
 			</header>
 			<div class="semantic-body">
 				<label class="toggle">

@@ -406,8 +406,10 @@
 						type="button"
 						class="min-h-10 rounded border border-border px-2 text-xs"
 						onclick={startNew}
-						data-testid="snippet-new">{t('snippets.new')}</button
+						data-testid="snippet-new"
 					>
+						{t('snippets.new')}
+					</button>
 					<button
 						type="button"
 						class="min-h-10 rounded border border-border px-2 text-xs"
@@ -560,8 +562,10 @@
 								>
 									<span
 										class="w-5 shrink-0 pt-0.5 font-mono text-[9px] text-fg-dim"
-										aria-hidden="true">{(index + 1).toString().padStart(2, '0')}</span
+										aria-hidden="true"
 									>
+										{(index + 1).toString().padStart(2, '0')}
+									</span>
 									<span class="min-w-0 flex-1">
 										<span class="flex items-center gap-1.5">
 											<span class="min-w-0 truncate text-sm font-medium">{row.title}</span>
@@ -692,14 +696,17 @@
 								type="submit"
 								class="min-h-10 rounded border border-accent bg-accent px-3 text-sm text-bg"
 								data-testid="snippet-save"
-								>{editingId ? t('snippets.update') : t('snippets.save')}</button
 							>
+								{editingId ? t('snippets.update') : t('snippets.save')}
+							</button>
 							<button
 								type="button"
 								class="min-h-10 rounded border border-border px-3 text-sm"
 								onclick={() => void cancelEdit()}
-								data-testid="snippet-cancel">{t('snippets.cancel')}</button
+								data-testid="snippet-cancel"
 							>
+								{t('snippets.cancel')}
+							</button>
 						</div>
 					</form>
 				{:else if selected}

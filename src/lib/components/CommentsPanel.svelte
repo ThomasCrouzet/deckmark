@@ -249,9 +249,9 @@
 		>
 			<header>
 				<h2 id="comments-title">{t('comments.title')}</h2>
-				<button type="button" onclick={onClose} aria-label={t('settings.close')}
-					><X size={16} /></button
-				>
+				<button type="button" onclick={onClose} aria-label={t('settings.close')}>
+					<X size={16} />
+				</button>
 			</header>
 			<div class="comments-body">
 				<section class="comment-form">
@@ -290,12 +290,12 @@
 						>
 							<header class="comment-head">
 								<strong>{comment.author}</strong>
-								<span class="state"
-									>{t(`comments.anchor_${anchorKey(comment)}` as 'comments.anchor_attached')}</span
-								>
-								<span class="status"
-									>{t(`comments.status_${comment.status}` as 'comments.status_open')}</span
-								>
+								<span class="state">
+									{t(`comments.anchor_${anchorKey(comment)}` as 'comments.anchor_attached')}
+								</span>
+								<span class="status">
+									{t(`comments.status_${comment.status}` as 'comments.status_open')}
+								</span>
 							</header>
 							<blockquote>{comment.quote}</blockquote>
 							<p>{comment.body}</p>
@@ -307,9 +307,9 @@
 								>
 									{t(comment.status === 'open' ? 'comments.resolve' : 'comments.reopen')}
 								</button>
-								<button type="button" onclick={() => void remove(comment)}
-									>{t('comments.delete')}</button
-								>
+								<button type="button" onclick={() => void remove(comment)}>
+									{t('comments.delete')}
+								</button>
 							</footer>
 						</article>
 					{:else}

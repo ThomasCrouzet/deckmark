@@ -894,8 +894,9 @@
 						<button
 							class="mb-2 rounded border border-border px-2 py-1 text-xs"
 							onclick={() => showShortcutResult(keyboardStore.reset())}
-							>{t('settings.shortcutReset')}</button
 						>
+							{t('settings.shortcutReset')}
+						</button>
 						<dl class="space-y-2 text-xs">
 							{#each coreCommands as command (command.id)}
 								<div class="flex flex-wrap items-center justify-between gap-2">
@@ -912,8 +913,9 @@
 											class="p-1 underline"
 											onclick={() => showShortcutResult(keyboardStore.set(command.id, null))}
 											aria-label={t('settings.disableShortcutFor', { command: t(command.label) })}
-											>{t('settings.shortcutDisable')}</button
 										>
+											{t('settings.shortcutDisable')}
+										</button>
 									</dd>
 								</div>
 							{/each}
@@ -938,46 +940,56 @@
 				</section>
 
 				<details class="mb-5 rounded border border-border p-3 text-sm">
-					<summary bind:this={templateSummary} class="cursor-pointer"
-						>{t('templates.manage')}</summary
-					>
+					<summary bind:this={templateSummary} class="cursor-pointer">
+						{t('templates.manage')}
+					</summary>
 					<p class="my-2 text-xs text-fg-muted">{t('templates.help')}</p>
 					{#if editingTemplate}
-						<label class="my-2 block text-xs"
-							>{t('templates.name')}<input
+						<label class="my-2 block text-xs">
+							{t('templates.name')}<input
 								bind:value={templateName}
 								bind:this={templateNameInput}
 								disabled={templateBusy}
 								class="mt-1 w-full rounded border border-border bg-bg p-2 text-sm"
-							/></label
-						>
-						<label class="my-2 block text-xs"
-							>{t('templates.content')}<textarea
+							/>
+						</label>
+						<label class="my-2 block text-xs">
+							{t('templates.content')}<textarea
 								bind:value={templateContent}
 								disabled={templateBusy}
 								rows="8"
 								class="mt-1 w-full rounded border border-border bg-bg p-2 font-mono text-xs"
-							></textarea></label
-						>
+							></textarea>
+						</label>
 						<div class="flex gap-2">
 							<button
 								class="rounded border border-border px-3 py-2"
 								disabled={templateBusy || !templateName.trim()}
-								onclick={() => void saveTemplate()}>{t('templates.save')}</button
-							><button class="px-3 py-2" disabled={templateBusy} onclick={finishTemplateEdit}
-								>{t('prompt.cancel')}</button
+								onclick={() => void saveTemplate()}
 							>
+								{t('templates.save')}
+							</button><button
+								class="px-3 py-2"
+								disabled={templateBusy}
+								onclick={finishTemplateEdit}
+							>
+								{t('prompt.cancel')}
+							</button>
 						</div>
 					{:else}
 						{#each templatesStore.userTemplates as template (template.id)}
 							<div class="flex flex-wrap items-center gap-2 border-t border-border py-2">
 								<span class="min-w-0 flex-1 break-words">{template.name}</span><button
 									class="rounded border border-border px-2 py-1"
-									onclick={() => void editTemplate(template)}>{t('templates.edit')}</button
-								><button
-									class="rounded border border-border px-2 py-1 text-danger"
-									onclick={() => void deleteTemplate(template.id)}>{t('templates.delete')}</button
+									onclick={() => void editTemplate(template)}
 								>
+									{t('templates.edit')}
+								</button><button
+									class="rounded border border-border px-2 py-1 text-danger"
+									onclick={() => void deleteTemplate(template.id)}
+								>
+									{t('templates.delete')}
+								</button>
 							</div>
 						{:else}<p class="text-xs text-fg-muted">{t('templates.none')}</p>{/each}
 					{/if}
@@ -1066,8 +1078,10 @@
 						<button
 							class="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:bg-bg-2"
 							aria-disabled={backupBusy}
-							onclick={() => chooseBackup(true)}>{t('settings.verifyBackup')}</button
+							onclick={() => chooseBackup(true)}
 						>
+							{t('settings.verifyBackup')}
+						</button>
 					</div>
 					<p class="mt-2 text-xs text-fg-muted">{t('settings.backupDownloadHint')}</p>
 				</section>
@@ -1151,16 +1165,20 @@
 							href="https://github.com/ThomasCrouzet/deckmark/releases"
 							target="_blank"
 							rel="noopener noreferrer"
-							data-testid="release-link">{t('settings.releaseLink')}</a
+							data-testid="release-link"
 						>
+							{t('settings.releaseLink')}
+						</a>
 					{/if}
 					<a
 						class="mt-1 inline-block underline"
 						href="https://github.com/ThomasCrouzet"
 						target="_blank"
 						rel="noopener noreferrer"
-						data-testid="about-github">{t('settings.githubProfile')}</a
+						data-testid="about-github"
 					>
+						{t('settings.githubProfile')}
+					</a>
 					<p class="mt-1" role="status">
 						{t(
 							offlineState.status === 'ready'
@@ -1175,16 +1193,20 @@
 							type="button"
 							class="mt-1 underline"
 							data-testid="retry-offline"
-							onclick={retryOfflineSetup}>{t('pwa.retry')}</button
+							onclick={retryOfflineSetup}
 						>
+							{t('pwa.retry')}
+						</button>
 					{/if}
 					<p class="mt-1">{t('welcome.privacy')}</p>
 					<a
 						class="mt-2 inline-block underline"
 						href="https://github.com/ThomasCrouzet/deckmark/blob/main/docs/USER_GUIDE.md"
 						target="_blank"
-						rel="noopener noreferrer">{t('settings.userGuide')}</a
+						rel="noopener noreferrer"
 					>
+						{t('settings.userGuide')}
+					</a>
 				</section>
 			</div>
 		</div>
