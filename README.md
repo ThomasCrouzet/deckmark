@@ -1,26 +1,21 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="static/brand/logo-dark.svg">
-    <img src="static/brand/logo-light.svg" alt="DeckMark" width="320">
+    <img src="static/brand/logo-light.svg" alt="DeckMark" width="300">
   </picture>
 </p>
 
-<h1 align="center">DeckMark</h1>
-
-<p align="center"><strong>Your Markdown. On your device.</strong></p>
+<h3 align="center">Your Markdown. On your device.</h3>
 
 <p align="center">
-  Notes, presentations, code, images, and imported PDFs in one local-first workspace.<br>
-  <strong>No server. No account. No telemetry.</strong>
+  Write notes, draw diagrams, and present slides from plain Markdown files.<br>
+  It opens in a browser tab, works offline, and never asks for an account.
 </p>
 
 <p align="center">
   <a href="https://www.deckmark.dev/"><strong>Open the web app</strong></a> ·
-  <a href="#why-deckmark">Why DeckMark</a> ·
-  <a href="#get-started">Get started</a> ·
-  <a href="docs/EDITIONS.md">Editions</a> ·
-  <a href="#documentation">Docs</a> ·
-  <a href="https://github.com/ThomasCrouzet/deckmark/releases">Downloads</a>
+  <a href="https://github.com/ThomasCrouzet/deckmark/releases">Download for desktop</a> ·
+  <a href="docs/USER_GUIDE.md">User guide</a>
 </p>
 
 <p align="center">
@@ -31,22 +26,23 @@
 </p>
 
 <p align="center">
-  <a href="https://www.deckmark.dev/"><img src="docs/hero.webp" alt="DeckMark demo: write a launch plan, link a note, render a Mermaid diagram in split view, then present the slide deck." width="960"></a>
+  <a href="https://www.deckmark.dev/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.webp">
+      <img src="docs/hero-light.webp" alt="DeckMark demo: type a checklist in a note, edit a Mermaid diagram in split view, then present a slide deck from the same workspace." width="960">
+    </picture>
+  </a>
 </p>
 
 <!-- readme:section positioning -->
-## Why DeckMark?
+## Why DeckMark
 
-Most Markdown tools ask you to trade something: a closed app, a cloud backend, a paid
-license, or a proprietary format. DeckMark trades none of those.
-
-- **On your device.** 100% client-side PWA. Drafts live in your browser storage, exports
-  are plain Markdown files, and there is no backend or cloud service.
-- **A real workspace.** WYSIWYG editing, Markdown source mode, linked notes with
-  backlinks and a graph, Markdown presentations, code files, images, and PDF import,
-  plus a command palette, templates, snippets, and version history.
-- **No lock-in.** Web Light and Desktop Complete share one portable format. Leave any
-  time: export your work as Markdown, a project ZIP, or a JSON backup.
+- **Notes and slides, one format.** A note and a deck are both Markdown files in the
+  same library. Link them, search them, export them, open them in any other editor.
+- **Nothing leaves your device.** No server, no account, no telemetry. Drafts stay in
+  your browser storage, and every export is a plain file you own.
+- **Starts in a tab, grows with you.** Use it at [deckmark.dev](https://www.deckmark.dev/)
+  with no install, keep it offline as a PWA, or take the desktop app for native files.
 
 | | DeckMark | Obsidian | Typora | Joplin |
 | --- | :---: | :---: | :---: | :---: |
@@ -55,43 +51,27 @@ license, or a proprietary format. DeckMark trades none of those.
 | Runs in a browser tab, install-free | ✅ | App install | App install | App install |
 | Built-in Markdown presentations | ✅ | Plugins | ❌ | ❌ |
 
-*Checked November 2026. Verify each product's current terms.*
+<sub>Checked November 2026. Verify each product's current terms.</sub>
 
 <!-- readme:section get-started -->
 ## Get started
 
-**Try it in 30 seconds.** No install, no account:
+**In your browser, in 30 seconds.** Open [deckmark.dev](https://www.deckmark.dev/)
+([GitHub Pages mirror](https://thomascrouzet.github.io/deckmark/)), select
+**New file &rarr; Note**, and start typing. The status bar shows
+**Local drafts: saved**; reload the page and your note is still there.
 
-1. Open the [web app](https://www.deckmark.dev/)
-   ([GitHub Pages fallback](https://thomascrouzet.github.io/deckmark/)).
-2. Select **New file &rarr; Note**, then paste Markdown in **Source**.
-3. Switch to **Read** and wait for **Local drafts: saved** in the status bar.
-   Reload the page: your note is still there.
-4. Use **Actions &rarr; Download** to export the Markdown source, or
-   **Settings &rarr; Export a backup** for the full library.
+**Offline.** Install the PWA and wait for **Ready offline**. Editing, rendering,
+search, and export then work without a connection.
+See [PWA installation](docs/USER_GUIDE.md#install-the-pwa).
 
-**Work offline:** install the PWA and wait for **Ready offline**. Editing, rendering,
-search, and export then run without a connection. See
-[PWA installation](docs/USER_GUIDE.md#install-the-pwa).
-
-**Go desktop:** [Desktop Complete (Beta)](https://github.com/ThomasCrouzet/deckmark/releases)
+**On the desktop.** [Desktop Complete (Beta)](https://github.com/ThomasCrouzet/deckmark/releases)
 adds native file access, in-place saves, an optional local Git panel, and OS integration
-on macOS, Windows, and Linux. Beta installers are unsigned: compare downloads against
-`SHA256SUMS` in the release.
+on macOS, Windows, and Linux. See [Install the desktop app](#install-the-desktop-app).
 
 <!-- readme:section capabilities -->
 <a id="notes-and-presentations"></a>
-## One library, many document types
-
-| Document type | What you can do |
-| --- | --- |
-| **Note** | **Edit**, **Source**, and **Read** modes. Tables, checklists, images, KaTeX formulas, Mermaid diagrams, YAML front matter, an outline, tags, and wiki links. |
-| **Presentation** | Arrange slides with text, shapes, images, and connectors. Presenter notes, full-screen presenting, and export to Markdown, HTML, or PDF. A deck stays a readable Markdown file. |
-| **Code / JSON** | Create or import text and code files. Syntax highlighting, search, indentation, JSON checks, formatting, and minification. |
-| **Image / PDF** | Import images and PDFs. Annotate images and export a flattened PNG. PDF viewing depends on the browser viewer and policy. |
-
-<!-- readme:section capabilities -->
-## See it in action
+## What you can do
 
 <table>
 <tr>
@@ -101,13 +81,15 @@ on macOS, Windows, and Linux. Beta installers are unsigned: compare downloads ag
       <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-write-dark.webp">
       <img src="docs/screenshots/readme-write-light.webp" alt="A note in Edit mode with a wiki link, a table, a checklist, and a rendered Mermaid diagram.">
     </picture>
+    <sub>Edit, Source, and Read modes. Tables, task lists, KaTeX, Mermaid, front matter, tags, and wiki links with backlinks.</sub>
   </td>
   <td width="50%" valign="top">
-    <strong>Source and preview</strong><br>
+    <strong>See the source and the result</strong><br>
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-split-dark.webp">
       <img src="docs/screenshots/readme-split-light.webp" alt="Split view: Markdown source on the left, rendered KaTeX and Mermaid on the right.">
     </picture>
+    <sub>Split view renders formulas and diagrams as you type.</sub>
   </td>
 </tr>
 <tr>
@@ -117,6 +99,7 @@ on macOS, Windows, and Linux. Beta installers are unsigned: compare downloads ag
       <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-present-dark.webp">
       <img src="docs/screenshots/readme-present-light.webp" alt="The slide editor with the filmstrip, the canvas, and the properties panel.">
     </picture>
+    <sub>Text, shapes, images, connectors, and presenter notes. The deck stays a readable Markdown file.</sub>
   </td>
   <td width="50%" valign="top">
     <strong>Present</strong><br>
@@ -124,82 +107,85 @@ on macOS, Windows, and Linux. Beta installers are unsigned: compare downloads ag
       <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-present-mode-dark.webp">
       <img src="docs/screenshots/readme-present-mode-light.webp" alt="A slide in Present mode.">
     </picture>
+    <sub>Full screen with keyboard or touch. Export to Markdown, HTML, or PDF.</sub>
   </td>
 </tr>
 </table>
 
-Every command is one search away: open the palette with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> on macOS).
+**Keep a library, not a pile of files.** Wiki links, backlinks, a link graph, and
+search across documents. Snippets, templates, linked content blocks, and version
+history. Import a folder or ZIP, check its links offline, and export a project ZIP or a
+static docs site.
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/readme-palette-dark.webp">
-    <img src="docs/screenshots/readme-palette-light.webp" alt="The command palette filtered to export commands.">
-  </picture>
-</p>
+**More than notes.** Open code and JSON files with syntax highlighting, formatting,
+and validation. Import images and annotate them, or view imported PDFs.
 
-<!-- readme:section capabilities -->
-## Keep your documents together
+**Every command, one search away.** Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>
+(<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> on macOS).
 
-- **Link and find:** wiki links, backlinks, a link graph, cross-document search, and an
-  optional local search index built without any provider request or model download.
-- **Reuse content:** snippets with tags and placeholders, custom templates, and linked
-  content blocks with a readable Markdown snapshot.
-- **Review changes:** version history, conflict detection for disk-linked files, and
-  cross-file replacements you confirm before applying.
-- **Portable projects:** import a folder or ZIP and export a project ZIP with document
-  paths and local assets. Run documentation checks offline and export a static docs site.
-- **Save back to disk:** in supported browsers and on Desktop, with revision checks
-  before an overwrite. Saves are always explicit.
-
-**Export and back up:** Markdown, self-contained HTML, PDF through the print dialog,
-library and project ZIP files. **Settings &rarr; Export a backup** writes a JSON copy
-outside browser storage, optionally encrypted with AES-GCM.
-
-**Scripting:** a Node CLI runs the documentation checker and project export from scripts
-and CI, and a local MCP server exposes read, search, check, and patch-proposal tools.
-Both run from a source checkout. See the [CLI](docs/CLI.md) and [MCP](docs/MCP.md) guides.
+**Scriptable.** A Node [CLI](docs/CLI.md) validates links, anchors, and front matter
+and exports projects from scripts and CI. A local [MCP server](docs/MCP.md) exposes
+read, search, check, and patch-proposal tools. Both run from a source checkout.
 
 <!-- readme:section privacy -->
 <a id="privacy-and-limits"></a>
-## Privacy in five lines
+## Private by design
 
 - **No account, no telemetry, no crash reports.** No document data leaves your device
   unless you load a remote image or send context to a provider you configure.
-- **Drafts stay on your device** in IndexedDB, and preferences use localStorage. Remote
-  images are blocked until you choose to load them.
-- **AI is optional and off by default.** An OpenAI-compatible connection only sends
-  the context you review. See [AI and network access](docs/USER_GUIDE.md#ai-and-network-access).
-- **Browser storage is not a backup.** If the status shows **Not saved locally**, keep
-  the editor open, free storage, and select **Retry saving**.
-- Data flows and controls: [SECURITY.md](SECURITY.md).
+- **Your drafts stay local** in IndexedDB. Remote images stay blocked until you allow them.
+- **AI is optional and off by default.** An OpenAI-compatible connection sends only the
+  context you review. See [AI and network access](docs/USER_GUIDE.md#ai-and-network-access).
+- **Back up what matters.** Browser storage is not a backup. **Settings &rarr; Export a
+  backup** writes a JSON copy, optionally encrypted with AES-GCM. Exports are plain
+  Markdown, self-contained HTML, PDF, and ZIP.
+
+Data flows and controls: [SECURITY.md](SECURITY.md).
 
 <!-- readme:section compatibility -->
-## Browser and desktop support
+## Editions and support
 
-| Edition | Test scope | Save back to a disk file |
+| Edition | Tested on | Save back to a disk file |
 | --- | --- | --- |
 | **Web Light**, Chromium | Full desktop suite and mobile workflows | File System Access API |
 | **Web Light**, Firefox and Safari | Selected workflows | Download fallback |
 | **Desktop Complete (Beta)**, macOS, Windows, Linux | Tauri app with native WebView tests | Native in-place saves |
 
-Desktop releases ship four installers: for macOS the Apple Silicon DMG
-(`DeckMark_<version>_macOS_Apple-Silicon.dmg`), for Windows the NSIS setup
-(`DeckMark_<version>_x64-setup.exe`), and for Linux the deb package and portable
-AppImage (`DeckMark_<version>_amd64.deb`, `DeckMark_<version>_amd64.AppImage`),
-each with `SHA256SUMS` and build provenance. Installers are unsigned: Gatekeeper
-and SmartScreen can warn on first launch. Bundle files use the
-`DeckMark_<version>_<platform>` name. If macOS blocks the app, choose **Open Anyway**
-in **System Settings > Privacy & Security**, or run
-`xattr -dr com.apple.quarantine /Applications/DeckMark.app`. On Windows, choose
-**More info > Run anyway**. On Linux, install the `.deb` with your package manager, or
-mark the `.AppImage` executable. The app does not auto-update; install each release
-manually.
-See the [Desktop guide](docs/USER_GUIDE.md#desktop-complete-app).
+Web Light is stable and free, not a trial. Both editions share one portable format.
+Out of scope today: cloud sync, shared editing, accounts, and plugins. The working target
+is about 200 to 300 documents. Details: [edition matrix](docs/EDITIONS.md).
+
+<a id="install-the-desktop-app"></a>
+<details>
+<summary><strong>Install the desktop app</strong></summary>
+
+Each release ships four installers, each with `SHA256SUMS` and build provenance:
+
+| Platform | File |
+| --- | --- |
+| macOS, Apple Silicon | `DeckMark_<version>_macOS_Apple-Silicon.dmg` |
+| Windows, x64 | `DeckMark_<version>_x64-setup.exe` (NSIS) |
+| Linux, Debian and Ubuntu | `DeckMark_<version>_amd64.deb` |
+| Linux, portable | `DeckMark_<version>_amd64.AppImage` |
+
+The installers are not signed yet, so Gatekeeper and SmartScreen can warn on first
+launch. Compare each download against `SHA256SUMS` first.
+
+- **macOS:** choose **Open Anyway** in **System Settings > Privacy & Security**, or run
+  `xattr -dr com.apple.quarantine /Applications/DeckMark.app`.
+- **Windows:** choose **More info > Run anyway**.
+- **Linux:** install the `.deb` with your package manager, or mark the `.AppImage`
+  executable.
+
+The app does not update itself; install each release manually. See the
+[Desktop guide](docs/USER_GUIDE.md#desktop-complete-app).
+
+</details>
 
 <!-- readme:section documentation -->
 ## Documentation
 
-- [Editions and support](docs/EDITIONS.md) · [User guide](docs/USER_GUIDE.md) ·
+- [User guide](docs/USER_GUIDE.md) · [Editions](docs/EDITIONS.md) ·
   [Presentation editor](docs/presentation-editor.md) · [File format](docs/presentation-format.md)
 - [CLI](docs/CLI.md) · [Local MCP server](docs/MCP.md)
 - [Architecture](ARCHITECTURE.md) · [Development map](docs/DEVELOPMENT.md) ·
@@ -207,23 +193,12 @@ See the [Desktop guide](docs/USER_GUIDE.md#desktop-complete-app).
 - [Security policy](SECURITY.md) · [Support](SUPPORT.md) · [Changelog](CHANGELOG.md) ·
   [Documentation index](docs/README.md)
 
-<!-- readme:section status -->
-## Status and limits
+Visual edits keep formatting outside the change; some structural edits need the
+**Source** view. The [source fidelity harness](docs/testing/source-fidelity.md) tracks
+exported Markdown.
 
-DeckMark ships **Web Light** (stable, free, not a trial) and **Desktop Complete (Beta)**.
-Out of scope today: cloud sync, shared editing, accounts, plugins, and unrestricted
-filesystem access. In short:
-
-- Working target: about **200 to 300 documents**; a direct import accepts up to 300
-  files and 64 MiB, with 16 MiB per document.
-- Visual edits keep formatting outside the change; some structural edits need the
-  **Source** view. The [source fidelity harness](docs/testing/source-fidelity.md)
-  tracks exported Markdown.
-- A deck uses the same limits as a note: a 1280 by 720 canvas, with 16:9 and 4:3 support.
-
-Full details: [edition matrix](docs/EDITIONS.md). Questions and ideas:
-[Discussions](https://github.com/ThomasCrouzet/deckmark/discussions). Bugs:
-[Issues](https://github.com/ThomasCrouzet/deckmark/issues).
+Questions and ideas: [Discussions](https://github.com/ThomasCrouzet/deckmark/discussions).
+Bugs: [Issues](https://github.com/ThomasCrouzet/deckmark/issues).
 
 ## Develop
 
@@ -249,7 +224,7 @@ On Linux without a display, prefix the final command with `xvfb-run -a`.
 
 </details>
 
-Stack: **Svelte 5, SvelteKit, TypeScript, Milkdown, CodeMirror, Dexie, Tauri 2.**
+Built with **Svelte 5, SvelteKit, TypeScript, Milkdown, CodeMirror, Dexie, and Tauri 2.**
 Code rules and module reference: [CONTRIBUTING.md](CONTRIBUTING.md) and
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
