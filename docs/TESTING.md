@@ -1868,9 +1868,13 @@ composition, and in a short note. It records `defaultPrevented` and the scroller
 position. A second case checks the keyboard in Edit and Read and the pointer
 buttons in Read. A third case checks a long note after a mode switch, a short
 second note after a file switch, an orientation change and a presentation
-workspace switch, then the same note again. Synthetic events and desktop
-emulation do not prove a physical iPad keyboard, a screen reader or a native
-WebView.
+workspace switch, then the same note again. A fourth case sends Alt+End in the
+first frame that shows the long note after a file switch. CodeMirror reports an
+estimated scroll height in that frame, so a single jump stopped about 100 px
+short of the real end. `ScrollNav.svelte` now pins the bottom while the scroll
+height changes and stops at the first user input or after a bounded number of
+frames. Synthetic events and desktop emulation do not prove a physical iPad
+keyboard, a screen reader or a native WebView.
 
 Run `npx playwright test e2e/scroll-nav-scope.spec.ts --project=chromium --workers=1 --retries=0`.
 
