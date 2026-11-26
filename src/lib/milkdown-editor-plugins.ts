@@ -13,6 +13,7 @@ export {
 	remarkPreserveEmptyLinePlugin,
 	syncHeadingIdPlugin
 } from '@milkdown/kit/preset/commonmark';
+export { withPlainTextLanguage } from './milkdown-plain-text-language';
 export { incrementalHeadingIds } from './milkdown-heading-ids';
 export { listener } from '@milkdown/kit/plugin/listener';
 export { Plugin, TextSelection } from '@milkdown/kit/prose/state';

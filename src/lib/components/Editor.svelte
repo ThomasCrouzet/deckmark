@@ -325,6 +325,7 @@
 				imageBlockConfig: imageBlockConfigCtx,
 				inlineImageConfig: inlineImageConfigCtx,
 				codeBlockConfig: codeBlockConfigCtx,
+				withPlainTextLanguage,
 				wikiLinkPlugins,
 				installTableBreaks,
 				installTableParagraph,
@@ -1005,6 +1006,14 @@
 		instance.editor.use(tabIndentPlugin);
 		instance.editor.use(noteTypePlugin);
 		instance.editor.use(markdownRevisionPlugin);
+		// Crepe builds the language loader when the first code block view starts.
+		// Add the plain text entry while the feature configuration is still open.
+		instance.editor.config((ctx) => {
+			ctx.update(codeBlockConfigCtx.key, (current) => ({
+				...current,
+				languages: withPlainTextLanguage(current.languages)
+			}));
+		});
 		instance.setReadonly(true);
 		try {
 			await instance.create();

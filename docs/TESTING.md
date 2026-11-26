@@ -16,6 +16,19 @@ npm run test:e2e # Browser workflows against the current build
 Use `npm run test:e2e -- <spec>` for one browser workflow. The sections below
 record the retained failure risks, the full commands and the evidence paths.
 
+## Code block plain text language
+
+Issue #775 covers a visual editor code block that cannot return to plain text
+after a language change. The language picker lists only the CodeMirror
+languages, so a block with a language had no plain text entry.
+`e2e/code-block-language.spec.ts` creates a block with `/code`, selects
+Python, selects `text`, and checks the saved draft, the Markdown source and a
+reload. It then selects another language and returns to `text` again.
+
+Run `npx playwright test e2e/code-block-language.spec.ts --project=chromium
+--workers=1 --retries=0` and the same command with `--project=webkit`. Retain
+the JSON and HTML reports, source identity, command and browser environment.
+
 ## Touch project action geometry
 
 The mobile project action case measures the three action buttons after the
