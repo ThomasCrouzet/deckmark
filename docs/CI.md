@@ -154,18 +154,18 @@ request ready to obtain the accepted not-applicable result.
 
 | Field | Value |
 | --- | --- |
-| `playwrightVersion` | `1.65.0` |
+| `playwrightVersion` | `1.65.1` |
 | `image` | `mcr.microsoft.com/playwright` |
-| `tag` | `v1.65.0-noble` |
-| `digest` | `sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d` |
+| `tag` | `v1.65.1-noble` |
+| `digest` | `sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579` |
 | `platform` | `linux/amd64` |
 
-The digest matches the `v1.65.0-noble` manifest in the Microsoft registry. The
-manifest was verified on 2026-11-11. The JSON file is authoritative; this table
+The digest matches the `v1.65.1-noble` manifest in the Microsoft registry. The
+manifest was verified on 2026-11-26. The JSON file is authoritative; this table
 describes that pin. Workflows resolve it through the script.
 
 `node scripts/ci-playwright-image.mjs` prints the full reference
-`mcr.microsoft.com/playwright:v1.65.0-noble@sha256:6e3f...`. It fails with no
+`mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507...`. It fails with no
 standard output when the manifest, `package.json` or `package-lock.json`
 disagree. It checks the exact version format, the tag derived from the version,
 the 64 character digest, the image repository, the platform, the declared

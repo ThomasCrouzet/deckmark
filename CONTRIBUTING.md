@@ -125,7 +125,7 @@ docker run --rm -v "$(pwd)":/work -w /work --ipc=host "$image" \
   bash -c "npm ci --legacy-peer-deps && npm run build && npx playwright test visual.spec.ts --project=chromium --update-snapshots"
 ```
 
-`node scripts/ci-playwright-image.mjs` reads `.github/ci/playwright-image.json` and prints the full image reference. It fails when that manifest, `package.json` or `package-lock.json` disagree. The current pin is Playwright 1.65.0, tag `v1.65.0-noble`, platform `linux/amd64`. CI uses the same reference for the browser shards, the partition check and the public-origin check. A Playwright update must change the manifest, the dependency and the lockfile together.
+`node scripts/ci-playwright-image.mjs` reads `.github/ci/playwright-image.json` and prints the full image reference. It fails when that manifest, `package.json` or `package-lock.json` disagree. The current pin is Playwright 1.65.1, tag `v1.65.1-noble`, platform `linux/amd64`. CI uses the same reference for the browser shards, the partition check and the public-origin check. A Playwright update must change the manifest, the dependency and the lockfile together.
 
 To regenerate the **macOS** baselines:
 
