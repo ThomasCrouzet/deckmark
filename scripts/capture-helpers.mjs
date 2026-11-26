@@ -246,17 +246,47 @@ export async function withCapture(name, defaultPort, scenario) {
 	}
 }
 
+/**
+ * Interface fonts for README captures. The app uses the system font stack, so a
+ * Linux capture host would show DejaVu. Inter and JetBrains Mono stand in for
+ * the macOS system fonts (Debian: fonts-inter, fonts-jetbrains-mono); a host
+ * without them falls back to the app's own stack. Slides use Inter in place of
+ * DIN Alternate and Bahnschrift.
+ */
+export const CAPTURE_FONTS_CSS =
+	":root { --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;" +
+	" --font-prose: 'Inter', -apple-system, 'SF Pro Text', 'Segoe UI', sans-serif;" +
+	" --font-mono: 'JetBrains Mono NL', ui-monospace, 'SF Mono', Menlo, monospace; }" +
+	" .mdsh-slide { font-family: 'Inter', 'DIN Alternate', Bahnschrift, sans-serif !important; }";
+
 /** Reset on a neutral route so the app cannot keep an IndexedDB connection open. */
-export async function newCapturePage(session, theme = 'dark') {
+export async function newCapturePage(
+	session,
+	theme = 'dark',
+	{ deviceScaleFactor = 2, interfaceFonts = false } = {}
+) {
 	const context = await session.browser.newContext({
 		viewport: VIEWPORT,
-		deviceScaleFactor: 2,
+		deviceScaleFactor,
 		locale: 'en-US',
 		timezoneId: 'UTC',
 		colorScheme: theme,
 		reducedMotion: 'reduce',
 		serviceWorkers: 'allow'
 	});
+	if (interfaceFonts) {
+		// Every document and frame gets the font rules, so reloads keep them.
+		await context.addInitScript((css) => {
+			const add = () => {
+				const style = document.createElement('style');
+				style.dataset.captureFonts = '';
+				style.textContent = css;
+				document.head.appendChild(style);
+			};
+			if (document.head) add();
+			else document.addEventListener('DOMContentLoaded', add, { once: true });
+		}, CAPTURE_FONTS_CSS);
+	}
 	const page = await context.newPage();
 	page.setDefaultTimeout(15_000);
 	page.setDefaultNavigationTimeout(30_000);

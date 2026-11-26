@@ -64,28 +64,38 @@ versions can affect raster output.
 
 ## Capture the README hero and gallery
 
-The README top shows `docs/hero.webp`, an animated demo of about 18 seconds. The
-"See it in action" gallery uses `docs/screenshots/readme-*-dark.webp` and
-`readme-*-light.webp`. GitHub selects the variant from the reader's color scheme.
-Run:
+The README top shows `docs/hero-dark.webp` or `docs/hero-light.webp`, an animated
+demo of about 22 seconds. The "What you can do" gallery uses
+`docs/screenshots/readme-*-dark.webp` and `readme-*-light.webp`. GitHub selects the
+variant from the reader's color scheme.
+
+Install the capture fonts first. The app uses the system font stack, and a Linux
+host would show DejaVu. On Debian, run `sudo apt install fonts-inter
+fonts-jetbrains-mono`. Then run:
 
 ```sh
 npm run build
-node scripts/capture-hero.mjs
-node scripts/capture-hero-compose.mjs
+HERO_THEME=dark node scripts/capture-hero.mjs
+HERO_THEME=dark node scripts/capture-hero-compose.mjs
+HERO_THEME=light node scripts/capture-hero.mjs
+HERO_THEME=light node scripts/capture-hero-compose.mjs
 node scripts/capture-showcase.mjs
 ```
 
-`capture-hero.mjs` records the real interface with the Chrome DevTools screencast at
-1152 by 720 CSS pixels and a device pixel ratio of 2. It types a note, links a
-note, opens Split view with a Mermaid diagram, and presents the ORBIT deck.
-`capture-hero-compose.mjs` places the frames in a rounded window with a shadow on a
-graphite gradient. It writes `hero.mp4`, `hero.webp` and `hero.gif` to `test-results/capture-hero/`. Copy
-`hero.webp` and `hero.mp4` to `docs/`, and copy `hero.gif` to `docs/demo.gif` for
-places that do not show WebP. Keep the GIF under 8 MB.
+`capture-hero.mjs` runs the real app in an iframe inside a stage page. The stage
+draws the canvas, a browser bar, the window shadow, one caption per beat, a pointer,
+and the end card. Camera moves are CSS transforms, so the interface stays sharp.
+The story: type a checklist in a note, edit a Mermaid diagram in Split view, select
+a slide element, present the ORBIT deck, and end on the logo. Frames come from the
+Chrome DevTools screencast at 1920 by 1080 pixels. `capture-hero-compose.mjs` keeps
+the real frame timing and writes `hero.mp4`, `hero.webp` and `hero.gif` to
+`test-results/capture-hero/<theme>/`. Copy each `hero.webp` to
+`docs/hero-<theme>.webp`, the dark `hero.mp4` to `docs/hero.mp4`, and the dark
+`hero.gif` to `docs/demo.gif` for places that do not show WebP. Keep the GIF under
+8 MB.
 
 `capture-showcase.mjs` captures the write, split, slide editor, present and palette
-views in both themes and frames them in the same way. It writes to
+views in both themes with the same fonts. It writes to
 `test-results/capture-showcase/`. Copy each output to
 `docs/screenshots/readme-<name>-<theme>.webp`. Inspect every frame before you commit.
 

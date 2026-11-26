@@ -457,7 +457,8 @@ async function captureTheme(session, theme) {
 	try {
 		const page = await newCapturePage(
 			{ browser, baseURL: session.baseURL, metadata: session.metadata },
-			theme
+			theme,
+			{ interfaceFonts: true }
 		);
 		await page.setViewportSize(VIEWPORT);
 		expect(await page.evaluate(() => devicePixelRatio), 'The capture surface must be 2x.').toBe(2);
