@@ -342,8 +342,12 @@ function fallbackTitle(name: string, body: string): string {
 export function projectionFor(row: DraftRow): DraftProjection {
 	const { raw, body } = splitFrontmatter(row.content);
 	const fast = raw ? fastFrontmatter(raw) : {};
-	const fallback = fallbackTitle(row.name, body);
-	const title = fast.title?.trim() || fallback;
+	const heading = fallbackTitle(row.name, body);
+	// The live index shows the file name for a note without front matter and keeps
+	// the heading for the document title. The durable key must give the same
+	// values, or a bodyless tab shows a different label than the loaded one.
+	const title = raw ? fast.title?.trim() || heading : stripMdExtension(row.name) || row.name;
+	const documentTitle = raw ? title : heading;
 	const note = isNoteRow(row);
 	let hasBlocks = false;
 	let hasIncludes = false;
@@ -359,7 +363,7 @@ export function projectionFor(row: DraftRow): DraftProjection {
 			contentHash: encodeContentFingerprint(fingerprint),
 			contentLength: row.content.length,
 			title,
-			documentTitle: title,
+			documentTitle,
 			tags: note ? (fast.tags ?? []) : [],
 			targets: note ? textTargets(row.content) : [],
 			hasBlocks,
