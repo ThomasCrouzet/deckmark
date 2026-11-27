@@ -464,6 +464,13 @@
 		}
 	]);
 
+	/** Adds the named cause when the backup refused a document or a limit. */
+	function exportFailureMessage(base: string, err: unknown): string {
+		return err instanceof Error && err.name === 'BackupParseError'
+			? `${base} ${err.message}`
+			: base;
+	}
+
 	async function handleExportBackup(): Promise<void> {
 		const controller = new AbortController();
 		const dismiss = spinnerStore.show(t('settings.exportingBackup'), () => controller.abort());
@@ -483,7 +490,9 @@
 			if (controller.signal.aborted) return;
 			recordExternalBackupFailure();
 			await refreshStorageHealth();
-			reportError('backup export', err, { notifyUser: t('settings.backupExportFailed') });
+			reportError('backup export', err, {
+				notifyUser: exportFailureMessage(t('settings.backupExportFailed'), err)
+			});
 		} finally {
 			dismiss();
 		}
@@ -528,7 +537,7 @@
 			recordExternalBackupFailure();
 			await refreshStorageHealth();
 			reportError('encrypted backup export', err, {
-				notifyUser: t('settings.encryptedExportFailed')
+				notifyUser: exportFailureMessage(t('settings.encryptedExportFailed'), err)
 			});
 		} finally {
 			dismiss();

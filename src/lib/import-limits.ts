@@ -16,16 +16,24 @@ export interface ImportOptions {
 	onProgress?: (report: ImportReport) => void;
 }
 export class ImportReadError extends Error {
-	constructor(readonly reason: ImportIssueReason) {
+	/** `path` names the document when the caller knows it. */
+	constructor(
+		readonly reason: ImportIssueReason,
+		readonly path?: string
+	) {
 		super(reason);
 	}
 }
 
+/**
+ * Rejects text that looks like a binary file. A NUL character marks binary
+ * data, and invalid UTF-8 is already rejected when the bytes are decoded.
+ * Other control characters occur in real text, for example the ESC of a pasted
+ * terminal log or a form feed from a PDF. The editor stores them and JSON
+ * escapes them, so they must stay importable and exportable.
+ */
 export function validateMarkdownContent(content: string): void {
-	for (let i = 0; i < content.length; i++) {
-		const code = content.charCodeAt(i);
-		if (code < 32 && code !== 9 && code !== 10 && code !== 13) throw new ImportReadError('binary');
-	}
+	if (content.includes('\u0000')) throw new ImportReadError('binary');
 }
 
 async function readBytes(file: File, signal?: AbortSignal): Promise<ArrayBuffer> {

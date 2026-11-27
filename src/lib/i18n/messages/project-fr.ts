@@ -74,6 +74,8 @@ export const projectFr: Record<ProjectMessageKey, string> = {
 		'Le fichier a été renommé. Actualisez le projet pour rafraîchir sa référence disque.',
 	'projects.operationFailed':
 		'L’opération a échoué. Vérifiez les chemins, les formats et les limites de taille, puis réessayez.',
+	'projects.binaryDocument':
+		'Le document « {path} » contient un caractère NUL, donc il ressemble à un fichier binaire. Supprimez ce caractère, puis réessayez.',
 	'projects.limits': 'Jusqu’à 300 documents, 64 Mo par projet et 2 Mo par image.',
 	'projects.linkMissing': 'Le document lié est absent de ce projet.',
 	'projects.busy': 'Traitement du projet...',

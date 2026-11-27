@@ -255,6 +255,24 @@ export const fr: Record<MessageKey, string> = {
 	'search.replaceFailed': 'Le remplacement a échoué. Les brouillons n’ont pas été remplacés.',
 	'backup.tooLarge':
 		'La sauvegarde dépasse les limites : 64 Mio au total, 3 000 documents et 16 Mio par document.',
+	'backup.documentTooLarge':
+		'Le document « {title} » fait {size} Mio. Une sauvegarde accepte 16 Mio au maximum par document. Scindez ou raccourcissez ce document, puis exportez de nouveau.',
+	'backup.totalTooLarge':
+		'Le texte de la bibliothèque dépasse la limite de 64 Mio d’une sauvegarde. La limite est franchie au document « {title} », après {size} Mio de texte. Supprimez de gros documents ou exportez les projets en fichiers ZIP.',
+	'backup.tooManyDocuments':
+		'La bibliothèque contient {count} documents. Une sauvegarde accepte 3 000 documents au maximum. Supprimez des documents ou exportez les projets en fichiers ZIP.',
+	'backup.fileTooLarge':
+		'Le fichier de sauvegarde dépasserait 64 Mio. Les échappements JSON et les fichiers de projet comptent dans cette limite. Exportez les projets en fichiers ZIP.',
+	'backup.binaryDocument':
+		'Le document « {title} » contient un caractère NUL, donc il ressemble à un fichier binaire. Supprimez ce caractère, puis exportez de nouveau.',
+	'backup.invalidDocument':
+		'Le document « {title} » contient des données enregistrées invalides, donc la sauvegarde ne peut pas l’inclure.',
+	'backup.capacityDocuments':
+		'La bibliothèque contient {count} des 3 000 documents qu’une sauvegarde accepte. Supprimez des documents ou exportez les projets en fichiers ZIP avant que la limite bloque vos sauvegardes.',
+	'backup.capacityText':
+		'Le texte de la bibliothèque fait environ {size} Mio sur les 64 Mio qu’une sauvegarde accepte. Supprimez de gros documents ou exportez les projets en fichiers ZIP avant que la limite bloque vos sauvegardes.',
+	'backup.capacityDocument':
+		'Le document « {title} » fait environ {size} Mio. Une sauvegarde accepte 16 Mio par document. Scindez ce document avant que la limite bloque vos sauvegardes.',
 	'backup.encryptedInvalidJson': 'Fichier chiffré illisible : ce n’est pas du JSON valide.',
 	'backup.futureVersion':
 		'Sauvegarde créée par une version plus récente de deckmark (schéma v{version}). Mettez l’application à jour.',

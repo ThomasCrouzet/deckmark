@@ -69,7 +69,7 @@ A new version waits for IndexedDB writes before it reloads the app. If a local s
 
 ## Import documents
 
-A selection or folder can contain up to 300 files and 64 MiB. Each file can contain up to 16 MiB. Supported text files must be UTF-8 without prohibited control characters. Images and PDFs use separate binary import paths. The app shows a result for each rejection. If you cancel an import, the app keeps imported documents and reports how many it added.
+A selection or folder can contain up to 300 files and 64 MiB. Each file can contain up to 16 MiB. Supported text files must be UTF-8 without NUL characters. Other control characters, such as ESC from a pasted terminal log or a form feed, stay allowed. Images and PDFs use separate binary import paths. The app shows a result for each rejection. If you cancel an import, the app keeps imported documents and reports how many it added.
 
 A note with at least 262,144 characters opens first in source mode. You must confirm before you change to visual rendering because parsing can take more time.
 
@@ -152,6 +152,10 @@ Open **Export documentation site** from Commands. Select a project and choose
 whether to include the local search index. **Export site** creates a ZIP with
 HTML pages, navigation, local assets, and a resource report. Extract the ZIP to
 read the site or publish its files on a static host. DeckMark does not upload it.
+The site keeps only inert file types under their own names: images, PDF, CSS,
+fonts, Markdown and plain text or source code. It appends `.txt` to every other
+file, such as XML, XSLT, SVGZ, RSS or HTML, so a static host cannot run it as an
+active document. The report lists each renamed file.
 The export does not change source documents or download remote images. Resolve
 reported resource errors before you retry a blocked export.
 
@@ -331,7 +335,9 @@ A backup contains open and closed documents, projects, assets, workspaces, custo
 It excludes trash, version history, the search index, API keys, browser file handles, and Desktop path permissions.
 Version 2 backups use schema 2. The app also accepts schema 1 backups from version 1.9.
 The format accepts up to 3,000 documents, 300 workspaces, 16 MiB per document, and 64 MiB in total.
-The app checks these limits before it reports a successful download. You cannot recover an encrypted backup without its passphrase.
+The app checks these limits before it reports a successful download. When a limit stops a backup, the message names the limit and the document that crosses it.
+The app also warns you when the library reaches about 80% of the document count, the total text size, or the size of one document. The warning counts text in UTF-16 units, so it can come before the real limit but not after it.
+You cannot recover an encrypted backup without its passphrase.
 
 Replace mode keeps old documents in the trash and preserves variants that share an identifier. Merge mode assigns new identifiers to added drafts and updates workspace references.
 

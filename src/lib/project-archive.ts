@@ -1,5 +1,5 @@
 import { IMPORT_LIMITS, MAX_IMAGE_BYTES } from './config';
-import { validateMarkdownContent } from './import-limits';
+import { ImportReadError, validateMarkdownContent } from './import-limits';
 import { imageMime, pathKey, projectPath, relativeDestination } from './project-paths';
 import {
 	projectDestinations,
@@ -12,6 +12,17 @@ import { decodeBinaryDataBytes } from './data-url';
 import type { ProjectAssetRow } from './db';
 import { checkAborted } from './abort';
 type JSZipObject = import('jszip').JSZipObject;
+
+/** Checks a text document and names it when it looks like a binary file. */
+function validateDocumentText(content: string, path: string): void {
+	try {
+		validateMarkdownContent(content);
+	} catch (error) {
+		if (error instanceof ImportReadError && error.reason === 'binary')
+			throw new ImportReadError('binary', path);
+		throw error;
+	}
+}
 
 /** Compression progress for a bounded archive. */
 export interface ZipProgress {
@@ -310,7 +321,7 @@ function appendEntry(
 		}
 		if (/\.(md|markdown|mdx|txt)$/i.test(path) || role.kind === 'code') {
 			const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
-			validateMarkdownContent(content);
+			validateDocumentText(content, path);
 			input.documents.push({
 				relativePath: path,
 				content,
@@ -324,7 +335,7 @@ function appendEntry(
 	if (/\.(md|markdown|mdx|txt)$/i.test(path)) {
 		if (input.documents.length >= projectDocumentLimit()) throw new Error('Project document limit');
 		const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data);
-		validateMarkdownContent(content);
+		validateDocumentText(content, path);
 		input.documents.push({ relativePath: path, content });
 	} else {
 		const mime = imageMime(path);
@@ -558,7 +569,7 @@ export async function buildProjectZip(
 						const suffix = target.slice(id.length);
 						return relativeDestination(documentPath, matches[0]!.relativePath) + suffix;
 					});
-		validateMarkdownContent(portableContent);
+		validateDocumentText(portableContent, documentPath);
 		// UTF-8 byte length is never smaller than the UTF-16 length. Use the
 		// cheap bound here and encode the final rewritten text exactly once.
 		if (portableContent.length > IMPORT_LIMITS.maxFileBytes)
@@ -612,7 +623,7 @@ export async function buildProjectZip(
 			portableContent,
 			({ source }) => replacements.get(source) ?? null
 		);
-		validateMarkdownContent(content);
+		validateDocumentText(content, documentPath);
 		if (new TextEncoder().encode(content).length > IMPORT_LIMITS.maxFileBytes)
 			throw new Error('Project document size limit');
 		exportedDocuments.push({

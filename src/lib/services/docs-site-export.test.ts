@@ -347,23 +347,34 @@ describe('documentation site output', () => {
 		});
 	});
 
-	it('avoids an internal directory that is an existing user asset file', () => {
+	it('avoids an internal directory that is an existing user asset directory', () => {
+		const plan = planDocsSite(
+			source({
+				assets: [{ path: '_mdsh/data.png', mime: 'image/png', data: PNG_BYTES }]
+			})
+		);
+
+		expect(plan.assets.map((asset) => asset.outputPath)).toEqual(['_mdsh/data.png']);
+		expect(plan.internal.directory).not.toBe('_mdsh');
+		expect(plan.internal.stylesheet.startsWith('_mdsh/')).toBe(false);
+	});
+
+	it('publishes a file without an inert extension under a .txt name', () => {
 		const plan = planDocsSite(
 			source({
 				assets: [{ path: '_mdsh', mime: 'application/octet-stream', data: Uint8Array.of(1, 2, 3) }]
 			})
 		);
 
-		expect(plan.assets.map((asset) => asset.outputPath)).toEqual(['_mdsh']);
-		expect(plan.internal.directory).not.toBe('_mdsh');
-		expect(plan.internal.stylesheet.startsWith('_mdsh/')).toBe(false);
+		expect(plan.assets.map((asset) => asset.outputPath)).toEqual(['_mdsh.txt']);
+		expect(plan.assets[0]?.mime).toBe('text/plain;charset=utf-8');
 	});
 
 	it('allocates a deterministic suffix around case-folded files and descendants', () => {
 		const plan = planDocsSite(
 			source({
 				assets: [
-					{ path: '_MDSH', mime: 'application/octet-stream', data: Uint8Array.of(1) },
+					{ path: '_MDSH/first.png', mime: 'image/png', data: PNG_BYTES },
 					{
 						path: '_mdsh-2/nested.png',
 						mime: 'image/png',
@@ -374,7 +385,10 @@ describe('documentation site output', () => {
 		);
 
 		expect(plan.internal.directory).toBe('_mdsh-3');
-		expect(plan.assets.map((asset) => asset.outputPath)).toEqual(['_MDSH', '_mdsh-2/nested.png']);
+		expect(plan.assets.map((asset) => asset.outputPath)).toEqual([
+			'_MDSH/first.png',
+			'_mdsh-2/nested.png'
+		]);
 	});
 
 	it('rejects files and directories that share one output path', () => {
@@ -382,8 +396,8 @@ describe('documentation site output', () => {
 			planDocsSite(
 				source({
 					assets: [
-						{ path: 'assets', mime: 'application/octet-stream', data: Uint8Array.of(1) },
-						{ path: 'assets/logo.png', mime: 'image/png', data: PNG_BYTES }
+						{ path: 'assets.png', mime: 'image/png', data: PNG_BYTES },
+						{ path: 'assets.png/logo.png', mime: 'image/png', data: PNG_BYTES }
 					]
 				})
 			)

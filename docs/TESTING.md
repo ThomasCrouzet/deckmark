@@ -16,6 +16,66 @@ npm run test:e2e # Browser workflows against the current build
 Use `npm run test:e2e -- <spec>` for one browser workflow. The sections below
 record the retained failure risks, the full commands and the evidence paths.
 
+## Backup download lifetime
+
+The backup and encrypted backup downloads use the shared `triggerDownload`.
+`e2e/export-download-lifetime.spec.ts` checks that their object URL stays
+reachable for more than 1 s after the click, on Chromium and WebKit.
+
+## Backup control characters, limits and capacity warnings
+
+Review findings DATA-02 and DATA-03 cover a stored note with a control
+character, the backup limits and the warning before a limit.
+
+- A note with ESC, form feed, backspace or vertical tab must stay in the backup,
+  the encrypted backup and the project ZIP. A restore must return the exact
+  bytes. A NUL character still marks a binary file on import.
+- A failed backup must name the cause and the document in English and French.
+  The limit cases are one document above 16 MiB, five documents of 13 MiB that
+  cross 64 MiB, and 3,001 documents.
+- The library warns at 80% of a limit. The check reads index keys only. A trailing
+  throttle limits it to one run per 10 s, so typing does not start a check per
+  key. The case attaches the measured duration of each check.
+
+`e2e/backup-control-characters.spec.ts` seeds rows in IndexedDB or restores a
+generated backup. It uses the Settings and Projects dialogs and reads the
+downloaded bytes and the stored rows. Run it on both browsers:
+
+```sh
+npx playwright test e2e/backup-control-characters.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/backup-control-characters.spec.ts --project=webkit --workers=1 --retries=0
+```
+
+Retain the JSON and HTML reports, source identity, command and browser
+environment. The disk conflict check and the Desktop scheduler share the same
+validation but need a native shell. This spec does not run them.
+
+## Library ZIP edition budget
+
+Finding DATA-04: `src/lib/export-zip.test.ts` is an isolated test. The
+edition is a build constant, so a browser run of the Web build cannot observe the
+Desktop budget of 3,000 documents and 256 MiB.
+
+## Documentation site active content
+
+Finding SEC-01: a static host runs XML, XSLT and SVGZ files as active documents.
+`e2e/docs-site-export-active-content.spec.ts` exports a project with the review
+payloads, serves the extracted site with the content types of a static host and
+visits every published file. No payload may call back. Every file that is not an
+image, PDF, CSS, font, Markdown or plain text must end in `.txt`.
+
+```sh
+npx playwright test e2e/docs-site-export-active-content.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/docs-site-export-active-content.spec.ts --project=webkit --workers=1 --retries=0
+```
+
+## Project link report scale
+
+Finding PERF-01: `e2e/project-link-performance.spec.ts` has a case with 300
+documents and 16 wiki links each. Check links and the project ZIP export must
+finish in 1.2 s with a heartbeat gap below 700 ms. The case attaches the elapsed
+time. Before the index fix the same project took more than 5 s in Chromium.
+
 ## Code block plain text language
 
 Issue #775 covers a visual editor code block that cannot return to plain text

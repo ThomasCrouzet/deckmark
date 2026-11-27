@@ -1,4 +1,5 @@
 import {
+	createProjectWikiIndex,
 	isExternalDestination,
 	projectWikiCandidates,
 	relativeDestination,
@@ -277,13 +278,16 @@ export function projectLinkReport(
 		projectId: 'project',
 		relativePath: document.relativePath
 	}));
+	// One index for every link. Without it each wiki link scans all documents.
+	const wikiIndex = createProjectWikiIndex(wikiDocuments);
 	const position = (start: number, image: boolean) => (options.withSource ? { start, image } : {});
 	return documents.flatMap((doc) => [
 		...wikiLinkOccurrences(doc.content).flatMap(({ target, start }): ProjectLinkIssue[] => {
 			const candidates = projectWikiCandidates(
 				{ projectId: 'project', relativePath: doc.relativePath },
 				target,
-				wikiDocuments
+				wikiDocuments,
+				wikiIndex
 			);
 			if (candidates.length === 1) return [];
 			return [
