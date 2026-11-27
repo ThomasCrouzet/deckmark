@@ -16,8 +16,9 @@ pre-commit:
       run: npx eslint --fix {staged_files}
       stage_fixed: true
 
-# Before push, check types and tests.
-# These checks catch failures that lint alone cannot detect.
+# Before push, check types and the tests that the pushed change can affect.
+# CI runs the full suite on every pull request, and the batch checklist runs
+# one full `npm test` before the batch push.
 pre-push:
   parallel: false
   commands:
@@ -26,5 +27,18 @@ pre-push:
       use_stdin: true
     typecheck:
       run: npm run check
-    tests:
-      run: npm test
+    # Vitest for the modules that changed since origin/main, with their
+    # dependents.
+    unit-changed:
+      run: npx vitest run --changed origin/main --passWithNoTests
+    # The CI contract tests and the scheduler check run only when a script,
+    # workflow, native or package file changed since origin/main.
+    ci-contracts:
+      files: git diff --name-only origin/main...HEAD
+      glob:
+        - 'scripts/**'
+        - '.github/**'
+        - 'src-tauri/**'
+        - 'package.json'
+        - 'package-lock.json'
+      run: npm run test:ci && node scripts/verify-desktop-backup-scheduler.mjs
