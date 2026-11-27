@@ -1,5 +1,16 @@
 <script lang="ts">
-	import { FilePlus, Upload, Compass, FolderOpen } from '@lucide/svelte';
+	import {
+		FilePlus,
+		Upload,
+		Compass,
+		FolderOpen,
+		Presentation,
+		FileText,
+		ShieldCheck,
+		Download,
+		ExternalLink
+	} from '@lucide/svelte';
+	import { isDesktop } from '#lib/desktop.js';
 	import { keyboardStore } from '#lib/ui/keyboard.svelte.js';
 	import { t } from '#lib/i18n/index.js';
 	import BrandLogo from './BrandLogo.svelte';
@@ -10,17 +21,47 @@
 		onImport: () => void;
 		onDemo: () => void;
 		onLibrary?: () => void;
+		onNewPresentation?: (() => void) | undefined;
 		documentCount?: number;
+		/** True once the saved library has loaded, so the first-visit view never flashes for a returning user. */
+		libraryReady?: boolean;
 	}
 
-	let { onNew, onImport, onDemo, onLibrary, documentCount = 0 }: Props = $props();
+	let {
+		onNew,
+		onImport,
+		onDemo,
+		onLibrary,
+		onNewPresentation,
+		documentCount = 0,
+		libraryReady = false
+	}: Props = $props();
+
+	// First visit: the library has loaded and holds no document. A returning user
+	// never sees the introduction.
+	const firstVisit = $derived(libraryReady && documentCount === 0);
+	// The desktop app has no use for a link to its own installers.
+	const showDesktopLink = !isDesktop();
+	// Installers live on the `desktop-v<version>` pre-releases, not on the stable release.
+	const DESKTOP_RELEASES_URL =
+		'https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true';
+	const GITHUB_URL = 'https://github.com/ThomasCrouzet/deckmark';
 </script>
 
-<div class="welcome-shell flex h-full flex-col items-center px-6 py-10 sm:px-10 lg:px-[8vw]">
-	<section class="welcome-console my-auto w-full max-w-4xl" aria-labelledby="welcome-title">
+<div
+	class="welcome-shell flex h-full flex-col items-center px-6 py-10 sm:px-10 lg:px-[8vw]"
+	class:welcome-shell-first={firstVisit}
+>
+	<section
+		class="welcome-console my-auto w-full max-w-4xl"
+		class:welcome-first-visit={firstVisit}
+		aria-labelledby="welcome-title"
+	>
 		<div class="welcome-grid">
 			<div class="welcome-intro">
-				<div class="mdsh-kicker mb-5">{t('welcome.systemLabel')}</div>
+				<div class="mdsh-kicker mb-5">
+					{firstVisit ? t('landing.kicker') : t('welcome.systemLabel')}
+				</div>
 				<h1 id="welcome-title" class="welcome-title">
 					<span class="welcome-brand"><BrandLogo /></span>
 					<span class="welcome-title-text">{t('welcome.titleText')}</span>
@@ -29,12 +70,23 @@
 				<p class="mt-6 max-w-md text-base leading-relaxed text-fg-muted">
 					{t('welcome.tagline')}
 				</p>
-				<p class="mt-3 max-w-md font-mono text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
-					{t('welcome.privacy')}
-				</p>
-				<p class="mt-3 max-w-md text-xs text-fg-muted">
-					{t('welcome.persistence')}
-				</p>
+				{#if firstVisit}
+					<p class="mt-3 max-w-md text-sm leading-relaxed text-fg-muted">
+						{t('landing.lead')}
+					</p>
+					<ul class="welcome-facts" aria-label={t('landing.factsLabel')}>
+						<li>{t('landing.factNoAccount')}</li>
+						<li>{t('landing.factOffline')}</li>
+						<li>{t('landing.factOpenSource')}</li>
+					</ul>
+				{:else}
+					<p class="mt-3 max-w-md font-mono text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
+						{t('welcome.privacy')}
+					</p>
+					<p class="mt-3 max-w-md text-xs text-fg-muted">
+						{t('welcome.persistence')}
+					</p>
+				{/if}
 			</div>
 
 			<div class="welcome-actions">
@@ -59,15 +111,16 @@
 					<span class="flex-1">{t('welcome.newFile')}</span>
 					<kbd>{keyboardStore.label('new') ?? ''}</kbd>
 				</button>
-				<button
-					data-testid="welcome-import"
-					class="welcome-action welcome-action-secondary"
-					onclick={onImport}
-				>
-					<span class="welcome-action-icon"><Upload size={16} /></span>
-					<span class="flex-1">{t('welcome.importMd')}</span>
-					<kbd>{keyboardStore.label('import') ?? ''}</kbd>
-				</button>
+				{#if onNewPresentation}
+					<button
+						data-testid="welcome-new-presentation"
+						class="welcome-action welcome-action-secondary"
+						onclick={onNewPresentation}
+					>
+						<span class="welcome-action-icon"><Presentation size={16} /></span>
+						<span class="flex-1">{t('welcome.newPresentation')}</span>
+					</button>
+				{/if}
 				<button
 					data-testid="welcome-demo"
 					class="welcome-action welcome-action-secondary"
@@ -77,31 +130,113 @@
 					<span class="flex-1">{t('welcome.openDemo')}</span>
 					<span class="font-mono text-[10px] text-fg-dim">{t('welcome.demoLabel')}</span>
 				</button>
+				<button
+					data-testid="welcome-import"
+					class="welcome-action welcome-action-secondary"
+					onclick={onImport}
+				>
+					<span class="welcome-action-icon"><Upload size={16} /></span>
+					<span class="flex-1">{t('welcome.importMd')}</span>
+					<kbd>{keyboardStore.label('import') ?? ''}</kbd>
+				</button>
+				{#if firstVisit}
+					<div class="welcome-links">
+						{#if showDesktopLink}
+							<a
+								class="welcome-link"
+								data-testid="welcome-desktop-link"
+								href={DESKTOP_RELEASES_URL}
+								target="_blank"
+								rel="noopener noreferrer"
+								aria-describedby="welcome-desktop-hint"
+							>
+								<Download size={14} aria-hidden="true" />
+								<span>{t('landing.desktopLink')}</span>
+							</a>
+							<span id="welcome-desktop-hint" class="sr-only">{t('landing.desktopHint')}</span>
+						{/if}
+						<a
+							class="welcome-link"
+							data-testid="welcome-github-link"
+							href={GITHUB_URL}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							<ExternalLink size={14} aria-hidden="true" />
+							<span>{t('landing.githubLink')}</span>
+						</a>
+					</div>
+				{/if}
 			</div>
 		</div>
 
-		<!-- §B4.2 - text-xs (12 px) rather than text-[10px]: 10 px fails the
-		     default legibility criteria. fg-muted reaches 5:1 on a dark background. -->
-		<div class="welcome-shortcuts font-mono text-xs text-fg-muted">
-			<div>
-				<kbd>{keyboardStore.label('export-md') ?? ''}</kbd><span>{t('welcome.legendExport')}</span>
+		{#if firstVisit}
+			<div class="welcome-pitch">
+				<!-- Decorative preview built from markup and theme tokens. It makes no request. -->
+				<div class="welcome-preview" aria-hidden="true">
+					<div class="welcome-preview-pane welcome-preview-source">
+						<div class="welcome-preview-tab">{t('landing.previewNotes')}</div>
+						<div class="welcome-preview-code">
+							<span class="tok-h"># {t('landing.previewHeading')}</span>
+							<span>&nbsp;</span>
+							<span>- [x] {t('landing.previewItemOne')}</span>
+							<span>- [ ] {t('landing.previewItemTwo')}</span>
+							<span>&nbsp;</span>
+							<span class="tok-link">[[{t('landing.previewDeck')}]]</span>
+						</div>
+					</div>
+					<div class="welcome-preview-pane welcome-preview-deck">
+						<div class="welcome-preview-tab">{t('landing.previewDeck')}</div>
+						<div class="welcome-preview-slide">
+							<span class="welcome-preview-slide-title">{t('landing.previewHeading')}</span>
+							<span class="welcome-preview-rule"></span>
+							<span class="welcome-preview-bullet">{t('landing.previewItemOne')}</span>
+							<span class="welcome-preview-bullet">{t('landing.previewItemTwo')}</span>
+						</div>
+					</div>
+				</div>
+
+				<section class="welcome-features" aria-label={t('landing.featuresLabel')}>
+					<article>
+						<h2><FileText size={15} aria-hidden="true" />{t('landing.notesTitle')}</h2>
+						<p>{t('landing.notesText')}</p>
+					</article>
+					<article>
+						<h2><Presentation size={15} aria-hidden="true" />{t('landing.slidesTitle')}</h2>
+						<p>{t('landing.slidesText')}</p>
+					</article>
+					<article>
+						<h2><ShieldCheck size={15} aria-hidden="true" />{t('landing.privateTitle')}</h2>
+						<p>{t('landing.privateText')}</p>
+					</article>
+				</section>
 			</div>
-			<div>
-				<kbd>
-					{keyboardStore.label('mode-wysiwyg') ?? ''} / {keyboardStore.label('mode-read') ?? ''} / {keyboardStore.label(
-						'mode-source'
-					) ?? ''}
-				</kbd><span>{t('welcome.legendModes')}</span>
+		{:else}
+			<!-- §B4.2 - text-xs (12 px) rather than text-[10px]: 10 px fails the
+			     default legibility criteria. fg-muted reaches 5:1 on a dark background. -->
+			<div class="welcome-shortcuts font-mono text-xs text-fg-muted">
+				<div>
+					<kbd>{keyboardStore.label('export-md') ?? ''}</kbd><span>
+						{t('welcome.legendExport')}
+					</span>
+				</div>
+				<div>
+					<kbd>
+						{keyboardStore.label('mode-wysiwyg') ?? ''} / {keyboardStore.label('mode-read') ?? ''} / {keyboardStore.label(
+							'mode-source'
+						) ?? ''}
+					</kbd><span>{t('welcome.legendModes')}</span>
+				</div>
+				<div>
+					<kbd>{keyboardStore.label('sidebar') ?? ''}</kbd><span>{t('welcome.legendPanel')}</span>
+				</div>
+				<div>
+					<kbd>{keyboardStore.label('close-file') ?? ''}</kbd><span>
+						{t('welcome.legendCloseTab')}
+					</span>
+				</div>
 			</div>
-			<div>
-				<kbd>{keyboardStore.label('sidebar') ?? ''}</kbd><span>{t('welcome.legendPanel')}</span>
-			</div>
-			<div>
-				<kbd>{keyboardStore.label('close-file') ?? ''}</kbd><span>
-					{t('welcome.legendCloseTab')}
-				</span>
-			</div>
-		</div>
+		{/if}
 	</section>
 
 	<SiteFooter class="mt-8 w-full max-w-4xl shrink-0" />
@@ -230,6 +365,173 @@
 		font-size: 10px;
 		color: var(--color-fg-dim);
 	}
+	/* First visit. The introduction reuses the console frame, the amber rule and the
+	   square bordered panels of the returning-user view. Every color is a theme token. */
+	.welcome-facts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin: 1.1rem 0 0;
+		padding: 0;
+		list-style: none;
+	}
+	.welcome-facts li {
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-1);
+		padding: 0.2rem 0.55rem;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--color-fg-muted);
+	}
+	.welcome-links {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0 1rem;
+	}
+	.welcome-link {
+		display: inline-flex;
+		min-height: 44px;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0 0.75rem;
+		font-size: 13px;
+		color: var(--color-fg-muted);
+		text-decoration: underline;
+		text-decoration-color: var(--color-border-strong);
+		text-underline-offset: 4px;
+	}
+	.welcome-link:hover {
+		color: var(--color-accent);
+		text-decoration-color: var(--color-accent);
+	}
+	.welcome-shell-first {
+		padding-block: 1.5rem;
+	}
+	.welcome-first-visit {
+		padding-top: clamp(1.75rem, 3.5vw, 3rem);
+	}
+	.welcome-pitch {
+		display: flex;
+		flex-direction: column;
+		gap: clamp(1.5rem, 3vw, 2.25rem);
+		margin-top: clamp(1.75rem, 4vw, 2.75rem);
+		border-top: 1px solid var(--color-border);
+		padding-top: clamp(1.25rem, 3vw, 1.75rem);
+	}
+	.welcome-preview {
+		display: grid;
+		width: 100%;
+		max-width: 36rem;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		border: 1px solid var(--color-border-strong);
+		background: var(--color-bg-1);
+		user-select: none;
+	}
+	.welcome-preview-pane {
+		min-width: 0;
+	}
+	.welcome-preview-source {
+		border-right: 1px solid var(--color-border);
+	}
+	.welcome-preview-tab {
+		border-bottom: 1px solid var(--color-border);
+		padding: 0.35rem 0.7rem;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--color-fg-dim);
+	}
+	.welcome-preview-code {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.85rem 0.7rem 1rem;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		line-height: 1.45;
+		color: var(--color-fg-muted);
+		overflow-wrap: anywhere;
+	}
+	.welcome-preview-code .tok-h {
+		color: var(--color-accent);
+		font-weight: 600;
+	}
+	.welcome-preview-code .tok-link {
+		color: var(--color-accent);
+		text-decoration: underline;
+		text-decoration-color: var(--color-border-strong);
+		text-underline-offset: 3px;
+	}
+	.welcome-preview-deck {
+		display: flex;
+		flex-direction: column;
+	}
+	.welcome-preview-slide {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		gap: 0.45rem;
+		margin: 0.75rem;
+		border: 1px solid var(--color-border-strong);
+		background: var(--color-bg);
+		padding: 0.9rem 0.85rem;
+		aspect-ratio: 16 / 9;
+		min-height: 8.5rem;
+	}
+	.welcome-preview-slide-title {
+		font-size: 1.05rem;
+		font-weight: 600;
+		line-height: 1.2;
+		color: var(--color-fg);
+	}
+	.welcome-preview-rule {
+		width: 2.5rem;
+		height: 2px;
+		background: var(--color-accent);
+	}
+	.welcome-preview-bullet {
+		position: relative;
+		padding-left: 0.9rem;
+		font-size: 12px;
+		line-height: 1.35;
+		color: var(--color-fg-muted);
+	}
+	.welcome-preview-bullet::before {
+		content: '';
+		position: absolute;
+		top: 0.5em;
+		left: 0;
+		width: 5px;
+		height: 5px;
+		background: var(--color-accent);
+	}
+	.welcome-features {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 1.25rem clamp(1.25rem, 3vw, 2.25rem);
+	}
+	.welcome-features h2 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 0.25rem;
+		font-size: 0.95rem;
+		font-weight: 600;
+		line-height: 1.3;
+		color: var(--color-fg);
+	}
+	.welcome-features h2 :global(svg) {
+		flex-shrink: 0;
+		color: var(--color-accent);
+	}
+	.welcome-features p {
+		margin: 0;
+		padding-left: calc(15px + 0.5rem);
+		font-size: 13px;
+		line-height: 1.5;
+		color: var(--color-fg-muted);
+	}
 	.welcome-shortcuts {
 		display: grid;
 		grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -264,7 +566,28 @@
 			display: none;
 		}
 	}
+	/* The preview is decoration. A short wide window keeps the actions and the
+	   three points in the first screen, so it drops the preview. */
+	@media (min-width: 921px) and (max-height: 1000px) {
+		.welcome-preview {
+			display: none;
+		}
+	}
+	@media (min-width: 921px) and (max-height: 860px) {
+		.welcome-shell-first {
+			padding-block: 1rem;
+		}
+		.welcome-first-visit {
+			padding-top: 1.25rem;
+		}
+		.welcome-pitch {
+			margin-top: 1.25rem;
+		}
+	}
 	@media (max-width: 920px) {
+		.welcome-features {
+			grid-template-columns: minmax(0, 1fr);
+		}
 		.welcome-grid {
 			grid-template-columns: minmax(0, 1fr);
 			gap: 2.5rem;
@@ -277,6 +600,9 @@
 		}
 	}
 	@media (max-width: 520px) {
+		.welcome-preview {
+			display: none;
+		}
 		.welcome-shell {
 			overflow-y: auto;
 			align-items: safe center;

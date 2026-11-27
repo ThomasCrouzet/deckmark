@@ -13,11 +13,13 @@ import { backupProjectEn } from './backup-project-en';
 import { desktopBackupEn } from './desktop-backup-en';
 import { slidesEn } from './slides-en';
 import { snippetsEn } from './snippets-en';
+import { landingEn } from './landing-en';
 import { captureEn } from './capture-en';
 
 export const en = {
 	...slidesEn,
 	...snippetsEn,
+	...landingEn,
 	...captureEn,
 	...splitEn,
 	...projectEn,
@@ -126,7 +128,7 @@ export const en = {
 	'settings.feature.native-vault': 'Credential vault',
 	'settings.feature.native-ai': 'Native AI requests',
 	'settings.feature.global-capture': 'Global quick capture',
-	'app.homeTitle': 'DeckMark editor - local-first offline Markdown workspace',
+	'app.homeTitle': 'DeckMark: local-first Markdown notes and slides, offline, no account',
 	'settings.ai': 'AI connection (optional)',
 	'settings.aiHelp':
 		'Connect an OpenAI-compatible provider. AI stays disabled by default and the core editor works without it.',
@@ -1258,7 +1260,7 @@ export const en = {
 	'versionHistory.vsCurrent': 'vs current version',
 
 	// welcome
-	'welcome.titleText': 'Your Markdown workspace',
+	'welcome.titleText': 'Markdown notes and slides, on your device',
 	'welcome.demoLabel': 'Demo',
 	'welcome.importMd': 'Import .md',
 	'welcome.initializeLabel': 'Initialize workspace',

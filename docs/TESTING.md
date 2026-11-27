@@ -4901,3 +4901,42 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
+
+## First visit view
+
+Review finding PROD-04 covers the first visit. A visitor with an empty library
+opened an empty editor with no pitch, no start actions beyond three buttons, and
+no desktop link. `e2e/landing.spec.ts` starts with an empty library in English and
+French. It checks one level-one heading, the facts, the four start actions, the
+desktop and GitHub links, and that no request or image leaves the origin. It checks
+that **New presentation** opens the slide editor without a dialog. It checks that a
+returning user sees no introduction, also after a reload. It checks the desktop,
+iPad portrait, iPad landscape, iPhone, and narrow phone sizes in both themes for
+horizontal overflow, 44 px action targets, the primary action in the first screen,
+and blocking axe violations.
+
+Run `npx playwright test e2e/landing.spec.ts --project=chromium --workers=1
+--retries=0` and the same command with `--project=webkit`. Retain the JSON and HTML
+reports, the screenshots attached to each case, source identity, command, and browser
+environment. The case does not prove the look of the page. Review the screenshots in
+the report for spacing and alignment.
+
+## Served HTML metadata
+
+Review finding PROD-03 covers the share card tags. `e2e/seo-meta.spec.ts` reads the
+served HTML before any script runs. It checks that `og:image` and `twitter:image` are
+absolute URLs on `https://www.deckmark.dev`, that `og:url`, `canonical`, and
+`twitter:card` are correct, and that the title, the descriptions, and the static home
+content name slides and link the desktop download. The GitHub Pages build keeps the
+same origin on purpose. Run the spec on both builds:
+`E2E_PORT=4921 npx playwright test e2e/seo-meta.spec.ts --project=chromium
+--workers=1 --retries=0` and the same command with
+`BASE_PATH=/deckmark E2E_STATIC_PREVIEW=1`.
+
+## French catalog
+
+Review finding UX-04 covers French leftovers. `e2e/fr-catalog.spec.ts` checks the
+Settings About line and capability labels, the palette entries, the French home title,
+and a scan of the French catalogs for a lowercase product name, the spelling
+`hors-ligne`, English terms, and an informal imperative. Run `npx playwright test
+e2e/fr-catalog.spec.ts --project=chromium --workers=1 --retries=0`.

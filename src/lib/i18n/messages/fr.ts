@@ -12,11 +12,13 @@ import { backupProjectFr } from './backup-project-fr';
 import { desktopBackupFr } from './desktop-backup-fr';
 import { slidesFr } from './slides-fr';
 import { snippetsFr } from './snippets-fr';
+import { landingFr } from './landing-fr';
 import { captureFr } from './capture-fr';
 
 export const fr: Record<MessageKey, string> = {
 	...slidesFr,
 	...snippetsFr,
+	...landingFr,
 	...captureFr,
 	...splitFr,
 	...projectFr,
@@ -125,7 +127,7 @@ export const fr: Record<MessageKey, string> = {
 	'settings.feature.native-vault': 'Coffre d’identifiants',
 	'settings.feature.native-ai': 'Requêtes IA natives',
 	'settings.feature.global-capture': 'Capture rapide globale',
-	'app.homeTitle': 'DeckMark - espace de travail Markdown local, hors ligne',
+	'app.homeTitle': 'DeckMark : notes et présentations Markdown, hors ligne, sans compte',
 	'settings.ai': 'Connexion IA (facultative)',
 	'settings.aiHelp':
 		'Connectez un fournisseur compatible OpenAI. L’IA reste désactivée par défaut et l’éditeur fonctionne sans elle.',
@@ -1286,7 +1288,7 @@ export const fr: Record<MessageKey, string> = {
 	'versionHistory.vsCurrent': 'vs version actuelle',
 
 	// welcome
-	'welcome.titleText': 'Votre espace de travail Markdown',
+	'welcome.titleText': 'Notes et présentations Markdown, sur votre appareil',
 	'welcome.demoLabel': 'Démo',
 	'welcome.importMd': 'Importer .md',
 	'welcome.initializeLabel': 'Initialiser l’espace',

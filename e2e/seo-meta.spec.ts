@@ -31,4 +31,25 @@ test.describe('Served HTML metadata', () => {
 		expect(metaContent(html, 'name', 'twitter:card')).toBe('summary_large_image');
 		expect(/<link\s[^>]*rel="canonical"[^>]*href="([^"]*)"/i.exec(html)?.[1]).toBe(`${ORIGIN}/`);
 	});
+
+	test('names slides in the title, the descriptions and the static home content', async ({
+		request
+	}, testInfo) => {
+		const html = await (await request.get(appPath(testInfo))).text();
+		const title = /<title>([^<]*)<\/title>/i.exec(html)?.[1] ?? '';
+		expect(title).toMatch(/notes and slides/i);
+		for (const [attribute, key] of [
+			['name', 'description'],
+			['property', 'og:description'],
+			['name', 'twitter:description'],
+			['property', 'og:title'],
+			['name', 'twitter:title']
+		] as const) {
+			expect(metaContent(html, attribute, key), key).toMatch(/slide/i);
+		}
+		// A crawler and a reader without JavaScript get this static home content.
+		const shell = /<div id="seo-shell"[\s\S]*?<\/nav>/i.exec(html)?.[0] ?? '';
+		expect(shell).toMatch(/<h1[^>]*>[^<]*slides[^<]*<\/h1>/i);
+		expect(shell).toMatch(/releases\?q=desktop/);
+	});
 });
