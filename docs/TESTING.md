@@ -4979,18 +4979,35 @@ Review finding PROD-04 covers the first visit. A visitor with an empty library
 opened an empty editor with no pitch, no start actions beyond three buttons, and
 no desktop link. `e2e/landing.spec.ts` starts with an empty library in English and
 French. It checks one level-one heading, the facts, the four start actions, the
-desktop and GitHub links, and that no request or image leaves the origin. It checks
-that **New presentation** opens the slide editor without a dialog. It checks that a
-returning user sees no introduction, also after a reload. It checks the desktop,
-iPad portrait, iPad landscape, iPhone, and narrow phone sizes in both themes for
-horizontal overflow, 44 px action targets, the primary action in the first screen,
-and blocking axe violations.
+desktop and GitHub links, the side panel hint, and that no request or image leaves
+the origin. It checks that **New presentation** opens the slide editor without a
+dialog. It checks that a returning user sees no introduction, also after a reload.
+
+The layout checks use the large desktop, desktop, iPad portrait, iPad landscape,
+iPhone, and narrow phone sizes in both themes. They check horizontal overflow,
+44 px action targets, the primary action in the first screen, the figure, and
+blocking axe violations. Axe also measures the text of the figure, although the
+figure is hidden from assistive technology. On a 1440 px desktop window, each start
+action keeps its label on one line in the two languages and the page does not scroll.
+
+The keyboard case moves through the four start actions and the two links with Tab.
+It compares the focus order with the positions on the desktop, iPad landscape, and
+iPhone sizes. The figure case checks that the figure is hidden from assistive
+technology and holds no control. With reduced motion, no animation is set and the
+figure is complete. With default motion, each animation ends and the figure ends in
+the same state.
+
+The edition case reads `edition.json`. DeckMark Web shows the desktop download link.
+A Desktop build does not show it. The default server is DeckMark Web. To check the
+other branch, run the case with `--config=playwright.capture.config.ts`, which builds
+and serves the Desktop edition.
 
 Run `npx playwright test e2e/landing.spec.ts --project=chromium --workers=1
 --retries=0` and the same command with `--project=webkit`. Retain the JSON and HTML
 reports, the screenshots attached to each case, source identity, command, and browser
 environment. The case does not prove the look of the page. Review the screenshots in
-the report for spacing and alignment.
+the report for spacing and alignment. Linux WebKit is not Safari on an iPhone or an
+iPad. It does not prove safe areas, the installed web app, or the system fonts.
 
 ## Served HTML metadata
 

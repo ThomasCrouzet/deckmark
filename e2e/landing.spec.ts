@@ -26,20 +26,24 @@ const copy = {
 	en: {
 		title: /notes and slides/,
 		h1: 'Markdown notes and slides, on your device',
-		facts: ['No account', 'Works offline', 'Open source'],
+		facts: ['No account', 'Works offline', 'Free and open source'],
 		desktop: 'Desktop app (Beta)',
-		lead: /^Plain Markdown files in one local library\./,
+		lead: /^Write notes and build slide decks in one library\./,
 		demo: 'Open a demo document',
-		slides: 'Slides, not just notes'
+		slides: 'Slides, not just notes',
+		sidebar: 'Your documents appear here.',
+		noFile: 'No file open.'
 	},
 	fr: {
 		title: /présentations Markdown/,
 		h1: 'Notes et présentations Markdown, sur votre appareil',
-		facts: ['Sans compte', 'Fonctionne hors ligne', 'Open source'],
+		facts: ['Sans compte', 'Hors ligne', 'Gratuit et open source'],
 		desktop: 'Application Desktop (Beta)',
-		lead: /^Des fichiers Markdown simples dans une bibliothèque locale\./,
+		lead: /^Rédigez vos notes et créez vos présentations dans une même bibliothèque\./,
 		demo: 'Ouvrir un document de démo',
-		slides: 'Des présentations, pas seulement des notes'
+		slides: 'Des présentations aussi',
+		sidebar: 'Vos documents apparaissent ici.',
+		noFile: 'Aucun fichier ouvert.'
 	}
 };
 
@@ -68,11 +72,13 @@ for (const locale of ['en', 'fr'] as const) {
 			await expect(headings).toHaveCount(1);
 			await expect(headings).toContainText(text.h1);
 			for (const fact of text.facts) {
-				await expect(page.getByRole('list', { name: /./ }).getByText(fact)).toBeVisible();
+				await expect(
+					page.getByRole('list', { name: /./ }).getByText(fact, { exact: true })
+				).toBeVisible();
 			}
 			await expect(page.getByRole('heading', { level: 2, name: text.slides })).toBeVisible();
 
-			// One short supporting sentence follows the title, then the fact chips.
+			// One short supporting sentence follows the title, then the facts.
 			const intro = page.locator('.welcome-intro');
 			await expect(intro.locator('p')).toHaveCount(1);
 			await expect(intro.locator('p')).toHaveText(text.lead);
@@ -94,6 +100,11 @@ for (const locale of ['en', 'fr'] as const) {
 			// The label stays on one line at desktop width.
 			const lines = await desktop.locator('span').evaluate((node) => node.getClientRects().length);
 			expect(lines).toBe(1);
+
+			// The side panel says what it is for. It does not repeat the start actions.
+			const panel = page.locator('#files-panel');
+			await expect(panel).toContainText(text.sidebar);
+			await expect(panel).not.toContainText(text.noFile);
 			await expect(desktop).toHaveAttribute(
 				'href',
 				/github\.com\/ThomasCrouzet\/deckmark\/releases\?q=desktop/
@@ -149,8 +160,10 @@ test.describe('first visit actions', () => {
 		await expect(page.getByTestId('welcome-new')).toBeVisible();
 		await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
 		await expect(page.locator('.welcome-pitch')).toHaveCount(0);
+		await expect(page.locator('.welcome-visual')).toHaveCount(0);
 		await expect(page.getByTestId('welcome-desktop-link')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: /Open your library/ })).toBeVisible();
+		await expect(page.locator('#files-panel')).not.toContainText(copy.en.sidebar);
 
 		// A reload keeps the pitch away, even before the library finishes loading.
 		await page.reload();
@@ -209,16 +222,168 @@ test('the first-visit content starts high on a desktop window', async ({ page })
 	await start(page, 'en');
 	// Offsets count from the top of the home area, below the app header.
 	const offsets = await page.evaluate(() => {
-		const shell = document.querySelector('.welcome-shell')!.getBoundingClientRect().top;
+		const shell = document.querySelector('.welcome-shell')!.getBoundingClientRect();
 		const top = (selector: string) =>
-			document.querySelector(selector)!.getBoundingClientRect().top - shell;
-		return { console: top('.welcome-console'), primary: top('[data-testid="welcome-new"]') };
+			document.querySelector(selector)!.getBoundingClientRect().top - shell.top;
+		return {
+			height: shell.height,
+			console: top('.welcome-console'),
+			title: top('.welcome-title-text'),
+			primary: top('[data-testid="welcome-new"]')
+		};
 	});
-	expect(offsets.console).toBeLessThanOrEqual(64);
-	expect(offsets.primary).toBeLessThanOrEqual(120);
+	// The title and the pitch come first. The primary action stays in the upper
+	// half of the home area, and a tall window does not push the content down.
+	expect(offsets.console).toBeLessThanOrEqual(96);
+	expect(offsets.title).toBeLessThan(offsets.primary);
+	expect(offsets.primary).toBeLessThanOrEqual(offsets.height / 2);
+});
+
+for (const locale of ['en', 'fr'] as const) {
+	test(`each start action keeps its label on one line on a desktop window in ${locale}`, async ({
+		page
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await start(page, locale);
+		const wrapped = await page.locator('.welcome-action > .flex-1').evaluateAll((labels) =>
+			labels
+				.filter((label) => {
+					const range = document.createRange();
+					range.selectNodeContents(label);
+					return new Set([...range.getClientRects()].map((box) => Math.round(box.top))).size > 1;
+				})
+				.map((label) => label.textContent)
+		);
+		expect(wrapped).toEqual([]);
+		// The page fits the window. No scroll bar shows at this size.
+		const extra = await page
+			.locator('.welcome-shell')
+			.evaluate((shell) => shell.scrollHeight - shell.clientHeight);
+		expect(extra).toBeLessThanOrEqual(0);
+	});
+}
+
+for (const [name, viewport] of [
+	['desktop', { width: 1440, height: 900 }],
+	['iPad landscape', { width: 1180, height: 820 }],
+	['iPhone', { width: 390, height: 844 }]
+] as const) {
+	test(`the keyboard order follows the visual order on ${name}`, async ({ page }) => {
+		await page.setViewportSize(viewport);
+		await start(page, 'en');
+		const ids = [
+			'welcome-new',
+			'welcome-new-presentation',
+			'welcome-demo',
+			'welcome-import',
+			'welcome-desktop-link',
+			'welcome-github-link'
+		];
+		await page.getByTestId(ids[0]).focus();
+		const focused = [ids[0]];
+		for (let step = 1; step < ids.length; step += 1) {
+			await page.keyboard.press('Tab');
+			focused.push(
+				await page.evaluate(() => (document.activeElement as HTMLElement).dataset.testid ?? '')
+			);
+		}
+		expect(focused).toEqual(ids);
+
+		// The four actions read row by row. The two links come after the action
+		// group: below it, or in one column at its end.
+		const boxes = await page.evaluate(
+			(list) =>
+				list.map((id) => {
+					const box = document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect();
+					return { top: box.top, left: box.left, bottom: box.bottom, right: box.right };
+				}),
+			ids
+		);
+		const follows = (a: (typeof boxes)[number], b: (typeof boxes)[number]) =>
+			b.top >= a.bottom - 1 || (Math.abs(b.top - a.top) < 2 && b.left >= a.right - 1);
+		for (let index = 1; index < 4; index += 1) {
+			expect(follows(boxes[index - 1], boxes[index]), ids[index]).toBe(true);
+		}
+		const grid = await page.locator('.welcome-action-grid').boundingBox();
+		for (const link of boxes.slice(4)) {
+			const below = link.top >= grid!.y + grid!.height - 1;
+			const atEnd = link.left >= grid!.x + grid!.width - 1;
+			expect(below || atEnd).toBe(true);
+		}
+		expect(follows(boxes[4], boxes[5])).toBe(true);
+	});
+}
+
+test('the figure is decoration and tells the same thing with no motion', async ({ page }) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+	await start(page, 'en');
+	const figure = page.locator('.welcome-visual');
+	await expect(figure).toBeVisible();
+	await expect(figure).toHaveAttribute('aria-hidden', 'true');
+	await expect(figure.locator('a, button, input, [tabindex]')).toHaveCount(0);
+	const state = () =>
+		figure.evaluate(async (node) => {
+			const animations = node.getAnimations({ subtree: true });
+			const finite = animations.every((animation) =>
+				Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))
+			);
+			await Promise.all(animations.map((animation) => animation.finished.catch(() => {})));
+			const slide = node.querySelector('.welcome-visual-slide')!;
+			const wire = node.querySelector('.welcome-visual-wire')!;
+			return {
+				finite,
+				animated: getComputedStyle(slide).animationName !== 'none',
+				slideOpacity: getComputedStyle(slide).opacity,
+				wireClip: getComputedStyle(wire).clipPath,
+				slideBox: slide.getBoundingClientRect().toJSON() as DOMRect
+			};
+		});
+
+	// Reduced motion: no animation is set, and the figure is complete.
+	const still = await state();
+	expect(still.animated).toBe(false);
+	expect(still.slideOpacity).toBe('1');
+	expect(still.wireClip).toBe('none');
+
+	// Default motion: each animation ends, and the figure ends in the same state.
+	await page.emulateMedia({ reducedMotion: 'no-preference' });
+	await page.reload();
+	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+	const moved = await state();
+	expect(moved.animated).toBe(true);
+	expect(moved.finite).toBe(true);
+	expect(moved.slideOpacity).toBe('1');
+	expect(moved.wireClip).toBe('none');
+	expect(Math.round(moved.slideBox.x)).toBe(Math.round(still.slideBox.x));
+	expect(Math.round(moved.slideBox.y)).toBe(Math.round(still.slideBox.y));
+});
+
+// The Desktop edition has no use for a link to its own installers. The default
+// server is DeckMark Web. Serve a Desktop build to check the other branch:
+// `npx playwright test --config=playwright.capture.config.ts e2e/landing.spec.ts -g "follows the edition"`.
+test('the desktop download link follows the edition', async ({ page }) => {
+	await start(page, 'en');
+	const edition = await page.evaluate(async () => {
+		const manifest = (await (await fetch('edition.json')).json()) as { edition: string };
+		return manifest.edition;
+	});
+	await test.info().attach('edition.txt', { body: edition, contentType: 'text/plain' });
+	const link = page.getByTestId('welcome-desktop-link');
+	if (edition === 'desktop') {
+		await expect(link).toHaveCount(0);
+		await expect(page.locator('#welcome-desktop-hint')).toHaveCount(0);
+	} else {
+		expect(edition).toBe('web');
+		await expect(link).toBeVisible();
+	}
+	// The other start paths do not depend on the edition.
+	await expect(page.getByTestId('welcome-github-link')).toBeVisible();
+	await expect(page.getByTestId('welcome-new')).toBeVisible();
 });
 
 for (const [name, viewport] of [
+	['large desktop', { width: 1920, height: 1080 }],
 	['desktop', { width: 1440, height: 900 }],
 	['iPad portrait', { width: 820, height: 1180 }],
 	['iPad landscape', { width: 1180, height: 820 }],
@@ -233,6 +398,7 @@ for (const [name, viewport] of [
 			await start(page, 'en', theme);
 			await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 			await expect(page.locator('.welcome-pitch')).toBeVisible();
+			await expect(page.locator('.welcome-visual')).toBeVisible();
 			const fits = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 			expect(fits).toBe(true);
 			// The primary action stays reachable without scrolling.
