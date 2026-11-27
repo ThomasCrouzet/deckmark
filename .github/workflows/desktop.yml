@@ -41,9 +41,15 @@ env:
 jobs:
   changes:
     # One policy job: the path filter, the tier, the release coordinator
-    # tests and the source identity. Every validation job reads its outputs.
+    # tests, the same-tree proof on main and the source identity. Every
+    # validation job reads its outputs.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # The same-tree proof reads pull requests and workflow runs.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       required: ${{ steps.filter.outputs.required }}
       full: ${{ steps.tier.outputs.full }}
@@ -53,6 +59,11 @@ jobs:
       # filter or the tier did not request Desktop validation.
       resolve: ${{ steps.source.outcome }}
       rust_audit: ${{ steps.audit.outputs.rust_audit }}
+      # true only when scripts/ci-tree-proof.mjs proved that a green pull
+      # request run validated this exact tree.
+      reuse: ${{ steps.proof.outputs.reuse == 'true' && 'true' || 'false' }}
+      proof_run: ${{ steps.proof.outputs.proof_run }}
+      rust_lock_changed: ${{ steps.lock.outputs.changed }}
     steps:
       - name: Checkout requested source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,6 +125,30 @@ jobs:
         # routing, aggregate and CLI-deliverable checks run before the matrix,
         # so a broken release policy fails here and not at publication.
         run: node --test scripts/desktop-release-orchestration.test.mjs scripts/ci-release-coordinator.test.mjs scripts/native-smoke-process.test.mjs
+      - name: Reuse the proof of an identical pull request tree
+        # Main only. The script never fails: an unproven tree, an API error
+        # or a Git error writes reuse=false and the matrix runs in full. A
+        # release merge still builds and publishes the installers.
+        id: proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-tree-proof.mjs --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --workflow desktop.yml --output "$GITHUB_OUTPUT"
+      - name: Detect a Rust dependency change on main
+        # A proven merge skips the native jobs, so their caches do not save.
+        # desktop-cache-warm rebuilds them when the Rust dependencies change.
+        id: lock
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          elif [ -n "$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" -- src-tauri/Cargo.lock src-tauri/Cargo.toml rust-toolchain.toml)" ]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Resolve and validate source identity
         id: source
         if: steps.filter.outputs.required == 'true' && steps.tier.outputs.full == 'true'
@@ -131,7 +166,10 @@ jobs:
 
   validate-desktop:
     needs: [changes]
-    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -214,7 +252,10 @@ jobs:
     # verifies provenance before it serves these exact bytes. A root build is a
     # different configuration from the public project-path build.
     needs: [changes]
-    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -257,7 +298,10 @@ jobs:
     # for Rust or native validation. The final desktop-validation gate still
     # requires every platform result.
     needs: [changes, web-build]
-    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -334,7 +378,10 @@ jobs:
     # One debug test application per OS for the smoke cases on the real
     # WebView. A debug application never reaches a public installer.
     needs: [changes]
-    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -419,7 +466,10 @@ jobs:
     # smoke process. The sample counts, fixtures, budgets and failure
     # propagation are unchanged.
     needs: [changes]
-    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -525,12 +575,85 @@ jobs:
           FULL: ${{ needs.changes.outputs.full }}
           TIER: ${{ needs.changes.outputs.tier }}
           RESOLVE_RESULT: ${{ needs.changes.outputs.resolve }}
+          REUSE: ${{ needs.changes.outputs.reuse }}
+          PROOF_RUN: ${{ needs.changes.outputs.proof_run }}
+          REPOSITORY: ${{ github.repository }}
           VALIDATE_RESULT: ${{ needs.validate-desktop.result }}
           NATIVE_SMOKE_RESULT: ${{ needs.native-smoke.result }}
           NATIVE_BENCHMARK_RESULT: ${{ needs.native-benchmark.result }}
           WEB_BUILD_RESULT: ${{ needs.web-build.result }}
           WEB_BENCHMARK_RESULT: ${{ needs.web-benchmark.result }}
         run: node scripts/ci-release-coordinator.mjs gate
+
+  desktop-cache-warm:
+    # A proven merge skips every Rust job on main, so no main cache entry
+    # saves. When the merge changes the Rust dependencies or toolchain, this
+    # job builds the two cache entries for the next pull requests. It gates
+    # nothing, and a failed build step does not fail the job.
+    needs: [changes]
+    if: >-
+      github.event_name == 'push' &&
+      needs.changes.outputs.reuse == 'true' &&
+      needs.changes.outputs.rust_lock_changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-24.04, windows-2022, macos-15]
+        kind: [validate, native]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure Ubuntu APT
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/configure-ubuntu-apt.sh
+      - name: Install Linux WebKit dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 20
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
+          components: clippy
+      - name: Rust cache
+        uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: desktop-${{ matrix.kind }}-${{ runner.os }}-${{ runner.arch }}
+          save-if: true
+      - name: Warm the Rust check cache
+        if: matrix.kind == 'validate'
+        continue-on-error: true
+        run: |
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --no-run
+      - name: Cache node_modules
+        if: matrix.kind == 'native'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
+      - name: Install frontend dependencies
+        if: matrix.kind == 'native' && steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+      - name: Warm the native debug build cache
+        if: matrix.kind == 'native'
+        continue-on-error: true
+        run: npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+        env:
+          BASE_PATH: ''
 
   release-please:
     # Release creation runs here, after the Desktop validation gate for this

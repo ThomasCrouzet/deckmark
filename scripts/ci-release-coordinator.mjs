@@ -228,7 +228,10 @@ export function planRelease(input) {
  *   nativeSmokeResult: string,
  *   nativeBenchmarkResult: string,
  *   webBuildResult: string,
- *   webBenchmarkResult: string
+ *   webBenchmarkResult: string,
+ *   reuse?: string,
+ *   proofRun?: string,
+ *   repository?: string
  * }} input
  */
 export function evaluateValidationGate(input) {
@@ -252,6 +255,41 @@ export function evaluateValidationGate(input) {
 				'Mark the pull request ready for review to run the full matrix on the exact HEAD.'
 			].join('\n')
 		);
+	}
+	if (!['', 'true', 'false'].includes(input.reuse ?? '')) {
+		throw new Error(`REUSE must be true or false, not ${input.reuse}`);
+	}
+	if (input.reuse === 'true') {
+		// A proven main tree. scripts/ci-tree-proof.mjs accepted one green pull
+		// request run of this workflow on the identical tree. Every validation
+		// job must be skipped, not run and ignored, and the source identity
+		// must still resolve for the release planner.
+		if (!/^[0-9]+$/.test(input.proofRun ?? '')) {
+			throw new Error(
+				`A reused tree needs a numeric PROOF_RUN, not ${input.proofRun === '' ? '(missing)' : input.proofRun}`
+			);
+		}
+		if (input.resolveResult !== 'success') {
+			throw new Error(
+				`RESOLVE_RESULT=${input.resolveResult === '' ? '(missing)' : input.resolveResult} on a reused tree is not a pass`
+			);
+		}
+		const ran = [
+			['VALIDATE_RESULT', input.validateResult],
+			['NATIVE_SMOKE_RESULT', input.nativeSmokeResult],
+			['NATIVE_BENCHMARK_RESULT', input.nativeBenchmarkResult],
+			['WEB_BUILD_RESULT', input.webBuildResult],
+			['WEB_BENCHMARK_RESULT', input.webBenchmarkResult]
+		]
+			.filter(([, value]) => value !== 'skipped')
+			.map(([name, value]) => `${name}=${value === '' ? '(missing)' : value}`);
+		if (ran.length > 0) {
+			throw new Error(`A reused tree must skip every validation job: ${ran.join(', ')}`);
+		}
+		const url = input.repository
+			? `https://github.com/${input.repository}/actions/runs/${input.proofRun}`
+			: `run ${input.proofRun}`;
+		return { message: `Desktop validation passed on the identical pull request tree: ${url}` };
 	}
 	const expected = [
 		['RESOLVE_RESULT', input.resolveResult],
@@ -571,7 +609,10 @@ function runGate() {
 		nativeSmokeResult: read('NATIVE_SMOKE_RESULT'),
 		nativeBenchmarkResult: read('NATIVE_BENCHMARK_RESULT'),
 		webBuildResult: read('WEB_BUILD_RESULT'),
-		webBenchmarkResult: read('WEB_BENCHMARK_RESULT')
+		webBenchmarkResult: read('WEB_BENCHMARK_RESULT'),
+		reuse: read('REUSE'),
+		proofRun: read('PROOF_RUN'),
+		repository: read('REPOSITORY')
 	});
 	process.stdout.write(`${message}\n`);
 }

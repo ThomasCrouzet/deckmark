@@ -14,6 +14,9 @@ const verification = load(
 );
 const aggregate = workflow.jobs.e2e.steps.find((step) => step.run)?.run;
 const healthy = {
+	REUSE: 'false',
+	PROOF_RUN: '',
+	REPOSITORY: 'owner/repo',
 	TIER_RESULT: 'success',
 	FULL: 'true',
 	TIER: 'full',
@@ -213,6 +216,7 @@ test('heavy browser jobs require the successful full tier and the full class', (
 		assert.ok(job.needs.includes('ci-tier'), name);
 		assert.match(job.if, /needs\.ci-tier\.outputs\.full == 'true'/, name);
 		assert.match(job.if, /needs\.ci-tier\.outputs\.class == 'full'/, name);
+		assert.match(job.if, /needs\.ci-tier\.outputs\.reuse != 'true'/, name);
 		assert.doesNotMatch(job.if, /always\(\)/, name);
 	}
 	const lighthouse = workflow.jobs.lighthouse;
@@ -353,9 +357,98 @@ test('each browser container job restores provenance in its own job HOME', () =>
 });
 
 test('the fast checks and both production builds run on every tier and class', () => {
-	for (const name of ['typecheck', 'lint', 'unit', 'build']) {
-		assert.equal(workflow.jobs[name].if, undefined, name);
+	for (const name of ['typecheck', 'lint', 'unit']) {
+		// Only a proven main tree skips them.
+		assert.equal(workflow.jobs[name].if, "needs.ci-tier.outputs.reuse != 'true'", name);
+		assert.deepEqual(workflow.jobs[name].needs, ['ci-tier'], name);
 	}
+	assert.equal(workflow.jobs.build.if, undefined, 'both builds always run');
+});
+
+const checkShell = workflow.jobs.check.steps.find((step) => step.run)?.run;
+function runCheck(overrides = {}) {
+	return spawnSync('bash', ['-e', '-o', 'pipefail', '-c', checkShell], {
+		env: {
+			...process.env,
+			TIER_RESULT: 'success',
+			REUSE: 'false',
+			PROOF_RUN: '',
+			REPOSITORY: 'owner/repo',
+			TYPECHECK_RESULT: 'success',
+			LINT_RESULT: 'success',
+			UNIT_RESULT: 'success',
+			...overrides
+		},
+		encoding: 'utf8'
+	});
+}
+const reused = { REUSE: 'true', PROOF_RUN: '45956635306' };
+
+test('the check aggregate accepts the fast jobs or one named proof, nothing else', () => {
+	assert.equal(runCheck().status, 0);
+	for (const field of ['TIER_RESULT', 'TYPECHECK_RESULT', 'LINT_RESULT', 'UNIT_RESULT']) {
+		for (const value of ['', 'failure', 'skipped', 'cancelled']) {
+			assert.notEqual(runCheck({ [field]: value }).status, 0, `${field}=${value}`);
+		}
+	}
+	const skipped = { TYPECHECK_RESULT: 'skipped', LINT_RESULT: 'skipped', UNIT_RESULT: 'skipped' };
+	const proven = runCheck({ ...reused, ...skipped });
+	assert.equal(proven.status, 0, proven.stderr);
+	assert.match(proven.stdout, /actions\/runs\/45956635306/);
+	for (const proof of ['', 'abc', '12 3']) {
+		assert.notEqual(runCheck({ ...skipped, REUSE: 'true', PROOF_RUN: proof }).status, 0, proof);
+	}
+	for (const field of Object.keys(skipped)) {
+		for (const value of ['success', 'failure', 'cancelled', '']) {
+			assert.notEqual(
+				runCheck({ ...reused, ...skipped, [field]: value }).status,
+				0,
+				`a reused tree with ${field}=${value}`
+			);
+		}
+	}
+	assert.notEqual(runCheck({ ...reused, ...skipped, TIER_RESULT: 'failure' }).status, 0);
+});
+
+test('the e2e aggregate accepts a proven main tree only with every browser job skipped', () => {
+	const skipped = { BUILD_RESULT: 'skipped', SHARD_RESULT: 'skipped', MANIFEST_RESULT: 'skipped' };
+	const proven = runAggregate({ ...reused, ...skipped });
+	assert.equal(proven.status, 0, proven.stderr);
+	assert.match(proven.stdout, /actions\/runs\/45956635306/);
+	for (const proof of ['', 'x']) {
+		assert.notEqual(runAggregate({ ...skipped, REUSE: 'true', PROOF_RUN: proof }).status, 0);
+	}
+	for (const field of Object.keys(skipped)) {
+		for (const value of ['success', 'failure', 'cancelled', '']) {
+			assert.notEqual(runAggregate({ ...reused, ...skipped, [field]: value }).status, 0);
+		}
+	}
+	assert.notEqual(runAggregate({ ...reused, ...skipped, TIER_RESULT: 'failure' }).status, 0);
+	// Without the proof flag the skipped route is a draft or a docs class only.
+	assert.notEqual(runAggregate({ ...skipped }).status, 0);
+});
+
+test('only main runs the same-tree proof, with read permissions', () => {
+	const tier = workflow.jobs['ci-tier'];
+	assert.deepEqual(tier.permissions, {
+		contents: 'read',
+		actions: 'read',
+		'pull-requests': 'read'
+	});
+	const proof = tier.steps.find((step) => step.id === 'proof');
+	assert.equal(proof.if, "github.event_name == 'push' && github.ref == 'refs/heads/main'");
+	assert.match(proof.run, /scripts\/ci-tree-proof\.mjs .*--workflow deploy\.yml/);
+	assert.equal(
+		tier.outputs.reuse,
+		"${{ steps.proof.outputs.reuse == 'true' && 'true' || 'false' }}"
+	);
+	const lighthouse = workflow.jobs.lighthouse.steps;
+	assert.ok(
+		lighthouse
+			.filter((step) => step.uses)
+			.every((step) => step.if === "needs.ci-tier.outputs.reuse != 'true'"),
+		'Lighthouse runs on every unproven tree'
+	);
 });
 
 test('ready and draft transitions rerun the policy on the same head', () => {

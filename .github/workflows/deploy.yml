@@ -35,11 +35,17 @@ defaults:
 jobs:
   ci-tier:
     # One policy job. It reads the tier and the change class, resolves the
-    # pinned Playwright image, and defines the shard count once. Every heavy
-    # job reads these outputs. A failed step fails the job, so a missing
-    # output can never select the cheap route.
+    # pinned Playwright image, defines the shard count once and, on main,
+    # checks the same-tree proof. Every heavy job reads these outputs. A
+    # failed step fails the job, so a missing output can never select the
+    # cheap route.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # The same-tree proof reads pull requests and workflow runs.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       full: ${{ steps.tier.outputs.full }}
       tier: ${{ steps.tier.outputs.tier }}
@@ -49,6 +55,11 @@ jobs:
       playwright: ${{ steps.image.outputs.playwright }}
       shard_count: ${{ steps.shards.outputs.count }}
       shard_matrix: ${{ steps.shards.outputs.shards }}
+      # true only when scripts/ci-tree-proof.mjs proved that a green pull
+      # request run validated this exact tree. Any other value runs full
+      # validation.
+      reuse: ${{ steps.proof.outputs.reuse == 'true' && 'true' || 'false' }}
+      proof_run: ${{ steps.proof.outputs.proof_run }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,6 +112,15 @@ jobs:
         run: |
           echo 'shards=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]' >> "$GITHUB_OUTPUT"
           echo 'count=16' >> "$GITHUB_OUTPUT"
+
+      - name: Reuse the proof of an identical pull request tree
+        # Main only. The script never fails: an unproven tree, an API error
+        # or a Git error writes reuse=false and the run validates in full.
+        id: proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-tree-proof.mjs --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --workflow deploy.yml --output "$GITHUB_OUTPUT"
 
   fail-fast:
     # Stop every run of this commit at the first failed job. The job runs no
@@ -175,6 +195,8 @@ jobs:
           echo "check_base_path=$check_path" >> "$GITHUB_OUTPUT"
 
   typecheck:
+    needs: [ci-tier]
+    if: needs.ci-tier.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -200,6 +222,8 @@ jobs:
         run: npm run check
 
   lint:
+    needs: [ci-tier]
+    if: needs.ci-tier.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -227,6 +251,8 @@ jobs:
         run: npm run notices:check
 
   unit:
+    needs: [ci-tier]
+    if: needs.ci-tier.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -255,17 +281,32 @@ jobs:
 
   check:
     # Keep the required check name after the fast checks run in parallel.
-    needs: [typecheck, lint, unit]
+    needs: [ci-tier, typecheck, lint, unit]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require the fast correctness tier
         env:
+          TIER_RESULT: ${{ needs.ci-tier.result }}
+          REUSE: ${{ needs.ci-tier.outputs.reuse }}
+          PROOF_RUN: ${{ needs.ci-tier.outputs.proof_run }}
+          REPOSITORY: ${{ github.repository }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           LINT_RESULT: ${{ needs.lint.result }}
           UNIT_RESULT: ${{ needs.unit.result }}
         run: |
+          test "$TIER_RESULT" = 'success'
+          if [ "$REUSE" = 'true' ]; then
+            # A proven main tree: every fast job must be skipped, not run and
+            # ignored, and the proof must name one run.
+            [[ "$PROOF_RUN" =~ ^[0-9]+$ ]]
+            test "$TYPECHECK_RESULT" = 'skipped'
+            test "$LINT_RESULT" = 'skipped'
+            test "$UNIT_RESULT" = 'skipped'
+            echo "The pull request run proved this tree: https://github.com/$REPOSITORY/actions/runs/$PROOF_RUN"
+            exit 0
+          fi
           test "$TYPECHECK_RESULT" = 'success'
           test "$LINT_RESULT" = 'success'
           test "$UNIT_RESULT" = 'success'
@@ -279,7 +320,8 @@ jobs:
     needs: [ci-tier]
     if: >-
       needs.ci-tier.outputs.full == 'true' &&
-      needs.ci-tier.outputs.class == 'full'
+      needs.ci-tier.outputs.class == 'full' &&
+      needs.ci-tier.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -331,7 +373,8 @@ jobs:
     needs: [ci-tier, e2e-build]
     if: >-
       needs.ci-tier.outputs.full == 'true' &&
-      needs.ci-tier.outputs.class == 'full'
+      needs.ci-tier.outputs.class == 'full' &&
+      needs.ci-tier.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     container:
       image: ${{ needs.ci-tier.outputs.image }}
@@ -475,7 +518,8 @@ jobs:
     needs: [ci-tier]
     if: >-
       needs.ci-tier.outputs.full == 'true' &&
-      needs.ci-tier.outputs.class == 'full'
+      needs.ci-tier.outputs.class == 'full' &&
+      needs.ci-tier.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     container:
       image: ${{ needs.ci-tier.outputs.image }}
@@ -536,11 +580,24 @@ jobs:
           TIER: ${{ needs.ci-tier.outputs.tier }}
           CLASS: ${{ needs.ci-tier.outputs.class }}
           CLASS_REASON: ${{ needs.ci-tier.outputs.class_reason }}
+          REUSE: ${{ needs.ci-tier.outputs.reuse }}
+          PROOF_RUN: ${{ needs.ci-tier.outputs.proof_run }}
+          REPOSITORY: ${{ github.repository }}
           BUILD_RESULT: ${{ needs.e2e-build.result }}
           SHARD_RESULT: ${{ needs.e2e-shard.result }}
           MANIFEST_RESULT: ${{ needs.e2e-manifest.result }}
         run: |
           test "$TIER_RESULT" = success
+          if [ "$REUSE" = true ]; then
+            # A proven main tree. The browser jobs must be skipped, and the
+            # proof must name one green pull request run of this workflow.
+            [[ "$PROOF_RUN" =~ ^[0-9]+$ ]]
+            test "$BUILD_RESULT" = skipped
+            test "$SHARD_RESULT" = skipped
+            test "$MANIFEST_RESULT" = skipped
+            echo "The pull request run proved this tree: https://github.com/$REPOSITORY/actions/runs/$PROOF_RUN"
+            exit 0
+          fi
           if [ "$FULL" != true ] || [ "$TIER" != full ]; then
             echo 'Full browser validation is deferred for this draft. This is not a pass.' >&2
             echo 'Mark the pull request ready for review to validate the final head.' >&2
@@ -653,24 +710,38 @@ jobs:
   lighthouse:
     # Lighthouse is a release gate on both pull requests and main.
     # The assertions and budgets are defined in the repository config files.
+    # On a proven main tree the job runs as a pass-through, so the implicit
+    # success() of the deploy jobs still holds.
     needs: [ci-tier, build]
     if: needs.ci-tier.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      - name: Report the reused Lighthouse result
+        if: needs.ci-tier.outputs.reuse == 'true'
+        env:
+          PROOF_RUN: ${{ needs.ci-tier.outputs.proof_run }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          [[ "$PROOF_RUN" =~ ^[0-9]+$ ]]
+          echo "The pull request run proved this tree: https://github.com/$REPOSITORY/actions/runs/$PROOF_RUN"
+
       - name: Checkout
+        if: needs.ci-tier.outputs.reuse != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       # Use the empty-base artifact from this run and source revision.
       - name: Download root build
+        if: needs.ci-tier.outputs.reuse != 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: root-build-${{ github.sha }}
           path: build/
 
       - name: Lighthouse CI
+        if: needs.ci-tier.outputs.reuse != 'true'
         uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # v12
         with:
           configPath: ./.github/lighthouserc.json
