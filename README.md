@@ -71,6 +71,15 @@ See [PWA installation](docs/USER_GUIDE.md#install-the-pwa).
 adds native file access, in-place saves, an optional local Git panel, and OS integration
 on macOS, Windows, and Linux. See [Install the desktop app](#install-the-desktop-app).
 
+**Coming from Obsidian or Notion.** Open **Projects**, then import your vault as a ZIP or a
+folder. DeckMark detects an Obsidian vault by its `.obsidian` folder and a Notion export by
+the 32-character ids in file names. It keeps your wiki links and Markdown links working,
+copies images and other files as project assets, skips `.obsidian`, `.trash`, and `.git`,
+and shows a report of renamed paths and links it could not resolve. Obsidian canvas, base,
+and Excalidraw files stay as assets and do not render. A project holds up to 300 documents,
+1,300 entries, and 64 MiB in DeckMark Web (3,000 documents and 256 MiB in DeckMark Desktop).
+A larger import fails with a limit message. Split a big vault into several ZIP files.
+
 <!-- readme:section capabilities -->
 <a id="notes-and-presentations"></a>
 ## What you can do
@@ -116,8 +125,8 @@ on macOS, Windows, and Linux. See [Install the desktop app](#install-the-desktop
 
 **Keep a library, not a pile of files.** Wiki links, backlinks, a link graph, and
 search across documents. Snippets, templates, linked content blocks, and version
-history. Import a folder or ZIP, check its links offline, and export a project ZIP or a
-static docs site.
+history. Import a folder or ZIP (DeckMark Web keeps a project to 300 documents), check its
+links offline, and export a project ZIP or a static docs site.
 
 **More than notes.** Open code and JSON files with syntax highlighting, formatting,
 and validation. Import images and annotate them, or view imported PDFs.
@@ -154,8 +163,8 @@ Data flows and controls: [SECURITY.md](SECURITY.md).
 | **Desktop (Beta)**, macOS, Windows, Linux | Tauri app with native WebView tests | Native in-place saves |
 
 DeckMark Web is stable and free, not a trial. Web and Desktop share one portable format.
-Out of scope today: cloud sync, shared editing, accounts, and plugins. The working target
-is about 200 to 300 documents. Details: [edition matrix](docs/EDITIONS.md).
+Out of scope today: cloud sync, shared editing, accounts, and plugins. The hard limit in
+DeckMark Web is 300 documents per project; the working target is about 200 to 300. Details: [edition matrix](docs/EDITIONS.md).
 
 <a id="install-the-desktop-app"></a>
 <details>

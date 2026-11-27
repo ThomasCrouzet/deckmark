@@ -108,6 +108,28 @@ support and the security policy. The production Web policy permits local blob fr
 Use the open or download action if the document area is blank. DeckMark has
 no PDF text extraction, OCR, annotation, or editing tools.
 
+## Import an Obsidian vault or a Notion export
+
+Select **Projects** in the sidebar, then import a ZIP or a folder. DeckMark detects an
+Obsidian vault when the archive contains a `.obsidian` folder. It detects a Notion
+export when file names end with a 32-character hexadecimal id.
+
+- DeckMark skips `.obsidian`, `.trash`, and `.git` entries. It removes a single shared
+  top folder and, for Notion, the id suffix from each name.
+- It renames a path only to avoid a collision, and it adds a number such as `(2)`.
+- It rewrites Markdown links, image links, and `[[wiki links]]` when a path changes.
+  Links that it cannot resolve, or that match several documents, keep their original text.
+- Images, PDFs, and other files become project assets. Canvas, base, and Excalidraw files
+  stay as assets and do not render.
+- The **Import report** lists the document and asset counts, renamed paths, skipped
+  entries, files kept as assets, and the links to fix. The source archive does not change.
+
+The import follows the project limits in [Portable projects](#portable-projects).
+DeckMark Web accepts up to 300 documents, 1,300 entries, eight directory levels, and
+64 MiB in one project. DeckMark Desktop accepts up to 3,000 documents. An import above
+the limit fails before it changes storage. Split a large vault into several ZIP files, or
+use DeckMark Desktop.
+
 ## Portable projects
 
 Select **Projects** in the sidebar. Create a project, import a ZIP, or import a folder.
