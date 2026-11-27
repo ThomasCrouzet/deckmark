@@ -190,6 +190,7 @@ export default defineConfig({
 				'**/markdown-blank-lines.spec.ts',
 				'**/save-contention.spec.ts',
 				'**/editor-large-note-visibility.spec.ts',
+				'**/editor-selection-sync.spec.ts',
 				'**/representative-editor-report.spec.ts',
 				'**/presentation-editor.spec.ts',
 				'**/presentation-export.spec.ts',
