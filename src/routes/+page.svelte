@@ -419,6 +419,11 @@
 		if (!canInteract) return;
 		modals.openNewDocument();
 	}
+	// First-visit shortcut: create a presentation without the type dialog.
+	function handleNewPresentation() {
+		if (!canInteract) return;
+		void handleCreate('presentation');
+	}
 	async function handleCreate(
 		kind: DocumentKind,
 		options?: { language?: import('#lib/code/languages.js').CodeLanguageId; name?: string }
@@ -971,6 +976,7 @@
 				<EditorPane
 					{kind}
 					libraryCount={filesStore.library.length}
+					libraryReady={filesStore.loaded}
 					{documentTool}
 					onCloseTool={() => {
 						documentTool = null;
@@ -996,6 +1002,7 @@
 					onNew={handleNew}
 					onImport={handleImport}
 					onDemo={handleDemo}
+					onNewPresentation={handleNewPresentation}
 				/>
 			</main>
 

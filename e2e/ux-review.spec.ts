@@ -6,7 +6,7 @@ const labels = {
 	en: { settings: 'Settings', search: 'Cross-file search', close: 'Close', medium: 'Medium' },
 	fr: {
 		settings: 'Réglages',
-		search: 'Recherche cross-fichiers',
+		search: 'Recherche dans tous les fichiers',
 		close: 'Fermer',
 		medium: 'Moyenne'
 	}

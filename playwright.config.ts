@@ -152,6 +152,7 @@ export default defineConfig({
 			name: 'webkit',
 			use: { ...devices['Desktop Safari'] },
 			testMatch: [
+				'**/landing.spec.ts',
 				'**/backup-reminder.spec.ts',
 				'**/json-tools.spec.ts',
 				'**/code-editor.spec.ts',

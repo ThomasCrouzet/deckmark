@@ -12,11 +12,13 @@ import { backupProjectFr } from './backup-project-fr';
 import { desktopBackupFr } from './desktop-backup-fr';
 import { slidesFr } from './slides-fr';
 import { snippetsFr } from './snippets-fr';
+import { landingFr } from './landing-fr';
 import { captureFr } from './capture-fr';
 
 export const fr: Record<MessageKey, string> = {
 	...slidesFr,
 	...snippetsFr,
+	...landingFr,
 	...captureFr,
 	...splitFr,
 	...projectFr,
@@ -110,20 +112,33 @@ export const fr: Record<MessageKey, string> = {
 	'properties.kind_boolean': 'booléen',
 	'properties.kind_date': 'date',
 	'properties.kind_other': 'autre',
-	'settings.editionWeb': 'Web Light',
-	'settings.editionDesktop': 'Desktop Complete',
+	'settings.editionWeb': 'Web',
+	'settings.editionDesktop': 'Desktop (Beta)',
 	'settings.editionCapabilities': 'Capacités incluses : {features}',
+	'settings.feature.notes': 'Notes',
+	'settings.feature.presentations': 'Présentations',
+	'settings.feature.code': 'Fichiers de code',
+	'settings.feature.images': 'Images',
+	'settings.feature.projects': 'Projets',
+	'settings.feature.pwa-offline': 'Utilisation hors ligne',
+	'settings.feature.native-disk': 'Accès natif aux fichiers',
+	'settings.feature.native-projects': 'Projets natifs',
+	'settings.feature.git': 'Git',
+	'settings.feature.native-vault': 'Coffre d’identifiants',
+	'settings.feature.native-ai': 'Requêtes IA natives',
+	'settings.feature.global-capture': 'Capture rapide globale',
+	'app.homeTitle': 'DeckMark : notes et présentations Markdown, hors ligne, sans compte',
 	'settings.ai': 'Connexion IA (facultative)',
 	'settings.aiHelp':
 		'Connectez un fournisseur compatible OpenAI. L’IA reste désactivée par défaut et l’éditeur fonctionne sans elle.',
 	'settings.aiNativeBoundary':
-		'Desktop Complete conserve la clé API dans le magasin d’identifiants du système. La clé n’entre jamais dans cette page.',
+		'DeckMark Desktop conserve la clé API dans le magasin d’identifiants du système. La clé n’entre jamais dans cette page.',
 	'settings.aiBrowserNoVault':
-		'Web Light n’a pas de magasin d’identifiants natif. La clé API reste dans la session de cet onglet.',
+		'DeckMark Web n’a pas de magasin d’identifiants natif. La clé API reste dans la session de cet onglet.',
 	'settings.aiNativeKeyNote':
 		'La clé est envoyée au coffre natif à l’enregistrement. Cette page ne peut plus la lire.',
 	'settings.aiModelsDesktopUnavailable':
-		'La découverte des modèles nécessite la clé du navigateur. Saisissez l’identifiant du modèle dans Desktop Complete.',
+		'La découverte des modèles nécessite la clé du navigateur. Saisissez l’identifiant du modèle dans DeckMark Desktop.',
 	'settings.aiEnabled': 'Activer les fonctions IA',
 	'settings.aiPrivacy': 'Mode de confidentialité IA',
 	'settings.aiDirect': 'Clé navigateur directe',
@@ -173,7 +188,7 @@ export const fr: Record<MessageKey, string> = {
 	'updates.manualInstall':
 		'Installez le paquet signé manuellement. L’application n’installe jamais une mise à jour elle-même.',
 	'palette.reportProblem': 'Signaler un problème',
-	'settings.about': 'À propos de deckmark',
+	'settings.about': 'À propos de DeckMark',
 	'settings.authorCredit': 'Créé par Thomas CROUZET',
 	'settings.installedVersion': 'Version installée {version}',
 	'settings.releaseLink': 'Notes de version et téléchargements (nouvel onglet)',
@@ -275,7 +290,7 @@ export const fr: Record<MessageKey, string> = {
 		'Le document « {title} » fait environ {size} Mio. Une sauvegarde accepte 16 Mio par document. Scindez ce document avant que la limite bloque vos sauvegardes.',
 	'backup.encryptedInvalidJson': 'Fichier chiffré illisible : ce n’est pas du JSON valide.',
 	'backup.futureVersion':
-		'Sauvegarde créée par une version plus récente de deckmark (schéma v{version}). Mettez l’application à jour.',
+		'Sauvegarde créée par une version plus récente de DeckMark (schéma v{version}). Mettez l’application à jour.',
 	'backup.invalidJson': 'Fichier illisible : ce n’est pas du JSON valide.',
 	'backup.invalidSchema': 'Sauvegarde invalide : version de schéma absente ou incohérente.',
 	'backup.notEncrypted': 'Ce fichier n’est pas chiffré.',
@@ -418,7 +433,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.showMore': 'Afficher {n} commandes de plus',
 	'palette.moreShown': '{shown} commandes affichées sur {total}.',
 	'palette.commandIndex': 'Commandes',
-	'palette.availableCount': '{n} disponibles',
+	'palette.availableCount': 'Disponibles : {n}',
 	'palette.requiresDocument': 'Ouvrez un document pour utiliser cette commande.',
 	'palette.settingsKeywords': 'parametres reglages preferences options settings',
 	'palette.exportMarkdownKeywords': 'enregistrer sauvegarder telecharger markdown',
@@ -458,7 +473,7 @@ export const fr: Record<MessageKey, string> = {
 		'{n} image(s) externe(s) seront téléchargées. Leurs hébergeurs recevront une requête.',
 	'export.remoteImagesConfirm': 'Autoriser et exporter',
 	'export.mediaMissing':
-		'Certaines images sont indisponibles. Relie-les ou retire-les avant de les exporter.',
+		'Certaines images sont indisponibles. Reliez-les ou retirez-les avant de les exporter.',
 	'export.mediaFailed':
 		'{n} image(s) n’ont pas pu être préparées : {sources}. L’export a été annulé.',
 	'export.printDialogOpened':
@@ -479,7 +494,7 @@ export const fr: Record<MessageKey, string> = {
 	'disk.overwriteCancel': 'Annuler',
 	'disk.overwriteConfirm': 'Écraser',
 	'disk.overwriteMessage':
-		"« {name} » a été modifié hors de deckmark depuis son ouverture. Écraser quand même la version disque par celle de l'éditeur ?",
+		"« {name} » a été modifié hors de DeckMark depuis son ouverture. Écraser quand même la version disque par celle de l'éditeur ?",
 	'disk.overwriteTitle': 'Le fichier disque a changé',
 	'disk.downloadedCopy':
 		'Copie de « {name} » téléchargée. La source sur le disque reste inchangée.',
@@ -692,7 +707,7 @@ export const fr: Record<MessageKey, string> = {
 	'exportProfiles.delete': 'Supprimer le profil',
 	'exportProfiles.newName': 'Nouveau profil d’export',
 	'exportProfiles.webLimits':
-		'Web Light exporte uniquement en HTML et PDF. DOCX, EPUB et les autres convertisseurs exigeront une future version Desktop.',
+		'DeckMark Web exporte uniquement en HTML et PDF. DOCX, EPUB et les autres convertisseurs exigeront une future version Desktop.',
 	'exportProfiles.export': 'Exporter les profils',
 	'exportProfiles.import': 'Importer les profils',
 	'palette.collection': 'Ouvrir les vues tableau et tableau blanc',
@@ -797,7 +812,7 @@ export const fr: Record<MessageKey, string> = {
 	'ai.reason_budget': 'budget',
 	'ai.destination': 'Les requêtes vont vers {host}. Seul le contenu listé est envoyé.',
 	'ai.nativeBoundary':
-		'Desktop Complete envoie cette requête depuis la couche native. La clé API reste dans le magasin d’identifiants du système.',
+		'DeckMark Desktop envoie cette requête depuis la couche native. La clé API reste dans le magasin d’identifiants du système.',
 	'ai.errorAuth': 'Le fournisseur a refusé la clé enregistrée. Remplacez-la dans les réglages.',
 	'ai.errorRateLimit': 'La limite de débit du fournisseur est atteinte. Réessayez plus tard.',
 	'ai.errorServer': 'Le fournisseur a renvoyé une erreur. Réessayez plus tard.',
@@ -861,7 +876,7 @@ export const fr: Record<MessageKey, string> = {
 	'modals.labelSearch': 'Recherche',
 	'modals.labelSettings': 'Réglages',
 	'modals.labelToc': 'Table des matières',
-	'modals.labelWorkspaces': 'Workspaces',
+	'modals.labelWorkspaces': 'Espaces de travail',
 	'modals.loadFailed': 'Impossible d’ouvrir « {label} ». Vérifiez votre connexion puis réessayez.',
 
 	// page
@@ -911,9 +926,9 @@ export const fr: Record<MessageKey, string> = {
 	'palette.linksGraph': 'Graphe des liens',
 	'palette.linksGraphHint': 'Visualiser les wiki-links entre fichiers',
 	'palette.listboxLabel': 'Commandes disponibles',
-	'palette.loadWorkspace': 'Charger un workspace…',
-	'palette.loadWorkspaceHint': 'Ouvre la liste des workspaces sauvegardés',
-	'palette.loadWorkspaceNamed': 'Charger le workspace « {name} »',
+	'palette.loadWorkspace': 'Charger un espace de travail…',
+	'palette.loadWorkspaceHint': 'Ouvre la liste des espaces de travail sauvegardés',
+	'palette.loadWorkspaceNamed': 'Charger l’espace de travail « {name} »',
 	'palette.manageDiskLinks': 'Gérer les liens disque',
 	'palette.manageDiskLinksHint': 'Vérifier ou dissocier les fichiers liés au disque',
 	'palette.markdownCopied': 'Markdown copié.',
@@ -930,11 +945,12 @@ export const fr: Record<MessageKey, string> = {
 	'palette.presentationModeHint': 'Diapositives plein écran (séparées par ---)',
 	'palette.saveAsTemplate': 'Enregistrer le fichier comme modèle…',
 	'palette.saveAsTemplateHint': 'Réutilisable via « Nouveau : … »',
-	'palette.saveWorkspace': 'Sauvegarder le workspace courant',
+	'palette.saveWorkspace': 'Sauvegarder l’espace de travail courant',
 	'palette.saveWorkspaceHint': 'Mémorise le jeu de fichiers ouverts sous un nom',
-	'palette.searchCrossFiles': 'Recherche cross-fichiers',
+	'palette.searchCrossFiles': 'Recherche dans tous les fichiers',
 	'palette.searchInFile': 'Rechercher dans le fichier',
-	'palette.searchInFileHint': 'Ouvre le panel search/replace de l’éditeur source',
+	'palette.searchInFileHint':
+		'Ouvre le panneau de recherche et de remplacement de l’éditeur source',
 	'palette.settings': 'Réglages',
 	'palette.settingsHint': 'Thème, largeur, affichage, sauvegarde',
 	'palette.showToc': 'Afficher la table des matières',
@@ -958,7 +974,7 @@ export const fr: Record<MessageKey, string> = {
 	'palette.widthWide': 'Largeur : large ({px} px)',
 	'palette.workspaceFileCount': '{n} fichier(s)',
 	'palette.workspaceNamePlaceholder': 'ex. Compte rendu de réunion',
-	'palette.workspaceNamePrompt': 'Nom du workspace ?',
+	'palette.workspaceNamePrompt': 'Nom de l’espace de travail ?',
 	'palette.workspaceSaved': 'Espace de travail enregistré.',
 
 	// presentation
@@ -980,9 +996,9 @@ export const fr: Record<MessageKey, string> = {
 	'prompt.ok': 'OK',
 
 	// pwa
-	'pwa.offlineReady': 'deckmark est prêt à fonctionner hors-ligne.',
+	'pwa.offlineReady': 'DeckMark est prêt à fonctionner hors ligne.',
 	'pwa.reload': 'Recharger',
-	'pwa.updateAvailable': 'Nouvelle version de deckmark disponible.',
+	'pwa.updateAvailable': 'Nouvelle version de DeckMark disponible.',
 
 	// read
 	'read.codeBlock': 'Bloc de code',
@@ -1003,7 +1019,7 @@ export const fr: Record<MessageKey, string> = {
 	'search.confirmInFiles': 'Dans {n} fichier(s).',
 	'search.confirmTitle': 'Remplacer {n} occurrence(s) ?',
 	'search.confirmUndoable': "Annulable via l'historique des versions de chaque fichier.",
-	'search.dialogLabel': 'Recherche cross-fichiers',
+	'search.dialogLabel': 'Recherche dans tous les fichiers',
 	'search.inputLabel': 'Rechercher dans tous les fichiers',
 	'search.invalidRegex': 'Regex invalide : {error}',
 	'search.minChars': 'Tapez au moins 2 caractères…',
@@ -1014,7 +1030,7 @@ export const fr: Record<MessageKey, string> = {
 	'search.regexLabel': 'Utiliser une expression régulière',
 	'search.replaceAll': 'Remplacer tout',
 	'search.replaceInFiles': 'Remplacer dans tous les fichiers',
-	'search.replaceToggleLabel': 'Afficher le remplacement cross-fichiers',
+	'search.replaceToggleLabel': 'Afficher le remplacement dans tous les fichiers',
 	'search.replaceWith': 'Remplacer par…',
 	'search.replacedSummary': '{n} remplacement(s) dans {files} fichier(s).',
 	'search.replacementLabel': 'Texte de remplacement',
@@ -1032,14 +1048,14 @@ export const fr: Record<MessageKey, string> = {
 	'settings.backupExported': 'Sauvegarde exportée.',
 	'settings.backupReadFailed': 'Impossible de lire le fichier de sauvegarde.',
 	'settings.backupRestored':
-		'Sauvegarde restaurée : {drafts} fichier(s), {workspaces} workspace(s).',
+		'Sauvegarde restaurée : {drafts} fichier(s), {workspaces} espace(s) de travail.',
 	'settings.close': 'Fermer',
 	'settings.data': 'Données',
 	'settings.dataDescription':
 		'Les sauvegardes incluent les brouillons, espaces, modèles et extraits. La corbeille, l’historique des versions et les permissions disque ne sont pas portables et sont exclus.',
 	'settings.storageHealth': 'État du stockage',
 	'settings.storagePersistent': 'Stockage navigateur persistant',
-	'settings.storageBestEffort': 'Stockage navigateur en mode best-effort',
+	'settings.storageBestEffort': 'Stockage du navigateur sans garantie de conservation',
 	'settings.storageUnavailable': 'État du stockage indisponible',
 	'settings.storageUsage': '{usage} utilisés sur {quota}',
 	'settings.storageUsageUnavailable': 'Informations de quota indisponibles',
@@ -1137,7 +1153,7 @@ export const fr: Record<MessageKey, string> = {
 
 	// source
 	'source.loadErrorHint':
-		'Le module est peut-être indisponible hors-ligne (jamais ouvert auparavant) ou le cache est obsolète après une mise à jour.',
+		'Le module est peut-être indisponible hors ligne (jamais ouvert auparavant) ou le cache est obsolète après une mise à jour.',
 	'source.loadErrorNotify':
 		"Impossible de charger l'éditeur source. Vérifiez votre connexion puis réessayez.",
 	'source.loadErrorTitle': "Impossible de charger l'éditeur source.",
@@ -1294,7 +1310,7 @@ export const fr: Record<MessageKey, string> = {
 	'versionHistory.vsCurrent': 'vs version actuelle',
 
 	// welcome
-	'welcome.titleText': 'Votre espace de travail Markdown',
+	'welcome.titleText': 'Notes et présentations Markdown, sur votre appareil',
 	'welcome.demoLabel': 'Démo',
 	'welcome.importMd': 'Importer .md',
 	'welcome.initializeLabel': 'Initialiser l’espace',
@@ -1314,27 +1330,27 @@ export const fr: Record<MessageKey, string> = {
 	'workspaces.confirmDeleteLabel': 'Supprimer',
 	'workspaces.confirmDeleteMessage':
 		'Cette action est définitive - les fichiers ouverts ne sont pas affectés.',
-	'workspaces.confirmDeleteTitle': 'Supprimer le workspace « {name} » ?',
+	'workspaces.confirmDeleteTitle': 'Supprimer l’espace de travail « {name} » ?',
 	'workspaces.defaultName': 'Sans nom',
-	'workspaces.deleteAria': 'Supprimer le workspace {name}',
+	'workspaces.deleteAria': 'Supprimer l’espace de travail {name}',
 	'workspaces.deleteTitle': 'Supprimer',
 	'workspaces.empty':
-		"Aucun workspace. Cliquez sur « Sauvegarder » pour mémoriser le jeu d'onglets actuel.",
+		"Aucun espace de travail. Cliquez sur « Sauvegarder » pour mémoriser le jeu d'onglets actuel.",
 	'workspaces.fileCount': '{n} fichier(s)',
-	'workspaces.footerCount': '{n} workspace(s)',
+	'workspaces.footerCount': '{n} espace(s) de travail',
 	'workspaces.footerHint': "Sauvegardez le jeu de fichiers ouverts pour y revenir d'un clic.",
-	'workspaces.listAria': 'Liste des workspaces',
+	'workspaces.listAria': 'Liste des espaces de travail',
 	'workspaces.loading': 'Chargement…',
-	'workspaces.promptRenameTitle': 'Nouveau nom du workspace ?',
+	'workspaces.promptRenameTitle': 'Nouveau nom de l’espace de travail ?',
 	'workspaces.promptSavePlaceholder': 'ex. Compte rendu de réunion',
-	'workspaces.promptSaveTitle': 'Nom du workspace ?',
-	'workspaces.renameAria': 'Renommer le workspace {name}',
+	'workspaces.promptSaveTitle': 'Nom de l’espace de travail ?',
+	'workspaces.renameAria': 'Renommer l’espace de travail {name}',
 	'workspaces.renameTitle': 'Renommer',
 	'workspaces.restore': 'Charger',
-	'workspaces.restoreAria': 'Charger le workspace {name}',
+	'workspaces.restoreAria': 'Charger l’espace de travail {name}',
 	'workspaces.save': 'Sauvegarder',
-	'workspaces.saveCurrentAria': 'Sauvegarder le workspace courant',
-	'workspaces.title': 'Workspaces',
-	'workspaces.updateAria': 'Mettre à jour le workspace {name}',
+	'workspaces.saveCurrentAria': 'Sauvegarder l’espace de travail courant',
+	'workspaces.title': 'Espaces de travail',
+	'workspaces.updateAria': 'Mettre à jour l’espace de travail {name}',
 	'workspaces.updateTitle': "Mettre à jour avec l'état courant"
 };

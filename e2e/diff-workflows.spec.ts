@@ -108,12 +108,12 @@ test.describe('bounded diff workflows', () => {
 		page
 	}, testInfo) => {
 		await seedFiles(page, [{ name: 'Stable.md', content: 'alpha one' }]);
-		await openCommand(page, 'Recherche cross-fichiers');
-		const search = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+		await openCommand(page, 'Recherche dans tous les fichiers');
+		const search = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 		await page.clock.pauseAt(new Date());
 		await search.getByRole('combobox').fill('alpha');
 		const toggle = search.getByRole('button', {
-			name: 'Afficher le remplacement cross-fichiers'
+			name: 'Afficher le remplacement dans tous les fichiers'
 		});
 		const before = await toggle.boundingBox();
 		expect(before).not.toBeNull();
@@ -216,10 +216,12 @@ test.describe('bounded diff workflows', () => {
 			{ name: 'One.md', content: firstContent },
 			{ name: 'Two.md', content: secondContent }
 		]);
-		await openCommand(page, 'Recherche cross-fichiers');
-		const search = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+		await openCommand(page, 'Recherche dans tous les fichiers');
+		const search = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 		await search.getByRole('combobox').fill('alpha');
-		await search.getByRole('button', { name: 'Afficher le remplacement cross-fichiers' }).click();
+		await search
+			.getByRole('button', { name: 'Afficher le remplacement dans tous les fichiers' })
+			.click();
 		await search.getByRole('textbox', { name: 'Texte de remplacement' }).fill('omega');
 		await search.getByRole('button', { name: 'Remplacer tout' }).click();
 
@@ -245,10 +247,12 @@ test.describe('bounded diff workflows', () => {
 			{ name: 'One.md', content: '# One\n\nalpha one' },
 			{ name: 'Two.md', content: '# Two\n\nalpha two' }
 		]);
-		await openCommand(page, 'Recherche cross-fichiers');
-		const search = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+		await openCommand(page, 'Recherche dans tous les fichiers');
+		const search = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 		await search.getByRole('combobox').fill('alpha');
-		await search.getByRole('button', { name: 'Afficher le remplacement cross-fichiers' }).click();
+		await search
+			.getByRole('button', { name: 'Afficher le remplacement dans tous les fichiers' })
+			.click();
 		await search.getByRole('textbox', { name: 'Texte de remplacement' }).fill('omega');
 		await search.getByRole('button', { name: 'Remplacer tout' }).click();
 		await expect(search.getByRole('heading', { name: 'Aperçu du remplacement' })).toBeVisible();
@@ -302,10 +306,12 @@ test.describe('bounded diff workflows', () => {
 		});
 		await resetAppState(page);
 		await seedFiles(page, [{ name: 'Race.md', content: '# Race\n\nalpha original' }]);
-		await openCommand(page, 'Recherche cross-fichiers');
-		const search = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+		await openCommand(page, 'Recherche dans tous les fichiers');
+		const search = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 		await search.getByRole('combobox').fill('alpha');
-		await search.getByRole('button', { name: 'Afficher le remplacement cross-fichiers' }).click();
+		await search
+			.getByRole('button', { name: 'Afficher le remplacement dans tous les fichiers' })
+			.click();
 		await search.getByRole('textbox', { name: 'Texte de remplacement' }).fill('omega');
 		await search.getByRole('button', { name: 'Remplacer tout' }).click();
 		await expect(search.getByRole('heading', { name: 'Aperçu du remplacement' })).toBeVisible();
@@ -369,10 +375,12 @@ test.describe('bounded diff workflows', () => {
 		page
 	}, testInfo) => {
 		await seedFiles(page, [{ name: 'Escape.md', content: '# Escape\n\nalpha' }]);
-		await openCommand(page, 'Recherche cross-fichiers');
-		const search = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+		await openCommand(page, 'Recherche dans tous les fichiers');
+		const search = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 		await search.getByRole('combobox').fill('alpha');
-		await search.getByRole('button', { name: 'Afficher le remplacement cross-fichiers' }).click();
+		await search
+			.getByRole('button', { name: 'Afficher le remplacement dans tous les fichiers' })
+			.click();
 		await search.getByRole('textbox', { name: 'Texte de remplacement' }).fill('omega');
 		await search.getByRole('button', { name: 'Remplacer tout' }).click();
 		await expect(search.getByRole('heading', { name: 'Aperçu du remplacement' })).toBeVisible();

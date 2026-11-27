@@ -60,9 +60,12 @@ test('Replace All covers a 300-note library with a deferred closed body', async 
 		timeout: 120_000
 	});
 	await page.getByRole('button', { name: 'Confirmer le remplacement' }).click();
-	await expect(page.getByRole('dialog', { name: 'Recherche cross-fichiers' })).toHaveCount(0, {
-		timeout: 120_000
-	});
+	await expect(page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' })).toHaveCount(
+		0,
+		{
+			timeout: 120_000
+		}
+	);
 
 	const state = await databaseState(page);
 	const replaced = state.drafts.filter((row) => row.content.includes('replacement'));

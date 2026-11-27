@@ -263,7 +263,7 @@ and redo, the Markdown export, and reload recovery. The audit rejects missing or
 duplicated cases, wrong counts, non-finite metrics, lost bytes, a wrong final
 source, missing undo/redo, missing receipt files and over-budget values.
 
-`scripts/benchmark-budgets.json` has a `modes` section. The Web Light Chromium
+`scripts/benchmark-budgets.json` has a `modes` section. The DeckMark Web Chromium
 profile is blocking with these reviewed local limits:
 
 | Metric | Limit |
@@ -468,8 +468,8 @@ controls declare `synthetic-control` in report, receipt and test-only budget
 profile. They contain synthetic times, not new browser measurements or product
 references. Preserve original positive/negative reports without rewriting them.
 
-The new `stress` section in `scripts/benchmark-budgets.json` separates Web Light
-production from Desktop Complete release and debug profiles. The Web Light
+The new `stress` section in `scripts/benchmark-budgets.json` separates DeckMark Web
+production from DeckMark Desktop release and debug profiles. The DeckMark Web
 Chromium profile now carries reviewed local limits for the Source, Code, JSON and
 Split 1 MB cases. The other browsers, the remaining modes and all native profiles
 are **report-only and uncalibrated**. A strict stress audit still requires the

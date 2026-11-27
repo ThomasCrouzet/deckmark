@@ -9,7 +9,8 @@
 </script>
 
 <!-- §715 - Outbound links of the home state. The static shell in `app.html`
-     carries the same four links; change both lists together. -->
+     carries the same four links and one more, the desktop download, which the
+     first-visit view of `Welcome.svelte` also shows. Change the lists together. -->
 <nav class="site-footer {className}" aria-label={t('site.footerLabel')}>
 	<ul>
 		<li>

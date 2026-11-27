@@ -13,8 +13,8 @@ npm run dev
 npm run check
 npm run lint
 npm test
-npm run build           # Web Light plus the native-boundary check
-npm run build:desktop   # Desktop Complete assets for Tauri
+npm run build           # DeckMark Web plus the native-boundary check
+npm run build:desktop   # DeckMark Desktop assets for Tauri
 npm run check:edition   # Verify build/edition.json and the Web boundary
 npm run size
 npm run preview
@@ -32,7 +32,7 @@ and `CARGO_BUILD_JOBS=2`. Run the heavy checks in sequence.
 
 ## Web publishing
 
-Publish Web Light to both independent hosts through `.github/workflows/deploy.yml`:
+Publish DeckMark Web to both independent hosts through `.github/workflows/deploy.yml`:
 
 - Cloudflare Pages project `deckmark` receives the root build for
   `https://www.deckmark.dev/`.
@@ -218,9 +218,9 @@ Do not raise a budget to hide an unintended eager import.
 5. Verify the separate `desktop-v*` prerelease, installers, checksums, and provenance.
 
 Each release note must identify the changed edition, the tested platforms, and
-the test limits. Link Web Light and the applicable `desktop-v<version>`
+the test limits. Link DeckMark Web and the applicable `desktop-v<version>`
 prerelease. State the installer signing status and any format or schema
-migration. Describe Web Light as a complete free edition, not a trial. See the
+migration. Describe DeckMark Web as a complete free edition, not a trial. See the
 [release note checklist](EDITIONS.md#release-note-checklist).
 
 Desktop publishing does not generate or upload SBOMs. `npm run sbom:npm` generates

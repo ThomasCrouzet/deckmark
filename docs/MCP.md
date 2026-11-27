@@ -51,7 +51,7 @@ the CLI.
   the approved root. A symlink to an excluded path is also rejected.
 - Reads are limited to 1 MiB per text file and 500 files per listing.
 - The process exits when stdin closes. It binds no port.
-- The Web Light build contains no MCP or Node process code.
+- The DeckMark Web build contains no MCP or Node process code.
 
 ## Client example
 

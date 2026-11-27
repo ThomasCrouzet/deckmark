@@ -12,7 +12,7 @@
 	import { tick, onMount } from 'svelte';
 	import type { Component } from 'svelte';
 	import { browser } from '$app/env';
-	import { t, i18n, LOCALES, LOCALE_LABELS } from '#lib/i18n/index.js';
+	import { t, i18n, LOCALES, LOCALE_LABELS, type MessageKey } from '#lib/i18n/index.js';
 	import { IS_DESKTOP_EDITION } from '#lib/edition.js';
 	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import { coreCommands } from '#lib/ui/commands.js';
@@ -103,7 +103,7 @@
 			local: 'local development',
 			other: 'self-hosted copy',
 			relationship:
-				'Cloudflare Pages is the main site. GitHub Pages is the independent fallback. Both serve a static Web Light build.',
+				'Cloudflare Pages is the main site. GitHub Pages is the independent fallback. Both serve a static DeckMark Web build.',
 			originLocal:
 				'Drafts, IndexedDB, service workers, installed PWAs and AI session keys stay on this origin. The other host does not synchronize them. An installed offline copy cannot recover storage from another origin.',
 			backupHint:
@@ -120,7 +120,7 @@
 			local: 'développement local',
 			other: 'copie auto-hébergée',
 			relationship:
-				'Cloudflare Pages est le site principal. GitHub Pages est le secours indépendant. Les deux servent une version Web Light statique.',
+				'Cloudflare Pages est le site principal. GitHub Pages est le secours indépendant. Les deux servent une version statique de DeckMark Web.',
 			originLocal:
 				'Les brouillons, IndexedDB, service workers, PWA installées et clés de session IA restent sur cette origine. L’autre hôte ne les synchronise pas. Une copie hors ligne installée ne peut pas récupérer le stockage d’une autre origine.',
 			backupHint:
@@ -1161,7 +1161,10 @@
 					</p>
 					<p class="mt-1 text-xs text-fg-muted" data-testid="edition-capabilities">
 						{t('settings.editionCapabilities', {
-							features: editionManifest().features.slice(0, 6).join(', ')
+							features: editionManifest()
+								.features.slice(0, 6)
+								.map((id) => t(`settings.feature.${id}` as MessageKey))
+								.join(', ')
 						})}
 					</p>
 					<p class="mt-1" data-testid="about-author">{t('settings.authorCredit')}</p>
@@ -1171,7 +1174,7 @@
 						</p>
 						<a
 							class="mt-1 inline-block underline"
-							href="https://github.com/ThomasCrouzet/deckmark/releases"
+							href="https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true"
 							target="_blank"
 							rel="noopener noreferrer"
 							data-testid="release-link"

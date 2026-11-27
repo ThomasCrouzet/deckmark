@@ -120,9 +120,9 @@ for (const stage of ['debounce', 'transaction', 'backup', 'workspace', 'conflict
 				await info.attach('backup', { path, contentType: 'application/json' });
 			} else if (stage === 'workspace') {
 				await openPalette(page);
-				await page.getByRole('combobox').fill('Sauvegarder le workspace courant');
+				await page.getByRole('combobox').fill('Sauvegarder l’espace de travail courant');
 				await page.keyboard.press('Enter');
-				const prompt = page.getByRole('dialog', { name: 'Nom du workspace ?' });
+				const prompt = page.getByRole('dialog', { name: 'Nom de l’espace de travail ?' });
 				await prompt.getByRole('textbox').fill('Crash recovery');
 				await prompt.getByRole('textbox').press('Enter');
 				await expect.poll(async () => (await databaseState(page)).workspaces.length).toBe(1);

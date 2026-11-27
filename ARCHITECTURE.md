@@ -5,19 +5,19 @@ see the map in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Two editions share one client
 
-DeckMark has two editions. **Web Light** is a static PWA that GitHub Pages and
-Cloudflare Pages publish. **Desktop Complete (Beta)** packages the same client in
+DeckMark has two editions. **DeckMark Web** is a static PWA that GitHub Pages and
+Cloudflare Pages publish. **DeckMark Desktop (Beta)** packages the same client in
 Tauri and adds native operating-system capabilities. Both editions use the same note and
 presentation formats, IndexedDB model, project ZIP format, and backup format.
 There is no forked document logic.
 
-Web Light runs in the browser sandbox. A disk link uses the browser File System
+DeckMark Web runs in the browser sandbox. A disk link uses the browser File System
 Access API when the browser provides it. Firefox and Safari use a download
-fallback. Web Light has no native path capability, native print panel, native
+fallback. DeckMark Web has no native path capability, native print panel, native
 menu, or native file association. A PWA can use browser file handlers where the
 browser supports them.
 
-Desktop Complete keeps native authority in Rust. The WebView receives an opaque
+DeckMark Desktop keeps native authority in Rust. The WebView receives an opaque
 session token for an approved path, not a general filesystem handle. The native
 access registry is separate from IndexedDB. The Desktop build serves assets from
 the package and does not register the service worker.
@@ -28,7 +28,7 @@ bridges with Web stubs. `scripts/check-edition-boundaries.mjs` checks the output
 and precache for native bridge strings. Lazy imports keep optional features out
 of the startup graph. See [edition builds](docs/EDITIONS.md#build-each-edition).
 
-Web Light has two independent production hosts. Cloudflare Pages project
+DeckMark Web has two independent production hosts. Cloudflare Pages project
 `deckmark` serves `https://www.deckmark.dev/` from the root build. GitHub Pages
 serves `https://thomascrouzet.github.io/deckmark/` from the `/deckmark` build as an
 independent fallback. Both builds use the same source commit and must pass the
@@ -174,7 +174,7 @@ Its tools read files or propose patches without applying them. See
 ## AI has an explicit network boundary
 
 AI is disabled by default. `ai/store.svelte.ts` keeps provider settings separate
-from document storage. Web Light keeps its key in memory and `sessionStorage`
+from document storage. DeckMark Web keeps its key in memory and `sessionStorage`
 after browser-key consent. This is session storage, not a secure vault.
 `ai/openai-compatible.ts` makes direct provider requests subject to browser CORS
 and the application's connection policy.
@@ -327,7 +327,7 @@ in use.
 
 ## Native file access uses session capabilities
 
-Desktop Complete does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. Rust stores approved Markdown paths in `disk-access.json` in the application data directory. It issues new tokens after restart. IndexedDB records cannot add paths to this registry. Removing a disk link revokes its native permission.
+DeckMark Desktop does not accept JavaScript paths for file commands. A Rust-owned picker or operating-system open event canonicalizes the path and returns an opaque session token. Rust stores approved Markdown paths in `disk-access.json` in the application data directory. It issues new tokens after restart. IndexedDB records cannot add paths to this registry. Removing a disk link revokes its native permission.
 
 The disk-link record keeps the last written content revision across restarts. A restored draft can save through a renewed native token without another picker. External edits still require an overwrite decision. A rename accepts only a filename in the approved directory. It refuses an existing target and keeps file content and permissions. The store serializes rename, save, and unlink operations for each document.
 

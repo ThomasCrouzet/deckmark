@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { openPalette, resetAppState } from './helpers';
 
-// The Web Light build keeps manual backup and export. It must not expose the
+// The DeckMark Web build keeps manual backup and export. It must not expose the
 // desktop scheduler, the native folder picker, or the snapshot list.
 test('Web edition keeps the desktop backup panel out of Settings', async ({ page }) => {
 	await resetAppState(page);

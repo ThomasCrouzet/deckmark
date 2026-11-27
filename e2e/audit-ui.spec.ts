@@ -31,7 +31,7 @@ test('keeps the Tab loop when search has results', async ({ page }) => {
 	await createFirstFile(page);
 	await writeSourceContent(page, 'Une phrase pour rechercher.');
 	await openPalette(page);
-	await page.getByRole('combobox').fill('cross-fichiers');
+	await page.getByRole('combobox').fill('Recherche dans tous les fichiers');
 	await page.getByRole('option').first().click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('combobox').fill('phrase');

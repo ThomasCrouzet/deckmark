@@ -1,7 +1,7 @@
 export const desktopBackupFr = {
 	'settings.desktopBackupTitle': 'Sauvegardes locales automatiques',
 	'settings.desktopBackupScope':
-		'Desktop Complete peut écrire des instantanés dans un dossier que vous choisissez. Les instantanés utilisent le même format portable qu’une sauvegarde manuelle. Aucun service cloud n’est utilisé.',
+		'DeckMark Desktop peut écrire des instantanés dans un dossier que vous choisissez. Les instantanés utilisent le même format portable qu’une sauvegarde manuelle. Aucun service cloud n’est utilisé.',
 	'settings.desktopBackupLoading': 'Chargement des réglages de sauvegarde locale...',
 	'settings.desktopBackupEnable': 'Activer les sauvegardes planifiées',
 	'settings.desktopBackupDisable': 'Désactiver les sauvegardes planifiées',
@@ -26,7 +26,7 @@ export const desktopBackupFr = {
 	'settings.desktopBackupPreview': 'Aperçu',
 	'settings.desktopBackupRestore': 'Restaurer',
 	'settings.desktopBackupPreviewSummary':
-		'Instantané du {date} : {drafts} fichier(s), {workspaces} espace(s), {templates} modèle(s), {snippets} extrait(s), {projects} projet(s) et {assets} ressource(s).',
+		'Instantané du {date} : {drafts} fichier(s), {workspaces} espace(s) de travail, {templates} modèle(s), {snippets} extrait(s), {projects} projet(s) et {assets} ressource(s).',
 	'settings.desktopBackupPreviewHint':
 		'Vérifiez les nombres avant de restaurer. La restauration demande de fusionner ou de remplacer.',
 	'settings.desktopBackupSaved': 'Sauvegarde locale écrite.',
