@@ -1,7 +1,7 @@
 {
 	"name": "deckmark",
 	"private": true,
-	"version": "2.6.0",
+	"version": "2.6.1",
 	"packageManager": "npm@10.9.8",
 	"description": "Local-first Markdown workspace for notes and slide decks, in your browser. Offline, no account, no telemetry.",
 	"license": "MIT",
