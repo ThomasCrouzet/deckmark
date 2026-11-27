@@ -918,6 +918,36 @@
 					}
 				})
 		);
+		// A long document skips the layout of offscreen blocks. The native Ctrl+End
+		// then stops at the start of the last block, and a key that follows can
+		// reach the editor before it reads that caret. Move the caret in the
+		// editor state so the next key lands at the document boundary.
+		const documentBoundaryKeysPlugin = prosePlugin(
+			() =>
+				new Plugin({
+					props: {
+						handleKeyDown(view: EditorView, event: KeyboardEvent) {
+							if (
+								(event.key !== 'End' && event.key !== 'Home') ||
+								!(event.ctrlKey || event.metaKey) ||
+								event.altKey ||
+								event.isComposing ||
+								!view.editable
+							)
+								return false;
+							const { doc, selection } = view.state;
+							const boundary =
+								event.key === 'End' ? TextSelection.atEnd(doc) : TextSelection.atStart(doc);
+							const next = event.shiftKey
+								? TextSelection.between(doc.resolve(selection.anchor), boundary.$head)
+								: boundary;
+							event.preventDefault();
+							view.dispatch(view.state.tr.setSelection(next).scrollIntoView());
+							return true;
+						}
+					}
+				})
+		);
 		const imageTitlePlugin = remarkPlugin(
 			'mdshNormalizeImageTitles',
 			() => () => normalizeImageTitlesForMilkdown
@@ -1004,6 +1034,7 @@
 		instance.editor.use(imageTitlePlugin);
 		instance.editor.use(headingLevelPlugin);
 		instance.editor.use(tabIndentPlugin);
+		instance.editor.use(documentBoundaryKeysPlugin);
 		instance.editor.use(noteTypePlugin);
 		instance.editor.use(markdownRevisionPlugin);
 		// Crepe builds the language loader when the first code block view starts.
