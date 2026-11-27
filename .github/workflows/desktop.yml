@@ -143,10 +143,16 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
       - name: Rust cache
+        # One cache per job kind. The Rust checks and the native debug build
+        # compile different profiles and features, so a shared key made one
+        # job restore the other's entry and rebuild 100 or more crates. Only
+        # main and the weekly run save, so pull request entries cannot evict
+        # the main entries.
         uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           workspaces: src-tauri -> target
-          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          shared-key: desktop-validate-${{ runner.os }}-${{ runner.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
       - name: Format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Clippy
@@ -200,7 +206,14 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
       - name: Build production web app
         run: npm run build
@@ -240,8 +253,25 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> "$GITHUB_OUTPUT"
+      - name: Cache the Playwright browser
+        # The key holds the exact Playwright version. On a hit the install
+        # step below skips the browser download and runs only the APT part.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ matrix.browser }}-${{ steps.playwright.outputs.version }}
       - name: Configure Ubuntu APT
         # Prefer the archive mirror and bound each network wait. The azure mirror
         # took more than 20 minutes for the WebKit packages on run 42277784501.
@@ -307,11 +337,21 @@ jobs:
         with:
           toolchain: 1.97.1
       - name: Rust cache
+        # The smoke job owns the native cache entry. The benchmark job and
+        # the release build only restore it.
         uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           workspaces: src-tauri -> target
-          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          shared-key: desktop-native-${{ runner.os }}-${{ runner.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
       - name: Record native source before build
         run: node scripts/native-source.mjs native-test-results/source-before-build
@@ -372,11 +412,21 @@ jobs:
         with:
           toolchain: 1.97.1
       - name: Rust cache
+        # The smoke job owns the native cache entry. The benchmark job and
+        # the release build only restore it.
         uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           workspaces: src-tauri -> target
-          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          shared-key: desktop-native-${{ runner.os }}-${{ runner.arch }}
+          save-if: false
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
       - name: Record native source before build
         run: node scripts/native-source.mjs native-test-results/source-before-build
@@ -575,11 +625,21 @@ jobs:
           toolchain: 1.97.1
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin' || '' }}
       - name: Rust cache
+        # Restore the registry and the native dependencies only. A release
+        # build never writes a cache entry.
         uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           workspaces: src-tauri -> target
-          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          shared-key: desktop-native-${{ runner.os }}-${{ runner.arch }}
+          save-if: false
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
       - name: Build workflow artifacts
         id: build
