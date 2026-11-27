@@ -883,8 +883,9 @@ rejects an output path inside the repository.
 `scripts/benchmark-gate.mjs` measures nothing. It validates the report schema,
 source identity, build mode, platform identity, sample counts, units, and budget
 values. Use it to audit a retained local artifact or to repeat a gate decision.
-CI does not upload benchmark reports. Hosted-runner cleanup discards its
-temporary files; repeat a failing case locally when a full report is needed.
+A failed CI benchmark job uploads its JSON report for 3 days (see `docs/CI.md`).
+A successful job uploads no report. The fixtures are synthetic. Repeat a failing
+case locally when you need more than that report.
 
 The negative cases for each rule run in `scripts/benchmark-shared.test.mjs`. The
 test starts the gate as a child process and checks the exit code. This proves
