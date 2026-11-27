@@ -107,16 +107,20 @@
 			class:bg-bg-3={aiStore.settings.privacyMode === 'direct'}
 			aria-pressed={aiStore.settings.privacyMode === 'direct'}
 			onclick={() => aiStore.update({ privacyMode: 'direct' })}
-			data-testid="ai-mode-direct">{t('settings.aiDirect')}</button
+			data-testid="ai-mode-direct"
 		>
+			{t('settings.aiDirect')}
+		</button>
 		<button
 			type="button"
 			class="rounded border border-border px-2.5 py-1 text-xs"
 			class:bg-bg-3={aiStore.settings.privacyMode === 'local'}
 			aria-pressed={aiStore.settings.privacyMode === 'local'}
 			onclick={() => aiStore.update({ privacyMode: 'local' })}
-			data-testid="ai-mode-local">{t('settings.aiLocal')}</button
+			data-testid="ai-mode-local"
 		>
+			{t('settings.aiLocal')}
+		</button>
 	</div>
 	{#if aiStore.settings.privacyMode === 'local'}
 		<p class="mt-2 text-xs text-warning" role="status">
@@ -173,15 +177,19 @@
 			class="rounded border border-border px-2.5 py-1 text-xs"
 			disabled={aiBusy || aiStore.usesNativeVault}
 			onclick={() => void loadAiModels()}
-			data-testid="ai-load-models">{t('settings.aiLoadModels')}</button
+			data-testid="ai-load-models"
 		>
+			{t('settings.aiLoadModels')}
+		</button>
 		<button
 			type="button"
 			class="rounded border border-border px-2.5 py-1 text-xs"
 			disabled={aiBusy}
 			onclick={() => void testAiConnection()}
-			data-testid="ai-test">{t('settings.aiTest')}</button
+			data-testid="ai-test"
 		>
+			{t('settings.aiTest')}
+		</button>
 	</div>
 	<div class="mt-2 flex flex-wrap items-end gap-2">
 		<label class="flex-1 text-xs text-fg-muted">
@@ -210,16 +218,19 @@
 			class="rounded border border-border px-2.5 py-1 text-xs"
 			disabled={aiBusy}
 			onclick={saveAiKey}
-			data-testid="ai-key-save">{t('settings.aiKeySave')}</button
+			data-testid="ai-key-save"
 		>
+			{t('settings.aiKeySave')}
+		</button>
 		<button
 			type="button"
 			class="rounded border border-border px-2.5 py-1 text-xs"
 			disabled={aiBusy}
 			onclick={clearAiKey}
 			data-testid="ai-key-clear"
-			>{aiStore.usesNativeVault ? t('settings.aiKeyClearNative') : t('settings.aiKeyClear')}</button
 		>
+			{aiStore.usesNativeVault ? t('settings.aiKeyClearNative') : t('settings.aiKeyClear')}
+		</button>
 	</div>
 	<p class="mt-1 text-xs text-fg-muted">
 		{aiStore.usesNativeVault ? t('settings.aiKeyHintNative') : t('settings.aiKeyHint')}

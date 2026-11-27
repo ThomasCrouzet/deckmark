@@ -141,9 +141,9 @@
 		>
 			<header>
 				<h2 id="blocks-title">{t('blocks.title')}</h2>
-				<button type="button" onclick={onClose} aria-label={t('settings.close')}
-					><X size={16} /></button
-				>
+				<button type="button" onclick={onClose} aria-label={t('settings.close')}>
+					<X size={16} />
+				</button>
 			</header>
 			<div class="blocks-body">
 				<section class="insert">
@@ -165,8 +165,10 @@
 								!sourceKey ||
 								blocks.find((block) => block.key === sourceKey)?.fileId === active?.id}
 							onclick={insert}
-							data-testid="blocks-insert">{t('blocks.insertAction')}</button
+							data-testid="blocks-insert"
 						>
+							{t('blocks.insertAction')}
+						</button>
 					</div>
 					{#if active}<p class="note">{t('blocks.activeTarget', { path: activePath })}</p>{/if}
 				</section>
@@ -186,8 +188,10 @@
 									disabled={report.state === 'missing' ||
 										report.state === 'cycle' ||
 										report.state === 'ambiguous'}
-									onclick={() => update(report)}>{t('blocks.update')}</button
+									onclick={() => update(report)}
 								>
+									{t('blocks.update')}
+								</button>
 								<button type="button" onclick={() => freeze(report)}>{t('blocks.freeze')}</button>
 								<button type="button" onclick={() => detach(report)}>{t('blocks.detach')}</button>
 							</div>

@@ -232,8 +232,10 @@
 				type="button"
 				onclick={close}
 				aria-label={td('docsSite.close')}
-				class="rounded border border-border px-3 py-1">×</button
+				class="rounded border border-border px-3 py-1"
 			>
+				×
+			</button>
 		</header>
 
 		<div class="flex flex-wrap items-end gap-3 border-b border-border p-3">
@@ -246,8 +248,9 @@
 					disabled={busy}
 					class="min-w-0 rounded border border-border bg-bg px-2 py-2 text-sm text-fg"
 				>
-					{#each projects as project (project.id)}<option value={project.id}>{project.name}</option
-						>{/each}
+					{#each projects as project (project.id)}<option value={project.id}>
+							{project.name}
+						</option>{/each}
 				</select>
 			</label>
 			<label class="flex items-center gap-2 text-sm">
@@ -264,19 +267,23 @@
 				data-testid="docs-site-run"
 				type="button"
 				disabled={busy || !selected}
-				onclick={runExport}>{td('docsSite.export')}</button
+				onclick={runExport}
 			>
+				{td('docsSite.export')}
+			</button>
 			{#if busy}
-				<button data-testid="docs-site-cancel" type="button" onclick={cancel}
-					>{td('docsSite.cancel')}</button
-				>
+				<button data-testid="docs-site-cancel" type="button" onclick={cancel}>
+					{td('docsSite.cancel')}
+				</button>
 			{/if}
 			<button
 				data-testid="docs-site-export-report"
 				type="button"
 				disabled={busy || !report}
-				onclick={exportReport}>{td('docsSite.report')}</button
+				onclick={exportReport}
 			>
+				{td('docsSite.report')}
+			</button>
 		</div>
 
 		<div class="min-h-0 flex-1 overflow-auto p-3">

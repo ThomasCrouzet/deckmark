@@ -192,8 +192,10 @@
 				type="button"
 				onclick={close}
 				aria-label={td('docsCheck.close')}
-				class="rounded border border-border px-3 py-1">×</button
+				class="rounded border border-border px-3 py-1"
 			>
+				×
+			</button>
 		</header>
 
 		<div class="flex flex-wrap items-end gap-3 border-b border-border p-3">
@@ -206,27 +208,32 @@
 					disabled={busy}
 					class="min-w-0 rounded border border-border bg-bg px-2 py-2 text-sm text-fg"
 				>
-					{#each projects as project (project.id)}<option value={project.id}>{project.name}</option
-						>{/each}
+					{#each projects as project (project.id)}<option value={project.id}>
+							{project.name}
+						</option>{/each}
 				</select>
 			</label>
 			<button
 				data-testid="docs-check-run"
 				type="button"
 				disabled={busy || !selected}
-				onclick={runCheck}>{td('docsCheck.run')}</button
+				onclick={runCheck}
 			>
+				{td('docsCheck.run')}
+			</button>
 			{#if busy}
-				<button data-testid="docs-check-cancel" type="button" onclick={cancel}
-					>{td('docsCheck.cancel')}</button
-				>
+				<button data-testid="docs-check-cancel" type="button" onclick={cancel}>
+					{td('docsCheck.cancel')}
+				</button>
 			{/if}
 			<button
 				data-testid="docs-check-export"
 				type="button"
 				disabled={busy || !report}
-				onclick={exportReport}>{td('docsCheck.export')}</button
+				onclick={exportReport}
 			>
+				{td('docsCheck.export')}
+			</button>
 		</div>
 
 		<div class="min-h-0 flex-1 overflow-auto p-3">
@@ -280,9 +287,9 @@
 												: 'docsCheck.severity.warning'
 										)}
 									</span>
-									<span class="font-mono text-xs text-fg-muted"
-										>{issue.path}:{issue.line}:{issue.column}</span
-									>
+									<span class="font-mono text-xs text-fg-muted">
+										{issue.path}:{issue.line}:{issue.column}
+									</span>
 									<span class="min-w-0 flex-1 break-words">{issueMessage(issue)}</span>
 								</button>
 							</li>

@@ -189,9 +189,9 @@
 		>
 			<header>
 				<h2 id="fm-title">{t('properties.title')}</h2>
-				<button type="button" onclick={onClose} aria-label={t('settings.close')}
-					><X size={16} /></button
-				>
+				<button type="button" onclick={onClose} aria-label={t('settings.close')}>
+					<X size={16} />
+				</button>
 			</header>
 			{#if error}
 				<div class="fm-error" role="alert" data-testid="frontmatter-error">
@@ -264,8 +264,10 @@
 								type="button"
 								onclick={() => remove(property.key)}
 								aria-label={t('properties.remove', { key: property.key })}
-								data-testid={`frontmatter-remove-${property.key}`}>×</button
+								data-testid={`frontmatter-remove-${property.key}`}
 							>
+								×
+							</button>
 						</div>
 					{/each}
 				</div>
@@ -284,9 +286,9 @@
 						aria-label={t('properties.value')}
 						data-testid="frontmatter-new-value"
 					/>
-					<button type="button" onclick={add} data-testid="frontmatter-add"
-						>{t('properties.add')}</button
-					>
+					<button type="button" onclick={add} data-testid="frontmatter-add">
+						{t('properties.add')}
+					</button>
 					{#if addError}
 						<p class="fm-inline-error" role="alert" data-testid="frontmatter-add-error">
 							{addError}

@@ -85,16 +85,17 @@
 			/>
 			{t('bulkDelete.selectTrash')}
 		</label>
-		<span class="text-fg-muted" role="status" aria-live="polite" aria-atomic="true"
-			>{t('bulkDelete.selectedCount', { n: selectedEntries.length })}</span
-		>
+		<span class="text-fg-muted" role="status" aria-live="polite" aria-atomic="true">
+			{t('bulkDelete.selectedCount', { n: selectedEntries.length })}
+		</span>
 		<div class="flex flex-wrap gap-2">
 			<button
 				class="rounded border border-border px-2 py-2 text-danger disabled:opacity-50"
 				disabled={filesStore.trashBusy || selectedEntries.length === 0}
 				onclick={() => void purge(selectedEntries.map((entry) => entry.file.id))}
-				>{t('bulkDelete.deleteSelected')}</button
 			>
+				{t('bulkDelete.deleteSelected')}
+			</button>
 			<button
 				class="rounded border border-border px-2 py-2 text-danger disabled:opacity-50"
 				disabled={filesStore.trashBusy}
@@ -102,8 +103,10 @@
 					void purge(
 						filesStore.trash.map((entry) => entry.file.id),
 						true
-					)}>{t('bulkDelete.emptyTrash')}</button
+					)}
 			>
+				{t('bulkDelete.emptyTrash')}
+			</button>
 		</div>
 	</div>
 	{#each filesStore.trash as entry (entry.file.id)}
@@ -127,16 +130,19 @@
 					class="truncate py-2 text-left"
 					disabled={filesStore.trashBusy}
 					onclick={() => void restore(entry.file.id)}
-					>{t('sidebar.restore', { name: entry.file.name })}</button
 				>
+					{t('sidebar.restore', { name: entry.file.name })}
+				</button>
 				<span class="truncate text-fg-dim" data-testid="trash-purge-hint">{purgeLabel(entry)}</span>
 			</div>
 			<button
 				class="p-2 text-danger"
 				disabled={filesStore.trashBusy}
 				aria-label={t('sidebar.purge', { name: entry.file.name })}
-				onclick={() => void purge([entry.file.id], false, true)}><X size={14} /></button
+				onclick={() => void purge([entry.file.id], false, true)}
 			>
+				<X size={14} />
+			</button>
 		</div>
 	{/each}
 </details>

@@ -208,36 +208,44 @@
 					}
 				}}
 			/>
-			<span class="shrink-0 text-xs text-fg-muted" role="status"
-				>{count ? current + 1 : 0}/{count}{count === 200 ? '+' : ''}</span
-			>
+			<span class="shrink-0 text-xs text-fg-muted" role="status">
+				{count ? current + 1 : 0}/{count}{count === 200 ? '+' : ''}
+			</span>
 			<button
 				class="p-2"
 				disabled={!count}
 				aria-label={t('navigation.previous')}
-				onclick={() => showMatch(current - 1)}><ArrowUp size={16} /></button
+				onclick={() => showMatch(current - 1)}
 			>
+				<ArrowUp size={16} />
+			</button>
 			<button
 				class="p-2"
 				disabled={!count}
 				aria-label={t('navigation.next')}
-				onclick={() => showMatch(current + 1)}><ArrowDown size={16} /></button
+				onclick={() => showMatch(current + 1)}
 			>
+				<ArrowDown size={16} />
+			</button>
 		{:else}<h2 class="flex-1 px-2 text-sm font-medium">{t('navigation.outline')}</h2>{/if}
 		<button
 			bind:this={closeButton}
 			class="p-2"
 			onclick={closeNavigation}
-			aria-label={t('navigation.close')}><X size={16} /></button
+			aria-label={t('navigation.close')}
 		>
+			<X size={16} />
+		</button>
 	</div>
 	{#if kind === 'outline'}
 		<nav class="max-h-[30dvh] overflow-y-auto" aria-label={t('navigation.outline')}>
 			{#each headings as heading, index (index)}<button
 					class="block min-h-10 w-full truncate rounded py-2 pr-3 text-left text-sm text-fg-muted hover:bg-bg-2"
 					style:padding-left={`${heading.level * 12}px`}
-					onclick={() => jump(heading, index)}>{heading.text || t('toolbar.untitled')}</button
+					onclick={() => jump(heading, index)}
 				>
+					{heading.text || t('toolbar.untitled')}
+				</button>
 			{:else}<p class="p-3 text-xs text-fg-muted">{t('navigation.empty')}</p>{/each}
 		</nav>
 	{/if}

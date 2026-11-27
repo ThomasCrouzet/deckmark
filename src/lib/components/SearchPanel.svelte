@@ -654,13 +654,14 @@
 						aria-pressed={scope === value}
 						disabled={replacing}
 						onclick={() => (scope = value as typeof scope)}
-						>{t(value === 'library' ? 'library.all' : 'library.open')}</button
 					>
+						{t(value === 'library' ? 'library.all' : 'library.open')}
+					</button>
 				{/each}
 				{#if debouncedQuery.trim().length >= 2 && !regexError && !queryError}
-					<span class="ml-auto text-fg-dim" aria-live="polite" aria-atomic="true"
-						>{t('search.resultCount', { n: hits.length })}</span
-					>
+					<span class="ml-auto text-fg-dim" aria-live="polite" aria-atomic="true">
+						{t('search.resultCount', { n: hits.length })}
+					</span>
 				{/if}
 			</div>
 			{#if hits.length >= SEARCH_MAX_HITS}
@@ -820,8 +821,9 @@
 									<div class="truncate font-mono text-xs text-fg">
 										{hit.snippet.slice(0, hit.matchStart)}<mark
 											class="bg-accent/25 text-accent rounded-sm px-0.5"
-											>{hit.snippet.slice(hit.matchStart, hit.matchEnd)}</mark
-										>{hit.snippet.slice(hit.matchEnd)}
+										>
+											{hit.snippet.slice(hit.matchStart, hit.matchEnd)}
+										</mark>{hit.snippet.slice(hit.matchEnd)}
 									</div>
 								</div>
 							</li>

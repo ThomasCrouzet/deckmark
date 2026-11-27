@@ -319,9 +319,9 @@
 		>
 			<header>
 				<h2 id="collection-title">{t('collection.title')}</h2>
-				<button type="button" onclick={onClose} aria-label={t('settings.close')}
-					><X size={16} /></button
-				>
+				<button type="button" onclick={onClose} aria-label={t('settings.close')}>
+					<X size={16} />
+				</button>
 			</header>
 			<div class="collection-controls">
 				<input
@@ -421,9 +421,9 @@
 						>
 							<thead>
 								<tr aria-rowindex="1">
-									<th scope="col" aria-colindex="1" style={`width:${TITLE_WIDTH}px`}
-										>{t('collection.titleColumn')}</th
-									>
+									<th scope="col" aria-colindex="1" style={`width:${TITLE_WIDTH}px`}>
+										{t('collection.titleColumn')}
+									</th>
 									{#if columnWindow.left > 0}
 										<th class="spacer" style={`width:${columnWindow.left}px`} aria-hidden="true"
 										></th>
@@ -433,8 +433,10 @@
 											scope="col"
 											aria-colindex={2 + columnWindow.first + columnOffset}
 											style={`width:${COLUMN_WIDTH}px`}
-											title={column}>{column}</th
+											title={column}
 										>
+											{column}
+										</th>
 									{/each}
 									{#if columnWindow.right > 0}
 										<th class="spacer" style={`width:${columnWindow.right}px`} aria-hidden="true"
@@ -464,8 +466,10 @@
 											<td
 												aria-colindex={2 + columnWindow.first + columnOffset}
 												style={`width:${COLUMN_WIDTH}px`}
-												title={cell(row, column)}>{cell(row, column)}</td
+												title={cell(row, column)}
 											>
+												{cell(row, column)}
+											</td>
 										{/each}
 										{#if columnWindow.right > 0}
 											<td class="spacer" style={`width:${columnWindow.right}px`} aria-hidden="true"

@@ -668,27 +668,35 @@
 				annotate = !annotate;
 				if (annotate) tick().then(scheduleInk);
 			}}
-			data-testid="annotation-toggle">{t('annotations.toggle')}</button
+			data-testid="annotation-toggle"
 		>
+			{t('annotations.toggle')}
+		</button>
 		{#if annotate}
 			<button
 				type="button"
 				aria-pressed={tool === 'pen'}
 				onclick={() => (tool = 'pen')}
-				data-testid="annotation-pen">{t('annotations.pen')}</button
+				data-testid="annotation-pen"
 			>
+				{t('annotations.pen')}
+			</button>
 			<button
 				type="button"
 				aria-pressed={tool === 'highlighter'}
 				onclick={() => (tool = 'highlighter')}
-				data-testid="annotation-highlighter">{t('annotations.highlighter')}</button
+				data-testid="annotation-highlighter"
 			>
+				{t('annotations.highlighter')}
+			</button>
 			<button
 				type="button"
 				aria-pressed={tool === 'eraser'}
 				onclick={() => (tool = 'eraser')}
-				data-testid="annotation-eraser">{t('annotations.eraser')}</button
+				data-testid="annotation-eraser"
 			>
+				{t('annotations.eraser')}
+			</button>
 			{#each ANNOTATION_COLORS as swatch, index (swatch)}
 				<button
 					type="button"
@@ -704,9 +712,9 @@
 				<span>{t('annotations.size')}</span>
 				<input type="range" min="1" max="10" bind:value={inkSize} />
 			</label>
-			<button type="button" onclick={clearInk} data-testid="annotation-clear"
-				>{t('annotations.clear')}</button
-			>
+			<button type="button" onclick={clearInk} data-testid="annotation-clear">
+				{t('annotations.clear')}
+			</button>
 		{/if}
 	</div>
 	{#if loading && !err}

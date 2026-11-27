@@ -270,3 +270,78 @@ test('keeps the scroll shortcut on the live note after mode, file and workspace 
 		contentType: 'application/json'
 	});
 });
+
+test('reaches the real bottom when Alt+End arrives before CodeMirror measures the note', async ({
+	page
+}, info) => {
+	const long = Array.from({ length: 160 }, (_, index) => `Paragraph ${index + 1}.`).join('\n\n');
+	await start(page);
+	await writeSourceContent(page, `# Long note\n\n${long}\n`);
+	const title = page.getByRole('textbox', { name: /^File name/ });
+	await title.fill('Long note');
+	await title.press('Enter');
+	await page.waitForTimeout(900);
+	await page.locator('aside button[aria-label^="New file"]').first().click();
+	await page.getByTestId('create-note').click();
+	await expect(title).not.toHaveValue('Long note');
+	await page.locator('button[data-mode="source"]').click();
+	await expect(page.locator('.cm-content')).toBeVisible();
+
+	// Switch back and send the key in the first frame that shows the long note.
+	// CodeMirror still reports an estimated scroll height in that frame and
+	// replaces it with the measured height a few frames later.
+	const firstFrameHeight = await page.evaluate(async () => {
+		const button = Array.from(document.querySelectorAll('aside button[data-file-id]')).find(
+			(element) => element.textContent?.includes('Long note')
+		);
+		if (!(button instanceof HTMLElement)) throw new Error('The Long note file is missing.');
+		button.click();
+		return await new Promise<number>((resolve, reject) => {
+			const started = performance.now();
+			const tick = () => {
+				const scroller = document.querySelector<HTMLElement>('.cm-scroller');
+				const shown = document.querySelector('.cm-content')?.textContent?.includes('Long note');
+				if (scroller && shown && scroller.scrollHeight > scroller.clientHeight + 24) {
+					const height = scroller.scrollHeight;
+					document.activeElement?.dispatchEvent(
+						new KeyboardEvent('keydown', {
+							key: 'End',
+							altKey: true,
+							bubbles: true,
+							cancelable: true
+						})
+					);
+					resolve(height);
+					return;
+				}
+				if (performance.now() - started > 5000) reject(new Error('The long note did not show.'));
+				else requestAnimationFrame(tick);
+			};
+			requestAnimationFrame(tick);
+		});
+	});
+	await expect(title).toHaveValue('Long note');
+	await expect.poll(() => scrollerBottom(page, '.cm-scroller')).toBe(true);
+	// The position must stay at the bottom after CodeMirror finishes its measure.
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+			)
+	);
+	expect(await scrollerBottom(page, '.cm-scroller')).toBe(true);
+
+	await info.attach('scroll-nav-early-key.json', {
+		body: JSON.stringify(
+			{
+				command:
+					'npx playwright test e2e/scroll-nav-scope.spec.ts --project=chromium --workers=1 --retries=0',
+				firstFrameScrollHeight: firstFrameHeight,
+				limitation: 'A synthetic key event is not a physical keyboard result.'
+			},
+			null,
+			2
+		),
+		contentType: 'application/json'
+	});
+});

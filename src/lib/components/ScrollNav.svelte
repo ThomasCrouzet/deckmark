@@ -53,16 +53,58 @@
 		progress = range > 0 ? Math.round((element.scrollTop / range) * 100) : 0;
 	}
 
+	/** Stops the bottom pin of the previous jump. */
+	let cancelPin: (() => void) | null = null;
+
+	/**
+	 * A virtualized note reports an estimated scroll height until its lines are
+	 * measured. A jump to the estimated bottom then stops short of the real end.
+	 * Pin the bottom while the height changes, and stop at the first user input,
+	 * after a stable frame, or after a bounded number of frames.
+	 */
+	function pinBottom(element: HTMLElement, behavior: 'auto' | 'smooth'): void {
+		cancelPin?.();
+		let frame = 0;
+		let frames = 0;
+		let stable = 0;
+		let height = element.scrollHeight;
+		const events = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+		const stop = () => {
+			if (frame) cancelAnimationFrame(frame);
+			frame = 0;
+			for (const name of events) window.removeEventListener(name, stop, true);
+			if (cancelPin === stop) cancelPin = null;
+		};
+		const step = () => {
+			frame = 0;
+			if (!element.isConnected || ++frames > 120) return stop();
+			if (element.scrollHeight === height) {
+				if (++stable >= 3) return stop();
+			} else {
+				height = element.scrollHeight;
+				stable = 0;
+				element.scrollTo({ top: height, behavior });
+			}
+			frame = requestAnimationFrame(step);
+		};
+		cancelPin = stop;
+		// Register after the current event so the shortcut key itself does not stop the pin.
+		frame = requestAnimationFrame(() => {
+			for (const name of events) window.addEventListener(name, stop, true);
+			step();
+		});
+	}
+
 	function go(edge: 'top' | 'bottom') {
 		const element = scroller();
 		if (!element) return;
 		const reduced =
 			typeof window.matchMedia === 'function' &&
 			window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-		element.scrollTo({
-			top: edge === 'top' ? 0 : element.scrollHeight,
-			behavior: reduced ? 'auto' : 'smooth'
-		});
+		const behavior: 'auto' | 'smooth' = reduced ? 'auto' : 'smooth';
+		cancelPin?.();
+		element.scrollTo({ top: edge === 'top' ? 0 : element.scrollHeight, behavior });
+		if (edge === 'bottom') pinBottom(element, behavior);
 	}
 
 	let bound: HTMLElement | null = null;
@@ -139,6 +181,7 @@
 			unbind?.();
 			unbind = null;
 			bound = null;
+			cancelPin?.();
 		};
 	});
 
@@ -170,7 +213,10 @@
 	}
 
 	if (typeof window !== 'undefined') window.addEventListener('keydown', onKeydown);
-	onDestroy(() => window.removeEventListener('keydown', onKeydown));
+	onDestroy(() => {
+		window.removeEventListener('keydown', onKeydown);
+		cancelPin?.();
+	});
 </script>
 
 {#if scrollable}

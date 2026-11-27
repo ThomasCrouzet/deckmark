@@ -785,15 +785,19 @@
 				class="code-language"
 				class:fallback={resolution.fallback}
 				data-testid="code-language"
-				data-fallback={resolution.fallback ? 'true' : undefined}>{languageLabel}</span
+				data-fallback={resolution.fallback ? 'true' : undefined}
 			>
+				{languageLabel}
+			</span>
 			{#if degraded}
 				<span
 					class="code-highlight-status"
 					role="status"
 					data-testid="code-highlight-status"
-					data-degraded="true">{t('code.longLineDegraded')}</span
+					data-degraded="true"
 				>
+					{t('code.longLineDegraded')}
+				</span>
 			{/if}
 			<span class="code-eol" data-testid="code-eol">{eol === '\r\n' ? 'CRLF' : 'LF'}</span>
 			<button type="button" onclick={toggleLineEnding} data-testid="code-eol-toggle">
@@ -803,14 +807,18 @@
 				type="button"
 				aria-pressed={wrap}
 				onclick={() => (wrap = !wrap)}
-				data-testid="code-wrap">{t('code.wrap')}</button
+				data-testid="code-wrap"
 			>
+				{t('code.wrap')}
+			</button>
 			<button
 				type="button"
 				aria-pressed={showInvisibles}
 				onclick={() => (showInvisibles = !showInvisibles)}
-				data-testid="code-invisibles">{t('code.invisibles')}</button
+				data-testid="code-invisibles"
 			>
+				{t('code.invisibles')}
+			</button>
 			<label>
 				<span>{t('code.indent')}</span>
 				<select
@@ -845,13 +853,15 @@
 					type="button"
 					disabled={jsonAction || jsonPending}
 					onclick={() => validateJson()}
-					data-testid="json-validate">{t('json.validate')}</button
+					data-testid="json-validate"
 				>
+					{t('json.validate')}
+				</button>
 				{#if jsonAction}
 					<span role="status" data-testid="json-progress">{t('json.working')}</span>
-					<button type="button" onclick={cancelJsonAction} data-testid="json-cancel"
-						>{t('json.cancel')}</button
-					>
+					<button type="button" onclick={cancelJsonAction} data-testid="json-cancel">
+						{t('json.cancel')}
+					</button>
 				{/if}
 				{#if jsonCheck}
 					<span
@@ -892,14 +902,18 @@
 					type="button"
 					disabled={!jsonCheck?.valid || jsonAction || readonly}
 					onclick={() => runJsonAction('format')}
-					data-testid="json-format">{t('json.format')}</button
+					data-testid="json-format"
 				>
+					{t('json.format')}
+				</button>
 				<button
 					type="button"
 					disabled={!jsonCheck?.valid || jsonAction || readonly}
 					onclick={() => runJsonAction('minify')}
-					data-testid="json-minify">{t('json.minify')}</button
+					data-testid="json-minify"
 				>
+					{t('json.minify')}
+				</button>
 				{#if jsonError}
 					<span class="json-error" role="alert" data-testid="json-action-error">{jsonError}</span>
 				{/if}

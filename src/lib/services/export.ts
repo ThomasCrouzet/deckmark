@@ -15,7 +15,6 @@
 // calling store cannot guarantee the context (jsdom OK, SSR no).
 
 import type { FileItem } from '#lib/types.js';
-import type { ProjectAssetRow } from '../db';
 import { stripMdExtension, untitledBasename, untitledFilename } from '#lib/file-utils.js';
 import { abortable, checkAborted } from '../abort';
 import { IMPORT_LIMITS, MAX_IMAGE_BYTES } from '../config';

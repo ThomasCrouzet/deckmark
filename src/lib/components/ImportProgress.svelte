@@ -69,13 +69,17 @@
 		{#if filesStore.importProgress}
 			<button
 				class="mt-2 min-h-10 rounded border border-border px-3"
-				onclick={() => filesStore.cancelImport()}>{t('import.cancel')}</button
+				onclick={() => filesStore.cancelImport()}
 			>
+				{t('import.cancel')}
+			</button>
 		{:else}
 			<button
 				class="mt-2 min-h-10 rounded border border-border px-3"
-				onclick={() => (dismissed = true)}>{t('import.dismiss')}</button
+				onclick={() => (dismissed = true)}
 			>
+				{t('import.dismiss')}
+			</button>
 		{/if}
 	</section>
 {/if}
