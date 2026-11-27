@@ -30,10 +30,16 @@ export default defineConfig({
 	testDir: './e2e',
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
-	// Retry twice in CI for temporary CPU or network failures.
+	// Retry once in CI for a temporary CPU or network failure. A test that
+	// passes only on its retry is reported as flaky, and the shard check fails
+	// it unless e2e/flaky-quarantine.json lists it.
 	// Seed data in source mode through helpers.writeSourceContent.
 	// Do not depend on asynchronous restoration of `mdsh:mode`.
-	retries: process.env.CI ? 2 : 0,
+	retries: process.env.CI ? 1 : 0,
+	// Stop a CI shard at its first hard failure. Playwright counts a test as
+	// failed only after its last retry, so a flaky pass does not stop the
+	// shard. Set E2E_MAX_FAILURES=0 to run every test of a diagnostic run.
+	maxFailures: process.env.CI && process.env.E2E_MAX_FAILURES !== '0' ? 1 : 0,
 	...(process.env.CI ? { workers: 1 } : {}),
 	captureGitInfo: { commit: true, diff: true },
 	metadata: {
@@ -54,7 +60,10 @@ export default defineConfig({
 	],
 	use: {
 		baseURL: e2eBaseUrl,
-		trace: 'retain-on-failure',
+		// With one retry, the failed first attempt of a flaky test is the useful
+		// trace. `on-first-retry` keeps only the second attempt, which often
+		// passes. Specs that set `trace: 'off'` keep it off.
+		trace: process.env.CI ? 'retain-on-first-failure' : 'retain-on-failure',
 		screenshot: 'only-on-failure',
 		// The UI defaults to English and detects navigator.language.
 		// These tests check French strings, so use fr-FR.
