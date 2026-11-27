@@ -1,5 +1,5 @@
 export const landingFr = {
-	'landing.kicker': 'Notes et présentations Markdown, local d’abord',
+	'landing.kicker': 'Éditeur local',
 	'landing.lead':
 		'Des fichiers Markdown simples dans une bibliothèque locale. Fonctionne hors ligne, sans compte.',
 	'landing.factsLabel': 'L’essentiel',
