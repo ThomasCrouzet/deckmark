@@ -342,3 +342,83 @@ for (const locale of ['en', 'fr'] as const) {
 		}
 	}
 }
+
+for (const locale of ['en', 'fr'] as const) {
+	test(`${locale} 320 keyboard: a notice that arrives late keeps the focused library control in view`, async ({
+		page
+	}, info) => {
+		const text = words[locale];
+		await resetAppState(page);
+		await page.evaluate((value) => localStorage.setItem('mdsh:locale', value), locale);
+		await seedDocuments(
+			page,
+			[
+				{ id: 'late-one', content: 'One' },
+				{ id: 'late-two', content: 'Two', open: false },
+				{ id: 'late-three', content: 'Three', open: false }
+			],
+			'late-one'
+		);
+		// Two persistent warnings fill the top of the panel, so the selection controls
+		// sit below the fold of the scrolling panel.
+		const notice = (message: string) =>
+			page.evaluate(
+				(value) =>
+					(
+						window as unknown as {
+							__MDSH_NOTIFY__: {
+								error: (message: string, options: { ttl: number }) => number;
+							};
+						}
+					).__MDSH_NOTIFY__.error(value, { ttl: 0 }),
+				message
+			);
+		await notice(
+			'keep-a.md: first persistent warning with a long explanation that keeps the local copy and asks you to retry the save before you close the tab'
+		);
+		await notice(
+			'keep-b.md: second persistent warning with a long explanation that keeps the local copy and asks you to retry the save before you close the tab'
+		);
+		await page
+			.locator('aside')
+			.getByRole('button', { name: new RegExp(`^${text.library}`) })
+			.click();
+		await page.setViewportSize({ width: 320, height: 844 });
+		const library = page.getByRole('dialog', { name: text.library, exact: true });
+		await expect(library.getByRole('alert')).toHaveCount(2);
+		const all = library.getByRole('checkbox', { name: text.all, exact: true });
+		await tabTo(page, all);
+		await expect(all).toBeFocused();
+		await expect(all).toBeInViewport({ ratio: 1 });
+		const before = await all.boundingBox();
+		await info.attach('focused-before-notice.png', {
+			body: await page.screenshot({ animations: 'disabled' }),
+			contentType: 'image/png'
+		});
+
+		// A third notice arrives while the control keeps focus. The stack above grows.
+		await notice(
+			'keep-c.md: a late persistent warning with a long explanation that keeps the local copy and asks you to retry the save before you close the tab'
+		);
+		await expect(library.getByRole('alert')).toHaveCount(3);
+
+		await expect(all).toBeFocused();
+		await expect(all).toBeInViewport({ ratio: 1 });
+		expect(
+			await all.evaluate((node) => {
+				const rect = node.getBoundingClientRect();
+				return node.contains(
+					document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+				);
+			})
+		).toBe(true);
+		await info.attach('focused-after-notice.json', {
+			body: JSON.stringify({ before, after: await all.boundingBox() }),
+			contentType: 'application/json'
+		});
+		await info.attach('focused-after-notice.png', {
+			body: await page.screenshot({ animations: 'disabled' }),
+			contentType: 'image/png'
+		});
+	});
+}

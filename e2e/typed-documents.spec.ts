@@ -28,6 +28,24 @@ async function setFiles(page: Page) {
 	]);
 }
 
+async function storedKinds(page: Page) {
+	return page.evaluate(
+		() =>
+			new Promise<Array<{ name: string; kind?: string }>>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const rows = request.result.transaction('drafts').objectStore('drafts').getAll();
+					rows.onerror = () => reject(rows.error);
+					rows.onsuccess = () => {
+						request.result.close();
+						resolve(rows.result.map((row) => ({ name: row.name, kind: row.kind })));
+					};
+				};
+			})
+	);
+}
+
 async function openFile(page: Page, name: string) {
 	await page
 		.locator('aside')
@@ -71,6 +89,12 @@ test('imports typed files and preserves their type and bytes', async ({ page }, 
 	await openFile(page, 'deck');
 	await expect(page.getByTestId('document-kind')).toHaveText('Présentation');
 
+	// A reload ends a write in flight. The import saves after the 400 ms delay, so wait
+	// until every imported file is durable before the reload, as a user waits for the
+	// saved indicator.
+	await expect
+		.poll(async () => (await storedKinds(page)).map((row) => row.name).sort())
+		.toEqual(['deck.md', 'fake.py', 'pixel.png', 'script.py']);
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
 	await openFile(page, 'script\\.py');
@@ -78,21 +102,7 @@ test('imports typed files and preserves their type and bytes', async ({ page }, 
 	await openFile(page, 'pixel\\.png');
 	await expect(page.getByTestId('document-kind')).toHaveText('Image');
 
-	const kinds = await page.evaluate(
-		() =>
-			new Promise<Array<{ name: string; kind?: string }>>((resolve, reject) => {
-				const request = indexedDB.open('mdsh');
-				request.onerror = () => reject(request.error);
-				request.onsuccess = () => {
-					const rows = request.result.transaction('drafts').objectStore('drafts').getAll();
-					rows.onerror = () => reject(rows.error);
-					rows.onsuccess = () => {
-						request.result.close();
-						resolve(rows.result.map((row) => ({ name: row.name, kind: row.kind })));
-					};
-				};
-			})
-	);
+	const kinds = await storedKinds(page);
 	expect(kinds).toEqual(
 		expect.arrayContaining([
 			{ name: 'script.py', kind: 'code' },
