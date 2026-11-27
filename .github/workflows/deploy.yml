@@ -94,8 +94,8 @@ jobs:
       - name: Define the shard count
         id: shards
         run: |
-          echo 'shards=[1,2,3,4,5,6,7,8]' >> "$GITHUB_OUTPUT"
-          echo 'count=8' >> "$GITHUB_OUTPUT"
+          echo 'shards=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]' >> "$GITHUB_OUTPUT"
+          echo 'count=16' >> "$GITHUB_OUTPUT"
 
   pages-config:
     # Read the real Pages configuration before the build.
@@ -311,8 +311,9 @@ jobs:
         # The policy job defines the shard count. No other job defines it.
         shard: ${{ fromJSON(needs.ci-tier.outputs.shard_matrix) }}
     # Each shard retains one worker and the complete browser project selection.
-    # Eight shards reduce the critical path without increasing the worker count
-    # on one runner. The shard check compares the local report with the expected
+    # Sixteen shards reduce the critical path without increasing the worker
+    # count on one runner. The slowest single test (about 9 minutes) sets the
+    # floor. The shard check compares the local report with the expected
     # shard list. It prints executed, justified skip and retry counts. Reports
     # stay on the runner and are not uploaded.
     timeout-minutes: 40
