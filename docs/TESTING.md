@@ -16,6 +16,12 @@ npm run test:e2e # Browser workflows against the current build
 Use `npm run test:e2e -- <spec>` for one browser workflow. The sections below
 record the retained failure risks, the full commands and the evidence paths.
 
+## Backup download lifetime
+
+The backup and encrypted backup downloads use the shared `triggerDownload`.
+`e2e/export-download-lifetime.spec.ts` checks that their object URL stays
+reachable for more than 1 s after the click, on Chromium and WebKit.
+
 ## Code block plain text language
 
 Issue #775 covers a visual editor code block that cannot return to plain text

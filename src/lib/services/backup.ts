@@ -37,6 +37,7 @@ import { documentKind } from '../document-kind';
 import { imageMime, pathKey, projectPath } from '../project-paths';
 import { MAX_SNIPPETS, normalizeSnippetRow, validSnippetRow } from '../snippets';
 import { checkAborted, isAbortError } from '../abort';
+import { triggerDownload } from './export';
 // Bounded work for the backup snapshot.
 //
 // The policy lives in this lazy module, so the boot bundle does not grow. Each
@@ -1844,27 +1845,6 @@ export async function applyBackup(
 }
 
 // ─── DOM orchestration (download / file read) ───────────────────────────────
-
-/**
- * @returns `true` when a download/save was initiated; `false` when the user
- * cancelled the desktop save dialog.
- */
-async function triggerDownload(blob: Blob, filename: string): Promise<boolean> {
-	const { isDesktop } = await import('../desktop');
-	if (isDesktop()) {
-		const { tauriSaveExportBlob } = await import('../disk-tauri');
-		return await tauriSaveExportBlob(blob, filename);
-	}
-	const url = URL.createObjectURL(blob);
-	const a = document.createElement('a');
-	a.href = url;
-	a.download = filename;
-	document.body.appendChild(a);
-	a.click();
-	a.remove();
-	URL.revokeObjectURL(url);
-	return true;
-}
 
 /**
  * Builds the backup and triggers its download. If `passphrase` is
