@@ -10,6 +10,11 @@ const largeId = 'perf-large';
 const sourceId = 'perf-source';
 const mixedId = 'perf-mixed-600k';
 const mixedTableMarker = MIXED_MARKERS.table;
+// The first key after the editor opens pays one-time work. Issue #769 records
+// 99 to 104 ms for it on GitHub-hosted runners (run 45081399330). Main run
+// 45887085504 records 63 to 69 ms. The budget is close to twice the largest
+// value. Warm keys keep the 100 ms p95 budget.
+const COLD_KEY_BUDGET_MS = 200;
 
 // DOM trace snapshots distort input timings on multi-megabyte documents.
 test.use({ locale: 'en-US', reducedMotion: 'reduce', trace: 'off' });
@@ -101,6 +106,75 @@ async function storedContent(page: Page, id: string): Promise<string> {
 			}),
 		id
 	);
+}
+
+type SaveDiagnostics = {
+	storedLength: number;
+	storedTail: string;
+	typedIndex: number;
+	saveStatus: string;
+	storage: Array<{ name: string; start: number; duration: number }>;
+	now: number;
+};
+
+/** Reads the durable row, the status bar and the storage spans for evidence. */
+async function saveDiagnostics(page: Page, id: string, typed: string): Promise<SaveDiagnostics> {
+	const stored = await storedContent(page, id);
+	const view = await page.evaluate(() => ({
+		saveStatus: (document.querySelector('#app-statusbar')?.textContent ?? '')
+			.replace(/\s+/g, ' ')
+			.trim(),
+		now: performance.now(),
+		storage: performance
+			.getEntries()
+			.filter(
+				(entry) => entry.name.startsWith('mdsh:draft-') || entry.name === 'mdsh:document-storage'
+			)
+			.map((entry) => ({ name: entry.name, start: entry.startTime, duration: entry.duration }))
+			.slice(-12)
+	}));
+	return {
+		storedLength: stored.length,
+		storedTail: stored.slice(-(typed.length + 200)),
+		typedIndex: stored.indexOf(typed),
+		...view
+	};
+}
+
+/**
+ * Waits until the typed text is the end of the durable note, then checks that
+ * the status bar reports a finished save. The attachment keeps the wait time,
+ * the stored tail and the status bar text. A failure then shows a slow write
+ * (text absent) or a misplaced caret (text present but not at the end).
+ */
+async function expectTypedAtEnd(
+	page: Page,
+	info: TestInfo,
+	id: string,
+	typed: string,
+	timeout: number
+) {
+	const startedAt = Date.now();
+	let failure: unknown = null;
+	try {
+		await expect
+			.poll(async () => (await storedContent(page, id)).trimEnd().endsWith(typed), { timeout })
+			.toBe(true);
+		await expect(page.getByTestId('save-state')).toContainText('saved');
+	} catch (error) {
+		failure = error;
+	}
+	const evidence = {
+		waitedMs: Date.now() - startedAt,
+		atEnd: failure === null,
+		...(await saveDiagnostics(page, id, typed))
+	};
+	await info.attach('save-diagnostics.json', {
+		body: JSON.stringify(evidence, null, 2),
+		contentType: 'application/json'
+	});
+	console.log('[save]', JSON.stringify(evidence));
+	if (failure !== null) throw failure;
 }
 
 function largeNote(bytes: number): string {
@@ -248,15 +322,41 @@ test('ordinary visual typing avoids full-document validation', async ({ page }, 
 	expect
 		.soft(change.markdownUpdatedGuardSerialization ?? 0, 'the listener must not re-serialize')
 		.toBe(0);
-	await expect
-		.poll(async () => (await storedContent(page, largeId)).includes(typed), { timeout: 20_000 })
-		.toBe(true);
-	const stored = await storedContent(page, largeId);
-	await info.attach('stored-tail.md', {
-		body: stored.slice(-(typed.length + 200)),
-		contentType: 'text/markdown'
-	});
+	await expectTypedAtEnd(page, info, largeId, typed, 20_000);
 });
+
+test('visual boundary keys move and extend the caret in a long note', async ({ page }, info) => {
+	test.setTimeout(120_000);
+	await seedNote(page, largeId, largeNote(240_000));
+	await page.evaluate(() => localStorage.setItem('mdsh:mode', 'wysiwyg'));
+	await page.reload();
+	const visual = page.locator('.ProseMirror');
+	await expect(visual).toBeVisible({ timeout: 60_000 });
+	await visual.click();
+	await page.keyboard.press('ControlOrMeta+Home');
+	await page.keyboard.insertText('Top ');
+	await expectStoredStart(page, info, '# Top Performance note');
+	await page.keyboard.press('ControlOrMeta+Shift+End');
+	await page.keyboard.insertText('Only');
+	await expect
+		.poll(async () => (await storedContent(page, largeId)).trim(), { timeout: 20_000 })
+		.toMatch(/^# Top Only$/);
+});
+
+async function expectStoredStart(page: Page, info: TestInfo, start: string) {
+	try {
+		await expect
+			.poll(async () => (await storedContent(page, largeId)).startsWith(start), {
+				timeout: 20_000
+			})
+			.toBe(true);
+	} finally {
+		await info.attach('stored-head.md', {
+			body: (await storedContent(page, largeId)).slice(0, 200),
+			contentType: 'text/markdown'
+		});
+	}
+}
 
 test('new visual paragraphs avoid full-document validation on Enter', async ({ page }, info) => {
 	test.setTimeout(120_000);
@@ -586,8 +686,13 @@ test('large rendered note stays interactive while autosave runs between keys', a
 		// Long enough for the 400 ms autosave and a quiet-period publish to run.
 		await page.waitForTimeout(1_100);
 	}
+	// Check durability first. A latency miss must not hide a lost write.
+	await expectTypedAtEnd(page, info, largeId, typed, 30_000);
 	const probe = await readVisualInputProbe(page);
-	const p95 = percentile(probe.samples, 0.95);
+	// The first key pays the cold path: first layout, first publish and module
+	// load. It has its own budget. The nine warm keys keep the 100 ms p95 gate.
+	const [coldKey = Infinity, ...warmKeys] = probe.samples;
+	const p95 = percentile(warmKeys, 0.95);
 	const longestTask = probe.longTasks.length ? Math.max(...probe.longTasks) : 0;
 	const stageSummary = Object.fromEntries(
 		Object.entries(probe.stages).map(([name, values]) => [
@@ -597,7 +702,7 @@ test('large rendered note stays interactive while autosave runs between keys', a
 	);
 	console.log(
 		'[perf] visual autosave',
-		JSON.stringify({ samples: probe.samples, p95, longestTask, stages: stageSummary })
+		JSON.stringify({ samples: probe.samples, coldKey, p95, longestTask, stages: stageSummary })
 	);
 	await info.attach('visual-autosave-input.json', {
 		body: JSON.stringify(
@@ -610,6 +715,9 @@ test('large rendered note stays interactive while autosave runs between keys', a
 				method:
 					'Ten trusted insertText events spaced 1.1 s apart so the autosave, version history and quiet-period reconciliation run between keys.',
 				samples: probe.samples,
+				coldKey,
+				warmKeys,
+				coldBudgetMs: COLD_KEY_BUDGET_MS,
 				longTasks: probe.longTasks,
 				stages: stageSummary,
 				p95,
@@ -621,11 +729,12 @@ test('large rendered note stays interactive while autosave runs between keys', a
 		contentType: 'application/json'
 	});
 	expect(probe.samples.length).toBeGreaterThanOrEqual(typed.length);
+	expect(warmKeys.length).toBeGreaterThanOrEqual(typed.length - 1);
+	expect(coldKey, 'the first keystroke must stay inside the cold budget').toBeLessThan(
+		COLD_KEY_BUDGET_MS
+	);
 	expect(p95, 'autosave must not make the next keystroke slow').toBeLessThan(100);
 	expect(longestTask, 'autosave must not create a long main-thread task').toBeLessThan(250);
-	await expect
-		.poll(async () => (await storedContent(page, largeId)).includes(typed), { timeout: 30_000 })
-		.toBe(true);
 });
 
 type MixedPublishSample = {

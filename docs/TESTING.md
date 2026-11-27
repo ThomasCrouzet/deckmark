@@ -93,6 +93,19 @@ tracing for timing runs. Retain JSON samples and screenshots instead.
 The 1 MB slow-input case includes publication and the 400 ms draft save between
 keys. Compare saved source bytes after edits and immediate mode changes.
 
+The 1 MB autosave case separates the first (cold) key from the nine warm keys.
+The cold key has a 200 ms budget. The warm keys keep the 100 ms p95 budget. The
+case then reads the stored note: the typed text must end the note, and the
+status bar must show a finished save. A native Ctrl+End in a long document
+stops at the start of the last block, because the browser skips the layout of
+offscreen blocks. The visual editor therefore moves the caret to the document
+boundary in its own state. Without that handler, the text is stored at the
+start of the last block, and the failure attachment `save-diagnostics.json`
+shows the stored tail, the status bar text and the storage spans. Run
+`npx playwright test e2e/editor-input-latency.spec.ts --grep 'ordinary visual
+typing|stays interactive while autosave' --project=chromium --workers=1
+--retries=0 --repeat-each=5` and keep the attachments.
+
 Incremental serialization must preserve block separators, lists, empty blocks,
 inline marks, images, tables, undo and structural edits. Source fidelity and
 document revision workflows check exact exports and outgoing snapshots. Offscreen
