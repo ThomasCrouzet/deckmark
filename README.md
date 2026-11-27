@@ -46,12 +46,14 @@
 
 | | DeckMark | Obsidian | Typora | Joplin |
 | --- | :---: | :---: | :---: | :---: |
-| License, price | MIT, free | Proprietary, free for personal use | Proprietary, paid | MIT, free |
+| License, price | MIT, free | Proprietary, free (paid Sync and Publish add-ons) | Proprietary, paid after a 15-day trial | AGPL-3.0, free |
 | Use without an account or server | ✅ | ✅ | ✅ | Sync optional |
 | Runs in a browser tab, install-free | ✅ | App install | App install | App install |
-| Built-in Markdown presentations | ✅ | Plugins | ❌ | ❌ |
+| Markdown presentations | Built-in slide editor and present mode | Core Slides plugin (basic) | Reveal.js export through Pandoc | Community plugins |
+| Mobile apps | Installable PWA, no native app | iOS and Android | No | iOS and Android |
+| Plugins and sync services | None | Community plugins, paid Sync | Themes only | Plugins, several sync services |
 
-<sub>Checked November 2026. Verify each product's current terms.</sub>
+<sub>Checked 27 November 2026 against each project's license file, pricing page, and documentation. Verify each product's current terms.</sub>
 
 <!-- readme:section get-started -->
 ## Get started

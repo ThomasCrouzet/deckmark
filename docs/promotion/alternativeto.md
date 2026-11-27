@@ -23,8 +23,8 @@ does not require an account, a server, or a cloud service.
 
 | Alternative | Difference |
 | --- | --- |
-| Obsidian | DeckMark is open source, runs as a PWA, and needs no vault plugin for slides. |
-| Typora | DeckMark adds a document library, disk links, projects, and a slide canvas. |
+| Obsidian | DeckMark is open source, runs as a PWA, and has a full slide editor. Obsidian is free, has a basic core Slides plugin, and offers mobile apps, community plugins, and paid sync. |
+| Typora | DeckMark is free and open source. It adds a document library, disk links, projects, and a slide canvas. Typora is paid after a 15-day trial and exports slides through Pandoc. |
 | Notion | DeckMark keeps data on the device and needs no account or hosted workspace. |
 | Google Slides | DeckMark keeps the deck in Markdown and works offline without a cloud account. |
 
