@@ -27,14 +27,18 @@ const copy = {
 		title: /notes and slides/,
 		h1: 'Markdown notes and slides, on your device',
 		facts: ['No account', 'Works offline', 'Open source'],
-		desktop: 'Download DeckMark Desktop (Beta)',
+		desktop: 'Desktop app (Beta)',
+		lead: /^Plain Markdown files in one local library\./,
+		demo: 'Open a demo document',
 		slides: 'Slides, not just notes'
 	},
 	fr: {
 		title: /présentations Markdown/,
 		h1: 'Notes et présentations Markdown, sur votre appareil',
 		facts: ['Sans compte', 'Fonctionne hors ligne', 'Open source'],
-		desktop: 'Télécharger DeckMark Desktop (Beta)',
+		desktop: 'Application Desktop (Beta)',
+		lead: /^Des fichiers Markdown simples dans une bibliothèque locale\./,
+		demo: 'Ouvrir un document de démo',
 		slides: 'Des présentations, pas seulement des notes'
 	}
 };
@@ -68,6 +72,14 @@ for (const locale of ['en', 'fr'] as const) {
 			}
 			await expect(page.getByRole('heading', { level: 2, name: text.slides })).toBeVisible();
 
+			// One short supporting sentence follows the title, then the fact chips.
+			const intro = page.locator('.welcome-intro');
+			await expect(intro.locator('p')).toHaveCount(1);
+			await expect(intro.locator('p')).toHaveText(text.lead);
+
+			// The demo button carries its label only. A side badge reads as a shortcut.
+			await expect(page.getByTestId('welcome-demo')).toHaveText(text.demo);
+
 			for (const id of [
 				'welcome-new',
 				'welcome-new-presentation',
@@ -79,6 +91,9 @@ for (const locale of ['en', 'fr'] as const) {
 
 			const desktop = page.getByTestId('welcome-desktop-link');
 			await expect(desktop).toContainText(text.desktop);
+			// The label stays on one line at desktop width.
+			const lines = await desktop.locator('span').evaluate((node) => node.getClientRects().length);
+			expect(lines).toBe(1);
 			await expect(desktop).toHaveAttribute(
 				'href',
 				/github\.com\/ThomasCrouzet\/deckmark\/releases\?q=desktop/
@@ -142,6 +157,65 @@ test.describe('first visit actions', () => {
 		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
 		await expect(page.locator('.welcome-pitch')).toHaveCount(0);
 	});
+});
+
+// Contrast of a text color on its own background, from the computed styles.
+// Both colors go through a canvas so any CSS color syntax reduces to RGBA.
+async function kbdContrast(page: Page, button: string) {
+	return page.evaluate((selector) => {
+		const rgba = (value: string) => {
+			const canvas = document.createElement('canvas');
+			canvas.width = canvas.height = 1;
+			const context = canvas.getContext('2d', { willReadFrequently: true })!;
+			context.clearRect(0, 0, 1, 1);
+			context.fillStyle = value;
+			context.fillRect(0, 0, 1, 1);
+			const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+			return { r, g, b, a: a / 255 };
+		};
+		const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
+			const [lr, lg, lb] = [r, g, b].map((c) => {
+				const v = c / 255;
+				return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+			});
+			return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+		};
+		const host = document.querySelector(selector)!;
+		const kbd = host.querySelector('kbd')!;
+		const bg = rgba(getComputedStyle(host).backgroundColor);
+		const fg = rgba(getComputedStyle(kbd).color);
+		const blended = {
+			r: fg.r * fg.a + bg.r * (1 - fg.a),
+			g: fg.g * fg.a + bg.g * (1 - fg.a),
+			b: fg.b * fg.a + bg.b * (1 - fg.a)
+		};
+		const [hi, lo] = [luminance(blended), luminance(bg)].sort((x, y) => y - x);
+		return { ratio: (hi + 0.05) / (lo + 0.05), label: kbd.textContent?.trim() ?? '' };
+	}, button);
+}
+
+for (const theme of ['light', 'dark'] as const) {
+	test(`the primary action shortcut hint is readable in ${theme}`, async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await start(page, 'en', theme);
+		const { ratio, label } = await kbdContrast(page, '[data-testid="welcome-new"]');
+		expect(label).not.toBe('');
+		expect(ratio).toBeGreaterThanOrEqual(4.5);
+	});
+}
+
+test('the first-visit content starts high on a desktop window', async ({ page }) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await start(page, 'en');
+	// Offsets count from the top of the home area, below the app header.
+	const offsets = await page.evaluate(() => {
+		const shell = document.querySelector('.welcome-shell')!.getBoundingClientRect().top;
+		const top = (selector: string) =>
+			document.querySelector(selector)!.getBoundingClientRect().top - shell;
+		return { console: top('.welcome-console'), primary: top('[data-testid="welcome-new"]') };
+	});
+	expect(offsets.console).toBeLessThanOrEqual(64);
+	expect(offsets.primary).toBeLessThanOrEqual(120);
 });
 
 for (const [name, viewport] of [

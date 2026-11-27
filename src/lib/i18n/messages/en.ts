@@ -1283,7 +1283,6 @@ export const en = {
 
 	// welcome
 	'welcome.titleText': 'Markdown notes and slides, on your device',
-	'welcome.demoLabel': 'Demo',
 	'welcome.importMd': 'Import .md',
 	'welcome.initializeLabel': 'Initialize workspace',
 	'welcome.legendCloseTab': 'Close tab',

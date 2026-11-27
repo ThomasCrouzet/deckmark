@@ -1,7 +1,6 @@
 export const landingEn = {
 	'landing.kicker': 'Local-first Markdown notes and slides',
-	'landing.lead':
-		'Notes and slide decks are plain Markdown files in one local library. Everything runs in this tab.',
+	'landing.lead': 'Plain Markdown files in one local library. Works offline, with no account.',
 	'landing.factsLabel': 'Key facts',
 	'landing.factNoAccount': 'No account',
 	'landing.factOffline': 'Works offline',
@@ -22,7 +21,7 @@ export const landingEn = {
 	'landing.previewItemOne': 'Ship the first version',
 	'landing.previewItemTwo': 'Collect feedback',
 	'landing.desktopLead': 'Want files on your disk?',
-	'landing.desktopLink': 'Download DeckMark Desktop (Beta)',
+	'landing.desktopLink': 'Desktop app (Beta)',
 	'landing.desktopHint':
 		'For macOS, Windows and Linux. The installers are unsigned. Opens GitHub in a new tab.',
 	'landing.githubLink': 'Source code on GitHub',

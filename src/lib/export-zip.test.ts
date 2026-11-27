@@ -39,22 +39,22 @@ describe('library ZIP export budget', () => {
 		note(index, `# ${index}\n${'x'.repeat(13 * MIB)}`)
 	);
 
-	it('stops at 300 documents in Web Light', async () => {
+	it('stops at 300 documents in DeckMark Web', async () => {
 		await expect(exportFor('web', manyNotes)).rejects.toThrow('Library export document limit');
 		expect(saved).not.toHaveBeenCalled();
 	});
 
-	it('accepts 301 documents in Desktop Complete', async () => {
+	it('accepts 301 documents in DeckMark Desktop', async () => {
 		await expect(exportFor('desktop', manyNotes)).resolves.toBe(true);
 		expect(saved).toHaveBeenCalledOnce();
 	});
 
-	it('stops above 64 MiB in Web Light', async () => {
+	it('stops above 64 MiB in DeckMark Web', async () => {
 		await expect(exportFor('web', largeNotes)).rejects.toThrow('Library export size limit');
 		expect(saved).not.toHaveBeenCalled();
 	});
 
-	it('accepts 65 MiB in Desktop Complete', async () => {
+	it('accepts 65 MiB in DeckMark Desktop', async () => {
 		await expect(exportFor('desktop', largeNotes)).resolves.toBe(true);
 		expect(saved).toHaveBeenCalledOnce();
 	});

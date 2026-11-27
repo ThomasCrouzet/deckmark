@@ -1311,7 +1311,6 @@ export const fr: Record<MessageKey, string> = {
 
 	// welcome
 	'welcome.titleText': 'Notes et présentations Markdown, sur votre appareil',
-	'welcome.demoLabel': 'Démo',
 	'welcome.importMd': 'Importer .md',
 	'welcome.initializeLabel': 'Initialiser l’espace',
 	'welcome.legendCloseTab': "Fermer l'onglet",
