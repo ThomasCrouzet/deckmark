@@ -134,9 +134,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-tree-proof.mjs --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --workflow desktop.yml --output "$GITHUB_OUTPUT"
-      - name: Detect a Rust dependency change on main
+      - name: Detect a Rust cache input change on main
         # A proven merge skips the native jobs, so their caches do not save.
-        # desktop-cache-warm rebuilds them when the Rust dependencies change.
+        # desktop-cache-warm rebuilds them when an input of the cache key
+        # changes: the Rust dependencies, the toolchain file, or this workflow
+        # (the toolchain version and the shared keys live here).
         id: lock
         if: github.event_name == 'push'
         env:
@@ -144,7 +146,7 @@ jobs:
         run: |
           if [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
-          elif [ -n "$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" -- src-tauri/Cargo.lock src-tauri/Cargo.toml rust-toolchain.toml)" ]; then
+          elif [ -n "$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" -- src-tauri/Cargo.lock src-tauri/Cargo.toml rust-toolchain.toml .github/workflows/desktop.yml)" ]; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           else
             echo 'changed=false' >> "$GITHUB_OUTPUT"
@@ -587,8 +589,9 @@ jobs:
 
   desktop-cache-warm:
     # A proven merge skips every Rust job on main, so no main cache entry
-    # saves. When the merge changes the Rust dependencies or toolchain, this
-    # job builds the two cache entries for the next pull requests. It gates
+    # saves. When the merge changes an input of the cache key (Rust
+    # dependencies, toolchain or this workflow), this job builds the two cache
+    # entries for the next pull requests. It gates
     # nothing, and a failed build step does not fail the job.
     needs: [changes]
     if: >-

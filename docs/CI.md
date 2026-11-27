@@ -243,7 +243,7 @@ the reason for the pin, not a claim about current duration.
 | `native-smoke` (Linux, Windows, macOS) | `changes` | Builds one debug test app and runs the smoke suite |
 | `native-benchmark` (Linux, Windows, macOS) | `changes` | Builds one debug test app and measures the benchmark |
 | `desktop-validation` | All of the above | Final aggregate gate |
-| `desktop-cache-warm` (3 OS, 2 kinds) | `changes` | Only a proven main merge that changes Rust dependencies: rebuilds the Rust caches; gates nothing |
+| `desktop-cache-warm` (3 OS, 2 kinds) | `changes` | Only a proven main merge that changes `Cargo.lock`, `Cargo.toml`, `rust-toolchain.toml` or `desktop.yml`: rebuilds the Rust caches; gates nothing |
 
 `native-smoke` and `native-benchmark` each build the isolated debug test
 application per operating system. Both record the native source before and after
