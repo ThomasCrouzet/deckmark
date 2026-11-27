@@ -217,7 +217,8 @@ function gate(overrides) {
 		TIER: 'full',
 		RESOLVE_RESULT: 'success',
 		VALIDATE_RESULT: 'success',
-		NATIVE_RESULT: 'success',
+		NATIVE_SMOKE_RESULT: 'success',
+		NATIVE_BENCHMARK_RESULT: 'success',
 		WEB_BUILD_RESULT: 'success',
 		WEB_BENCHMARK_RESULT: 'success',
 		...overrides
@@ -262,7 +263,8 @@ test('the validation gate rejects a deferred, cancelled or incomplete matrix', (
 	for (const name of [
 		'RESOLVE_RESULT',
 		'VALIDATE_RESULT',
-		'NATIVE_RESULT',
+		'NATIVE_SMOKE_RESULT',
+		'NATIVE_BENCHMARK_RESULT',
 		'WEB_BUILD_RESULT',
 		'WEB_BENCHMARK_RESULT'
 	]) {
@@ -699,11 +701,11 @@ test('a valid publish runs the build, publication and CLI chain', () => {
 test('the Desktop workflow owns validation, release creation and publication', () => {
 	for (const job of [
 		'changes',
-		'resolve-source',
 		'validate-desktop',
 		'web-build',
 		'web-benchmark',
-		'native-validation',
+		'native-smoke',
+		'native-benchmark',
 		'desktop-validation',
 		'release-please',
 		'plan-release',
@@ -740,7 +742,9 @@ test('the Desktop workflow owns validation, release creation and publication', (
 	assert.match(releaseJob, /concurrency:\n\s+group: release-please/);
 
 	const planJob = jobBlock(DESKTOP_WORKFLOW, 'plan-release');
-	assert.match(planJob, /needs: \[changes, resolve-source, release-please, desktop-validation\]/);
+	assert.match(planJob, /needs: \[changes, release-please, desktop-validation\]/);
+	assert.match(planJob, /RESOLVE_RESULT: \$\{\{ needs\.changes\.outputs\.resolve \}\}/);
+	assert.doesNotMatch(DESKTOP_WORKFLOW, /resolve-source/, 'the source identity lives in changes');
 	assert.match(planJob, /node scripts\/ci-release-coordinator\.mjs plan/);
 	assert.match(planJob, /build: \$\{\{ steps\.plan\.outputs\.build \}\}/);
 	assert.match(planJob, /publish: \$\{\{ steps\.plan\.outputs\.publish \}\}/);
@@ -832,15 +836,21 @@ test('the source command validates the tag and the run commit', () => {
 test('the validation matrix keeps its existing job names and inputs', () => {
 	const validate = jobBlock(DESKTOP_WORKFLOW, 'validate-desktop');
 	assert.match(validate, /platform: \[ubuntu-24\.04, windows-2022, macos-15\]/);
-	const native = jobBlock(DESKTOP_WORKFLOW, 'native-validation');
-	assert.match(native, /platform: \[ubuntu-24\.04, windows-2022, macos-15\]/);
+	for (const job of ['native-smoke', 'native-benchmark']) {
+		assert.match(
+			jobBlock(DESKTOP_WORKFLOW, job),
+			/platform: \[ubuntu-24\.04, windows-2022, macos-15\]/,
+			job
+		);
+	}
 	// The cached Rust dependency audit stays in the Rust matrix.
 	assert.match(validate, /cargo-audit/);
 	assert.match(validate, /--deny unsound/);
 	// The required aggregate still requires every matrix result.
 	const gate = jobBlock(DESKTOP_WORKFLOW, 'desktop-validation');
 	assert.match(gate, /VALIDATE_RESULT/);
-	assert.match(gate, /NATIVE_RESULT/);
+	assert.match(gate, /NATIVE_SMOKE_RESULT/);
+	assert.match(gate, /NATIVE_BENCHMARK_RESULT/);
 	assert.match(gate, /WEB_BENCHMARK_RESULT/);
 });
 

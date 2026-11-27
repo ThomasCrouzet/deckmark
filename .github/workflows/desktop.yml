@@ -40,16 +40,23 @@ env:
 
 jobs:
   changes:
+    # One policy job: the path filter, the tier, the release coordinator
+    # tests and the source identity. Every validation job reads its outputs.
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
       required: ${{ steps.filter.outputs.required }}
       full: ${{ steps.tier.outputs.full }}
       tier: ${{ steps.tier.outputs.tier }}
+      sha: ${{ steps.source.outputs.sha }}
+      # success when the source identity was resolved, skipped when the path
+      # filter or the tier did not request Desktop validation.
+      resolve: ${{ steps.source.outcome }}
     steps:
-      - name: Checkout change range
+      - name: Checkout requested source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Detect Desktop changes
@@ -85,27 +92,9 @@ jobs:
         # routing, aggregate and CLI-deliverable checks run before the matrix,
         # so a broken release policy fails here and not at publication.
         run: node --test scripts/desktop-release-orchestration.test.mjs scripts/ci-release-coordinator.test.mjs scripts/native-smoke-process.test.mjs
-
-  resolve-source:
-    needs: changes
-    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      sha: ${{ steps.source.outputs.sha }}
-    steps:
-      - name: Checkout requested source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.release_tag || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version-file: .node-version
       - name: Resolve and validate source identity
         id: source
+        if: steps.filter.outputs.required == 'true' && steps.tier.outputs.full == 'true'
         shell: bash
         run: |
           tag_sha=''
@@ -119,8 +108,8 @@ jobs:
             --output "$GITHUB_OUTPUT"
 
   validate-desktop:
-    needs: [changes, resolve-source]
-    if: needs.changes.outputs.full == 'true'
+    needs: [changes]
+    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -131,7 +120,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: Configure Ubuntu APT
         if: runner.os == 'Linux'
@@ -196,15 +185,15 @@ jobs:
     # One production Web build for every browser benchmark. The benchmark
     # verifies provenance before it serves these exact bytes. A root build is a
     # different configuration from the public project-path build.
-    needs: [changes, resolve-source]
-    if: needs.changes.outputs.full == 'true'
+    needs: [changes]
+    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -222,7 +211,7 @@ jobs:
       - name: Upload web benchmark build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: web-build-${{ needs.resolve-source.outputs.sha }}
+          name: web-build-${{ needs.changes.outputs.sha }}
           path: build/
           include-hidden-files: true
           if-no-files-found: error
@@ -232,8 +221,8 @@ jobs:
     # Web measurements depend on one verified frontend build. They do not wait
     # for Rust or native validation. The final desktop-validation gate still
     # requires every platform result.
-    needs: [changes, resolve-source, web-build]
-    if: needs.changes.outputs.full == 'true'
+    needs: [changes, web-build]
+    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -244,7 +233,7 @@ jobs:
       - name: Checkout verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -265,7 +254,7 @@ jobs:
       - name: Download verified web build
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: web-build-${{ needs.resolve-source.outputs.sha }}
+          name: web-build-${{ needs.changes.outputs.sha }}
           path: build/
       - name: Measure web benchmark
         run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
@@ -279,24 +268,22 @@ jobs:
           test -f "$REPORT" || { echo "No benchmark report at $REPORT."; exit 0; }
           node -e 'const r = JSON.parse(require("fs").readFileSync(process.env.REPORT, "utf8")); console.log(JSON.stringify(r.failures ?? r, null, 2).slice(0, 60000));'
 
-  native-validation:
-    # One debug test application per OS. The job builds once, runs the smoke
-    # cases, then measures the benchmark after every smoke process stops. The
-    # sample counts, fixtures, budgets and failure propagation are unchanged.
-    # A debug application never reaches a public installer.
-    needs: [changes, resolve-source]
-    if: needs.changes.outputs.full == 'true'
+  native-smoke:
+    # One debug test application per OS for the smoke cases on the real
+    # WebView. A debug application never reaches a public installer.
+    needs: [changes]
+    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 55
+    timeout-minutes: 40
     steps:
       - name: Checkout verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: Verify Apple Silicon runner
         if: runner.os == 'macOS'
@@ -343,6 +330,63 @@ jobs:
       - name: Exercise actual native WebView
         if: runner.os != 'Linux'
         run: node scripts/native-smoke.mjs
+
+  native-benchmark:
+    # A separate debug test application per OS for the benchmark. No smoke
+    # process runs on this runner, so the measurement never competes with a
+    # smoke process. The sample counts, fixtures, budgets and failure
+    # propagation are unchanged.
+    needs: [changes]
+    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-24.04, windows-2022, macos-15]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+          persist-credentials: false
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = 'arm64'
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Configure Ubuntu APT
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/configure-ubuntu-apt.sh
+      - name: Install Linux WebView and virtual display
+        if: runner.os == 'Linux'
+        timeout-minutes: 20
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-daemon dbus-bin
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
+      - name: Rust cache
+        uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Record native source before build
+        run: node scripts/native-source.mjs native-test-results/source-before-build
+      - name: Build isolated native test app
+        run: npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+        env:
+          BASE_PATH: ''
+      - name: Record native source after build
+        if: always()
+        run: node scripts/native-source.mjs native-test-results/source-after-build
       - name: Measure Linux WebKitGTK benchmark
         if: runner.os == 'Linux'
         shell: bash
@@ -356,7 +400,7 @@ jobs:
 
   desktop-validation:
     name: desktop-validation
-    needs: [changes, resolve-source, validate-desktop, web-build, web-benchmark, native-validation]
+    needs: [changes, validate-desktop, web-build, web-benchmark, native-smoke, native-benchmark]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -378,9 +422,10 @@ jobs:
           VALIDATION_REQUIRED: ${{ needs.changes.outputs.required }}
           FULL: ${{ needs.changes.outputs.full }}
           TIER: ${{ needs.changes.outputs.tier }}
-          RESOLVE_RESULT: ${{ needs.resolve-source.result }}
+          RESOLVE_RESULT: ${{ needs.changes.outputs.resolve }}
           VALIDATE_RESULT: ${{ needs.validate-desktop.result }}
-          NATIVE_RESULT: ${{ needs.native-validation.result }}
+          NATIVE_SMOKE_RESULT: ${{ needs.native-smoke.result }}
+          NATIVE_BENCHMARK_RESULT: ${{ needs.native-benchmark.result }}
           WEB_BUILD_RESULT: ${{ needs.web-build.result }}
           WEB_BENCHMARK_RESULT: ${{ needs.web-benchmark.result }}
         run: node scripts/ci-release-coordinator.mjs gate
@@ -423,7 +468,7 @@ jobs:
     # One decision for the whole run. It reads the release result and the
     # validation gate, then states the source SHA and tag every later job must
     # use. It fails closed when a required result is missing or unsuccessful.
-    needs: [changes, resolve-source, release-please, desktop-validation]
+    needs: [changes, release-please, desktop-validation]
     if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -455,7 +500,7 @@ jobs:
           RELEASE_TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
           RELEASE_PLEASE_RESULT: ${{ needs.release-please.result }}
           VALIDATION_RESULT: ${{ needs.desktop-validation.result }}
-          RESOLVE_RESULT: ${{ needs.resolve-source.result }}
+          RESOLVE_RESULT: ${{ needs.changes.outputs.resolve }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
           # The push path reads the tag from release-please. The manual path

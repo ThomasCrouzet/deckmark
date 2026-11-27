@@ -92,7 +92,7 @@ function requireSuccess(label, value) {
 
 /**
  * A release commit must change a Desktop path, otherwise the validation jobs
- * and the source resolution are skipped. Say so, instead of reporting only a
+ * and the source resolution step of the changes job are skipped. Say so, instead of reporting only a
  * skipped dependency.
  * @param {string} value
  */
@@ -225,7 +225,8 @@ export function planRelease(input) {
  *   tier: string,
  *   resolveResult: string,
  *   validateResult: string,
- *   nativeResult: string,
+ *   nativeSmokeResult: string,
+ *   nativeBenchmarkResult: string,
  *   webBuildResult: string,
  *   webBenchmarkResult: string
  * }} input
@@ -255,7 +256,8 @@ export function evaluateValidationGate(input) {
 	const expected = [
 		['RESOLVE_RESULT', input.resolveResult],
 		['VALIDATE_RESULT', input.validateResult],
-		['NATIVE_RESULT', input.nativeResult],
+		['NATIVE_SMOKE_RESULT', input.nativeSmokeResult],
+		['NATIVE_BENCHMARK_RESULT', input.nativeBenchmarkResult],
 		['WEB_BUILD_RESULT', input.webBuildResult],
 		['WEB_BENCHMARK_RESULT', input.webBenchmarkResult]
 	];
@@ -566,7 +568,8 @@ function runGate() {
 		tier: read('TIER'),
 		resolveResult: read('RESOLVE_RESULT'),
 		validateResult: read('VALIDATE_RESULT'),
-		nativeResult: read('NATIVE_RESULT'),
+		nativeSmokeResult: read('NATIVE_SMOKE_RESULT'),
+		nativeBenchmarkResult: read('NATIVE_BENCHMARK_RESULT'),
 		webBuildResult: read('WEB_BUILD_RESULT'),
 		webBenchmarkResult: read('WEB_BENCHMARK_RESULT')
 	});
