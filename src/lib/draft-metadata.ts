@@ -807,8 +807,11 @@ export function installDraftMetadataHooks(): void {
 			Object.prototype.hasOwnProperty.call(changes, key)
 		);
 		if (!touchesMetadata) {
-			// Dexie omits fields whose value did not change. Reusing the durable
-			// key keeps an unchanged save free of a hash and a link scan.
+			// The source did not change, so the durable key is still exact. A row
+			// from the save queue (close, reopen, reorder) has no `metadata` field,
+			// and a put would drop the key. Carry the durable key forward: without
+			// it the next boot sees an incomplete projection and reads every body.
+			// This also keeps an unchanged save free of a hash and a link scan.
 			recordMeasure(
 				'metadata',
 				decision?.mode ?? 'reused',
@@ -816,7 +819,10 @@ export function installDraftMetadataHooks(): void {
 				startedAt,
 				decision?.reason ?? 'reused'
 			);
-			return { manifest };
+			const durable = (row as DraftRow).metadata;
+			const explicit =
+				Object.prototype.hasOwnProperty.call(changes, 'metadata') && changes.metadata !== undefined;
+			return durable !== undefined && !explicit ? { manifest, metadata: durable } : { manifest };
 		}
 		const mode = decision?.mode ?? 'full';
 		recordMeasure(
