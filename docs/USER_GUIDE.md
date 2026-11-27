@@ -187,6 +187,8 @@ History and disk conflicts also show line comparisons. Large comparisons identif
 
 Wiki links reopen closed targets without making a copy. A rename updates incoming name-based links, including links in closed documents. Code examples and displayed aliases stay intact. A backup merge updates identifier-based links to the imported IDs. If several documents have the same target name, select the correct document in the library.
 
+In Read mode, click a wiki link to open its target. In Edit mode, a plain click places the caret. Press `Cmd` and click (`Ctrl` and click on Windows and Linux) to open the link. You can also put the caret in the link and press `Option+Return` (`Alt+Enter` on Windows and Linux), or run **Open the link under the caret** from the command palette. The demo document describes these steps with the keys of your platform.
+
 In Web Light, linked disk files need the File System Access API. Chromium
 provides this API. Firefox and Safari use a download fallback. A browser link
 covers only the file that you select and does not give the app unrestricted

@@ -326,6 +326,7 @@
 				inlineImageConfig: inlineImageConfigCtx,
 				codeBlockConfig: codeBlockConfigCtx,
 				withPlainTextLanguage,
+				wikiLinkAt,
 				wikiLinkPlugins,
 				installTableBreaks,
 				installTableParagraph,
@@ -1002,6 +1003,62 @@
 					}
 				})
 		);
+		// Edit mode renders a wiki link as styled text, because a plain click must
+		// place the caret. Ctrl+click (Cmd+click on macOS) and Alt+Enter at the
+		// caret follow the link, as Read mode does with a plain click.
+		const followWikiLink = (view: EditorView, pos: number): boolean => {
+			const hit = wikiLinkAt(view.state.doc, pos);
+			if (!hit) return false;
+			filesStore.openWikiLink(hit.target, idForMount);
+			return true;
+		};
+		const wikiLinkNavigationPlugin = prosePlugin(
+			() =>
+				new Plugin({
+					view(view: EditorView) {
+						const openAtCaret = () => {
+							if (!followWikiLink(view, view.state.selection.head)) {
+								notify.info(t('editor.noWikiLinkAtCaret'));
+							}
+						};
+						window.addEventListener('mdsh:open-wiki-link', openAtCaret);
+						return {
+							destroy: () => window.removeEventListener('mdsh:open-wiki-link', openAtCaret)
+						};
+					},
+					props: {
+						handleDOMEvents: {
+							click(view: EditorView, event: Event) {
+								const mouse = event as MouseEvent;
+								if (!(mouse.ctrlKey || mouse.metaKey) || mouse.altKey || mouse.shiftKey)
+									return false;
+								if (mouse.button !== 0 || !view.editable) return false;
+								const link = (mouse.target as Element | null)?.closest('span[data-mdsh-wiki-link]');
+								if (!link) return false;
+								const at = view.posAtCoords({ left: mouse.clientX, top: mouse.clientY });
+								if (!at || !followWikiLink(view, at.pos)) return false;
+								mouse.preventDefault();
+								return true;
+							}
+						},
+						handleKeyDown(view: EditorView, event: KeyboardEvent) {
+							if (
+								event.key !== 'Enter' ||
+								!event.altKey ||
+								event.ctrlKey ||
+								event.metaKey ||
+								event.shiftKey ||
+								event.isComposing ||
+								!view.editable
+							)
+								return false;
+							if (!followWikiLink(view, view.state.selection.head)) return false;
+							event.preventDefault();
+							return true;
+						}
+					}
+				})
+		);
 		const imageTitlePlugin = remarkPlugin(
 			'mdshNormalizeImageTitles',
 			() => () => normalizeImageTitlesForMilkdown
@@ -1089,6 +1146,7 @@
 		instance.editor.use(headingLevelPlugin);
 		instance.editor.use(tabIndentPlugin);
 		instance.editor.use(documentBoundaryKeysPlugin);
+		instance.editor.use(wikiLinkNavigationPlugin);
 		instance.editor.use(noteTypePlugin);
 		instance.editor.use(markdownRevisionPlugin);
 		// Crepe builds the language loader when the first code block view starts.

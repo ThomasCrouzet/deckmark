@@ -234,3 +234,85 @@ test.describe('Wiki-links navigation + backlinks', () => {
 		await expect(backlinksSection.getByText('ref-b')).toBeVisible();
 	});
 });
+
+test.describe('Wiki links in Edit mode', () => {
+	test.beforeEach(async ({ page }) => {
+		await resetAppState(page);
+		await seedFiles(page, [
+			{ name: 'Ideas', content: '# Ideas\n\nTarget note.\n' },
+			{ name: 'Diagrams', content: '# Diagrams\n\nSecond target.\n' },
+			{
+				name: 'edit-links',
+				content: '# Edit links\n\nSee [[Ideas|the idea list]] and [[Diagrams]] today.\n'
+			}
+		]);
+		await page.locator('button[data-mode="wysiwyg"]').click();
+		await expect(page.locator('.ProseMirror')).toBeVisible();
+	});
+
+	const nameInput = (page: import('@playwright/test').Page) =>
+		page.locator('input[aria-label^="Nom du fichier"]');
+
+	test('Ctrl+click opens the target and a plain click only places the caret', async ({ page }) => {
+		const link = page.locator('.ProseMirror span[data-mdsh-wiki-link]').first();
+		await expect(link).toHaveText('[[Ideas|the idea list]]');
+		// The tooltip says how to follow the link on this platform.
+		await expect(link).toHaveAttribute('title', /(?:Ctrl|⌘)\+clic pour ouvrir ce lien/);
+
+		await link.click({ position: { x: 20, y: 5 } });
+		await expect(nameInput(page)).toHaveValue('edit-links');
+		const caretInLink = await page.evaluate(() => {
+			const focus = window.getSelection()?.focusNode;
+			return Boolean(focus?.parentElement?.closest('[data-mdsh-wiki-link]'));
+		});
+		expect(caretInLink, 'a plain click keeps the caret in the link').toBe(true);
+
+		await link.click({ position: { x: 20, y: 5 }, modifiers: ['ControlOrMeta'] });
+		await expect(nameInput(page)).toHaveValue('Ideas');
+		await expect(page.getByRole('alert')).toHaveCount(0);
+	});
+
+	test('Ctrl+click follows the right link when two links share one element', async ({ page }) => {
+		const paragraph = page.locator('.ProseMirror > p').filter({ hasText: 'See' });
+		await paragraph.click();
+		await page.keyboard.press('End');
+		await page.keyboard.type(' [[Ideas]][[Diagrams]]');
+		const merged = paragraph.locator('span[data-mdsh-wiki-link]').last();
+		await expect(merged).toContainText('[[Diagrams]]');
+		const box = (await merged.boundingBox())!;
+		await page.keyboard.down('ControlOrMeta');
+		await page.mouse.click(box.x + box.width - 6, box.y + box.height / 2);
+		await page.keyboard.up('ControlOrMeta');
+		await expect(nameInput(page)).toHaveValue('Diagrams');
+	});
+
+	test('Alt+Enter and the palette command follow the link at the caret', async ({ page }) => {
+		const link = page.locator('.ProseMirror span[data-mdsh-wiki-link]').first();
+		await link.click({ position: { x: 20, y: 5 } });
+		await page.keyboard.press('Alt+Enter');
+		await expect(nameInput(page)).toHaveValue('Ideas');
+
+		await page.locator('aside').getByText('edit-links').first().click();
+		await expect(nameInput(page)).toHaveValue('edit-links');
+		await page.locator('button[data-mode="wysiwyg"]').click();
+		await page
+			.locator('.ProseMirror span[data-mdsh-wiki-link]')
+			.nth(1)
+			.click({ position: { x: 20, y: 5 } });
+		await page.keyboard.press('ControlOrMeta+Shift+P');
+		const palette = page.getByRole('dialog', { name: 'Palette de commandes' });
+		await expect(palette).toBeVisible();
+		await palette.locator('input[type="text"]').fill('lien sous');
+		await expect(palette.getByRole('option').first()).toContainText(
+			'Ouvrir le lien sous le curseur'
+		);
+		await page.keyboard.press('Enter');
+		await expect(nameInput(page)).toHaveValue('Diagrams');
+	});
+
+	test('Alt+Enter outside a link does nothing', async ({ page }) => {
+		await page.locator('.ProseMirror > h1').click();
+		await page.keyboard.press('Alt+Enter');
+		await expect(nameInput(page)).toHaveValue('edit-links');
+	});
+});

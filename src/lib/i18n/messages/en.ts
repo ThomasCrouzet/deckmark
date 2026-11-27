@@ -513,6 +513,8 @@ export const en = {
 	'editor.ariaLabel': 'Markdown document editor',
 	'editor.previewLabel': 'Preview',
 	'editor.previewLoading': 'Rendering Mermaid…',
+	'editor.wikiLinkHint': '{key}+click to open this link',
+	'editor.noWikiLinkAtCaret': 'The caret is not in a wiki link.',
 
 	// editorPane
 	'editorPane.dropFiles': 'Drop your .md files here',
@@ -881,6 +883,8 @@ export const en = {
 	'palette.newFromTemplate': 'New: {name}',
 	'palette.noCommand': 'No command.',
 	'palette.openFileHint': 'Open the file',
+	'palette.openWikiLink': 'Open the link under the caret',
+	'palette.openWikiLinkHint': 'Edit mode: follow the wiki link at the caret',
 	'palette.presentationMode': 'Presentation mode',
 	'palette.presentationModeHint': 'Full-screen slides (separated by ---)',
 	'palette.saveAsTemplate': 'Save the file as a template…',

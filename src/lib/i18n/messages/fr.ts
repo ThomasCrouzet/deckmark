@@ -526,6 +526,8 @@ export const fr: Record<MessageKey, string> = {
 	'editor.ariaLabel': 'Éditeur du document Markdown',
 	'editor.previewLabel': 'Aperçu',
 	'editor.previewLoading': 'Rendu Mermaid…',
+	'editor.wikiLinkHint': '{key}+clic pour ouvrir ce lien',
+	'editor.noWikiLinkAtCaret': 'Le curseur n’est pas dans un lien wiki.',
 
 	// editorPane
 	'editorPane.dropFiles': 'Déposez vos fichiers .md ici',
@@ -904,6 +906,8 @@ export const fr: Record<MessageKey, string> = {
 	'palette.newFromTemplate': 'Nouveau : {name}',
 	'palette.noCommand': 'Aucune commande.',
 	'palette.openFileHint': 'Ouvrir le fichier',
+	'palette.openWikiLink': 'Ouvrir le lien sous le curseur',
+	'palette.openWikiLinkHint': 'Mode édition : suivre le lien wiki au curseur',
 	'palette.presentationMode': 'Mode présentation',
 	'palette.presentationModeHint': 'Diapositives plein écran (séparées par ---)',
 	'palette.saveAsTemplate': 'Enregistrer le fichier comme modèle…',

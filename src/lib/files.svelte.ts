@@ -65,7 +65,7 @@ import { recordVersion, createCheckpoint, createCheckpoints } from './version-hi
 import type { ReplaceOptions } from './replace';
 import { createCrossTab, type CrossTabMessage } from './cross-tab';
 import { handleCrossTabPolicy } from './cross-tab-policy';
-import { t } from '#lib/i18n/index.js';
+import { i18n, t } from '#lib/i18n/index.js';
 import { notify } from './notify.svelte';
 // Demo documents are loaded only from the explicit guided-tour action.
 import { toggleSelection, rangeSelection, clearSelection } from './selection';
@@ -2157,11 +2157,11 @@ class FilesStore {
 	 * called automatically - only from the explicit Welcome-screen button.
 	 */
 	async loadDemo(): Promise<FileItem[]> {
-		const { DEMO_DOCS } = await import('./demo-doc');
-		const created = DEMO_DOCS.map((doc) =>
+		const { demoDocs } = await import('./demo-doc');
+		const created = demoDocs(i18n.locale).map((doc) =>
 			this.createNew(doc.name, doc.content, { origin: 'created' })
 		);
-		// invariant: DEMO_DOCS is a non-empty const array, `created` has the same length.
+		// invariant: demoDocs returns a non-empty array, `created` has the same length.
 		this.setActive(created[0]!.id);
 		return created;
 	}
