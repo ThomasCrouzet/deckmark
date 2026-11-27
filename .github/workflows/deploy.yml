@@ -314,8 +314,8 @@ jobs:
     # Sixteen shards reduce the critical path without increasing the worker
     # count on one runner. The slowest single test (about 9 minutes) sets the
     # floor. The shard check compares the local report with the expected
-    # shard list. It prints executed, justified skip and retry counts. Reports
-    # stay on the runner and are not uploaded.
+    # shard list. It prints executed, justified skip, retry and flaky counts.
+    # Only a failed shard uploads its diagnostics.
     timeout-minutes: 40
     steps:
       - name: Checkout
@@ -414,10 +414,27 @@ jobs:
         if: always()
         run: node scripts/check-e2e-manifest.mjs execution "$RUNNER_TEMP/expected-shard.json" test-results/results.json
 
+      # A failed shard uploads its traces, screenshots, error context and JSON
+      # report for 3 days. A green shard uploads nothing. The fixtures are
+      # synthetic and the job holds no secret.
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-failure-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/**/trace.zip
+            test-results/**/*.png
+            test-results/**/error-context.md
+            test-results/results.json
+            ${{ runner.temp }}/expected-shard.json
+          if-no-files-found: ignore
+          retention-days: 3
+
   e2e-manifest:
     # Prove that the shard lists partition the full test list. Every list stays
-    # on this runner. No report is uploaded or archived on GitHub. This job
-    # proves the partition, not execution; each shard proves its own execution.
+    # on this runner. This job proves the partition, not execution; each shard
+    # proves its own execution.
     needs: [ci-tier]
     if: >-
       needs.ci-tier.outputs.full == 'true' &&

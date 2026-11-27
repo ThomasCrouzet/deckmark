@@ -319,6 +319,16 @@ jobs:
         run: |
           test -f "$REPORT" || { echo "No benchmark report at $REPORT."; exit 0; }
           node -e 'const r = JSON.parse(require("fs").readFileSync(process.env.REPORT, "utf8")); console.log(JSON.stringify(r.failures ?? r, null, 2).slice(0, 60000));'
+      - name: Upload benchmark failure diagnostics
+        # A failed benchmark uploads its JSON report for 3 days. A successful
+        # benchmark uploads nothing. The fixtures are synthetic.
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-benchmark-failure-${{ matrix.browser }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-benchmark-${{ matrix.browser }}.json
+          if-no-files-found: ignore
+          retention-days: 3
 
   native-smoke:
     # One debug test application per OS for the smoke cases on the real
@@ -392,6 +402,16 @@ jobs:
       - name: Exercise actual native WebView
         if: runner.os != 'Linux'
         run: node scripts/native-smoke.mjs
+      - name: Upload smoke failure diagnostics
+        # native-test-results holds the page dumps and the smoke results. It
+        # never holds the debug application.
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-smoke-failure-${{ matrix.platform }}-attempt-${{ github.run_attempt }}
+          path: native-test-results/
+          if-no-files-found: ignore
+          retention-days: 3
 
   native-benchmark:
     # A separate debug test application per OS for the benchmark. No smoke
@@ -469,6 +489,16 @@ jobs:
         if: runner.os != 'Linux'
         shell: bash
         run: node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --enforce-budgets --output "$RUNNER_TEMP/native-benchmark.json"
+      - name: Upload benchmark failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-benchmark-failure-${{ matrix.platform }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/native-benchmark.json
+            native-test-results/
+          if-no-files-found: ignore
+          retention-days: 3
 
   desktop-validation:
     name: desktop-validation

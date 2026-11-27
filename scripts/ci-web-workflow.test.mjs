@@ -543,19 +543,31 @@ test('the browser suite keeps its visual snapshot exclusions', () => {
 	}
 });
 
-test('the workflow uploads no test report, coverage or SARIF artifact', () => {
+test('only a failed job uploads test diagnostics, for 3 days, and never SARIF', () => {
 	const uploads = steps().filter(({ step }) =>
 		/actions\/upload-(?:artifact|pages-artifact)@/.test(step.uses ?? '')
 	);
 	assert.ok(uploads.length > 0);
-	for (const { job, step } of uploads) {
-		const path = String(step.with?.path ?? '');
-		assert.doesNotMatch(
-			path,
-			/test-results|playwright-report|production-report|coverage|\.nyc_output|sarif/i,
-			job
-		);
+	const reports = /test-results|playwright-report|production-report|coverage|\.nyc_output|sarif/i;
+	const diagnostics = uploads.filter(({ step }) => reports.test(String(step.with?.path ?? '')));
+	assert.deepEqual(
+		diagnostics.map(({ job }) => job),
+		['e2e-shard'],
+		'only the shard uploads test diagnostics'
+	);
+	for (const { job, step } of diagnostics) {
+		assert.equal(step.if, 'failure()', `${job} uploads diagnostics only on failure`);
+		assert.equal(step.with['retention-days'], 3, job);
+		assert.equal(step.with['if-no-files-found'], 'ignore', job);
+		assert.doesNotMatch(String(step.with.path), /playwright-report|coverage|sarif/i, job);
 	}
+	const manifest = workflow.jobs['e2e-shard'].steps.findIndex((step) =>
+		/check-e2e-manifest\.mjs execution/.test(step.run ?? '')
+	);
+	const upload = workflow.jobs['e2e-shard'].steps.findIndex(
+		(step) => step.name === 'Upload failure diagnostics'
+	);
+	assert.ok(upload > manifest, 'the upload also covers a failed flaky or manifest gate');
 	assert.doesNotMatch(source, /upload-sarif/);
 });
 
