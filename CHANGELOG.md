@@ -5,6 +5,17 @@ All notable changes to **DeckMark** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1](https://github.com/ThomasCrouzet/deckmark/compare/v2.6.0...v2.6.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **ci:** pin the Playwright 1.65.1 browser image ([498a6ea](https://github.com/ThomasCrouzet/deckmark/commit/498a6ea4f8033dc47f7823e3390b577a8836f2b2))
+* **deps:** update cookie to 0.18.3 for RUSTSEC-2026-0594 ([d7e01a4](https://github.com/ThomasCrouzet/deckmark/commit/d7e01a4e2dbecd4ba340539deaac0ba233a10656))
+* **editor:** let code blocks return to plain text ([abbf454](https://github.com/ThomasCrouzet/deckmark/commit/abbf4540917d10e16abe02531793af332a7dcc83)), closes [#775](https://github.com/ThomasCrouzet/deckmark/issues/775)
+* **editor:** move the caret to the document boundary in the editor state ([e9efb5f](https://github.com/ThomasCrouzet/deckmark/commit/e9efb5f30f59543efb6b396cf00394f145472ca0)), refs [#769](https://github.com/ThomasCrouzet/deckmark/issues/769)
+* **scroll-nav:** keep Alt+End at the real bottom of a virtualized note ([97eefcb](https://github.com/ThomasCrouzet/deckmark/commit/97eefcbb3c4642606e103a303b895224e1cdf206))
+
 ## [2.6.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.5.6...v2.6.0) (2026-11-22)
 
 
