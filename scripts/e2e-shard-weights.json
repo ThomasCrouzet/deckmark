@@ -1,48 +1,48 @@
 {
 	"version": 1,
-	"source": "Measured Playwright durations from GitHub Actions run 42338368121 e2e-shard jobs (2026-11-07). document-memory-plateau.spec.ts uses a local Chromium measurement (2026-11-18). The representative-editor-report entries use local 20-run durations from 2026-11-18 and the next measured CI run replaces them. The editor-input-latency and image-input-latency entries use local Chromium and WebKit durations from 2026-11-19 under concurrent lane load, and the next measured CI run replaces them. Paths are relative to the Playwright rootDir.",
-	"fallbackSeconds": 60,
+	"source": "Median Playwright test durations from the list reporter, all attempts, of the 8 most recent fully successful Deploy to GitHub Pages runs before 2026-11-27 08:30 UTC (64 e2e-shard job logs). A group value is the median per run of the summed test durations of one browser project and file. The fallback weight is conservative for new files. Refresh with `node scripts/e2e-shard-weights.mjs refresh --runs 8` after a shard or worker change and once a month. Paths are relative to the Playwright rootDir.",
+	"fallbackSeconds": 5,
 	"groups": [
 		{
 			"project": "chromium",
 			"file": "a11y.spec.ts",
-			"seconds": 3.7,
-			"tests": 3
+			"seconds": 4.4,
+			"tests": 4
 		},
 		{
 			"project": "chromium",
 			"file": "abrupt-exit.spec.ts",
-			"seconds": 25.7,
+			"seconds": 21.2,
 			"tests": 5
 		},
 		{
 			"project": "chromium",
 			"file": "ai-idle-privacy.spec.ts",
-			"seconds": 3.6,
+			"seconds": 3.2,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
 			"file": "ai-panel.spec.ts",
-			"seconds": 7.5,
-			"tests": 3
+			"seconds": 17.8,
+			"tests": 8
 		},
 		{
 			"project": "chromium",
 			"file": "ai-patches.spec.ts",
-			"seconds": 5.1,
-			"tests": 2
+			"seconds": 34.1,
+			"tests": 13
 		},
 		{
 			"project": "chromium",
 			"file": "ai-settings.spec.ts",
-			"seconds": 4.1,
-			"tests": 3
+			"seconds": 5.0,
+			"tests": 5
 		},
 		{
 			"project": "chromium",
 			"file": "audit-fixes.spec.ts",
-			"seconds": 4.3,
+			"seconds": 3.6,
 			"tests": 3
 		},
 		{
@@ -54,80 +54,116 @@
 		{
 			"project": "chromium",
 			"file": "audit-ui.spec.ts",
-			"seconds": 18.1,
+			"seconds": 16.0,
 			"tests": 10
 		},
 		{
 			"project": "chromium",
 			"file": "axe.spec.ts",
-			"seconds": 38.4,
+			"seconds": 28.9,
+			"tests": 7
+		},
+		{
+			"project": "chromium",
+			"file": "backup-export-bounds.spec.ts",
+			"seconds": 26.6,
+			"tests": 7
+		},
+		{
+			"project": "chromium",
+			"file": "backup-reminder.spec.ts",
+			"seconds": 22.6,
 			"tests": 7
 		},
 		{
 			"project": "chromium",
 			"file": "backup-review.spec.ts",
-			"seconds": 45.1,
-			"tests": 11
+			"seconds": 57.3,
+			"tests": 21
 		},
 		{
 			"project": "chromium",
 			"file": "binary-review.spec.ts",
-			"seconds": 7.5,
+			"seconds": 7.7,
 			"tests": 7
 		},
 		{
 			"project": "chromium",
+			"file": "binary-view-refresh.spec.ts",
+			"seconds": 4.0,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
 			"file": "bulk-delete.spec.ts",
-			"seconds": 29.6,
+			"seconds": 21.0,
 			"tests": 13
 		},
 		{
 			"project": "chromium",
 			"file": "capture-edition.spec.ts",
-			"seconds": 0.9,
+			"seconds": 0.7,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
 			"file": "capture-snippets-review.spec.ts",
-			"seconds": 2.2,
-			"tests": 5
+			"seconds": 1.6,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "code-block-language.spec.ts",
+			"seconds": 2.7,
+			"tests": 1
 		},
 		{
 			"project": "chromium",
 			"file": "code-creation.spec.ts",
-			"seconds": 4.7,
-			"tests": 3
+			"seconds": 10.3,
+			"tests": 12
 		},
 		{
 			"project": "chromium",
 			"file": "code-editor.spec.ts",
-			"seconds": 8.6,
-			"tests": 7
+			"seconds": 17.7,
+			"tests": 12
 		},
 		{
 			"project": "chromium",
 			"file": "code-focus-review.spec.ts",
-			"seconds": 2.8,
+			"seconds": 2.5,
 			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "collection-accessibility.spec.ts",
+			"seconds": 10.3,
+			"tests": 3
 		},
 		{
 			"project": "chromium",
 			"file": "collection-views.spec.ts",
-			"seconds": 14.1,
-			"tests": 2
+			"seconds": 80.5,
+			"tests": 13
 		},
 		{
 			"project": "chromium",
 			"file": "comments.spec.ts",
-			"seconds": 6.9,
-			"tests": 2
+			"seconds": 15.7,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "container-source-publication.spec.ts",
+			"seconds": 10.8,
+			"tests": 1
 		},
 		{
 			"project": "chromium",
 			"file": "cross-window-review.spec.ts",
-			"seconds": 3.0,
-			"tests": 2
+			"seconds": 3.2,
+			"tests": 3
 		},
 		{
 			"project": "chromium",
@@ -137,597 +173,915 @@
 		},
 		{
 			"project": "chromium",
+			"file": "derived-state-spans.spec.ts",
+			"seconds": 21.0,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
 			"file": "desktop-backup-boundary.spec.ts",
-			"seconds": 0.9,
+			"seconds": 0.8,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
 			"file": "diagnostics.spec.ts",
-			"seconds": 4.2,
-			"tests": 2
+			"seconds": 8.4,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "dialog-visual-viewport.spec.ts",
+			"seconds": 6.1,
+			"tests": 3
 		},
 		{
 			"project": "chromium",
 			"file": "diff-workflows.spec.ts",
-			"seconds": 31.9,
+			"seconds": 27.7,
 			"tests": 8
 		},
 		{
 			"project": "chromium",
 			"file": "disk-comparison.spec.ts",
-			"seconds": 2.2,
+			"seconds": 2.0,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "disk-link-health.spec.ts",
+			"seconds": 2.7,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "disk-link-ownership.spec.ts",
+			"seconds": 3.8,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
 			"file": "disk-workflows.spec.ts",
-			"seconds": 16.4,
+			"seconds": 14.9,
 			"tests": 7
-		},
-		{
-			"project": "chromium",
-			"file": "document-memory-plateau.spec.ts",
-			"seconds": 360,
-			"tests": 1
 		},
 		{
 			"project": "chromium",
 			"file": "docs-check.spec.ts",
-			"seconds": 1.6,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "docs-site-export.spec.ts",
-			"seconds": 1.7,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "drop-image.spec.ts",
-			"seconds": 2.8,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "durability-review.spec.ts",
-			"seconds": 9.6,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "durability.spec.ts",
-			"seconds": 1.6,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "editor-input-latency.spec.ts",
-			"seconds": 205.1,
-			"tests": 16
-		},
-		{
-			"project": "chromium",
-			"file": "editor-state.spec.ts",
-			"seconds": 23.4,
-			"tests": 4
-		},
-		{
-			"project": "chromium",
-			"file": "editor-tab.spec.ts",
-			"seconds": 8.2,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "editor-width.spec.ts",
-			"seconds": 46.5,
-			"tests": 9
-		},
-		{
-			"project": "chromium",
-			"file": "export-cancellation.spec.ts",
-			"seconds": 18.6,
-			"tests": 6
-		},
-		{
-			"project": "chromium",
-			"file": "export-profiles.spec.ts",
-			"seconds": 4.4,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "export-snapshot.spec.ts",
-			"seconds": 5.4,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "export.spec.ts",
-			"seconds": 17.0,
-			"tests": 5
-		},
-		{
-			"project": "chromium",
-			"file": "file-navigation.spec.ts",
-			"seconds": 14.2,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "file-storage-status.spec.ts",
-			"seconds": 6.2,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "first-run-recovery.spec.ts",
-			"seconds": 0.7,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "focus-mode.spec.ts",
 			"seconds": 3.2,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "format-compat.spec.ts",
-			"seconds": 8.2,
-			"tests": 6
-		},
-		{
-			"project": "chromium",
-			"file": "frontmatter-properties.spec.ts",
-			"seconds": 5.0,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "git-web-boundary.spec.ts",
-			"seconds": 0.7,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "golden-path.spec.ts",
-			"seconds": 7.2,
 			"tests": 3
 		},
 		{
 			"project": "chromium",
-			"file": "heading-level.spec.ts",
-			"seconds": 3.6,
+			"file": "docs-site-export-html.spec.ts",
+			"seconds": 1.8,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
-			"file": "host-transfer.spec.ts",
-			"seconds": 2.3,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "image-annotations.spec.ts",
-			"seconds": 2.5,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "image-input-latency.spec.ts",
-			"seconds": 80.4,
-			"tests": 6
-		},
-		{
-			"project": "chromium",
-			"file": "image-layout.spec.ts",
-			"seconds": 5.8,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "json-tools.spec.ts",
-			"seconds": 5.6,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "keyboard-platform.spec.ts",
-			"seconds": 1.5,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "keyboard-settings.spec.ts",
-			"seconds": 7.6,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "library-workflows.spec.ts",
-			"seconds": 28.0,
-			"tests": 7
-		},
-		{
-			"project": "chromium",
-			"file": "link-theme.spec.ts",
-			"seconds": 2.8,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "linked-blocks.spec.ts",
-			"seconds": 6.0,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "locale-en.spec.ts",
-			"seconds": 1.1,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "markdown-blank-lines.spec.ts",
-			"seconds": 21.6,
-			"tests": 8
-		},
-		{
-			"project": "chromium",
-			"file": "media-consent-review.spec.ts",
-			"seconds": 20.3,
-			"tests": 7
-		},
-		{
-			"project": "chromium",
-			"file": "media-export.spec.ts",
-			"seconds": 14.1,
-			"tests": 5
-		},
-		{
-			"project": "chromium",
-			"file": "mixed-document-review.spec.ts",
-			"seconds": 10.0,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "modal-isolation-review.spec.ts",
-			"seconds": 10.5,
-			"tests": 6
-		},
-		{
-			"project": "chromium",
-			"file": "multi-select.spec.ts",
-			"seconds": 8.8,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "navigation-stats-scroll.spec.ts",
-			"seconds": 10.4,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "new-note-mode.spec.ts",
-			"seconds": 7.4,
-			"tests": 4
-		},
-		{
-			"project": "chromium",
-			"file": "note-type-guard.spec.ts",
-			"seconds": 13.7,
-			"tests": 5
-		},
-		{
-			"project": "chromium",
-			"file": "offline-review.spec.ts",
-			"seconds": 24.9,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "palette-load-review.spec.ts",
-			"seconds": 1.5,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "palette.spec.ts",
-			"seconds": 4.4,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "pdf-fidelity.spec.ts",
-			"seconds": 4.8,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "pdf-viewer.spec.ts",
-			"seconds": 2.7,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "portable-projects.spec.ts",
-			"seconds": 8.9,
-			"tests": 4
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-editor.spec.ts",
-			"seconds": 72.7,
-			"tests": 13
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-export.spec.ts",
-			"seconds": 6.2,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-files.spec.ts",
-			"seconds": 30.7,
-			"tests": 13
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-format.spec.ts",
-			"seconds": 9.3,
-			"tests": 8
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-offline.spec.ts",
-			"seconds": 4.1,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-performance.spec.ts",
-			"seconds": 4.7,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-responsive-tasks.spec.ts",
-			"seconds": 141.0,
-			"tests": 10
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-review.spec.ts",
-			"seconds": 13.9,
-			"tests": 8
-		},
-		{
-			"project": "chromium",
-			"file": "presentation-toolbar-density.spec.ts",
-			"seconds": 41.8,
-			"tests": 11
-		},
-		{
-			"project": "chromium",
-			"file": "project-archive-risks.spec.ts",
-			"seconds": 11.0,
-			"tests": 8
-		},
-		{
-			"project": "chromium",
-			"file": "project-backup.spec.ts",
-			"seconds": 6.5,
-			"tests": 4
-		},
-		{
-			"project": "chromium",
-			"file": "project-explorer.spec.ts",
-			"seconds": 21.8,
-			"tests": 7
-		},
-		{
-			"project": "chromium",
-			"file": "project-integrity.spec.ts",
-			"seconds": 6.2,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "project-link-performance.spec.ts",
+			"file": "docs-site-export-svg.spec.ts",
 			"seconds": 2.2,
 			"tests": 2
 		},
 		{
 			"project": "chromium",
-			"file": "project-media.spec.ts",
-			"seconds": 6.5,
-			"tests": 2
+			"file": "docs-site-export.spec.ts",
+			"seconds": 4.0,
+			"tests": 3
 		},
 		{
 			"project": "chromium",
-			"file": "project-scale.spec.ts",
-			"seconds": 10.0,
+			"file": "docs-site-fragments.spec.ts",
+			"seconds": 1.4,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
-			"file": "pwa.spec.ts",
-			"seconds": 15.0,
-			"tests": 4
-		},
-		{
-			"project": "chromium",
-			"file": "read-annotations.spec.ts",
-			"seconds": 19.5,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "read-preview-isolation.spec.ts",
-			"seconds": 4.9,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "reading-lists.spec.ts",
-			"seconds": 3.5,
+			"file": "docs-site-search-paths.spec.ts",
+			"seconds": 1.8,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
-			"file": "render-input-risks.spec.ts",
-			"seconds": 8.2,
-			"tests": 3
+			"file": "document-memory-plateau.spec.ts",
+			"seconds": 231.0,
+			"tests": 1
 		},
 		{
 			"project": "chromium",
-			"file": "rendering.spec.ts",
-			"seconds": 20.2,
+			"file": "document-memory.spec.ts",
+			"seconds": 18.2,
 			"tests": 6
 		},
 		{
 			"project": "chromium",
-			"file": "representative-editor-report.spec.ts",
-			"seconds": 540.0,
-			"tests": 1
+			"file": "document-revisions.spec.ts",
+			"seconds": 8.5,
+			"tests": 3
 		},
 		{
 			"project": "chromium",
-			"file": "review-regressions.spec.ts",
-			"seconds": 6.8,
-			"tests": 5
-		},
-		{
-			"project": "chromium",
-			"file": "save-recovery-review.spec.ts",
-			"seconds": 18.2,
-			"tests": 4
-		},
-		{
-			"project": "chromium",
-			"file": "search-replace.spec.ts",
-			"seconds": 4.2,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "security.spec.ts",
-			"seconds": 2.7,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "semantic-search.spec.ts",
-			"seconds": 4.8,
-			"tests": 1
-		},
-		{
-			"project": "chromium",
-			"file": "sidebar-layout.spec.ts",
-			"seconds": 6.2,
-			"tests": 2
-		},
-		{
-			"project": "chromium",
-			"file": "slash-commands.spec.ts",
-			"seconds": 29.2,
+			"file": "draft-projection-performance.spec.ts",
+			"seconds": 29.8,
 			"tests": 10
 		},
 		{
 			"project": "chromium",
-			"file": "slide-guidance-review.spec.ts",
-			"seconds": 16.0,
-			"tests": 8
+			"file": "draft-projection-trace-matrix.spec.ts",
+			"seconds": 62.9,
+			"tests": 5
 		},
 		{
 			"project": "chromium",
-			"file": "slide-zoom-review.spec.ts",
-			"seconds": 34.8,
-			"tests": 4
-		},
-		{
-			"project": "chromium",
-			"file": "snippets.spec.ts",
-			"seconds": 8.1,
-			"tests": 6
-		},
-		{
-			"project": "chromium",
-			"file": "source-fidelity.spec.ts",
-			"seconds": 93.4,
-			"tests": 44
-		},
-		{
-			"project": "chromium",
-			"file": "split-view.spec.ts",
-			"seconds": 7.5,
-			"tests": 3
-		},
-		{
-			"project": "chromium",
-			"file": "storage-pressure.spec.ts",
-			"seconds": 84.0,
+			"file": "drop-image.spec.ts",
+			"seconds": 2.3,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
-			"file": "table-editing.spec.ts",
-			"seconds": 42.9,
-			"tests": 12
-		},
-		{
-			"project": "chromium",
-			"file": "table-trailing-paragraph.spec.ts",
-			"seconds": 6.5,
+			"file": "durability-history.spec.ts",
+			"seconds": 4.7,
 			"tests": 2
 		},
 		{
 			"project": "chromium",
-			"file": "templates-new-file.spec.ts",
-			"seconds": 6.3,
+			"file": "durability-review.spec.ts",
+			"seconds": 8.4,
 			"tests": 3
 		},
 		{
 			"project": "chromium",
-			"file": "theme-focus-about.spec.ts",
+			"file": "durability.spec.ts",
+			"seconds": 1.4,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "editor-containment.spec.ts",
+			"seconds": 25.8,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "editor-input-latency.spec.ts",
+			"seconds": 95.2,
+			"tests": 33
+		},
+		{
+			"project": "chromium",
+			"file": "editor-large-note-visibility.spec.ts",
+			"seconds": 22.1,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "editor-mode-focus.spec.ts",
+			"seconds": 1.5,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "editor-publish-stall.spec.ts",
+			"seconds": 37.0,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "editor-state.spec.ts",
+			"seconds": 70.7,
+			"tests": 12
+		},
+		{
+			"project": "chromium",
+			"file": "editor-tab.spec.ts",
+			"seconds": 7.6,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "editor-width.spec.ts",
+			"seconds": 48.6,
+			"tests": 10
+		},
+		{
+			"project": "chromium",
+			"file": "export-cancellation.spec.ts",
+			"seconds": 18.0,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "export-download-lifetime.spec.ts",
+			"seconds": 35.0,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "export-profiles.spec.ts",
+			"seconds": 17.7,
+			"tests": 9
+		},
+		{
+			"project": "chromium",
+			"file": "export-snapshot.spec.ts",
+			"seconds": 5.0,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "export.spec.ts",
+			"seconds": 15.1,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "external-editor-patches.spec.ts",
+			"seconds": 4.3,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "file-navigation.spec.ts",
+			"seconds": 13.1,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "file-storage-status.spec.ts",
+			"seconds": 6.0,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "first-run-recovery.spec.ts",
+			"seconds": 0.6,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "focus-mode.spec.ts",
+			"seconds": 2.9,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "format-compat.spec.ts",
+			"seconds": 6.4,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "frontmatter-properties.spec.ts",
+			"seconds": 30.4,
+			"tests": 12
+		},
+		{
+			"project": "chromium",
+			"file": "git-web-boundary.spec.ts",
+			"seconds": 0.6,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "golden-path.spec.ts",
+			"seconds": 6.6,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "heading-level.spec.ts",
+			"seconds": 3.8,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "host-transfer.spec.ts",
+			"seconds": 2.0,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "icons-toolbar.spec.ts",
+			"seconds": 5.5,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "image-annotations.spec.ts",
+			"seconds": 7.9,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "image-fetch-policy.spec.ts",
+			"seconds": 1.9,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "image-input-latency.spec.ts",
+			"seconds": 51.4,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "image-layout.spec.ts",
+			"seconds": 22.5,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "image-nodeview-proxy.spec.ts",
+			"seconds": 8.8,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "image-preview-budget.spec.ts",
+			"seconds": 8.9,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "image-resize-budget.spec.ts",
+			"seconds": 2.9,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "image-source-incremental.spec.ts",
+			"seconds": 129.5,
+			"tests": 14
+		},
+		{
+			"project": "chromium",
+			"file": "ime-dialogs.spec.ts",
+			"seconds": 9.8,
+			"tests": 8
+		},
+		{
+			"project": "chromium",
+			"file": "json-tools.spec.ts",
+			"seconds": 36.9,
+			"tests": 11
+		},
+		{
+			"project": "chromium",
+			"file": "keyboard-azerty.spec.ts",
+			"seconds": 1.2,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "keyboard-platform.spec.ts",
+			"seconds": 11.7,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "keyboard-settings.spec.ts",
+			"seconds": 8.5,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "library-workflows.spec.ts",
+			"seconds": 36.3,
+			"tests": 10
+		},
+		{
+			"project": "chromium",
+			"file": "link-theme.spec.ts",
+			"seconds": 2.5,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "linked-blocks.spec.ts",
+			"seconds": 11.8,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "locale-en.spec.ts",
+			"seconds": 0.8,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "markdown-blank-lines.spec.ts",
+			"seconds": 17.6,
+			"tests": 8
+		},
+		{
+			"project": "chromium",
+			"file": "media-consent-review.spec.ts",
+			"seconds": 18.8,
+			"tests": 7
+		},
+		{
+			"project": "chromium",
+			"file": "media-export.spec.ts",
+			"seconds": 18.2,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "metadata-index-incremental.spec.ts",
+			"seconds": 15.5,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "mixed-document-review.spec.ts",
+			"seconds": 7.9,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "modal-initial-focus.spec.ts",
+			"seconds": 17.4,
+			"tests": 13
+		},
+		{
+			"project": "chromium",
+			"file": "modal-isolation-review.spec.ts",
+			"seconds": 8.7,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "multi-select.spec.ts",
+			"seconds": 7.7,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "navigation-stats-scroll.spec.ts",
+			"seconds": 133.2,
+			"tests": 21
+		},
+		{
+			"project": "chromium",
+			"file": "new-note-mode.spec.ts",
+			"seconds": 6.0,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "note-type-guard.spec.ts",
+			"seconds": 11.3,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "offline-review.spec.ts",
+			"seconds": 20.0,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "palette-load-review.spec.ts",
+			"seconds": 1.2,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "palette-pagination.spec.ts",
+			"seconds": 5.1,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "palette.spec.ts",
+			"seconds": 3.9,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "pdf-fidelity.spec.ts",
+			"seconds": 4.1,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "pdf-viewer.spec.ts",
+			"seconds": 2.0,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "portable-projects.spec.ts",
+			"seconds": 8.6,
+			"tests": 7
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-editor.spec.ts",
+			"seconds": 83.3,
+			"tests": 20
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-export.spec.ts",
+			"seconds": 4.5,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-files.spec.ts",
+			"seconds": 24.0,
+			"tests": 13
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-format.spec.ts",
+			"seconds": 11.8,
+			"tests": 10
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-gesture-cancel.spec.ts",
+			"seconds": 5.2,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-inspector-width.spec.ts",
+			"seconds": 6.7,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-offline.spec.ts",
+			"seconds": 3.2,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-performance.spec.ts",
+			"seconds": 84.2,
+			"tests": 11
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-prelaunch.spec.ts",
 			"seconds": 5.4,
 			"tests": 3
 		},
 		{
 			"project": "chromium",
+			"file": "presentation-responsive-tasks.spec.ts",
+			"seconds": 97.9,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-review.spec.ts",
+			"seconds": 10.3,
+			"tests": 8
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-toolbar-density.spec.ts",
+			"seconds": 32.7,
+			"tests": 11
+		},
+		{
+			"project": "chromium",
+			"file": "presentation-visual-viewport.spec.ts",
+			"seconds": 2.5,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "project-archive-risks.spec.ts",
+			"seconds": 11.4,
+			"tests": 12
+		},
+		{
+			"project": "chromium",
+			"file": "project-backup.spec.ts",
+			"seconds": 4.5,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "project-explorer.spec.ts",
+			"seconds": 28.0,
+			"tests": 11
+		},
+		{
+			"project": "chromium",
+			"file": "project-integrity.spec.ts",
+			"seconds": 6.5,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "project-link-performance.spec.ts",
+			"seconds": 1.6,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "project-media-cache.spec.ts",
+			"seconds": 22.1,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "project-media.spec.ts",
+			"seconds": 6.5,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "project-scale.spec.ts",
+			"seconds": 2.7,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "project-wiki-index.spec.ts",
+			"seconds": 12.7,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "project-wiki-updates.spec.ts",
+			"seconds": 1.6,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "prompt-keyboard.spec.ts",
+			"seconds": 4.9,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "pwa.spec.ts",
+			"seconds": 14.1,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "read-annotations.spec.ts",
+			"seconds": 47.2,
+			"tests": 11
+		},
+		{
+			"project": "chromium",
+			"file": "read-lifecycle.spec.ts",
+			"seconds": 23.4,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "read-preview-isolation.spec.ts",
+			"seconds": 7.4,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "reading-lists.spec.ts",
+			"seconds": 3.0,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "render-input-risks.spec.ts",
+			"seconds": 7.9,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "rendering.spec.ts",
+			"seconds": 43.5,
+			"tests": 11
+		},
+		{
+			"project": "chromium",
+			"file": "representative-editor-report.spec.ts",
+			"seconds": 498.0,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "review-regressions.spec.ts",
+			"seconds": 6.6,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "revision-contract.spec.ts",
+			"seconds": 45.9,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "rich-text-publication.spec.ts",
+			"seconds": 43.6,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "safe-area.spec.ts",
+			"seconds": 3.9,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "save-contention.spec.ts",
+			"seconds": 12.5,
+			"tests": 5
+		},
+		{
+			"project": "chromium",
+			"file": "save-exit-guard.spec.ts",
+			"seconds": 4.5,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "save-recovery-review.spec.ts",
+			"seconds": 17.7,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "scroll-nav-scope.spec.ts",
+			"seconds": 12.8,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "search-replace.spec.ts",
+			"seconds": 11.9,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "security.spec.ts",
+			"seconds": 2.6,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "semantic-search.spec.ts",
+			"seconds": 50.2,
+			"tests": 13
+		},
+		{
+			"project": "chromium",
+			"file": "settings-focus-restore.spec.ts",
+			"seconds": 0.7,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "settings-version.spec.ts",
+			"seconds": 0.4,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "sidebar-layout.spec.ts",
+			"seconds": 6.8,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "slash-commands.spec.ts",
+			"seconds": 25.9,
+			"tests": 10
+		},
+		{
+			"project": "chromium",
+			"file": "slide-guidance-review.spec.ts",
+			"seconds": 15.0,
+			"tests": 8
+		},
+		{
+			"project": "chromium",
+			"file": "slide-zoom-review.spec.ts",
+			"seconds": 33.1,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "snippets-keyboard.spec.ts",
+			"seconds": 7.4,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "snippets.spec.ts",
+			"seconds": 7.0,
+			"tests": 6
+		},
+		{
+			"project": "chromium",
+			"file": "source-fidelity.spec.ts",
+			"seconds": 78.9,
+			"tests": 46
+		},
+		{
+			"project": "chromium",
+			"file": "split-view.spec.ts",
+			"seconds": 29.4,
+			"tests": 7
+		},
+		{
+			"project": "chromium",
+			"file": "status-honesty.spec.ts",
+			"seconds": 12.1,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "storage-pressure.spec.ts",
+			"seconds": 86.7,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "table-editing.spec.ts",
+			"seconds": 41.9,
+			"tests": 11
+		},
+		{
+			"project": "chromium",
+			"file": "table-publish-scope.spec.ts",
+			"seconds": 46.0,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "table-trailing-paragraph.spec.ts",
+			"seconds": 6.2,
+			"tests": 2
+		},
+		{
+			"project": "chromium",
+			"file": "templates-new-file.spec.ts",
+			"seconds": 5.8,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "theme-focus-about.spec.ts",
+			"seconds": 4.9,
+			"tests": 3
+		},
+		{
+			"project": "chromium",
 			"file": "toast-overlap.spec.ts",
-			"seconds": 26.3,
+			"seconds": 24.8,
 			"tests": 8
 		},
 		{
 			"project": "chromium",
 			"file": "toc-modes.spec.ts",
-			"seconds": 16.4,
-			"tests": 4
+			"seconds": 18.9,
+			"tests": 5
 		},
 		{
 			"project": "chromium",
 			"file": "toolbar-density.spec.ts",
-			"seconds": 19.4,
+			"seconds": 16.8,
 			"tests": 12
 		},
 		{
 			"project": "chromium",
 			"file": "toolbar-stability.spec.ts",
-			"seconds": 3.4,
+			"seconds": 3.3,
+			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "touch-capability.spec.ts",
+			"seconds": 7.3,
+			"tests": 4
+		},
+		{
+			"project": "chromium",
+			"file": "trash-deadline.spec.ts",
+			"seconds": 0.6,
 			"tests": 1
 		},
 		{
 			"project": "chromium",
 			"file": "typed-documents.spec.ts",
-			"seconds": 3.2,
+			"seconds": 3.4,
 			"tests": 3
+		},
+		{
+			"project": "chromium",
+			"file": "ui-polish.spec.ts",
+			"seconds": 8.1,
+			"tests": 5
 		},
 		{
 			"project": "chromium",
@@ -738,392 +1092,764 @@
 		{
 			"project": "chromium",
 			"file": "upgrade-safety.spec.ts",
-			"seconds": 9.4,
+			"seconds": 16.5,
 			"tests": 2
 		},
 		{
 			"project": "chromium",
 			"file": "ux-review.spec.ts",
-			"seconds": 26.2,
+			"seconds": 21.6,
 			"tests": 18
 		},
 		{
 			"project": "chromium",
 			"file": "v2-accessibility.spec.ts",
-			"seconds": 8.4,
+			"seconds": 7.8,
 			"tests": 3
 		},
 		{
 			"project": "chromium",
 			"file": "vault-import.spec.ts",
-			"seconds": 0.7,
+			"seconds": 0.6,
 			"tests": 1
+		},
+		{
+			"project": "chromium",
+			"file": "version-history.spec.ts",
+			"seconds": 7.1,
+			"tests": 3
 		},
 		{
 			"project": "chromium",
 			"file": "wiki-links.spec.ts",
-			"seconds": 23.8,
-			"tests": 4
+			"seconds": 33.5,
+			"tests": 6
 		},
 		{
 			"project": "chromium",
 			"file": "workspaces.spec.ts",
-			"seconds": 6.4,
-			"tests": 1
-		},
-		{
-			"project": "firefox",
-			"file": "editor-state.spec.ts",
-			"seconds": 24.6,
-			"tests": 4
-		},
-		{
-			"project": "firefox",
-			"file": "editor-tab.spec.ts",
-			"seconds": 8.5,
+			"seconds": 13.0,
 			"tests": 2
 		},
 		{
 			"project": "firefox",
-			"file": "editor-width.spec.ts",
-			"seconds": 58.8,
-			"tests": 9
+			"file": "backup-reminder.spec.ts",
+			"seconds": 28.4,
+			"tests": 7
 		},
 		{
 			"project": "firefox",
-			"file": "golden-path.spec.ts",
-			"seconds": 8.3,
-			"tests": 3
-		},
-		{
-			"project": "firefox",
-			"file": "image-layout.spec.ts",
-			"seconds": 6.0,
-			"tests": 2
-		},
-		{
-			"project": "firefox",
-			"file": "keyboard-platform.spec.ts",
-			"seconds": 1.7,
+			"file": "code-block-language.spec.ts",
+			"seconds": 4.2,
 			"tests": 1
 		},
 		{
 			"project": "firefox",
-			"file": "markdown-blank-lines.spec.ts",
-			"seconds": 25.1,
-			"tests": 8
+			"file": "code-creation.spec.ts",
+			"seconds": 18.1,
+			"tests": 12
 		},
 		{
 			"project": "firefox",
-			"file": "modal-isolation-review.spec.ts",
-			"seconds": 13.6,
-			"tests": 6
+			"file": "code-editor.spec.ts",
+			"seconds": 23.5,
+			"tests": 12
 		},
 		{
 			"project": "firefox",
-			"file": "note-type-guard.spec.ts",
-			"seconds": 17.1,
-			"tests": 5
-		},
-		{
-			"project": "firefox",
-			"file": "offline-review.spec.ts",
-			"seconds": 29.9,
-			"tests": 3
-		},
-		{
-			"project": "firefox",
-			"file": "palette-load-review.spec.ts",
-			"seconds": 2.1,
+			"file": "container-source-publication.spec.ts",
+			"seconds": 16.4,
 			"tests": 1
 		},
 		{
 			"project": "firefox",
-			"file": "presentation-editor.spec.ts",
-			"seconds": 50.3,
-			"tests": 13
+			"file": "dialog-visual-viewport.spec.ts",
+			"seconds": 8.6,
+			"tests": 3
 		},
 		{
 			"project": "firefox",
-			"file": "presentation-export.spec.ts",
+			"file": "docs-site-export-html.spec.ts",
+			"seconds": 2.3,
+			"tests": 1
+		},
+		{
+			"project": "firefox",
+			"file": "docs-site-export-svg.spec.ts",
 			"seconds": 4.2,
 			"tests": 2
 		},
 		{
 			"project": "firefox",
+			"file": "docs-site-search-paths.spec.ts",
+			"seconds": 4.2,
+			"tests": 1
+		},
+		{
+			"project": "firefox",
+			"file": "editor-state.spec.ts",
+			"seconds": 39.4,
+			"tests": 9
+		},
+		{
+			"project": "firefox",
+			"file": "editor-tab.spec.ts",
+			"seconds": 8.9,
+			"tests": 2
+		},
+		{
+			"project": "firefox",
+			"file": "editor-width.spec.ts",
+			"seconds": 56.2,
+			"tests": 9
+		},
+		{
+			"project": "firefox",
+			"file": "export-download-lifetime.spec.ts",
+			"seconds": 37.8,
+			"tests": 5
+		},
+		{
+			"project": "firefox",
+			"file": "export-profiles.spec.ts",
+			"seconds": 25.2,
+			"tests": 9
+		},
+		{
+			"project": "firefox",
+			"file": "frontmatter-properties.spec.ts",
+			"seconds": 36.8,
+			"tests": 12
+		},
+		{
+			"project": "firefox",
+			"file": "golden-path.spec.ts",
+			"seconds": 8.9,
+			"tests": 3
+		},
+		{
+			"project": "firefox",
+			"file": "image-fetch-policy.spec.ts",
+			"seconds": 3.3,
+			"tests": 1
+		},
+		{
+			"project": "firefox",
+			"file": "image-layout.spec.ts",
+			"seconds": 23.5,
+			"tests": 3
+		},
+		{
+			"project": "firefox",
+			"file": "image-nodeview-proxy.spec.ts",
+			"seconds": 11.1,
+			"tests": 2
+		},
+		{
+			"project": "firefox",
+			"file": "image-resize-budget.spec.ts",
+			"seconds": 5.2,
+			"tests": 1
+		},
+		{
+			"project": "firefox",
+			"file": "ime-dialogs.spec.ts",
+			"seconds": 15.3,
+			"tests": 8
+		},
+		{
+			"project": "firefox",
+			"file": "json-tools.spec.ts",
+			"seconds": 39.9,
+			"tests": 11
+		},
+		{
+			"project": "firefox",
+			"file": "keyboard-platform.spec.ts",
+			"seconds": 12.8,
+			"tests": 5
+		},
+		{
+			"project": "firefox",
+			"file": "markdown-blank-lines.spec.ts",
+			"seconds": 23.5,
+			"tests": 8
+		},
+		{
+			"project": "firefox",
+			"file": "modal-initial-focus.spec.ts",
+			"seconds": 26.9,
+			"tests": 13
+		},
+		{
+			"project": "firefox",
+			"file": "modal-isolation-review.spec.ts",
+			"seconds": 12.2,
+			"tests": 6
+		},
+		{
+			"project": "firefox",
+			"file": "navigation-stats-scroll.spec.ts",
+			"seconds": 65.0,
+			"tests": 16
+		},
+		{
+			"project": "firefox",
+			"file": "note-type-guard.spec.ts",
+			"seconds": 15.3,
+			"tests": 5
+		},
+		{
+			"project": "firefox",
+			"file": "offline-review.spec.ts",
+			"seconds": 25.3,
+			"tests": 3
+		},
+		{
+			"project": "firefox",
+			"file": "palette-load-review.spec.ts",
+			"seconds": 1.9,
+			"tests": 1
+		},
+		{
+			"project": "firefox",
+			"file": "palette-pagination.spec.ts",
+			"seconds": 7.2,
+			"tests": 2
+		},
+		{
+			"project": "firefox",
+			"file": "presentation-editor.spec.ts",
+			"seconds": 57.8,
+			"tests": 19
+		},
+		{
+			"project": "firefox",
+			"file": "presentation-export.spec.ts",
+			"seconds": 3.1,
+			"tests": 1
+		},
+		{
+			"project": "firefox",
 			"file": "presentation-files.spec.ts",
-			"seconds": 43.2,
+			"seconds": 44.0,
 			"tests": 13
 		},
 		{
 			"project": "firefox",
 			"file": "presentation-format.spec.ts",
-			"seconds": 16.0,
-			"tests": 8
+			"seconds": 19.8,
+			"tests": 10
 		},
 		{
 			"project": "firefox",
 			"file": "presentation-offline.spec.ts",
-			"seconds": 6.4,
+			"seconds": 5.3,
 			"tests": 1
 		},
 		{
 			"project": "firefox",
 			"file": "presentation-review.spec.ts",
-			"seconds": 20.3,
+			"seconds": 17.1,
 			"tests": 8
 		},
 		{
 			"project": "firefox",
 			"file": "presentation-toolbar-density.spec.ts",
-			"seconds": 36.1,
-			"tests": 11
+			"seconds": 31.9,
+			"tests": 9
+		},
+		{
+			"project": "firefox",
+			"file": "prompt-keyboard.spec.ts",
+			"seconds": 8.0,
+			"tests": 5
 		},
 		{
 			"project": "firefox",
 			"file": "read-annotations.spec.ts",
-			"seconds": 23.6,
-			"tests": 3
+			"seconds": 56.0,
+			"tests": 11
+		},
+		{
+			"project": "firefox",
+			"file": "read-lifecycle.spec.ts",
+			"seconds": 24.1,
+			"tests": 6
 		},
 		{
 			"project": "firefox",
 			"file": "read-preview-isolation.spec.ts",
-			"seconds": 6.6,
-			"tests": 3
+			"seconds": 10.7,
+			"tests": 6
 		},
 		{
 			"project": "firefox",
 			"file": "representative-editor-report.spec.ts",
-			"seconds": 560.0,
+			"seconds": 516.0,
 			"tests": 1
 		},
 		{
 			"project": "firefox",
+			"file": "rich-text-publication.spec.ts",
+			"seconds": 18.1,
+			"tests": 4
+		},
+		{
+			"project": "firefox",
+			"file": "save-contention.spec.ts",
+			"seconds": 15.2,
+			"tests": 5
+		},
+		{
+			"project": "firefox",
 			"file": "search-replace.spec.ts",
-			"seconds": 6.1,
-			"tests": 2
+			"seconds": 14.6,
+			"tests": 4
+		},
+		{
+			"project": "firefox",
+			"file": "snippets-keyboard.spec.ts",
+			"seconds": 11.8,
+			"tests": 3
 		},
 		{
 			"project": "firefox",
 			"file": "source-fidelity.spec.ts",
-			"seconds": 150.4,
-			"tests": 44
+			"seconds": 133.1,
+			"tests": 45
 		},
 		{
 			"project": "firefox",
 			"file": "table-editing.spec.ts",
-			"seconds": 48.6,
-			"tests": 12
+			"seconds": 42.8,
+			"tests": 9
 		},
 		{
 			"project": "firefox",
 			"file": "toast-overlap.spec.ts",
-			"seconds": 45.1,
+			"seconds": 33.4,
 			"tests": 8
 		},
 		{
 			"project": "firefox",
 			"file": "toolbar-density.spec.ts",
-			"seconds": 37.1,
+			"seconds": 26.8,
 			"tests": 12
 		},
 		{
 			"project": "firefox",
 			"file": "wiki-links.spec.ts",
-			"seconds": 30.4,
-			"tests": 4
+			"seconds": 38.0,
+			"tests": 6
+		},
+		{
+			"project": "mobile-chromium",
+			"file": "frontmatter-number-touch.spec.ts",
+			"seconds": 3.0,
+			"tests": 2
 		},
 		{
 			"project": "mobile-chromium",
 			"file": "mobile.spec.ts",
-			"seconds": 3.8,
-			"tests": 5
+			"seconds": 14.6,
+			"tests": 13
 		},
 		{
 			"project": "mobile-chromium",
 			"file": "presentation-mobile.spec.ts",
-			"seconds": 3.6,
+			"seconds": 3.3,
 			"tests": 1
 		},
 		{
 			"project": "mobile-chromium",
 			"file": "presentation-responsive-tasks.spec.ts",
-			"seconds": 38.2,
-			"tests": 10
+			"seconds": 39.9,
+			"tests": 11
+		},
+		{
+			"project": "mobile-chromium",
+			"file": "presentation-visual-viewport.spec.ts",
+			"seconds": 2.6,
+			"tests": 2
+		},
+		{
+			"project": "mobile-chromium",
+			"file": "safe-area.spec.ts",
+			"seconds": 6.0,
+			"tests": 6
+		},
+		{
+			"project": "mobile-webkit",
+			"file": "frontmatter-number-touch.spec.ts",
+			"seconds": 5.9,
+			"tests": 2
 		},
 		{
 			"project": "mobile-webkit",
 			"file": "mobile.spec.ts",
-			"seconds": 9.4,
-			"tests": 5
+			"seconds": 29.1,
+			"tests": 13
 		},
 		{
 			"project": "mobile-webkit",
 			"file": "presentation-mobile.spec.ts",
-			"seconds": 8.4,
+			"seconds": 6.5,
 			"tests": 1
 		},
 		{
 			"project": "webkit",
-			"file": "editor-state.spec.ts",
-			"seconds": 41.8,
-			"tests": 4
+			"file": "backup-reminder.spec.ts",
+			"seconds": 40.3,
+			"tests": 7
 		},
 		{
 			"project": "webkit",
-			"file": "editor-tab.spec.ts",
-			"seconds": 15.6,
-			"tests": 2
+			"file": "code-block-language.spec.ts",
+			"seconds": 8.2,
+			"tests": 1
 		},
 		{
 			"project": "webkit",
-			"file": "editor-width.spec.ts",
-			"seconds": 116.8,
-			"tests": 9
+			"file": "code-creation.spec.ts",
+			"seconds": 31.4,
+			"tests": 12
 		},
 		{
 			"project": "webkit",
-			"file": "golden-path.spec.ts",
+			"file": "code-editor.spec.ts",
+			"seconds": 30.3,
+			"tests": 12
+		},
+		{
+			"project": "webkit",
+			"file": "container-source-publication.spec.ts",
+			"seconds": 19.4,
+			"tests": 1
+		},
+		{
+			"project": "webkit",
+			"file": "dialog-visual-viewport.spec.ts",
 			"seconds": 14.9,
 			"tests": 3
 		},
 		{
 			"project": "webkit",
+			"file": "docs-site-export-html.spec.ts",
+			"seconds": 5.2,
+			"tests": 1
+		},
+		{
+			"project": "webkit",
+			"file": "docs-site-export-svg.spec.ts",
+			"seconds": 5.2,
+			"tests": 2
+		},
+		{
+			"project": "webkit",
+			"file": "docs-site-fragments.spec.ts",
+			"seconds": 4.2,
+			"tests": 1
+		},
+		{
+			"project": "webkit",
+			"file": "docs-site-search-paths.spec.ts",
+			"seconds": 3.8,
+			"tests": 1
+		},
+		{
+			"project": "webkit",
+			"file": "editor-large-note-visibility.spec.ts",
+			"seconds": 31.2,
+			"tests": 1
+		},
+		{
+			"project": "webkit",
+			"file": "editor-state.spec.ts",
+			"seconds": 51.5,
+			"tests": 9
+		},
+		{
+			"project": "webkit",
+			"file": "editor-tab.spec.ts",
+			"seconds": 12.8,
+			"tests": 2
+		},
+		{
+			"project": "webkit",
+			"file": "editor-width.spec.ts",
+			"seconds": 102.8,
+			"tests": 9
+		},
+		{
+			"project": "webkit",
+			"file": "export-download-lifetime.spec.ts",
+			"seconds": 42.9,
+			"tests": 5
+		},
+		{
+			"project": "webkit",
+			"file": "export-profiles.spec.ts",
+			"seconds": 32.6,
+			"tests": 9
+		},
+		{
+			"project": "webkit",
+			"file": "frontmatter-properties.spec.ts",
+			"seconds": 55.1,
+			"tests": 12
+		},
+		{
+			"project": "webkit",
+			"file": "golden-path.spec.ts",
+			"seconds": 11.7,
+			"tests": 3
+		},
+		{
+			"project": "webkit",
+			"file": "image-fetch-policy.spec.ts",
+			"seconds": 4.4,
+			"tests": 1
+		},
+		{
+			"project": "webkit",
 			"file": "image-input-latency.spec.ts",
-			"seconds": 134.5,
+			"seconds": 78.6,
 			"tests": 6
 		},
 		{
 			"project": "webkit",
 			"file": "image-layout.spec.ts",
-			"seconds": 11.9,
+			"seconds": 34.9,
+			"tests": 3
+		},
+		{
+			"project": "webkit",
+			"file": "image-nodeview-proxy.spec.ts",
+			"seconds": 10.7,
 			"tests": 2
 		},
 		{
 			"project": "webkit",
-			"file": "keyboard-platform.spec.ts",
-			"seconds": 3.9,
+			"file": "image-preview-budget.spec.ts",
+			"seconds": 17.3,
+			"tests": 3
+		},
+		{
+			"project": "webkit",
+			"file": "image-resize-budget.spec.ts",
+			"seconds": 5.7,
 			"tests": 1
 		},
 		{
 			"project": "webkit",
-			"file": "markdown-blank-lines.spec.ts",
-			"seconds": 44.9,
+			"file": "image-source-incremental.spec.ts",
+			"seconds": 138.1,
+			"tests": 12
+		},
+		{
+			"project": "webkit",
+			"file": "ime-dialogs.spec.ts",
+			"seconds": 21.4,
 			"tests": 8
 		},
 		{
 			"project": "webkit",
+			"file": "json-tools.spec.ts",
+			"seconds": 42.2,
+			"tests": 11
+		},
+		{
+			"project": "webkit",
+			"file": "keyboard-platform.spec.ts",
+			"seconds": 18.7,
+			"tests": 5
+		},
+		{
+			"project": "webkit",
+			"file": "markdown-blank-lines.spec.ts",
+			"seconds": 33.1,
+			"tests": 8
+		},
+		{
+			"project": "webkit",
+			"file": "modal-initial-focus.spec.ts",
+			"seconds": 35.1,
+			"tests": 13
+		},
+		{
+			"project": "webkit",
 			"file": "modal-isolation-review.spec.ts",
-			"seconds": 22.0,
+			"seconds": 16.6,
 			"tests": 6
 		},
 		{
 			"project": "webkit",
+			"file": "navigation-stats-scroll.spec.ts",
+			"seconds": 109.7,
+			"tests": 16
+		},
+		{
+			"project": "webkit",
 			"file": "note-type-guard.spec.ts",
-			"seconds": 27.3,
+			"seconds": 23.1,
 			"tests": 5
 		},
 		{
 			"project": "webkit",
 			"file": "offline-review.spec.ts",
-			"seconds": 41.5,
+			"seconds": 36.5,
 			"tests": 3
 		},
 		{
 			"project": "webkit",
 			"file": "palette-load-review.spec.ts",
-			"seconds": 3.7,
+			"seconds": 2.8,
 			"tests": 1
 		},
 		{
 			"project": "webkit",
-			"file": "presentation-editor.spec.ts",
-			"seconds": 83.9,
-			"tests": 13
-		},
-		{
-			"project": "webkit",
-			"file": "presentation-export.spec.ts",
-			"seconds": 8.4,
+			"file": "palette-pagination.spec.ts",
+			"seconds": 9.0,
 			"tests": 2
 		},
 		{
 			"project": "webkit",
+			"file": "presentation-editor.spec.ts",
+			"seconds": 91.1,
+			"tests": 19
+		},
+		{
+			"project": "webkit",
+			"file": "presentation-export.spec.ts",
+			"seconds": 6.4,
+			"tests": 1
+		},
+		{
+			"project": "webkit",
 			"file": "presentation-files.spec.ts",
-			"seconds": 69.0,
+			"seconds": 53.2,
 			"tests": 13
 		},
 		{
 			"project": "webkit",
 			"file": "presentation-format.spec.ts",
-			"seconds": 19.2,
-			"tests": 8
+			"seconds": 31.9,
+			"tests": 10
 		},
 		{
 			"project": "webkit",
 			"file": "presentation-review.spec.ts",
-			"seconds": 36.3,
+			"seconds": 25.6,
 			"tests": 8
 		},
 		{
 			"project": "webkit",
 			"file": "presentation-toolbar-density.spec.ts",
-			"seconds": 68.0,
-			"tests": 11
+			"seconds": 46.9,
+			"tests": 9
+		},
+		{
+			"project": "webkit",
+			"file": "project-media-cache.spec.ts",
+			"seconds": 25.5,
+			"tests": 3
+		},
+		{
+			"project": "webkit",
+			"file": "prompt-keyboard.spec.ts",
+			"seconds": 11.1,
+			"tests": 5
 		},
 		{
 			"project": "webkit",
 			"file": "read-annotations.spec.ts",
-			"seconds": 37.4,
-			"tests": 3
+			"seconds": 71.2,
+			"tests": 11
+		},
+		{
+			"project": "webkit",
+			"file": "read-lifecycle.spec.ts",
+			"seconds": 48.4,
+			"tests": 6
 		},
 		{
 			"project": "webkit",
 			"file": "read-preview-isolation.spec.ts",
-			"seconds": 15.5,
-			"tests": 3
+			"seconds": 19.6,
+			"tests": 6
 		},
 		{
 			"project": "webkit",
 			"file": "representative-editor-report.spec.ts",
-			"seconds": 550.0,
+			"seconds": 522.0,
 			"tests": 1
 		},
 		{
 			"project": "webkit",
+			"file": "rich-text-publication.spec.ts",
+			"seconds": 20.5,
+			"tests": 4
+		},
+		{
+			"project": "webkit",
+			"file": "save-contention.spec.ts",
+			"seconds": 19.4,
+			"tests": 5
+		},
+		{
+			"project": "webkit",
 			"file": "search-replace.spec.ts",
-			"seconds": 9.4,
-			"tests": 2
+			"seconds": 19.4,
+			"tests": 4
+		},
+		{
+			"project": "webkit",
+			"file": "snippets-keyboard.spec.ts",
+			"seconds": 20.3,
+			"tests": 3
 		},
 		{
 			"project": "webkit",
 			"file": "source-fidelity.spec.ts",
-			"seconds": 237.2,
-			"tests": 44
+			"seconds": 157.8,
+			"tests": 45
+		},
+		{
+			"project": "webkit",
+			"file": "split-view.spec.ts",
+			"seconds": 46.0,
+			"tests": 7
 		},
 		{
 			"project": "webkit",
 			"file": "table-editing.spec.ts",
-			"seconds": 76.5,
-			"tests": 12
+			"seconds": 62.2,
+			"tests": 10
 		},
 		{
 			"project": "webkit",
 			"file": "toast-overlap.spec.ts",
-			"seconds": 67.0,
+			"seconds": 50.2,
 			"tests": 8
 		},
 		{
 			"project": "webkit",
+			"file": "toc-modes.spec.ts",
+			"seconds": 40.7,
+			"tests": 5
+		},
+		{
+			"project": "webkit",
 			"file": "toolbar-density.spec.ts",
-			"seconds": 56.1,
+			"seconds": 40.0,
 			"tests": 12
 		},
 		{
 			"project": "webkit",
 			"file": "wiki-links.spec.ts",
-			"seconds": 42.6,
-			"tests": 4
+			"seconds": 48.9,
+			"tests": 6
 		}
 	]
 }
