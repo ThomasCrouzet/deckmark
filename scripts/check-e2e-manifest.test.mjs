@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, test } from 'node:test';
@@ -616,4 +616,156 @@ test('rejects a plan shard list whose bound test digest differs from the plan', 
 	);
 	assert.notEqual(result.status, 0);
 	assert.match(result.output, /shard test digest/i);
+});
+
+// Flaky gate. A test that passed only on its retry has status `flaky` in the
+// Playwright JSON report. It fails the shard unless the quarantine lists it.
+const failedAttempt = () => ({ status: 'failed', retry: 0 });
+const flakyEntry = (projectName) =>
+	entry(projectName, { status: 'flaky', results: [failedAttempt(), passed(1)] });
+
+function runFlaky(quarantine, actualSpecs, { today = '2026-11-27', summary = true } = {}) {
+	const expected = listReport(...actualSpecs);
+	const actual = report(...actualSpecs);
+	const { root, expectedPath, actualPaths } = writeReports(expected, [actual]);
+	const quarantinePath = join(root, 'quarantine.json');
+	writeFileSync(
+		quarantinePath,
+		typeof quarantine === 'string' ? quarantine : JSON.stringify(quarantine)
+	);
+	const summaryPath = join(root, 'summary.md');
+	const env = {
+		...process.env,
+		E2E_FLAKY_QUARANTINE: quarantinePath,
+		E2E_QUARANTINE_TODAY: today
+	};
+	if (summary) env.GITHUB_STEP_SUMMARY = summaryPath;
+	else delete env.GITHUB_STEP_SUMMARY;
+	try {
+		const output = execFileSync(
+			process.execPath,
+			[script, 'execution', expectedPath, ...actualPaths],
+			{
+				encoding: 'utf8',
+				env
+			}
+		);
+		return { status: 0, output, summaryPath };
+	} catch (error) {
+		return {
+			status: error.status ?? 1,
+			output: `${error.stdout ?? ''}${error.stderr ?? ''}`,
+			summaryPath
+		};
+	}
+}
+
+const quarantined = {
+	project: 'chromium',
+	file: 'example.spec.ts',
+	line: 3,
+	title: 'first',
+	issue: 801,
+	added: '2026-11-20',
+	expires: '2026-12-04'
+};
+
+test('the committed flaky quarantine starts empty and valid', () => {
+	const value = JSON.parse(
+		readFileSync(new URL('../e2e/flaky-quarantine.json', import.meta.url), 'utf8')
+	);
+	assert.deepEqual(value, []);
+});
+
+test('a flaky test that is not quarantined fails the shard and is named', () => {
+	const result = runFlaky([], [spec('first', 3, [flakyEntry('chromium')])]);
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /FLAKY chromium example\.spec\.ts:3 first/);
+	assert.match(result.output, /is not in e2e\/flaky-quarantine\.json/);
+	assert.match(
+		readFileSync(result.summaryPath, 'utf8'),
+		/\| chromium \| example\.spec\.ts:3 \| first \| not quarantined \|/
+	);
+});
+
+test('a quarantined flaky test passes, is printed and is listed in the summary', () => {
+	const result = runFlaky([quarantined], [spec('first', 3, [flakyEntry('chromium')])]);
+	assert.equal(result.status, 0, result.output);
+	assert.match(result.output, /FLAKY chromium example\.spec\.ts:3 first/);
+	assert.match(result.output, /Quarantined flaky tests: 1/);
+	assert.match(readFileSync(result.summaryPath, 'utf8'), /\| #801 \|/);
+});
+
+test('a quarantine entry matches only the same project, file, line and title', () => {
+	for (const change of [
+		{ project: 'webkit' },
+		{ line: 4 },
+		{ title: 'other' },
+		{ file: 'a.spec.ts' }
+	]) {
+		const result = runFlaky(
+			[{ ...quarantined, ...change }],
+			[spec('first', 3, [flakyEntry('chromium')])]
+		);
+		assert.notEqual(result.status, 0, JSON.stringify(change));
+	}
+});
+
+test('an expired quarantine entry fails even without a flaky result', () => {
+	const result = runFlaky([quarantined], [spec('first', 3, [entry('chromium')])], {
+		today: '2026-12-05'
+	});
+	assert.notEqual(result.status, 0);
+	assert.match(result.output, /expired on 2026-12-04 \(issue #801\)/);
+	assert.equal(
+		runFlaky([quarantined], [spec('first', 3, [entry('chromium')])], { today: '2026-12-04' })
+			.status,
+		0
+	);
+});
+
+test('a malformed quarantine fails closed', () => {
+	const tooMany = Array.from({ length: 11 }, (_, index) => ({ ...quarantined, line: index + 1 }));
+	for (const [value, pattern] of [
+		['not json', /Cannot read the flaky quarantine/],
+		['{}', /must be a JSON array/],
+		[tooMany, /limit is 10/],
+		[[{ ...quarantined, issue: undefined }], /open issue/],
+		[[{ ...quarantined, expires: '2026-12-31' }], /at most 14 days/],
+		[[{ ...quarantined, expires: '2026-02-30' }], /YYYY-MM-DD/],
+		[[{ ...quarantined, reason: 'x' }], /unknown fields: reason/],
+		[[{ ...quarantined, line: 0 }], /positive integer line/]
+	]) {
+		const result = runFlaky(value, [spec('first', 3, [entry('chromium')])], { summary: false });
+		assert.notEqual(result.status, 0, String(pattern));
+		assert.match(result.output, pattern);
+	}
+});
+
+test('a shard stopped at maxFailures names the stop before the tests that did not run', () => {
+	const expected = listReport(
+		spec('first', 3, [entry('chromium')]),
+		spec('second', 9, [entry('chromium')])
+	);
+	const actual = {
+		...report(
+			spec('first', 3, [
+				entry('chromium', {
+					status: 'unexpected',
+					results: [failedAttempt(), { status: 'failed', retry: 1 }]
+				})
+			]),
+			spec('second', 9, [entry('chromium', { status: 'skipped', results: [] })])
+		),
+		errors: [
+			{ message: '\u001b[31mTesting stopped early after 1 maximum allowed failures.\u001b[39m' }
+		]
+	};
+	const result = runExecution(expected, actual);
+	assert.notEqual(result.status, 0);
+	assert.match(
+		result.output,
+		/stopped after the first failure \(maxFailures\); 1 tests did not run/
+	);
+	assert.match(result.output, /Not executed \(1\)/);
 });
