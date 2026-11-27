@@ -253,6 +253,24 @@ export const en = {
 	'search.replaceFailed': 'The replacement failed. Your drafts were not replaced.',
 	'backup.tooLarge':
 		'The backup exceeds the limits: 64 MiB total, 3,000 documents and 16 MiB per document.',
+	'backup.documentTooLarge':
+		'The document "{title}" is {size} MiB. A backup allows 16 MiB per document. Split or shorten this document, then export again.',
+	'backup.totalTooLarge':
+		'The library text is larger than the backup limit of 64 MiB. The limit is crossed at the document "{title}" after {size} MiB of text. Delete large documents or export projects as ZIP files.',
+	'backup.tooManyDocuments':
+		'The library has {count} documents. A backup allows 3,000 documents. Delete documents or export projects as ZIP files.',
+	'backup.fileTooLarge':
+		'The backup file would be larger than 64 MiB. JSON escapes and project files count towards this limit. Export projects as ZIP files.',
+	'backup.binaryDocument':
+		'The document "{title}" contains a NUL character, so it looks like a binary file. Remove the character, then export again.',
+	'backup.invalidDocument':
+		'The document "{title}" has stored data that is not valid, so the backup cannot include it.',
+	'backup.capacityDocuments':
+		'The library has {count} of the 3,000 documents that a backup allows. Delete documents or export projects as ZIP files before the limit stops your backups.',
+	'backup.capacityText':
+		'The library text is about {size} MiB of the 64 MiB that a backup allows. Delete large documents or export projects as ZIP files before the limit stops your backups.',
+	'backup.capacityDocument':
+		'The document "{title}" is about {size} MiB. A backup allows 16 MiB per document. Split this document before the limit stops your backups.',
 	'backup.encryptedInvalidJson': 'Unreadable encrypted file: this is not valid JSON.',
 	'backup.futureVersion':
 		'Backup created by a newer version of DeckMark (schema v{version}). Update the app.',

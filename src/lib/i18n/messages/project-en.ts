@@ -69,6 +69,8 @@ export const projectEn = {
 		'The file was renamed. Refresh the project to refresh its disk baseline.',
 	'projects.operationFailed':
 		'The project operation failed. Check the paths, file formats, and size limits, then try again.',
+	'projects.binaryDocument':
+		'The document "{path}" contains a NUL character, so it looks like a binary file. Remove the character and try again.',
 	'projects.limits': 'Up to 300 documents, 64 MB per project, and 2 MB per image.',
 	'projects.linkMissing': 'The linked document is missing from this project.',
 	'projects.busy': 'Processing project...',

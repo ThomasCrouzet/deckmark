@@ -210,7 +210,8 @@ export default defineConfig({
 				'**/ime-dialogs.spec.ts',
 				'**/snippets-keyboard.spec.ts',
 				'**/frontmatter-properties.spec.ts',
-				'**/export-profiles.spec.ts'
+				'**/export-profiles.spec.ts',
+				'**/backup-control-characters.spec.ts'
 			]
 		},
 		{

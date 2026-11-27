@@ -444,6 +444,21 @@ export class BackupParseError extends Error {
 	}
 }
 
+const MIB = 1024 * 1024;
+
+/** Size in MiB with one decimal, for the limit messages. */
+function mib(bytes: number): string {
+	return (bytes / MIB).toFixed(1);
+}
+
+/** The title of a stored row, when the row has one. */
+function rowTitle(row: unknown): string | null {
+	if (typeof row !== 'object' || row === null) return null;
+	const { name, title } = row as { name?: unknown; title?: unknown };
+	const value = typeof name === 'string' ? name : typeof title === 'string' ? title : '';
+	return value.length > 0 ? value : null;
+}
+
 // ─── Collection ──────────────────────────────────────────────────────────────
 
 export interface BackupCollectOptions {
@@ -540,16 +555,27 @@ export async function collectBackup(
 	};
 	const invalid = () => new BackupParseError(t('backup.notMdshBackup'));
 	const tooLarge = () => new BackupParseError(t('backup.tooLarge'));
-	const checkText = (content: string) => {
+	// A row that fails validation is named when it has a title.
+	const invalidRow = (row: unknown) => {
+		const title = rowTitle(row);
+		return title ? new BackupParseError(t('backup.invalidDocument', { title })) : invalid();
+	};
+	if (draftIds.length + templateIds.length > BACKUP_LIMITS.maxDocuments)
+		throw new BackupParseError(
+			t('backup.tooManyDocuments', { count: draftIds.length + templateIds.length })
+		);
+	const checkText = (content: string, title: string) => {
 		try {
 			validateMarkdownContent(content);
 		} catch {
-			throw invalid();
+			throw new BackupParseError(t('backup.binaryDocument', { title }));
 		}
 		const size = encoder.encode(content).byteLength;
 		contentBytes += size;
-		if (size > IMPORT_LIMITS.maxFileBytes || contentBytes > IMPORT_LIMITS.maxBatchBytes)
-			throw tooLarge();
+		if (size > IMPORT_LIMITS.maxFileBytes)
+			throw new BackupParseError(t('backup.documentTooLarge', { title, size: mib(size) }));
+		if (contentBytes > IMPORT_LIMITS.maxBatchBytes)
+			throw new BackupParseError(t('backup.totalTooLarge', { title, size: mib(contentBytes) }));
 	};
 	const page = {
 		limit: EXPORT_BATCH_POLICY.maxRows,
@@ -562,8 +588,8 @@ export async function collectBackup(
 		...page,
 		onBatch: (rows, requested) => {
 			for (const row of rows) {
-				if (!validDraft(row)) throw invalid();
-				checkText(row.content);
+				if (!validDraft(row)) throw invalidRow(row);
+				checkText(row.content, row.name);
 				const normalized = normalizeDraft(row);
 				drafts.push(normalized);
 				if (normalized.projectId && normalized.relativePath)
@@ -595,8 +621,8 @@ export async function collectBackup(
 		...page,
 		onBatch: (rows, requested) => {
 			for (const row of rows) {
-				if (!validTemplate(row)) throw invalid();
-				checkText(row.content);
+				if (!validTemplate(row)) throw invalidRow(row);
+				checkText(row.content, row.name);
 				templates.push(row);
 			}
 			processed += requested;
@@ -609,8 +635,8 @@ export async function collectBackup(
 		...page,
 		onBatch: (rows, requested) => {
 			for (const row of rows) {
-				if (!validSnippetRow(row)) throw invalid();
-				checkText(row.code);
+				if (!validSnippetRow(row)) throw invalidRow(row);
+				checkText(row.code, row.title);
 				snippets.push(normalizeSnippetRow(row));
 			}
 			processed += requested;
@@ -1197,12 +1223,18 @@ export function validateBackupValue(raw: unknown, trusted?: BackupValidationOpti
 	for (const row of [...drafts, ...templates]) {
 		const size = new TextEncoder().encode(row.content).byteLength;
 		contentBytes += size;
-		if (size > IMPORT_LIMITS.maxFileBytes || contentBytes > IMPORT_LIMITS.maxBatchBytes)
-			throw new BackupParseError(t('backup.tooLarge'));
+		if (size > IMPORT_LIMITS.maxFileBytes)
+			throw new BackupParseError(
+				t('backup.documentTooLarge', { title: row.name, size: mib(size) })
+			);
+		if (contentBytes > IMPORT_LIMITS.maxBatchBytes)
+			throw new BackupParseError(
+				t('backup.totalTooLarge', { title: row.name, size: mib(contentBytes) })
+			);
 		try {
 			validateMarkdownContent(row.content);
 		} catch {
-			throw new BackupParseError(t('backup.notMdshBackup'));
+			throw new BackupParseError(t('backup.binaryDocument', { title: row.name }));
 		}
 	}
 	for (const snippet of snippets) {
@@ -1999,6 +2031,6 @@ function assertBackupChunksSize(chunks: readonly string[]): void {
 	let bytes = 0;
 	for (const chunk of chunks) {
 		bytes += encoder.encode(chunk).byteLength;
-		if (bytes > IMPORT_LIMITS.maxBatchBytes) throw new BackupParseError(t('backup.tooLarge'));
+		if (bytes > IMPORT_LIMITS.maxBatchBytes) throw new BackupParseError(t('backup.fileTooLarge'));
 	}
 }

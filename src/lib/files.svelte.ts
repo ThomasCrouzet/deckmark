@@ -58,6 +58,7 @@ import {
 	type DocumentSnapshot
 } from './document-revisions';
 import { reportPersistenceError, resolveDraftSaveError } from './storage';
+import { scheduleBackupCapacityCheck } from './backup-capacity';
 import { reportError } from './report';
 import { DOCUMENT_MEMORY, DocumentMemory, type PinOwner } from './document-memory';
 import type { DocumentMemorySample } from './document-memory-probe';
@@ -285,6 +286,8 @@ class FilesStore {
 			// content of this id is now in IndexedDB.
 			this.locallyDirty.delete(id);
 			resolveDraftSaveError(id);
+			// Throttled: a backup limit warning never costs a keystroke.
+			scheduleBackupCapacityCheck();
 			this.crossTab.post({ type: 'draft-written', id, updatedAt });
 		},
 		onDraftReconciled: (row) => {
@@ -1489,6 +1492,7 @@ class FilesStore {
 				await db.drafts.bulkPut(rows.map((row) => ({ ...row, open: true })));
 			});
 			for (const row of rows) this.saveQueue.trackPersisted({ ...row, open: true });
+			scheduleBackupCapacityCheck();
 		} catch (error) {
 			reportPersistenceError(error, 'save');
 		}

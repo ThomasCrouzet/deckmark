@@ -26,6 +26,7 @@
 	import { filesStore } from '#lib/files.svelte.js';
 	import { aiStore } from '#lib/ai/store.svelte.js';
 	import { requestPersistentStorage, checkStoragePressure } from '#lib/storage.js';
+	import { scheduleBackupCapacityCheck } from '#lib/backup-capacity.js';
 	import { isDiskLinkingAvailable } from '#lib/disk-linking.js';
 	import { isDesktop } from '#lib/desktop.js';
 	import { shouldFallThroughToFileInput } from '#lib/import-intent.js';
@@ -342,6 +343,8 @@
 			// `estimate`, after the load to reflect real usage). The persistent
 			// bucket has already been requested at the top of onMount. Best-effort.
 			void checkStoragePressure();
+			// The library may already be near a backup limit.
+			scheduleBackupCapacityCheck();
 
 			// §P2.5 - Adaptive prefetch delegated to the ui/prefetch module.
 			schedulePrefetch({
