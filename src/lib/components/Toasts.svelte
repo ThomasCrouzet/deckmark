@@ -38,6 +38,25 @@
 		};
 	});
 
+	// An embedded stack sits above the controls of a dialog. A notice that arrives
+	// or leaves while a control has focus moves that control. The browser does not
+	// scroll a focused control back into view after a layout change, so a keyboard
+	// user can lose it below or above the panel. Reveal it again in the same task as
+	// the change, before any paint.
+	let marker: HTMLElement | undefined = $state();
+	let shownCount = notify.toasts.length;
+	$effect(() => {
+		const count = notify.toasts.length;
+		if (count === shownCount) return;
+		shownCount = count;
+		if (!embedded || !marker) return;
+		const active = document.activeElement;
+		if (!(active instanceof HTMLElement)) return;
+		const owner = marker.closest('[role="dialog"]') ?? marker.parentElement;
+		if (!owner?.contains(active)) return;
+		active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+	});
+
 	const icons = { error: TriangleAlert, success: CircleCheck, info: Info } as const;
 	const iconColor: Record<ToastLevel, string> = {
 		error: 'text-danger',
@@ -46,6 +65,7 @@
 	};
 </script>
 
+{#if embedded}<span bind:this={marker} class="hidden" aria-hidden="true"></span>{/if}
 {#if notify.toasts.length > 0}
 	<div
 		class={embedded
