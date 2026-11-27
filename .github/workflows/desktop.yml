@@ -133,7 +133,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.platform }}
@@ -259,7 +259,7 @@ jobs:
     needs: [changes, web-build]
     if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         browser: [chromium, firefox, webkit]
     runs-on: ubuntu-24.04
@@ -336,7 +336,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.platform }}
@@ -421,7 +421,7 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.platform }}
@@ -637,7 +637,7 @@ jobs:
     needs: [plan-release]
     if: ${{ !cancelled() && needs.plan-release.result == 'success' && needs.plan-release.outputs.build == 'true' }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - platform: macos-15

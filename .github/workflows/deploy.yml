@@ -7,6 +7,11 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
+    inputs:
+      fail_fast:
+        description: Cancel every run of this commit at the first failed job
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -96,6 +101,38 @@ jobs:
         run: |
           echo 'shards=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]' >> "$GITHUB_OUTPUT"
           echo 'count=16' >> "$GITHUB_OUTPUT"
+
+  fail-fast:
+    # Stop every run of this commit at the first failed job. The job runs no
+    # project dependency and no third-party action except checkout. It is the
+    # only job with actions: write. A fork pull request gets a read-only
+    # token; the matrix fail-fast and Playwright maxFailures still apply.
+    needs: [ci-tier]
+    # Do not write `inputs.fail_fast != false`: on push and pull_request the
+    # input is null, and null == false is true in Actions expressions.
+    if: >-
+      needs.ci-tier.outputs.full == 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.fail_fast)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout the fail-fast script only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci-fail-fast.sh
+          sparse-checkout-cone-mode: false
+      - name: Watch every run of this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          SELF_RUN_ID: ${{ github.run_id }}
+        run: bash scripts/ci-fail-fast.sh
 
   pages-config:
     # Read the real Pages configuration before the build.
@@ -306,7 +343,7 @@ jobs:
     env:
       HOME: /root
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         # The policy job defines the shard count. No other job defines it.
         shard: ${{ fromJSON(needs.ci-tier.outputs.shard_matrix) }}
@@ -556,7 +593,7 @@ jobs:
       # GitHub Pages uses the production path. Cloudflare uses the root artifact.
       # Both builds use the same source revision and release gates.
       # A custom domain uses the root. A project site uses /<repository>.
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - base_path: ${{ needs.pages-config.outputs.production_base_path }}
