@@ -27,7 +27,7 @@ export { isHistoryTransaction } from '@milkdown/kit/prose/history';
 export { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 export { $prose as prosePlugin, $remark as remarkPlugin, replaceAll } from '@milkdown/kit/utils';
 export { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list';
-export { wikiLinkPlugins } from './milkdown-wiki-links';
+export { wikiLinkAt, wikiLinkPlugins } from './milkdown-wiki-links';
 export { installTableBreaks } from './milkdown-table-breaks';
 export { installTableParagraph } from './milkdown-table-paragraph';
 export { installTableClipboard } from './milkdown-table-clipboard';

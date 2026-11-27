@@ -1,7 +1,10 @@
 import type { Parent, PhrasingContent } from 'mdast';
+import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { State, Tokenizer } from 'micromark-util-types';
 import { InputRule } from '@milkdown/kit/prose/inputrules';
 import { $inputRule, $markSchema, $remark } from '@milkdown/kit/utils';
+import { t } from '#lib/i18n/index.js';
+import { modKey } from '#lib/platform.js';
 import { extractWikiLinkTargets } from './wiki-links';
 
 interface WikiLink extends Parent {
@@ -113,7 +116,13 @@ const wikiLinkRemark = $remark(
 // text only.
 const wikiLinkSchema = $markSchema('mdshWikiLink', () => ({
 	parseDOM: [{ tag: 'span[data-mdsh-wiki-link]' }],
-	toDOM: () => ['span', { 'data-mdsh-wiki-link': '' }, 0],
+	// The title tells the reader how to follow the link while editing. A plain
+	// click keeps placing the caret, so the link needs a modifier key.
+	toDOM: () => [
+		'span',
+		{ 'data-mdsh-wiki-link': '', title: t('editor.wikiLinkHint', { key: modKey() }) },
+		0
+	],
 	parseMarkdown: {
 		match: (node) => node.type === 'mdshWikiLink',
 		runner: (state, node, markType) => {
@@ -145,3 +154,39 @@ const wikiLinkInputRule = $inputRule(
 );
 
 export const wikiLinkPlugins = [...wikiLinkRemark, ...wikiLinkSchema, wikiLinkInputRule];
+
+export interface WikiLinkHit {
+	target: string;
+	from: number;
+	to: number;
+}
+
+const wikiLinkGlobal = /\[\[([^[\]|\n]+)(\|[^[\]\n]*)?\]\]/g;
+
+/**
+ * Finds the marked wiki link that contains or touches `pos`. A position inside
+ * a link wins over a position at the edge of a neighbor, because ProseMirror
+ * can merge adjacent links into one element.
+ */
+export function wikiLinkAt(doc: ProseNode, pos: number): WikiLinkHit | null {
+	const $pos = doc.resolve(pos);
+	const parent = $pos.parent;
+	const markType = doc.type.schema.marks.mdshWikiLink;
+	if (!parent.isTextblock || !markType) return null;
+	const start = $pos.start();
+	// A leaf node keeps one placeholder character, so text offsets match positions.
+	const text = parent.textBetween(0, parent.content.size, undefined, '\ufffc');
+	let edge: WikiLinkHit | null = null;
+	for (const match of text.matchAll(wikiLinkGlobal)) {
+		const from = start + match.index;
+		const to = from + match[0].length;
+		if (pos < from || pos > to || !isWikiLink(match[0])) continue;
+		if (!doc.rangeHasMark(from, to, markType)) continue;
+		const target = extractWikiLinkTargets(match[0])[0];
+		if (!target) continue;
+		const hit = { target, from, to };
+		if (pos > from && pos < to) return hit;
+		edge ??= hit;
+	}
+	return edge;
+}
