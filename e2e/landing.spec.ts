@@ -165,6 +165,38 @@ test.describe('first visit actions', () => {
 		await expect(page.getByRole('button', { name: /Open your library/ })).toBeVisible();
 		await expect(page.locator('#files-panel')).not.toContainText(copy.en.sidebar);
 
+		// The new note is written to the drafts store after a short delay. Wait for
+		// the write, so the reload does not race with it.
+		await expect
+			.poll(
+				() =>
+					page.evaluate(
+						() =>
+							new Promise<number>((resolve) => {
+								const request = indexedDB.open('mdsh');
+								request.onerror = () => resolve(0);
+								request.onsuccess = () => {
+									const database = request.result;
+									const count = database.objectStoreNames.contains('drafts')
+										? database.transaction('drafts').objectStore('drafts').count()
+										: null;
+									if (!count) {
+										database.close();
+										resolve(0);
+										return;
+									}
+									count.onerror = () => resolve(0);
+									count.onsuccess = () => {
+										database.close();
+										resolve(count.result);
+									};
+								};
+							})
+					),
+				{ timeout: 10_000 }
+			)
+			.toBeGreaterThan(0);
+
 		// A reload keeps the pitch away, even before the library finishes loading.
 		await page.reload();
 		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
