@@ -1,5 +1,5 @@
 export const landingFr = {
-	'landing.title': 'Notes et présentations Markdown, sur\u00a0votre\u00a0appareil',
+	'landing.title': 'Notes et présentations Markdown,\u00a0sur votre\u00a0appareil',
 	'landing.lead':
 		'Rédigez vos notes et créez vos présentations dans une même bibliothèque. Chaque document est un fichier Markdown simple qui vous appartient.',
 	'landing.factsLabel': 'L’essentiel',
@@ -9,10 +9,10 @@ export const landingFr = {
 	'landing.featuresLabel': 'Ce que fait DeckMark',
 	'landing.notesTitle': 'Vos notes restent à vous',
 	'landing.notesText':
-		'Éditez visuellement ou dans la source. Reliez vos notes avec des [[liens wiki]] et recherchez dans toute la bibliothèque.',
+		'Éditez visuellement ou dans la source. Reliez vos notes avec des [[liens\u00a0wiki]] et recherchez dans toute la bibliothèque.',
 	'landing.slidesTitle': 'Des présentations aussi',
 	'landing.slidesText':
-		'Concevez vos diapositives sur un canevas et présentez en plein écran. Exportez en HTML ou en PDF. Une présentation reste un fichier Markdown lisible.',
+		'Concevez vos diapositives sur un canevas. Présentez en plein écran. Exportez en HTML ou en PDF. Le fichier reste du Markdown.',
 	'landing.privateTitle': 'Privé et hors ligne',
 	'landing.privateText':
 		'Aucun serveur, aucun suivi. Vos brouillons restent dans ce navigateur. Installez l’application pour travailler sans connexion.',
@@ -20,7 +20,6 @@ export const landingFr = {
 	'landing.previewHeading': 'Feuille de route',
 	'landing.previewItemOne': 'Publier la version 1.0',
 	'landing.previewItemTwo': 'Recueillir les retours',
-	'landing.previewLink': 'Idées',
 	'landing.previewNext': 'Ensuite',
 	'landing.desktopLink': 'Application Desktop (Beta)',
 	'landing.desktopHint':

@@ -141,7 +141,8 @@
 				</div>
 
 				<!-- Decorative figure built from markup and theme tokens. It makes no request.
-				     One Markdown file is the source, and its first heading becomes a slide. -->
+				     One Markdown file is the source. Its first heading becomes the title of a
+				     slide, and its list becomes the points of the slide. -->
 				<div class="welcome-visual" aria-hidden="true">
 					<div class="welcome-visual-stage">
 						<div class="welcome-visual-source">
@@ -154,10 +155,8 @@
 									<span class="tok-h"># {t('landing.previewHeading')}</span>
 								</li>
 								<li></li>
-								<li><span class="tok-m">- [x]</span> {t('landing.previewItemOne')}</li>
-								<li><span class="tok-m">- [ ]</span> {t('landing.previewItemTwo')}</li>
-								<li></li>
-								<li><span class="tok-link">[[{t('landing.previewLink')}]]</span></li>
+								<li><span class="tok-m">-</span> {t('landing.previewItemOne')}</li>
+								<li><span class="tok-m">-</span> {t('landing.previewItemTwo')}</li>
 								<li></li>
 								<li><span class="tok-m">---</span></li>
 								<li></li>
@@ -166,7 +165,10 @@
 						</div>
 						<div class="welcome-visual-wire"></div>
 						<div class="welcome-visual-slide">
-							<span class="welcome-visual-slide-title">{t('landing.previewHeading')}</span>
+							<span class="welcome-visual-slide-head">
+								<span class="welcome-visual-slide-title">{t('landing.previewHeading')}</span>
+								<span class="welcome-visual-wire-end"></span>
+							</span>
 							<span class="welcome-visual-slide-rule"></span>
 							<span class="welcome-visual-bullet">{t('landing.previewItemOne')}</span>
 							<span class="welcome-visual-bullet">{t('landing.previewItemTwo')}</span>
@@ -192,7 +194,7 @@
 			</section>
 		</section>
 
-		<SiteFooter class="mt-auto w-full max-w-[72rem] shrink-0 pt-4" />
+		<SiteFooter class="welcome-footer w-full shrink-0" />
 	{:else}
 		<section class="welcome-console my-auto w-full max-w-4xl" aria-labelledby="welcome-title">
 			<div class="welcome-grid">
@@ -483,7 +485,7 @@
 	   ====================================================================== */
 	.welcome-shell-first {
 		container: welcome / inline-size;
-		padding: clamp(0.5rem, 1.6vh, 1.25rem) clamp(1.25rem, 4vw, 2.5rem) 0.375rem;
+		padding: clamp(0.75rem, 2.2vh, 1.5rem) clamp(1.25rem, 4vw, 2.5rem) 0.375rem;
 	}
 	/* A phone or a tablet in portrait. The page scrolls, so the last links get
 	   some space before the edge of the screen. */
@@ -492,20 +494,71 @@
 			padding-bottom: 0.75rem;
 		}
 	}
+	/* The frame has four rows: a space, the hero, a space, the three points.
+	   `--welcome-cell-gap` is the gap of the action grid, and the three points
+	   use the same columns. Without subgrid, the frame takes the height of the
+	   home area and the two spaces share what is left. */
 	.welcome-first-visit {
+		--welcome-gap: clamp(2rem, 5cqi, 3rem);
+		--welcome-cell-gap: 0.5rem;
+		display: grid;
+		flex: 1 0 auto;
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows:
+			minmax(clamp(1.5rem, 4.5vh, 3rem), 1fr)
+			auto
+			minmax(clamp(1.75rem, 4.5vh, 3rem), 1fr)
+			auto;
 		max-width: 72rem;
-		margin-block: auto;
+		max-height: 58rem;
+		margin-top: auto;
 		border-bottom: 0;
-		padding: clamp(1.5rem, 3.4vh, 2.5rem) 0 1rem;
+		padding: 0;
+	}
+	.welcome-shell-first :global(.welcome-footer) {
+		max-width: 72rem;
+		margin-bottom: auto;
+	}
+	/* With subgrid, the home area gives the rows. The two spaces of the frame
+	   grow first, by the same amount, to 10rem. Then the rest of the height
+	   goes above the rule and below the footer in two equal parts. Thus the
+	   rule stays near the top, the footer stays near the bottom, and the hero
+	   stays in the middle. On a short window the spaces take their minimum
+	   and the page scrolls. */
+	@supports (grid-template-rows: subgrid) {
+		.welcome-shell-first {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-rows:
+				1fr
+				minmax(clamp(1.5rem, 4.5vh, 3rem), 10rem)
+				auto
+				minmax(clamp(1.75rem, 4.5vh, 3rem), 10rem)
+				auto
+				auto
+				1fr;
+			justify-items: center;
+		}
+		.welcome-first-visit {
+			grid-row: 2 / 6;
+			grid-template-rows: subgrid;
+			max-height: none;
+			margin-top: 0;
+		}
+		.welcome-shell-first :global(.welcome-footer) {
+			grid-row: 6;
+			margin-bottom: 0;
+		}
 	}
 	.welcome-hero {
 		display: grid;
+		grid-row: 2;
 		grid-template-columns: minmax(0, 1fr);
 		grid-template-areas:
 			'intro'
 			'actions'
 			'visual';
-		gap: 1.75rem clamp(2rem, 5cqi, 3rem);
+		gap: 1.75rem var(--welcome-gap);
 		align-items: start;
 	}
 	.welcome-first-visit .welcome-intro {
@@ -515,7 +568,7 @@
 	.welcome-first-visit .welcome-actions {
 		grid-area: actions;
 		max-width: 38rem;
-		gap: 0.25rem;
+		gap: 0.5rem;
 		padding-bottom: 0;
 	}
 	.welcome-first-visit .welcome-title {
@@ -523,9 +576,18 @@
 	}
 	.welcome-first-visit .welcome-brand {
 		width: clamp(8.75rem, 34%, 11rem);
+		margin-bottom: 1.5rem;
+	}
+	/* The side panel shows the wordmark. When the panel is on screen, the
+	   heading keeps its text only. On a phone the panel is a drawer over the
+	   page, so the heading keeps the wordmark. */
+	@media (min-width: 768px) {
+		:global(.mdsh-shell:has(.mdsh-sidebar:not([inert]))) .welcome-first-visit .welcome-brand {
+			display: none;
+		}
 	}
 	.welcome-first-visit .welcome-title-text {
-		margin-top: 1.5rem;
+		margin-top: 0;
 		font-size: clamp(1.75rem, 1.2rem + 2.2vw, 2.5rem);
 		font-weight: 600;
 		line-height: 1.1;
@@ -549,7 +611,7 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.3rem 1rem;
-		margin: 1.1rem 0 0;
+		margin: 1.25rem 0 0;
 		padding: 0;
 		list-style: none;
 	}
@@ -569,7 +631,7 @@
 	.welcome-action-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(min(100%, 16.5rem), 1fr));
-		gap: 0.5rem;
+		gap: var(--welcome-cell-gap);
 	}
 	.welcome-first-visit .welcome-action {
 		gap: 0.625rem;
@@ -577,14 +639,21 @@
 	.welcome-first-visit .welcome-action > .flex-1 {
 		text-wrap: balance;
 	}
+	.welcome-first-visit .welcome-action kbd {
+		font-size: 11px;
+	}
+	.welcome-first-visit .welcome-action-secondary kbd {
+		color: var(--color-fg-muted);
+	}
 	/* One filled action leads. The three other actions keep the full text
-	   color and a border that shows on each theme. */
+	   color. Their border has a contrast of 3:1 or more with the page and
+	   with the button surface on each theme. */
 	.welcome-first-visit .welcome-action-secondary {
-		border-color: color-mix(in oklab, var(--color-border-strong) 45%, var(--color-border));
+		border-color: var(--color-border-strong);
 		color: var(--color-fg);
 	}
 	.welcome-first-visit .welcome-action-secondary:hover {
-		border-color: var(--color-accent-dim);
+		border-color: var(--color-accent);
 	}
 	.welcome-links {
 		display: flex;
@@ -608,9 +677,11 @@
 	}
 
 	/* The figure. One Markdown file is the source sheet. The slide sheet lies
-	   over its corner, and a dashed wire joins the heading line to the slide.
-	   Sizes use `em` from one base size, so the figure scales as one piece.
-	   `--welcome-ratio` is the width of the stage divided by its height. */
+	   over its lower right corner, below the last line that it uses, and a
+	   dashed wire joins the heading line to the title of the slide.
+	   Heights use `em` from one base size and widths use a share of the stage,
+	   so the figure scales as one piece. The first grid row ends below line 4
+	   of the source: the tab, the top space, four lines, then a margin. */
 	.welcome-visual {
 		grid-area: visual;
 		container: welcome-visual / inline-size;
@@ -618,30 +689,40 @@
 		max-width: 36rem;
 		user-select: none;
 		pointer-events: none;
-		--welcome-visual-shadow: rgb(0 0 0 / 0.85);
+		--welcome-visual-shadow: rgb(0 0 0 / 0.72);
 		--welcome-visual-edge: var(--color-border);
 		--welcome-visual-slide: var(--color-bg-3);
 	}
 	:global(:root[data-theme='light']) .welcome-visual {
-		--welcome-visual-shadow: color-mix(in oklab, var(--color-fg) 34%, transparent);
+		--welcome-visual-shadow: color-mix(in oklab, var(--color-fg) 24%, transparent);
 		--welcome-visual-slide: var(--color-bg-2);
 		--welcome-visual-edge: color-mix(in oklab, var(--color-border-strong) 55%, var(--color-border));
 	}
 	.welcome-visual-stage {
-		--welcome-ratio: 1.5;
-		--welcome-source-edge: 66%;
+		--welcome-source-edge: 60%;
+		--welcome-slide-share: 0.62;
+		--welcome-slide-pad: 6%;
+		--welcome-slide-pad-top: 1.5em;
+		--welcome-slide-title: 1.45em;
+		--welcome-gutter: 2.7em;
+		--welcome-tab: 2.4em;
+		--welcome-slide-top: calc(var(--welcome-tab) + 0.75em + 4 * 1.62em + 0.85em);
 		position: relative;
-		aspect-ratio: var(--welcome-ratio);
-		font-size: 12px;
+		display: grid;
+		grid-template-columns: 100%;
+		grid-template-rows: var(--welcome-slide-top) auto;
+		font-size: 13px;
 	}
 	@supports (font-size: 1cqi) {
 		.welcome-visual-stage {
-			font-size: clamp(11px, 3cqi, 15px);
+			font-size: clamp(12px, 3cqi, 17px);
 		}
 	}
 	.welcome-visual-source {
-		position: absolute;
-		inset: 0 calc(100% - var(--welcome-source-edge)) 10% 0;
+		position: relative;
+		grid-area: 1 / 1 / 3 / 2;
+		align-self: start;
+		width: var(--welcome-source-edge);
 		overflow: hidden;
 		border: 1px solid var(--welcome-visual-edge);
 		background: var(--color-bg-1);
@@ -657,14 +738,16 @@
 	}
 	.welcome-visual-tab {
 		display: flex;
-		height: 2.7em;
+		height: var(--welcome-tab);
 		align-items: center;
-		gap: 0.55em;
+		gap: 0.5em;
 		border-bottom: 1px solid var(--color-border);
-		padding: 0 0.95em;
+		padding: 0 0.85em;
 		font-family: var(--font-mono);
-		font-size: 0.86em;
-		color: var(--color-fg-dim);
+		color: var(--color-fg-muted);
+	}
+	.welcome-visual-tab span {
+		font-size: max(11px, 0.9em);
 	}
 	.welcome-visual-tab :global(svg) {
 		flex-shrink: 0;
@@ -672,7 +755,7 @@
 	}
 	.welcome-visual-code {
 		margin: 0;
-		padding: 0.75em 0;
+		padding: 0.75em 0 1em;
 		list-style: none;
 		counter-reset: welcome-line;
 		font-family: var(--font-mono);
@@ -683,17 +766,16 @@
 	.welcome-visual-code li {
 		position: relative;
 		min-height: 1.62em;
-		padding-left: 3.3em;
+		padding-left: var(--welcome-gutter);
 		counter-increment: welcome-line;
 	}
 	.welcome-visual-code li::before {
 		content: counter(welcome-line);
 		position: absolute;
 		left: 0;
-		width: 2.2em;
+		width: calc(var(--welcome-gutter) - 1.1em);
 		text-align: right;
 		color: var(--color-fg-dim);
-		opacity: 0.62;
 	}
 	/* The heading line carries an amber band. A heading uses the text color in
 	   bold, like the title of the slide, so it keeps its contrast on the band. */
@@ -706,23 +788,20 @@
 	.welcome-visual-code .tok-m {
 		color: var(--color-fg-dim);
 	}
-	.welcome-visual-code .tok-link {
-		color: var(--color-accent);
-		text-decoration: underline;
-		text-decoration-color: var(--color-border-strong);
-		text-underline-offset: 3px;
-	}
-	/* The wire leaves the heading line at the edge of the source sheet and
-	   goes down to the top edge of the slide, in line with the right edge of
-	   the slide text. The slide is 62% wide at 16:9, so its share of the stage
-	   height is 34.875% times the stage ratio. Its side padding is 8% of the
-	   stage width. */
+	/* The wire leaves the heading line at the edge of the source sheet, goes
+	   right to the inner edge of the slide, then down to the middle of the
+	   slide title. Its last part is a child of the slide: a dashed line with an
+	   arrow head that points at the title. */
 	.welcome-visual-wire {
 		position: absolute;
-		top: calc(2.7em * 0.86 + 0.75em + 0.81em + 1px);
-		bottom: calc(34.875% * var(--welcome-ratio));
+		z-index: 1;
+		top: calc(var(--welcome-tab) + 0.75em + 0.81em);
+		right: calc(var(--welcome-slide-pad) + 1px);
 		left: var(--welcome-source-edge);
-		width: calc(92% - var(--welcome-source-edge));
+		height: calc(
+			var(--welcome-slide-top) + var(--welcome-slide-pad-top) + 0.575 * var(--welcome-slide-title) -
+				var(--welcome-tab) - 0.75em - 0.81em + 2px
+		);
 		border-top: 2px dashed var(--color-accent);
 		border-right: 2px dashed var(--color-accent);
 	}
@@ -735,47 +814,67 @@
 		height: 6px;
 		background: var(--color-accent);
 	}
-	.welcome-visual-wire::after {
-		content: '';
-		position: absolute;
-		right: -6px;
-		bottom: -1px;
-		border: 5px solid transparent;
-		border-top: 7px solid var(--color-accent);
-		border-bottom: 0;
-	}
+	/* The slide is one surface step above the source sheet. A strong border
+	   and a soft shadow with an offset show which sheet is on top. */
 	.welcome-visual-slide {
-		position: absolute;
-		right: 0;
-		bottom: 0;
+		position: relative;
+		grid-area: 2 / 1;
+		justify-self: end;
 		display: flex;
-		width: 62%;
+		width: calc(var(--welcome-slide-share) * 100%);
 		aspect-ratio: 16 / 9;
 		flex-direction: column;
-		justify-content: center;
-		gap: 0.55em;
+		gap: 0.5em;
 		border: 1px solid var(--color-border-strong);
 		background: var(--welcome-visual-slide);
-		padding: 0 8% 0.4em;
+		padding: var(--welcome-slide-pad-top) var(--welcome-slide-pad) 0;
 		box-shadow:
-			0 0.2em 0.5em -0.2em var(--welcome-visual-shadow),
-			0 1.7em 3em -1.3em var(--welcome-visual-shadow);
+			0 0.35em 0.9em -0.1em var(--welcome-visual-shadow),
+			0 1.5em 3em -0.9em var(--welcome-visual-shadow);
+	}
+	.welcome-visual-slide-head {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 0.75em;
 	}
 	.welcome-visual-slide-title {
-		font-size: 1.6em;
+		min-width: 0;
+		flex: 0 1 auto;
+		overflow: hidden;
+		font-size: var(--welcome-slide-title);
 		font-weight: 650;
 		line-height: 1.15;
 		letter-spacing: -0.015em;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--color-fg);
+	}
+	.welcome-visual-wire-end {
+		position: relative;
+		height: 0;
+		flex: 1 0 1.5em;
+		border-top: 2px dashed var(--color-accent);
+	}
+	.welcome-visual-wire-end::before {
+		content: '';
+		position: absolute;
+		top: -6px;
+		left: 0;
+		border: 5px solid transparent;
+		border-right: 7px solid var(--color-accent);
+		border-left: 0;
 	}
 	.welcome-visual-slide-rule {
 		width: 2.4em;
 		height: 2px;
+		flex: none;
 		margin-bottom: 0.15em;
 		background: var(--color-accent);
 	}
 	.welcome-visual-bullet {
 		position: relative;
+		flex: none;
 		overflow: hidden;
 		padding-left: 1.15em;
 		font-size: 0.95em;
@@ -795,21 +894,26 @@
 	}
 	.welcome-visual-count {
 		position: absolute;
-		right: calc(8% / 0.62);
-		bottom: 0.85em;
+		right: calc(var(--welcome-slide-pad) / var(--welcome-slide-share));
+		bottom: 0.7em;
 		font-family: var(--font-mono);
-		font-size: 0.74em;
-		color: var(--color-fg-dim);
+		font-size: max(11px, 0.85em);
+		color: var(--color-fg-muted);
 	}
 	/* A narrow figure, on a phone. The source sheet takes more of the width
-	   and drops the line numbers, so each line stays whole. */
-	@container welcome-visual (width < 21rem) {
+	   and drops the line numbers, so each line stays whole. The slide starts
+	   below the last line and lies over the empty end of the sheet only. */
+	@container welcome-visual (width < 23rem) {
 		.welcome-visual-stage {
-			--welcome-ratio: 1.3333;
 			--welcome-source-edge: 78%;
+			--welcome-slide-share: 0.72;
+			--welcome-slide-pad-top: 1.3em;
+			--welcome-slide-title: 1.3em;
+			--welcome-gutter: 1em;
+			--welcome-slide-top: calc(var(--welcome-tab) + 0.75em + 8 * 1.62em + 0.5em);
 		}
-		.welcome-visual-code li {
-			padding-left: 1em;
+		.welcome-visual-code {
+			padding-bottom: 2.5em;
 		}
 		.welcome-visual-code li::before {
 			display: none;
@@ -817,14 +921,14 @@
 	}
 
 	.welcome-pitch {
-		margin-top: clamp(1.75rem, 4vh, 3rem);
+		grid-row: 4;
 		border-top: 1px solid var(--color-border);
-		padding-top: clamp(1.25rem, 2.6vh, 1.75rem);
+		padding: clamp(1.25rem, 3vh, 2.25rem) 0;
 	}
 	.welcome-features {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		gap: 1.25rem clamp(1.5rem, 4cqi, 3rem);
+		gap: 1.25rem var(--welcome-cell-gap);
 	}
 	.welcome-features h2 {
 		display: flex;
@@ -859,10 +963,8 @@
 			font-size: 1rem;
 		}
 	}
-	/* The home area is wide enough for the copy and the figure side by side.
-	   The start actions take one band below them, with the links at its end.
-	   The figure is decoration, so the reading order and the focus order do
-	   not change. */
+	/* Three columns for the three points. Each column keeps some space at its
+	   end, because the gap between two columns is the gap between two actions. */
 	@container welcome (width >= 46rem) {
 		.welcome-features {
 			grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -874,31 +976,54 @@
 			grid-row: span 2;
 			grid-template-rows: subgrid;
 			row-gap: 0;
+			padding-right: 1.5rem;
 		}
 		.welcome-features h2 {
 			align-self: end;
 		}
+		.welcome-features p {
+			max-width: 21rem;
+		}
 	}
+	/* The home area is wide enough for the copy and the figure side by side.
+	   The start actions take one band below them on a grid of three columns:
+	   two columns of actions, then the links. The links need less width than
+	   an action label, so their column is narrower. The three points use the
+	   same three columns. The figure is decoration, so the reading order and
+	   the focus order do not change. */
 	@container welcome (width >= 51rem) {
+		.welcome-first-visit {
+			--welcome-cell-gap: 0.75rem;
+			--welcome-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.84fr);
+		}
+		.welcome-features {
+			grid-template-columns: var(--welcome-columns);
+		}
+		.welcome-features article:last-child {
+			padding-right: 0;
+		}
 		.welcome-hero {
-			grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+			grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
 			grid-template-areas:
 				'intro visual'
 				'actions actions';
+			row-gap: 2rem;
+			align-items: center;
 		}
 		.welcome-first-visit .welcome-actions {
+			display: grid;
 			max-width: none;
-			flex-direction: row;
-			gap: 1.5rem;
+			grid-template-columns: var(--welcome-columns);
+			gap: var(--welcome-cell-gap);
 		}
 		.welcome-action-grid {
-			min-width: 0;
-			flex: 1 1 auto;
+			grid-column: span 2;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 		.welcome-links {
-			flex: none;
 			flex-direction: column;
-			gap: 0.5rem;
+			flex-wrap: nowrap;
+			gap: var(--welcome-cell-gap);
 		}
 		.welcome-link {
 			flex: 1 1 0;
@@ -906,41 +1031,91 @@
 		.welcome-first-visit .welcome-title-text {
 			font-size: clamp(2rem, 0.2rem + 3.6cqi, 3rem);
 		}
-		.welcome-hero {
-			row-gap: 1.5rem;
-			align-items: center;
-		}
 		.welcome-visual {
 			justify-self: end;
 		}
 	}
-	/* A desktop window. The copy column holds two actions side by side in
-	   each language, and the figure takes the height of the two rows. */
+	/* A desktop window. The figure takes its own column next to the copy and
+	   the actions. The first two points start at the two columns of actions,
+	   and the third point starts at the figure. */
 	@container welcome (width >= 68.5rem) {
+		.welcome-first-visit {
+			--welcome-cell-gap: 0.5rem;
+			--welcome-figure-col: clamp(28.5rem, 41%, 30rem);
+		}
 		.welcome-hero {
-			grid-template-columns: minmax(0, 1fr) minmax(0, clamp(28.5rem, 41%, 29.5rem));
+			grid-template-columns: minmax(0, 1fr) minmax(0, var(--welcome-figure-col));
 			grid-template-areas:
 				'intro visual'
 				'actions visual';
+			row-gap: 1.75rem;
 			align-items: start;
 		}
-		/* The top edge of the figure meets the first line of the title. */
 		.welcome-visual {
-			margin-top: 2.9rem;
+			align-self: center;
 		}
 		.welcome-first-visit .welcome-actions {
+			display: flex;
 			flex-direction: column;
-			gap: 0.25rem;
+			gap: 0.5rem;
+		}
+		.welcome-action-grid {
+			grid-column: auto;
 		}
 		.welcome-links {
 			flex-direction: row;
+			flex-wrap: wrap;
 			gap: 0 1.5rem;
 		}
 		.welcome-link {
 			flex: none;
 		}
-		.welcome-visual-stage {
-			--welcome-ratio: 1.37;
+		.welcome-features {
+			grid-template-columns:
+				repeat(2, minmax(0, 1fr))
+				calc(var(--welcome-figure-col) + var(--welcome-gap) - var(--welcome-cell-gap));
+		}
+		.welcome-features article:last-child {
+			padding-left: calc(var(--welcome-gap) - var(--welcome-cell-gap));
+		}
+	}
+	/* A large desktop window. The type and the figure take one step up, so
+	   the view fills the home area. */
+	@container welcome (width >= 92rem) {
+		.welcome-first-visit {
+			--welcome-gap: 3.5rem;
+			--welcome-figure-col: clamp(30rem, 41%, 35rem);
+			max-width: 84rem;
+		}
+		.welcome-shell-first :global(.welcome-footer) {
+			max-width: 84rem;
+		}
+		.welcome-hero {
+			row-gap: 2.25rem;
+		}
+		.welcome-first-visit .welcome-intro {
+			max-width: 44rem;
+		}
+		.welcome-first-visit .welcome-title-text {
+			font-size: clamp(3rem, 3.33cqi, 3.5rem);
+		}
+		.welcome-lead {
+			max-width: 38rem;
+			font-size: 1.1875rem;
+		}
+		.welcome-facts li {
+			font-size: 0.9375rem;
+		}
+		.welcome-first-visit .welcome-action {
+			min-height: 52px;
+			font-size: 1.0625rem;
+		}
+		.welcome-features h2 {
+			font-size: 1.0625rem;
+		}
+		.welcome-features p {
+			max-width: 24rem;
+			font-size: 0.9375rem;
 		}
 	}
 
@@ -993,9 +1168,6 @@
 	@media (max-width: 240px) {
 		.welcome-shell-first {
 			padding-inline: 8px;
-		}
-		.welcome-first-visit {
-			padding-inline: 0;
 		}
 	}
 </style>

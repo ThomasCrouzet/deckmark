@@ -4997,6 +4997,28 @@ technology and holds no control. With reduced motion, no animation is set and th
 figure is complete. With default motion, each animation ends and the figure ends in
 the same state.
 
+The wordmark cases check that the page shows one wordmark. With the side panel on
+screen, the heading shows its text only. With the side panel closed, or on a phone,
+the heading shows the wordmark. In each case the page has one level-one heading.
+
+The space cases use the two desktop sizes in the two languages. They check that the
+space above the hero equals the space below it, that the three points touch the
+footer, and that the spaces above the rule and below the footer are small and almost
+equal. The column cases check that the three points start at the columns of the hero.
+The line cases read the line boxes of the title and of the first point. They check
+that no title line holds `Markdown,` only and that the wiki link token stays on one
+line.
+
+The border cases compute the contrast of the border of each secondary action with
+the page and with the button surface in the two themes. Each value must be 3:1 or
+more. The target check includes the two text links and the four footer links.
+
+The figure cases use the six sizes in the two languages. They check that the slide
+hides no source text, that no source line touches the edge of the sheet, that the
+wire ends at the height of the slide title, and that no figure text is smaller than
+11 px. They also check that the slide has its own surface, its own border and a
+shadow.
+
 The edition case reads `edition.json`. DeckMark Web shows the desktop download link.
 A Desktop build does not show it. The default server is DeckMark Web. To check the
 other branch, run the case with `--config=playwright.capture.config.ts`, which builds

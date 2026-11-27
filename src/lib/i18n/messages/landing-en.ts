@@ -9,10 +9,10 @@ export const landingEn = {
 	'landing.featuresLabel': 'What DeckMark does',
 	'landing.notesTitle': 'Notes that stay yours',
 	'landing.notesText':
-		'Edit visually or in source. Link notes with [[wiki links]] and search the whole library.',
+		'Edit visually or in source. Link notes with [[wiki\u00a0links]] and search the whole library.',
 	'landing.slidesTitle': 'Slides, not just notes',
 	'landing.slidesText':
-		'Design slides on a canvas and present full screen. Export to HTML or PDF. A deck stays a readable Markdown file.',
+		'Design slides on a canvas. Present full screen. Export to HTML or PDF. A deck stays plain Markdown.',
 	'landing.privateTitle': 'Private and offline',
 	'landing.privateText':
 		'No server and no tracking. Drafts stay in this browser. Install the app to work without a connection.',
@@ -20,7 +20,6 @@ export const landingEn = {
 	'landing.previewHeading': 'Roadmap',
 	'landing.previewItemOne': 'Ship version 1.0',
 	'landing.previewItemTwo': 'Collect feedback',
-	'landing.previewLink': 'Ideas',
 	'landing.previewNext': 'Next',
 	'landing.desktopLink': 'Desktop app (Beta)',
 	'landing.desktopHint':

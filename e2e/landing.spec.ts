@@ -359,6 +359,303 @@ test('the figure is decoration and tells the same thing with no motion', async (
 	expect(Math.round(moved.slideBox.y)).toBe(Math.round(still.slideBox.y));
 });
 
+// The side panel shows the wordmark. The heading shows it only when the side
+// panel is not on screen, so the page never shows two wordmarks.
+for (const [name, viewport, sidebar, shown] of [
+	['a desktop window with the side panel', { width: 1440, height: 900 }, 'open', false],
+	['iPad landscape with the side panel', { width: 1180, height: 820 }, 'open', false],
+	['iPad portrait with the side panel', { width: 820, height: 1180 }, 'open', false],
+	['a desktop window with the side panel closed', { width: 1440, height: 900 }, 'closed', true],
+	['iPad portrait with the side panel closed', { width: 820, height: 1180 }, 'closed', true],
+	['iPhone', { width: 390, height: 844 }, 'open', true]
+] as const) {
+	test(`the page shows one wordmark on ${name}`, async ({ page }) => {
+		await page.setViewportSize(viewport);
+		await page.addInitScript((value) => localStorage.setItem('mdsh:sidebar', value), sidebar);
+		await start(page, 'en');
+		await expect(page.getByTestId('welcome-new')).toBeVisible();
+		const heading = page.getByRole('heading', { level: 1 });
+		await expect(heading).toHaveCount(1);
+		await expect(heading).toContainText(copy.en.h1);
+		const marks = await page.evaluate(() => {
+			const seen = (element: Element | null) => {
+				if (!element) return false;
+				const box = element.getBoundingClientRect();
+				return box.width > 4 && box.height > 4 && box.right > 0 && box.left < innerWidth;
+			};
+			return {
+				hero: seen(document.querySelector('.welcome-first-visit .welcome-brand')),
+				panel: seen(document.querySelector('#files-panel [data-testid="home-logo"]'))
+			};
+		});
+		expect(marks.hero).toBe(shown);
+		expect(marks.panel).toBe(!shown);
+	});
+}
+
+// The hero stays in the middle of the frame. The rule stays near the top of the
+// home area, and the three points and the footer stay near the bottom.
+for (const [name, viewport] of [
+	['large desktop', { width: 1920, height: 1080 }],
+	['desktop', { width: 1440, height: 900 }]
+] as const) {
+	for (const locale of ['en', 'fr'] as const) {
+		test(`the vertical space is balanced on ${name} in ${locale}`, async ({ page }) => {
+			await page.setViewportSize(viewport);
+			await start(page, locale);
+			const space = await page.evaluate(() => {
+				const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+				const shell = box('.welcome-shell');
+				const frame = box('.welcome-first-visit');
+				const hero = box('.welcome-hero');
+				const points = box('.welcome-features');
+				const footer = box('.welcome-footer');
+				return {
+					aboveRule: frame.top - shell.top,
+					aboveHero: hero.top - frame.top,
+					belowHero: points.top - hero.bottom,
+					pointsToFooter: footer.top - points.bottom,
+					belowFooter: shell.bottom - footer.bottom
+				};
+			});
+			await test.info().attach('space.json', {
+				body: JSON.stringify(space),
+				contentType: 'application/json'
+			});
+			expect(Math.abs(space.aboveHero - space.belowHero)).toBeLessThanOrEqual(2);
+			expect(space.aboveHero).toBeLessThanOrEqual(161);
+			expect(space.pointsToFooter).toBeLessThanOrEqual(1);
+			expect(space.aboveRule).toBeLessThanOrEqual(56);
+			expect(space.belowFooter).toBeLessThanOrEqual(56);
+			expect(Math.abs(space.aboveRule - space.belowFooter)).toBeLessThanOrEqual(24);
+		});
+	}
+}
+
+// The three points use the columns of the hero: the two columns of actions,
+// then the figure on a desktop window or the links on a tablet in landscape.
+for (const [name, viewport, third] of [
+	['large desktop', { width: 1920, height: 1080 }, '.welcome-visual'],
+	['desktop', { width: 1440, height: 900 }, '.welcome-visual'],
+	['iPad landscape', { width: 1180, height: 820 }, '.welcome-links']
+] as const) {
+	test(`the three points use the hero columns on ${name}`, async ({ page }) => {
+		await page.setViewportSize(viewport);
+		await start(page, 'fr');
+		const lefts = await page.evaluate((selector) => {
+			const left = (element: Element) => Math.round(element.getBoundingClientRect().left);
+			const actions = [...document.querySelectorAll('.welcome-action')];
+			return {
+				// The third point has a left padding on a desktop window, so read the titles.
+				points: [...document.querySelectorAll('.welcome-features article h2')].map(left),
+				hero: [left(actions[0]!), left(actions[1]!), left(document.querySelector(selector)!)]
+			};
+		}, third);
+		expect(lefts.points).toHaveLength(3);
+		for (let index = 0; index < 3; index += 1) {
+			expect(
+				Math.abs(lefts.points[index]! - lefts.hero[index]!),
+				`column ${index}`
+			).toBeLessThanOrEqual(1);
+		}
+	});
+}
+
+// Line boxes of a text, read from the layout. A wrapped text gives one entry per line.
+async function textLines(page: Page, selector: string) {
+	return page.locator(selector).evaluate((element) => {
+		const lines: string[] = [];
+		let last: number | null = null;
+		const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+		for (
+			let node = walker.nextNode() as Text | null;
+			node;
+			node = walker.nextNode() as Text | null
+		) {
+			for (let index = 0; index < node.length; index += 1) {
+				const range = document.createRange();
+				range.setStart(node, index);
+				range.setEnd(node, index + 1);
+				const box = range.getClientRects()[0];
+				if (!box) continue;
+				const top = Math.round(box.top);
+				if (last === null || Math.abs(top - last) > 4) {
+					lines.push('');
+					last = top;
+				}
+				lines[lines.length - 1] += node.data[index];
+			}
+		}
+		return lines.map((line) => line.replace(/\s+/g, ' ').trim());
+	});
+}
+
+for (const [name, viewport] of [
+	['desktop', { width: 1440, height: 900 }],
+	['iPad landscape', { width: 1180, height: 820 }],
+	['iPhone', { width: 390, height: 844 }],
+	['narrow phone', { width: 320, height: 640 }]
+] as const) {
+	for (const locale of ['en', 'fr'] as const) {
+		test(`the title and the wiki link token break well on ${name} in ${locale}`, async ({
+			page
+		}) => {
+			await page.setViewportSize(viewport);
+			await start(page, locale);
+			// No line of the title holds one word only before the last line.
+			const title = await textLines(page, '.welcome-first-visit .welcome-title-text');
+			expect(title.join(' ')).toBe(copy[locale].h1);
+			expect(title).not.toContain('Markdown,');
+			// The wiki link token stays on one line.
+			const token = locale === 'en' ? '[[wiki links]]' : '[[liens wiki]]';
+			const point = await textLines(page, '.welcome-features article:first-child p');
+			expect(point.join(' ')).toContain(token);
+			expect(point.filter((line) => line.includes(token))).toHaveLength(1);
+		});
+	}
+}
+
+// Contrast of two CSS colors. Each color goes through a canvas, so any CSS
+// color syntax reduces to RGB.
+async function borderContrast(page: Page, selector: string) {
+	return page.locator(selector).evaluate((element) => {
+		const rgb = (value: string) => {
+			const canvas = document.createElement('canvas');
+			canvas.width = canvas.height = 1;
+			const context = canvas.getContext('2d', { willReadFrequently: true })!;
+			context.fillStyle = value;
+			context.fillRect(0, 0, 1, 1);
+			const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+			return { r: r!, g: g!, b: b!, a: a! / 255 };
+		};
+		const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
+			const [lr, lg, lb] = [r, g, b].map((channel) => {
+				const value = channel / 255;
+				return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+			});
+			return 0.2126 * lr! + 0.7152 * lg! + 0.0722 * lb!;
+		};
+		const ratio = (
+			a: { r: number; g: number; b: number },
+			b: { r: number; g: number; b: number }
+		) => {
+			const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+			return (hi! + 0.05) / (lo! + 0.05);
+		};
+		const style = getComputedStyle(element);
+		const border = rgb(style.borderTopColor);
+		const surface = rgb(style.backgroundColor);
+		const pageColor = rgb(getComputedStyle(document.body).backgroundColor);
+		return {
+			opaque: border.a === 1 && surface.a === 1 && pageColor.a === 1,
+			width: parseFloat(style.borderTopWidth),
+			toPage: ratio(border, pageColor),
+			toSurface: ratio(border, surface)
+		};
+	});
+}
+
+for (const theme of ['light', 'dark'] as const) {
+	test(`the border of each secondary action reaches 3:1 in ${theme}`, async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await start(page, 'en', theme);
+		for (const id of ['welcome-new-presentation', 'welcome-demo', 'welcome-import']) {
+			const contrast = await borderContrast(page, `[data-testid="${id}"]`);
+			expect(contrast.opaque, id).toBe(true);
+			expect(contrast.width, id).toBeGreaterThanOrEqual(1);
+			expect(contrast.toPage, id).toBeGreaterThanOrEqual(3);
+			expect(contrast.toSurface, id).toBeGreaterThanOrEqual(3);
+		}
+	});
+}
+
+// The figure. The slide lies over the source sheet and hides no source text.
+// The wire ends at the title of the slide. Its small text stays readable.
+for (const [name, viewport] of [
+	['large desktop', { width: 1920, height: 1080 }],
+	['desktop', { width: 1440, height: 900 }],
+	['iPad landscape', { width: 1180, height: 820 }],
+	['iPad portrait', { width: 820, height: 1180 }],
+	['iPhone', { width: 390, height: 844 }],
+	['narrow phone', { width: 320, height: 640 }]
+] as const) {
+	for (const locale of ['en', 'fr'] as const) {
+		test(`the figure keeps its source lines clear on ${name} in ${locale}`, async ({ page }) => {
+			await page.setViewportSize(viewport);
+			await page.emulateMedia({ reducedMotion: 'reduce' });
+			await start(page, locale);
+			const figure = await page.locator('.welcome-visual').evaluate((node) => {
+				const box = (element: Element) => element.getBoundingClientRect();
+				const slide = box(node.querySelector('.welcome-visual-slide')!);
+				const source = box(node.querySelector('.welcome-visual-source')!);
+				const title = box(node.querySelector('.welcome-visual-slide-title')!);
+				const end = box(node.querySelector('.welcome-visual-wire-end')!);
+				const wire = box(node.querySelector('.welcome-visual-wire')!);
+				const texts = [...node.querySelectorAll('.welcome-visual-code li')].map((line) => {
+					const range = document.createRange();
+					range.selectNodeContents(line);
+					const rect = range.getBoundingClientRect();
+					return { text: line.textContent!.trim(), rect };
+				});
+				const hidden = texts
+					.filter(({ text }) => text !== '')
+					.filter(
+						({ rect }) =>
+							rect.right > slide.left - 4 && rect.bottom > slide.top && rect.top < slide.bottom
+					)
+					.map(({ text }) => text);
+				const clipped = texts
+					.filter(({ text, rect }) => text !== '' && rect.right > source.right - 4)
+					.map(({ text }) => text);
+				const size = (selector: string, pseudo?: string) =>
+					parseFloat(getComputedStyle(node.querySelector(selector)!, pseudo).fontSize);
+				const slideStyle = getComputedStyle(node.querySelector('.welcome-visual-slide')!);
+				const sourceStyle = getComputedStyle(node.querySelector('.welcome-visual-source')!);
+				return {
+					hidden,
+					clipped,
+					lines: texts.length,
+					// The arrow is at the height of the title, on its right.
+					endOnTitle:
+						end.top + end.height / 2 > title.top &&
+						end.top + end.height / 2 < title.bottom &&
+						end.left >= title.right,
+					endWidth: end.width,
+					// The two parts of the wire meet.
+					joined:
+						Math.abs(wire.bottom - end.bottom) <= 1.5 && Math.abs(wire.right - end.right) <= 1.5,
+					sizes: [
+						size('.welcome-visual-tab span'),
+						size('.welcome-visual-code li', '::before'),
+						size('.welcome-visual-code li'),
+						size('.welcome-visual-count'),
+						size('.welcome-visual-bullet')
+					],
+					shadow: slideStyle.boxShadow,
+					surfaces: [slideStyle.backgroundColor, sourceStyle.backgroundColor],
+					borders: [slideStyle.borderTopColor, sourceStyle.borderTopColor]
+				};
+			});
+			await test.info().attach('figure.json', {
+				body: JSON.stringify(figure),
+				contentType: 'application/json'
+			});
+			expect(figure.lines).toBe(8);
+			expect(figure.hidden).toEqual([]);
+			expect(figure.clipped).toEqual([]);
+			expect(figure.endOnTitle).toBe(true);
+			expect(figure.endWidth).toBeGreaterThanOrEqual(16);
+			expect(figure.joined).toBe(true);
+			for (const size of figure.sizes) expect(size).toBeGreaterThanOrEqual(11);
+			// The slide is one step above the source sheet: its own surface, its own
+			// border and a shadow.
+			expect(figure.shadow).not.toBe('none');
+			expect(figure.surfaces[0]).not.toBe(figure.surfaces[1]);
+			expect(figure.borders[0]).not.toBe(figure.borders[1]);
+		});
+	}
+}
+
 // The Desktop edition has no use for a link to its own installers. The default
 // server is DeckMark Web. Serve a Desktop build to check the other branch:
 // `npx playwright test --config=playwright.capture.config.ts e2e/landing.spec.ts -g "follows the edition"`.
@@ -403,13 +700,17 @@ for (const [name, viewport] of [
 			expect(fits).toBe(true);
 			// The primary action stays reachable without scrolling.
 			await expect(page.getByTestId('welcome-new')).toBeInViewport();
-			const small = await page.locator('.welcome-actions :is(button, a)').evaluateAll((items) =>
-				items
-					.map((item) => item.getBoundingClientRect())
-					.filter((box) => box.height < 44)
-					.map((box) => Math.round(box.height))
-			);
+			// The start actions, the two text links and the footer links are touch targets.
+			const small = await page
+				.locator('.welcome-actions :is(button, a), .welcome-footer a')
+				.evaluateAll((items) =>
+					items
+						.map((item) => item.getBoundingClientRect())
+						.filter((box) => box.height < 44)
+						.map((box) => Math.round(box.height))
+				);
 			expect(small).toEqual([]);
+			expect(await page.locator('.welcome-footer a').count()).toBe(4);
 			await page.evaluate(async () => {
 				await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {})));
 			});
