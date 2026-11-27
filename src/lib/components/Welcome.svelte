@@ -67,11 +67,8 @@
 					<span class="welcome-title-text">{t('welcome.titleText')}</span>
 				</h1>
 				<div class="welcome-rule" aria-hidden="true"></div>
-				<p class="mt-6 max-w-md text-base leading-relaxed text-fg-muted">
-					{t('welcome.tagline')}
-				</p>
 				{#if firstVisit}
-					<p class="mt-3 max-w-md text-sm leading-relaxed text-fg-muted">
+					<p class="mt-6 max-w-md text-base leading-relaxed text-fg-muted">
 						{t('landing.lead')}
 					</p>
 					<ul class="welcome-facts" aria-label={t('landing.factsLabel')}>
@@ -80,6 +77,9 @@
 						<li>{t('landing.factOpenSource')}</li>
 					</ul>
 				{:else}
+					<p class="mt-6 max-w-md text-base leading-relaxed text-fg-muted">
+						{t('welcome.tagline')}
+					</p>
 					<p class="mt-3 max-w-md font-mono text-[11px] uppercase tracking-[0.08em] text-fg-subtle">
 						{t('welcome.privacy')}
 					</p>
@@ -128,7 +128,6 @@
 				>
 					<span class="welcome-action-icon"><Compass size={16} /></span>
 					<span class="flex-1">{t('welcome.openDemo')}</span>
-					<span class="font-mono text-[10px] text-fg-dim">{t('welcome.demoLabel')}</span>
 				</button>
 				<button
 					data-testid="welcome-import"
@@ -239,7 +238,7 @@
 		{/if}
 	</section>
 
-	<SiteFooter class="mt-8 w-full max-w-4xl shrink-0" />
+	<SiteFooter class="{firstVisit ? 'mt-auto pt-8' : 'mt-8'} w-full max-w-4xl shrink-0" />
 </div>
 
 <style>
@@ -338,9 +337,6 @@
 		border-right-color: color-mix(in oklab, var(--color-on-accent) 28%, transparent);
 		color: var(--color-on-accent);
 	}
-	.welcome-action-primary kbd {
-		color: color-mix(in oklab, var(--color-on-accent) 88%, transparent);
-	}
 	.welcome-action:hover {
 		border-color: var(--color-accent-dim);
 		background: var(--color-bg-2);
@@ -364,6 +360,11 @@
 		font-family: var(--font-mono);
 		font-size: 10px;
 		color: var(--color-fg-dim);
+	}
+	/* The hint on the filled accent uses the on-accent color at full strength.
+	   It must follow the base kbd rule above: both rules have the same specificity. */
+	.welcome-action-primary kbd {
+		color: var(--color-on-accent);
 	}
 	/* First visit. The introduction reuses the console frame, the amber rule and the
 	   square bordered panels of the returning-user view. Every color is a theme token. */
@@ -409,8 +410,17 @@
 	.welcome-shell-first {
 		padding-block: 1.5rem;
 	}
+	/* The first-visit content sits near the top of the window. The free space goes
+	   between the content and the footer, so a tall window does not push the
+	   actions down. */
 	.welcome-first-visit {
-		padding-top: clamp(1.75rem, 3.5vw, 3rem);
+		margin-bottom: auto;
+		padding-top: clamp(1.25rem, 2.5vw, 2rem);
+	}
+	@media (min-width: 921px) {
+		.welcome-first-visit {
+			margin-top: clamp(0.5rem, 3vh, 2rem);
+		}
 	}
 	.welcome-pitch {
 		display: flex;

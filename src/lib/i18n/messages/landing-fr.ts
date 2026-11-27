@@ -1,7 +1,7 @@
 export const landingFr = {
 	'landing.kicker': 'Notes et présentations Markdown, local d’abord',
 	'landing.lead':
-		'Les notes et les présentations sont des fichiers Markdown simples, réunis dans une bibliothèque locale. Tout s’exécute dans cet onglet.',
+		'Des fichiers Markdown simples dans une bibliothèque locale. Fonctionne hors ligne, sans compte.',
 	'landing.factsLabel': 'L’essentiel',
 	'landing.factNoAccount': 'Sans compte',
 	'landing.factOffline': 'Fonctionne hors ligne',
@@ -22,7 +22,7 @@ export const landingFr = {
 	'landing.previewItemOne': 'Publier la première version',
 	'landing.previewItemTwo': 'Recueillir les retours',
 	'landing.desktopLead': 'Vous voulez des fichiers sur votre disque ?',
-	'landing.desktopLink': 'Télécharger DeckMark Desktop (Beta)',
+	'landing.desktopLink': 'Application Desktop (Beta)',
 	'landing.desktopHint':
 		'Pour macOS, Windows et Linux. Les installateurs ne sont pas signés. S’ouvre dans un nouvel onglet GitHub.',
 	'landing.githubLink': 'Code source sur GitHub',
