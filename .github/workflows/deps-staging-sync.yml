@@ -1,0 +1,44 @@
+name: deps-staging sync
+
+# Reset the deps-staging branch to main every Monday before Dependabot opens
+# its weekly version proposals (06:00 Europe/Paris). The proposals then start
+# from the current main lockfile. deps-staging is a disposable base for
+# proposals: no pull request merges into it and no ruleset protects it.
+#
+# The job uses the REST API with the workflow token and checks out no code.
+# A ref update made with the workflow token starts no workflow run.
+
+on:
+  schedule:
+    # 03:30 UTC is 04:30 or 05:30 in Paris, before Dependabot in both seasons.
+    - cron: '30 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps-staging-sync
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Reset deps-staging to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          main=$(gh api "repos/$REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          [[ "$main" =~ ^[0-9a-f]{40}$ ]]
+          if ! gh api "repos/$REPOSITORY/git/ref/heads/deps-staging" >/dev/null 2>&1; then
+            echo '::error::The deps-staging branch does not exist. A maintainer creates it from main once.'
+            exit 1
+          fi
+          gh api -X PATCH "repos/$REPOSITORY/git/refs/heads/deps-staging" -f sha="$main" -F force=true --jq '.object.sha'
+          echo "deps-staging now points to main $main."

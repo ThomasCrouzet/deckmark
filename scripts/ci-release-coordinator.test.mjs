@@ -217,7 +217,8 @@ function gate(overrides) {
 		TIER: 'full',
 		RESOLVE_RESULT: 'success',
 		VALIDATE_RESULT: 'success',
-		NATIVE_RESULT: 'success',
+		NATIVE_SMOKE_RESULT: 'success',
+		NATIVE_BENCHMARK_RESULT: 'success',
 		WEB_BUILD_RESULT: 'success',
 		WEB_BENCHMARK_RESULT: 'success',
 		...overrides
@@ -262,7 +263,8 @@ test('the validation gate rejects a deferred, cancelled or incomplete matrix', (
 	for (const name of [
 		'RESOLVE_RESULT',
 		'VALIDATE_RESULT',
-		'NATIVE_RESULT',
+		'NATIVE_SMOKE_RESULT',
+		'NATIVE_BENCHMARK_RESULT',
 		'WEB_BUILD_RESULT',
 		'WEB_BENCHMARK_RESULT'
 	]) {
@@ -271,6 +273,68 @@ test('the validation gate rejects a deferred, cancelled or incomplete matrix', (
 			assert.notEqual(result.status, 0, `${name}=${value} passed`);
 			assert.match(result.stderr, new RegExp(name), `${name}=${value}`);
 		}
+	}
+});
+
+test('the validation gate accepts a proven main tree only with every job skipped', () => {
+	const skipped = {
+		VALIDATE_RESULT: 'skipped',
+		NATIVE_SMOKE_RESULT: 'skipped',
+		NATIVE_BENCHMARK_RESULT: 'skipped',
+		WEB_BUILD_RESULT: 'skipped',
+		WEB_BENCHMARK_RESULT: 'skipped'
+	};
+	const proof = { REUSE: 'true', PROOF_RUN: '45956635296', REPOSITORY: 'owner/repo' };
+	const proven = gate({ ...proof, ...skipped });
+	assert.equal(proven.status, 0, proven.stderr);
+	assert.match(
+		proven.stdout,
+		/identical pull request tree: https:\/\/github\.com\/owner\/repo\/actions\/runs\/45956635296/
+	);
+
+	for (const value of ['', 'abc']) {
+		const result = gate({ ...proof, ...skipped, PROOF_RUN: value });
+		assert.notEqual(result.status, 0, `PROOF_RUN=${value}`);
+		assert.match(result.stderr, /numeric PROOF_RUN/);
+	}
+	for (const name of Object.keys(skipped)) {
+		for (const value of ['success', 'failure', 'cancelled', '']) {
+			const result = gate({ ...proof, ...skipped, [name]: value });
+			assert.notEqual(result.status, 0, `${name}=${value}`);
+			assert.match(result.stderr, new RegExp(name));
+		}
+	}
+	const unresolved = gate({ ...proof, ...skipped, RESOLVE_RESULT: 'skipped' });
+	assert.notEqual(unresolved.status, 0);
+	assert.match(unresolved.stderr, /RESOLVE_RESULT=skipped/);
+	assert.notEqual(gate({ ...proof, ...skipped, CHANGES_RESULT: 'failure' }).status, 0);
+	assert.notEqual(gate({ ...proof, ...skipped, TIER: 'draft', FULL: 'false' }).status, 0);
+	assert.notEqual(gate({ ...proof, ...skipped, REUSE: 'yes' }).status, 0);
+	// Without the proof the skipped matrix is incomplete.
+	assert.notEqual(gate({ ...skipped }).status, 0);
+});
+
+test('the Desktop workflow skips validation only on a proven tree and still releases', () => {
+	for (const job of [
+		'validate-desktop',
+		'web-build',
+		'web-benchmark',
+		'native-smoke',
+		'native-benchmark'
+	]) {
+		assert.match(jobBlock(DESKTOP_WORKFLOW, job), /needs\.changes\.outputs\.reuse != 'true'/, job);
+	}
+	const changes = jobBlock(DESKTOP_WORKFLOW, 'changes');
+	assert.match(changes, /scripts\/ci-tree-proof\.mjs .*--workflow desktop\.yml/);
+	assert.match(changes, /pull-requests: read/);
+	assert.doesNotMatch(changes, /: write/);
+	const gateJob = jobBlock(DESKTOP_WORKFLOW, 'desktop-validation');
+	assert.match(gateJob, /REUSE: \$\{\{ needs\.changes\.outputs\.reuse \}\}/);
+	assert.match(gateJob, /PROOF_RUN: \$\{\{ needs\.changes\.outputs\.proof_run \}\}/);
+	// The release chain reads the gate result, not the reuse flag, so a
+	// proven release merge still builds the installers.
+	for (const job of ['release-please', 'plan-release', 'build-desktop', 'publish-desktop-beta']) {
+		assert.doesNotMatch(jobBlock(DESKTOP_WORKFLOW, job), /outputs\.reuse/, job);
 	}
 });
 
@@ -699,11 +763,11 @@ test('a valid publish runs the build, publication and CLI chain', () => {
 test('the Desktop workflow owns validation, release creation and publication', () => {
 	for (const job of [
 		'changes',
-		'resolve-source',
 		'validate-desktop',
 		'web-build',
 		'web-benchmark',
-		'native-validation',
+		'native-smoke',
+		'native-benchmark',
 		'desktop-validation',
 		'release-please',
 		'plan-release',
@@ -740,7 +804,9 @@ test('the Desktop workflow owns validation, release creation and publication', (
 	assert.match(releaseJob, /concurrency:\n\s+group: release-please/);
 
 	const planJob = jobBlock(DESKTOP_WORKFLOW, 'plan-release');
-	assert.match(planJob, /needs: \[changes, resolve-source, release-please, desktop-validation\]/);
+	assert.match(planJob, /needs: \[changes, release-please, desktop-validation\]/);
+	assert.match(planJob, /RESOLVE_RESULT: \$\{\{ needs\.changes\.outputs\.resolve \}\}/);
+	assert.doesNotMatch(DESKTOP_WORKFLOW, /resolve-source/, 'the source identity lives in changes');
 	assert.match(planJob, /node scripts\/ci-release-coordinator\.mjs plan/);
 	assert.match(planJob, /build: \$\{\{ steps\.plan\.outputs\.build \}\}/);
 	assert.match(planJob, /publish: \$\{\{ steps\.plan\.outputs\.publish \}\}/);
@@ -832,15 +898,21 @@ test('the source command validates the tag and the run commit', () => {
 test('the validation matrix keeps its existing job names and inputs', () => {
 	const validate = jobBlock(DESKTOP_WORKFLOW, 'validate-desktop');
 	assert.match(validate, /platform: \[ubuntu-24\.04, windows-2022, macos-15\]/);
-	const native = jobBlock(DESKTOP_WORKFLOW, 'native-validation');
-	assert.match(native, /platform: \[ubuntu-24\.04, windows-2022, macos-15\]/);
+	for (const job of ['native-smoke', 'native-benchmark']) {
+		assert.match(
+			jobBlock(DESKTOP_WORKFLOW, job),
+			/platform: \[ubuntu-24\.04, windows-2022, macos-15\]/,
+			job
+		);
+	}
 	// The cached Rust dependency audit stays in the Rust matrix.
 	assert.match(validate, /cargo-audit/);
 	assert.match(validate, /--deny unsound/);
 	// The required aggregate still requires every matrix result.
 	const gate = jobBlock(DESKTOP_WORKFLOW, 'desktop-validation');
 	assert.match(gate, /VALIDATE_RESULT/);
-	assert.match(gate, /NATIVE_RESULT/);
+	assert.match(gate, /NATIVE_SMOKE_RESULT/);
+	assert.match(gate, /NATIVE_BENCHMARK_RESULT/);
 	assert.match(gate, /WEB_BENCHMARK_RESULT/);
 });
 

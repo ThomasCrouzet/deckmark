@@ -1821,7 +1821,9 @@ failed runs. Retain the command, expected and observed source revisions,
 environment, browser version, public URLs, fixture content, results and browser
 evidence. These files must permit another maintainer to repeat the same checks.
 Hosted CI creates these files on its runner without uploading them. They are
-temporary and are lost when the runner VM is destroyed.
+temporary and are lost when the runner VM is destroyed. (Only the E2E shard and
+the Desktop benchmark and smoke jobs upload failure diagnostics; see the CI
+evidence sections below.)
 
 ### Daily drift detection and repair
 
@@ -3184,32 +3186,37 @@ repository, and a missing or malformed manifest must fail with no image referenc
 - `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. It downloads the
   single `web-build` artifact and verifies its provenance before it measures.
   Local report: `$RUNNER_TEMP/web-benchmark-<browser>.json`.
-- `native-validation` on Ubuntu, Windows and macOS. Each job builds one isolated
-  debug test application, records the native source before and after the build,
-  runs `scripts/native-smoke.mjs` on the real WebView, then measures the
-  benchmark after every smoke process stops. Local results: `native-test-results/`.
-  Local report: `$RUNNER_TEMP/native-benchmark.json`, with screenshots and the
-  application log beside it. The macOS job asserts an ARM64 runner before it runs.
-- `desktop-validation` requires every requested job above to succeed. A reused
-  validation run must contain one successful `validate-desktop` job and one
-  successful `native-validation` job for each platform, one successful
-  `web-benchmark` job for each browser, and one successful gate.
+- `native-smoke` on Ubuntu, Windows and macOS. Each job builds one isolated debug
+  test application, records the native source before and after the build, and
+  runs `scripts/native-smoke.mjs` on the real WebView. Local results:
+  `native-test-results/`.
+- `native-benchmark` on Ubuntu, Windows and macOS. Each job builds its own debug
+  test application and measures the benchmark. No smoke process runs on that
+  runner. Local report: `$RUNNER_TEMP/native-benchmark.json`, with screenshots and
+  the application log beside it. The macOS jobs assert an ARM64 runner.
+- `desktop-validation` requires every requested job above to succeed. On a main
+  push it also accepts a proven identical pull request tree: the pull request run
+  must contain one successful `validate-desktop`, `native-smoke` and
+  `native-benchmark` job for each platform, one successful `web-benchmark` job for
+  each browser, and one successful gate (`scripts/ci-tree-proof.mjs`).
 
-The shared native job keeps these additional risks. A smoke failure must remain
-the first error and must not be replaced by a later benchmark failure. The
-benchmark must not start while a smoke process is still running, or its samples
-include competing work. The source snapshots before and after the build still
-identify the exact revision that the binary came from. The debug application
-carries the test feature and is never an installer input.
+The native jobs keep these risks. A smoke failure must stay visible as its own
+failed job and must not be hidden by a benchmark result. The benchmark must not
+start while a smoke process is running, or its samples include competing work;
+the separate benchmark job starts no smoke process. The source snapshots before
+and after each build still identify the exact revision that the binary came from.
+The debug application carries the test feature and is never an installer input.
 
 The performance jobs pass `--enforce-budgets` and fail on a non-ok budget
 result. A harness failure, missing result or functional native check failure
 also fails the job. Shared-runner variance does not turn a failed budget into
 a passing result. See [PERFORMANCE.md](PERFORMANCE.md) for the metric contract.
 
-These reports are not GitHub Actions artifacts. Hosted-runner cleanup discards
-them; no report download remains after the VM is destroyed. Keep local
-reproduction reports outside Git. Build inputs transferred between jobs and
+A failed job uploads its report for 3 days: `web-benchmark-failure-<browser>-attempt-<n>`
+holds the benchmark JSON, `native-smoke-failure-<platform>-attempt-<n>` holds
+`native-test-results/`, and `native-benchmark-failure-<platform>-attempt-<n>` holds
+the benchmark JSON and `native-test-results/`. A successful job uploads no report.
+The fixtures are synthetic. Keep local reproduction reports outside Git. Build inputs transferred between jobs and
 release deliverables remain separate from test reports.
 Lighthouse CI writes its output to the filesystem at `test-results/lighthouse`
 on the hosted runner, not to temporary public storage. That output is discarded
@@ -3643,9 +3650,9 @@ OFFLINE_REVIEW_PHASE=final npx playwright test --config e2e/offline-review.confi
 
 The Desktop reuse validator must reject missing, repeated, failed, skipped, or
 incomplete platform jobs. It must reject a different source SHA, workflow, or run
-event. A valid run has one `validate-desktop` job and one `native-validation` job
-for each of Ubuntu, Windows, and macOS, one `web-benchmark` job for each of
-Chromium, Firefox, and WebKit, plus one successful aggregate gate. The workflow
+event. A valid run has one `validate-desktop`, one `native-smoke` and one
+`native-benchmark` job for each of Ubuntu, Windows, and macOS, one `web-benchmark`
+job for each of Chromium, Firefox, and WebKit, plus one successful aggregate gate. The workflow
 trigger must reach the same path classifier for frontend and native changes.
 
 The packaging matrix builds exactly four installers: macOS ARM64 DMG, Windows x64
@@ -3667,8 +3674,9 @@ Keep both exports under `native-test-results/presentation-pdf/menu/` and
 the shortcut export starts. macOS checks the native print operation and its PDF
 pixels. Linux and Windows use driver capture of the prepared print document; this
 does not prove an operating system print dialog. The workflow writes these
-results to `native-test-results/` on the runner and does not upload them, so
-they disappear when the runner is destroyed.
+results to `native-test-results/` on the runner. A failed smoke job uploads them
+for 3 days; a successful job uploads nothing, so they disappear when the runner is
+destroyed.
 
 The native presentation color gate must reject white slide backgrounds and white
 shape interiors even when borders remain visible. It must also reject missing
@@ -3963,13 +3971,16 @@ its list:
 
 ```sh
 npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --reporter=json > /tmp/all-tests.json
-node scripts/e2e-shards.mjs plan --list /tmp/all-tests.json --weights scripts/e2e-shard-weights.json --shards 8 --out /tmp/e2e-plan
+node scripts/e2e-shards.mjs plan --list /tmp/all-tests.json --weights scripts/e2e-shard-weights.json --shards 16 --out /tmp/e2e-plan
 npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --test-list=/tmp/e2e-plan/shard-3.list
 ```
 
-CI runs the browser and native tests without uploading reports to GitHub.
-Hosted-runner files are temporary. Keep repeatable local-run evidence in local
-storage. Compare its source commit with the release tag before using it.
+A failed CI job uploads its Playwright traces (first failed attempt), screenshots
+and JSON report for 3 days. A successful job uploads no report. Fixtures are
+synthetic. CI retries a failed test once; a test that passes only on its retry
+fails the shard unless `e2e/flaky-quarantine.json` lists it, and a shard stops at
+its first hard failure. Keep repeatable local-run evidence in local storage.
+Compare its source commit with the release tag before using it.
 
 Source fidelity and library export limits use [source-fidelity.md](testing/source-fidelity.md).
 The source comparison algorithm also needs isolated checks. Browser exports cannot
@@ -4913,7 +4924,7 @@ Keep these risks and evidence boundaries for #628:
 - A first burst at the clamped top can record no centre, which makes the same-head assertion vacuous. The retained first case requires at least one centre in addition to the existing upper bound, same-head check and `maxPending <= 2`. Before capture, PageDown moves the caret off the top, `ready()` drains the caret measure, a 40 px scroll offset queues the scroll measure, one frame lets it enter the queue, and a second `ready()` drains it. The original 30-key burst and 20-frame settle stay unchanged. A later centered collapse can legitimately need no centre. The zero-centre RED and external zero/duplicate controls are coverage and assertion controls, not product regressions.
 - The inactive-editor history selection poll can fail without retaining its DOM boundary. On failure only, `editor-state.spec.ts` prints `[selection-boundary]` and attaches the same JSON: focus, active element, range endpoints/text, mounted content count, active file, cached position and available EditorView selection/viewport/measure state. Missing fields stay null. Capture is bounded to two seconds and rethrows the original error. The 35-file sequence, selection assertion and timeout stay unchanged.
 - A TOC visibility failure can lack evidence of headings, mode and resource loading. On failure only, `editor-width.spec.ts` prints `[toc-boundary]` and attaches heading presence, bounded text, aside connectivity/inert/display/visibility, nav/items, active/stored mode and at most 20 same-origin script timings. It retains the exact 5000 ms visibility assertion, adds no pre-assertion wait and rethrows the original error after bounded capture.
-- The native test application must never reach a public installer. `scripts/desktop-release-policy.test.mjs` checks that `native-validation` has one debug build step per operating system, that the build uses `--no-bundle` with the `native-smoke` feature, that the job uploads no artifact, and that `build-desktop` never selects the smoke feature or the smoke configuration. The collector also refuses a binary that has no accepted installer extension. This is a static guard. A real installer still needs the release run and the checksum check.
+- The native test application must never reach a public installer. `scripts/desktop-release-policy.test.mjs` checks that `native-smoke` and `native-benchmark` each have one debug build step per operating system, that the build uses `--no-bundle` with the `native-smoke` feature, that the jobs upload only failure diagnostics and never the application, and that `build-desktop` never selects the smoke feature or the smoke configuration. The collector also refuses a binary that has no accepted installer extension. This is a static guard. A real installer still needs the release run and the checksum check.
 
 ### Navigation test import boundary
 

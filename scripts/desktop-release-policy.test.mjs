@@ -97,25 +97,37 @@ test('the Desktop workflow builds and collects exactly the policy formats', () =
 
 test('the native test application stays debug-only and out of packaging', () => {
 	const workflow = load(read('.github/workflows/desktop.yml'));
-	const native = workflow.jobs['native-validation'];
-	assert.deepEqual(native.strategy.matrix.platform, ['ubuntu-24.04', 'windows-2022', 'macos-15']);
-	const builds = native.steps.filter((step) => /tauri -- build/.test(step.run ?? ''));
-	assert.equal(builds.length, 1, 'one debug build step per operating system');
-	assert.match(builds[0].run, /--debug/);
-	assert.match(builds[0].run, /--features native-smoke/);
-	assert.match(builds[0].run, /--no-bundle/);
-	assert.equal(
-		native.steps.some((step) => step.uses?.includes('upload-artifact')),
-		false,
-		'the debug test application is never uploaded'
+	for (const name of ['native-smoke', 'native-benchmark']) {
+		const native = workflow.jobs[name];
+		assert.deepEqual(
+			native.strategy.matrix.platform,
+			['ubuntu-24.04', 'windows-2022', 'macos-15'],
+			name
+		);
+		const builds = native.steps.filter((step) => /tauri -- build/.test(step.run ?? ''));
+		assert.equal(builds.length, 1, `${name}: one debug build step per operating system`);
+		assert.match(builds[0].run, /--debug/);
+		assert.match(builds[0].run, /--features native-smoke/);
+		assert.match(builds[0].run, /--no-bundle/);
+		const uploads = native.steps.filter((step) => step.uses?.includes('upload-artifact'));
+		for (const upload of uploads) {
+			assert.equal(upload.if, 'failure()', `${name}: only failure diagnostics are uploaded`);
+			assert.doesNotMatch(
+				String(upload.with?.path ?? ''),
+				/target|\.app|\.exe|deckmark$/,
+				`${name}: the debug test application is never uploaded`
+			);
+		}
+	}
+	const smoke = workflow.jobs['native-smoke'].steps;
+	const benchmark = workflow.jobs['native-benchmark'].steps;
+	assert.ok(smoke.some((step) => /node scripts\/native-smoke\.mjs/.test(step.run ?? '')));
+	assert.ok(!smoke.some((step) => /scripts\/benchmark-local\.mjs/.test(step.run ?? '')));
+	assert.ok(benchmark.some((step) => /scripts\/benchmark-local\.mjs/.test(step.run ?? '')));
+	assert.ok(
+		!benchmark.some((step) => /node scripts\/native-smoke\.mjs/.test(step.run ?? '')),
+		'no smoke process runs on the benchmark runner'
 	);
-	const smoke = native.steps.findIndex((step) =>
-		/node scripts\/native-smoke\.mjs/.test(step.run ?? '')
-	);
-	const benchmark = native.steps.findIndex((step) =>
-		/scripts\/benchmark-local\.mjs/.test(step.run ?? '')
-	);
-	assert.ok(smoke > 0 && benchmark > smoke, 'smoke runs before the measurement');
 	const release = JSON.stringify(workflow.jobs['build-desktop']);
 	assert.doesNotMatch(release, /native-smoke/);
 	assert.doesNotMatch(release, /tauri\.smoke\.conf\.json/);

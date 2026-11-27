@@ -39,14 +39,25 @@ up-to-date branch. The legacy protection requires conversation resolution and
 blocks force pushes and branch deletion.
 
 `desktop-validation` (`desktop.yml`) is not a required context in the legacy
-protection or in the ruleset. Decision: keep it non-required. Issue #628 does
-not change branch protection. Maintainers inspect the Desktop results before a
-merge. A separate settings change can require the aggregate after it has a
-recorded failure and success history.
+protection or in the ruleset. Since the fail-fast sentinel (2026-11-27), a
+Desktop failure cancels the Web run of the same commit and `e2e` reports a
+failure, so Desktop blocks a merge in practice. Desktop runs on every pull
+request, so the aggregate always reports. Recommendation: add
+`desktop-validation` to both lists after one month of recorded history. `pr-body`
+is a candidate on the same terms.
 
-The CI scheduling changes do not modify these repository settings. A
-documentation-only path must prove that validation is not applicable; a missing,
-failed or deferred result must not become a passing gate.
+The CI changes keep every required context name. Shard count, fail-fast and the
+same-tree proof do not rename a job. A documentation-only path must prove that
+validation is not applicable; a missing, failed, deferred or cancelled result
+must not become a passing gate. After a workflow change, confirm the names with
+`gh api repos/ThomasCrouzet/deckmark/commits/<sha>/check-runs --jq '.check_runs[].name' | sort -u`.
+
+### Merge method (2026-11-27)
+
+Squash merge only, in the repository settings and in ruleset 25495229
+(`allowed_merge_methods: ["squash"]`). The squash commit title is the pull request
+title and the message is the pull request body. release-please reads the
+`BEGIN_COMMIT_OVERRIDE` block of that body (see `CONTRIBUTING.md`).
 
 ### Intended settings
 
@@ -57,9 +68,19 @@ failed or deferred result must not become a passing gate.
   `build (/deckmark, true)`, `lighthouse`, `dependency-review`,
   `dependency-audit`, `codeql (javascript-typescript, none)`,
   `codeql (rust, none)`, and `secrets`.
-- Do not add `desktop-validation` to the required set in issue #628.
+- Add `desktop-validation` to the required set only by a separate settings change, after one month of history.
 - Review the exact check names after the first workflow run because GitHub displays matrix suffixes.
-- Merge Dependabot pull requests manually after required checks pass. The removed token-based workflow bypassed the normal post-merge `push` workflows.
+- Allow squash merge only. Keep merge commits and rebase merges disabled.
+- Keep strict status checks off. The same-tree proof falls back to full validation for a `BEHIND` merge.
+
+## Dependabot
+
+- Keep the `deps-staging` branch. Create it from `main` once; `deps-staging-sync.yml` resets it every Monday. Do not add a ruleset to it.
+- Fold Dependabot proposals into a batch pull request. Merge security update pull requests only through the normal checks.
+- Keep Dependabot security updates enabled. They target `main` whatever `target-branch` says.
+- Set `allow_auto_merge` to false. No workflow enables auto-merge.
+- Set the Actions default workflow permissions to read, and do not allow GitHub Actions to approve pull requests. Each job that needs more declares it.
+- Remove the `DEPENDABOT_AUTO_APPROVE` variable if it exists.
 
 ## Release and deployment verification
 
