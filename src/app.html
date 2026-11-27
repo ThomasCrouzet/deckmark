@@ -19,14 +19,16 @@
 		<meta name="apple-mobile-web-app-title" content="DeckMark" />
 		<meta name="mobile-web-app-capable" content="yes" />
 
-		<!-- Open Graph (Facebook, LinkedIn, Discord, Slack…) -->
+		<!-- Open Graph (Facebook, LinkedIn, Discord, Slack…). Share crawlers need
+		     absolute image URLs, so the image and the page URL name the canonical
+		     origin. The GitHub Pages mirror keeps the same origin on purpose. -->
 		<meta property="og:type" content="website" />
 		<meta property="og:title" content="DeckMark editor - local-first offline Markdown workspace" />
 		<meta
 			property="og:description"
 			content="WYSIWYG, source, and reading modes in an installable offline workspace. No account, cloud sync, or telemetry."
 		/>
-		<meta property="og:image" content="%sveltekit.assets%/og-image.png" />
+		<meta property="og:image" content="https://www.deckmark.dev/og-image.png" />
 		<meta property="og:image:width" content="1200" />
 		<meta property="og:image:height" content="630" />
 		<meta property="og:image:alt" content="DeckMark - a local-first markdown editor" />
@@ -41,7 +43,7 @@
 			name="twitter:description"
 			content="A local-first Markdown workspace with WYSIWYG, source, and reading modes."
 		/>
-		<meta name="twitter:image" content="%sveltekit.assets%/og-image.png" />
+		<meta name="twitter:image" content="https://www.deckmark.dev/og-image.png" />
 		<meta name="twitter:image:alt" content="DeckMark - a local-first markdown editor" />
 
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
