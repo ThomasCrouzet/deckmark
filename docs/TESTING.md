@@ -69,6 +69,13 @@ npx playwright test e2e/docs-site-export-active-content.spec.ts --project=chromi
 npx playwright test e2e/docs-site-export-active-content.spec.ts --project=webkit --workers=1 --retries=0
 ```
 
+## Project link report scale
+
+Finding PERF-01: `e2e/project-link-performance.spec.ts` has a case with 300
+documents and 16 wiki links each. Check links and the project ZIP export must
+finish in 1.2 s with a heartbeat gap below 700 ms. The case attaches the elapsed
+time. Before the index fix the same project took more than 5 s in Chromium.
+
 ## Code block plain text language
 
 Issue #775 covers a visual editor code block that cannot return to plain text

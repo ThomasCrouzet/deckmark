@@ -175,3 +175,100 @@ for (const action of ['check', 'export'] as const) {
 		}
 	});
 }
+
+// Review finding PERF-01: the link report looked up every wiki target with a
+// scan of all documents, so the cost grew with links times documents.
+// 300 documents with 16 resolvable wiki links each took about 2.8 s before the
+// project wiki index was built once. This project is the reviewer's synthetic
+// project. One broken link proves that the report still reaches the panel.
+const SCALE_DOCUMENTS = 300;
+const SCALE_LINKS = 16;
+
+function scaleProject(): Record<string, string> {
+	const files: Record<string, string> = {};
+	for (let index = 0; index < SCALE_DOCUMENTS; index++) {
+		const links = Array.from({ length: SCALE_LINKS }, (_, offset) => {
+			const target = (index * 7 + offset * 13 + 1) % SCALE_DOCUMENTS;
+			return `See [[note-${target}]].`;
+		});
+		if (index === 0) links.push('Broken [[note-missing]].');
+		files[`folder${index % 30}/note-${index}.md`] = `# Note ${index}\n\n${links.join('\n')}\n`;
+	}
+	return files;
+}
+
+for (const action of ['check', 'export'] as const) {
+	test(`${action} stays fast for ${SCALE_DOCUMENTS} documents with ${SCALE_LINKS} wiki links each`, async ({
+		page,
+		browser
+	}, info) => {
+		test.setTimeout(120_000);
+		await resetAppState(page);
+		const zip = new (await import('jszip')).default();
+		for (const [path, content] of Object.entries(scaleProject())) zip.file(path, content);
+		const input = await zip.generateAsync({ type: 'nodebuffer' });
+		await page.getByTestId('projects-open').click();
+		const panel = page.getByRole('dialog', { name: 'Projets Markdown' });
+		await panel.locator('input[type=file][accept=".zip"]').setInputFiles({
+			name: 'link-scale.zip',
+			mimeType: 'application/zip',
+			buffer: input
+		});
+		await expect(
+			panel.getByRole('button', { name: 'Ouvrir folder1/note-1.md', exact: true })
+		).toBeVisible({ timeout: 60_000 });
+		// Before the index fix: about 5.6 s for the check and 6.0 s for the export.
+		const limits =
+			action === 'check'
+				? { elapsedMs: 1200, heartbeatGapMs: 700 }
+				: { elapsedMs: 3000, heartbeatGapMs: 1000 };
+		await startHeartbeat(page);
+		const start = performance.now();
+		let issues: unknown = null;
+		if (action === 'check') {
+			await panel.getByRole('button', { name: 'Vérifier les liens', exact: true }).click();
+			const report = panel.locator('[data-project-link-report]');
+			await expect(report).toContainText('note-missing');
+		} else {
+			const pending = page.waitForEvent('download');
+			await panel.getByRole('button', { name: 'Exporter le projet', exact: true }).click();
+			const stream = await (await pending).createReadStream();
+			const parts: Buffer[] = [];
+			for await (const part of stream!) parts.push(part);
+			const output = await (await import('jszip')).default.loadAsync(Buffer.concat(parts));
+			issues = JSON.parse(await output.file('.mdsh/link-report.json')!.async('string')).issues;
+			expect(issues).toEqual([
+				{ document: 'folder0/note-0.md', destination: 'note-missing', reason: 'missing' }
+			]);
+		}
+		const elapsedMs = performance.now() - start;
+		const heartbeat = await page.evaluate(() =>
+			(
+				window as unknown as {
+					projectLinkHeartbeat: () => { samples: number[]; maxGapMs: number };
+				}
+			).projectLinkHeartbeat()
+		);
+		await info.attach('project-link-scale.json', {
+			body: JSON.stringify(
+				{
+					command:
+						'npx playwright test e2e/project-link-performance.spec.ts --project=chromium --workers=1 --retries=0 --grep "stays fast"',
+					action,
+					documents: SCALE_DOCUMENTS,
+					wikiLinksPerDocument: SCALE_LINKS,
+					browser: browser.version(),
+					elapsedMs,
+					maxHeartbeatGapMs: heartbeat.maxGapMs,
+					issues,
+					limits
+				},
+				null,
+				2
+			),
+			contentType: 'application/json'
+		});
+		expect(elapsedMs).toBeLessThan(limits.elapsedMs);
+		expect(heartbeat.maxGapMs).toBeLessThan(limits.heartbeatGapMs);
+	});
+}
