@@ -6,7 +6,7 @@ test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 /**
  * Issue #747: Settings must show the installed version and a static link to the
  * release page in the desktop edition. The offline rule keeps the block out of
- * Web Light, so the browser suite proves the web boundary and the version
+ * DeckMark Web, so the browser suite proves the web boundary and the version
  * source. The desktop block is a manual check in the Tauri window.
  */
 test('Settings shows the installed version without an update check', async ({ page }, info) => {
@@ -19,8 +19,11 @@ test('Settings shows the installed version without an update check', async ({ pa
 	const version = settings.getByTestId('about-version');
 	await expect(version).toBeVisible();
 	await expect(version).toContainText(/\d+\.\d+\.\d+/);
+	// The edition label is the short public name. The retired names must not return.
+	await expect(version).toHaveText(/\d+\.\d+\.\d+\s+·\s+Web$/);
+	await expect(settings).not.toContainText(/Web Light|Desktop Complete/);
 
-	// Web Light keeps no desktop update block and makes no release request.
+	// DeckMark Web keeps no desktop update block and makes no release request.
 	await expect(settings.getByTestId('installed-version')).toHaveCount(0);
 	await expect(settings.getByTestId('release-link')).toHaveCount(0);
 

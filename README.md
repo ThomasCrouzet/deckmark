@@ -67,7 +67,7 @@
 search, and export then work without a connection.
 See [PWA installation](docs/USER_GUIDE.md#install-the-pwa).
 
-**On the desktop.** [Desktop Complete (Beta)](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true)
+**On the desktop.** [DeckMark Desktop (Beta)](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true)
 adds native file access, in-place saves, an optional local Git panel, and OS integration
 on macOS, Windows, and Linux. See [Install the desktop app](#install-the-desktop-app).
 
@@ -149,11 +149,11 @@ Data flows and controls: [SECURITY.md](SECURITY.md).
 
 | Edition | Tested on | Save back to a disk file |
 | --- | --- | --- |
-| **Web Light**, Chromium | Full desktop suite and mobile workflows | File System Access API |
-| **Web Light**, Firefox and Safari | Selected workflows | Download fallback |
-| **Desktop Complete (Beta)**, macOS, Windows, Linux | Tauri app with native WebView tests | Native in-place saves |
+| **Web**, Chromium | Full desktop suite and mobile workflows | File System Access API |
+| **Web**, Firefox and Safari | Selected workflows | Download fallback |
+| **Desktop (Beta)**, macOS, Windows, Linux | Tauri app with native WebView tests | Native in-place saves |
 
-Web Light is stable and free, not a trial. Both editions share one portable format.
+DeckMark Web is stable and free, not a trial. Web and Desktop share one portable format.
 Out of scope today: cloud sync, shared editing, accounts, and plugins. The working target
 is about 200 to 300 documents. Details: [edition matrix](docs/EDITIONS.md).
 

@@ -110,20 +110,20 @@ export const fr: Record<MessageKey, string> = {
 	'properties.kind_boolean': 'booléen',
 	'properties.kind_date': 'date',
 	'properties.kind_other': 'autre',
-	'settings.editionWeb': 'Web Light',
-	'settings.editionDesktop': 'Desktop Complete',
+	'settings.editionWeb': 'Web',
+	'settings.editionDesktop': 'Desktop (Beta)',
 	'settings.editionCapabilities': 'Capacités incluses : {features}',
 	'settings.ai': 'Connexion IA (facultative)',
 	'settings.aiHelp':
 		'Connectez un fournisseur compatible OpenAI. L’IA reste désactivée par défaut et l’éditeur fonctionne sans elle.',
 	'settings.aiNativeBoundary':
-		'Desktop Complete conserve la clé API dans le magasin d’identifiants du système. La clé n’entre jamais dans cette page.',
+		'DeckMark Desktop conserve la clé API dans le magasin d’identifiants du système. La clé n’entre jamais dans cette page.',
 	'settings.aiBrowserNoVault':
-		'Web Light n’a pas de magasin d’identifiants natif. La clé API reste dans la session de cet onglet.',
+		'DeckMark Web n’a pas de magasin d’identifiants natif. La clé API reste dans la session de cet onglet.',
 	'settings.aiNativeKeyNote':
 		'La clé est envoyée au coffre natif à l’enregistrement. Cette page ne peut plus la lire.',
 	'settings.aiModelsDesktopUnavailable':
-		'La découverte des modèles nécessite la clé du navigateur. Saisissez l’identifiant du modèle dans Desktop Complete.',
+		'La découverte des modèles nécessite la clé du navigateur. Saisissez l’identifiant du modèle dans DeckMark Desktop.',
 	'settings.aiEnabled': 'Activer les fonctions IA',
 	'settings.aiPrivacy': 'Mode de confidentialité IA',
 	'settings.aiDirect': 'Clé navigateur directe',
@@ -672,7 +672,7 @@ export const fr: Record<MessageKey, string> = {
 	'exportProfiles.delete': 'Supprimer le profil',
 	'exportProfiles.newName': 'Nouveau profil d’export',
 	'exportProfiles.webLimits':
-		'Web Light exporte uniquement en HTML et PDF. DOCX, EPUB et les autres convertisseurs exigeront une future version Desktop.',
+		'DeckMark Web exporte uniquement en HTML et PDF. DOCX, EPUB et les autres convertisseurs exigeront une future version Desktop.',
 	'exportProfiles.export': 'Exporter les profils',
 	'exportProfiles.import': 'Importer les profils',
 	'palette.collection': 'Ouvrir les vues tableau et tableau blanc',
@@ -777,7 +777,7 @@ export const fr: Record<MessageKey, string> = {
 	'ai.reason_budget': 'budget',
 	'ai.destination': 'Les requêtes vont vers {host}. Seul le contenu listé est envoyé.',
 	'ai.nativeBoundary':
-		'Desktop Complete envoie cette requête depuis la couche native. La clé API reste dans le magasin d’identifiants du système.',
+		'DeckMark Desktop envoie cette requête depuis la couche native. La clé API reste dans le magasin d’identifiants du système.',
 	'ai.errorAuth': 'Le fournisseur a refusé la clé enregistrée. Remplacez-la dans les réglages.',
 	'ai.errorRateLimit': 'La limite de débit du fournisseur est atteinte. Réessayez plus tard.',
 	'ai.errorServer': 'Le fournisseur a renvoyé une erreur. Réessayez plus tard.',

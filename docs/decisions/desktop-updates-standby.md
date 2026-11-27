@@ -27,7 +27,7 @@ Desktop update delivery is on standby.
   does not regress and a future release can reactivate it.
 - The application performs no update request, no manifest fetch, and no
   installation.
-- Users update Desktop Complete by downloading a new release and installing it.
+- Users update DeckMark Desktop by downloading a new release and installing it.
 - The project does not buy certificates or create release keys while this
   decision is active.
 

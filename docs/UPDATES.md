@@ -14,7 +14,7 @@ release can reactivate the feature.
 - The native commands and their tests stay in the binary, so the boundary does
   not regress. `update_status` reports `signing-required` because no public key
   is configured.
-- Users update Desktop Complete by downloading and installing a new release.
+- Users update DeckMark Desktop by downloading and installing a new release.
 
 This matches `docs/decisions/desktop-signing.md` and
 `docs/decisions/desktop-updates-standby.md`.
@@ -79,9 +79,8 @@ and keeps the previous installer until the new version starts correctly. A
 failed or cancelled installation therefore leaves the previous installation
 intact. The manifest and package checksums provide the recovery record.
 
-## Web Light
-
-Web Light has no release updater and no update server. The service worker does
+## DeckMark Web
+DeckMark Web has no release updater and no update server. The service worker does
 check its own app shell: it polls the host each hour and when the page returns
 to the foreground, and an update prompt offers a reload when a new shell waits.
 That request uses only app files from the same host. The settings panel renders
@@ -97,5 +96,5 @@ cargo test --manifest-path src-tauri/Cargo.toml update::
 The tests cover signature validation, tampering, cross-platform manifests,
 version ordering, endpoint validation, and the manual-install gate. The native
 smoke also asserts that the settings dialog has no update panel and that
-`update_install` is rejected. `e2e/update-gate.spec.ts` asserts that Web Light
+`update_install` is rejected. `e2e/update-gate.spec.ts` asserts that DeckMark Web
 has no update panel and sends no external request.

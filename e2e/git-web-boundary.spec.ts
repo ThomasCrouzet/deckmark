@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './helpers';
 
-test('Web Light shows no Git action in the project panel', async ({ page }) => {
+test('DeckMark Web shows no Git action in the project panel', async ({ page }) => {
 	await resetAppState(page);
 	await page.getByTestId('projects-open').click();
 	const panel = page.getByRole('dialog', { name: 'Projets Markdown' });

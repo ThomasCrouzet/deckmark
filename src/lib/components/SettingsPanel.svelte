@@ -103,7 +103,7 @@
 			local: 'local development',
 			other: 'self-hosted copy',
 			relationship:
-				'Cloudflare Pages is the main site. GitHub Pages is the independent fallback. Both serve a static Web Light build.',
+				'Cloudflare Pages is the main site. GitHub Pages is the independent fallback. Both serve a static DeckMark Web build.',
 			originLocal:
 				'Drafts, IndexedDB, service workers, installed PWAs and AI session keys stay on this origin. The other host does not synchronize them. An installed offline copy cannot recover storage from another origin.',
 			backupHint:
@@ -120,7 +120,7 @@
 			local: 'développement local',
 			other: 'copie auto-hébergée',
 			relationship:
-				'Cloudflare Pages est le site principal. GitHub Pages est le secours indépendant. Les deux servent une version Web Light statique.',
+				'Cloudflare Pages est le site principal. GitHub Pages est le secours indépendant. Les deux servent une version statique de DeckMark Web.',
 			originLocal:
 				'Les brouillons, IndexedDB, service workers, PWA installées et clés de session IA restent sur cette origine. L’autre hôte ne les synchronise pas. Une copie hors ligne installée ne peut pas récupérer le stockage d’une autre origine.',
 			backupHint:

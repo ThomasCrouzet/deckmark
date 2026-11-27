@@ -3,7 +3,7 @@ import { resetAppState } from './helpers';
 
 test.use({ locale: 'en-US', reducedMotion: 'reduce' });
 
-test('Update delivery stays on standby and Web Light exposes no runtime', async ({
+test('Update delivery stays on standby and DeckMark Web exposes no runtime', async ({
 	page
 }, info) => {
 	const external: string[] = [];

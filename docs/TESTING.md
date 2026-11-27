@@ -9,7 +9,7 @@ its own failure.
 npm run check    # Type and Svelte checks, then the KaTeX asset check
 npm run lint     # ESLint and Prettier checks
 npm test         # Vitest, the CI contract tests and the backup scheduler check
-npm run build    # Web Light production build and the native boundary check
+npm run build    # DeckMark Web production build and the native boundary check
 npm run test:e2e # Browser workflows against the current build
 ```
 
@@ -1659,8 +1659,8 @@ Record these risks before changes to the deployment workflow or production check
 
 ### Local hosting checks
 
-Cloudflare Pages and GitHub Pages publish Web Light as independent sites. Check
-Web Light and Desktop Complete as different editions. A browser result does not
+Cloudflare Pages and GitHub Pages publish DeckMark Web as independent sites. Check
+DeckMark Web and DeckMark Desktop as different editions. A browser result does not
 replace a native Desktop check, and a native result does not replace a browser result.
 
 The deployment workflow builds the root path for Cloudflare Pages and
@@ -1745,7 +1745,7 @@ This configuration checks live sites without a local build or preview server:
 For each project, verify these observable results:
 
 1. The normal public URL opens the app on the expected origin and path.
-2. `edition.json` reports Web Light, `sourceSha` equal to `EXPECTED_SHA`, the
+2. `edition.json` reports DeckMark Web, `sourceSha` equal to `EXPECTED_SHA`, the
    checkout's package version, and the expected base path.
    The served HTML must match the manifest's `htmlSha256` digest.
 3. The app starts in a fresh browser context and accepts a note edit.
@@ -2057,7 +2057,7 @@ behavior. Record these checks separately:
   one saved-view pass. Tab from the saved-view selector through the name field
   and the Save and Delete buttons. Record the spoken label with an empty name
   and with a saved name.
-- In Desktop Complete on Windows WebView2, Linux WebKitGTK and macOS WKWebView,
+- In DeckMark Desktop on Windows WebView2, Linux WebKitGTK and macOS WKWebView,
   reject the `mdsh:collection-views` write. Retry Save and Delete. Check the
   note draft, the sorting and the focus.
 
@@ -4285,7 +4285,7 @@ zoom control, a physical iPad keyboard, VoiceOver, NVDA, Windows WebView2, Linux
 WebKitGTK or macOS WKWebView.
 ## Native Git diff review and quick-capture template race
 
-Two Desktop Complete workflows do not have a Web Light surface. Keep one
+Two DeckMark Desktop workflows do not have a DeckMark Web surface. Keep one
 isolation choice for each workflow, not a duplicate unit set beside the stronger
 browser or native check.
 
@@ -4308,7 +4308,7 @@ another scroll. A control at its page bound returns before it changes the page,
 scroll, or focus.
 
 `e2e/git-diff.spec.ts` is the retained Git review check. It is a real Chromium
-workflow against a Desktop Complete build with a Git and project command
+workflow against a DeckMark Desktop build with a Git and project command
 fixture. It checks the bounded first page, scrolls it to its end, activates the
 last section by pointer, requires the final marker inside the list viewport,
 keeps the path and mode, returns to the first page by keyboard, requires
@@ -4330,8 +4330,7 @@ rows. A generic error from one file must disappear when a valid diff loads.
 These checks prove Chromium keyboard traversal, not native Tab traversal,
 screen-reader output, or a physical keyboard.
 
-The Desktop workflow is opt-in because the default Playwright server builds Web
-Light, where the Git panel cannot mount. Use a concrete configuration file at
+The Desktop workflow is opt-in because the default Playwright server builds DeckMark Web, where the Git panel cannot mount. Use a concrete configuration file at
 the repository root as `playwright.desktop.config.ts`. Keep this local test file
 untracked and remove it after the run. For an external config, replace the import
 and test directory with the actual absolute repository paths:
@@ -4363,7 +4362,7 @@ GIT_REVIEW_DESKTOP=1 npx playwright test e2e/git-diff.spec.ts \
   --config=playwright.desktop.config.ts --project=chromium --workers=1 --retries=0
 ```
 
-The default suite skips this file because the standard server is Web Light. A
+The default suite skips this file because the standard server is DeckMark Web. A
 Chromium result is not native WebView proof.
 
 `scripts/native-git.mjs` prepares a real repository with a 2600-line worktree
@@ -4423,7 +4422,7 @@ not take focus from a superseded edit.
 
 Keep the QuickCapture component cases. Issue 638 explicitly requires deferred
 component cases for lifecycle races that a browser workflow cannot force, and
-the default Web Light server cannot mount the capture window. The file uses
+the default DeckMark Web server cannot mount the capture window. The file uses
 deferred `resolve()` promises, input actions, a reset listener, and capture-kind
 changes. It keeps the PR 613 composition cases and covers the body and title
 typed-text races, whitespace, typed-then-cleared, A/B out-of-order, reset,

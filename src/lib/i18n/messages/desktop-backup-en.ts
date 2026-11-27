@@ -1,7 +1,7 @@
 export const desktopBackupEn = {
 	'settings.desktopBackupTitle': 'Automatic local backups',
 	'settings.desktopBackupScope':
-		'Desktop Complete can write snapshots to a folder that you choose. Snapshots use the same portable format as a manual backup. No cloud service is used.',
+		'DeckMark Desktop can write snapshots to a folder that you choose. Snapshots use the same portable format as a manual backup. No cloud service is used.',
 	'settings.desktopBackupLoading': 'Loading desktop backup settings...',
 	'settings.desktopBackupEnable': 'Enable scheduled backups',
 	'settings.desktopBackupDisable': 'Disable scheduled backups',

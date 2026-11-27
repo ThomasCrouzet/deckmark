@@ -1,23 +1,28 @@
 # Editions, requirements, and support
 
-DeckMark has two editions: **Web Light** and **Desktop Complete (Beta)**.
+DeckMark has two editions: **DeckMark Web** and **DeckMark Desktop (Beta)**.
 Both editions use the same local-first client, document format, and storage model.
-Web Light is a complete browser product. It is free, open source, and not a trial.
+DeckMark Web is a complete browser product. It is free, open source, and not a trial.
 It has no time limit, feature paywall, account, or server component.
+
+This guide uses the short forms Web and Desktop. The edition ids `web` and `desktop`,
+the `build/edition.json` fields, the storage keys, and the file-format markers keep
+their names, so files and backups stay portable between editions.
+The earlier edition names were Web Light and Desktop Complete.
 
 ## Choose an edition
 
 | Edition | Delivery | Use it when |
 | --- | --- | --- |
-| **Web Light** | Install-free web app or installed PWA | You want notes, presentations, projects, search, history, backups, and exports in a browser. |
-| **Desktop Complete (Beta)** | Tauri installer from GitHub Releases | You need native in-place file editing, native folder access, file associations, or the macOS print panel. |
+| **DeckMark Web** | Install-free web app or installed PWA | You want notes, presentations, projects, search, history, backups, and exports in a browser. |
+| **DeckMark Desktop (Beta)** | Tauri installer from GitHub Releases | You need native in-place file editing, native folder access, file associations, or the macOS print panel. |
 
-- Web Light: [https://www.deckmark.dev/](https://www.deckmark.dev/)
+- DeckMark Web: [https://www.deckmark.dev/](https://www.deckmark.dev/)
 - GitHub Pages fallback: [https://thomascrouzet.github.io/deckmark/](https://thomascrouzet.github.io/deckmark/)
 - Desktop installers: [desktop releases](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true) (the `desktop-v<version>` pre-releases)
 
-Cloudflare Pages and GitHub Pages publish Web Light as independent sites. The
-separate Desktop release channel publishes Desktop Complete. Web Light needs no
+Cloudflare Pages and GitHub Pages publish DeckMark Web as independent sites. The
+separate Desktop release channel publishes DeckMark Desktop. DeckMark Web needs no
 application server.
 
 ## Build each edition
@@ -26,8 +31,8 @@ Both editions come from the same source tree. The edition is a build input, not 
 runtime preference.
 
 ```sh
-npm run build:web       # Web Light, then verify the native boundary
-npm run build:desktop   # Desktop Complete assets for Tauri
+npm run build:web       # DeckMark Web, then verify the native boundary
+npm run build:desktop   # DeckMark Desktop assets for Tauri
 npm run check:edition   # Recheck the current build manifest and boundary
 ```
 
@@ -39,7 +44,7 @@ and excluded capabilities.
 
 ## Feature matrix
 
-| Capability | Web Light | Desktop Complete (Beta) |
+| Capability | Web | Desktop (Beta) |
 | --- | --- | --- |
 | Notes in Edit, Source, and Read modes | Yes | Yes |
 | Markdown presentations with slides, presenter notes, and Present mode | Yes | Yes |
@@ -81,8 +86,7 @@ hidden setting, a paid upgrade, or a disabled control.
 
 ## System requirements
 
-### Web Light
-
+### DeckMark Web
 | Requirement | Detail |
 | --- | --- |
 | Browser | A current Chromium, Firefox, or Safari browser with JavaScript and IndexedDB. |
@@ -98,8 +102,7 @@ The browser support table in the [README](../README.md#browser-and-desktop-suppo
 describes the test scope. The configured suites do not prove that every workflow
 passes on every device.
 
-### Desktop Complete (Beta)
-
+### DeckMark Desktop (Beta)
 | Platform | Release artifact | Requirement |
 | --- | --- | --- |
 | macOS | `DeckMark_<version>_macOS_Apple-Silicon.dmg` | macOS 14 or later on an Apple Silicon Mac. |
@@ -116,7 +119,7 @@ builds. A managed MSI package and a Fedora or openSUSE native package are not
 part of this channel. `scripts/desktop-release-policy.mjs` is the single format
 policy for the build, the collector and the download table in the release notes.
 
-Desktop Complete installers are unsigned. Update delivery is on standby: the
+DeckMark Desktop installers are unsigned. Update delivery is on standby: the
 application does not check for updates, does not contact an update server, and
 never installs an update by itself. Download and install a new release
 manually, and keep your JSON backups and exported files when you change
@@ -186,7 +189,7 @@ together. See [backups and storage health](USER_GUIDE.md#backups-and-storage-hea
 
 ## Native disk editing and the filesystem boundary
 
-Desktop Complete adds in-place editing for files that the user selects. The
+DeckMark Desktop adds in-place editing for files that the user selects. The
 native picker or an operating-system open event approves a path. Rust returns an
 opaque session token for that path. JavaScript cannot add a path to the native
 access registry.
@@ -198,18 +201,18 @@ An external edit requires an explicit decision. A noncooperating process can
 still change a file after the final check. These operations are not a
 filesystem-wide compare-and-swap.
 
-The boundary is deliberate. Desktop Complete does not provide unrestricted
+The boundary is deliberate. DeckMark Desktop does not provide unrestricted
 filesystem access to the WebView, background scanning of the disk, or a general
 file browser.
 
 ## AI and network privacy
 
 - AI is optional and disabled by default in both editions.
-- Web Light keeps the provider key in page memory and tab session storage. A
+- DeckMark Web keeps the provider key in page memory and tab session storage. A
   reload restores it, and a browser session restore can restore it. Browser
   storage is not a protected secret store, so do not reuse a provider key
   elsewhere. **Forget key** removes the stored key.
-- Desktop Complete writes the provider key to the operating-system credential
+- DeckMark Desktop writes the provider key to the operating-system credential
   store after entry in Settings. Stored keys are not returned to the WebView.
   Rust binds each key to the full canonical endpoint and reads it for each
   request. Old host-only entries require key re-entry.
@@ -229,9 +232,8 @@ file browser.
 
 ## Hosting and downloads
 
-### Web Light
-
-Web Light has two independent production sites:
+### DeckMark Web
+DeckMark Web has two independent production sites:
 
 | Site | Publisher | Build base path |
 | --- | --- | --- |
@@ -280,8 +282,7 @@ origin and restore it on the other to move local data. See
 [Web publishing](DEVELOPMENT.md#web-publishing) for maintainer steps and
 [hosting checks](TESTING.md#edition-and-hosting-checks) for verification.
 
-### Desktop Complete
-
+### DeckMark Desktop
 Desktop artifacts use the separate `desktop-v<version>` prerelease. The release
 page also lists the stable source releases. Select the `desktop-v<version>`
 prerelease for the installers, `SHA256SUMS`, and provenance records.
@@ -299,7 +300,7 @@ does not publish Desktop installers.
   extension, input method, or network condition.
 - Desktop installers are unsigned. The project cannot claim a warning-free
   installation.
-- Desktop Complete has no update check. Update delivery is on standby, and the
+- DeckMark Desktop has no update check. Update delivery is on standby, and the
   user installs every new release manually.
 - A browser or operating-system kill can lose text inside the 400 ms save delay.
 - Browser file APIs cannot make the final revision check and write atomic. Avoid
@@ -309,7 +310,7 @@ does not publish Desktop installers.
   field can still need a newer release.
 - Cloud sync, shared editing, accounts, plugins, a browser API key vault, and
   unrestricted filesystem access are unavailable. AI is optional in both editions.
-  Git, the native vault, and quick capture are Desktop Complete features. Signed update delivery is
+  Git, the native vault, and quick capture are DeckMark Desktop features. Signed update delivery is
   implemented but dormant while it is on standby.
 
 ### Project capability matrix
@@ -319,7 +320,7 @@ The TypeScript limits in `src/lib/project-limits.ts` and the Rust limits in
 import and export, native pick, reconnect and refresh, directory drag and drop,
 internal copy and move, and documentation-site export.
 
-| Capability | Web Light | Desktop Complete |
+| Capability | Web | Desktop |
 | --- | --- | --- |
 | Documents | 300 | 3,000 |
 | Entries (documents and assets) | 1,300 | 6,500 |
@@ -344,7 +345,7 @@ Each release note must:
 
 - identify the edition that changed;
 - list the tested platforms and the known test limits;
-- link to Web Light and the applicable `desktop-v<version>` prerelease;
+- link to DeckMark Web and the applicable `desktop-v<version>` prerelease;
 - state the installer signing status;
 - state any document, project, backup, or schema migration;
-- describe Web Light as a complete free edition, not a trial.
+- describe DeckMark Web as a complete free edition, not a trial.

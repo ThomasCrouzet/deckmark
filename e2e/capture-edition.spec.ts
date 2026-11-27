@@ -1,9 +1,9 @@
 import { expect, test, type TestInfo } from '@playwright/test';
 import { resetAppState } from './helpers';
 
-// The quick capture window is a Desktop Complete feature. The Web Light build
+// The quick capture window is a DeckMark Desktop feature. The DeckMark Web build
 // must ignore `?capture=1` and must not expose the desktop settings section.
-test('Web Light never exposes the global quick capture surface', async ({
+test('DeckMark Web never exposes the global quick capture surface', async ({
 	page
 }, info: TestInfo) => {
 	await resetAppState(page);

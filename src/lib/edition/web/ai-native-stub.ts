@@ -4,7 +4,7 @@
 import type { AiChatMessage, NativeAiConfig } from '../../ai/types';
 
 function unavailable(): Error {
-	return new Error('The native AI boundary is not available in Web Light.');
+	return new Error('The native AI boundary is not available in DeckMark Web.');
 }
 
 export async function vaultSet(_baseUrl: string, _secret: string): Promise<void> {

@@ -1,7 +1,7 @@
 export const desktopBackupFr = {
 	'settings.desktopBackupTitle': 'Sauvegardes locales automatiques',
 	'settings.desktopBackupScope':
-		'Desktop Complete peut écrire des instantanés dans un dossier que vous choisissez. Les instantanés utilisent le même format portable qu’une sauvegarde manuelle. Aucun service cloud n’est utilisé.',
+		'DeckMark Desktop peut écrire des instantanés dans un dossier que vous choisissez. Les instantanés utilisent le même format portable qu’une sauvegarde manuelle. Aucun service cloud n’est utilisé.',
 	'settings.desktopBackupLoading': 'Chargement des réglages de sauvegarde locale...',
 	'settings.desktopBackupEnable': 'Activer les sauvegardes planifiées',
 	'settings.desktopBackupDisable': 'Désactiver les sauvegardes planifiées',
