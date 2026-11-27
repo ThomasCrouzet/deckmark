@@ -50,6 +50,12 @@ Retain the JSON and HTML reports, source identity, command and browser
 environment. The disk conflict check and the Desktop scheduler share the same
 validation but need a native shell. This spec does not run them.
 
+## Library ZIP edition budget
+
+Finding DATA-04: `src/lib/export-zip.test.ts` is an isolated test. The
+edition is a build constant, so a browser run of the Web build cannot observe the
+Desktop budget of 3,000 documents and 256 MiB.
+
 ## Code block plain text language
 
 Issue #775 covers a visual editor code block that cannot return to plain text
