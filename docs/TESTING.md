@@ -56,6 +56,19 @@ Finding DATA-04: `src/lib/export-zip.test.ts` is an isolated test. The
 edition is a build constant, so a browser run of the Web build cannot observe the
 Desktop budget of 3,000 documents and 256 MiB.
 
+## Documentation site active content
+
+Finding SEC-01: a static host runs XML, XSLT and SVGZ files as active documents.
+`e2e/docs-site-export-active-content.spec.ts` exports a project with the review
+payloads, serves the extracted site with the content types of a static host and
+visits every published file. No payload may call back. Every file that is not an
+image, PDF, CSS, font, Markdown or plain text must end in `.txt`.
+
+```sh
+npx playwright test e2e/docs-site-export-active-content.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/docs-site-export-active-content.spec.ts --project=webkit --workers=1 --retries=0
+```
+
 ## Code block plain text language
 
 Issue #775 covers a visual editor code block that cannot return to plain text

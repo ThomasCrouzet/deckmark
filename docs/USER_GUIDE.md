@@ -152,6 +152,10 @@ Open **Export documentation site** from Commands. Select a project and choose
 whether to include the local search index. **Export site** creates a ZIP with
 HTML pages, navigation, local assets, and a resource report. Extract the ZIP to
 read the site or publish its files on a static host. DeckMark does not upload it.
+The site keeps only inert file types under their own names: images, PDF, CSS,
+fonts, Markdown and plain text or source code. It appends `.txt` to every other
+file, such as XML, XSLT, SVGZ, RSS or HTML, so a static host cannot run it as an
+active document. The report lists each renamed file.
 The export does not change source documents or download remote images. Resolve
 reported resource errors before you retry a blocked export.
 

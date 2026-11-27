@@ -387,12 +387,13 @@ test('documentation site avoids a user asset that has the internal directory nam
 	const JSZip = (await import('jszip')).default;
 	const zip = await JSZip.loadAsync(zipBuffer);
 	const paths = Object.keys(zip.files).filter((path) => !zip.files[path]!.dir);
-	expect(paths).toContain('_mdsh');
+	// A file without an inert extension is published with a .txt suffix.
+	expect(paths).toContain('_mdsh.txt');
 	expect(paths).toContain('_mdsh-2/site.css');
 	expect(paths).toContain('_mdsh-2/site.js');
 	expect(paths).toContain('_mdsh-2/search-index.js');
 	expect(paths).not.toContain('_mdsh/site.css');
-	expect([...((await zip.files['_mdsh']!.async('uint8array')) ?? [])]).toEqual([1, 2, 3]);
+	expect([...((await zip.files['_mdsh.txt']!.async('uint8array')) ?? [])]).toEqual([1, 2, 3]);
 
 	const siteRoot = testInfo.outputPath('site');
 	await extractSite(zipBuffer, siteRoot);

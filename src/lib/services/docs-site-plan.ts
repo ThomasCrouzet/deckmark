@@ -146,11 +146,17 @@ const CODE_EXTENSIONS =
 	/\.(?:txt|text|log|csv|json|jsonc|js|mjs|cjs|ts|mts|cts|jsx|tsx|py|rs|go|java|kt|kts|swift|c|h|cc|cpp|hpp|cs|php|rb|sh|bash|zsh|fish|ps1|sql|css|scss|less|html|htm|xml|svg|yaml|yml|toml|ini|conf|env|lua|pl|r|dart|ex|exs|erl|hs|clj|groovy|gradle|mk)$/i;
 
 /**
- * A public site must not serve user bytes as an active document. A private
- * project ZIP keeps the exact bytes. The site export appends `.txt` to these
- * outputs so a static host cannot run them as same-origin pages.
+ * A public site must not serve user bytes as an active document. A static host
+ * picks the content type from the file extension, so an XML, XSLT, SVGZ, RSS or
+ * HTML file runs script on the publishing origin. A private project ZIP keeps
+ * the exact bytes. The site export keeps only these inert extensions under
+ * their own names: images, PDF, CSS, fonts, Markdown and plain text or source
+ * code. It appends `.txt` to every other output, so a new active format cannot
+ * slip through a denylist.
  */
-const ACTIVE_DOCUMENT_EXTENSIONS = /\.(?:html?|xhtml|xht|shtml|mhtml?)$/i;
+const INERT_ASSET_EXTENSIONS =
+	/\.(?:png|jpe?g|gif|webp|avif|bmp|ico|apng|svg|pdf|css|woff2?|ttf|otf|eot)$/i;
+const ACTIVE_CODE_EXTENSIONS = /\.(?:html?|xml)$/i;
 const ACTIVE_DOCUMENT_MIMES =
 	/^(?:text\/html|application\/xhtml\+xml|application\/xml|text\/xml|multipart\/related)$/i;
 
@@ -274,8 +280,14 @@ function documentCodeKind(document: DocsSiteDocumentInput): boolean {
 	return CODE_EXTENSIONS.test(document.relativePath);
 }
 
+/** True when a static host may serve the extension as an inert file. */
+function publishedExtension(path: string): boolean {
+	if (INERT_ASSET_EXTENSIONS.test(path) || MARKDOWN_EXTENSIONS.test(path)) return true;
+	return CODE_EXTENSIONS.test(path) && !ACTIVE_CODE_EXTENSIONS.test(path);
+}
+
 function activeDocumentOutput(path: string, mime: string | undefined): boolean {
-	if (ACTIVE_DOCUMENT_EXTENSIONS.test(path)) return true;
+	if (!publishedExtension(path)) return true;
 	if (!mime) return false;
 	return ACTIVE_DOCUMENT_MIMES.test(mime.toLowerCase().split(';', 1)[0]!.trim());
 }
@@ -422,9 +434,10 @@ export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
 		plannedAssets.push({
 			sourcePath: asset.path,
 			outputPath,
-			mime: isActiveDocumentMime(asset.mime)
-				? 'text/plain;charset=utf-8'
-				: asset.mime || 'application/octet-stream',
+			mime:
+				preferred !== asset.path || isActiveDocumentMime(asset.mime)
+					? 'text/plain;charset=utf-8'
+					: asset.mime || 'application/octet-stream',
 			data: asset.data
 		});
 	}
@@ -437,7 +450,10 @@ export function planDocsSite(input: DocsSiteExportInput): DocsSitePlan {
 		plannedAssets.push({
 			sourcePath: entry.document.relativePath,
 			outputPath,
-			mime: entry.document.mime || 'image/png',
+			mime:
+				preferred !== entry.document.relativePath
+					? 'text/plain;charset=utf-8'
+					: entry.document.mime || 'image/png',
 			data: entry.data
 		});
 	}
