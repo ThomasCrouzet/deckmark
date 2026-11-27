@@ -126,8 +126,8 @@ test('secondary panels pass accessibility checks in both themes', async ({ page 
 		await page.reload();
 		for (const command of [
 			'Bibliothèque de documents',
-			'Recherche cross-fichiers',
-			'Charger un workspace',
+			'Recherche dans tous les fichiers',
+			'Charger un espace de travail',
 			'Gérer les liens disque',
 			'Historique des versions',
 			'Graphe des liens'
@@ -177,7 +177,7 @@ test('search errors and nested workspace prompts pass accessibility checks', asy
 		await page.evaluate((value) => localStorage.setItem('mdsh:theme', value), theme);
 		await page.reload();
 		await openPalette(page);
-		await page.getByRole('combobox').fill('Recherche cross-fichiers');
+		await page.getByRole('combobox').fill('Recherche dans tous les fichiers');
 		await page.keyboard.press('Enter');
 		await page.getByRole('button', { name: 'Utiliser une expression régulière' }).click();
 		await page.getByRole('combobox').fill('[[');
@@ -185,16 +185,16 @@ test('search errors and nested workspace prompts pass accessibility checks', asy
 		await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('[role="dialog"]'));
 		await page.keyboard.press('Escape');
 		await openPalette(page);
-		await page.getByRole('combobox').fill('Charger un workspace');
+		await page.getByRole('combobox').fill('Charger un espace de travail');
 		await page.keyboard.press('Enter');
-		await page.getByRole('button', { name: 'Sauvegarder le workspace courant' }).click();
-		const prompt = page.getByRole('dialog', { name: 'Nom du workspace ?' });
+		await page.getByRole('button', { name: 'Sauvegarder l’espace de travail courant' }).click();
+		const prompt = page.getByRole('dialog', { name: 'Nom de l’espace de travail ?' });
 		await expect(prompt).toBeVisible();
 		await expectNoBlockingViolations(page, new AxeBuilder({ page }).include('[role="dialog"]'));
 		await page.keyboard.press('Escape');
 		await expect(prompt).toHaveCount(0);
 		await expect(
-			page.getByRole('button', { name: 'Sauvegarder le workspace courant' })
+			page.getByRole('button', { name: 'Sauvegarder l’espace de travail courant' })
 		).toBeFocused();
 		await page.keyboard.press('Escape');
 	}

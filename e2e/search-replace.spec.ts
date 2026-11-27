@@ -82,7 +82,7 @@ test.describe('§5.13 - Search & replace in-file (⌘F)', () => {
 		await page.getByTitle('Remplacer dans tous les fichiers').click();
 		await page.getByLabel('Texte de remplacement').fill('replacement');
 		await page.getByRole('button', { name: 'Remplacer tout' }).click();
-		const dialog = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+		const dialog = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 		await expect(dialog.getByRole('alert')).toContainText('Recherche indisponible', {
 			timeout: 10_000
 		});
@@ -161,9 +161,9 @@ test('the announced search result option is the single activation target', async
 	await writeSourceContent(page, '# Beta\n\nsearch-option-marker beta');
 
 	await openPalette(page);
-	await page.getByRole('combobox').fill('Recherche cross-fichiers');
+	await page.getByRole('combobox').fill('Recherche dans tous les fichiers');
 	await page.keyboard.press('Enter');
-	const dialog = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+	const dialog = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 	await expect(dialog).toBeVisible();
 	const input = dialog.getByRole('combobox');
 	await input.fill('search-option-marker');
@@ -185,9 +185,9 @@ test('the announced search result option is the single activation target', async
 
 	// The keyboard path still opens the announced option.
 	await openPalette(page);
-	await page.getByRole('combobox').fill('Recherche cross-fichiers');
+	await page.getByRole('combobox').fill('Recherche dans tous les fichiers');
 	await page.keyboard.press('Enter');
-	const reopened = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+	const reopened = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 	const combobox = reopened.getByRole('combobox');
 	await combobox.fill('search-option-marker');
 	await expect(page.locator('#search-listbox [role="option"]')).toHaveCount(2);
@@ -198,9 +198,9 @@ test('the announced search result option is the single activation target', async
 	// A real mouse click on the option opens the same result once. The option
 	// has no nested activation target, so one click cannot run two handlers.
 	await openPalette(page);
-	await page.getByRole('combobox').fill('Recherche cross-fichiers');
+	await page.getByRole('combobox').fill('Recherche dans tous les fichiers');
 	await page.keyboard.press('Enter');
-	const pointerDialog = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+	const pointerDialog = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 	const pointerCombobox = pointerDialog.getByRole('combobox');
 	await pointerCombobox.fill('search-option-marker');
 	const pointerOptions = page.locator('#search-listbox [role="option"]');

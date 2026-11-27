@@ -19,12 +19,12 @@ test.describe('Workspaces - save and restore sessions', () => {
 
 		// Save the workspace from the palette, enter its name, and press Enter.
 		await openPalette(page);
-		await page.keyboard.type('Sauvegarder le workspace courant');
+		await page.keyboard.type('Sauvegarder l’espace de travail courant');
 		await expect(
-			page.getByRole('option', { name: 'Sauvegarder le workspace courant', exact: true })
+			page.getByRole('option', { name: 'Sauvegarder l’espace de travail courant', exact: true })
 		).toBeVisible();
 		await page.keyboard.press('Enter');
-		const promptDialog = page.getByRole('dialog', { name: 'Nom du workspace ?' });
+		const promptDialog = page.getByRole('dialog', { name: 'Nom de l’espace de travail ?' });
 		await expect(promptDialog).toBeVisible({ timeout: 5000 });
 		const promptInput = promptDialog.locator('input[type="text"]');
 		await promptInput.fill('Mon workspace');
@@ -44,15 +44,15 @@ test.describe('Workspaces - save and restore sessions', () => {
 		await page.reload();
 		await expect(fileName).toHaveValue('doc-c');
 
-		// Open the Workspaces panel with the "Charger un workspace..." command.
+		// Open the Workspaces panel with the "Charger un espace de travail..." command.
 		await openPalette(page);
-		await page.keyboard.type('Charger un workspace');
+		await page.keyboard.type('Charger un espace de travail');
 		await page.keyboard.press('Enter');
-		const wsDialog = page.getByRole('dialog', { name: 'Workspaces' });
+		const wsDialog = page.getByRole('dialog', { name: 'Espaces de travail' });
 		await expect(wsDialog).toBeVisible({ timeout: 5000 });
 		await expect(wsDialog.getByText('Mon workspace')).toBeVisible();
 		await wsDialog
-			.getByRole('button', { name: 'Charger le workspace Mon workspace', exact: true })
+			.getByRole('button', { name: 'Charger l’espace de travail Mon workspace', exact: true })
 			.click();
 		await expect(wsDialog).toBeHidden();
 		await expect(fileButtons.locator('.truncate')).toHaveText(['doc-a', 'doc-b']);
@@ -72,9 +72,9 @@ test.describe('Workspaces - save and restore sessions', () => {
 		const fileButtons = page.locator('aside button[data-file-id]');
 		await fileButtons.nth(1).click();
 		await openPalette(page);
-		await page.keyboard.type('Sauvegarder le workspace courant');
+		await page.keyboard.type('Sauvegarder l’espace de travail courant');
 		await page.keyboard.press('Enter');
-		const promptDialog = page.getByRole('dialog', { name: 'Nom du workspace ?' });
+		const promptDialog = page.getByRole('dialog', { name: 'Nom de l’espace de travail ?' });
 		const promptInput = promptDialog.locator('input[type="text"]');
 		await promptInput.fill('Export workspace');
 		await promptInput.press('Enter');
@@ -188,11 +188,11 @@ test.describe('Workspaces - save and restore sessions', () => {
 		expect(manifest[12]).toBe(0);
 		expect(manifest[13]).toBeGreaterThan(262_144);
 		await openPalette(page);
-		await page.keyboard.type('Charger un workspace');
+		await page.keyboard.type('Charger un espace de travail');
 		await page.keyboard.press('Enter');
-		const wsDialog = page.getByRole('dialog', { name: 'Workspaces' });
+		const wsDialog = page.getByRole('dialog', { name: 'Espaces de travail' });
 		await wsDialog
-			.getByRole('button', { name: 'Charger le workspace Export workspace', exact: true })
+			.getByRole('button', { name: 'Charger l’espace de travail Export workspace', exact: true })
 			.click();
 		await expect(wsDialog).toBeHidden();
 		await expect(fileButtons.locator('.truncate')).toHaveText(['doc-a', 'doc-b']);

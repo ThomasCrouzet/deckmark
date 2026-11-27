@@ -12,7 +12,7 @@
 	import { tick, onMount } from 'svelte';
 	import type { Component } from 'svelte';
 	import { browser } from '$app/env';
-	import { t, i18n, LOCALES, LOCALE_LABELS } from '#lib/i18n/index.js';
+	import { t, i18n, LOCALES, LOCALE_LABELS, type MessageKey } from '#lib/i18n/index.js';
 	import { IS_DESKTOP_EDITION } from '#lib/edition.js';
 	import { focusTrap, visualViewportPanel } from '#lib/a11y/focusTrap.js';
 	import { coreCommands } from '#lib/ui/commands.js';
@@ -1152,7 +1152,10 @@
 					</p>
 					<p class="mt-1 text-xs text-fg-muted" data-testid="edition-capabilities">
 						{t('settings.editionCapabilities', {
-							features: editionManifest().features.slice(0, 6).join(', ')
+							features: editionManifest()
+								.features.slice(0, 6)
+								.map((id) => t(`settings.feature.${id}` as MessageKey))
+								.join(', ')
 						})}
 					</p>
 					<p class="mt-1" data-testid="about-author">{t('settings.authorCredit')}</p>

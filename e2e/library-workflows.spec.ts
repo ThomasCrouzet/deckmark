@@ -175,9 +175,12 @@ test('library Replace All previews and applies a deferred closed note', async ({
 		timeout: 15_000
 	});
 	await page.getByRole('button', { name: 'Confirmer le remplacement' }).click();
-	await expect(page.getByRole('dialog', { name: 'Recherche cross-fichiers' })).toHaveCount(0, {
-		timeout: 10_000
-	});
+	await expect(page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' })).toHaveCount(
+		0,
+		{
+			timeout: 10_000
+		}
+	);
 
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
@@ -274,7 +277,7 @@ test('Replace All reports a failed deferred body read', async ({ page }, info) =
 	await page.getByLabel('Texte de remplacement').fill('replacement');
 	await page.getByRole('button', { name: 'Remplacer tout' }).click();
 	await expect(
-		page.getByRole('dialog', { name: 'Recherche cross-fichiers' }).getByRole('alert')
+		page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' }).getByRole('alert')
 	).toContainText('Le remplacement a échoué', {
 		timeout: 15_000
 	});

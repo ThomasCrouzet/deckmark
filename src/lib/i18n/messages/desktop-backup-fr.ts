@@ -26,7 +26,7 @@ export const desktopBackupFr = {
 	'settings.desktopBackupPreview': 'Aperçu',
 	'settings.desktopBackupRestore': 'Restaurer',
 	'settings.desktopBackupPreviewSummary':
-		'Instantané du {date} : {drafts} fichier(s), {workspaces} espace(s), {templates} modèle(s), {snippets} extrait(s), {projects} projet(s) et {assets} ressource(s).',
+		'Instantané du {date} : {drafts} fichier(s), {workspaces} espace(s) de travail, {templates} modèle(s), {snippets} extrait(s), {projects} projet(s) et {assets} ressource(s).',
 	'settings.desktopBackupPreviewHint':
 		'Vérifiez les nombres avant de restaurer. La restauration demande de fusionner ou de remplacer.',
 	'settings.desktopBackupSaved': 'Sauvegarde locale écrite.',
