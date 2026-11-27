@@ -1,5 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
-import { createFirstFile, resetAppState, switchToSource, writeSourceContent } from './helpers';
+import {
+	createFirstFile,
+	renameActiveFile,
+	resetAppState,
+	switchToSource,
+	writeSourceContent
+} from './helpers';
 
 // ProseMirror reads the DOM selection on the asynchronous selectionchange
 // event. A key can reach the editor before that event, mainly on a slow
@@ -15,6 +21,7 @@ import { createFirstFile, resetAppState, switchToSource, writeSourceContent } fr
 declare global {
 	interface Window {
 		__holdSelectionChange?: boolean;
+		__MDSH_EDITOR_VIEW__?: { state: { selection: { head: number } } };
 	}
 }
 
@@ -151,5 +158,54 @@ test.describe('visual editor selection sync before the next key', () => {
 			'Added alpha.',
 			'Added bravo.'
 		]);
+	});
+
+	test('a file switch right after a native caret move keeps that caret', async ({ page }) => {
+		await resetAppState(page, { mode: 'wysiwyg' });
+		await createFirstFile(page);
+		await renameActiveFile(page, 'Caret A.md');
+		const editor = page.locator('.ProseMirror');
+		await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 20_000 });
+		await editor.fill('Base locale');
+		await expect(editor).toContainText('Base locale');
+		await holdSelectionChange(page, true);
+		await page.keyboard.press('ControlOrMeta+a');
+		await page.keyboard.press('ArrowLeft');
+		for (let index = 0; index < 4; index++) await page.keyboard.press('ArrowRight');
+		await page.keyboard.press('ControlOrMeta+n');
+		await page.getByTestId('create-note').click();
+		await expect(editor).toBeVisible({ timeout: 20_000 });
+		await holdSelectionChange(page, false);
+		const fileName = page.locator('input[aria-label^="Nom du fichier"]');
+		await fileName.fill('Caret B.md');
+		await fileName.press('Enter');
+		await page.locator('button[data-file-id]').filter({ hasText: 'Caret A' }).click();
+		await expect(editor).toContainText('Base locale');
+		await editor.focus();
+		await page.keyboard.insertText('X');
+		await expect(editor).toContainText('BaseX locale');
+	});
+
+	test('focus after a note opens again applies the saved caret', async ({ page }) => {
+		await resetAppState(page, { mode: 'wysiwyg' });
+		await createFirstFile(page);
+		await renameActiveFile(page, 'Caret A.md');
+		const editor = page.locator('.ProseMirror');
+		await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 20_000 });
+		await editor.fill('Base locale');
+		await page.keyboard.press('Home');
+		for (let index = 0; index < 4; index++) await page.keyboard.press('ArrowRight');
+		await page.keyboard.press('ControlOrMeta+n');
+		await page.getByTestId('create-note').click();
+		await expect(editor).toBeVisible({ timeout: 20_000 });
+		await page.locator('button[data-file-id]').filter({ hasText: 'Caret A' }).click();
+		await expect(editor).toContainText('Base locale');
+		// The saved caret is in the editor state. No key has moved it since.
+		await expect
+			.poll(() => page.evaluate(() => window.__MDSH_EDITOR_VIEW__?.state.selection.head))
+			.toBe(5);
+		await editor.focus();
+		await page.keyboard.insertText('X');
+		await expect(editor).toContainText('BaseX locale');
 	});
 });

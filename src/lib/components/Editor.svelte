@@ -934,14 +934,31 @@
 		//    editor does not handle, for example Selection.modify. A key that is
 		//    not a printable character syncs at keydown, so Enter and Delete act on
 		//    the selection that the user sees.
+		// `domObserver` and `input` are not in the public typings. `flush` reads
+		// pending DOM changes and then the DOM selection, as ProseMirror does at the
+		// start of a composition.
+		type ProseMirrorInternals = {
+			domObserver?: { flush?: () => void };
+			input?: { lastFocus?: number };
+		};
+		// ProseMirror treats a collapsed caret at the document start within 200 ms of
+		// a focus event as a browser reset and restores the state selection. That
+		// rule is right after a focus event. It is wrong for a key or a text input,
+		// where a caret at the start is the choice of the user. Clearing the focus
+		// time keeps an old state selection from replacing the caret that Home,
+		// ArrowLeft or Ctrl+Home just placed.
+		const flushDomSelection = (view: EditorView) => {
+			const internals = view as unknown as ProseMirrorInternals;
+			if (internals.input && typeof internals.input.lastFocus === 'number') {
+				internals.input.lastFocus = 0;
+			}
+			internals.domObserver?.flush?.();
+		};
 		const syncSelectionFromDom = (view: EditorView, event: Event) => {
 			if (!view.editable || view.composing || (event as KeyboardEvent).isComposing) return;
 			const inputType = (event as InputEvent).inputType;
 			if (inputType && /^(?:history|insertComposition|deleteComposition)/.test(inputType)) return;
-			// `domObserver` is not in the public typings. `flush` reads pending DOM
-			// changes and then the DOM selection, as ProseMirror does at the start
-			// of a composition.
-			(view as unknown as { domObserver?: { flush?: () => void } }).domObserver?.flush?.();
+			flushDomSelection(view);
 			if (!inputType?.startsWith('insert')) return;
 			// A native boundary move can leave an element caret such as (paragraph, 0)
 			// in a block that has no layout. Chrome then puts the next character
