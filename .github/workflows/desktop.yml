@@ -269,6 +269,15 @@ jobs:
           path: build/
       - name: Measure web benchmark
         run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
+      - name: Print benchmark failure state
+        # The benchmark writes the page state of a failure to its output file.
+        # Print that state to the log, because the job does not upload it.
+        if: failure()
+        env:
+          REPORT: ${{ runner.temp }}/web-benchmark-${{ matrix.browser }}.json
+        run: |
+          test -f "$REPORT" || { echo "No benchmark report at $REPORT."; exit 0; }
+          node -e 'const r = JSON.parse(require("fs").readFileSync(process.env.REPORT, "utf8")); console.log(JSON.stringify(r.failures ?? r, null, 2).slice(0, 60000));'
 
   native-validation:
     # One debug test application per OS. The job builds once, runs the smoke
