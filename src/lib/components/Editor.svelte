@@ -934,6 +934,10 @@
 		//    editor does not handle, for example Selection.modify. A key that is
 		//    not a printable character syncs at keydown, so Enter and Delete act on
 		//    the selection that the user sees.
+		// 3. When the editor gets focus, the state selection follows a DOM selection
+		//    that a script or a native action set just before. ProseMirror writes
+		//    its own selection over such a DOM selection about 20 ms after the focus
+		//    event, because the selectionchange event is still queued.
 		// `domObserver` and `input` are not in the public typings. `flush` reads
 		// pending DOM changes and then the DOM selection, as ProseMirror does at the
 		// start of a composition.
@@ -947,9 +951,9 @@
 		// where a caret at the start is the choice of the user. Clearing the focus
 		// time keeps an old state selection from replacing the caret that Home,
 		// ArrowLeft or Ctrl+Home just placed.
-		const flushDomSelection = (view: EditorView) => {
+		const flushDomSelection = (view: EditorView, fromUserInput: boolean) => {
 			const internals = view as unknown as ProseMirrorInternals;
-			if (internals.input && typeof internals.input.lastFocus === 'number') {
+			if (fromUserInput && internals.input && typeof internals.input.lastFocus === 'number') {
 				internals.input.lastFocus = 0;
 			}
 			internals.domObserver?.flush?.();
@@ -958,7 +962,7 @@
 			if (!view.editable || view.composing || (event as KeyboardEvent).isComposing) return;
 			const inputType = (event as InputEvent).inputType;
 			if (inputType && /^(?:history|insertComposition|deleteComposition)/.test(inputType)) return;
-			flushDomSelection(view);
+			flushDomSelection(view, true);
 			if (!inputType?.startsWith('insert')) return;
 			// A native boundary move can leave an element caret such as (paragraph, 0)
 			// in a block that has no layout. Chrome then puts the next character
@@ -980,6 +984,14 @@
 				new Plugin({
 					props: {
 						handleDOMEvents: {
+							focus(view: EditorView) {
+								// ProseMirror sets its focus time after this handler. A microtask
+								// runs after both and before the timer of ProseMirror.
+								queueMicrotask(() => {
+									if (view.editable && view.hasFocus()) flushDomSelection(view, false);
+								});
+								return false;
+							},
 							keydown(view: EditorView, event: Event) {
 								// A printable key reaches beforeinput, which syncs the selection.
 								// Skip it here to keep the cost of each typed character low.
