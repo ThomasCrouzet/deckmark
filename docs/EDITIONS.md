@@ -14,7 +14,7 @@ It has no time limit, feature paywall, account, or server component.
 
 - Web Light: [https://www.deckmark.dev/](https://www.deckmark.dev/)
 - GitHub Pages fallback: [https://thomascrouzet.github.io/deckmark/](https://thomascrouzet.github.io/deckmark/)
-- Desktop installers: [GitHub Releases](https://github.com/ThomasCrouzet/deckmark/releases)
+- Desktop installers: [desktop releases](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true) (the `desktop-v<version>` pre-releases)
 
 Cloudflare Pages and GitHub Pages publish Web Light as independent sites. The
 separate Desktop release channel publishes Desktop Complete. Web Light needs no

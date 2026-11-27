@@ -13,7 +13,8 @@ Open the [web app](https://www.deckmark.dev/) to use Web Light. If the custom
 domain is not available, open the
 [GitHub Pages fallback](https://thomascrouzet.github.io/deckmark/).
 Desktop installers are separate `desktop-v<version>` prereleases on
-[GitHub Releases](https://github.com/ThomasCrouzet/deckmark/releases).
+[GitHub Releases, filtered to desktop](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true).
+The stable `v<version>` release has no installers.
 **Settings > About** shows the installed version. Include that version when you
 report a defect.
 

@@ -14,12 +14,12 @@
 
 <p align="center">
   <a href="https://www.deckmark.dev/"><strong>Open the web app</strong></a> ·
-  <a href="https://github.com/ThomasCrouzet/deckmark/releases">Download for desktop</a> ·
+  <a href="https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true">Download for desktop</a> ·
   <a href="docs/USER_GUIDE.md">User guide</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/ThomasCrouzet/deckmark/releases"><img src="https://img.shields.io/github/v/release/ThomasCrouzet/deckmark?logo=github" alt="Latest release"></a>
+  <a href="https://github.com/ThomasCrouzet/deckmark/releases/latest"><img src="https://img.shields.io/github/v/release/ThomasCrouzet/deckmark?logo=github&label=web" alt="Latest web release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ThomasCrouzet/deckmark?color=green" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/100%25_client--side-2ea44f" alt="100% client-side">
   <img src="https://img.shields.io/badge/offline_first_PWA-8a6fd1" alt="Offline-first PWA">
@@ -67,7 +67,7 @@
 search, and export then work without a connection.
 See [PWA installation](docs/USER_GUIDE.md#install-the-pwa).
 
-**On the desktop.** [Desktop Complete (Beta)](https://github.com/ThomasCrouzet/deckmark/releases)
+**On the desktop.** [Desktop Complete (Beta)](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true)
 adds native file access, in-place saves, an optional local Git panel, and OS integration
 on macOS, Windows, and Linux. See [Install the desktop app](#install-the-desktop-app).
 
@@ -161,7 +161,10 @@ is about 200 to 300 documents. Details: [edition matrix](docs/EDITIONS.md).
 <details>
 <summary><strong>Install the desktop app</strong></summary>
 
-Each release ships four installers, each with `SHA256SUMS` and build provenance:
+Each desktop release ships four installers, each with `SHA256SUMS` and build provenance.
+The installers are on the `desktop-v<version>` pre-release, not on the stable `v<version>`
+release. [Open the desktop releases](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true),
+select the newest one, and download from **Assets**:
 
 | Platform | File |
 | --- | --- |

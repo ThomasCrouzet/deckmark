@@ -1162,7 +1162,7 @@
 						</p>
 						<a
 							class="mt-1 inline-block underline"
-							href="https://github.com/ThomasCrouzet/deckmark/releases"
+							href="https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true"
 							target="_blank"
 							rel="noopener noreferrer"
 							data-testid="release-link"
