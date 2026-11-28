@@ -89,16 +89,22 @@
 		<!-- §714 - Static home state. The build is a single-page app with an
 		     `index.html` fallback, so this block is the document a crawler reads.
 		     `+layout.svelte` removes it when the app mounts. Keep the heading,
-		     the pitch, and the links in step with `Welcome.svelte` and
-		     `SiteFooter.svelte`. This block adds the desktop download link. -->
+		     the pitch, the facts, and the links in step with the first-visit view
+		     of `Welcome.svelte` and with `SiteFooter.svelte`, so the text does not
+		     change when the app mounts. This block adds the desktop download link. -->
 		<div id="seo-shell" class="seo-shell">
 			<div class="seo-shell-inner">
-				<p class="seo-kicker">Local-first Markdown notes and slides</p>
-				<h1 class="seo-title">Markdown notes and slides, on your device</h1>
+				<p class="seo-brand">DeckMark</p>
+				<h1 class="seo-title">Markdown notes and slides, on&nbsp;your&nbsp;device</h1>
 				<p class="seo-pitch">
-					Write notes, build slide decks, and read documents in plain Markdown. DeckMark runs in
-					your browser and keeps your files on your device. No account. No cloud sync. No telemetry.
+					Write notes and build slide decks in one library. Each document is a plain Markdown file
+					that you own.
 				</p>
+				<ul class="seo-facts">
+					<li>No account</li>
+					<li>Works offline</li>
+					<li>Free and open source</li>
+				</ul>
 				<a
 					class="seo-cta"
 					href="https://github.com/ThomasCrouzet/deckmark/blob/main/docs/USER_GUIDE.md"
@@ -122,7 +128,7 @@
 						>Editions</a
 					>
 					<a href="https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true"
-						>Desktop app (beta)</a
+						>Desktop app (Beta)</a
 					>
 				</nav>
 			</div>

@@ -105,6 +105,8 @@
 	// Filtered file list: if a tag is active, keep only the
 	// files that contain it. Otherwise, all files.
 	const libraryFiles = $derived(filesStore.files.filter((file) => !file.projectId));
+	// First visit: the saved library has loaded and holds no document.
+	const firstVisit = $derived(filesStore.loaded && filesStore.library.length === 0);
 	const filteredFiles = $derived(
 		activeTag === null
 			? libraryFiles
@@ -786,8 +788,14 @@
 		{/if}
 		{#if filesStore.files.length === 0 && !hasExplorer}
 			<div class="px-4 py-8 text-center text-xs text-fg-subtle">
-				{t('sidebar.noFileOpen')}<br />
-				<span class="text-fg-dim">{t('sidebar.createOrImportHint')}</span>
+				{#if firstVisit}
+					<!-- The home area holds the pitch and the start actions on a first
+					     visit. This panel only says what it is for. -->
+					{t('landing.sidebarEmpty')}
+				{:else}
+					{t('sidebar.noFileOpen')}<br />
+					<span class="text-fg-dim">{t('sidebar.createOrImportHint')}</span>
+				{/if}
 			</div>
 		{:else if filteredFiles.length === 0}
 			{#if libraryFiles.length > 0}
