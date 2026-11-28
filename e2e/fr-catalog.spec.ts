@@ -41,7 +41,7 @@ test('French palette entries use "espace de travail" and no English term', async
 
 test('French home title is French after hydration', async ({ page }) => {
 	await resetAppState(page);
-	await expect(page).toHaveTitle(/espace de travail Markdown/);
+	await expect(page).toHaveTitle(/notes et présentations Markdown/);
 	await expect(page).not.toHaveTitle(/local-first|editor/);
 });
 

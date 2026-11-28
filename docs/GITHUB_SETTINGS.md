@@ -79,7 +79,8 @@ title and the message is the pull request body. release-please reads the
 - Fold Dependabot proposals into a batch pull request. Merge security update pull requests only through the normal checks.
 - Keep Dependabot security updates enabled. They target `main` whatever `target-branch` says.
 - Set `allow_auto_merge` to false. No workflow enables auto-merge.
-- Set the Actions default workflow permissions to read, and do not allow GitHub Actions to approve pull requests. Each job that needs more declares it.
+- Set the Actions default workflow permissions to read. Each job that needs more declares it.
+- Keep "Allow GitHub Actions to create and approve pull requests" enabled. GitHub has one setting for both, and release-please opens the release pull request with `GITHUB_TOKEN`. No workflow approves a pull request.
 - Remove the `DEPENDABOT_AUTO_APPROVE` variable if it exists.
 
 ## Release and deployment verification

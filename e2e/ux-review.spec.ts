@@ -408,8 +408,8 @@ for (const locale of ['en', 'fr'] as const) {
 		await start(page, locale);
 		await expect(page.locator('.welcome-intro')).toContainText(
 			locale === 'en'
-				? 'Write notes and create presentations.'
-				: 'Écrivez des notes et créez des présentations.'
+				? 'Write notes and build slide decks'
+				: 'Rédigez vos notes et créez vos présentations'
 		);
 		await expect(page.locator('.welcome-actions .mdsh-kicker')).toHaveCount(0);
 		await expect(page.getByTestId('welcome-new')).toBeInViewport();
