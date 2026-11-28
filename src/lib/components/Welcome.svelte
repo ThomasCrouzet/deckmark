@@ -25,7 +25,7 @@
 		onLibrary?: () => void;
 		onNewPresentation?: (() => void) | undefined;
 		documentCount?: number;
-		/** True once the saved library has loaded, so the first-visit view never flashes for a returning user. */
+		/** True once the saved library has loaded. The view renders no layout before, so no layout is swapped for another. */
 		libraryReady?: boolean;
 	}
 
@@ -40,7 +40,9 @@
 	}: Props = $props();
 
 	// First visit: the library has loaded and holds no document. A returning user
-	// never sees the introduction.
+	// never sees the introduction. Until the library state is known, the view
+	// renders no layout, so the first layout that shows is the final one and the
+	// start actions are never replaced under the pointer.
 	const firstVisit = $derived(libraryReady && documentCount === 0);
 	// The desktop app has no use for a link to its own installers. The edition
 	// check covers a Desktop build that runs outside the native shell.
@@ -90,7 +92,9 @@
 	class="welcome-shell flex h-full flex-col items-center px-6 py-10 sm:px-10 lg:px-[8vw]"
 	class:welcome-shell-first={firstVisit}
 >
-	{#if firstVisit}
+	{#if !libraryReady}
+		<!-- Library state unknown: render neither layout. -->
+	{:else if firstVisit}
 		<!-- First visit. The reading order is the visual order: the title, the pitch,
 		     the facts, the start actions, the links, then the three points. -->
 		<section class="welcome-console welcome-first-visit w-full" aria-labelledby="welcome-title">

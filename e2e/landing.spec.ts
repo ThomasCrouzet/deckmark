@@ -204,6 +204,151 @@ test.describe('first visit actions', () => {
 	});
 });
 
+// The home view must render once, in its final layout. A first render in the
+// returning layout that the first-visit layout replaces destroys the buttons that a
+// user is about to tap, and it flashes the wrong layout at a new user. The observer
+// reads the mutation records, so it sees a node that a later update removes in the
+// same task.
+interface HomeWatch {
+	buttons: Element[];
+	consoles: number;
+	firstVisitNodes: number;
+	buttonInFirstVisit: boolean[];
+}
+
+async function watchHome(page: Page) {
+	await page.addInitScript(() => {
+		const watch: HomeWatch = {
+			buttons: [],
+			consoles: 0,
+			firstVisitNodes: 0,
+			buttonInFirstVisit: []
+		};
+		Object.assign(window, { homeWatch: watch });
+		const inspect = (node: Node) => {
+			if (!(node instanceof Element)) return;
+			const within = (selector: string) => [
+				...(node.matches(selector) ? [node] : []),
+				...node.querySelectorAll(selector)
+			];
+			for (const button of within('[data-testid="welcome-new"]')) {
+				watch.buttons.push(button);
+				watch.buttonInFirstVisit.push(button.closest('.welcome-shell-first') !== null);
+			}
+			watch.consoles += within('.welcome-console').length;
+			watch.firstVisitNodes += within('.welcome-shell-first, .welcome-first-visit').length;
+		};
+		new MutationObserver((records) => {
+			for (const record of records) {
+				for (const node of record.addedNodes) inspect(node);
+				if (
+					record.type === 'attributes' &&
+					record.target instanceof Element &&
+					record.target.classList.contains('welcome-shell-first')
+				) {
+					watch.firstVisitNodes += 1;
+				}
+			}
+		}).observe(document, {
+			childList: true,
+			subtree: true,
+			attributes: true,
+			attributeFilter: ['class']
+		});
+	});
+}
+
+const homeWatch = (page: Page) =>
+	page.evaluate(() => {
+		const watch = (window as unknown as { homeWatch: HomeWatch }).homeWatch;
+		return {
+			created: watch.buttons.length,
+			connected: watch.buttons.map((button) => button.isConnected),
+			consoles: watch.consoles,
+			firstVisitNodes: watch.firstVisitNodes,
+			buttonInFirstVisit: watch.buttonInFirstVisit
+		};
+	});
+
+test.describe('home view stability', () => {
+	test.use({ locale: 'en-US' });
+
+	test('a new user gets the first-visit view once, and the start button is never replaced', async ({
+		page
+	}) => {
+		await watchHome(page);
+		await start(page, 'en');
+		await expect(page.getByTestId('welcome-new')).toBeVisible();
+		const seen = await homeWatch(page);
+		// One layout, one start button, and that button is the one on screen.
+		expect(seen.created).toBe(1);
+		expect(seen.connected).toEqual([true]);
+		expect(seen.consoles).toBe(1);
+		expect(seen.buttonInFirstVisit).toEqual([true]);
+		await expect(page.locator('.welcome-shell-first')).toHaveCount(1);
+	});
+
+	test('a returning user never gets the first-visit introduction, even for one frame', async ({
+		page
+	}) => {
+		await start(page, 'en');
+		await page.getByTestId('welcome-new').click();
+		await page.getByTestId('create-note').click();
+		await expect(page.locator('input[aria-label^="File name"]')).toBeVisible();
+		// Close the only open document, so the next load lands on the home view and
+		// the library still holds the document.
+		await page
+			.locator('#files-panel')
+			.getByRole('button', { name: /^Close / })
+			.first()
+			.click({ force: true });
+		await expect(page.getByTestId('welcome-new')).toBeVisible();
+		await expect
+			.poll(
+				() =>
+					page.evaluate(
+						() =>
+							new Promise<number>((resolve) => {
+								const request = indexedDB.open('mdsh');
+								request.onerror = () => resolve(0);
+								request.onsuccess = () => {
+									const database = request.result;
+									const rows = database.objectStoreNames.contains('drafts')
+										? database.transaction('drafts').objectStore('drafts').getAll()
+										: null;
+									if (!rows) {
+										database.close();
+										resolve(0);
+										return;
+									}
+									rows.onerror = () => resolve(0);
+									rows.onsuccess = () => {
+										database.close();
+										resolve(
+											(rows.result as Array<{ open?: boolean }>).filter((row) => row.open === false)
+												.length
+										);
+									};
+								};
+							})
+					),
+				{ timeout: 10_000 }
+			)
+			.toBeGreaterThan(0);
+
+		await watchHome(page);
+		await page.reload();
+		await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor();
+		await expect(page.getByRole('button', { name: /Open your library/ })).toBeVisible();
+		const seen = await homeWatch(page);
+		expect(seen.firstVisitNodes).toBe(0);
+		expect(seen.created).toBe(1);
+		expect(seen.connected).toEqual([true]);
+		expect(seen.consoles).toBe(1);
+		await expect(page.locator('.welcome-pitch')).toHaveCount(0);
+	});
+});
+
 // Contrast of a text color on its own background, from the computed styles.
 // Both colors go through a canvas so any CSS color syntax reduces to RGBA.
 async function kbdContrast(page: Page, button: string) {

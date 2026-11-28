@@ -117,10 +117,13 @@ test.describe('Golden path - persistence lifecycle', () => {
 		const shell = page.locator('.mdsh-shell');
 		await expect(shell).toHaveAttribute('aria-busy', 'true');
 		await expect(shell).toHaveAttribute('inert', '');
-		const button = page.getByTestId('welcome-new');
-		const box = await button.boundingBox();
-		expect(box).not.toBeNull();
-		await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+		// The home view renders no layout and no start action until the library state is
+		// known, so a press cannot reach a start button that the load then replaces.
+		await expect(page.getByTestId('welcome-new')).toHaveCount(0);
+		await expect(page.locator('.welcome-console')).toHaveCount(0);
+		const main = await page.locator('#main').boundingBox();
+		expect(main).not.toBeNull();
+		await page.mouse.click(main!.x + main!.width / 2, main!.y + main!.height / 2);
 		await page.keyboard.press('ControlOrMeta+n');
 		const dropPrevented = await page.evaluate(() => {
 			const transfer = new DataTransfer();
