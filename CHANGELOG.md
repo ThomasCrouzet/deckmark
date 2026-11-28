@@ -5,6 +5,42 @@ All notable changes to **DeckMark** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0](https://github.com/ThomasCrouzet/deckmark/compare/v2.6.1...v2.7.0) (2026-11-28)
+
+
+### Features
+
+* **editor:** follow wiki links in Edit mode and fix the demo instruction ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **i18n:** rename the editions to DeckMark Web and DeckMark Desktop (Beta) ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **landing:** add a first-visit home state with the product pitch ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **landing:** align the static home state with the first-visit view ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **landing:** redesign the first-visit view around a product figure ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+
+
+### Bug Fixes
+
+* **backup:** keep notes with control characters exportable and name every limit ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **backup:** use the shared download helper for backup files ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **docs-site:** publish only inert file types ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **editor:** keep the caret that a key places right after a focus event ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **editor:** read a DOM caret that a script sets just before the focus ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **editor:** sync the state selection before input and handle Cmd+Up/Down ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **export:** use the edition project budget for the library ZIP ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **i18n:** clean the French catalog leftovers ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **landing:** polish the first-visit state ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **landing:** polish the first-visit view ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **landing:** render the home view once the library state is known ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **landing:** stop the kicker from repeating the heading ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **library:** give the durable metadata key the same titles as the live index ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **library:** keep the metadata projection on close and wait for durable state in tests ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **seo:** use absolute og:image and twitter:image URLs ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+* **toasts:** keep the focused control in view when a notice resizes a dialog stack ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+
+
+### Performance Improvements
+
+* **links:** build the project wiki index once for the link report ([3a45cc3](https://github.com/ThomasCrouzet/deckmark/commit/3a45cc34abbd2bf50a2289c85d671222a57acfe2))
+
 ## [2.6.1](https://github.com/ThomasCrouzet/deckmark/compare/v2.6.0...v2.6.1) (2026-11-27)
 
 
