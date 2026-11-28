@@ -137,7 +137,12 @@ test('every releasable branch commit needs an entry with the same header', () =>
 test('the command line checks PR_BODY against the real branch commits', () => {
 	const root = mkdtempSync(join(tmpdir(), 'pr-override-'));
 	roots.push(root);
-	const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+	// Drop inherited GIT_* state. A Git hook sets GIT_DIR and GIT_INDEX_FILE,
+	// and the fixture commands would then write to the real repository.
+	const env = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+	for (const [name, value] of Object.entries(process.env)) {
+		if (!name.startsWith('GIT_')) env[name] = value;
+	}
 	const git = (...args) =>
 		execFileSync(
 			'git',
