@@ -38,10 +38,13 @@ describe('import limits and decoding', () => {
 		expect(await session.read(input([0xc3, 0x28]))).toBeNull();
 		expect(session.report.issues[0]?.reason).toBe('encoding');
 	});
-	it.each([0, 1, 8, 11, 12, 31])('rejects binary control %s in false Markdown', (code) => {
-		expect(() => validateMarkdownContent(`titre${String.fromCharCode(code)}`)).toThrowError(
+	it('rejects a NUL character as binary data', () => {
+		expect(() => validateMarkdownContent('titre\u0000')).toThrowError(
 			new ImportReadError('binary')
 		);
+	});
+	it.each([1, 8, 11, 12, 27, 31])('accepts the ordinary control character %s', (code) => {
+		expect(() => validateMarkdownContent(`titre${String.fromCharCode(code)}`)).not.toThrow();
 	});
 	it('rejects a size that changes during the read', async () => {
 		const session = new ImportSession();

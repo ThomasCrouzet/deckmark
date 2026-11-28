@@ -127,3 +127,13 @@ class NotifyStore {
 }
 
 export const notify = new NotifyStore();
+
+// Test seam. The instrumented e2e build lets a spec raise a notice at a chosen
+// moment, for example while a dialog control has focus.
+if (import.meta.env.VITE_SOURCE_FIDELITY_METRICS === '1' && typeof window !== 'undefined') {
+	(
+		window as unknown as {
+			__MDSH_NOTIFY__?: { error: (message: string, options?: ToastOptions) => number };
+		}
+	).__MDSH_NOTIFY__ = { error: (message, options) => notify.error(message, options) };
+}

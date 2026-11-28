@@ -1,9 +1,73 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { resetAppState, seedFiles, openPalette, writeSourceContent } from './helpers';
 
 test.beforeEach(async ({ page }) => {
 	await resetAppState(page);
 });
+
+/** Durable `drafts` rows, read the way a reload reads them. */
+async function storedDrafts(page: Page): Promise<Array<{ name: string; open: boolean }>> {
+	return page.evaluate(
+		() =>
+			new Promise<Array<{ name: string; open: boolean }>>((resolve, reject) => {
+				const request = indexedDB.open('mdsh');
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					const all = request.result.transaction('drafts').objectStore('drafts').getAll();
+					all.onerror = () => reject(all.error);
+					all.onsuccess = () => {
+						request.result.close();
+						resolve(all.result.map((row) => ({ name: row.name, open: row.open !== false })));
+					};
+				};
+			})
+	);
+}
+
+/**
+ * Waits until the stored library holds the expected open state for each name.
+ * A reload ends any write that is still in flight, so a test must wait for the
+ * durable state before it reloads. A user waits for the saved indicator in the
+ * same way.
+ */
+async function waitForStoredLibrary(page: Page, expected: Record<string, boolean>) {
+	await expect
+		.poll(async () => {
+			const rows = await storedDrafts(page);
+			return Object.fromEntries(
+				Object.keys(expected).map((name) => [
+					name,
+					rows.find((row) => row.name.startsWith(name))?.open
+				])
+			);
+		})
+		.toEqual(expected);
+}
+
+/** Imports a large alpha and a small beta, then closes alpha and waits until it is durable. */
+async function importAlphaThenBetaAndCloseAlpha(page: Page, largeAlpha: string) {
+	const input = page.locator('input[type="file"][accept*="text/markdown"]');
+	await input.setInputFiles({
+		name: 'alpha.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from(largeAlpha)
+	});
+	await expect(page.locator('#app-toolbar input')).toHaveValue('alpha', { timeout: 20_000 });
+	await input.setInputFiles({
+		name: 'beta.md',
+		mimeType: 'text/markdown',
+		buffer: Buffer.from('# Beta\n\nneedle in open beta')
+	});
+	await expect(page.locator('#app-toolbar input')).toHaveValue('beta', { timeout: 20_000 });
+	await waitForStoredLibrary(page, { alpha: true, beta: true });
+	await page
+		.locator('.mdsh-file-row')
+		.filter({ hasText: 'alpha' })
+		.locator('button')
+		.last()
+		.click();
+	await waitForStoredLibrary(page, { alpha: false, beta: true });
+}
 
 test('drafts remain usable when preference storage is denied', async ({ page }) => {
 	await page.addInitScript(() => {
@@ -90,9 +154,17 @@ test('a large closed document hydrates on demand for search and export', async (
 	await expect(page.locator('#app-toolbar input')).toHaveValue('large315', {
 		timeout: 20_000
 	});
-	await page.waitForTimeout(600);
-	const closeLarge = () =>
-		page.locator('.mdsh-file-row').filter({ hasText: 'large315' }).locator('button').last().click();
+	// A reload ends a write in flight. Wait for the durable state on each side of a close.
+	const closeLarge = async () => {
+		await waitForStoredLibrary(page, { large315: true });
+		await page
+			.locator('.mdsh-file-row')
+			.filter({ hasText: 'large315' })
+			.locator('button')
+			.last()
+			.click();
+		await waitForStoredLibrary(page, { large315: false });
+	};
 
 	// A reload reads the metadata projection and leaves the large closed body in Dexie.
 	await closeLarge();
@@ -135,24 +207,7 @@ test('library Replace All previews and applies a deferred closed note', async ({
 	test.setTimeout(90_000);
 	const largeAlpha = `# Alpha\n\n${'Deferred body line for the closed note.\n'.repeat(8_000)}needle in closed alpha\n`;
 	expect(largeAlpha.length).toBeGreaterThan(256 * 1024);
-	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
-		name: 'alpha.md',
-		mimeType: 'text/markdown',
-		buffer: Buffer.from(largeAlpha)
-	});
-	await expect(page.locator('#app-toolbar input')).toHaveValue('alpha', { timeout: 20_000 });
-	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
-		name: 'beta.md',
-		mimeType: 'text/markdown',
-		buffer: Buffer.from('# Beta\n\nneedle in open beta')
-	});
-	await expect(page.locator('#app-toolbar input')).toHaveValue('beta', { timeout: 20_000 });
-	await page
-		.locator('.mdsh-file-row')
-		.filter({ hasText: 'alpha' })
-		.locator('button')
-		.last()
-		.click();
+	await importAlphaThenBetaAndCloseAlpha(page, largeAlpha);
 	// The reload reads the metadata projection. The closed alpha body stays in Dexie.
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
@@ -175,9 +230,12 @@ test('library Replace All previews and applies a deferred closed note', async ({
 		timeout: 15_000
 	});
 	await page.getByRole('button', { name: 'Confirmer le remplacement' }).click();
-	await expect(page.getByRole('dialog', { name: 'Recherche cross-fichiers' })).toHaveCount(0, {
-		timeout: 10_000
-	});
+	await expect(page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' })).toHaveCount(
+		0,
+		{
+			timeout: 10_000
+		}
+	);
 
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
@@ -219,24 +277,7 @@ test('library Replace All previews and applies a deferred closed note', async ({
 test('Replace All reports a failed deferred body read', async ({ page }, info) => {
 	test.setTimeout(90_000);
 	const largeAlpha = `# Alpha\n\n${'Deferred body line for the closed note.\n'.repeat(8_000)}needle in closed alpha\n`;
-	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
-		name: 'alpha.md',
-		mimeType: 'text/markdown',
-		buffer: Buffer.from(largeAlpha)
-	});
-	await expect(page.locator('#app-toolbar input')).toHaveValue('alpha', { timeout: 20_000 });
-	await page.locator('input[type="file"][accept*="text/markdown"]').setInputFiles({
-		name: 'beta.md',
-		mimeType: 'text/markdown',
-		buffer: Buffer.from('# Beta\n\nneedle in open beta')
-	});
-	await expect(page.locator('#app-toolbar input')).toHaveValue('beta', { timeout: 20_000 });
-	await page
-		.locator('.mdsh-file-row')
-		.filter({ hasText: 'alpha' })
-		.locator('button')
-		.last()
-		.click();
+	await importAlphaThenBetaAndCloseAlpha(page, largeAlpha);
 	await page.reload();
 	await page.locator('.mdsh-shell[aria-busy="false"]:not([inert])').waitFor({
 		state: 'visible',
@@ -274,7 +315,7 @@ test('Replace All reports a failed deferred body read', async ({ page }, info) =
 	await page.getByLabel('Texte de remplacement').fill('replacement');
 	await page.getByRole('button', { name: 'Remplacer tout' }).click();
 	await expect(
-		page.getByRole('dialog', { name: 'Recherche cross-fichiers' }).getByRole('alert')
+		page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' }).getByRole('alert')
 	).toContainText('Le remplacement a échoué', {
 		timeout: 15_000
 	});

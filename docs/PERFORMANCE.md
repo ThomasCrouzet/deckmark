@@ -263,7 +263,7 @@ and redo, the Markdown export, and reload recovery. The audit rejects missing or
 duplicated cases, wrong counts, non-finite metrics, lost bytes, a wrong final
 source, missing undo/redo, missing receipt files and over-budget values.
 
-`scripts/benchmark-budgets.json` has a `modes` section. The Web Light Chromium
+`scripts/benchmark-budgets.json` has a `modes` section. The DeckMark Web Chromium
 profile is blocking with these reviewed local limits:
 
 | Metric | Limit |
@@ -468,8 +468,8 @@ controls declare `synthetic-control` in report, receipt and test-only budget
 profile. They contain synthetic times, not new browser measurements or product
 references. Preserve original positive/negative reports without rewriting them.
 
-The new `stress` section in `scripts/benchmark-budgets.json` separates Web Light
-production from Desktop Complete release and debug profiles. The Web Light
+The new `stress` section in `scripts/benchmark-budgets.json` separates DeckMark Web
+production from DeckMark Desktop release and debug profiles. The DeckMark Web
 Chromium profile now carries reviewed local limits for the Source, Code, JSON and
 Split 1 MB cases. The other browsers, the remaining modes and all native profiles
 are **report-only and uncalibrated**. A strict stress audit still requires the
@@ -883,8 +883,9 @@ rejects an output path inside the repository.
 `scripts/benchmark-gate.mjs` measures nothing. It validates the report schema,
 source identity, build mode, platform identity, sample counts, units, and budget
 values. Use it to audit a retained local artifact or to repeat a gate decision.
-CI does not upload benchmark reports. Hosted-runner cleanup discards its
-temporary files; repeat a failing case locally when a full report is needed.
+A failed CI benchmark job uploads its JSON report for 3 days (see `docs/CI.md`).
+A successful job uploads no report. The fixtures are synthetic. Repeat a failing
+case locally when you need more than that report.
 
 The negative cases for each rule run in `scripts/benchmark-shared.test.mjs`. The
 test starts the gate as a child process and checks the exit code. This proves
@@ -912,6 +913,17 @@ startup measurement installs a paint observer before navigation, waits a
 bounded time for either the observer or the timeline entry, and records which
 source supplied the value. A required metric with a missing sample fails the
 gate, so a partial report cannot pass on its remaining samples.
+
+The HTML export samples respect the Chromium download burst limit. Chromium
+drops a download request silently when the frame started 10 downloads in a
+burst that began less than 1 s earlier. The page shows no error and the browser
+sends no download event. On a fast runner, 10 exports can finish in less than
+1 s, and the 11th export then waits for a download that never starts. Before
+each export, the benchmark waits until the 10th previous download is more than
+1 s old. The wait is outside the measured sample. A user does not start 10
+exports in 1 s, so the application does not change. If an export download
+times out, the failure message in the JSON report names the sample and the
+number of downloads in the 1 s before the click.
 
 ### Mixed typing suite and the blind spots it closes
 

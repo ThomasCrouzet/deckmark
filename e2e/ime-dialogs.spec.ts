@@ -58,8 +58,8 @@ async function attach(info: TestInfo, name: string, value: unknown) {
 
 test('keeps cross-file search open for composing Escape', async ({ page }, info) => {
 	await resetAppState(page);
-	await openCommand(page, 'Recherche cross-fichiers');
-	const dialog = page.getByRole('dialog', { name: 'Recherche cross-fichiers' });
+	await openCommand(page, 'Recherche dans tous les fichiers');
+	const dialog = page.getByRole('dialog', { name: 'Recherche dans tous les fichiers' });
 	await expect(dialog).toBeVisible();
 	const input = dialog.getByRole('combobox');
 	await expect(input).toBeFocused();

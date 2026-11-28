@@ -641,6 +641,15 @@
 			run: onOpenHistory
 		},
 		{
+			id: 'open-wiki-link',
+			label: t('palette.openWikiLink'),
+			hint: t('palette.openWikiLinkHint'),
+			kbd: formatKbd('⌥Enter'),
+			enabled: () => kind === 'note' && mode === 'wysiwyg',
+			icon: Link2,
+			run: () => window.dispatchEvent(new CustomEvent('mdsh:open-wiki-link'))
+		},
+		{
 			id: 'graph',
 			label: t('palette.linksGraph'),
 			hint: t('palette.linksGraphHint'),

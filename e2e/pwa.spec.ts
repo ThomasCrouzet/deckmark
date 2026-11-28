@@ -128,9 +128,21 @@ test.describe('PWA - manifest', () => {
 	});
 });
 
-test('keeps the descriptive document title after hydration', async ({ page }, testInfo) => {
-	await page.goto(activeAppPath(testInfo));
-	await expect(page).toHaveTitle('DeckMark editor - local-first offline Markdown workspace');
+// The French dictionary loads lazily, so pin the locale to keep the check stable.
+test.describe('document title after hydration', () => {
+	test.use({ locale: 'en-US' });
+
+	test('keeps the descriptive document title after hydration', async ({ page }, testInfo) => {
+		await page.goto(activeAppPath(testInfo));
+		await expect(page).toHaveTitle(
+			'DeckMark: local-first Markdown notes and slides, offline, no account'
+		);
+		// A late dictionary load must not replace the title.
+		await page.waitForTimeout(500);
+		await expect(page).toHaveTitle(
+			'DeckMark: local-first Markdown notes and slides, offline, no account'
+		);
+	});
 });
 
 /**

@@ -2,13 +2,13 @@
 <html lang="en" class="dark">
 	<head>
 		<meta charset="utf-8" />
-		<title>DeckMark editor - local-first offline Markdown workspace</title>
+		<title>DeckMark: local-first Markdown notes and slides, offline, no account</title>
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<meta name="theme-color" content="#0b0c0d" />
 		<meta name="color-scheme" content="dark" />
 		<meta
 			name="description"
-			content="DeckMark editor is a local-first offline Markdown workspace with WYSIWYG, source, and reading modes. No account, cloud sync, or telemetry."
+			content="DeckMark is a local-first Markdown workspace for notes and slides. Edit visually or in source, present full screen, and work offline. No account, no server, no telemetry."
 		/>
 		<link rel="canonical" href="https://www.deckmark.dev/" />
 		<meta name="referrer" content="no-referrer" />
@@ -19,30 +19,44 @@
 		<meta name="apple-mobile-web-app-title" content="DeckMark" />
 		<meta name="mobile-web-app-capable" content="yes" />
 
-		<!-- Open Graph (Facebook, LinkedIn, Discord, Slack…) -->
+		<!-- Open Graph (Facebook, LinkedIn, Discord, Slack…). Share crawlers need
+		     absolute image URLs, so the image and the page URL name the canonical
+		     origin. The GitHub Pages mirror keeps the same origin on purpose. -->
 		<meta property="og:type" content="website" />
-		<meta property="og:title" content="DeckMark editor - local-first offline Markdown workspace" />
+		<meta
+			property="og:title"
+			content="DeckMark: local-first Markdown notes and slides, offline, no account"
+		/>
 		<meta
 			property="og:description"
-			content="WYSIWYG, source, and reading modes in an installable offline workspace. No account, cloud sync, or telemetry."
+			content="Write Markdown notes and build slide decks in your browser. Installable, works offline, no account, no cloud sync, no telemetry."
 		/>
-		<meta property="og:image" content="%sveltekit.assets%/og-image.png" />
+		<meta property="og:image" content="https://www.deckmark.dev/og-image.png" />
 		<meta property="og:image:width" content="1200" />
 		<meta property="og:image:height" content="630" />
-		<meta property="og:image:alt" content="DeckMark - a local-first markdown editor" />
+		<meta
+			property="og:image:alt"
+			content="DeckMark: one Markdown document in four views, Edit, Source, Read, and Slides"
+		/>
 		<meta property="og:url" content="https://www.deckmark.dev/" />
 		<meta property="og:site_name" content="DeckMark" />
 		<meta property="og:locale" content="en_US" />
 
 		<!-- Twitter / X -->
 		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content="DeckMark editor - local-first offline Markdown workspace" />
+		<meta
+			name="twitter:title"
+			content="DeckMark: local-first Markdown notes and slides, offline, no account"
+		/>
 		<meta
 			name="twitter:description"
-			content="A local-first Markdown workspace with WYSIWYG, source, and reading modes."
+			content="Write Markdown notes and build slide decks in your browser. Works offline, no account, no telemetry."
 		/>
-		<meta name="twitter:image" content="%sveltekit.assets%/og-image.png" />
-		<meta name="twitter:image:alt" content="DeckMark - a local-first markdown editor" />
+		<meta name="twitter:image" content="https://www.deckmark.dev/og-image.png" />
+		<meta
+			name="twitter:image:alt"
+			content="DeckMark: one Markdown document in four views, Edit, Source, Read, and Slides"
+		/>
 
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
 		<link rel="icon" type="image/x-icon" href="%sveltekit.assets%/favicon.ico" />
@@ -58,11 +72,12 @@
 			{
 				"@context": "https://schema.org",
 				"@type": "SoftwareApplication",
-				"name": "DeckMark editor",
+				"name": "DeckMark",
+				"description": "Local-first Markdown workspace for notes and slides. Works offline, no account, no telemetry.",
 				"applicationCategory": "ProductivityApplication",
 				"operatingSystem": "Web, macOS, Linux, Windows",
 				"url": "https://www.deckmark.dev/",
-				"downloadUrl": "https://github.com/ThomasCrouzet/deckmark/releases",
+				"downloadUrl": "https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true",
 				"softwareHelp": "https://github.com/ThomasCrouzet/deckmark/blob/main/docs/USER_GUIDE.md",
 				"license": "https://opensource.org/license/mit",
 				"isAccessibleForFree": true
@@ -74,15 +89,22 @@
 		<!-- §714 - Static home state. The build is a single-page app with an
 		     `index.html` fallback, so this block is the document a crawler reads.
 		     `+layout.svelte` removes it when the app mounts. Keep the heading,
-		     the pitch, and the links in step with `SiteFooter.svelte`. -->
+		     the pitch, the facts, and the links in step with the first-visit view
+		     of `Welcome.svelte` and with `SiteFooter.svelte`, so the text does not
+		     change when the app mounts. This block adds the desktop download link. -->
 		<div id="seo-shell" class="seo-shell">
 			<div class="seo-shell-inner">
-				<p class="seo-kicker">Local-first Markdown workspace</p>
-				<h1 class="seo-title">Your Markdown workspace</h1>
+				<p class="seo-brand">DeckMark</p>
+				<h1 class="seo-title">Markdown notes and slides, on&nbsp;your&nbsp;device</h1>
 				<p class="seo-pitch">
-					Write notes, read documents, and build presentations in Markdown. DeckMark runs in your
-					browser and keeps your files on your device. No account. No cloud sync. No telemetry.
+					Write notes and build slide decks in one library. Each document is a plain Markdown file
+					that you own.
 				</p>
+				<ul class="seo-facts">
+					<li>No account</li>
+					<li>Works offline</li>
+					<li>Free and open source</li>
+				</ul>
 				<a
 					class="seo-cta"
 					href="https://github.com/ThomasCrouzet/deckmark/blob/main/docs/USER_GUIDE.md"
@@ -90,8 +112,9 @@
 				>
 				<noscript>
 					<p class="seo-pitch">
-						Write notes, read documents, and build presentations in Markdown. DeckMark runs in your
-						browser and keeps your files on your device. No account. No cloud sync. No telemetry.
+						Write notes, build slide decks, and read documents in plain Markdown. DeckMark runs in
+						your browser and keeps your files on your device. No account. No cloud sync. No
+						telemetry.
 					</p>
 					<p class="seo-pitch">
 						The editor needs JavaScript. The user guide describes each feature.
@@ -103,6 +126,9 @@
 					<a href="https://github.com/ThomasCrouzet/deckmark/issues">Report an issue</a>
 					<a href="https://github.com/ThomasCrouzet/deckmark/blob/main/docs/EDITIONS.md"
 						>Editions</a
+					>
+					<a href="https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true"
+						>Desktop app (Beta)</a
 					>
 				</nav>
 			</div>

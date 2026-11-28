@@ -11,6 +11,7 @@
 	import { diskConflictStore } from '#lib/disk-conflict.svelte.js';
 	import { reportError } from '#lib/report.js';
 	import { notify } from '#lib/notify.svelte.js';
+	import { ImportReadError } from '#lib/import-limits.js';
 	import { readProjectFolder, readProjectZip } from '#lib/project-io.js';
 	import { normalizeImportedProject, type MigrationReport } from '#lib/import-vault.js';
 	import ProjectTree from './ProjectTree.svelte';
@@ -51,6 +52,8 @@
 	let selected = $state<string | null>(filesStore.active?.projectId ?? null);
 	let busy = $state(false);
 	let error = $state(false);
+	/** Names the document when a project operation fails on a binary-looking file. */
+	let errorDetail = $state('');
 	let issues = $state<ProjectLinkIssue[] | null>(null);
 	let nativeFailures = $state<NativeProjectFailure[]>([]);
 	let missing = $state<NativeProjectMissingEntry[]>([]);
@@ -87,6 +90,7 @@
 		if (busy) return;
 		busy = true;
 		error = false;
+		errorDetail = '';
 		issues = null;
 		nativeFailures = [];
 		try {
@@ -94,6 +98,8 @@
 			await load();
 		} catch (failure) {
 			error = true;
+			if (failure instanceof ImportReadError && failure.reason === 'binary' && failure.path)
+				errorDetail = t('projects.binaryDocument', { path: failure.path });
 			if (failure instanceof NativeProjectOperationError) {
 				nativeFailures = failure.report.failed;
 				missing = failure.report.missing;
@@ -329,7 +335,7 @@
 			</section>
 		{/if}
 		{#if error}<p role="alert" class="p-3 text-sm text-danger">
-				{t('projects.operationFailed')}
+				{errorDetail || t('projects.operationFailed')}
 			</p>{/if}
 		{#if nativeFailures.length}
 			<ul data-native-project-failures role="alert" class="px-3 pb-3 text-sm text-danger">

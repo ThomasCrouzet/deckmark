@@ -30,11 +30,15 @@ Keep this Markdown PWA offline, private, and on the client. Do not add a require
 
 - Reproduce the failure first. Use the smallest command that shows it.
 - Run targeted tests while you edit. Do not run the full matrix for each edit.
-- Freeze the change after the targeted tests pass. Do not reformat or refactor after the final local run.
-- Mark the pull request ready only when the head commit is final. The ready run executes the full required checks on that exact commit.
-- Do not update from `main` only to clear a `BEHIND` state. Rebase only for a real conflict, a required dependency change, or a branch protection rule that requires an up-to-date branch.
+- Batch all changes locally. Fixes, review findings and Dependabot proposals go on one `batch/YYYY-MM-DD` branch. Push once and open one pull request. Do not open a pull request per fix.
+- Before the push, run `npm run check`, `npm run lint`, `npm run notices:check`, one full `npm test`, `npm run build`, `npm run size` and the touched E2E specs.
+- Freeze the change after the final local run. Do not reformat or refactor after it.
+- Open the pull request as ready only when the head commit is final.
+- Merge by squash only. End the pull request body with one `BEGIN_COMMIT_OVERRIDE` block from `node scripts/ci-pr-override.mjs print`: one conventional header per change, issue numbers as `(#N)` in the header, no `Refs` or `Closes` line inside the block.
+- CI fails fast. The first failed job cancels every run of the commit. Find the one job with conclusion `failure`; the cancelled jobs follow from it. Fix and push once.
+- Do not update from `main` only to clear a `BEHIND` state. Rebase only for a real conflict or a required dependency change. A `BEHIND` merge repeats the full validation on `main`.
 - Do not bypass a required check. Do not change a workflow to accept a draft, deferred or missing result.
-- Read `docs/CI.md` for the tier protocol and `docs/TESTING.md` for the failure risks.
+- Read `docs/CI.md` for the tier, fail-fast and same-tree protocol and `docs/TESTING.md` for the failure risks.
 
 ## Commands
 

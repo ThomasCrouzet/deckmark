@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type CDPSession, type Page, type TestInfo } from '@playwright/test';
 import { MIXED_MARKERS, mixedNote } from '../scripts/benchmark-fixtures/mixed.mjs';
 import { resetAppState } from './helpers';
 import { enableTypewriter, installTypewriterProbe } from './typewriter-helpers';
@@ -341,6 +341,224 @@ test('visual boundary keys move and extend the caret in a long note', async ({ p
 	await expect
 		.poll(async () => (await storedContent(page, largeId)).trim(), { timeout: 20_000 })
 		.toMatch(/^# Top Only$/);
+});
+
+/**
+ * 900 short paragraphs (about 27 KB) cross the 800 block gate of the long
+ * document mode without crossing the 256 KiB character gate.
+ */
+function journalNote(): string {
+	let content = '# Journal\n\n';
+	for (let line = 0; line < 900; line += 1) {
+		content += `P${String(line).padStart(5, '0')} a short journal line.\n\n`;
+	}
+	return content;
+}
+
+type EditingCommand =
+	| 'moveToEndOfDocument'
+	| 'moveToBeginningOfDocument'
+	| 'moveToEndOfDocumentAndModifySelection'
+	| 'moveToBeginningOfDocumentAndModifySelection';
+
+const COMMAND_KEYS: Record<EditingCommand, { key: string; code: number; modifiers: number }> = {
+	// Meta is 4 and Shift is 8 in the CDP modifier mask.
+	moveToEndOfDocument: { key: 'ArrowDown', code: 40, modifiers: 4 },
+	moveToBeginningOfDocument: { key: 'ArrowUp', code: 38, modifiers: 4 },
+	moveToEndOfDocumentAndModifySelection: { key: 'ArrowDown', code: 40, modifiers: 12 },
+	moveToBeginningOfDocumentAndModifySelection: { key: 'ArrowUp', code: 38, modifiers: 12 }
+};
+
+/**
+ * Sends the real key event with the Chrome editing command that macOS binds
+ * to the key. Playwright macOS keyboard emulation does the same. The page
+ * sees Meta+Arrow and the browser then runs the native document boundary move.
+ */
+async function sendEditingCommand(cdp: CDPSession, command: EditingCommand) {
+	const { key, code, modifiers } = COMMAND_KEYS[command];
+	const base = { key, code: key, windowsVirtualKeyCode: code, modifiers };
+	await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base, commands: [command] });
+	await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+}
+
+async function openJournal(page: Page) {
+	await seedNote(page, largeId, journalNote());
+	await page.evaluate(() => localStorage.setItem('mdsh:mode', 'wysiwyg'));
+	await page.reload();
+	await openVisualEditor(page);
+	await expect(page.locator('.mdsh-editor.mdsh-long-document')).toHaveCount(1);
+	await expect(page.getByTestId('save-state')).toContainText('saved');
+}
+
+async function clickThirdParagraph(page: Page) {
+	await page.keyboard.press('ControlOrMeta+Home');
+	await page
+		.locator('.ProseMirror p')
+		.nth(2)
+		.click({ position: { x: 30, y: 5 } });
+}
+
+for (const rate of [1, 6]) {
+	test.describe(`native document boundary commands at CPU throttle ${rate}x`, () => {
+		test.skip(
+			({ browserName }) => browserName !== 'chromium',
+			'The editing commands are CDP only.'
+		);
+
+		async function prepare(page: Page): Promise<CDPSession> {
+			test.setTimeout(180_000);
+			await openJournal(page);
+			const cdp = await page.context().newCDPSession(page);
+			return cdp;
+		}
+
+		async function typeUnderLoad(page: Page, cdp: CDPSession, text: string) {
+			await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+			await page.keyboard.type(text);
+			await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+		}
+
+		test('moveToEndOfDocument then typing ends the note', async ({ page }, info) => {
+			const cdp = await prepare(page);
+			await clickThirdParagraph(page);
+			await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+			await sendEditingCommand(cdp, 'moveToEndOfDocument');
+			await typeUnderLoad(page, cdp, 'QXJZVKW');
+			await expectTypedAtEnd(page, info, largeId, 'QXJZVKW', 20_000);
+			const stored = await storedContent(page, largeId);
+			expect(stored.length).toBe(journalNote().length + 'QXJZVKW'.length);
+		});
+
+		test('moveToBeginningOfDocument then typing starts the note', async ({ page }, info) => {
+			const cdp = await prepare(page);
+			await clickThirdParagraph(page);
+			await page.keyboard.press('ControlOrMeta+End');
+			await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+			await sendEditingCommand(cdp, 'moveToBeginningOfDocument');
+			await typeUnderLoad(page, cdp, 'QXJZVKW');
+			await expectStoredStart(page, info, '# QXJZVKWJournal');
+			expect((await storedContent(page, largeId)).length).toBe(
+				journalNote().length + 'QXJZVKW'.length
+			);
+		});
+
+		test('extending the selection to the end then typing replaces it', async ({ page }, info) => {
+			const cdp = await prepare(page);
+			await clickThirdParagraph(page);
+			await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+			await sendEditingCommand(cdp, 'moveToEndOfDocumentAndModifySelection');
+			await typeUnderLoad(page, cdp, 'REPLACED');
+			await expectTypedAtEnd(page, info, largeId, 'REPLACED', 20_000);
+			const stored = await storedContent(page, largeId);
+			expect(stored).toContain('P00000');
+			expect(stored).toContain('P00001');
+			expect(stored).not.toContain('P00003');
+			expect(stored).not.toContain('P00899');
+			expect(stored.match(/REPLACED/g)).toHaveLength(1);
+		});
+
+		test('extending the selection to the start then typing replaces it', async ({ page }, info) => {
+			const cdp = await prepare(page);
+			await clickThirdParagraph(page);
+			await page.keyboard.press('ControlOrMeta+End');
+			await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+			await sendEditingCommand(cdp, 'moveToBeginningOfDocumentAndModifySelection');
+			await typeUnderLoad(page, cdp, 'REPLACED');
+			await expectStoredStart(page, info, '# REPLACED');
+			const stored = await storedContent(page, largeId);
+			expect(stored.trim()).toBe('# REPLACED');
+		});
+	});
+}
+
+test.describe('document boundary guards keep ordinary input intact', () => {
+	test.skip(({ browserName }) => browserName !== 'chromium', 'The editing commands are CDP only.');
+
+	test('a native boundary move that the editor does not handle keeps typed text in one run', async ({
+		page
+	}, info) => {
+		test.setTimeout(180_000);
+		await openJournal(page);
+		await clickThirdParagraph(page);
+		// Chrome runs the same editing command for Cmd+Down on macOS. The editor
+		// does not handle this call, so only the selection sync can protect it.
+		await page.evaluate(() => window.getSelection()?.modify('move', 'forward', 'documentboundary'));
+		await page.keyboard.type('QXJZVKW');
+		await expect
+			.poll(async () => (await storedContent(page, largeId)).includes('QXJZVKW'), {
+				timeout: 20_000
+			})
+			.toBe(true);
+		await expect(page.getByTestId('save-state')).toContainText('saved');
+		const stored = await storedContent(page, largeId);
+		await info.attach('stored-tail.md', { body: stored.slice(-200), contentType: 'text/markdown' });
+		expect(stored.length).toBe(journalNote().length + 'QXJZVKW'.length);
+		expect(stored.indexOf('QXJZVKW')).toBeGreaterThan(journalNote().length - 200);
+	});
+
+	test('arrow keys, End and PageDown still move the caret as before', async ({ page }, info) => {
+		test.setTimeout(180_000);
+		await openJournal(page);
+		await clickThirdParagraph(page);
+		await page.keyboard.press('ArrowDown');
+		await page.keyboard.press('ArrowDown');
+		await page.keyboard.press('End');
+		await page.keyboard.type('END');
+		await page.keyboard.press('PageDown');
+		await page.keyboard.type('PGDN');
+		await expect
+			.poll(async () => (await storedContent(page, largeId)).includes('END'), { timeout: 20_000 })
+			.toBe(true);
+		await expect(page.getByTestId('save-state')).toContainText('saved');
+		const stored = await storedContent(page, largeId);
+		await info.attach('stored-head.md', {
+			body: stored.slice(0, 600),
+			contentType: 'text/markdown'
+		});
+		expect(stored).toContain('P00004 a short journal line.END\n');
+		expect(stored.match(/PGDN/g)).toHaveLength(1);
+		expect(stored.length).toBe(journalNote().length + 'END'.length + 'PGDN'.length);
+	});
+
+	test('undo after a boundary move removes the typed text', async ({ page }) => {
+		test.setTimeout(180_000);
+		const cdp = await (async () => {
+			await openJournal(page);
+			return page.context().newCDPSession(page);
+		})();
+		await clickThirdParagraph(page);
+		await sendEditingCommand(cdp, 'moveToEndOfDocument');
+		await page.keyboard.type('QXJZVKW');
+		await expect
+			.poll(async () => (await storedContent(page, largeId)).includes('QXJZVKW'), {
+				timeout: 20_000
+			})
+			.toBe(true);
+		await page.keyboard.press('ControlOrMeta+z');
+		await expect
+			.poll(async () => storedContent(page, largeId), { timeout: 20_000 })
+			.toBe(journalNote());
+	});
+
+	test('IME composition after a boundary move lands at the end of the note', async ({
+		page
+	}, info) => {
+		test.setTimeout(180_000);
+		await openJournal(page);
+		const cdp = await page.context().newCDPSession(page);
+		await clickThirdParagraph(page);
+		await sendEditingCommand(cdp, 'moveToEndOfDocument');
+		for (const text of ['に', 'にほ', 'にほん']) {
+			await cdp.send('Input.imeSetComposition', {
+				text,
+				selectionStart: text.length,
+				selectionEnd: text.length
+			});
+		}
+		await cdp.send('Input.insertText', { text: 'にほん' });
+		await expectTypedAtEnd(page, info, largeId, 'にほん', 20_000);
+		expect((await storedContent(page, largeId)).length).toBe(journalNote().length + 3);
+	});
 });
 
 async function expectStoredStart(page: Page, info: TestInfo, start: string) {

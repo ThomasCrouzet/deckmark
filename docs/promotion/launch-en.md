@@ -33,4 +33,4 @@ formatting matters. Cloud sync, collaboration, and plugins remain outside the
 project scope.
 
 Links: https://www.deckmark.dev/ and
-https://github.com/ThomasCrouzet/deckmark/releases
+https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true

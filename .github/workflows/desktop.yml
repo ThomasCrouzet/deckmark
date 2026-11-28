@@ -40,16 +40,35 @@ env:
 
 jobs:
   changes:
+    # One policy job: the path filter, the tier, the release coordinator
+    # tests, the same-tree proof on main and the source identity. Every
+    # validation job reads its outputs.
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
+    # The same-tree proof reads pull requests and workflow runs.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       required: ${{ steps.filter.outputs.required }}
       full: ${{ steps.tier.outputs.full }}
       tier: ${{ steps.tier.outputs.tier }}
+      sha: ${{ steps.source.outputs.sha }}
+      # success when the source identity was resolved, skipped when the path
+      # filter or the tier did not request Desktop validation.
+      resolve: ${{ steps.source.outcome }}
+      rust_audit: ${{ steps.audit.outputs.rust_audit }}
+      # true only when scripts/ci-tree-proof.mjs proved that a green pull
+      # request run validated this exact tree.
+      reuse: ${{ steps.proof.outputs.reuse == 'true' && 'true' || 'false' }}
+      proof_run: ${{ steps.proof.outputs.proof_run }}
+      rust_lock_changed: ${{ steps.lock.outputs.changed }}
     steps:
-      - name: Checkout change range
+      - name: Checkout requested source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Detect Desktop changes
@@ -80,32 +99,61 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
+      - name: Select the Cargo audit scope
+        # A pull request audits Cargo.lock in validate-desktop only when the
+        # Security scope requests the Rust audit for its paths. A new
+        # advisory then cannot fail a frontend or documentation pull
+        # request. Every other event, and an unreadable range, audits.
+        id: audit
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "$EVENT_NAME" != 'pull_request' ]; then
+            echo 'rust_audit=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$RUNNER_TEMP/desktop-audit-files"
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$files" || : > "$files"
+          node scripts/ci-security-scope.mjs --event-name pull_request --files "$files" --github-output "$RUNNER_TEMP/desktop-audit-scope"
+          rust=$(sed -n 's/^rust=//p' "$RUNNER_TEMP/desktop-audit-scope")
+          test "$rust" = 'true' || test "$rust" = 'false'
+          echo "rust_audit=$rust" >> "$GITHUB_OUTPUT"
       - name: Check the release coordinator policy
         # The publish path is driven by scripts/ci-release-coordinator.mjs. Its
         # routing, aggregate and CLI-deliverable checks run before the matrix,
         # so a broken release policy fails here and not at publication.
         run: node --test scripts/desktop-release-orchestration.test.mjs scripts/ci-release-coordinator.test.mjs scripts/native-smoke-process.test.mjs
-
-  resolve-source:
-    needs: changes
-    if: needs.changes.outputs.required == 'true' && needs.changes.outputs.full == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      sha: ${{ steps.source.outputs.sha }}
-    steps:
-      - name: Checkout requested source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.release_tag || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version-file: .node-version
+      - name: Reuse the proof of an identical pull request tree
+        # Main only. The script never fails: an unproven tree, an API error
+        # or a Git error writes reuse=false and the matrix runs in full. A
+        # release merge still builds and publishes the installers.
+        id: proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-tree-proof.mjs --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" --workflow desktop.yml --output "$GITHUB_OUTPUT"
+      - name: Detect a Rust cache input change on main
+        # A proven merge skips the native jobs, so their caches do not save.
+        # desktop-cache-warm rebuilds them when an input of the cache key
+        # changes: the Rust dependencies, the toolchain file, or this workflow
+        # (the toolchain version and the shared keys live here).
+        id: lock
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          elif [ -n "$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" -- src-tauri/Cargo.lock src-tauri/Cargo.toml rust-toolchain.toml .github/workflows/desktop.yml)" ]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Resolve and validate source identity
         id: source
+        if: steps.filter.outputs.required == 'true' && steps.tier.outputs.full == 'true'
         shell: bash
         run: |
           tag_sha=''
@@ -119,10 +167,13 @@ jobs:
             --output "$GITHUB_OUTPUT"
 
   validate-desktop:
-    needs: [changes, resolve-source]
-    if: needs.changes.outputs.full == 'true'
+    needs: [changes]
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.platform }}
@@ -131,7 +182,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: Configure Ubuntu APT
         if: runner.os == 'Linux'
@@ -154,10 +205,16 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
       - name: Rust cache
+        # One cache per job kind. The Rust checks and the native debug build
+        # compile different profiles and features, so a shared key made one
+        # job restore the other's entry and rebuild 100 or more crates. Only
+        # main and the weekly run save, so pull request entries cannot evict
+        # the main entries.
         uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           workspaces: src-tauri -> target
-          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          shared-key: desktop-validate-${{ runner.os }}-${{ runner.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
       - name: Format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Clippy
@@ -168,13 +225,13 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo test --manifest-path src-tauri/Cargo.toml --release --locked --test glib_variant_regression
       - name: Cache cargo-audit
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.changes.outputs.rust_audit != 'false'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/cargo-audit
           key: cargo-audit-ubuntu24.04-${{ runner.arch }}-rust1.97.1-v0.22.2
       - name: Install cargo-audit
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.changes.outputs.rust_audit != 'false'
         shell: bash
         # Reuse the cache only for the exact pinned version. A substring match
         # accepted a stale 0.22.20 binary.
@@ -188,7 +245,7 @@ jobs:
             test "$("$binary" --version)" = "cargo-audit $version"
           fi
       - name: Audit Cargo.lock including unsound dependencies
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && needs.changes.outputs.rust_audit != 'false'
         shell: bash
         run: '"$HOME/.cache/cargo-audit/bin/cargo-audit" audit --file src-tauri/Cargo.lock --deny unsound'
 
@@ -196,22 +253,32 @@ jobs:
     # One production Web build for every browser benchmark. The benchmark
     # verifies provenance before it serves these exact bytes. A root build is a
     # different configuration from the public project-path build.
-    needs: [changes, resolve-source]
-    if: needs.changes.outputs.full == 'true'
+    needs: [changes]
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
       - name: Build production web app
         run: npm run build
@@ -222,7 +289,7 @@ jobs:
       - name: Upload web benchmark build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: web-build-${{ needs.resolve-source.outputs.sha }}
+          name: web-build-${{ needs.changes.outputs.sha }}
           path: build/
           include-hidden-files: true
           if-no-files-found: error
@@ -232,10 +299,13 @@ jobs:
     # Web measurements depend on one verified frontend build. They do not wait
     # for Rust or native validation. The final desktop-validation gate still
     # requires every platform result.
-    needs: [changes, resolve-source, web-build]
-    if: needs.changes.outputs.full == 'true'
+    needs: [changes, web-build]
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         browser: [chromium, firefox, webkit]
     runs-on: ubuntu-24.04
@@ -244,15 +314,32 @@ jobs:
       - name: Checkout verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> "$GITHUB_OUTPUT"
+      - name: Cache the Playwright browser
+        # The key holds the exact Playwright version. On a hit the install
+        # step below skips the browser download and runs only the APT part.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ matrix.browser }}-${{ steps.playwright.outputs.version }}
       - name: Configure Ubuntu APT
         # Prefer the archive mirror and bound each network wait. The azure mirror
         # took more than 20 minutes for the WebKit packages on run 42277784501.
@@ -265,7 +352,7 @@ jobs:
       - name: Download verified web build
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: web-build-${{ needs.resolve-source.outputs.sha }}
+          name: web-build-${{ needs.changes.outputs.sha }}
           path: build/
       - name: Measure web benchmark
         run: node scripts/benchmark-local.mjs --browser ${{ matrix.browser }} --runs 5 --build-mode production-static --prebuilt --enforce-budgets --output "$RUNNER_TEMP/web-benchmark-${{ matrix.browser }}.json"
@@ -278,25 +365,36 @@ jobs:
         run: |
           test -f "$REPORT" || { echo "No benchmark report at $REPORT."; exit 0; }
           node -e 'const r = JSON.parse(require("fs").readFileSync(process.env.REPORT, "utf8")); console.log(JSON.stringify(r.failures ?? r, null, 2).slice(0, 60000));'
+      - name: Upload benchmark failure diagnostics
+        # A failed benchmark uploads its JSON report for 3 days. A successful
+        # benchmark uploads nothing. The fixtures are synthetic.
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-benchmark-failure-${{ matrix.browser }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/web-benchmark-${{ matrix.browser }}.json
+          if-no-files-found: ignore
+          retention-days: 3
 
-  native-validation:
-    # One debug test application per OS. The job builds once, runs the smoke
-    # cases, then measures the benchmark after every smoke process stops. The
-    # sample counts, fixtures, budgets and failure propagation are unchanged.
-    # A debug application never reaches a public installer.
-    needs: [changes, resolve-source]
-    if: needs.changes.outputs.full == 'true'
+  native-smoke:
+    # One debug test application per OS for the smoke cases on the real
+    # WebView. A debug application never reaches a public installer.
+    needs: [changes]
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         platform: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 55
+    timeout-minutes: 40
     steps:
       - name: Checkout verified source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve-source.outputs.sha }}
+          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - name: Verify Apple Silicon runner
         if: runner.os == 'macOS'
@@ -320,11 +418,21 @@ jobs:
         with:
           toolchain: 1.97.1
       - name: Rust cache
+        # The smoke job owns the native cache entry. The benchmark job and
+        # the release build only restore it.
         uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           workspaces: src-tauri -> target
-          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          shared-key: desktop-native-${{ runner.os }}-${{ runner.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
       - name: Record native source before build
         run: node scripts/native-source.mjs native-test-results/source-before-build
@@ -343,6 +451,86 @@ jobs:
       - name: Exercise actual native WebView
         if: runner.os != 'Linux'
         run: node scripts/native-smoke.mjs
+      - name: Upload smoke failure diagnostics
+        # native-test-results holds the page dumps and the smoke results. It
+        # never holds the debug application.
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-smoke-failure-${{ matrix.platform }}-attempt-${{ github.run_attempt }}
+          path: native-test-results/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  native-benchmark:
+    # A separate debug test application per OS for the benchmark. No smoke
+    # process runs on this runner, so the measurement never competes with a
+    # smoke process. The sample counts, fixtures, budgets and failure
+    # propagation are unchanged.
+    needs: [changes]
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      needs.changes.outputs.full == 'true' &&
+      needs.changes.outputs.reuse != 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        platform: [ubuntu-24.04, windows-2022, macos-15]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+          persist-credentials: false
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = 'arm64'
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Configure Ubuntu APT
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/configure-ubuntu-apt.sh
+      - name: Install Linux WebView and virtual display
+        if: runner.os == 'Linux'
+        timeout-minutes: 20
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb dbus-daemon dbus-bin
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
+      - name: Rust cache
+        # The smoke job owns the native cache entry. The benchmark job and
+        # the release build only restore it.
+        uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: desktop-native-${{ runner.os }}-${{ runner.arch }}
+          save-if: false
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
+      - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+      - name: Record native source before build
+        run: node scripts/native-source.mjs native-test-results/source-before-build
+      - name: Build isolated native test app
+        run: npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+        env:
+          BASE_PATH: ''
+      - name: Record native source after build
+        if: always()
+        run: node scripts/native-source.mjs native-test-results/source-after-build
       - name: Measure Linux WebKitGTK benchmark
         if: runner.os == 'Linux'
         shell: bash
@@ -353,10 +541,20 @@ jobs:
         if: runner.os != 'Linux'
         shell: bash
         run: node scripts/benchmark-local.mjs --target native --build-mode debug --runs 5 --enforce-budgets --output "$RUNNER_TEMP/native-benchmark.json"
+      - name: Upload benchmark failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-benchmark-failure-${{ matrix.platform }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/native-benchmark.json
+            native-test-results/
+          if-no-files-found: ignore
+          retention-days: 3
 
   desktop-validation:
     name: desktop-validation
-    needs: [changes, resolve-source, validate-desktop, web-build, web-benchmark, native-validation]
+    needs: [changes, validate-desktop, web-build, web-benchmark, native-smoke, native-benchmark]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -378,12 +576,87 @@ jobs:
           VALIDATION_REQUIRED: ${{ needs.changes.outputs.required }}
           FULL: ${{ needs.changes.outputs.full }}
           TIER: ${{ needs.changes.outputs.tier }}
-          RESOLVE_RESULT: ${{ needs.resolve-source.result }}
+          RESOLVE_RESULT: ${{ needs.changes.outputs.resolve }}
+          REUSE: ${{ needs.changes.outputs.reuse }}
+          PROOF_RUN: ${{ needs.changes.outputs.proof_run }}
+          REPOSITORY: ${{ github.repository }}
           VALIDATE_RESULT: ${{ needs.validate-desktop.result }}
-          NATIVE_RESULT: ${{ needs.native-validation.result }}
+          NATIVE_SMOKE_RESULT: ${{ needs.native-smoke.result }}
+          NATIVE_BENCHMARK_RESULT: ${{ needs.native-benchmark.result }}
           WEB_BUILD_RESULT: ${{ needs.web-build.result }}
           WEB_BENCHMARK_RESULT: ${{ needs.web-benchmark.result }}
         run: node scripts/ci-release-coordinator.mjs gate
+
+  desktop-cache-warm:
+    # A proven merge skips every Rust job on main, so no main cache entry
+    # saves. When the merge changes an input of the cache key (Rust
+    # dependencies, toolchain or this workflow), this job builds the two cache
+    # entries for the next pull requests. It gates
+    # nothing, and a failed build step does not fail the job.
+    needs: [changes]
+    if: >-
+      github.event_name == 'push' &&
+      needs.changes.outputs.reuse == 'true' &&
+      needs.changes.outputs.rust_lock_changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-24.04, windows-2022, macos-15]
+        kind: [validate, native]
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure Ubuntu APT
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/configure-ubuntu-apt.sh
+      - name: Install Linux WebKit dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 20
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.97.1
+          components: clippy
+      - name: Rust cache
+        uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: desktop-${{ matrix.kind }}-${{ runner.os }}-${{ runner.arch }}
+          save-if: true
+      - name: Warm the Rust check cache
+        if: matrix.kind == 'validate'
+        continue-on-error: true
+        run: |
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --no-run
+      - name: Cache node_modules
+        if: matrix.kind == 'native'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
+      - name: Install frontend dependencies
+        if: matrix.kind == 'native' && steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+      - name: Warm the native debug build cache
+        if: matrix.kind == 'native'
+        continue-on-error: true
+        run: npm run tauri -- build --debug --features native-smoke --no-bundle --config src-tauri/tauri.smoke.conf.json
+        env:
+          BASE_PATH: ''
 
   release-please:
     # Release creation runs here, after the Desktop validation gate for this
@@ -423,7 +696,7 @@ jobs:
     # One decision for the whole run. It reads the release result and the
     # validation gate, then states the source SHA and tag every later job must
     # use. It fails closed when a required result is missing or unsuccessful.
-    needs: [changes, resolve-source, release-please, desktop-validation]
+    needs: [changes, release-please, desktop-validation]
     if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -455,7 +728,7 @@ jobs:
           RELEASE_TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
           RELEASE_PLEASE_RESULT: ${{ needs.release-please.result }}
           VALIDATION_RESULT: ${{ needs.desktop-validation.result }}
-          RESOLVE_RESULT: ${{ needs.resolve-source.result }}
+          RESOLVE_RESULT: ${{ needs.changes.outputs.resolve }}
           CHANGES_RESULT: ${{ needs.changes.result }}
         run: |
           # The push path reads the tag from release-please. The manual path
@@ -490,7 +763,7 @@ jobs:
     needs: [plan-release]
     if: ${{ !cancelled() && needs.plan-release.result == 'success' && needs.plan-release.outputs.build == 'true' }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - platform: macos-15
@@ -530,11 +803,21 @@ jobs:
           toolchain: 1.97.1
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin' || '' }}
       - name: Rust cache
+        # Restore the registry and the native dependencies only. A release
+        # build never writes a cache entry.
         uses: swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
         with:
           workspaces: src-tauri -> target
-          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}
+          shared-key: desktop-native-${{ runner.os }}-${{ runner.arch }}
+          save-if: false
+      - name: Cache node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache-nm
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('.node-version') }}-${{ hashFiles('package-lock.json') }}
       - name: Install frontend dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci --legacy-peer-deps
       - name: Build workflow artifacts
         id: build

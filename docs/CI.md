@@ -6,7 +6,10 @@ scripts and the tests are the source of truth. This page does not promise timing
 
 The goal is earlier feedback without weaker checks. Every required aggregate still
 rejects failed, deferred, missing or cancelled validation. A skipped result is
-accepted only for a proved not-applicable route.
+accepted only for a proved not-applicable route or for a main commit whose tree a
+green pull request run already validated ([Same-tree proof on main](#same-tree-proof-on-main)).
+A failure anywhere stops every run of the same commit
+([Fail-fast across workflows](#fail-fast-across-workflows)).
 
 ## Triggers and skip rules
 
@@ -41,6 +44,21 @@ also counts, because it changes the native environment. The script and the
 workflow conditions are the source of truth. A skipped Desktop matrix is a
 path decision, not a passed native test.
 
+`pr-body` starts on a pull request to `main` for `opened`, `edited`, `synchronize`,
+`reopened` and `ready_for_review`. It checks the release-please override block of the
+pull request body. See [Squash merge and release notes](#squash-merge-and-release-notes).
+It is separate from the validation workflows, so a body edit starts no other run.
+
+Dependabot version proposals target `deps-staging`, not `main`. The validation
+workflows filter `pull_request` on `main`, so a proposal starts only `gitleaks`. See
+[Dependabot and the batch flow](#dependabot-and-the-batch-flow).
+
+Every workflow keeps one concurrency group per ref (`pages-`, `desktop-`,
+`security-`, `gitleaks-`, `cli-package-`) with `cancel-in-progress` on pull
+requests only. A new push to a pull request cancels the runs of the previous head.
+A newer main push never cancels a main run that started; GitHub replaces a pending
+main run with the newest one, and a proven main run is short.
+
 `CLI package` uses path filters for CLI sources, shared library modules, bundle
 and package scripts, dependency files, and runtime configuration. It also runs
 by hand. It validates the installed companion on Linux x64, Windows x64 and
@@ -51,15 +69,17 @@ does not prove that the installed-package tests ran.
 ## Policy job, tier and shard count
 
 `ci-tier` is one job on `ubuntu-24.04` with a 5 minute timeout. It reads the event
-identity, reads the changed paths, resolves the pinned Playwright image and
-defines the shard count. It publishes these outputs:
+identity, reads the changed paths, resolves the pinned Playwright image, defines
+the shard count and, on a main push, checks the same-tree proof. It has read
+permissions for contents, Actions and pull requests. It publishes these outputs:
 
 | Output | Source |
 | --- | --- |
 | `full`, `tier` | `scripts/ci-tier.mjs` |
 | `class`, `class_reason` | `scripts/ci-changes.mjs` |
 | `image`, `playwright` | `scripts/ci-playwright-image.mjs` and `package.json` |
-| `shard_count`, `shard_matrix` | One `shards` step: `[1,2,3,4,5,6,7,8]` and `8` |
+| `shard_count`, `shard_matrix` | One `shards` step: `[1,...,16]` and `16` |
+| `reuse`, `proof_run` | `scripts/ci-tree-proof.mjs` on a main push; `false` and empty otherwise |
 
 There is no `e2e-config` job and no second shard definition. `scripts/ci-web-workflow.test.mjs`
 fails when a second literal shard list appears or when a heavy job stops reading
@@ -70,13 +90,14 @@ select a cheap route.
 
 | Path | Starts after | Produces |
 | --- | --- | --- |
-| `ci-tier` | Checkout | Tier, change class, image pin and shard count |
-| `typecheck` | Checkout | Svelte and TypeScript checks |
-| `lint` | Checkout | ESLint, Prettier, third-party notices |
-| `unit` | Checkout | Isolated failure tests and the CI contract tests; no coverage report |
-| `check` | `typecheck`, `lint`, `unit` | Required stable aggregate name |
+| `ci-tier` | Checkout | Tier, change class, image pin, shard count and same-tree proof |
+| `fail-fast` | `ci-tier` (full tier) | Watches every run of the commit and cancels them at the first failed job |
+| `typecheck` | `ci-tier` | Svelte and TypeScript checks |
+| `lint` | `ci-tier` | ESLint, Prettier, third-party notices |
+| `unit` | `ci-tier` | Isolated failure tests and the CI contract tests; no coverage report |
+| `check` | `ci-tier`, `typecheck`, `lint`, `unit` | Required stable aggregate name |
 | `e2e-build` | `ci-tier` (full class) | One instrumented Web build with provenance |
-| `e2e-shard` (8 shards) | `ci-tier`, `e2e-build` | Browser suite on Chromium, Firefox and WebKit |
+| `e2e-shard` (16 shards) | `ci-tier`, `e2e-build` | Browser suite on Chromium, Firefox and WebKit |
 | `e2e-manifest` | `ci-tier` | Partition proof for the full test list |
 | `pages-config` | Checkout | Expected base path for each host |
 | `build` (two matrix jobs) | `pages-config` | Production artifacts and bundle budgets |
@@ -85,12 +106,14 @@ select a cheap route.
 | `deploy` and `deploy-cloudflare` | `check`, `build`, `e2e`, `lighthouse` | Publication to both origins |
 | `verify-public` | `deploy`, `deploy-cloudflare` | Public checks on both origins |
 
-`typecheck`, `lint`, `unit`, `pages-config` and both `build` matrix jobs have no
-job condition. They run on a draft, on a ready pull request and on the
-documentation-only class.
+`pages-config` and both `build` matrix jobs have no job condition. `typecheck`,
+`lint` and `unit` skip only on a proven main tree. All of them run on a draft, on a
+ready pull request and on the documentation-only class.
 
-`e2e` is the required browser name. It checks the tier first. A draft fails with
-an explicit deferred message. A ready run then accepts one of two outcomes:
+`e2e` is the required browser name. It checks the policy job first. A proven main
+tree passes only with a numeric `proof_run` and the build, shard and manifest jobs
+`skipped`; it prints the proof run URL. Otherwise a draft fails with an explicit
+deferred message, and a ready run accepts one of two outcomes:
 
 - `class=full` with a `full:*` or `event:*` reason. The build, every shard and the
   manifest job must be `success`.
@@ -100,6 +123,10 @@ an explicit deferred message. A ready run then accepts one of two outcomes:
 A missing, unknown or differently cased class fails. So does a `docs` class with
 a non-documentation reason. A skipped matrix therefore never satisfies merge
 protection unless the classifier proved that validation is not applicable.
+
+`check` uses the same proof rule: on a proven main tree the three fast jobs must be
+`skipped`; otherwise each must be `success`. `lighthouse` runs as a pass-through
+job on a proven tree, so the deployment jobs keep their implicit success check.
 
 `deploy` waits for `check`, `build`, `e2e` and `lighthouse`, and runs only on a
 push or a manual run on `main`. A failure in any path blocks publication. The
@@ -209,31 +236,57 @@ the reason for the pin, not a claim about current duration.
 
 | Path | Starts after | Notes |
 | --- | --- | --- |
-| `changes` | Checkout | Path filter and tier policy |
-| `resolve-source` | `changes` | Source SHA and tag identity, reused validation identity |
-| `validate-desktop` (Linux, Windows, macOS) | `resolve-source` | Rust format, Clippy, tests, GLib check and cargo audit |
-| `web-build` | `changes`, `resolve-source` | One production Web build with provenance |
+| `changes` | Checkout | Path filter, tier, coordinator tests, Cargo audit scope, same-tree proof, source SHA and tag identity |
+| `validate-desktop` (Linux, Windows, macOS) | `changes` | Rust format, Clippy, tests, GLib check and, when in scope, cargo audit |
+| `web-build` | `changes` | One production Web build with provenance |
 | `web-benchmark` (Chromium, Firefox, WebKit) | `web-build` | Measures the verified build |
-| `native-validation` (Linux, Windows, macOS) | `resolve-source` | Builds one test app, runs smoke, then measures |
+| `native-smoke` (Linux, Windows, macOS) | `changes` | Builds one debug test app and runs the smoke suite |
+| `native-benchmark` (Linux, Windows, macOS) | `changes` | Builds one debug test app and measures the benchmark |
 | `desktop-validation` | All of the above | Final aggregate gate |
+| `desktop-cache-warm` (3 OS, 2 kinds) | `changes` | Only a proven main merge that changes `Cargo.lock`, `Cargo.toml`, `rust-toolchain.toml` or `desktop.yml`: rebuilds the Rust caches; gates nothing |
 
-`native-validation` builds the isolated debug test application once per operating
-system. It records the native source before and after the build, runs the smoke
-suite on the real WebView, and then measures the benchmark after every smoke
-process stops. The sample counts, fixtures, budgets and failure propagation are
-unchanged. The macOS job asserts an ARM64 runner. A debug test application never
-becomes a public installer.
+`native-smoke` and `native-benchmark` each build the isolated debug test
+application per operating system. Both record the native source before and after
+the build. The smoke job runs the smoke suite on the real WebView. The benchmark
+job starts no smoke process, so no smoke process competes with the measurement.
+The sample counts, fixtures, budgets and failure propagation are unchanged. The
+macOS jobs assert an ARM64 runner. A debug test application never becomes a
+public installer.
 
-The earlier scheduling work in issue #263 removed cross-platform waits. This
-change removes the remaining duplicate debug application build for smoke and
-benchmark on each OS. Each OS builds once and each Web benchmark waits only for
-its own build. A slow macOS Rust check cannot delay a Windows WebView measurement.
+Issue #628 built the test application once per OS for both smoke and benchmark.
+The split reverses that choice on purpose: three more debug builds per run buy a
+shorter critical path (the macOS job was build 150 s, smoke 130 s and benchmark
+419 s in sequence). Wall time has priority over job-minutes.
 
 The aggregate `desktop-validation` calls `scripts/ci-release-coordinator.mjs gate`
 and checks the current run's validation dependencies. Every requested Rust,
-native, Web build and browser benchmark matrix result must be `success`. A path
-decision is not evidence that native checks ran. Release planning uses this same
-run and does not accept a different run ID as substitute validation.
+native smoke, native benchmark, Web build and browser benchmark matrix result
+must be `success`. A path decision is not evidence that native checks ran. On a
+main push the gate also accepts one proof route: `REUSE=true`, a numeric
+`PROOF_RUN`, a resolved source identity and every validation job `skipped`. The
+gate accepts no other run ID as substitute validation. See
+[Same-tree proof on main](#same-tree-proof-on-main).
+
+On a pull request, `validate-desktop` runs the three cargo-audit steps only when
+`scripts/ci-security-scope.mjs` requests the Rust audit for the changed paths. A
+new RUSTSEC advisory then cannot turn a frontend pull request red (and, through
+fail-fast, cancel its other runs). Every other event audits. The Security
+`dependency-audit` job still audits `Cargo.lock` for Rust inputs and on every push
+and schedule.
+
+### Caches
+
+| Cache | Key | Writers |
+| --- | --- | --- |
+| `node_modules` | `nm-<os>-<.node-version hash>-<package-lock.json hash>` | Every job that installs dependencies; a hit skips `npm ci` |
+| Rust checks | `desktop-validate-<os>-<arch>` | `validate-desktop` on main and the weekly run; `desktop-cache-warm` |
+| Rust native debug build | `desktop-native-<os>-<arch>` | `native-smoke` on main and the weekly run; `desktop-cache-warm`. `native-benchmark` and `build-desktop` restore only |
+| Playwright browser | `pw-<os>-<browser>-<Playwright version>` | `web-benchmark`; a hit skips the browser download, the APT part still runs |
+
+Pull request runs never save a Rust entry, so a pull request cache cannot evict a
+main entry. A shared key made the macOS native job restore the Rust check entry
+and still compile more than 100 crates. Check the usage with
+`gh api repos/ThomasCrouzet/deckmark/actions/cache/usage`.
 
 The release jobs `build-desktop`, `verify-packaging` and `publish-desktop-beta`
 do not run for a normal pull request. The first runs for a release tag or a
@@ -278,8 +331,9 @@ Mark the final head ready to replace it with a full execution result. Security
 and installed CLI workflows retain their existing checks and triggers.
 
 `Desktop` applies the tier in `changes` and keeps the existing path filter. A
-draft run keeps the `changes` job and defers `resolve-source`, `validate-desktop`,
-`web-build`, `web-benchmark` and `native-validation`. The `desktop-validation`
+draft run keeps the `changes` job and defers the source resolution step,
+`validate-desktop`, `web-build`, `web-benchmark`, `native-smoke` and
+`native-benchmark`. The `desktop-validation`
 aggregate then exits 1 with an incomplete message. A draft run is never reported
 as a pass. The same job reports a path decision when the path filter does not
 require Desktop coverage.
@@ -288,9 +342,9 @@ require Desktop coverage.
 starts a new run at the exact head commit. That run uses the full matrix on all
 three operating systems, all browsers and all benchmarks. The Desktop aggregate
 still requires every requested result. The live branch rules require the Web and
-security checks, but do not currently require `desktop-validation`. Maintainers
-must also inspect Desktop before accepting a shared frontend or native change.
-This scheduling change does not alter branch protection. See
+security checks, but do not currently require `desktop-validation`. A Desktop
+failure still makes the pull request red in practice, because the fail-fast
+sentinel cancels the Web run and `e2e` then reports a failure. See
 [GITHUB_SETTINGS.md](GITHUB_SETTINGS.md).
 
 A workflow that uses this script must gate each expensive job on `full` and must
@@ -344,21 +398,33 @@ build-provenance: The build tree does not match the recorded artifact.
 
 ## Shard and report balance
 
-The browser suite runs in eight shards with one worker each. The policy job
+The browser suite runs in sixteen shards with one worker each. The policy job
 defines the count once. Each shard runs on a dedicated runner, so extra workers
 would put several browsers and their memory on one machine. The suite includes
 CPU-sensitive timing and drag checks.
 
-The historical reason for eight shards is the measured four-shard sample of
-2026-11-06. Shard durations were about 13, 14, 17 and 25 minutes. The slowest
-shard set the critical path while three runners were idle. That sample is a
-historical source example, not a current result.
+The suite takes about 141 runner-minutes per run, and three indivisible
+representative report tests take 8.3 to 9.0 minutes each. A per-run replay of 8
+green CI runs with the measured weights gives a slowest shard test step of 19.0
+minutes at 8 shards and 9.8 minutes (median, max 10.6) at 16 shards. If a shard
+waits more than one minute for a runner in three consecutive ready runs, reduce
+the count to 14 (median 11.2 minutes).
 
-Retries stay at `2` for temporary runner failures. The manifest check prints the
-number of retried results, so a flaky success is visible and is not counted as a
-clean first attempt. A missing, duplicated or unexpected test fails the shard
-check or `e2e-manifest`; a failed shard still fails `e2e` even when the manifest
-contains every test.
+CI retries a failed test once (`retries: 1`). A test that passes only on its retry
+has status `flaky`. The shard check prints each one as
+`FLAKY <project> <file>:<line> <title>`, adds a table to the job summary, and fails
+the shard when the test is not in `e2e/flaky-quarantine.json`. A quarantine entry
+names the project, file, line, title, the open issue, the date it was added and an
+expiry date at most 14 days later. The list holds at most 10 entries. An expired
+entry and a malformed file also fail. The list starts empty and must shrink.
+
+CI also stops a shard at its first hard failure (`maxFailures: 1`). Playwright
+counts a test as failed only after its last retry, so a flaky pass does not stop
+the shard. The shard check then prints that the run stopped and how many tests did
+not run. Set `E2E_MAX_FAILURES=0` for a diagnostic run that executes every test.
+A missing, duplicated or unexpected test fails the shard check or
+`e2e-manifest`; a failed shard still fails `e2e` even when the manifest contains
+every test.
 
 Each shard writes its Playwright JSON report to the runner and compares it with
 `npx playwright test --list --test-list=<selection> --reporter=json`. The execution
@@ -367,14 +433,25 @@ declare `expectedStatus: "skipped"` and carry a skip reason. An interrupted or
 empty result fails. `e2e-manifest` compares the shard lists with the full
 `npx playwright test --list` output and rejects a list report in execution mode.
 The comparison covers every project, including Firefox and WebKit, so a shard
-cannot silently drop a browser project. The expected and actual E2E reports stay
-in the runner temp directory or in the ignored `test-results` directory. This
-workflow does not upload those reports. Web benchmark, native validation and
-public-deployment reports also stay on the runner. Hosted-runner cleanup discards
-those temporary files; they cannot be downloaded after the VM is destroyed.
-Retain reports from local reproductions in ignored local storage. Reusable build
-artifacts and release deliverables are separate and still pass to their required
-consumers. The check also compares source, tree, projects, filters, shard and
+cannot silently drop a browser project.
+
+A failed job uploads its Playwright traces, screenshots and JSON report for 3 days.
+A successful job uploads no report. Fixtures are synthetic. In CI the trace mode is
+`retain-on-first-failure`, so the trace of a flaky test is its failed first
+attempt. The uploads are:
+
+| Job | Artifact | Content |
+| --- | --- | --- |
+| `e2e-shard` | `e2e-failure-<shard>-attempt-<n>` | `trace.zip`, screenshots, `error-context.md`, `test-results/results.json`, the expected shard list |
+| `web-benchmark` | `web-benchmark-failure-<browser>-attempt-<n>` | The benchmark JSON report with the page state of the failure |
+| `native-smoke` | `native-smoke-failure-<platform>-attempt-<n>` | `native-test-results/` (page dumps and smoke results, never the application) |
+| `native-benchmark` | `native-benchmark-failure-<platform>-attempt-<n>` | The benchmark JSON report and `native-test-results/` |
+
+Open a trace with `npx playwright show-trace <trace.zip>`. Public-deployment
+reports stay on the runner. No workflow uploads SARIF, a coverage report or a
+build record. Retain reports from local reproductions in ignored local storage.
+Reusable build artifacts and release deliverables are separate and still pass to
+their required consumers. The check also compares source, tree, projects, filters, shard and
 prebuilt identity, so a list and a run are only compared under the same effective
 inputs.
 
@@ -385,14 +462,26 @@ platform.
 
 `scripts/e2e-shards.mjs` groups the full current list by browser project and
 test file. It assigns the heaviest group to the least-loaded shard until every
-group is assigned. The eight runners still use one worker each. New groups use
+group is assigned. The sixteen runners still use one worker each. New groups use
 the documented fallback weight and remain in the full test list.
 
-`scripts/e2e-shard-weights.json` contains scheduling weights from Web run
-`42338368121`. These are inputs to scheduling, not test reports or budgets.
-The estimate reduces the slowest shard from 712.9 seconds to 457.5 seconds for
-that recorded workload. This estimate excludes setup and is not a measured CI
-speedup. Refresh weights when the measured distribution changes.
+`scripts/e2e-shard-weights.json` contains scheduling weights: the medians of the
+list reporter durations of 64 green `e2e-shard` job logs (8 runs before
+2026-11-27). A group value is the median per run of the summed test durations of
+one browser project and file, all attempts included. New groups use a fallback of
+5 seconds per test (the median test takes 2.8 seconds). These are inputs to
+scheduling, not test reports or budgets. With the earlier weights, 121 of 308
+groups had no entry and the planner gave them 60 seconds per test.
+
+Refresh the weights once a month, and after each shard or worker change:
+
+```sh
+node scripts/e2e-shard-weights.mjs refresh --runs 8
+npx prettier --write scripts/e2e-shard-weights.json
+```
+
+The command reads the newest green runs of `deploy.yml` with the GitHub CLI.
+`--logs <dir>` reads saved job logs instead (one subdirectory per run).
 
 Each runner creates the same deterministic plan from the current source. Its
 `--test-list` selection drives both listing and execution. Report metadata
@@ -475,6 +564,90 @@ A pull request scans its reachable `base..head` range and fails when that range 
 unavailable. The weekly schedule and a manual run scan the full history, so the
 baseline is never lost.
 
+## Fail-fast across workflows
+
+A failure anywhere stops every run of the same commit. Four layers apply, and each
+works without the next:
+
+| Layer | Scope | Mechanism | Latency |
+| --- | --- | --- | --- |
+| 1 | One shard | Playwright `maxFailures: 1` (counts tests that failed their last retry) | Immediate |
+| 2 | One matrix | `strategy.fail-fast: true` on every validation matrix | Seconds |
+| 3 | Every run of the head SHA and event | `fail-fast` sentinel job in `deploy.yml` | Up to 15 seconds |
+| 4 | Superseded pull request pushes | Concurrency groups with `cancel-in-progress` | At push |
+
+The sentinel runs `scripts/ci-fail-fast.sh` on every full-tier run, on pull
+requests and on main. Every 15 seconds it reads all runs of the same head SHA and
+event, and their latest jobs. At the first job with conclusion `failure` or
+`timed_out`, it prints `::error::fail-fast: <workflow> / <job> (<url>) failed` and
+cancels every open run, its own run last. These rules apply:
+
+- `e2e`, `check`, `desktop-validation`, `codeql (rust, none)` and `fail-fast` are not
+  a cause. They fail only because a dependency failed or the tier is deferred.
+- `pr-body` is not a cause and is never cancelled: it checks the body text.
+- A run is never cancelled once a publication job is queued, in progress or
+  succeeded: `deploy`, `deploy-cloudflare`, `verify-public`, `release-please`,
+  `plan-release`, `build-desktop`, `verify-packaging`, `publish-desktop-beta`,
+  `cli-package` and `cli-verify`.
+- A run created more than 5 minutes before the sentinel run belongs to an earlier
+  event on the same commit, such as a draft run. It is ignored.
+- On a re-run attempt, a failure that completed before the attempt started is
+  ignored. The re-run is a maintainer decision.
+- On a repeated API error the sentinel prints a warning and exits 0. Fail-fast is
+  an optimisation; the required aggregates stay the gate.
+
+The sentinel is the only job with `actions: write`. It checks out only its script,
+without credentials, and runs no npm package, Node script or third-party action
+except checkout. A job that runs project dependencies never holds a token that
+can cancel runs. A fork pull request gets a read-only token: the sentinel cannot
+cancel there, and layers 1, 2 and 4 still apply. A manual run of `deploy.yml` can
+set the `fail_fast` input to `false` to collect every failure. One poll reads one
+run list and the jobs of each run, about 6 API requests every 15 seconds.
+
+A cancelled run still runs its `always()` aggregates, which then report failure,
+not pending, so a cancelled run never satisfies branch protection. The run
+conclusion is `cancelled`; the cause is the one job with conclusion `failure`,
+named in the sentinel log. To retry after a flaky failure, re-run the failed jobs
+of every run of the commit that shows a failed or cancelled job. Re-run failed
+jobs also reruns the cancelled jobs and their dependents.
+
+## Same-tree proof on main
+
+A squash merge of an up-to-date pull request creates a main commit with the tree
+of the pull request head. The pull request run already validated that tree.
+`scripts/ci-tree-proof.mjs` runs in `ci-tier` and in the Desktop `changes` job on a
+main push. It accepts only a green pull request run of the same workflow file on
+an identical tree whose base is an ancestor of the merged commit. Every condition
+must hold:
+
+1. The event is a push to `refs/heads/main`.
+2. The API lists exactly one merged pull request whose merge commit is this
+   commit, with base `main` and a head branch in this repository (no fork).
+3. `refs/pull/<n>/head` fetches to the head SHA that the API reports.
+4. The tree of the merged commit equals the tree of that head.
+5. The first parent of the merged commit is an ancestor of that head. The pull
+   request was therefore not `BEHIND`, and its run tested the same tree.
+6. The newest successful `pull_request` run of the same workflow file for that
+   head, from this repository, has every required job (latest attempt) with
+   conclusion `success`. `deploy.yml`: `check`, `e2e`, `lighthouse`, `e2e-build`,
+   `e2e-manifest`, every `e2e-shard` row and both `build` rows. `desktop.yml`:
+   `desktop-validation`, `web-build` and every `validate-desktop`,
+   `web-benchmark`, `native-smoke` and `native-benchmark` row.
+
+Any refusal, API error or Git error writes `reuse=false` with a reason, and the run
+validates in full. The script never fails the job. The proof uses API facts and Git
+objects only, not files that pull request code wrote. Tree equality covers the
+workflows, the scripts, the lockfile and the shard weights, so the same workflow
+and tests ran.
+
+On a proven tree the Web run skips the fast checks and the browser jobs, keeps both
+production builds and the bundle budget, and deploys and verifies both origins.
+The Desktop run skips the validation matrix; `release-please`, the release plan and
+the installer builds still run, so a proven release merge still publishes the four
+installers. Security runs in full on every main push, because audit results depend
+on the advisory database at run time. A `BEHIND` merge, a pull request from a fork
+and a merge whose pull request run failed all run full validation.
+
 ## Release orchestration and installers
 
 The Desktop workflow owns one dependency chain for a main push:
@@ -491,8 +664,11 @@ native and Web validation
 The `release-please` job runs after the current run's Desktop gate. The planner
 binds the created tag, source SHA and run SHA before it requests packaging or
 publication. There is no runner-held `gh run watch` poll and no privileged
-`workflow_run` trigger. A nearby successful PR or another workflow run is not
-accepted as a replacement for this run's validation.
+`workflow_run` trigger. The gate accepts only one substitute for this run's
+validation: a green pull request run of the same workflow file on an identical
+tree whose base is an ancestor of the merged commit
+([Same-tree proof on main](#same-tree-proof-on-main)). A nearby successful pull
+request on another tree, or another workflow run, is not accepted.
 
 The separate `release-please.yml` has a manual-only source-release management
 entry. It does not start on a push. A manual Desktop dispatch can package an
@@ -527,12 +703,55 @@ If an older release asset has no REST digest, publication refuses to replace it.
 Do not bypass that refusal. A manual recovery run must select the source tag ref
 as well as pass the same tag in `release_tag`; selecting `main` is not equivalent.
 
+## Squash merge and release notes
+
+The repository and ruleset allow squash merge only. The squash commit title is the
+pull request title and the message is the pull request body. release-please 17
+reads the `BEGIN_COMMIT_OVERRIDE` block of the merged pull request body instead of
+the commit message. The rules and the generator are in
+[CONTRIBUTING.md](../CONTRIBUTING.md#pull-request-body-and-release-notes).
+`scripts/ci-pr-override.mjs check` enforces them in the `pr-body` workflow.
+release-please pull requests (`release-please--*` branches) are skipped.
+
+## Dependabot and the batch flow
+
+Dependabot version proposals target the `deps-staging` branch, with a cooldown
+(npm: 7 days, 30 for majors, 3 for patches; GitHub Actions and Cargo: 7 days) and
+groups (npm minor and patch, Milkdown, all GitHub Actions, Cargo minor and patch).
+No validation workflow runs on them, and nothing merges automatically. A
+maintainer folds the proposals into the next batch pull request, keeps the exact
+proposed versions, and closes each proposal as superseded after the merge.
+Security update pull requests still target `main` and get the full ready pull
+request route.
+
+`deps-staging-sync.yml` resets `deps-staging` to `main` every Monday at 03:30 UTC,
+before Dependabot runs. After a batch merge, you can reset it at once:
+
+```sh
+git push origin origin/main:refs/heads/deps-staging --force-with-lease
+```
+
+The batch flow keeps one head in flight, so jobs do not queue:
+
+1. Integrate every fix and the Dependabot proposals locally on one
+   `batch/YYYY-MM-DD` branch.
+2. Run `npm run check`, `npm run lint`, `npm run notices:check`, one full
+   `npm test`, `npm run build`, `npm run size` and the touched E2E specs on
+   Chromium and WebKit.
+3. Write the pull request body with `node scripts/ci-pr-override.mjs print`, and
+   open the pull request as ready when the head is final.
+4. On a red run, fix and push once. The sentinel already stopped the other runs.
+5. Squash merge only when the pull request is not `BEHIND`, with
+   `--match-head-commit`. The main run then reuses the proof.
+
 ## Verification and rollback
 
 `npm test` runs Vitest, then `npm run test:ci`, then the desktop backup scheduler
 check. `npm run test:ci` runs the Node test files with
 `--test-concurrency=1`. It covers the benchmark contracts, build provenance,
-E2E manifest and shard plan, the CI tier and Web workflow guards, the APT helper,
+E2E manifest, flaky gate, shard plan and weight refresh, the CI tier and Web
+workflow guards, the fail-fast sentinel, the same-tree proof, the override block
+check, the APT helper,
 the Playwright image pin, the Web and Desktop change classifiers, the security
 scope, gitleaks range and cargo audit helpers, the CLI package contract, and the
 desktop release policy, collector and orchestration. `npm run test:benchmark-gate`
@@ -552,6 +771,13 @@ restores the earlier routing and browser setup. It does not change performance
 thresholds, release signing or runner ownership.
 
 ## Timing boundaries
+
+Estimate for this design, not a measurement: a ready pull request reports all
+checks in about 12 minutes (16 shards, slowest shard test step median 9.8 minutes,
+plus about 2.2 minutes of fixed setup), Desktop in about 11 minutes, and a proven
+main push reaches `verify-public` in about 5.5 minutes. Before the change, the
+ready pull request p50 was 31 minutes. Record three ready runs before and after
+a shard or worker change.
 
 The 3 minute fast-feedback target and the 10 minute ordinary pull-request
 target are targets. They are not guarantees. Issue #263 defines the 10 minute
@@ -667,8 +893,12 @@ same-event trials are still necessary before a shard or worker change.
   results and unjustified skips.
 - Both public hosts keep independent deployment verification, even when they
   publish in parallel.
-- Keep diagnostic reports and raw evidence in local storage. Do not add report,
-  SARIF or build-record uploads to GitHub.
+- Upload diagnostics only from a failed job, for 3 days, with synthetic fixtures.
+  Do not add a success-path report upload, or a SARIF or build-record upload.
+- Keep one job with `actions: write`: the fail-fast sentinel, which runs no
+  project dependency.
+- A main run may skip validation only through the same-tree proof. Any other
+  shortcut on main needs a new review.
 
 Issue #263 records the completed earlier stages and historical timing targets.
 The current CI reduction work is tracked in issue #628.

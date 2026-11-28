@@ -2,18 +2,19 @@
 
 ## Editions
 
-DeckMark has two editions: **Web Light** and **Desktop Complete (Beta)**.
-Web Light is the complete browser edition. It is free and it is not a trial.
-Desktop Complete uses the same editor and adds native file access, local Git
+DeckMark has two editions: **DeckMark Web** and **DeckMark Desktop (Beta)**.
+DeckMark Web is the complete browser edition. It is free and it is not a trial.
+DeckMark Desktop uses the same editor and adds native file access, local Git
 tools, scheduled backups, global quick capture, and a native API key vault.
 The [edition matrix](EDITIONS.md) lists shared capabilities, Desktop-only
 capabilities, system requirements, and support boundaries.
 
-Open the [web app](https://www.deckmark.dev/) to use Web Light. If the custom
+Open the [web app](https://www.deckmark.dev/) to use DeckMark Web. If the custom
 domain is not available, open the
 [GitHub Pages fallback](https://thomascrouzet.github.io/deckmark/).
 Desktop installers are separate `desktop-v<version>` prereleases on
-[GitHub Releases](https://github.com/ThomasCrouzet/deckmark/releases).
+[GitHub Releases, filtered to desktop](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true).
+The stable `v<version>` release has no installers.
 **Settings > About** shows the installed version. Include that version when you
 report a defect.
 
@@ -69,7 +70,7 @@ A new version waits for IndexedDB writes before it reloads the app. If a local s
 
 ## Import documents
 
-A selection or folder can contain up to 300 files and 64 MiB. Each file can contain up to 16 MiB. Supported text files must be UTF-8 without prohibited control characters. Images and PDFs use separate binary import paths. The app shows a result for each rejection. If you cancel an import, the app keeps imported documents and reports how many it added.
+A selection or folder can contain up to 300 files and 64 MiB. Each file can contain up to 16 MiB. Supported text files must be UTF-8 without NUL characters. Other control characters, such as ESC from a pasted terminal log or a form feed, stay allowed. Images and PDFs use separate binary import paths. The app shows a result for each rejection. If you cancel an import, the app keeps imported documents and reports how many it added.
 
 A note with at least 262,144 characters opens first in source mode. You must confirm before you change to visual rendering because parsing can take more time.
 
@@ -107,6 +108,28 @@ support and the security policy. The production Web policy permits local blob fr
 Use the open or download action if the document area is blank. DeckMark has
 no PDF text extraction, OCR, annotation, or editing tools.
 
+## Import an Obsidian vault or a Notion export
+
+Select **Projects** in the sidebar, then import a ZIP or a folder. DeckMark detects an
+Obsidian vault when the archive contains a `.obsidian` folder. It detects a Notion
+export when file names end with a 32-character hexadecimal id.
+
+- DeckMark skips `.obsidian`, `.trash`, and `.git` entries. It removes a single shared
+  top folder and, for Notion, the id suffix from each name.
+- It renames a path only to avoid a collision, and it adds a number such as `(2)`.
+- It rewrites Markdown links, image links, and `[[wiki links]]` when a path changes.
+  Links that it cannot resolve, or that match several documents, keep their original text.
+- Images, PDFs, and other files become project assets. Canvas, base, and Excalidraw files
+  stay as assets and do not render.
+- The **Import report** lists the document and asset counts, renamed paths, skipped
+  entries, files kept as assets, and the links to fix. The source archive does not change.
+
+The import follows the project limits in [Portable projects](#portable-projects).
+DeckMark Web accepts up to 300 documents, 1,300 entries, eight directory levels, and
+64 MiB in one project. DeckMark Desktop accepts up to 3,000 documents. An import above
+the limit fails before it changes storage. Split a large vault into several ZIP files, or
+use DeckMark Desktop.
+
 ## Portable projects
 
 Select **Projects** in the sidebar. Create a project, import a ZIP, or import a folder.
@@ -125,7 +148,7 @@ A typed text or code document keeps its MIME value through a project ZIP export 
 Image data embedded in Markdown becomes a separate asset in the archive. The stored source remains unchanged.
 An individual Markdown download keeps its relative references. Use the project ZIP when those references need local resources.
 
-Projects accept up to 3,000 documents, 6,500 entries, 16 directory levels, and 256 MiB of uncompressed data in Desktop Complete. Web Light accepts up to 300 documents, 1,300 entries, eight directory levels, and 64 MiB. The same limits apply to a project import, a drag and drop, an internal copy or move, and a documentation-site export.
+Projects accept up to 3,000 documents, 6,500 entries, 16 directory levels, and 256 MiB of uncompressed data in DeckMark Desktop. DeckMark Web accepts up to 300 documents, 1,300 entries, eight directory levels, and 64 MiB. The same limits apply to a project import, a drag and drop, an internal copy or move, and a documentation-site export.
 The byte budget counts UTF-8 document bytes, the decoded bytes of a typed image or PDF document, and the bytes of each project asset.
 Each document can contain up to 16 MiB. Each image can contain up to 2 MiB.
 Unsafe paths, duplicate paths, symbolic links, and unsupported archives are rejected before import changes storage.
@@ -138,7 +161,7 @@ Creating or renaming disk documents requires filesystem hard link support.
 If that support is unavailable, the operation fails without replacing an existing file.
 Disconnecting keeps local documents and assets. Backups do not contain directory permissions.
 
-Library ZIP exports use the same edition project budget: 300 documents and 64 MiB in Web Light, or 3,000 documents and 256 MiB in Desktop Complete.
+Library ZIP exports use the same edition project budget: 300 documents and 64 MiB in DeckMark Web, or 3,000 documents and 256 MiB in DeckMark Desktop.
 
 ## Check and export documentation
 
@@ -152,6 +175,10 @@ Open **Export documentation site** from Commands. Select a project and choose
 whether to include the local search index. **Export site** creates a ZIP with
 HTML pages, navigation, local assets, and a resource report. Extract the ZIP to
 read the site or publish its files on a static host. DeckMark does not upload it.
+The site keeps only inert file types under their own names: images, PDF, CSS,
+fonts, Markdown and plain text or source code. It appends `.txt` to every other
+file, such as XML, XSLT, SVGZ, RSS or HTML, so a static host cannot run it as an
+active document. The report lists each renamed file.
 The export does not change source documents or download remote images. Resolve
 reported resource errors before you retry a blocked export.
 
@@ -187,7 +214,9 @@ History and disk conflicts also show line comparisons. Large comparisons identif
 
 Wiki links reopen closed targets without making a copy. A rename updates incoming name-based links, including links in closed documents. Code examples and displayed aliases stay intact. A backup merge updates identifier-based links to the imported IDs. If several documents have the same target name, select the correct document in the library.
 
-In Web Light, linked disk files need the File System Access API. Chromium
+In Read mode, click a wiki link to open its target. In Edit mode, a plain click places the caret. Press `Cmd` and click (`Ctrl` and click on Windows and Linux) to open the link. You can also put the caret in the link and press `Option+Return` (`Alt+Enter` on Windows and Linux), or run **Open the link under the caret** from the command palette. The demo document describes these steps with the keys of your platform.
+
+In DeckMark Web, linked disk files need the File System Access API. Chromium
 provides this API. Firefox and Safari use a download fallback. A browser link
 covers only the file that you select and does not give the app unrestricted
 filesystem access.
@@ -263,7 +292,7 @@ an OpenAI-compatible API base URL, a model identifier, and a provider key.
 Enable AI features to use the assistant. A connection test contacts the provider
 with a test prompt, without document content.
 
-Web Light requires consent to use a browser-resident key. It keeps the key in
+DeckMark Web requires consent to use a browser-resident key. It keeps the key in
 page memory and tab session storage. That storage is accessible to page scripts
 and is not a secure vault. Session storage survives a reload. A normal tab
 close clears it, but a browser session restore can restore it. **Forget key**
@@ -309,7 +338,7 @@ stream. These figures do not measure a real provider's latency or billing.
 
 Settings shows whether the browser granted persistent storage. It also shows the estimated quota and the date of the latest successful external backup. Export a backup regularly. Always make one before you clear browser data or change profiles. Clearing site data, using private browsing, or evicting site storage can remove all local drafts, history, and assets.
 
-Web Light and Desktop Complete use the same backup format. New metadata can
+DeckMark Web and DeckMark Desktop use the same backup format. New metadata can
 require a newer release. Check a backup before you restore it in another version.
 
 The status bar identifies local draft saves. A linked disk file requires the explicit **Save to disk** action. The backup reminder opens Settings. You can dismiss the reminder for a week.
@@ -331,7 +360,9 @@ A backup contains open and closed documents, projects, assets, workspaces, custo
 It excludes trash, version history, the search index, API keys, browser file handles, and Desktop path permissions.
 Version 2 backups use schema 2. The app also accepts schema 1 backups from version 1.9.
 The format accepts up to 3,000 documents, 300 workspaces, 16 MiB per document, and 64 MiB in total.
-The app checks these limits before it reports a successful download. You cannot recover an encrypted backup without its passphrase.
+The app checks these limits before it reports a successful download. When a limit stops a backup, the message names the limit and the document that crosses it.
+The app also warns you when the library reaches about 80% of the document count, the total text size, or the size of one document. The warning counts text in UTF-16 units, so it can come before the real limit but not after it.
+You cannot recover an encrypted backup without its passphrase.
 
 Replace mode keeps old documents in the trash and preserves variants that share an identifier. Merge mode assigns new identifiers to added drafts and updates workspace references.
 
@@ -454,10 +485,10 @@ remain available.
 <a id="desktop-beta-app"></a>
 <a id="desktop-complete-app"></a>
 
-## Desktop Complete app (Beta)
+## DeckMark Desktop app (Beta)
 
-Desktop Complete is the Desktop edition. It uses the same editor, storage model,
-and document formats as Web Light. It adds native in-place file editing, native
+DeckMark Desktop is the native edition. It uses the same editor, storage model,
+and document formats as DeckMark Web. It adds native in-place file editing, native
 folder access, file associations, native menus, and the macOS print panel.
 See the [edition matrix](EDITIONS.md) for the full comparison.
 

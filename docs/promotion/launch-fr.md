@@ -38,4 +38,4 @@ si la mise en forme exacte compte. La synchronisation cloud, la collaboration et
 les extensions restent hors du périmètre du projet.
 
 Liens : https://www.deckmark.dev/ et
-https://github.com/ThomasCrouzet/deckmark/releases
+https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true

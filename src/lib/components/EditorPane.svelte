@@ -32,6 +32,8 @@
 	interface Props {
 		kind: DocumentKind;
 		libraryCount?: number;
+		/** True once the saved library has loaded. The first-visit view waits for it. */
+		libraryReady?: boolean;
 		documentTool?: 'find' | 'outline' | null;
 		onCloseTool?: () => void;
 		activeFile: FileItem | null;
@@ -60,11 +62,13 @@
 		onNew: () => void;
 		onImport: () => void;
 		onDemo: () => void;
+		onNewPresentation?: () => void;
 	}
 
 	let {
 		kind,
 		libraryCount = 0,
+		libraryReady = false,
 		documentTool = null,
 		onCloseTool = () => {},
 		activeFile,
@@ -86,7 +90,8 @@
 		resyncSnapshot,
 		onNew,
 		onImport,
-		onDemo
+		onDemo,
+		onNewPresentation
 	}: Props = $props();
 
 	function editorChangeFor(id: string): (text: string) => void {
@@ -273,7 +278,9 @@
 				{onImport}
 				{onDemo}
 				onLibrary={modals.openLibrary}
+				{onNewPresentation}
 				documentCount={libraryCount}
+				{libraryReady}
 			/>
 		{/if}
 

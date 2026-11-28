@@ -54,10 +54,53 @@ Additional conventions (module map, pitfalls, debugging recipes): see [docs/DEVE
 
 CI runs check, lint, tests, builds, accessibility audits, Lighthouse, dependency
 review, and security scans. The security audits are scoped to the changed inputs,
-and an unknown path requests both audits. Merge Dependabot pull requests manually
-after required checks pass. This action starts the normal post-merge deployment.
+and an unknown path requests both audits. Dependabot version proposals target the
+`deps-staging` branch and start no CI. The maintainer folds them into a batch pull
+request. A Dependabot security update targets `main` and merges only through the
+normal checks.
 
-`npm ci` runs the prepare script, which installs the lefthook hooks. `pre-commit` runs Prettier and ESLint on staged files. `pre-push` runs check and tests.
+`npm ci` runs the prepare script, which installs the lefthook hooks. `pre-commit` runs Prettier and ESLint on staged files. `pre-push` runs `npm run check` and `vitest --changed origin/main`, and runs `npm run test:ci` only when a file under `scripts/`, `.github/` or `src-tauri/`, or a package file, changed. Run the full `npm test` once before a batch push.
+
+## Pull request body and release notes
+
+Pull requests merge by squash only. The squash commit uses the pull request title
+and body, and release-please builds the changelog from one block at the end of
+the body:
+
+```text
+Closes #769
+
+BEGIN_COMMIT_OVERRIDE
+fix(editor): keep typed text at the caret after a delayed click (#769)
+
+fix(deps): update the npm minor and patch group (Dependabot #790, #791)
+
+ci: rebalance the e2e shards from measured durations
+END_COMMIT_OVERRIDE
+```
+
+- Generate the block with `node scripts/ci-pr-override.mjs print` (range
+  `origin/main..HEAD`). Edit the wording if necessary.
+- Write one conventional header per change and one blank line between entries.
+  Visible types: `feat`, `fix`, `perf`, `revert`. Hidden types: `docs`, `style`,
+  `refactor`, `test`, `build`, `ci`, `chore`. Never write `deps:`; write
+  `fix(deps):` for a user-relevant update or `build(deps):` for a development-only
+  update.
+- Put an issue number only in the header, as `(#N)`. Do not write `Refs #N` or
+  `Closes #N` inside the block: release-please prints every such reference as
+  "closes". Write GitHub closing keywords above the block, and non-closing
+  references in prose.
+- A breaking change uses `feat(scope)!:` and a `BREAKING-CHANGE:` line under it.
+- Every releasable commit of the branch (`feat`, `fix`, `perf`, `revert` or
+  breaking) needs an entry with the same header.
+- Use a non-releasing pull request title, for example
+  `chore(batch): 2026-11-27 editor fixes`.
+- To correct a changelog line after the merge, edit the block in the merged pull
+  request body. release-please reads it again on its next run. Do not edit
+  `CHANGELOG.md` on the release branch.
+
+The `pr-body` check enforces these rules (`scripts/ci-pr-override.mjs check`). The
+release pull request (`chore(main): release X.Y.Z`) needs no block.
 
 ## Draft pull requests and CI tiers
 
@@ -104,7 +147,8 @@ diagnosis; CI writes no coverage file.
 
 Each standard browser run writes an HTML report, a JSON result file, and run
 metadata. Keep the command, source revision, environment, fixtures, and results
-with the artifact. CI evidence stays on the runner and is not uploaded to GitHub.
+with the artifact. A failed CI job uploads its Playwright traces, screenshots and
+JSON report for 3 days. A successful job uploads no report. Fixtures are synthetic.
 See [docs/TESTING.md](docs/TESTING.md) for commands and artifact paths.
 
 ## Visual tests (snapshots)

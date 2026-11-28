@@ -10,7 +10,8 @@ import { IMPORT_LIMITS } from './config';
 import { isBinaryDocument } from './document-kind';
 import { checkAborted } from './abort';
 import { binaryPayload, sanitizeFilename, triggerDownload } from './services/export';
-import { buildProjectZip, PROJECT_LIMITS } from './project-archive';
+import { buildProjectZip } from './project-archive';
+import { PROJECT_SCALE_LIMITS } from './project-limits';
 import type { ZipProgressReporter } from './project-archive';
 
 /** Test-only pause that makes the entry yield points observable. */
@@ -38,6 +39,8 @@ function profilePhase(kind: string, phase: string): () => void {
 }
 
 // ─── Library ZIP export ───────────────────────────────────────────────────────
+// The document count and the total size follow the edition project budget:
+// 300 documents and 64 MiB in Web Light, 3,000 documents and 256 MiB in Desktop.
 
 export interface ExportArchiveOptions {
 	signal?: AbortSignal | undefined;
@@ -52,7 +55,8 @@ export async function exportZip(
 ): Promise<boolean> {
 	if (typeof window === 'undefined' || typeof document === 'undefined' || files.length === 0)
 		return false;
-	if (files.length > IMPORT_LIMITS.maxFiles) throw new Error('Library export document limit');
+	if (files.length > PROJECT_SCALE_LIMITS.maxDocuments)
+		throw new Error('Library export document limit');
 	checkAborted(options.signal);
 	const planEnd = profilePhase('library-zip', 'plan');
 	const encoder = new TextEncoder();
@@ -69,14 +73,17 @@ export async function exportZip(
 			const { bytes } = await binaryPayload(file);
 			binaryBytes.set(file.id, bytes);
 			inputBytes += bytes.byteLength;
-			if (bytes.byteLength > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+			if (
+				bytes.byteLength > IMPORT_LIMITS.maxFileBytes ||
+				inputBytes > PROJECT_SCALE_LIMITS.maxBytes
+			)
 				throw new Error('Library export size limit');
 			continue;
 		}
 		const data = encoder.encode(file.content);
 		encoded.set(file.id, data);
 		inputBytes += data.byteLength;
-		if (data.byteLength > IMPORT_LIMITS.maxFileBytes || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+		if (data.byteLength > IMPORT_LIMITS.maxFileBytes || inputBytes > PROJECT_SCALE_LIMITS.maxBytes)
 			throw new Error('Library export size limit');
 	}
 	const projectIds = new Set(files.flatMap((file) => (file.projectId ? [file.projectId] : [])));
@@ -92,7 +99,10 @@ export async function exportZip(
 				.each((asset) => {
 					inputBytes += asset.data.byteLength;
 					entries++;
-					if (entries > PROJECT_LIMITS.maxEntries - 3 || inputBytes > IMPORT_LIMITS.maxBatchBytes)
+					if (
+						entries > PROJECT_SCALE_LIMITS.maxEntries - 3 ||
+						inputBytes > PROJECT_SCALE_LIMITS.maxBytes
+					)
 						throw new Error('Library export size limit');
 					snapshot.push(asset);
 				});
@@ -155,8 +165,8 @@ export async function exportZip(
 			archiveBytes += archive.size;
 			transientArchiveBytes += archive.size * 2;
 			if (
-				archiveBytes > IMPORT_LIMITS.maxBatchBytes ||
-				transientArchiveBytes > IMPORT_LIMITS.maxBatchBytes * 2
+				archiveBytes > PROJECT_SCALE_LIMITS.maxBytes ||
+				transientArchiveBytes > PROJECT_SCALE_LIMITS.maxBytes * 2
 			)
 				throw new Error('Library export size limit');
 			zip.file(archiveName(`${project.name}.zip`), await archive.arrayBuffer());
@@ -173,7 +183,7 @@ export async function exportZip(
 	});
 	compressEnd();
 	checkAborted(options.signal);
-	if (blob.size > IMPORT_LIMITS.maxBatchBytes) throw new Error('Library export size limit');
+	if (blob.size > PROJECT_SCALE_LIMITS.maxBytes) throw new Error('Library export size limit');
 	const writeEnd = profilePhase('library-zip', 'write');
 	const saved = await triggerDownload(blob, filename);
 	writeEnd();

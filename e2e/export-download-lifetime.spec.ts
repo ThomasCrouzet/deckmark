@@ -328,3 +328,46 @@ test('revokes the object URL after a failed click', async ({ page }) => {
 	// A failed click cannot start a download, so cleanup is immediate.
 	expect(revoke.at - click.at).toBeLessThan(1_000);
 });
+
+async function openSettings(page: Page): Promise<void> {
+	await page.keyboard.press('ControlOrMeta+,');
+	await expect(page.getByRole('dialog', { name: 'Réglages' })).toBeVisible();
+}
+
+// Review finding ARCH-01: the backup download revoked its object URL in the
+// same task as the click, the pattern that fails on WebKit (bug 211234).
+test('keeps the backup object URL until the download begins', async ({ page }, info) => {
+	await seedFiles(page, [{ name: 'download-lifetime', content: markdown }]);
+	await openSettings(page);
+	const bytes = await saveDownload(page, info, 'backup.json', () =>
+		page.getByRole('button', { name: 'Exporter une sauvegarde', exact: true }).click()
+	);
+
+	const backup = JSON.parse(bytes.toString('utf8')) as {
+		format: string;
+		drafts: Array<{ content: string }>;
+	};
+	expect(backup.format).toBe('mdsh-backup');
+	expect(backup.drafts.map((draft) => draft.content)).toContain(markdown);
+	const url = await latestCreatedUrl(page);
+	await expectDelayedRevocation(page, url);
+});
+
+test('keeps the encrypted backup object URL until the download begins', async ({ page }, info) => {
+	await seedFiles(page, [{ name: 'download-lifetime', content: markdown }]);
+	await openSettings(page);
+	const bytes = await saveDownload(page, info, 'backup.encrypted.json', async () => {
+		await page.getByRole('button', { name: 'Exporter (chiffré)…', exact: true }).click();
+		for (const name of ['Chiffrer la sauvegarde', 'Confirmer la phrase secrète']) {
+			const prompt = page.getByRole('dialog', { name, exact: true });
+			await prompt.locator('input[type=password]').fill('lifetime-passphrase');
+			await prompt.getByRole('button', { name: 'OK', exact: true }).click();
+		}
+	});
+
+	expect(bytes.toString('utf8')).not.toContain('Download lifetime');
+	const envelope = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+	expect(Object.keys(envelope).length).toBeGreaterThan(0);
+	const url = await latestCreatedUrl(page);
+	await expectDelayedRevocation(page, url);
+});

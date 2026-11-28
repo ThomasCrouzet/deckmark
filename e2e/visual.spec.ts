@@ -56,7 +56,7 @@ test.describe('Snapshots visuels - 3 modes', () => {
 		await page.evaluate(() => navigator.serviceWorker.ready);
 		// Let the initial offline-ready notice finish before image comparison.
 		await expect(
-			page.getByRole('status').filter({ hasText: 'prêt à fonctionner hors-ligne' })
+			page.getByRole('status').filter({ hasText: 'prêt à fonctionner hors ligne' })
 		).toHaveCount(0, { timeout: 15_000 });
 	});
 

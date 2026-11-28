@@ -60,7 +60,7 @@ prompt without document content. Provider configuration and context selection
 remain the user's responsibility. A response does not execute commands or apply
 document edits automatically.
 
-Web Light requires browser-key consent. The key is held in memory and tab
+DeckMark Web requires browser-key consent. The key is held in memory and tab
 `sessionStorage`, where page scripts can access it. This is not a protected
 secret store. **Forget key** removes the browser key. Browser provider requests
 are subject to CORS and the production connection policy.

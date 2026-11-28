@@ -9,12 +9,72 @@ its own failure.
 npm run check    # Type and Svelte checks, then the KaTeX asset check
 npm run lint     # ESLint and Prettier checks
 npm test         # Vitest, the CI contract tests and the backup scheduler check
-npm run build    # Web Light production build and the native boundary check
+npm run build    # DeckMark Web production build and the native boundary check
 npm run test:e2e # Browser workflows against the current build
 ```
 
 Use `npm run test:e2e -- <spec>` for one browser workflow. The sections below
 record the retained failure risks, the full commands and the evidence paths.
+
+## Backup download lifetime
+
+The backup and encrypted backup downloads use the shared `triggerDownload`.
+`e2e/export-download-lifetime.spec.ts` checks that their object URL stays
+reachable for more than 1 s after the click, on Chromium and WebKit.
+
+## Backup control characters, limits and capacity warnings
+
+Review findings DATA-02 and DATA-03 cover a stored note with a control
+character, the backup limits and the warning before a limit.
+
+- A note with ESC, form feed, backspace or vertical tab must stay in the backup,
+  the encrypted backup and the project ZIP. A restore must return the exact
+  bytes. A NUL character still marks a binary file on import.
+- A failed backup must name the cause and the document in English and French.
+  The limit cases are one document above 16 MiB, five documents of 13 MiB that
+  cross 64 MiB, and 3,001 documents.
+- The library warns at 80% of a limit. The check reads index keys only. A trailing
+  throttle limits it to one run per 10 s, so typing does not start a check per
+  key. The case attaches the measured duration of each check.
+
+`e2e/backup-control-characters.spec.ts` seeds rows in IndexedDB or restores a
+generated backup. It uses the Settings and Projects dialogs and reads the
+downloaded bytes and the stored rows. Run it on both browsers:
+
+```sh
+npx playwright test e2e/backup-control-characters.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/backup-control-characters.spec.ts --project=webkit --workers=1 --retries=0
+```
+
+Retain the JSON and HTML reports, source identity, command and browser
+environment. The disk conflict check and the Desktop scheduler share the same
+validation but need a native shell. This spec does not run them.
+
+## Library ZIP edition budget
+
+Finding DATA-04: `src/lib/export-zip.test.ts` is an isolated test. The
+edition is a build constant, so a browser run of the Web build cannot observe the
+Desktop budget of 3,000 documents and 256 MiB.
+
+## Documentation site active content
+
+Finding SEC-01: a static host runs XML, XSLT and SVGZ files as active documents.
+`e2e/docs-site-export-active-content.spec.ts` exports a project with the review
+payloads, serves the extracted site with the content types of a static host and
+visits every published file. No payload may call back. Every file that is not an
+image, PDF, CSS, font, Markdown or plain text must end in `.txt`.
+
+```sh
+npx playwright test e2e/docs-site-export-active-content.spec.ts --project=chromium --workers=1 --retries=0
+npx playwright test e2e/docs-site-export-active-content.spec.ts --project=webkit --workers=1 --retries=0
+```
+
+## Project link report scale
+
+Finding PERF-01: `e2e/project-link-performance.spec.ts` has a case with 300
+documents and 16 wiki links each. Check links and the project ZIP export must
+finish in 1.2 s with a heartbeat gap below 700 ms. The case attaches the elapsed
+time. Before the index fix the same project took more than 5 s in Chromium.
 
 ## Code block plain text language
 
@@ -1659,8 +1719,8 @@ Record these risks before changes to the deployment workflow or production check
 
 ### Local hosting checks
 
-Cloudflare Pages and GitHub Pages publish Web Light as independent sites. Check
-Web Light and Desktop Complete as different editions. A browser result does not
+Cloudflare Pages and GitHub Pages publish DeckMark Web as independent sites. Check
+DeckMark Web and DeckMark Desktop as different editions. A browser result does not
 replace a native Desktop check, and a native result does not replace a browser result.
 
 The deployment workflow builds the root path for Cloudflare Pages and
@@ -1745,7 +1805,7 @@ This configuration checks live sites without a local build or preview server:
 For each project, verify these observable results:
 
 1. The normal public URL opens the app on the expected origin and path.
-2. `edition.json` reports Web Light, `sourceSha` equal to `EXPECTED_SHA`, the
+2. `edition.json` reports DeckMark Web, `sourceSha` equal to `EXPECTED_SHA`, the
    checkout's package version, and the expected base path.
    The served HTML must match the manifest's `htmlSha256` digest.
 3. The app starts in a fresh browser context and accepts a note edit.
@@ -1761,7 +1821,9 @@ failed runs. Retain the command, expected and observed source revisions,
 environment, browser version, public URLs, fixture content, results and browser
 evidence. These files must permit another maintainer to repeat the same checks.
 Hosted CI creates these files on its runner without uploading them. They are
-temporary and are lost when the runner VM is destroyed.
+temporary and are lost when the runner VM is destroyed. (Only the E2E shard and
+the Desktop benchmark and smoke jobs upload failure diagnostics; see the CI
+evidence sections below.)
 
 ### Daily drift detection and repair
 
@@ -2057,7 +2119,7 @@ behavior. Record these checks separately:
   one saved-view pass. Tab from the saved-view selector through the name field
   and the Save and Delete buttons. Record the spoken label with an empty name
   and with a saved name.
-- In Desktop Complete on Windows WebView2, Linux WebKitGTK and macOS WKWebView,
+- In DeckMark Desktop on Windows WebView2, Linux WebKitGTK and macOS WKWebView,
   reject the `mdsh:collection-views` write. Retry Save and Delete. Check the
   note draft, the sorting and the focus.
 
@@ -3124,32 +3186,37 @@ repository, and a missing or malformed manifest must fail with no image referenc
 - `web-benchmark` on Ubuntu for Chromium, Firefox and WebKit. It downloads the
   single `web-build` artifact and verifies its provenance before it measures.
   Local report: `$RUNNER_TEMP/web-benchmark-<browser>.json`.
-- `native-validation` on Ubuntu, Windows and macOS. Each job builds one isolated
-  debug test application, records the native source before and after the build,
-  runs `scripts/native-smoke.mjs` on the real WebView, then measures the
-  benchmark after every smoke process stops. Local results: `native-test-results/`.
-  Local report: `$RUNNER_TEMP/native-benchmark.json`, with screenshots and the
-  application log beside it. The macOS job asserts an ARM64 runner before it runs.
-- `desktop-validation` requires every requested job above to succeed. A reused
-  validation run must contain one successful `validate-desktop` job and one
-  successful `native-validation` job for each platform, one successful
-  `web-benchmark` job for each browser, and one successful gate.
+- `native-smoke` on Ubuntu, Windows and macOS. Each job builds one isolated debug
+  test application, records the native source before and after the build, and
+  runs `scripts/native-smoke.mjs` on the real WebView. Local results:
+  `native-test-results/`.
+- `native-benchmark` on Ubuntu, Windows and macOS. Each job builds its own debug
+  test application and measures the benchmark. No smoke process runs on that
+  runner. Local report: `$RUNNER_TEMP/native-benchmark.json`, with screenshots and
+  the application log beside it. The macOS jobs assert an ARM64 runner.
+- `desktop-validation` requires every requested job above to succeed. On a main
+  push it also accepts a proven identical pull request tree: the pull request run
+  must contain one successful `validate-desktop`, `native-smoke` and
+  `native-benchmark` job for each platform, one successful `web-benchmark` job for
+  each browser, and one successful gate (`scripts/ci-tree-proof.mjs`).
 
-The shared native job keeps these additional risks. A smoke failure must remain
-the first error and must not be replaced by a later benchmark failure. The
-benchmark must not start while a smoke process is still running, or its samples
-include competing work. The source snapshots before and after the build still
-identify the exact revision that the binary came from. The debug application
-carries the test feature and is never an installer input.
+The native jobs keep these risks. A smoke failure must stay visible as its own
+failed job and must not be hidden by a benchmark result. The benchmark must not
+start while a smoke process is running, or its samples include competing work;
+the separate benchmark job starts no smoke process. The source snapshots before
+and after each build still identify the exact revision that the binary came from.
+The debug application carries the test feature and is never an installer input.
 
 The performance jobs pass `--enforce-budgets` and fail on a non-ok budget
 result. A harness failure, missing result or functional native check failure
 also fails the job. Shared-runner variance does not turn a failed budget into
 a passing result. See [PERFORMANCE.md](PERFORMANCE.md) for the metric contract.
 
-These reports are not GitHub Actions artifacts. Hosted-runner cleanup discards
-them; no report download remains after the VM is destroyed. Keep local
-reproduction reports outside Git. Build inputs transferred between jobs and
+A failed job uploads its report for 3 days: `web-benchmark-failure-<browser>-attempt-<n>`
+holds the benchmark JSON, `native-smoke-failure-<platform>-attempt-<n>` holds
+`native-test-results/`, and `native-benchmark-failure-<platform>-attempt-<n>` holds
+the benchmark JSON and `native-test-results/`. A successful job uploads no report.
+The fixtures are synthetic. Keep local reproduction reports outside Git. Build inputs transferred between jobs and
 release deliverables remain separate from test reports.
 Lighthouse CI writes its output to the filesystem at `test-results/lighthouse`
 on the hosted runner, not to temporary public storage. That output is discarded
@@ -3583,9 +3650,9 @@ OFFLINE_REVIEW_PHASE=final npx playwright test --config e2e/offline-review.confi
 
 The Desktop reuse validator must reject missing, repeated, failed, skipped, or
 incomplete platform jobs. It must reject a different source SHA, workflow, or run
-event. A valid run has one `validate-desktop` job and one `native-validation` job
-for each of Ubuntu, Windows, and macOS, one `web-benchmark` job for each of
-Chromium, Firefox, and WebKit, plus one successful aggregate gate. The workflow
+event. A valid run has one `validate-desktop`, one `native-smoke` and one
+`native-benchmark` job for each of Ubuntu, Windows, and macOS, one `web-benchmark`
+job for each of Chromium, Firefox, and WebKit, plus one successful aggregate gate. The workflow
 trigger must reach the same path classifier for frontend and native changes.
 
 The packaging matrix builds exactly four installers: macOS ARM64 DMG, Windows x64
@@ -3607,8 +3674,9 @@ Keep both exports under `native-test-results/presentation-pdf/menu/` and
 the shortcut export starts. macOS checks the native print operation and its PDF
 pixels. Linux and Windows use driver capture of the prepared print document; this
 does not prove an operating system print dialog. The workflow writes these
-results to `native-test-results/` on the runner and does not upload them, so
-they disappear when the runner is destroyed.
+results to `native-test-results/` on the runner. A failed smoke job uploads them
+for 3 days; a successful job uploads nothing, so they disappear when the runner is
+destroyed.
 
 The native presentation color gate must reject white slide backgrounds and white
 shape interiors even when borders remain visible. It must also reject missing
@@ -3903,13 +3971,16 @@ its list:
 
 ```sh
 npx playwright test --list --ignore-snapshots --grep-invert "Snapshots visuels" --reporter=json > /tmp/all-tests.json
-node scripts/e2e-shards.mjs plan --list /tmp/all-tests.json --weights scripts/e2e-shard-weights.json --shards 8 --out /tmp/e2e-plan
+node scripts/e2e-shards.mjs plan --list /tmp/all-tests.json --weights scripts/e2e-shard-weights.json --shards 16 --out /tmp/e2e-plan
 npx playwright test --ignore-snapshots --grep-invert "Snapshots visuels" --test-list=/tmp/e2e-plan/shard-3.list
 ```
 
-CI runs the browser and native tests without uploading reports to GitHub.
-Hosted-runner files are temporary. Keep repeatable local-run evidence in local
-storage. Compare its source commit with the release tag before using it.
+A failed CI job uploads its Playwright traces (first failed attempt), screenshots
+and JSON report for 3 days. A successful job uploads no report. Fixtures are
+synthetic. CI retries a failed test once; a test that passes only on its retry
+fails the shard unless `e2e/flaky-quarantine.json` lists it, and a shard stops at
+its first hard failure. Keep repeatable local-run evidence in local storage.
+Compare its source commit with the release tag before using it.
 
 Source fidelity and library export limits use [source-fidelity.md](testing/source-fidelity.md).
 The source comparison algorithm also needs isolated checks. Browser exports cannot
@@ -4285,7 +4356,7 @@ zoom control, a physical iPad keyboard, VoiceOver, NVDA, Windows WebView2, Linux
 WebKitGTK or macOS WKWebView.
 ## Native Git diff review and quick-capture template race
 
-Two Desktop Complete workflows do not have a Web Light surface. Keep one
+Two DeckMark Desktop workflows do not have a DeckMark Web surface. Keep one
 isolation choice for each workflow, not a duplicate unit set beside the stronger
 browser or native check.
 
@@ -4308,7 +4379,7 @@ another scroll. A control at its page bound returns before it changes the page,
 scroll, or focus.
 
 `e2e/git-diff.spec.ts` is the retained Git review check. It is a real Chromium
-workflow against a Desktop Complete build with a Git and project command
+workflow against a DeckMark Desktop build with a Git and project command
 fixture. It checks the bounded first page, scrolls it to its end, activates the
 last section by pointer, requires the final marker inside the list viewport,
 keeps the path and mode, returns to the first page by keyboard, requires
@@ -4330,8 +4401,7 @@ rows. A generic error from one file must disappear when a valid diff loads.
 These checks prove Chromium keyboard traversal, not native Tab traversal,
 screen-reader output, or a physical keyboard.
 
-The Desktop workflow is opt-in because the default Playwright server builds Web
-Light, where the Git panel cannot mount. Use a concrete configuration file at
+The Desktop workflow is opt-in because the default Playwright server builds DeckMark Web, where the Git panel cannot mount. Use a concrete configuration file at
 the repository root as `playwright.desktop.config.ts`. Keep this local test file
 untracked and remove it after the run. For an external config, replace the import
 and test directory with the actual absolute repository paths:
@@ -4363,7 +4433,7 @@ GIT_REVIEW_DESKTOP=1 npx playwright test e2e/git-diff.spec.ts \
   --config=playwright.desktop.config.ts --project=chromium --workers=1 --retries=0
 ```
 
-The default suite skips this file because the standard server is Web Light. A
+The default suite skips this file because the standard server is DeckMark Web. A
 Chromium result is not native WebView proof.
 
 `scripts/native-git.mjs` prepares a real repository with a 2600-line worktree
@@ -4423,7 +4493,7 @@ not take focus from a superseded edit.
 
 Keep the QuickCapture component cases. Issue 638 explicitly requires deferred
 component cases for lifecycle races that a browser workflow cannot force, and
-the default Web Light server cannot mount the capture window. The file uses
+the default DeckMark Web server cannot mount the capture window. The file uses
 deferred `resolve()` promises, input actions, a reset listener, and capture-kind
 changes. It keeps the PR 613 composition cases and covers the body and title
 typed-text races, whitespace, typed-then-cleared, A/B out-of-order, reset,
@@ -4854,7 +4924,7 @@ Keep these risks and evidence boundaries for #628:
 - A first burst at the clamped top can record no centre, which makes the same-head assertion vacuous. The retained first case requires at least one centre in addition to the existing upper bound, same-head check and `maxPending <= 2`. Before capture, PageDown moves the caret off the top, `ready()` drains the caret measure, a 40 px scroll offset queues the scroll measure, one frame lets it enter the queue, and a second `ready()` drains it. The original 30-key burst and 20-frame settle stay unchanged. A later centered collapse can legitimately need no centre. The zero-centre RED and external zero/duplicate controls are coverage and assertion controls, not product regressions.
 - The inactive-editor history selection poll can fail without retaining its DOM boundary. On failure only, `editor-state.spec.ts` prints `[selection-boundary]` and attaches the same JSON: focus, active element, range endpoints/text, mounted content count, active file, cached position and available EditorView selection/viewport/measure state. Missing fields stay null. Capture is bounded to two seconds and rethrows the original error. The 35-file sequence, selection assertion and timeout stay unchanged.
 - A TOC visibility failure can lack evidence of headings, mode and resource loading. On failure only, `editor-width.spec.ts` prints `[toc-boundary]` and attaches heading presence, bounded text, aside connectivity/inert/display/visibility, nav/items, active/stored mode and at most 20 same-origin script timings. It retains the exact 5000 ms visibility assertion, adds no pre-assertion wait and rethrows the original error after bounded capture.
-- The native test application must never reach a public installer. `scripts/desktop-release-policy.test.mjs` checks that `native-validation` has one debug build step per operating system, that the build uses `--no-bundle` with the `native-smoke` feature, that the job uploads no artifact, and that `build-desktop` never selects the smoke feature or the smoke configuration. The collector also refuses a binary that has no accepted installer extension. This is a static guard. A real installer still needs the release run and the checksum check.
+- The native test application must never reach a public installer. `scripts/desktop-release-policy.test.mjs` checks that `native-smoke` and `native-benchmark` each have one debug build step per operating system, that the build uses `--no-bundle` with the `native-smoke` feature, that the jobs upload only failure diagnostics and never the application, and that `build-desktop` never selects the smoke feature or the smoke configuration. The collector also refuses a binary that has no accepted installer extension. This is a static guard. A real installer still needs the release run and the checksum check.
 
 ### Navigation test import boundary
 
@@ -4902,3 +4972,81 @@ Keep these browser evidence limits for #614 and #615:
 - A Docs Site report needs one continuous Tab sequence from the export report button through the Pages and Resources summaries to the close control. Shift+Tab must return in reverse order. A direct focus call is not a substitute for that walk.
 - After Escape cancels a nested project prompt, Tab and Shift+Tab must stay in the open drawer. After Escape closes the drawer, focus must return to the visible toolbar Menu trigger. Escape and Cancel in the drawer delete confirmation must restore the same visible delete control.
 - The recorded cases use mobile Chromium and WebKit emulation and desktop Chromium. They do not prove physical iPhone or iPad VoiceOver, an iPad hardware keyboard, a real IME, an installed PWA, iPad narrow or wide windows, Tauri native dialogs, or Windows, Linux and macOS browser or WebView behavior.
+
+## First visit view
+
+Review finding PROD-04 covers the first visit. A visitor with an empty library
+opened an empty editor with no pitch, no start actions beyond three buttons, and
+no desktop link. `e2e/landing.spec.ts` starts with an empty library in English and
+French. It checks one level-one heading, the facts, the four start actions, the
+desktop and GitHub links, the side panel hint, and that no request or image leaves
+the origin. It checks that **New presentation** opens the slide editor without a
+dialog. It checks that a returning user sees no introduction, also after a reload.
+
+The layout checks use the large desktop, desktop, iPad portrait, iPad landscape,
+iPhone, and narrow phone sizes in both themes. They check horizontal overflow,
+44 px action targets, the primary action in the first screen, the figure, and
+blocking axe violations. Axe also measures the text of the figure, although the
+figure is hidden from assistive technology. On a 1440 px desktop window, each start
+action keeps its label on one line in the two languages and the page does not scroll.
+
+The keyboard case moves through the four start actions and the two links with Tab.
+It compares the focus order with the positions on the desktop, iPad landscape, and
+iPhone sizes. The figure case checks that the figure is hidden from assistive
+technology and holds no control. With reduced motion, no animation is set and the
+figure is complete. With default motion, each animation ends and the figure ends in
+the same state.
+
+The wordmark cases check that the page shows one wordmark. With the side panel on
+screen, the heading shows its text only. With the side panel closed, or on a phone,
+the heading shows the wordmark. In each case the page has one level-one heading.
+
+The space cases use the two desktop sizes in the two languages. They check that the
+space above the hero equals the space below it, that the three points touch the
+footer, and that the spaces above the rule and below the footer are small and almost
+equal. The column cases check that the three points start at the columns of the hero.
+The line cases read the line boxes of the title and of the first point. They check
+that no title line holds `Markdown,` only and that the wiki link token stays on one
+line.
+
+The border cases compute the contrast of the border of each secondary action with
+the page and with the button surface in the two themes. Each value must be 3:1 or
+more. The target check includes the two text links and the four footer links.
+
+The figure cases use the six sizes in the two languages. They check that the slide
+hides no source text, that no source line touches the edge of the sheet, that the
+wire ends at the height of the slide title, and that no figure text is smaller than
+11 px. They also check that the slide has its own surface, its own border and a
+shadow.
+
+The edition case reads `edition.json`. DeckMark Web shows the desktop download link.
+A Desktop build does not show it. The default server is DeckMark Web. To check the
+other branch, run the case with `--config=playwright.capture.config.ts`, which builds
+and serves the Desktop edition.
+
+Run `npx playwright test e2e/landing.spec.ts --project=chromium --workers=1
+--retries=0` and the same command with `--project=webkit`. Retain the JSON and HTML
+reports, the screenshots attached to each case, source identity, command, and browser
+environment. The case does not prove the look of the page. Review the screenshots in
+the report for spacing and alignment. Linux WebKit is not Safari on an iPhone or an
+iPad. It does not prove safe areas, the installed web app, or the system fonts.
+
+## Served HTML metadata
+
+Review finding PROD-03 covers the share card tags. `e2e/seo-meta.spec.ts` reads the
+served HTML before any script runs. It checks that `og:image` and `twitter:image` are
+absolute URLs on `https://www.deckmark.dev`, that `og:url`, `canonical`, and
+`twitter:card` are correct, and that the title, the descriptions, and the static home
+content name slides and link the desktop download. The GitHub Pages build keeps the
+same origin on purpose. Run the spec on both builds:
+`E2E_PORT=4921 npx playwright test e2e/seo-meta.spec.ts --project=chromium
+--workers=1 --retries=0` and the same command with
+`BASE_PATH=/deckmark E2E_STATIC_PREVIEW=1`.
+
+## French catalog
+
+Review finding UX-04 covers French leftovers. `e2e/fr-catalog.spec.ts` checks the
+Settings About line and capability labels, the palette entries, the French home title,
+and a scan of the French catalogs for a lowercase product name, the spelling
+`hors-ligne`, English terms, and an informal imperative. Run `npx playwright test
+e2e/fr-catalog.spec.ts --project=chromium --workers=1 --retries=0`.

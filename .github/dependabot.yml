@@ -1,24 +1,46 @@
 version: 2
+# Version proposals go to the deps-staging branch. The validation workflows
+# run only for pull requests to main, so a proposal starts no CI (only the
+# 10 s gitleaks scan). The maintainer folds the proposals into the next batch
+# pull request, which validates the combined lockfile, and closes them as
+# superseded. Nothing merges automatically.
+#
+# Security updates always target main and run the normal pull request checks.
+# Options in these entries (labels, commit messages, groups) do not apply to
+# them, because target-branch is set.
+#
+# The cooldown delays a new version for version updates only. Security
+# updates ignore it. deps-staging must exist before this file lands.
 updates:
   - package-ecosystem: npm
     directory: /
+    target-branch: deps-staging
     schedule:
       interval: weekly
       day: monday
       time: '06:00'
       timezone: Europe/Paris
-    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
+    open-pull-requests-limit: 3
     labels:
       - dependencies
-    # Open one weekly pull request for patch and minor updates, except packages
-    # that require dedicated review because of prior compatibility breaks.
+    commit-message:
+      prefix: 'build(deps)'
+    # One weekly pull request for patch and minor updates, and one for
+    # Milkdown, which has a history of breaking minor releases.
     groups:
       npm-minor-patch:
         update-types:
           - minor
           - patch
-        # Milkdown has a history of breaking minor releases and needs manual review.
         exclude-patterns:
+          - '@milkdown/*'
+      milkdown:
+        patterns:
           - '@milkdown/*'
     # Major upgrades remain visible as separate pull requests for manual review.
     # A previous major-version ignore hid them entirely.
@@ -60,31 +82,40 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: deps-staging
     schedule:
       interval: weekly
       day: monday
       time: '06:00'
       timezone: Europe/Paris
-    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 1
     labels:
       - dependencies
       - ci
+    commit-message:
+      prefix: 'ci(deps)'
     groups:
       github-actions:
-        update-types:
-          - minor
-          - patch
+        patterns:
+          - '*'
 
   - package-ecosystem: cargo
     directory: /src-tauri
+    target-branch: deps-staging
     schedule:
       interval: weekly
       day: monday
       time: '06:00'
       timezone: Europe/Paris
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 2
     labels:
       - dependencies
+    commit-message:
+      prefix: 'build(deps)'
     groups:
       cargo-minor-patch:
         update-types:

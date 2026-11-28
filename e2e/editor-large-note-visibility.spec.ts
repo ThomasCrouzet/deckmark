@@ -414,4 +414,46 @@ test.describe('large note paragraph visibility', () => {
 
 		await attachEvidence(info, page, fixture, afterReload, expected);
 	});
+
+	// ProseMirror reads a DOM selection on the asynchronous selectionchange
+	// event. This case holds that event back, as a slow machine delays it. The
+	// browser still moves the caret, so a typed paragraph must follow the caret
+	// that the user sees and not the old state selection at the note start.
+	test('a paragraph typed at the note end stays at the note end when the selection event is late', async ({
+		page
+	}) => {
+		test.setTimeout(240_000);
+		await page.addInitScript(() => {
+			document.addEventListener(
+				'selectionchange',
+				(event) => {
+					if ((window as Window & { __holdSelectionChange?: boolean }).__holdSelectionChange) {
+						event.stopImmediatePropagation();
+					}
+				},
+				true
+			);
+		});
+		const closing = 'Closing paragraph typed after the final one.';
+		await resetAppState(page, { mode: 'source' });
+		await seedNote(page, largeNote());
+		await page.reload();
+		await openVisualEditor(page);
+		await page.evaluate(() => {
+			(window as Window & { __holdSelectionChange?: boolean }).__holdSelectionChange = true;
+		});
+		await placeCaretAtDocumentEnd(page);
+		await page.keyboard.press('Enter');
+		await page.keyboard.insertText(closing);
+		await page.evaluate(() => {
+			(window as Window & { __holdSelectionChange?: boolean }).__holdSelectionChange = false;
+		});
+		await expect(page.locator('.ProseMirror > p').last()).toHaveText(closing);
+		await expect
+			.poll(async () => {
+				const stored = await storedContent(page);
+				return stored.trimEnd().split('\n').pop();
+			})
+			.toBe(closing);
+	});
 });

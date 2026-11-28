@@ -45,3 +45,13 @@
 - [ ] `if (browser)` or `onMount` around any `window`/`localStorage` access
 - [ ] No static import of a heavy lib (marked/katex/hljs/mermaid)
 - [ ] No network call added
+
+## Release notes
+
+<!-- The squash merge uses this body as the commit message. release-please reads only the block below. -->
+<!-- One conventional header per change, a blank line between entries, issue numbers as (#N) in the header. -->
+<!-- No Refs or Closes lines inside the block: write closing keywords above it. Generate it with `node scripts/ci-pr-override.mjs print`. -->
+
+BEGIN_COMMIT_OVERRIDE
+Replace this line with the output of node scripts/ci-pr-override.mjs print.
+END_COMMIT_OVERRIDE

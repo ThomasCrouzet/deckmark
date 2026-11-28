@@ -4,12 +4,18 @@
 // extra test fails both modes. A list report is never accepted as execution
 // proof. When a shard report carries partition metadata, its planned test
 // digest binds the --test-list selection, so a wrong list cannot pass.
+// Execution mode also runs the flaky gate. Every test that passed only on a
+// retry is printed and listed in the job summary. A flaky test that is not in
+// e2e/flaky-quarantine.json, an expired entry and a malformed quarantine file
+// fail the shard. When Playwright stopped at maxFailures, the check names that
+// cause before it lists the tests that did not run.
 // Usage:
 //   node scripts/check-e2e-manifest.mjs partition <shard-count> <full-list.json> <shard-list.json>...
 //   node scripts/check-e2e-manifest.mjs plan <shard-count> <full-list.json> <plan.json> <shard-list.json>...
 //   node scripts/check-e2e-manifest.mjs execution <expected-list.json> <actual-report.json>
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { e2eTestKey } from './e2e-test-key.mjs';
 
 const USAGE = `Usage:
@@ -33,24 +39,181 @@ function readReport(path) {
 function collect(report) {
 	const entries = [];
 	let retried = 0;
-	function walk(suites, path) {
+	function walk(suites, path, parentFile) {
 		for (const suite of suites ?? []) {
 			const suitePath = [...path, suite.title ?? ''];
+			const file = suite.file ?? parentFile;
 			if (suite.specs) {
 				for (const spec of suite.specs) {
 					for (const test of spec.tests ?? []) {
-						entries.push({ key: e2eTestKey(spec, test, suitePath), test });
+						entries.push({
+							key: e2eTestKey(spec, test, suitePath),
+							test,
+							location: {
+								project: test.projectName ?? '',
+								file: spec.file ?? file ?? '',
+								line: spec.line ?? 0,
+								title: spec.title ?? ''
+							}
+						});
 						for (const result of test.results ?? []) {
 							if ((result.retry ?? 0) > 0) retried += 1;
 						}
 					}
 				}
 			}
-			walk(suite.suites, suitePath);
+			walk(suite.suites, suitePath, file);
 		}
 	}
-	walk(report.suites, []);
+	walk(report.suites, [], undefined);
 	return { entries, retried };
+}
+
+const QUARANTINE_LIMIT = 10;
+const QUARANTINE_DAYS = 14;
+const QUARANTINE_KEYS = ['project', 'file', 'line', 'title', 'issue', 'added', 'expires'];
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseDate(value) {
+	if (typeof value !== 'string' || !DATE.test(value)) return null;
+	const time = Date.parse(`${value}T00:00:00Z`);
+	return Number.isNaN(time) || new Date(time).toISOString().slice(0, 10) !== value ? null : time;
+}
+
+// Read and validate the quarantine list. Any problem fails closed: a broken
+// file must not hide a flaky test.
+function readQuarantine(path) {
+	let value;
+	try {
+		value = JSON.parse(readFileSync(path, 'utf8'));
+	} catch (error) {
+		return {
+			entries: [],
+			problems: [`Cannot read the flaky quarantine ${path}: ${error.message}`]
+		};
+	}
+	if (!Array.isArray(value)) {
+		return { entries: [], problems: [`The flaky quarantine ${path} must be a JSON array.`] };
+	}
+	const problems = [];
+	if (value.length > QUARANTINE_LIMIT) {
+		problems.push(
+			`The flaky quarantine has ${value.length} entries; the limit is ${QUARANTINE_LIMIT}.`
+		);
+	}
+	value.forEach((entry, index) => {
+		const label = `Quarantine entry ${index + 1}`;
+		if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+			problems.push(`${label} is not an object.`);
+			return;
+		}
+		const unknown = Object.keys(entry).filter((key) => !QUARANTINE_KEYS.includes(key));
+		if (unknown.length) problems.push(`${label} has unknown fields: ${unknown.join(', ')}.`);
+		for (const key of ['project', 'file', 'title']) {
+			if (typeof entry[key] !== 'string' || entry[key].trim() === '') {
+				problems.push(`${label} needs a non-empty ${key}.`);
+			}
+		}
+		if (!Number.isInteger(entry.line) || entry.line < 1) {
+			problems.push(`${label} needs a positive integer line.`);
+		}
+		if (!Number.isInteger(entry.issue) || entry.issue < 1) {
+			problems.push(`${label} needs the number of its open issue.`);
+		}
+		const added = parseDate(entry.added);
+		const expires = parseDate(entry.expires);
+		if (added === null || expires === null) {
+			problems.push(`${label} needs added and expires dates as YYYY-MM-DD.`);
+		} else if (expires < added || expires - added > QUARANTINE_DAYS * DAY_MS) {
+			problems.push(`${label} must expire at most ${QUARANTINE_DAYS} days after it was added.`);
+		}
+	});
+	return { entries: problems.length ? [] : value, problems };
+}
+
+function today() {
+	const value = process.env.E2E_QUARANTINE_TODAY;
+	if (value !== undefined) {
+		const time = parseDate(value);
+		if (time === null) {
+			console.error(`E2E_QUARANTINE_TODAY must be YYYY-MM-DD, not ${value}.`);
+			process.exit(2);
+		}
+		return time;
+	}
+	return parseDate(new Date().toISOString().slice(0, 10));
+}
+
+function sameTest(entry, location) {
+	return (
+		entry.project === location.project &&
+		entry.file === location.file &&
+		entry.line === location.line &&
+		entry.title === location.title
+	);
+}
+
+function markdownCell(value) {
+	return String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
+}
+
+// Print every flaky test and fail on one that is not quarantined. Return the
+// number of problems.
+function flakyGate(entries) {
+	const path =
+		process.env.E2E_FLAKY_QUARANTINE ??
+		fileURLToPath(new URL('../e2e/flaky-quarantine.json', import.meta.url));
+	const quarantine = readQuarantine(path);
+	const problems = [...quarantine.problems];
+	const now = today();
+	for (const entry of quarantine.entries) {
+		if (parseDate(entry.expires) < now) {
+			problems.push(
+				`Quarantine entry ${entry.project} ${entry.file}:${entry.line} expired on ${entry.expires} (issue #${entry.issue}). Fix the test or remove the entry.`
+			);
+		}
+	}
+	const rows = [];
+	for (const { test, location } of entries) {
+		if (test.status !== 'flaky') continue;
+		const entry = quarantine.entries.find((candidate) => sameTest(candidate, location));
+		const where = `${location.file}:${location.line}`;
+		console.log(`FLAKY ${location.project} ${where} ${location.title}`);
+		rows.push({ ...location, issue: entry ? `#${entry.issue}` : 'not quarantined' });
+		if (!entry) {
+			problems.push(
+				`Flaky test ${location.project} ${where} ${location.title} passed only on a retry and is not in e2e/flaky-quarantine.json.`
+			);
+		}
+	}
+	if (rows.length && process.env.GITHUB_STEP_SUMMARY) {
+		const table = [
+			'### Flaky tests',
+			'',
+			'| Project | Location | Title | Quarantine |',
+			'| --- | --- | --- | --- |',
+			...rows.map(
+				(row) =>
+					`| ${markdownCell(row.project)} | ${markdownCell(`${row.file}:${row.line}`)} | ${markdownCell(row.title)} | ${markdownCell(row.issue)} |`
+			),
+			''
+		].join('\n');
+		appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${table}\n`);
+	}
+	for (const problem of problems) console.error(problem);
+	return problems.length;
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI = /\u001b\[[0-9;]*m/g;
+
+function stoppedAtMaxFailures(report) {
+	return (report.errors ?? []).some((error) =>
+		/Testing stopped early after \d+ maximum allowed failures/.test(
+			String(error?.message ?? '').replace(ANSI, '')
+		)
+	);
 }
 
 function countsFrom(entries) {
@@ -372,6 +535,13 @@ if (mode === 'execution') {
 		);
 		process.exit(1);
 	}
+	const flakyProblems = flakyGate(actualReport.entries);
+	if (stoppedAtMaxFailures(actualRaw)) {
+		const notRun = actualReport.entries.filter(({ test }) => (test.results ?? []).length === 0);
+		console.error(
+			`Playwright stopped after the first failure (maxFailures); ${notRun.length} tests did not run. Find the failed test above. The missing results below follow from that stop.`
+		);
+	}
 	reportDifferences(expected, actual);
 	if (actualBinding && actualBinding.testsSha256 !== testsDigest(actual.keys())) {
 		console.error(
@@ -421,11 +591,18 @@ if (mode === 'execution') {
 	if (executed === 0) {
 		console.error('No test executed in this report; a --list report is not execution proof.');
 	}
-	if (notExecuted.length || unexpectedSkips.length || interrupted.length || executed === 0) {
+	if (
+		notExecuted.length ||
+		unexpectedSkips.length ||
+		interrupted.length ||
+		executed === 0 ||
+		flakyProblems > 0
+	) {
 		process.exit(1);
 	}
+	const flaky = actualReport.entries.filter(({ test }) => test.status === 'flaky').length;
 	console.log(
-		`Execution report covers every expected test exactly once (${expected.size} tests). Executed: ${executed}. Justified skips: ${justifiedSkips}. Retried results: ${actualReport.retried}.`
+		`Execution report covers every expected test exactly once (${expected.size} tests). Executed: ${executed}. Justified skips: ${justifiedSkips}. Retried results: ${actualReport.retried}. Quarantined flaky tests: ${flaky}.`
 	);
 	process.exit(0);
 }

@@ -14,12 +14,12 @@
 
 <p align="center">
   <a href="https://www.deckmark.dev/"><strong>Open the web app</strong></a> ·
-  <a href="https://github.com/ThomasCrouzet/deckmark/releases">Download for desktop</a> ·
+  <a href="https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true">Download for desktop</a> ·
   <a href="docs/USER_GUIDE.md">User guide</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/ThomasCrouzet/deckmark/releases"><img src="https://img.shields.io/github/v/release/ThomasCrouzet/deckmark?logo=github" alt="Latest release"></a>
+  <a href="https://github.com/ThomasCrouzet/deckmark/releases/latest"><img src="https://img.shields.io/github/v/release/ThomasCrouzet/deckmark?logo=github&label=web" alt="Latest web release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ThomasCrouzet/deckmark?color=green" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/100%25_client--side-2ea44f" alt="100% client-side">
   <img src="https://img.shields.io/badge/offline_first_PWA-8a6fd1" alt="Offline-first PWA">
@@ -46,12 +46,14 @@
 
 | | DeckMark | Obsidian | Typora | Joplin |
 | --- | :---: | :---: | :---: | :---: |
-| License, price | MIT, free | Proprietary, free for personal use | Proprietary, paid | MIT, free |
+| License, price | MIT, free | Proprietary, free (paid Sync and Publish add-ons) | Proprietary, paid after a 15-day trial | AGPL-3.0, free |
 | Use without an account or server | ✅ | ✅ | ✅ | Sync optional |
 | Runs in a browser tab, install-free | ✅ | App install | App install | App install |
-| Built-in Markdown presentations | ✅ | Plugins | ❌ | ❌ |
+| Markdown presentations | Built-in slide editor and present mode | Core Slides plugin (basic) | Reveal.js export through Pandoc | Community plugins |
+| Mobile apps | Installable PWA, no native app | iOS and Android | No | iOS and Android |
+| Plugins and sync services | None | Community plugins, paid Sync | Themes only | Plugins, several sync services |
 
-<sub>Checked November 2026. Verify each product's current terms.</sub>
+<sub>Checked 27 November 2026 against each project's license file, pricing page, and documentation. Verify each product's current terms.</sub>
 
 <!-- readme:section get-started -->
 ## Get started
@@ -65,9 +67,18 @@
 search, and export then work without a connection.
 See [PWA installation](docs/USER_GUIDE.md#install-the-pwa).
 
-**On the desktop.** [Desktop Complete (Beta)](https://github.com/ThomasCrouzet/deckmark/releases)
+**On the desktop.** [DeckMark Desktop (Beta)](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true)
 adds native file access, in-place saves, an optional local Git panel, and OS integration
 on macOS, Windows, and Linux. See [Install the desktop app](#install-the-desktop-app).
+
+**Coming from Obsidian or Notion.** Open **Projects**, then import your vault as a ZIP or a
+folder. DeckMark detects an Obsidian vault by its `.obsidian` folder and a Notion export by
+the 32-character ids in file names. It keeps your wiki links and Markdown links working,
+copies images and other files as project assets, skips `.obsidian`, `.trash`, and `.git`,
+and shows a report of renamed paths and links it could not resolve. Obsidian canvas, base,
+and Excalidraw files stay as assets and do not render. A project holds up to 300 documents,
+1,300 entries, and 64 MiB in DeckMark Web (3,000 documents and 256 MiB in DeckMark Desktop).
+A larger import fails with a limit message. Split a big vault into several ZIP files.
 
 <!-- readme:section capabilities -->
 <a id="notes-and-presentations"></a>
@@ -114,8 +125,8 @@ on macOS, Windows, and Linux. See [Install the desktop app](#install-the-desktop
 
 **Keep a library, not a pile of files.** Wiki links, backlinks, a link graph, and
 search across documents. Snippets, templates, linked content blocks, and version
-history. Import a folder or ZIP, check its links offline, and export a project ZIP or a
-static docs site.
+history. Import a folder or ZIP (DeckMark Web keeps a project to 300 documents), check its
+links offline, and export a project ZIP or a static docs site.
 
 **More than notes.** Open code and JSON files with syntax highlighting, formatting,
 and validation. Import images and annotate them, or view imported PDFs.
@@ -147,19 +158,22 @@ Data flows and controls: [SECURITY.md](SECURITY.md).
 
 | Edition | Tested on | Save back to a disk file |
 | --- | --- | --- |
-| **Web Light**, Chromium | Full desktop suite and mobile workflows | File System Access API |
-| **Web Light**, Firefox and Safari | Selected workflows | Download fallback |
-| **Desktop Complete (Beta)**, macOS, Windows, Linux | Tauri app with native WebView tests | Native in-place saves |
+| **Web**, Chromium | Full desktop suite and mobile workflows | File System Access API |
+| **Web**, Firefox and Safari | Selected workflows | Download fallback |
+| **Desktop (Beta)**, macOS, Windows, Linux | Tauri app with native WebView tests | Native in-place saves |
 
-Web Light is stable and free, not a trial. Both editions share one portable format.
-Out of scope today: cloud sync, shared editing, accounts, and plugins. The working target
-is about 200 to 300 documents. Details: [edition matrix](docs/EDITIONS.md).
+DeckMark Web is stable and free, not a trial. Web and Desktop share one portable format.
+Out of scope today: cloud sync, shared editing, accounts, and plugins. The hard limit in
+DeckMark Web is 300 documents per project; the working target is about 200 to 300. Details: [edition matrix](docs/EDITIONS.md).
 
 <a id="install-the-desktop-app"></a>
 <details>
 <summary><strong>Install the desktop app</strong></summary>
 
-Each release ships four installers, each with `SHA256SUMS` and build provenance:
+Each desktop release ships four installers, each with `SHA256SUMS` and build provenance.
+The installers are on the `desktop-v<version>` pre-release, not on the stable `v<version>`
+release. [Open the desktop releases](https://github.com/ThomasCrouzet/deckmark/releases?q=desktop&expanded=true),
+select the newest one, and download from **Assets**:
 
 | Platform | File |
 | --- | --- |

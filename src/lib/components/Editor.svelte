@@ -326,6 +326,7 @@
 				inlineImageConfig: inlineImageConfigCtx,
 				codeBlockConfig: codeBlockConfigCtx,
 				withPlainTextLanguage,
+				wikiLinkAt,
 				wikiLinkPlugins,
 				installTableBreaks,
 				installTableParagraph,
@@ -918,17 +919,101 @@
 					}
 				})
 		);
-		// A long document skips the layout of offscreen blocks. The native Ctrl+End
-		// then stops at the start of the last block, and a key that follows can
-		// reach the editor before it reads that caret. Move the caret in the
-		// editor state so the next key lands at the document boundary.
+		// A long document skips the layout of offscreen blocks. A native document
+		// boundary move then stops at the start of the last block, and a key that
+		// follows can reach the editor before it reads that caret. Two guards keep
+		// the typed text at the boundary.
+		//
+		// 1. Ctrl or Meta with Home or End, and Meta with ArrowUp or ArrowDown
+		//    (Cmd+Up and Cmd+Down on macOS), move the caret in the editor state.
+		// 2. Before a key or a text input reaches the editor, the state selection
+		//    follows the DOM selection. ProseMirror reads the DOM selection on an
+		//    asynchronous selectionchange event. Without this step, the first typed
+		//    character lands at the DOM caret and the next characters land at the
+		//    stale state caret. This covers every native caret move that the
+		//    editor does not handle, for example Selection.modify. A key that is
+		//    not a printable character syncs at keydown, so Enter and Delete act on
+		//    the selection that the user sees.
+		// 3. When the editor gets focus, the state selection follows a DOM selection
+		//    that a script or a native action set just before. ProseMirror writes
+		//    its own selection over such a DOM selection about 20 ms after the focus
+		//    event, because the selectionchange event is still queued.
+		// `domObserver` and `input` are not in the public typings. `flush` reads
+		// pending DOM changes and then the DOM selection, as ProseMirror does at the
+		// start of a composition.
+		type ProseMirrorInternals = {
+			domObserver?: { flush?: () => void };
+			input?: { lastFocus?: number };
+		};
+		// ProseMirror treats a collapsed caret at the document start within 200 ms of
+		// a focus event as a browser reset and restores the state selection. That
+		// rule is right after a focus event. It is wrong for a key or a text input,
+		// where a caret at the start is the choice of the user. Clearing the focus
+		// time keeps an old state selection from replacing the caret that Home,
+		// ArrowLeft or Ctrl+Home just placed.
+		const flushDomSelection = (view: EditorView, fromUserInput: boolean) => {
+			const internals = view as unknown as ProseMirrorInternals;
+			if (fromUserInput && internals.input && typeof internals.input.lastFocus === 'number') {
+				internals.input.lastFocus = 0;
+			}
+			internals.domObserver?.flush?.();
+		};
+		const syncSelectionFromDom = (view: EditorView, event: Event) => {
+			if (!view.editable || view.composing || (event as KeyboardEvent).isComposing) return;
+			const inputType = (event as InputEvent).inputType;
+			if (inputType && /^(?:history|insertComposition|deleteComposition)/.test(inputType)) return;
+			flushDomSelection(view, true);
+			if (!inputType?.startsWith('insert')) return;
+			// A native boundary move can leave an element caret such as (paragraph, 0)
+			// in a block that has no layout. Chrome then puts the next character
+			// before the caret, so that character lands behind the ones that follow.
+			// Move the caret into the adjacent text node. This is the same position.
+			const domSelection = view.dom.ownerDocument.getSelection();
+			const focus = domSelection?.focusNode;
+			if (!domSelection?.isCollapsed || focus?.nodeType !== Node.ELEMENT_NODE) return;
+			if (!view.dom.contains(focus)) return;
+			const before = focus.childNodes[domSelection.focusOffset - 1];
+			const after = focus.childNodes[domSelection.focusOffset];
+			if (after?.nodeType === Node.TEXT_NODE) domSelection.collapse(after, 0);
+			else if (before?.nodeType === Node.TEXT_NODE) {
+				domSelection.collapse(before, (before as Text).length);
+			}
+		};
 		const documentBoundaryKeysPlugin = prosePlugin(
 			() =>
 				new Plugin({
 					props: {
+						handleDOMEvents: {
+							focus(view: EditorView) {
+								// ProseMirror sets its focus time after this handler. A microtask
+								// runs after both and before the timer of ProseMirror.
+								queueMicrotask(() => {
+									if (view.editable && view.hasFocus()) flushDomSelection(view, false);
+								});
+								return false;
+							},
+							keydown(view: EditorView, event: Event) {
+								// A printable key reaches beforeinput, which syncs the selection.
+								// Skip it here to keep the cost of each typed character low.
+								const key = event as KeyboardEvent;
+								if (key.key.length === 1 && !key.ctrlKey && !key.metaKey) return false;
+								syncSelectionFromDom(view, event);
+								return false;
+							},
+							beforeinput(view: EditorView, event: Event) {
+								syncSelectionFromDom(view, event);
+								return false;
+							}
+						},
 						handleKeyDown(view: EditorView, event: KeyboardEvent) {
+							const toEnd =
+								event.key === 'End' ||
+								(event.key === 'ArrowDown' && event.metaKey && !event.ctrlKey);
+							const toStart =
+								event.key === 'Home' ||
+								(event.key === 'ArrowUp' && event.metaKey && !event.ctrlKey);
 							if (
-								(event.key !== 'End' && event.key !== 'Home') ||
+								(!toEnd && !toStart) ||
 								!(event.ctrlKey || event.metaKey) ||
 								event.altKey ||
 								event.isComposing ||
@@ -936,13 +1021,68 @@
 							)
 								return false;
 							const { doc, selection } = view.state;
-							const boundary =
-								event.key === 'End' ? TextSelection.atEnd(doc) : TextSelection.atStart(doc);
+							const boundary = toEnd ? TextSelection.atEnd(doc) : TextSelection.atStart(doc);
 							const next = event.shiftKey
 								? TextSelection.between(doc.resolve(selection.anchor), boundary.$head)
 								: boundary;
 							event.preventDefault();
 							view.dispatch(view.state.tr.setSelection(next).scrollIntoView());
+							return true;
+						}
+					}
+				})
+		);
+		// Edit mode renders a wiki link as styled text, because a plain click must
+		// place the caret. Ctrl+click (Cmd+click on macOS) and Alt+Enter at the
+		// caret follow the link, as Read mode does with a plain click.
+		const followWikiLink = (view: EditorView, pos: number): boolean => {
+			const hit = wikiLinkAt(view.state.doc, pos);
+			if (!hit) return false;
+			filesStore.openWikiLink(hit.target, idForMount);
+			return true;
+		};
+		const wikiLinkNavigationPlugin = prosePlugin(
+			() =>
+				new Plugin({
+					view(view: EditorView) {
+						const openAtCaret = () => {
+							if (!followWikiLink(view, view.state.selection.head)) {
+								notify.info(t('editor.noWikiLinkAtCaret'));
+							}
+						};
+						window.addEventListener('mdsh:open-wiki-link', openAtCaret);
+						return {
+							destroy: () => window.removeEventListener('mdsh:open-wiki-link', openAtCaret)
+						};
+					},
+					props: {
+						handleDOMEvents: {
+							click(view: EditorView, event: Event) {
+								const mouse = event as MouseEvent;
+								if (!(mouse.ctrlKey || mouse.metaKey) || mouse.altKey || mouse.shiftKey)
+									return false;
+								if (mouse.button !== 0 || !view.editable) return false;
+								const link = (mouse.target as Element | null)?.closest('span[data-mdsh-wiki-link]');
+								if (!link) return false;
+								const at = view.posAtCoords({ left: mouse.clientX, top: mouse.clientY });
+								if (!at || !followWikiLink(view, at.pos)) return false;
+								mouse.preventDefault();
+								return true;
+							}
+						},
+						handleKeyDown(view: EditorView, event: KeyboardEvent) {
+							if (
+								event.key !== 'Enter' ||
+								!event.altKey ||
+								event.ctrlKey ||
+								event.metaKey ||
+								event.shiftKey ||
+								event.isComposing ||
+								!view.editable
+							)
+								return false;
+							if (!followWikiLink(view, view.state.selection.head)) return false;
+							event.preventDefault();
 							return true;
 						}
 					}
@@ -1035,6 +1175,7 @@
 		instance.editor.use(headingLevelPlugin);
 		instance.editor.use(tabIndentPlugin);
 		instance.editor.use(documentBoundaryKeysPlugin);
+		instance.editor.use(wikiLinkNavigationPlugin);
 		instance.editor.use(noteTypePlugin);
 		instance.editor.use(markdownRevisionPlugin);
 		// Crepe builds the language loader when the first code block view starts.

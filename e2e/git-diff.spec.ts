@@ -3,8 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { resetAppState } from './helpers';
 
-// Git belongs to the Desktop Complete edition. The default Playwright server
-// builds Web Light, where the panel cannot mount. Set GIT_REVIEW_DESKTOP=1 and
+// Git belongs to the DeckMark Desktop edition. The default Playwright server
+// builds DeckMark Web, where the panel cannot mount. Set GIT_REVIEW_DESKTOP=1 and
 // serve a desktop build to run this workflow. The retained failure risks are in
 // docs/TESTING.md. A browser result does not replace native WebView evidence.
 
@@ -72,7 +72,7 @@ test('reviews the final hunk of a 2600-line diff and reports the native size lim
 }, info: TestInfo) => {
 	test.skip(
 		process.env.GIT_REVIEW_DESKTOP !== '1',
-		'Requires a Desktop Complete build and GIT_REVIEW_DESKTOP=1.'
+		'Requires a DeckMark Desktop build and GIT_REVIEW_DESKTOP=1.'
 	);
 	// Two 2600-line fixtures and two paging round trips need more than the default.
 	test.setTimeout(90_000);

@@ -13,11 +13,13 @@ import { backupProjectEn } from './backup-project-en';
 import { desktopBackupEn } from './desktop-backup-en';
 import { slidesEn } from './slides-en';
 import { snippetsEn } from './snippets-en';
+import { landingEn } from './landing-en';
 import { captureEn } from './capture-en';
 
 export const en = {
 	...slidesEn,
 	...snippetsEn,
+	...landingEn,
 	...captureEn,
 	...splitEn,
 	...projectEn,
@@ -111,20 +113,33 @@ export const en = {
 	'properties.kind_boolean': 'boolean',
 	'properties.kind_date': 'date',
 	'properties.kind_other': 'other',
-	'settings.editionWeb': 'Web Light',
-	'settings.editionDesktop': 'Desktop Complete',
+	'settings.editionWeb': 'Web',
+	'settings.editionDesktop': 'Desktop (Beta)',
 	'settings.editionCapabilities': 'Included capabilities: {features}',
+	'settings.feature.notes': 'Notes',
+	'settings.feature.presentations': 'Presentations',
+	'settings.feature.code': 'Code files',
+	'settings.feature.images': 'Images',
+	'settings.feature.projects': 'Projects',
+	'settings.feature.pwa-offline': 'Offline use',
+	'settings.feature.native-disk': 'Native file access',
+	'settings.feature.native-projects': 'Native projects',
+	'settings.feature.git': 'Git',
+	'settings.feature.native-vault': 'Credential vault',
+	'settings.feature.native-ai': 'Native AI requests',
+	'settings.feature.global-capture': 'Global quick capture',
+	'app.homeTitle': 'DeckMark: local-first Markdown notes and slides, offline, no account',
 	'settings.ai': 'AI connection (optional)',
 	'settings.aiHelp':
 		'Connect an OpenAI-compatible provider. AI stays disabled by default and the core editor works without it.',
 	'settings.aiNativeBoundary':
-		'Desktop Complete keeps the API key in the operating system credential store. The key never enters this page.',
+		'DeckMark Desktop keeps the API key in the operating system credential store. The key never enters this page.',
 	'settings.aiBrowserNoVault':
-		'Web Light has no native credential store. The API key stays in this tab session only.',
+		'DeckMark Web has no native credential store. The API key stays in this tab session only.',
 	'settings.aiNativeKeyNote':
 		'The key is sent to the native vault when you save it. This page cannot read it again.',
 	'settings.aiModelsDesktopUnavailable':
-		'Model discovery needs the browser key path. Type the model identifier in Desktop Complete.',
+		'Model discovery needs the browser key path. Type the model identifier in DeckMark Desktop.',
 	'settings.aiEnabled': 'Enable AI features',
 	'settings.aiPrivacy': 'AI privacy mode',
 	'settings.aiDirect': 'Direct browser key',
@@ -253,6 +268,24 @@ export const en = {
 	'search.replaceFailed': 'The replacement failed. Your drafts were not replaced.',
 	'backup.tooLarge':
 		'The backup exceeds the limits: 64 MiB total, 3,000 documents and 16 MiB per document.',
+	'backup.documentTooLarge':
+		'The document "{title}" is {size} MiB. A backup allows 16 MiB per document. Split or shorten this document, then export again.',
+	'backup.totalTooLarge':
+		'The library text is larger than the backup limit of 64 MiB. The limit is crossed at the document "{title}" after {size} MiB of text. Delete large documents or export projects as ZIP files.',
+	'backup.tooManyDocuments':
+		'The library has {count} documents. A backup allows 3,000 documents. Delete documents or export projects as ZIP files.',
+	'backup.fileTooLarge':
+		'The backup file would be larger than 64 MiB. JSON escapes and project files count towards this limit. Export projects as ZIP files.',
+	'backup.binaryDocument':
+		'The document "{title}" contains a NUL character, so it looks like a binary file. Remove the character, then export again.',
+	'backup.invalidDocument':
+		'The document "{title}" has stored data that is not valid, so the backup cannot include it.',
+	'backup.capacityDocuments':
+		'The library has {count} of the 3,000 documents that a backup allows. Delete documents or export projects as ZIP files before the limit stops your backups.',
+	'backup.capacityText':
+		'The library text is about {size} MiB of the 64 MiB that a backup allows. Delete large documents or export projects as ZIP files before the limit stops your backups.',
+	'backup.capacityDocument':
+		'The document "{title}" is about {size} MiB. A backup allows 16 MiB per document. Split this document before the limit stops your backups.',
 	'backup.encryptedInvalidJson': 'Unreadable encrypted file: this is not valid JSON.',
 	'backup.futureVersion':
 		'Backup created by a newer version of DeckMark (schema v{version}). Update the app.',
@@ -513,6 +546,8 @@ export const en = {
 	'editor.ariaLabel': 'Markdown document editor',
 	'editor.previewLabel': 'Preview',
 	'editor.previewLoading': 'Rendering Mermaid…',
+	'editor.wikiLinkHint': '{key}+click to open this link',
+	'editor.noWikiLinkAtCaret': 'The caret is not in a wiki link.',
 
 	// editorPane
 	'editorPane.dropFiles': 'Drop your .md files here',
@@ -654,7 +689,7 @@ export const en = {
 	'exportProfiles.delete': 'Delete profile',
 	'exportProfiles.newName': 'New export profile',
 	'exportProfiles.webLimits':
-		'Web Light exports HTML and PDF only. DOCX, EPUB and other converters require a future Desktop build.',
+		'DeckMark Web exports HTML and PDF only. DOCX, EPUB and other converters require a future Desktop build.',
 	'exportProfiles.export': 'Export profiles',
 	'exportProfiles.import': 'Import profiles',
 	'palette.collection': 'Open table and board views',
@@ -758,7 +793,7 @@ export const en = {
 	'ai.reason_budget': 'budget',
 	'ai.destination': 'Requests go to {host}. Only the listed content is sent.',
 	'ai.nativeBoundary':
-		'Desktop Complete sends this request from the native layer. The API key stays in the system credential store.',
+		'DeckMark Desktop sends this request from the native layer. The API key stays in the system credential store.',
 	'ai.errorAuth': 'The provider rejected the saved key. Replace it in Settings.',
 	'ai.errorRateLimit': 'The provider rate limit is reached. Try again later.',
 	'ai.errorServer': 'The provider returned an error. Try again later.',
@@ -881,6 +916,8 @@ export const en = {
 	'palette.newFromTemplate': 'New: {name}',
 	'palette.noCommand': 'No command.',
 	'palette.openFileHint': 'Open the file',
+	'palette.openWikiLink': 'Open the link under the caret',
+	'palette.openWikiLinkHint': 'Edit mode: follow the wiki link at the caret',
 	'palette.presentationMode': 'Presentation mode',
 	'palette.presentationModeHint': 'Full-screen slides (separated by ---)',
 	'palette.saveAsTemplate': 'Save the file as a template…',
@@ -1245,8 +1282,7 @@ export const en = {
 	'versionHistory.vsCurrent': 'vs current version',
 
 	// welcome
-	'welcome.titleText': 'Your Markdown workspace',
-	'welcome.demoLabel': 'Demo',
+	'welcome.titleText': 'Markdown notes and slides, on your device',
 	'welcome.importMd': 'Import .md',
 	'welcome.initializeLabel': 'Initialize workspace',
 	'welcome.legendCloseTab': 'Close tab',
