@@ -914,6 +914,17 @@ bounded time for either the observer or the timeline entry, and records which
 source supplied the value. A required metric with a missing sample fails the
 gate, so a partial report cannot pass on its remaining samples.
 
+The HTML export samples respect the Chromium download burst limit. Chromium
+drops a download request silently when the frame started 10 downloads in a
+burst that began less than 1 s earlier. The page shows no error and the browser
+sends no download event. On a fast runner, 10 exports can finish in less than
+1 s, and the 11th export then waits for a download that never starts. Before
+each export, the benchmark waits until the 10th previous download is more than
+1 s old. The wait is outside the measured sample. A user does not start 10
+exports in 1 s, so the application does not change. If an export download
+times out, the failure message in the JSON report names the sample and the
+number of downloads in the 1 s before the click.
+
 ### Mixed typing suite and the blind spots it closes
 
 Issue #709 work item W7 keeps a mixed fixture set and a mixed typing suite. The

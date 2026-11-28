@@ -1376,17 +1376,62 @@ async function measurePresentation(page, runs, loadRuns = Math.min(runs, 3)) {
 	return { load: loadSamples, slideSwitch, present };
 }
 
-async function measureExport(page, runs) {
+/**
+ * Chromium drops a download request without an event or a console message when
+ * the request is the eleventh in a burst that began less than one second ago
+ * (`LocalFrame::ShouldThrottleDownload`, `kBurstDownloadLimit`). On a fast
+ * runner the export loop starts ten exports in less than one second, so the
+ * eleventh export never downloads. Record the time of each download event and
+ * start the next export only after the tenth previous download is more than one
+ * second old. Then no burst can hold eleven downloads. The event time is not
+ * earlier than the time that the browser records, so the wait is sufficient.
+ * The wait is outside the measured sample.
+ */
+const downloadBurstLimit = 10;
+const downloadBurstWindowMs = 1_000;
+
+function trackDownloadBurst(page) {
+	const startedAt = [];
+	page.on('download', () => {
+		startedAt.push(performance.now());
+		if (startedAt.length > downloadBurstLimit) startedAt.shift();
+	});
+	return {
+		/** Returns the number of download events in the last burst window. */
+		recent() {
+			const since = performance.now() - downloadBurstWindowMs;
+			return startedAt.filter((time) => time >= since).length;
+		},
+		/** Resolves when the frame can start one more download. */
+		async ready() {
+			if (startedAt.length < downloadBurstLimit) return;
+			const remaining = startedAt[0] + downloadBurstWindowMs + 1 - performance.now();
+			if (remaining > 0)
+				await new Promise((resolvePromise) => setTimeout(resolvePromise, remaining));
+		}
+	};
+}
+
+async function measureExport(page, runs, downloadBurst) {
 	const values = [];
 	const downloads = [];
 	for (let run = 0; run < runs; run += 1) {
+		await downloadBurst.ready();
 		await domClick(page, 'button[aria-label="Command palette"]');
 		await page.getByRole('dialog', { name: 'Command palette' }).waitFor({ state: 'visible' });
 		const selector = '#cmd-palette-opt-export-html:not([aria-disabled="true"])';
 		await page.locator(selector).waitFor({ state: 'visible' });
 		// Measure export after the named command is ready.
+		const recentDownloads = downloadBurst.recent();
 		const startedAt = performance.now();
-		const [result] = await Promise.all([page.waitForEvent('download'), domClick(page, selector)]);
+		const [result] = await Promise.all([
+			page.waitForEvent('download'),
+			domClick(page, selector)
+		]).catch((error) => {
+			// Record the sample index and the download rate before the click in the report.
+			error.message += `\nHTML export sample ${run + 1} of ${runs}; ${recentDownloads} downloads in the ${downloadBurstWindowMs} ms before the click.`;
+			throw error;
+		});
 		values.push(performance.now() - startedAt);
 		const path = await result.path();
 		if (!path) throw new Error('HTML export did not produce a local download.');
@@ -1455,6 +1500,7 @@ async function runWebBenchmark(options, fixtures) {
 		const startup = options.skipNavigation ? null : await measureStartup(browser, url, startupRuns);
 		const context = await browser.newContext({ locale: 'en-US', acceptDownloads: true });
 		page = await context.newPage();
+		const downloadBurst = trackDownloadBurst(page);
 		page.on('pageerror', (error) => browserErrors.push(error.stack ?? error.message));
 		page.on('console', (message) => {
 			if (message.type() === 'error') browserErrors.push(message.text());
@@ -1515,7 +1561,7 @@ async function runWebBenchmark(options, fixtures) {
 		await page.locator('.cm-content').first().waitFor({ state: 'visible', timeout: 30_000 });
 		await page.locator('button[data-file-id="bench-000"]').click();
 		await page.waitForFunction(() => document.querySelector('header input')?.value === 'bench-000');
-		const exportHtml = await measureExport(page, standardRuns);
+		const exportHtml = await measureExport(page, standardRuns, downloadBurst);
 		heapSamples.push(await measureHeap(page, options.browser));
 		const projectTree = await measureProjectTree(page, projectTreeRuns);
 		heapSamples.push(await measureHeap(page, options.browser));
