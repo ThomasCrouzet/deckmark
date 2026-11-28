@@ -665,7 +665,10 @@ jobs:
     # request run cannot reach this job, so untrusted code never gets a write
     # token.
     needs: desktop-validation
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.desktop-validation.result == 'success'
+    # The same-tree proof skips the validation jobs on main. A skipped job in
+    # the needs chain makes the implicit success() false, so test the gate
+    # result itself.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.desktop-validation.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

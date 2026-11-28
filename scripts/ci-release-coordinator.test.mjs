@@ -797,6 +797,13 @@ test('the Desktop workflow owns validation, release creation and publication', (
 	const releaseJob = jobBlock(DESKTOP_WORKFLOW, 'release-please');
 	assert.match(releaseJob, /googleapis\/release-please-action@[0-9a-f]{40}/);
 	assert.match(releaseJob, /needs: desktop-validation/);
+	// The same-tree proof skips the validation jobs on main. A skipped job in the
+	// needs chain makes the implicit success() false, so the condition must start
+	// with !cancelled() and test the gate result itself.
+	assert.match(
+		releaseJob,
+		/if: \$\{\{ !cancelled\(\) && github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && needs\.desktop-validation\.result == 'success' \}\}/
+	);
 	assert.match(releaseJob, /contents: write/);
 	assert.match(releaseJob, /pull-requests: write/);
 	assert.match(releaseJob, /release_created: \$\{\{ steps\.release\.outputs\.release_created \}\}/);
